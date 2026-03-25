@@ -80,8 +80,12 @@ app.use((err, req, res, next) => {
 // BTCPC Epoch Manager
 const { startEpochLoop } = require('./services/epochManager');
 
+// BTCPC P2P Network
+const p2pNetwork = require('./p2p/network');
+const { loadFromDatabase } = require('./p2p/chainSync');
+
 const PORT = process.env.PORT || 3000;
-connectDB().then(() => {
+connectDB().then(async () => {
   app.listen(PORT, () => {
     console.log(`URSNode server running on port ${PORT}`);
   });
@@ -91,6 +95,18 @@ connectDB().then(() => {
     startEpochLoop().catch(err => {
       console.error('[BTCPC] Failed to start epoch loop:', err.message);
     });
+  }
+
+  // Start the BTCPC P2P network
+  if (process.env.BTCPC_P2P_ENABLED !== 'false') {
+    try {
+      await loadFromDatabase();
+      p2pNetwork.startServer();
+      p2pNetwork.connectToSeeds();
+      console.log('[BTCPC] P2P network layer started');
+    } catch (err) {
+      console.error('[BTCPC] Failed to start P2P network:', err.message);
+    }
   }
 }).catch(err => {
   console.error('Failed to start server:', err);

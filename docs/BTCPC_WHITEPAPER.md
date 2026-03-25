@@ -1325,3 +1325,154 @@ Security: identical to using the OpenAI SDK directly.
 The BTCPC chain only sees: provider name, model, token count, receipt ID, dream inscription.
 Never: API key, prompt content, response content.
 ```
+
+## Appendix I: Native L2 — WASM Smart Contract Layer
+
+### Why L2 Not L1
+
+Bitcoin's limitation is that adding smart contracts to L1 is nearly impossible without years of consensus and soft forks. Ethereum's mistake was putting smart contracts directly on L1 — resulting in congestion, high fees, and years spent building L2 rollups to fix it.
+
+BTCPC avoids both problems by designing a **native L2 execution layer** from day 1:
+
+```
+BTCPC L1 (Settlement Layer):
+  ├── Transfers, staking, inference, dreams, mining
+  ├── Purpose-built contracts (hardcoded, fast, secure)
+  ├── Processes L2 state commitments
+  └── Never runs arbitrary user code
+
+BTCPC L2 (Execution Layer):
+  ├── WASM runtime — smart contracts in Rust, Go, JS, AssemblyScript
+  ├── Full programmability — DeFi, NFTs, DAOs, games
+  ├── Posts state roots to L1 every epoch
+  └── Secured by L1 miners (same commit-reveal verification)
+```
+
+### How It Works
+
+1. **Developers deploy WASM contracts to L2** — compiled from Rust, Go, JavaScript, or any language that targets WebAssembly
+2. **Users interact with L2 contracts** — send transactions, call functions, query state
+3. **L2 nodes execute contracts** in a sandboxed WASM runtime
+4. **Every epoch, L2 posts a state commitment to L1** — a single hash representing the entire L2 state
+5. **L1 miners verify the state commitment** as part of their epoch work
+6. **If disputed:** any node can challenge by re-executing the L2 transactions and proving a different state root (optimistic rollup model)
+
+### Architecture
+
+```
+User
+  │
+  ├── L1 transactions (transfers, staking, inference)
+  │     → processed directly by L1 miners
+  │
+  └── L2 transactions (contract calls, DeFi, NFTs)
+        → processed by L2 execution nodes
+        → state root posted to L1
+        → L1 provides final settlement and security
+
+L1 sees: one state_root hash per epoch from L2
+L2 does: unlimited contract execution between epochs
+```
+
+### What Miners Earn
+
+BTCPC miners earn from three sources of useful work:
+
+```
+1. AI Inference compute         (proof of compute — GPU work)
+2. L2 contract execution        (WASM execution — CPU work)
+3. Transaction fees             (L1 transfers, staking, claims)
+```
+
+All three are useful work. All three generate BTCPC rewards. The protocol does not distinguish between types of useful computation — a cycle spent on inference and a cycle spent executing a smart contract are both real work that someone paid for.
+
+### Plugin Architecture
+
+The L1 transaction processor uses a plugin interface that makes L2 integration seamless:
+
+```
+Contract Interface (all contract types implement this):
+  validate(tx, state)    → bool       // is this transaction valid?
+  execute(tx, state)     → newState   // apply the transaction
+  fee(tx)                → amount     // what does this cost?
+
+Purpose-built contracts:  pre-installed plugins (JavaScript)
+L2 WASM contracts:        user-deployed plugins (WebAssembly)
+Same interface. Same validation. Same fee model.
+```
+
+New purpose-built contract types can be added to L1 via governance vote — no hard fork required. The plugin system means the protocol is extensible without redesigning the chain.
+
+### Timeline
+
+- **Phase 0-2 (current):** Purpose-built contracts only. Plugin interface designed but WASM runtime dormant.
+- **Phase 3:** WASM runtime activated via governance vote. Developers can deploy contracts to L2.
+- **Phase 4:** L2 ecosystem matures. DEXs, lending, NFT marketplaces — all powered by BTCPC compute.
+
+### Why This Matters
+
+BTCPC will never face Bitcoin's "we can't add features" problem. The L2 is native, designed from genesis, and governed by miners. When the ecosystem needs smart contracts, the runtime is already there — waiting to be activated. No years of debate. No contentious forks. Just a governance vote and the L2 goes live.
+
+## Appendix J: Fee Model — L1 Fixed Fees, L2 Gas
+
+### L1: No Gas. Fixed Fees.
+
+BTCPC L1 runs only purpose-built contracts with predictable execution costs. There is no gas metering, no gas estimation, and no failed transactions from running out of gas.
+
+```
+L1 Fee Schedule:
+  Transfer:                     0.001 BTCPC
+  Stake / Unstake:              0.001 BTCPC
+  Inference request:            model-specific (based on tokens)
+  Dream inscription (text):     0.01 BTCPC
+  Dream inscription (with URL): 0.1 BTCPC (10x — elevated fee to OPS)
+  Account creation:             0.1 BTCPC
+  Account update:               0.01 BTCPC
+  Cross-chain claim:            0.001 BTCPC
+  Dream transfer:               0.01 BTCPC
+  MultiSig update:              0.01 BTCPC
+  RecurringPay setup:           0.01 BTCPC
+```
+
+Users always know exactly what they will pay. No surprises. No gas wars. Bitcoin-simple.
+
+All L1 fees go to the miner who produced the block. Zero to OPS (except elevated URL inscription fees — 50% to miner, 50% to OPS).
+
+### L2: Gas. Mandatory.
+
+WASM smart contracts are arbitrary code — a contract could loop forever, allocate unbounded memory, or perform complex computation. Gas metering is essential.
+
+```
+L2 Gas Model:
+  Unit:           1 gas = 1 WASM instruction
+  Price:          dynamic, adjusts with L2 demand (EIP-1559 style base fee)
+  Payment:        BTCPC (same token as L1 — no separate gas token)
+  Gas limit:      set by user per transaction
+  Out of gas:     transaction reverts, gas consumed (standard model)
+  Minimum gas:    21,000 (matches Ethereum convention for simple operations)
+```
+
+**One token. Two layers. No bridging.**
+
+Unlike Ethereum where you need ETH for gas AND a separate token for the dApp, BTCPC uses one token everywhere. Users hold BTCPC. They spend it on L1 operations (fixed fees) or L2 contracts (gas). No friction.
+
+### Fee Revenue Distribution
+
+```
+L1 fees:          100% to block-producing miner
+L2 gas fees:      100% to WASM-executing miner
+L1 URL fees:      50% miner / 50% OPS wallet
+External provider: 42% user / 58% OPS wallet
+```
+
+### Why No Gas on L1
+
+Bitcoin does not have gas. Its transactions are simple and predictable. BTCPC L1 follows the same philosophy:
+
+- Every L1 operation has a known, fixed cost
+- No gas estimation required — wallets show exact fees before signing
+- No transaction failures from gas miscalculation
+- Simpler node implementation — no gas metering overhead on L1
+- Better UX for non-technical users
+
+Gas exists on L2 because L2 needs it — arbitrary code execution demands resource metering. L1 does not run arbitrary code, so L1 does not need gas.

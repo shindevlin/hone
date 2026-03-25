@@ -11,7 +11,8 @@
     "test:watch": "jest --watch",
     "cli": "node bin/btcpc-cli",
     "mine": "node bin/btcpc-mine",
-    "explorer": "node src/explorer/server.js"
+    "explorer": "node src/explorer/server.js",
+    "p2p": "node src/p2p/network.js"
   },
   "dependencies": {
     "axios": "^1.6.5",
@@ -28,7 +29,8 @@
     "mongoose": "^8.0.3",
     "morgan": "^1.10.0",
     "secp256k1": "^5.0.1",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "eslint": "^8.56.0",

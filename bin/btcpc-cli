@@ -755,6 +755,99 @@ walletCmd
     }
   });
 
+// --- peers -----------------------------------------------------------------
+
+program
+  .command("peers")
+  .description("List connected P2P peers")
+  .action(async () => {
+    try {
+      // Read P2P state from the running node via a status file or direct import
+      // For CLI usage, we connect to the node's HTTP API or read shared state.
+      // In standalone mode, show configuration.
+      const p2pPort = process.env.P2P_PORT || 6942;
+      const seedPeers = process.env.BTCPC_SEED_PEERS || "";
+      const nodeId = process.env.BTCPC_NODE_ID || "(auto-generated)";
+
+      console.log("");
+      console.log("BTCPC P2P Peers");
+      console.log("===============");
+      console.log("");
+      console.log("  Node ID:         " + nodeId);
+      console.log("  P2P Port:        " + p2pPort);
+      console.log("");
+
+      if (seedPeers) {
+        const seeds = seedPeers.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+        console.log("  Seed Peers (" + seeds.length + ")");
+        console.log("  ----------");
+        for (const s of seeds) {
+          console.log("    " + s);
+        }
+      } else {
+        console.log("  No seed peers configured (genesis node mode).");
+        console.log("  Set BTCPC_SEED_PEERS in .env to connect to the network.");
+      }
+      console.log("");
+      console.log("  Tip: run the full node (npm start) to see live peer connections.");
+      console.log("");
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- network ---------------------------------------------------------------
+
+program
+  .command("network")
+  .description("Show P2P network stats (peers, chain height, sync status)")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+
+      // Count finalized epochs
+      const finalizedCount = await Epoch.countDocuments({ status: "finalized" });
+      const activeCount = await Epoch.countDocuments({ status: "active" });
+
+      // Latest finalized epoch
+      const latestFinalized = await Epoch.findOne({ status: "finalized" }).sort({ epoch_number: -1 });
+      const latestFinalizedNum = latestFinalized ? latestFinalized.epoch_number : -1;
+
+      // P2P config
+      const p2pPort = process.env.P2P_PORT || 6942;
+      const seedPeers = process.env.BTCPC_SEED_PEERS || "";
+      const seedCount = seedPeers ? seedPeers.split(",").filter(Boolean).length : 0;
+      const nodeId = process.env.BTCPC_NODE_ID || "(auto-generated)";
+
+      // Sync status
+      const isSynced = latestFinalizedNum >= currentEpochNum - 1;
+      const syncStatus = isSynced ? "synced" : "behind (" + (currentEpochNum - latestFinalizedNum - 1) + " epochs)";
+
+      console.log("");
+      console.log("BTCPC Network");
+      console.log("=============");
+      console.log("");
+      console.log("  Node ID:             " + nodeId);
+      console.log("  P2P Port:            " + p2pPort);
+      console.log("  Seed Peers:          " + seedCount);
+      console.log("");
+      console.log("  Chain Height:        " + formatNumber(latestFinalizedNum));
+      console.log("  Current Epoch:       " + formatNumber(currentEpochNum));
+      console.log("  Finalized Epochs:    " + formatNumber(finalizedCount));
+      console.log("  Active Epochs:       " + formatNumber(activeCount));
+      console.log("  Sync Status:         " + syncStatus);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
 // ---------------------------------------------------------------------------
 
 program.parse(process.argv);
