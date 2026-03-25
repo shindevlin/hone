@@ -9,11 +9,11 @@
 
 ## Abstract
 
-Bitcoin proved that a decentralized network, secured by proof of work, can create and maintain digital scarcity. But Bitcoin's work is deliberately useless — SHA-256 puzzles that produce nothing except security. Meanwhile, the world's demand for AI compute grows exponentially, concentrated in the hands of a few corporations.
+Bitcoin proved that a decentralized network, secured by proof of work, can create and maintain digital scarcity. But Bitcoin's work is purpose-agnostic — SHA-256 puzzles that produce nothing except security. Meanwhile, the world's demand for AI compute grows exponentially, concentrated in the hands of a few corporations.
 
 Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain that applies Bitcoin's core insight — that costly, verifiable work can secure a network and back a scarce asset — to a problem that matters: AI inference. Miners earn BTCPC by providing real AI compute to the network. The work that secures the network is the work that users actually want to buy.
 
-BTCPC introduces two innovations beyond Bitcoin: **Proof of Compute** replaces wasteful hash puzzles with useful AI inference, and **Cross-Chain Mining Rewards** automatically generate claimable tokens on every blockchain a miner links to their rig — creating multi-chain liquidity from the first block.
+BTCPC introduces two innovations beyond Bitcoin: **Proof of Compute** replaces abstract hash puzzles with useful AI inference, and **Cross-Chain Mining Rewards** automatically generate claimable tokens on every blockchain a miner links to their rig — creating multi-chain liquidity from the first block.
 
 Total supply: **42,000,000 BTCPC** — the answer to life, the universe, and everything.
 
@@ -32,7 +32,7 @@ Today, AI inference is controlled by a handful of companies: OpenAI, Google, Ant
 
 ### 1.2 Wasted Proof of Work
 
-Bitcoin's network consumes approximately 150 TWh of electricity annually — more than many countries. This energy produces nothing except SHA-256 hashes. The security model works, but the work is pure waste.
+Bitcoin's network consumes approximately 150 TWh of electricity annually — more than many countries. This energy produces nothing except SHA-256 hashes. The security model works, but the computational output serves no secondary purpose.
 
 ### 1.3 Siloed Liquidity
 
@@ -160,7 +160,7 @@ Users configure their profile via `AccountUpdate` (requires Owner key). Each pro
 ```
 Transaction {
   type: "transfer",
-  from: "thisthatjosh",
+  from: "satoshinakamoto",
   to: "alice",
   amount: "100.00000000 BTCPC",
 
@@ -612,7 +612,7 @@ This is not bridging. This is not wrapping. This is **simultaneous multi-chain v
 ```
 Miner registers linked wallets:
   BTCPC:   btcpc1abc...        (native, always)
-  Hive:    @thisthatjosh        (linked)
+  Hive:    @satoshinakamoto        (linked)
   Base:    0x1234...            (linked)
   Solana:  ABC123...            (linked)
 
@@ -755,7 +755,7 @@ The reference BTCPC node is built in Node.js:
 btcpc-node start \
   --ollama-url http://localhost:11434 \
   --stake 1000 \
-  --link-hive @thisthatjosh \
+  --link-hive @satoshinakamoto \
   --link-base 0x1234...
 ```
 
@@ -853,12 +853,12 @@ btcpc-node start \
 
 Bitcoin proved that decentralized proof of work can create sound money. BTCPC extends this insight in two fundamental ways:
 
-**First**, the work that secures the network is useful. Every BTCPC token is backed by real AI compute — inference that someone wanted, paid for, and received. No energy is wasted.
+**First**, the work that secures the network is useful. Every BTCPC token is backed by real AI compute — inference that someone wanted, paid for, and received. Every unit of energy produces useful output.
 
 **Second**, mining on one chain creates value on many. A single act of compute generates native BTCPC and claimable wBTCPC tokens on every linked blockchain. Miners don't just secure one network — they bootstrap liquidity across the entire crypto ecosystem.
 
 The result is a network where:
-- **Miners earn by doing useful work** (not burning energy on puzzles)
+- **Miners earn by doing useful work** (directing energy toward useful computation)
 - **Users get censorship-resistant AI compute** (not dependent on any corporation)
 - **The token has intrinsic utility** (you need it to buy inference, creating organic demand)
 - **Supply is fixed and predictable** (42M total, doubling halving intervals, no burns)
@@ -879,7 +879,7 @@ The answer is 42. The question was always about compute.
 |----------|---------|-------|
 | Type | Sovereign chain | Sovereign chain |
 | Total Supply | 21,000,000 | 42,000,000 |
-| Work Function | SHA-256 (useless) | AI Inference (useful) |
+| Work Function | SHA-256 (security-only) | AI Inference (useful) |
 | Block Time | ~10 minutes | ~5 minutes (1 epoch) |
 | Halving Interval | Fixed 4 years | Doubling intervals (1mo → 2mo → 4mo → ...) |
 | Verification | Check hash (instant) | Commit-reveal redundant computation (100%) |
@@ -932,7 +932,7 @@ Named for Deep Thought's 7.5-million-year computation — a machine dreaming the
 
 ### Genesis Dream Inscriptions
 
-The first dream of every block — the **genesis dream** — can carry an inscription: arbitrary metadata permanently embedded in the chain. One inscription per block, immutable, forever.
+The first dream of every block — the **genesis dream** — can carry an inscription: arbitrary content permanently embedded in the chain. One inscription per block, immutable, forever.
 
 Inscriptions are a purpose-built contract type:
 
@@ -1014,7 +1014,7 @@ Every block on the BTCPC chain produces two distinct non-fungible artifacts:
 
 **1. Genesis Dream (transferable)**
 The first dream of the block. A unique, inscribable, tradeable NFT. The miner who produced the block receives it and can:
-- Inscribe it with metadata (once, permanently)
+- Inscribe it with a dream inscription (once, permanently)
 - Transfer it to another account (sell, trade, gift)
 - Hold it as a collectible
 
@@ -1048,7 +1048,7 @@ Genesis Dream #42:
   model:          qwen3.5:27b
   tokens_computed: 1536
   proof_signature: <signed by consensus>
-  inscription:    { ... }  (metadata, if inscribed)
+  inscription:    { ... }  (dream inscription, if inscribed)
 ```
 
 **Verification flow:**
@@ -1101,5 +1101,102 @@ $ btcpc-cli transfer-dream 0 --to alice
 
 | Contract Type | Required Key | Purpose |
 |--------------|-------------|---------|
-| **Inscribe** | Active | Add metadata to an owned genesis dream (once, permanent) |
+| **Inscribe** | Active | Add a dream inscription to an owned genesis dream (once, permanent) |
 | **TransferDream** | Active | Transfer a genesis dream to another account |
+## Appendix G: Inscription Policy and Fee Structure
+
+### Inference: Fully Uncensored
+
+BTCPC does not censor, filter, or inspect inference requests. All prompts and results are end-to-end encrypted. No node, validator, or protocol mechanism can read, block, or modify what users compute. This is a fundamental design principle — BTCPC is a compute utility, not a content platform.
+
+**Inference is private. Always. No exceptions.**
+
+### Dream Inscriptions: Public Dream inscription Filtering
+
+Genesis dream inscriptions are different — they are **public, plaintext dream inscriptions** visible on the block explorer and permanently on-chain. Because inscriptions are public-facing, the protocol applies automatic content filtering:
+
+**How it works:**
+- When a requester submits dream inscription, the protocol scans the plaintext for prohibited patterns (CSAM-related terms, known abuse material identifiers)
+- Prohibited content is NOT rejected — it is **redacted in place**: matching text is replaced with `XXXXXXXXX`
+- The inscription is still recorded, the dream is still created, the block is still valid
+- The requester's account is not banned or penalized
+- No human review, no censorship committee — purely automated pattern matching on public inscription text only
+
+```
+Submitted inscription:
+  "Building [prohibited content here] on BTCPC"
+
+Recorded on-chain:
+  "Building XXXXXXXXX on BTCPC"
+
+The dream exists. The block is valid. The bad text is gone.
+```
+
+This approach:
+- **Does not censor inference** (encrypted, untouchable)
+- **Does not reject transactions** (the dream is still created)
+- **Does not punish users** (no bans, no slashing)
+- **Protects the public record** (block explorer stays clean)
+
+### Elevated Fee: External URLs
+
+Inscriptions containing external URLs or links to outside websites incur an elevated fee:
+
+```
+Standard text inscription:       base_fee (e.g., 1 BTCPC)
+Contains external URL/link:      base_fee × 10
+
+Fee destination:
+  Standard:    100% to miner
+  Elevated:    50% to miner, 50% to BTCPC foundation wallet
+```
+
+This prevents spam-linking and generates revenue for protocol development.
+
+### Genesis Dream Dream inscription Source
+
+**Dream inscriptions come from the REQUESTER, not the miner.**
+
+When a user submits an inference request, they can optionally include a dream inscription that will be recorded on the genesis dream of whichever block processes their request. The miner cannot modify this inscription — it is signed by the requester.
+
+```
+Inference request with dream inscription:
+{
+  "type": "inference_request",
+  "requester": "alice",
+  "model": "qwen3.5:27b",
+  "encrypted_prompt": "...",
+  "dream_inscription": {
+    "project": "my-ai-app",
+    "tag": "Building decentralized image generation"
+  },
+  "signature": "<signed by requester>"
+}
+
+→ If this request is processed in block 42:
+→ Genesis Dream #42 inscription = alice's dream inscription
+→ Miner cannot alter it
+→ Alice's build is permanently recorded
+```
+
+**Dream inscriptions are mandatory.** Every inference request must include a dream inscription. If the requester does not provide a custom dream inscription, the protocol inserts a default:
+
+```
+Default dream inscription (auto-generated):
+{
+  "project": "btcpc-compute",
+  "tag": "Inference request — [model] — [token count] tokens — epoch [N]"
+}
+```
+
+This ensures every genesis dream has meaningful content. No empty dreams. Every block tells the story of what was computed.
+
+### BTCPC Foundation Wallet
+
+A designated foundation wallet receives elevated fee revenue (from URL inscriptions). This wallet is controlled by Shin Devlin and used for:
+- Protocol development funding
+- Security audit funding
+- Community grants
+- Bug bounty program
+
+The foundation wallet address will be designated in a future protocol update.

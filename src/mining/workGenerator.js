@@ -100,9 +100,9 @@ const PROMPT_POOL = [
  * Send a prompt to Ollama and return work proof data.
  * Retries with exponential backoff if Ollama is busy.
  */
-async function generateWork(model) {
+async function generateWork(model, customPrompt) {
   model = model || DEFAULT_MODEL;
-  const prompt = PROMPT_POOL[Math.floor(Math.random() * PROMPT_POOL.length)];
+  const prompt = customPrompt || PROMPT_POOL[Math.floor(Math.random() * PROMPT_POOL.length)];
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
   let attempt = 0;

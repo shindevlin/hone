@@ -76,10 +76,18 @@ async function mineEpoch(epochNumber) {
   let totalTokens = 0;
   let totalWorkValue = 0;
 
+  // Genesis epoch gets a special first prompt
+  const GENESIS_PROMPT = "What is the meaning of computation? If a machine dreams an answer into existence through pure mathematical reasoning, is that dream less real than a human thought? Describe a future where every unit of energy spent computing produces something useful — where proof of work means proof of value created, not value destroyed. The answer, as always, is 42.";
+
   for (let i = 0; i < WORK_ITEMS_PER_EPOCH; i++) {
     try {
-      console.log(`[BTCPC]   Work item ${i + 1}/${WORK_ITEMS_PER_EPOCH} -- sending to Ollama (${MODEL})...`);
-      const work = await generateWork(MODEL);
+      const isGenesisFirstWork = (epochNumber === 0 && i === 0);
+      if (isGenesisFirstWork) {
+        console.log(`[BTCPC]   GENESIS INFERENCE -- the first dream computed into reality`);
+      } else {
+        console.log(`[BTCPC]   Work item ${i + 1}/${WORK_ITEMS_PER_EPOCH} -- sending to Ollama (${MODEL})...`);
+      }
+      const work = await generateWork(MODEL, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
 
       const proof = new WorkProof({
         epoch_number: epochNumber,
