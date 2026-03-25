@@ -19,7 +19,9 @@ app.use(helmet());
 app.use(express.json());
 // Import routes
 const userRoutes = require("./routes/userRoutes");
+const walletRoutes = require("./routes/walletRoutes");
 app.use("/api/user", userRoutes);
+app.use("/api/wallet", walletRoutes);
 
 app.use(morgan('combined'));
 
@@ -53,7 +55,8 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: [
       '/health',
-      '/api/user'
+      '/api/user',
+      '/api/wallet'
     ]
   });
 });
