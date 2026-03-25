@@ -7,9 +7,10 @@ const Wallet = require('../models/Wallet');
 const WorkProof = require('../models/WorkProof');
 const { getBlockReward } = require('../services/emissionSchedule');
 const { finalizeEpoch, EPOCH_DURATION_MS } = require('../services/epochManager');
-const { generateWork } = require('./workGenerator');
+const { generateWork, getEpochMetadata } = require('./workGenerator');
 const { computeStateHash } = require('./stateHash');
 const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
+const GenesisDream = require('../models/GenesisDream');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -123,7 +124,32 @@ async function mineEpoch(epochNumber) {
   epoch.consensus_hash = stateHash;
   await epoch.save();
 
-  // Step 4: Finalize epoch and distribute rewards
+  // Step 4: Create genesis dream for this block (mandatory)
+  const metadata = getEpochMetadata(epochNumber);
+  const existingDream = await GenesisDream.findOne({ block_number: epochNumber });
+  if (!existingDream) {
+    const workHash = workProofs.length > 0 ? workProofs[0].result_hash : '0'.repeat(64);
+    const dream = new GenesisDream({
+      block_number: epochNumber,
+      original_miner: GENESIS_MINER,
+      current_owner: GENESIS_MINER,
+      inscription: {
+        project: metadata.project,
+        tag: metadata.tag,
+        custom_data: { epoch: epochNumber, model: MODEL, work_items: workProofs.length }
+      },
+      proof: {
+        state_hash: stateHash,
+        work_hash: workHash,
+        tokens_computed: totalTokens,
+        model: MODEL
+      }
+    });
+    await dream.save();
+    console.log(`[BTCPC]   Dream #${epochNumber}: "${metadata.tag}" [${metadata.project}]`);
+  }
+
+  // Step 5: Finalize epoch and distribute rewards
   const finalized = await finalizeEpoch(epochNumber);
 
   // Step 5: Update node tracking

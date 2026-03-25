@@ -9,11 +9,13 @@ const { getBlockReward } = require('../services/emissionSchedule');
 
 const path = require('path');
 const fs = require('fs');
+const GenesisDream = require('../models/GenesisDream');
 
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
 const RESERVED_NAMES_PATH = path.resolve(__dirname, '../../data/reserved-names.json');
+const WHITEPAPER_PATH = path.resolve(__dirname, '../../docs/BTCPC_WHITEPAPER.md');
 
 /**
  * Create the genesis block (epoch 0) and the genesis miner account.
@@ -100,6 +102,38 @@ async function createGenesisBlock() {
     consensus_hash: GENESIS_STATE_HASH
   });
   await genesisEpoch.save();
+
+  // Create Genesis Dream #0 — inscribed with the complete whitepaper
+  try {
+    const whitepaper = fs.readFileSync(WHITEPAPER_PATH, 'utf8');
+    const genesisDream = new GenesisDream({
+      block_number: 0,
+      original_miner: GENESIS_MINER,
+      current_owner: GENESIS_MINER,
+      inscription: {
+        project: 'btcpc',
+        tag: 'Genesis — The chain dreamed itself into existence',
+        custom_data: {
+          title: 'Bitcoin Proof of Compute — Whitepaper',
+          author: 'Shin Devlin',
+          version: '0.3',
+          message: GENESIS_MESSAGE,
+          content: whitepaper
+        }
+      },
+      proof: {
+        state_hash: GENESIS_STATE_HASH,
+        work_hash: GENESIS_STATE_HASH,
+        tokens_computed: 0,
+        model: 'genesis'
+      }
+    });
+    await genesisDream.save();
+    console.log(`[BTCPC] Genesis Dream #0 inscribed — ${whitepaper.length} chars of whitepaper`);
+    console.log(`[BTCPC]   "The chain dreamed itself into existence"`);
+  } catch (err) {
+    console.error(`[BTCPC] Failed to create genesis dream: ${err.message}`);
+  }
 
   // Reserve top names — owned by shindevlin, sellable later
   let reservedCount = 0;

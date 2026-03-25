@@ -35,6 +35,29 @@ function getModelWeight(model) {
  * Diverse prompt pool for synthetic inference work.
  * Covers technical, creative, analytical, and coding domains.
  */
+// Metadata tags describing what is being built — inscribed on genesis dreams
+const BUILD_METADATA = [
+  { project: "btcpc", tag: "Proof of Compute consensus engine" },
+  { project: "btcpc", tag: "Cross-chain mining reward system" },
+  { project: "btcpc", tag: "BIP-39 wallet with protocol-level 2FA" },
+  { project: "btcpc", tag: "OpenAI-compatible decentralized inference API" },
+  { project: "btcpc", tag: "Genesis dream NFT and inscription system" },
+  { project: "btcpc", tag: "Encrypted end-to-end inference protocol" },
+  { project: "btcpc", tag: "Hive-style hierarchical key management" },
+  { project: "btcpc", tag: "Block explorer and network dashboard" },
+  { project: "btcpc", tag: "P2P network layer for sovereign chain" },
+  { project: "btcpc", tag: "Commit-reveal verification for AI compute" },
+  { project: "nsfwotica", tag: "AI story generation with style training" },
+  { project: "bullship", tag: "Crypto trivia game with Hive rewards" },
+  { project: "betchu_bot", tag: "P2P sports betting on Base" },
+  { project: "ursOS", tag: "Personal AI assistant with MEGA archival" },
+  { project: "redaktly", tag: "PII detection and document redaction" },
+];
+
+function getEpochMetadata(epochNumber) {
+  return BUILD_METADATA[epochNumber % BUILD_METADATA.length];
+}
+
 const PROMPT_POOL = [
   // Technical
   "Explain the difference between Merkle trees and Patricia tries in blockchain state management. Include time complexity for lookups.",
@@ -137,6 +160,8 @@ function sleep(ms) {
 }
 
 module.exports = {
+  getEpochMetadata,
+  BUILD_METADATA,
   generateWork,
   getModelWeight,
   PROMPT_POOL,
