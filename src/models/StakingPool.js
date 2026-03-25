@@ -3,45 +3,45 @@ var mongoose = require("mongoose");
 var Schema = mongoose.Schema;
 
 /**
- * Staking Pool Schema
+ * BTCPC Staking Pool Schema
+ * Tracks individual user stakes required for node operation and mining.
+ * Minimum stake: 1000 BTCPC. Unstaking has a 7-day unlock period.
  */
-var poolSchema = new Schema({
-  name: {
-    type: String,
+var stakingPoolSchema = new Schema({
+  account: {
+    type: Schema.Types.ObjectId,
     required: true,
-    unique: true
+    ref: 'User'
   },
-  chain: {
+  wallet_address: {
     type: String,
-    enum: ['hive', 'ton'],
     required: true
   },
-  totalStaked: {
+  staked_amount: {
     type: Number,
     default: 0
   },
-  apy: {
-    type: Number,
-    default: 0
+  staked_at: {
+    type: Date,
+    default: null
   },
-  rewardLogic: {
-    type: String,
-    default: 'standard'
+  unlock_requested_at: {
+    type: Date,
+    default: null
+  },
+  unlock_available_at: {
+    type: Date,
+    default: null
   },
   status: {
     type: String,
-    enum: ['active', 'closed'],
+    enum: ['active', 'unstaking', 'withdrawn'],
     default: 'active'
   },
-  rewardsPerUser: {
-    type: Map,
-    of: Number,
-    default: new Map()
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  slashed_amount: {
+    type: Number,
+    default: 0
   }
 });
 
-module.exports = mongoose.model("StakingPool", poolSchema);
+module.exports = mongoose.model("StakingPool", stakingPoolSchema);

@@ -20,8 +20,12 @@ app.use(express.json());
 // Import routes
 const userRoutes = require("./routes/userRoutes");
 const walletRoutes = require("./routes/walletRoutes");
+const stakingRoutes = require("./routes/stakingRoutes");
+const nodeRoutes = require("./routes/nodeRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/staking", stakingRoutes);
+app.use("/api/node", nodeRoutes);
 
 app.use(morgan('combined'));
 
@@ -56,7 +60,9 @@ app.get('/', (req, res) => {
     endpoints: [
       '/health',
       '/api/user',
-      '/api/wallet'
+      '/api/wallet',
+      '/api/staking',
+      '/api/node'
     ]
   });
 });
@@ -67,11 +73,21 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message });
 });
 
+// BTCPC Epoch Manager
+const { startEpochLoop } = require('./services/epochManager');
+
 const PORT = process.env.PORT || 3000;
 connectDB().then(() => {
   app.listen(PORT, () => {
     console.log(`URSNode server running on port ${PORT}`);
   });
+
+  // Start the BTCPC epoch loop after DB is connected
+  if (process.env.BTCPC_EPOCH_ENABLED !== 'false') {
+    startEpochLoop().catch(err => {
+      console.error('[BTCPC] Failed to start epoch loop:', err.message);
+    });
+  }
 }).catch(err => {
   console.error('Failed to start server:', err);
 });
