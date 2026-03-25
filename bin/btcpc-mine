@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+/**
+ * BTCPC Mining Daemon
+ *
+ * Connects to MongoDB, initializes the genesis block if needed,
+ * and starts the epoch mining loop against Ollama.
+ *
+ * Usage:
+ *   node bin/btcpc-mine
+ *   ./bin/btcpc-mine
+ *
+ * Environment:
+ *   MONGODB_URI       - MongoDB connection string (default: mongodb://localhost:27017/urs-nerdcore-node)
+ *   OLLAMA_URL        - Ollama API endpoint (default: http://100.122.145.60:11434)
+ *   BTCPC_MODEL       - Model to use for inference (default: qwen3.5:27b)
+ *   BTCPC_WORK_PER_EPOCH - Number of inference tasks per epoch (default: 3)
+ */
+
+"use strict";
+
+const path = require('path');
+
+// Load environment variables from project root
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
+const mongoose = require('mongoose');
+const { startMiner, stopMiner } = require('../src/mining/miner');
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/urs-nerdcore-node';
+
+async function main() {
+  const ts = new Date().toISOString();
+  console.log(`[BTCPC] ${ts} -- BTCPC Mining Daemon`);
+  console.log('[BTCPC] Connecting to MongoDB...');
+
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log(`[BTCPC] MongoDB connected: ${MONGODB_URI}`);
+  } catch (err) {
+    console.error(`[BTCPC] MongoDB connection failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  // Graceful shutdown
+  const shutdown = async (signal) => {
+    console.log(`\n[BTCPC] Received ${signal}, shutting down...`);
+    stopMiner();
+    await mongoose.connection.close();
+    console.log('[BTCPC] Shutdown complete');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // Start mining
+  await startMiner();
+}
+
+main().catch(err => {
+  console.error(`[BTCPC] Fatal error: ${err.message}`);
+  console.error(err.stack);
+  process.exit(1);
+});

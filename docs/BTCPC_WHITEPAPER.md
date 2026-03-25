@@ -308,6 +308,115 @@ With commit-reveal redundant computation, P(caught) = 1.0 for any request assign
 
 ---
 
+## 4. Inference Protocol: End-to-End Encrypted Compute
+
+### 4.1 Mandatory Encryption
+
+All inference on the BTCPC chain is end-to-end encrypted. This is not optional. No plaintext prompt or result ever touches the chain or is visible to validators, other nodes, or the public.
+
+```
+On-chain (public):                     Off-chain (private):
+  prompt_hash (sha256)                   actual prompt (plaintext)
+  encrypted_prompt (memo key)            actual result (plaintext)
+  result_hash (sha256)                   decryption keys
+  encrypted_result (memo key)
+  model, tokens_used, fee, timestamp
+```
+
+### 4.2 Encryption Flow
+
+```
+1. User submits inference request:
+   - Encrypts prompt with ASSIGNED NODE's memo public key
+   - Includes prompt_hash = sha256(plaintext_prompt)
+   - Posts: {encrypted_prompt, prompt_hash, model, fee}
+
+2. Network assigns request to N nodes for commit-reveal:
+   - Each node decrypts the prompt using their memo private key
+   - Runs inference with deterministic parameters
+   - Computes result_hash = sha256(plaintext_result)
+   - Encrypts result with REQUESTER's memo public key
+   - Commits result_hash to the network
+   - Discards the decrypted prompt from memory
+
+3. Reveal phase:
+   - Nodes reveal result_hashes
+   - Consensus determined by matching hashes
+   - Winning encrypted_result delivered to requester
+   - Requester decrypts with their own memo private key
+
+4. What remains on-chain:
+   - prompt_hash, result_hash (for verification audit trail)
+   - encrypted_prompt, encrypted_result (unreadable without keys)
+   - model, tokens, fee, timestamp (operational metadata)
+   - NO plaintext. Ever.
+```
+
+### 4.3 Privacy Guarantees
+
+| Party | Can See Prompt? | Can See Result? |
+|-------|----------------|-----------------|
+| Requester | Yes (they wrote it) | Yes (they decrypt it) |
+| Assigned compute nodes | Temporarily (decrypt to process, then discard) | Temporarily (generate, then discard after hashing) |
+| Other nodes / validators | No (only see hashes) | No (only see hashes) |
+| Public / block explorer | No | No |
+| Chain operator / foundation | No | No |
+
+### 4.4 Comparison with Centralized AI
+
+| Property | OpenAI / Google / Anthropic | BTCPC |
+|----------|---------------------------|-------|
+| Who reads your prompt | The company, their employees, their training pipeline | Only the compute node, temporarily |
+| Prompt storage | Stored on corporate servers indefinitely | Encrypted on-chain, only readable by requester |
+| Data used for training | Often yes (unless opted out) | Never — nodes discard plaintext after processing |
+| Censorship | Provider decides what you can ask | No censorship — encrypted, no one can read to censor |
+| Subpoena risk | Company can be compelled to hand over logs | No plaintext exists to hand over |
+
+### 4.5 Submitting Inference Requests
+
+**Layer 1 — On-chain transaction (raw):**
+```json
+{
+  "type": "inference_request",
+  "requester": "alice",
+  "model": "qwen3.5:27b",
+  "prompt_hash": "sha256(prompt)",
+  "encrypted_prompt": "<encrypted with node memo key>",
+  "max_fee": "10 BTCPC",
+  "primary_signature": "<active key>",
+  "auth_factors": { "password_signature": "<2fa>" }
+}
+```
+BTCPC held in escrow until delivery confirmed.
+
+**Layer 2 — Node API (practical, OpenAI-compatible):**
+```
+POST https://node.btcpc.network/v1/inference
+Authorization: Bearer btcpc_apikey_...
+
+{
+  "model": "qwen3.5:27b",
+  "messages": [{"role": "user", "content": "What is 6 times 7?"}]
+}
+
+→ Node handles encryption, on-chain escrow, verification
+→ Returns decrypted result to the API caller
+→ Feels identical to calling OpenAI
+```
+
+**Layer 3 — SDK:**
+```javascript
+const btcpc = require('btcpc-sdk');
+const client = new btcpc.Client({ apiKey: 'btcpc_...' });
+const res = await client.inference({
+  model: 'qwen3.5:27b',
+  prompt: 'Explain quantum computing'
+});
+// Encrypted end-to-end. Paid in BTCPC. Verified on-chain.
+```
+
+---
+
 ## 4. Token Economics
 
 ### 4.1 Supply

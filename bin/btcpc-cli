@@ -1,0 +1,501 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-cli — Command line interface for the BTCPC network
+ * Shin Devlin
+ */
+
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+const { program } = require("commander");
+const mongoose = require("mongoose");
+
+const Epoch = require("../src/models/Epoch");
+const Node = require("../src/models/Node");
+const Transaction = require("../src/models/Transaction");
+const Wallet = require("../src/models/Wallet");
+const User = require("../src/models/User");
+const StakingPool = require("../src/models/StakingPool");
+const {
+  getBlockReward,
+  getCurrentPeriod,
+  getPeriodTable,
+  TOTAL_SUPPLY,
+  EPOCHS_PER_MONTH
+} = require("../src/services/emissionSchedule");
+const { EPOCH_DURATION_MS } = require("../src/services/epochManager");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatBTCPC(n) {
+  return Number(n).toLocaleString("en-US", {
+    minimumFractionDigits: 8,
+    maximumFractionDigits: 8
+  });
+}
+
+function formatNumber(n) {
+  return Number(n).toLocaleString("en-US");
+}
+
+function pad(str, len, alignRight) {
+  str = String(str);
+  if (alignRight) return str.padStart(len);
+  return str.padEnd(len);
+}
+
+function printRow(cols, widths, alignments) {
+  const cells = cols.map((c, i) => pad(c, widths[i], alignments && alignments[i]));
+  console.log("  " + cells.join("  "));
+}
+
+function printSep(widths) {
+  console.log("  " + widths.map(w => "-".repeat(w)).join("  "));
+}
+
+function ts(date) {
+  if (!date) return "-";
+  return new Date(date).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+}
+
+function pct(n, total) {
+  if (!total) return "0.00%";
+  return (n / total * 100).toFixed(2) + "%";
+}
+
+function durationStr(ms) {
+  if (ms <= 0) return "-";
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return d + "d " + (h % 24) + "h " + (m % 60) + "m";
+  if (h > 0) return h + "h " + (m % 60) + "m " + (s % 60) + "s";
+  return m + "m " + (s % 60) + "s";
+}
+
+async function connect() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.error("error: MONGODB_URI not set in .env");
+    process.exit(1);
+  }
+  await mongoose.connect(uri);
+}
+
+async function disconnect() {
+  await mongoose.disconnect();
+}
+
+async function getLatestEpoch() {
+  return Epoch.findOne().sort({ epoch_number: -1 });
+}
+
+async function getGenesisTimestamp() {
+  if (process.env.BTCPC_GENESIS_TIMESTAMP) {
+    return parseInt(process.env.BTCPC_GENESIS_TIMESTAMP);
+  }
+  const genesis = await Epoch.findOne({ epoch_number: 0 });
+  if (genesis) return genesis.started_at.getTime();
+  return null;
+}
+
+async function calcCurrentEpochNumber() {
+  const genesis = await getGenesisTimestamp();
+  if (!genesis) return 0;
+  return Math.floor((Date.now() - genesis) / EPOCH_DURATION_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+program
+  .name("btcpc-cli")
+  .description("BTCPC network command line interface")
+  .version("0.1.0");
+
+// --- status ----------------------------------------------------------------
+
+program
+  .command("status")
+  .description("Show current network status")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+      const period = getCurrentPeriod(currentEpochNum);
+      const reward = getBlockReward(currentEpochNum);
+
+      // Time until next epoch
+      const genesis = await getGenesisTimestamp();
+      let timeToNext = "-";
+      if (genesis) {
+        const nextEpochStart = genesis + (currentEpochNum + 1) * EPOCH_DURATION_MS;
+        const msLeft = nextEpochStart - Date.now();
+        timeToNext = msLeft > 0 ? durationStr(msLeft) : "imminent";
+      }
+
+      // Total mined
+      const miningTxs = await Transaction.aggregate([
+        { $match: { type: "mining_reward" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]);
+      const totalMined = miningTxs.length > 0 ? miningTxs[0].total : 0;
+
+      // Active miners
+      const activeMiners = await Node.countDocuments({ status: "active" });
+
+      // Network work (total work across all finalized epochs)
+      const workAgg = await Epoch.aggregate([
+        { $match: { status: "finalized" } },
+        { $group: { _id: null, total: { $sum: "$total_work" } } }
+      ]);
+      const totalWork = workAgg.length > 0 ? workAgg[0].total : 0;
+
+      console.log("");
+      console.log("BTCPC Network Status");
+      console.log("====================");
+      console.log("");
+      console.log("  Current epoch:       " + formatNumber(currentEpochNum));
+      console.log("  Period:              " + (period ? period.period + " (" + period.duration_months + " months)" : "-"));
+      console.log("  Block reward:        " + formatBTCPC(reward) + " BTCPC");
+      console.log("  Next epoch in:       " + timeToNext);
+      console.log("  Total mined:         " + formatBTCPC(totalMined) + " BTCPC");
+      console.log("  Active miners:       " + formatNumber(activeMiners));
+      console.log("  Network work:        " + formatNumber(totalWork));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- balance ---------------------------------------------------------------
+
+program
+  .command("balance [account]")
+  .description("Show BTCPC balance for an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "beastly";
+      const user = await User.findOne({ username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const wallet = await Wallet.findOne({ userId: user._id });
+      const balance = wallet ? (wallet.balance.get("BTCPC") || 0) : 0;
+
+      // Staked amount
+      const stakes = await StakingPool.find({ account: user._id, status: "active" });
+      const stakedTotal = stakes.reduce((sum, s) => sum + s.staked_amount, 0);
+
+      // Total earned from mining
+      const walletAddr = wallet ? wallet.address : null;
+      let totalEarned = 0;
+      let epochsMined = 0;
+      if (walletAddr) {
+        const miningAgg = await Transaction.aggregate([
+          { $match: { to: walletAddr, type: "mining_reward" } },
+          { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
+        ]);
+        if (miningAgg.length > 0) {
+          totalEarned = miningAgg[0].total;
+          epochsMined = miningAgg[0].count;
+        }
+      }
+
+      console.log("");
+      console.log("BTCPC Balance: " + username);
+      console.log("=".repeat(20 + username.length));
+      console.log("");
+      console.log("  Balance:             " + formatBTCPC(balance) + " BTCPC");
+      console.log("  Staked:              " + formatBTCPC(stakedTotal) + " BTCPC");
+      console.log("  Total earned:        " + formatBTCPC(totalEarned) + " BTCPC");
+      console.log("  Epochs mined:        " + formatNumber(epochsMined));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- epoch -----------------------------------------------------------------
+
+program
+  .command("epoch [number]")
+  .description("Show details for a specific epoch")
+  .action(async (number) => {
+    try {
+      await connect();
+
+      let epoch;
+      if (number !== undefined) {
+        epoch = await Epoch.findOne({ epoch_number: parseInt(number) });
+      } else {
+        epoch = await getLatestEpoch();
+      }
+
+      if (!epoch) {
+        console.error("error: epoch not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const period = getCurrentPeriod(epoch.epoch_number);
+      const minerCount = epoch.commitments ? epoch.commitments.length : 0;
+
+      console.log("");
+      console.log("Epoch " + epoch.epoch_number);
+      console.log("=".repeat(10 + String(epoch.epoch_number).length));
+      console.log("");
+      console.log("  Status:              " + epoch.status);
+      console.log("  Period:              " + (period ? period.period : "-"));
+      console.log("  Block reward:        " + formatBTCPC(epoch.block_reward) + " BTCPC");
+      console.log("  Total work:          " + formatNumber(epoch.total_work));
+      console.log("  Miners:              " + formatNumber(minerCount));
+      console.log("  Consensus hash:      " + (epoch.consensus_hash || "-"));
+      console.log("  Started:             " + ts(epoch.started_at));
+      console.log("  Ended:               " + ts(epoch.ended_at));
+      console.log("");
+
+      if (epoch.rewards_distributed && epoch.rewards_distributed.length > 0) {
+        console.log("  Rewards Distributed");
+        console.log("  -------------------");
+        const hdr = ["Node", "Amount"];
+        const w = [26, 24];
+        const a = [false, true];
+        printRow(hdr, w, a);
+        printSep(w);
+        for (const r of epoch.rewards_distributed) {
+          printRow([String(r.node_id), formatBTCPC(r.amount) + " BTCPC"], w, a);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- blocks ----------------------------------------------------------------
+
+program
+  .command("blocks [count]")
+  .description("List recent epochs")
+  .action(async (count) => {
+    try {
+      await connect();
+
+      const n = parseInt(count) || 10;
+      const epochs = await Epoch.find().sort({ epoch_number: -1 }).limit(n);
+
+      if (epochs.length === 0) {
+        console.log("\n  No epochs found.\n");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Recent Epochs (last " + epochs.length + ")");
+      console.log("=".repeat(30));
+      console.log("");
+
+      const hdr = ["Epoch", "Reward", "Work", "Miners", "Status", "Timestamp"];
+      const w = [8, 24, 10, 7, 10, 24];
+      const a = [true, true, true, true, false, false];
+
+      printRow(hdr, w, a);
+      printSep(w);
+
+      for (const e of epochs) {
+        printRow([
+          String(e.epoch_number),
+          formatBTCPC(e.block_reward),
+          formatNumber(e.total_work),
+          String(e.commitments ? e.commitments.length : 0),
+          e.status,
+          ts(e.started_at)
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- supply ----------------------------------------------------------------
+
+program
+  .command("supply")
+  .description("Show BTCPC supply information")
+  .action(async () => {
+    try {
+      await connect();
+
+      const currentEpochNum = await calcCurrentEpochNumber();
+      const period = getCurrentPeriod(currentEpochNum);
+
+      // Total mined
+      const miningAgg = await Transaction.aggregate([
+        { $match: { type: "mining_reward" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]);
+      const totalMined = miningAgg.length > 0 ? miningAgg[0].total : 0;
+      const remaining = TOTAL_SUPPLY - totalMined;
+
+      // Next halving estimate
+      let nextHalvingStr = "-";
+      if (period && period.period < 11) {
+        const epochsLeft = period.end_epoch - currentEpochNum;
+        const msLeft = epochsLeft * EPOCH_DURATION_MS;
+        const nextDate = new Date(Date.now() + msLeft);
+        nextHalvingStr = nextDate.toISOString().split("T")[0] + " (~" + durationStr(msLeft) + ")";
+      }
+
+      console.log("");
+      console.log("BTCPC Supply");
+      console.log("============");
+      console.log("");
+      console.log("  Total supply:        " + formatNumber(TOTAL_SUPPLY) + ".00000000 BTCPC");
+      console.log("  Mined:               " + formatBTCPC(totalMined) + " BTCPC");
+      console.log("  Remaining:           " + formatBTCPC(remaining) + " BTCPC");
+      console.log("  Percentage mined:    " + pct(totalMined, TOTAL_SUPPLY));
+      console.log("  Current period:      " + (period ? period.period + " of 11" : "-"));
+      console.log("  Next halving:        " + nextHalvingStr);
+      console.log("");
+
+      // Period table
+      console.log("  Emission Schedule");
+      console.log("  -----------------");
+      const hdr = ["Period", "Duration", "Allotment", "Reward/Epoch", "Cumulative"];
+      const w = [7, 12, 20, 20, 20];
+      const a = [true, true, true, true, true];
+      printRow(hdr, w, a);
+      printSep(w);
+
+      const periods = getPeriodTable();
+      let cum = 0;
+      for (const p of periods) {
+        cum += p.allotment;
+        const durLabel = p.duration_months >= 12
+          ? (p.duration_months / 12).toFixed(1) + " years"
+          : p.duration_months + " months";
+        const marker = period && p.period === period.period ? " <" : "";
+        printRow([
+          String(p.period),
+          durLabel,
+          formatNumber(Math.round(p.allotment)),
+          formatBTCPC(p.reward_per_epoch),
+          formatNumber(Math.round(cum)) + marker
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- work ------------------------------------------------------------------
+
+program
+  .command("work [count]")
+  .description("List recent work proofs (epoch commitments)")
+  .action(async (count) => {
+    try {
+      await connect();
+
+      const n = parseInt(count) || 10;
+
+      // Get finalized epochs with commitments, most recent first
+      const epochs = await Epoch.find({
+        "commitments.0": { $exists: true }
+      }).sort({ epoch_number: -1 }).limit(n);
+
+      if (epochs.length === 0) {
+        console.log("\n  No work proofs found.\n");
+        await disconnect();
+        return;
+      }
+
+      // Collect individual work entries from commitments
+      const rows = [];
+      for (const e of epochs) {
+        for (const c of e.commitments) {
+          // Try to get node info for model data
+          const node = await Node.findById(c.node_id);
+          const models = node && node.models && node.models.length > 0
+            ? node.models.join(", ")
+            : "-";
+          rows.push({
+            epoch: e.epoch_number,
+            model: models,
+            tokens: c.inference_count,
+            work: c.inference_count + c.tx_count,
+            timestamp: c.submitted_at
+          });
+        }
+      }
+
+      // Trim to requested count
+      const display = rows.slice(0, parseInt(count) || 10);
+
+      console.log("");
+      console.log("Recent Work Proofs (last " + display.length + ")");
+      console.log("=".repeat(35));
+      console.log("");
+
+      const hdr = ["Epoch", "Model", "Tokens", "Work", "Timestamp"];
+      const w = [8, 30, 10, 10, 24];
+      const al = [true, false, true, true, false];
+
+      printRow(hdr, w, al);
+      printSep(w);
+
+      for (const r of display) {
+        printRow([
+          String(r.epoch),
+          r.model.length > 30 ? r.model.substring(0, 27) + "..." : r.model,
+          formatNumber(r.tokens),
+          formatNumber(r.work),
+          ts(r.timestamp)
+        ], w, al);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+
+program.parse(process.argv);
+
+if (!process.argv.slice(2).length) {
+  program.outputHelp();
+}
