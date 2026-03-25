@@ -421,7 +421,65 @@ On-chain (public):                     Off-chain (private):
 | Censorship | Provider decides what you can ask | No censorship — encrypted, no one can read to censor |
 | Subpoena risk | Company can be compelled to hand over logs | No plaintext exists to hand over |
 
-### 4.5 Submitting Inference Requests
+### 4.5 Network Privacy
+
+Beyond encrypted inference content, BTCPC provides three privacy layers at the network level:
+
+**Anonymous Inference Routing:**
+Users can submit inference requests through a **relay mixer**. The request is routed through one or more relay nodes that strip the sender's identity before forwarding to the compute node. The compute node sees only: a valid escrow, an encrypted prompt, and a return path through the relay. It does not know who is asking.
+
+```
+User → Relay A → Relay B → Compute Node
+                              |
+User ← Relay A ← Relay B ← Result
+
+Compute node sees: anonymous request + valid escrow
+User sees: result
+Relays see: encrypted traffic (cannot read prompt or result)
+Nobody can link the request to the user
+```
+
+Relay nodes earn a small fee (1-2% of the inference fee) for providing this service. Anonymous routing is optional — users choose per-request whether to route directly or through relays.
+
+**Node IP Privacy (Tor/I2P Integration):**
+Mining nodes can optionally expose their API endpoint as a Tor hidden service or I2P address instead of a clearnet IP. This means:
+- No one can determine the physical location of a compute node
+- ISPs cannot see that a machine is running a BTCPC node
+- The node operator's identity is protected
+
+```
+Standard node:  https://203.0.113.42:8080  (IP visible)
+Private node:   http://abc123...xyz.onion   (location hidden)
+```
+
+Node-to-node communication (block gossip, peer discovery) can also route through Tor, making the entire P2P network invisible to network-level surveillance.
+
+**Stealth Accounts:**
+For users who need stronger privacy than usernames provide, BTCPC supports **stealth addresses**. A stealth address is a one-time account derived from the recipient's public key that cannot be linked back to their main account:
+
+```
+Alice's main account:     alice
+Alice's stealth address:  s.7f3a9b2c...  (one-time, unlinkable)
+
+Anyone can send BTCPC to s.7f3a9b2c
+Only Alice can spend from it (derived from her keys)
+No one can prove s.7f3a9b2c belongs to alice
+```
+
+Each transaction can generate a new stealth address. An observer watching the blockchain sees transfers between seemingly unrelated one-time accounts — they cannot determine that the same person is behind multiple transactions.
+
+**Privacy Summary:**
+
+| Layer | What It Hides | Default |
+|-------|--------------|---------|
+| Encrypted inference | Prompt + result content | Always on (mandatory) |
+| Anonymous routing | Who submitted the request | Optional per-request |
+| Tor/I2P nodes | Where nodes are physically located | Optional per-node |
+| Stealth accounts | Which transactions belong to the same person | Optional per-transaction |
+
+**Future (Phase 4): Full Confidential Transactions** — hidden amounts, ring signatures, zero-knowledge proofs. Monero-level privacy for users who need it.
+
+### 4.6 Submitting Inference Requests
 
 **Layer 1 — On-chain transaction (raw):**
 ```json
