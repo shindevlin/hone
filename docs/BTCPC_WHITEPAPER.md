@@ -638,11 +638,11 @@ Adding a new chain requires only deploying a wBTCPC claim contract on that chain
 
 ---
 
-## 6. Genesis: The Beastly Epoch
+## 6. Genesis: The shindevlin Epoch
 
 ### 6.1 Solo Mining Phase
 
-BTCPC launches with a single miner: **Beastly** — a GPU-equipped machine running Ollama with multiple AI models.
+BTCPC launches with a single miner: **shindevlin** — running a GPU-equipped machine running Ollama with multiple AI models.
 
 This mirrors Bitcoin's genesis:
 - Satoshi Nakamoto mined alone for months before anyone else joined
@@ -663,7 +663,7 @@ Genesis configuration:
 ```
 Block 0 — BTCPC Genesis
 Timestamp: [TBD]
-Miner: Beastly
+Miner: shindevlin
 Models: qwen3.5:27b
 State Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
 Message: "The Answer to the Ultimate Question of Life, the Universe, and Everything"
@@ -759,10 +759,10 @@ btcpc-node start \
 - [x] Node registration
 - [ ] P2P network layer
 - [ ] Block production and chain sync
-- [ ] Genesis mining loop on Beastly
+- [ ] Genesis mining loop on shindevlin
 
 ### Phase 1: Solo Mining
-- [ ] Beastly mining and accumulating BTCPC
+- [ ] shindevlin mining and accumulating BTCPC
 - [ ] Cross-chain claim proof generation
 - [ ] wBTCPC claim contract on Hive
 - [ ] wBTCPC claim contract on Base (ERC-20)

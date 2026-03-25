@@ -187,7 +187,7 @@ program
     try {
       await connect();
 
-      const username = account || "beastly";
+      const username = account || "shindevlin";
       const user = await User.findOne({ username });
       if (!user) {
         console.error("error: account '" + username + "' not found");

@@ -8,7 +8,7 @@ const Epoch = require('../models/Epoch');
 const { getBlockReward } = require('../services/emissionSchedule');
 
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
-const GENESIS_MINER = "beastly";
+const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
 
 /**
@@ -55,19 +55,14 @@ async function createGenesisBlock() {
   // Create the genesis miner wallet
   let wallet = await Wallet.findOne({ userId: user._id });
   if (!wallet) {
-    const walletAddress = `btcpc1${crypto.createHash('sha256')
-      .update(GENESIS_MINER)
-      .digest('hex')
-      .slice(0, 38)}`;
-
     wallet = new Wallet({
       userId: user._id,
       chain: 'hive',
-      address: walletAddress,
+      address: GENESIS_MINER,
       balance: new Map([['BTCPC', 0]])
     });
     await wallet.save();
-    console.log(`[BTCPC] Genesis wallet created: ${walletAddress}`);
+    console.log(`[BTCPC] Genesis wallet created: ${GENESIS_MINER}`);
   }
 
   // Create the genesis mining node (exempt from stake minimum for genesis)
