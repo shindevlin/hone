@@ -90,13 +90,21 @@ Block {
 Every BTCPC account has four key pairs, derived from a single master password — identical to the Hive blockchain's proven account model:
 
 ```
-Master Password
+12-Word BIP-39 Mnemonic
   │
-  ├── pbkdf2(password + account + "owner")  → Owner Key
-  ├── pbkdf2(password + account + "active") → Active Key
-  ├── pbkdf2(password + account + "posting")→ Posting Key
-  └── pbkdf2(password + account + "memo")   → Memo Key
+  ├── m/44'/btcpc'/0'/0/0  → Owner Key
+  ├── m/44'/btcpc'/0'/1/0  → Active Key
+  ├── m/44'/btcpc'/0'/2/0  → Posting Key
+  └── m/44'/btcpc'/0'/3/0  → Memo Key
+
+2FA Password (separate from mnemonic)
+  │
+  └── pbkdf2(password + account, 100000 rounds) → 2FA Key
 ```
+
+**Account creation generates a standard BIP-39 12-word mnemonic.** The mnemonic derives all four role keys via BIP-44 derivation paths. This means any BIP-39 compatible hardware wallet (Ledger, Trezor, etc.) can store and sign with the role keys — no custom firmware required.
+
+The 2FA password is set separately and derives its own key. The mnemonic and password together form complete account control. Losing either one alone is not enough to steal funds.
 
 | Key | Permission Level | What It Can Do | Where It Lives |
 |-----|-----------------|----------------|----------------|
@@ -180,6 +188,47 @@ Validator checks:
 - BTCPC: hierarchical keys + protocol-enforced 2FA/3FA with user choice
 
 A compromised private key alone is not enough to steal funds. An attacker would also need the user's password and/or TOTP device. This is the security model users expect from banking — applied to a decentralized blockchain for the first time.
+
+### 2.3.2 Hardware Wallet Integration
+
+BTCPC's 2FA design works with **any BIP-39 hardware wallet out of the box** — no custom apps, no firmware modifications, no approval processes.
+
+The role keys (owner/active/posting/memo) are derived from the 12-word mnemonic via standard BIP-44 paths. Any hardware wallet that supports BIP-39 can store and sign with these keys. The 2FA factor is handled separately by the CLI or wallet software:
+
+```
+$ btcpc-cli transfer --to alice --amount 100
+
+  [Hardware wallet requests confirmation — press button, enter PIN]
+  → Signature 1: role key (from hardware wallet)
+
+  Enter password: ********
+  → Signature 2: 2FA key (derived from password, computed by CLI)
+
+  Transaction broadcast with both signatures.
+```
+
+The hardware wallet handles what hardware wallets do best — securely storing keys and requiring physical confirmation. The CLI handles the 2FA password/TOTP separately. Two independent factors, two independent devices, zero custom integration required.
+
+**Supported configurations:**
+
+| Setup | Factor 1 (role key) | Factor 2 (2FA) |
+|-------|-------------------|---------------|
+| Hardware wallet + password | Ledger/Trezor signs | Type password in CLI |
+| Hardware wallet + TOTP | Ledger/Trezor signs | Enter Google Auth code in CLI |
+| Software wallet + password | Local key signs | Type password in CLI |
+| Software wallet + TOTP | Local key signs | Enter Google Auth code in CLI |
+| Hardware wallet + password + TOTP | Ledger/Trezor signs | Password AND Google Auth (3FA) |
+
+### 2.3.3 Account Recovery
+
+If a user loses access to their 2FA (forgotten password, lost TOTP device) but still has their 12-word mnemonic:
+
+1. Submit a **recovery request** using the Owner key (this is the ONE transaction type that bypasses 2FA)
+2. **72-hour time-lock** begins — the recovery request is announced on-chain
+3. During the 72 hours, if the real owner (with valid 2FA) submits a **contest transaction**, the recovery is blocked and the attacker's attempt fails
+4. After 72 hours with no contest — 2FA resets, user sets a new password/TOTP
+
+This mirrors how banks handle lost 2FA credentials: a delay period with the opportunity to intervene. The 72-hour window gives the real owner time to notice and stop unauthorized recovery attempts.
 
 ### 2.4 Purpose-Built Contracts
 
