@@ -1200,3 +1200,112 @@ A designated foundation wallet receives elevated fee revenue (from URL inscripti
 - Bug bounty program
 
 The foundation wallet address will be designated in a future protocol update.
+
+## Appendix H: Multi-Provider CLI and External Compute Rewards
+
+### Universal AI Interface
+
+The btcpc-cli supports multiple inference providers through a single interface. Users can bring their own API keys from any supported provider, or use BTCPC's native decentralized compute:
+
+```
+btcpc-cli inference --provider btcpc      "Explain quantum computing"
+btcpc-cli inference --provider openai     "Explain quantum computing"
+btcpc-cli inference --provider anthropic  "Explain quantum computing"
+btcpc-cli inference --provider grok       "Explain quantum computing"
+btcpc-cli inference --provider ollama     "Explain quantum computing"
+```
+
+One CLI. Any backend. Every request creates a dream inscription on the BTCPC chain.
+
+### External Provider Verification
+
+External provider requests require no redundant computation. The provider's own API response serves as verification:
+
+```
+Provider response includes:
+  - Request ID (unique, queryable)
+  - Model name (provider-reported, not user-claimed)
+  - Token usage (provider-reported)
+  - Timestamp
+
+This receipt is submitted to the BTCPC chain as proof the compute occurred.
+The user cannot falsify it — the data comes from the provider's response, not the user's input.
+```
+
+### The 42% Rule
+
+External provider compute earns **42% of the native mining reward rate.**
+
+```
+Native BTCPC compute (commit-reveal verified):    100% reward
+External provider compute (receipt verified):      42% reward
+```
+
+**Why 42%:**
+
+The 100% native reward includes two components:
+1. The compute itself (doing the inference)
+2. The verification premium (participating in commit-reveal consensus)
+
+External providers handle their own verification — the receipt IS the proof. The 58% premium that native miners earn represents the value of decentralized verification: running redundant computation, participating in commit-reveal, maintaining consensus.
+
+42% is the fair rate for "the work happened, but it wasn't verified by our network." It is, as always, the answer.
+
+### Dream Types
+
+Dreams created from external compute are marked differently on-chain:
+
+```
+Verified Dream:     backed by BTCPC native compute + commit-reveal proof
+Registered Dream:   backed by external provider receipt
+
+Both are valid dreams. Both carry inscriptions. Both are transferable.
+Verified dreams carry stronger provenance — proof of decentralized compute.
+```
+
+### Supported Providers
+
+| Provider | Key Format | Models |
+|----------|-----------|--------|
+| BTCPC Native | btcpc-cli built-in | Any Ollama model on the network |
+| OpenAI | OPENAI_API_KEY | gpt-4o, gpt-4, gpt-3.5-turbo |
+| Anthropic | ANTHROPIC_API_KEY | claude-sonnet, claude-opus, claude-haiku |
+| xAI (Grok) | XAI_API_KEY | grok-2, grok-3 |
+| Google | GOOGLE_API_KEY | gemini-pro, gemini-ultra |
+| Local Ollama | OLLAMA_URL | Any locally installed model |
+
+### The Funnel
+
+The multi-provider CLI creates a natural conversion funnel:
+
+```
+Stage 1: User installs btcpc-cli to use their existing OpenAI key
+         → Earns 42% rewards, creates dreams, sees the chain
+
+Stage 2: User accumulates BTCPC from external compute rewards
+         → Enough to explore native compute
+
+Stage 3: User tries --provider btcpc, earns 100% rewards
+         → Realizes native compute is cheaper AND earns more
+
+Stage 4: User installs Ollama, stakes 1000 BTCPC, becomes a miner
+         → Full mining rewards + cross-chain bonuses + genesis dreams
+```
+
+Every stage creates token demand. Every stage generates dreams. Every stage grows the network.
+
+### API Key Security
+
+**API keys never leave the user's device.** The btcpc-cli calls external providers directly from the user's machine:
+
+```
+User's device:
+  1. btcpc-cli calls OpenAI directly (key stays local)
+  2. OpenAI returns response + receipt
+  3. btcpc-cli submits receipt + dream inscription to BTCPC chain
+  4. No BTCPC node ever sees the API key
+
+Security: identical to using the OpenAI SDK directly.
+The BTCPC chain only sees: provider name, model, token count, receipt ID, dream inscription.
+Never: API key, prompt content, response content.
+```
