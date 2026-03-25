@@ -917,3 +917,46 @@ Assuming genesis miner links 2 chains (Hive + Base) and the network grows to 100
 | 5 | 3,472,734 | 6.25% | 217,046 | 868,183 (4 chains avg) |
 
 The cross-chain supply growth naturally decelerates while native BTCPC remains the primary store of value.
+
+## Appendix D: Units and Inscriptions
+
+### The Dream
+
+The smallest unit of BTCPC is the **dream**.
+
+```
+1 BTCPC = 100,000,000 dreams
+```
+
+Named for Deep Thought's 7.5-million-year computation — a machine dreaming the answer into existence. Every dream on BTCPC represents a unit of verified computation: a machine dreaming an answer for someone who asked.
+
+### Genesis Dream Inscriptions
+
+The first dream of every block — the **genesis dream** — can carry an inscription: arbitrary metadata permanently embedded in the chain. One inscription per block, immutable, forever.
+
+Inscriptions are a purpose-built contract type:
+
+```json
+{
+  "type": "inscribe",
+  "block": 42,
+  "creator": "shindevlin",
+  "data": {
+    "type": "build",
+    "name": "My Decentralized AI App",
+    "description": "Built on BTCPC compute",
+    "url": "https://myapp.com",
+    "tags": ["ai", "inference", "privacy"]
+  },
+  "signature": "<active key>"
+}
+```
+
+**What makes BTCPC inscriptions unique:**
+- Bitcoin Ordinals inscribe data on satoshis — arbitrary, no inherent meaning
+- BTCPC inscriptions sit on **dreams** — units of verified computation
+- Each inscribed dream represents real AI inference that actually happened
+- Builders inscribe what they're creating WITH the compute — the inscription and the work are linked
+- The genesis dream of block 0 carries: *"The Answer to the Ultimate Question of Life, the Universe, and Everything"*
+
+Every token is a dream computed into reality. Every block begins with a dream that can carry the builder's inscription — a permanent record of what was imagined and built on this chain.

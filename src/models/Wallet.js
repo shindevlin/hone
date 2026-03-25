@@ -14,7 +14,7 @@ var walletSchema = new Schema({
   },
   chain: {
     type: String,
-    enum: ['hive', 'ton'],
+    enum: ['hive', 'ton', 'btcpc'],
     required: true
   },
   address: {

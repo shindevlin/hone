@@ -22,10 +22,12 @@ const userRoutes = require("./routes/userRoutes");
 const walletRoutes = require("./routes/walletRoutes");
 const stakingRoutes = require("./routes/stakingRoutes");
 const nodeRoutes = require("./routes/nodeRoutes");
+const inferenceApi = require("./inference/api");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/node", nodeRoutes);
+app.use(inferenceApi);
 
 app.use(morgan('combined'));
 
@@ -62,7 +64,9 @@ app.get('/', (req, res) => {
       '/api/user',
       '/api/wallet',
       '/api/staking',
-      '/api/node'
+      '/api/node',
+      '/v1/chat/completions',
+      '/v1/models'
     ]
   });
 });

@@ -26,6 +26,11 @@ const {
   EPOCHS_PER_MONTH
 } = require("../src/services/emissionSchedule");
 const { EPOCH_DURATION_MS } = require("../src/services/epochManager");
+const keyManager = require("../src/wallet/keyManager");
+const accountManager = require("../src/wallet/accountManager");
+const readline = require("readline");
+const fs = require("fs");
+const crypto = require("crypto");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -488,6 +493,264 @@ program
       await disconnect();
     } catch (err) {
       console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet ----------------------------------------------------------------
+
+function prompt(question, hidden) {
+  return new Promise(function (resolve) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    if (hidden) {
+      // Mute output for password entry
+      const origWrite = process.stdout.write;
+      rl.question(question, function (answer) {
+        process.stdout.write = origWrite;
+        rl.close();
+        console.log("");
+        resolve(answer);
+      });
+      process.stdout.write = function () { return true; };
+    } else {
+      rl.question(question, function (answer) {
+        rl.close();
+        resolve(answer);
+      });
+    }
+  });
+}
+
+const walletCmd = program
+  .command("wallet")
+  .description("Wallet management commands");
+
+// --- wallet create ---------------------------------------------------------
+
+walletCmd
+  .command("create <username>")
+  .description("Create a new BTCPC account with BIP-39 mnemonic and 2FA")
+  .action(async (username) => {
+    try {
+      // Validate username before prompting for password
+      const check = accountManager.validateUsername(username);
+      if (!check.valid) {
+        console.error("error: " + check.reason);
+        process.exit(1);
+      }
+
+      console.log("");
+      console.log("Creating BTCPC account: " + username);
+      console.log("=".repeat(30 + username.length));
+      console.log("");
+
+      const password = await prompt("  Set 2FA password: ", true);
+      if (!password || password.length < 8) {
+        console.error("error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      const confirm = await prompt("  Confirm password:  ", true);
+      if (password !== confirm) {
+        console.error("error: passwords do not match");
+        process.exit(1);
+      }
+
+      await connect();
+
+      const result = await accountManager.createAccount(username, null, password);
+
+      console.log("");
+      console.log("  Account created successfully.");
+      console.log("");
+      console.log("  *** WRITE DOWN YOUR RECOVERY PHRASE ***");
+      console.log("  *** This is the ONLY way to recover your account ***");
+      console.log("");
+      console.log("  Mnemonic: " + result.mnemonic);
+      console.log("");
+      console.log("  Address:  " + result.address);
+      console.log("");
+      console.log("  Public Keys:");
+      console.log("    Owner:   " + result.publicKeys.owner);
+      console.log("    Active:  " + result.publicKeys.active);
+      console.log("    Posting: " + result.publicKeys.posting);
+      console.log("    Memo:    " + result.publicKeys.memo);
+      console.log("");
+      console.log("  2FA Public Key: " + (result.twoFactorPublicKey || "none"));
+      console.log("  Auth Profile:   " + result.authProfile);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet recover --------------------------------------------------------
+
+walletCmd
+  .command("recover")
+  .description("Recover a BTCPC account from a 12-word mnemonic")
+  .action(async () => {
+    try {
+      console.log("");
+      console.log("BTCPC Account Recovery");
+      console.log("======================");
+      console.log("");
+
+      const mnemonic = await prompt("  Enter 12-word mnemonic: ");
+      if (!mnemonic) {
+        console.error("error: mnemonic is required");
+        process.exit(1);
+      }
+
+      const words = mnemonic.trim().split(/\s+/);
+      if (words.length !== 12) {
+        console.error("error: mnemonic must be exactly 12 words (got " + words.length + ")");
+        process.exit(1);
+      }
+
+      if (!keyManager.validateMnemonic(mnemonic.trim())) {
+        console.error("error: invalid BIP-39 mnemonic");
+        process.exit(1);
+      }
+
+      await connect();
+
+      const result = await accountManager.recoverAccount(mnemonic.trim());
+
+      console.log("");
+      if (result.found) {
+        console.log("  Account found: " + result.username);
+      } else {
+        console.log("  No on-chain account found for this mnemonic.");
+        console.log("  Keys derived successfully — you can create a new account.");
+      }
+      console.log("");
+      console.log("  Address:  " + result.address);
+      console.log("");
+      console.log("  Public Keys:");
+      console.log("    Owner:   " + result.publicKeys.owner);
+      console.log("    Active:  " + result.publicKeys.active);
+      console.log("    Posting: " + result.publicKeys.posting);
+      console.log("    Memo:    " + result.publicKeys.memo);
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet keys -----------------------------------------------------------
+
+walletCmd
+  .command("keys <username>")
+  .description("Show public keys for a BTCPC account (never displays private keys)")
+  .action(async (username) => {
+    try {
+      await connect();
+
+      const user = await User.findOne({ username: username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+
+      console.log("");
+      console.log("BTCPC Keys: " + username);
+      console.log("=".repeat(16 + username.length));
+      console.log("");
+      if (wallet) {
+        console.log("  Address:          " + wallet.address);
+      }
+      console.log("  Owner (public):   " + (user.ownerPublicKey || "not set"));
+      console.log("  Active (public):  " + (user.activePublicKey || "not set"));
+      console.log("  Posting (public): " + (user.postingPublicKey || "not set"));
+      console.log("  Memo (public):    " + (user.memoPublicKey || "not set"));
+      console.log("");
+      console.log("  Auth Profile:     " + (user.authProfile || "none"));
+      console.log("  2FA Enabled:      " + (user.twoFactorEnabled ? "yes" : "no"));
+      console.log("  2FA Public Key:   " + (user.twoFactorPublicKey || "none"));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet export ---------------------------------------------------------
+
+walletCmd
+  .command("export <username>")
+  .description("Export encrypted wallet file for a BTCPC account")
+  .action(async (username) => {
+    try {
+      await connect();
+
+      const user = await User.findOne({ username: username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+
+      console.log("");
+      const password = await prompt("  Enter encryption password: ", true);
+      if (!password || password.length < 8) {
+        console.error("error: password must be at least 8 characters");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Build wallet export payload (public keys only — private keys are NEVER stored)
+      const exportData = {
+        version: 1,
+        chain: "btcpc",
+        username: username,
+        address: wallet ? wallet.address : null,
+        publicKeys: {
+          owner: user.ownerPublicKey,
+          active: user.activePublicKey,
+          posting: user.postingPublicKey,
+          memo: user.memoPublicKey
+        },
+        authProfile: user.authProfile || "none",
+        twoFactorPublicKey: user.twoFactorPublicKey || null,
+        exportedAt: new Date().toISOString()
+      };
+
+      // Encrypt the export payload
+      const plaintext = JSON.stringify(exportData);
+      const encrypted = await keyManager.encryptKey(
+        Buffer.from(plaintext).toString("hex"),
+        password
+      );
+
+      const filename = username + "-btcpc-wallet.enc";
+      const filepath = path.resolve(process.cwd(), filename);
+      fs.writeFileSync(filepath, encrypted, "utf8");
+
+      console.log("");
+      console.log("  Wallet exported to: " + filepath);
+      console.log("  Encrypted with AES-256-GCM (PBKDF2 key derivation)");
+      console.log("  Keep this file and your password safe.");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
       process.exit(1);
     }
   });

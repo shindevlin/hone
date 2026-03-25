@@ -35,6 +35,31 @@ var userSchema = new Schema({
     type: Boolean,
     default: false
   },
+  authProfile: {
+    type: String,
+    enum: ["password", "totp", "both", "none"],
+    default: "none"
+  },
+  ownerPublicKey: {
+    type: String,
+    default: null
+  },
+  activePublicKey: {
+    type: String,
+    default: null
+  },
+  postingPublicKey: {
+    type: String,
+    default: null
+  },
+  memoPublicKey: {
+    type: String,
+    default: null
+  },
+  twoFactorPublicKey: {
+    type: String,
+    default: null
+  },
   lastLogin: {
     type: Date,
     default: Date.now
