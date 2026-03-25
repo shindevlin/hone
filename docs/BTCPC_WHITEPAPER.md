@@ -2,6 +2,7 @@
 
 ### A Decentralized Network for Verifiable AI Inference, Secured by Useful Work
 
+**Shin Devlin**
 **Version 0.1 — March 2026**
 
 ---
@@ -92,43 +93,39 @@ Any verification system must balance:
 
 BTCPC solves this with a three-layer verification stack.
 
-### 3.2 Layer 1: Deterministic Commitment
+### 3.2 Redundant Computation with Commit-Reveal
 
-All inference is performed with deterministic parameters:
-- Temperature = 0
-- Fixed random seed (derived from epoch number + request hash)
-- Quantization-aware tolerance bounds
+BTCPC achieves **100% verification** through redundant computation. Every inference request is assigned to multiple nodes simultaneously, and a cryptographic commit-reveal scheme prevents result copying.
 
-Before serving a result, the node commits:
+**Phase 1 — Commit:**
+1. Network assigns the same inference request to N nodes (N=3 for standard, N=5 for high-value)
+2. Each node runs the inference independently with deterministic parameters (temperature=0, fixed seed)
+3. Each node encrypts their result and submits only the **hash** to the network
+4. No node can see another's result before committing — copying is impossible
+
+**Phase 2 — Reveal:**
+1. Once all N hashes are submitted, nodes reveal their actual results
+2. Results are compared against the committed hashes (no post-hoc modification possible)
+3. Matching results form consensus — this IS the verified answer
+4. Non-matching nodes are immediately identified
+
+**Payment distribution:**
 ```
-commitment = hash(prompt_hash || result_hash || model_weights_hash || timestamp)
-```
-
-This commitment is posted to the network. It cannot be forged after the fact because the prompt_hash is determined by the requester, not the miner.
-
-### 3.3 Layer 2: Stochastic Spot Checking
-
-The network randomly selects **2-3% of inferences** for verification each epoch. Verification works as follows:
-
-1. A verification request is broadcast to 3 randomly selected nodes (not the original miner)
-2. Each verifier re-runs the inference with identical parameters
-3. If 2/3 verifiers produce a matching result_hash → original node confirmed honest
-4. If result doesn't match → challenge escalation (Section 3.5)
-
-**Statistical guarantee:** If a node cheats on X% of its inferences, the probability of being caught within N epochs is:
-
-```
-P(caught) = 1 - (1 - 0.025)^(X * N * inferences_per_epoch)
+First node to submit matching hash:   50% of request fee
+Second matching node:                 30% of request fee
+Third matching node:                  20% of request fee
+Non-matching nodes:                   slashed
 ```
 
-At 50% cheating rate and 100 inferences per epoch:
-- After 1 epoch: 71.8% chance of detection
-- After 3 epochs: 97.8% chance of detection
-- After 5 epochs: 99.95% chance of detection
+This creates a **race** — nodes compete to finish first, incentivizing better hardware. The fastest honest miner earns the most, just like Bitcoin miners racing to find a hash.
 
-Cheating is not a viable strategy.
+**Scaling N with network size:**
+- Genesis (Beastly solo): N=1 (no redundancy needed — single miner)
+- Early network (2-5 nodes): N=all nodes (everyone verifies everything)
+- Growth phase (5-50 nodes): N=3 (standard redundancy)
+- Mature network (50+ nodes): N=3 standard, N=5 for high-value requests
 
-### 3.4 Layer 3: Physical Plausibility Bounds
+### 3.3 Physical Plausibility Bounds
 
 Nodes declare their hardware capabilities upon registration:
 - GPU model, VRAM, count
@@ -137,20 +134,16 @@ Nodes declare their hardware capabilities upon registration:
 
 The network maintains benchmark data for known hardware configurations. A node claiming to generate 1000 tokens/second on a single RTX 4090 with a 27B parameter model is physically impossible (~15-30 tokens/second is realistic). Claims that violate plausibility bounds trigger automatic verification of all that node's work for the epoch.
 
-### 3.5 Challenge Protocol
+### 3.4 Slashing Protocol
 
-When spot-checking reveals a mismatch:
+When a node's result doesn't match consensus:
 
-1. **Challenge period** opens (1 epoch / 5 minutes)
-2. 5 additional verification nodes re-run the inference
-3. **Supermajority (4/5) determines truth**
-4. If original miner was wrong:
-   - 25% of staked BTCPC is slashed
-   - 50% of slashed amount goes to the initial verifier who caught it
-   - 50% is burned (reducing total supply — deflationary pressure)
-5. If original miner was right (verifier error):
-   - Challenging verifier loses reputation score
-   - No economic penalty (false challenges are not punished with slashing to encourage reporting)
+1. First offense: warning + reputation penalty
+2. Second offense within 1000 epochs: **10% of staked BTCPC slashed**
+3. Third offense: **25% slashed + 24-hour mining suspension**
+4. Persistent offenders: **full stake slashed + permanent ban**
+
+Slashed BTCPC is redistributed to the honest nodes who produced the correct result.
 
 ### 3.6 Why This Works (Game Theory)
 
@@ -175,17 +168,35 @@ Since P(caught) approaches 1.0 rapidly, and S >> E (minimum stake requirement en
 
 BTCPC is the modern incarnation of that idea: a global network of computers performing useful computation, producing verified answers, and earning tokens for their work. The total supply honors the original answer.
 
-### 4.2 Emission Schedule
+### 4.2 Emission Schedule — Doubling Halving Intervals
 
-| Phase | Epochs | Duration | Block Reward | Tokens Minted |
-|-------|--------|----------|-------------|---------------|
-| Genesis | 0 - 420,000 | ~4 years | 50 BTCPC | 21,000,000 |
-| Halving 1 | 420,001 - 840,000 | ~4 years | 25 BTCPC | 10,500,000 |
-| Halving 2 | 840,001 - 1,260,000 | ~4 years | 12.5 BTCPC | 5,250,000 |
-| Halving 3 | 1,260,001 - 1,680,000 | ~4 years | 6.25 BTCPC | 2,625,000 |
-| ... | ... | ... | ... | ... |
+BTCPC introduces a novel emission model: **doubling halving intervals**. Each period, the block reward halves while the period duration doubles. Unlike Bitcoin's fixed 4-year halvings, BTCPC's emission curve adapts: early periods distribute tokens quickly to bootstrap the network, while later periods extend over decades, ensuring long-term miner incentives.
 
-Halvings continue until the block reward reaches the minimum precision unit (0.00000001 BTCPC). Final token minted approximately 128 years after genesis.
+With a genesis allocation of 5% of total supply (2,100,000 BTCPC) in the first 1-month period, and a growth ratio of ~1.134x per period, each subsequent period's total allotment grows slightly in absolute terms but the per-epoch reward decreases. This means the inflation RATE drops consistently while the network can support an ever-growing number of miners.
+
+| Period | Duration | Allotment | Reward/Epoch | Cumulative | % Supply | Annual Inflation |
+|--------|----------|-----------|-------------|------------|----------|-----------------|
+| 1 | 1 month | 2,100,000 | 243.06 | 2,100,000 | 5.0% | ∞ (genesis) |
+| 2 | 2 months | 2,381,400 | 137.85 | 4,481,400 | 10.7% | High (early) |
+| 3 | 4 months | 2,700,508 | 78.19 | 7,181,908 | 17.1% | ~87% |
+| 4 | 8 months | 3,062,376 | 38.01 | 10,244,283 | 24.4% | ~29% |
+| 5 | 16 months | 3,472,734 | 25.15 | 13,717,017 | 32.7% | ~11% |
+| 6 | 32 months | 3,938,080 | 14.24 | 17,655,097 | 42.0% | ~4.8% |
+| 7 | 64 months | 4,465,783 | 8.08 | 22,120,881 | 52.7% | ~2.2% |
+| 8 | 128 months | 5,064,198 | 4.58 | 27,185,079 | 64.7% | ~1.0% |
+| 9 | 256 months | 5,742,801 | 2.60 | 32,927,879 | 78.4% | ~0.5% |
+| 10 | 512 months | 6,512,336 | 1.47 | 39,440,215 | 93.9% | ~0.2% |
+| 11 | 345 months* | 2,559,785 | 0.86 | 42,000,000 | 100% | ~0.1% |
+
+*Period 11 is truncated to align final mining with Bitcoin's projected end date of ~2140.
+
+**Key properties:**
+- **Genesis month (Beastly solo mining):** 5% of supply — earned through real compute
+- **By year 5:** inflation drops to ~11%, comparable to Bitcoin's era 2
+- **By year 10:** inflation at ~5%, matching BTC's era 3
+- **All 42M mined by ~2140** — same timeline as Bitcoin's last satoshi
+- **No period dominates:** unlike fixed halvings where era 1 gets 50%, the largest single period (period 10) gets only 15.5%
+- **Growing allotments reward growing networks:** more miners in later periods have more tokens to compete for
 
 ### 4.3 Reward Distribution Per Epoch
 
@@ -215,8 +226,8 @@ If more GPUs join the network → each unit of compute earns fewer BTCPC → mir
 Users pay for inference in BTCPC:
 - **Base fee** = network-determined minimum per 1K tokens (adjusts with demand)
 - **Priority fee** = optional tip for faster processing
-- **Fee burn** = 50% of base fee is burned (deflationary)
-- **Miner revenue** = block reward + remaining 50% of fees + priority fees
+- **Miner revenue** = block reward + 100% of fees + priority fees
+- **No burning** — every BTCPC minted stays in circulation forever, like Bitcoin
 
 As block rewards diminish through halvings, fee revenue becomes the primary miner incentive — exactly like Bitcoin's long-term security model.
 
@@ -307,8 +318,9 @@ This mirrors Bitcoin's genesis:
 Beastly's genesis configuration:
 - Models: qwen3.5:27b, dirty-muse-writer, deepseek-r1:8b, glm-4.7-flash
 - Epoch interval: 5 minutes
-- Initial block reward: 50 BTCPC
-- Daily mining output: ~14,400 BTCPC (288 epochs × 50 BTCPC)
+- Initial block reward: 243 BTCPC per epoch
+- Period 1 output: 2,100,000 BTCPC over 1 month (5% of total supply)
+- Daily mining output: ~69,984 BTCPC (288 epochs × 243 BTCPC)
 
 ### 6.2 Opening the Network
 
@@ -332,7 +344,7 @@ Miner: Beastly
 Models: qwen3.5:27b
 State Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
 Message: "The Answer to the Ultimate Question of Life, the Universe, and Everything"
-Reward: 50 BTCPC
+Reward: 243 BTCPC
 ```
 
 ---
@@ -456,7 +468,7 @@ The answer is 42. The question was always about compute.
 | Total Supply | 21,000,000 | 42,000,000 |
 | Work Function | SHA-256 (useless) | AI Inference (useful) |
 | Block Time | ~10 minutes | ~5 minutes (1 epoch) |
-| Halving Interval | 210,000 blocks (~4 years) | 420,000 epochs (~4 years) |
+| Halving Interval | 210,000 blocks (fixed ~4 years) | Doubling intervals (1mo → 2mo → 4mo → ...) |
 | Verification | Check hash (instant) | Spot check 2-3% + slashing |
 | Mining Hardware | ASICs | GPUs + AI models |
 | Settlement | Bitcoin chain only | Multi-chain (Hive, Base, future) |
@@ -472,5 +484,5 @@ The answer is 42. The question was always about compute.
 | Consensus | None (marketplace) | Tendermint (PoS) | None (marketplace) | Proof of Compute |
 | Verification | Trust-based | Trust-based | Trust-based | Cryptographic spot-checks |
 | Halvings | No | No | No | Yes (BTC-style) |
-| Fee Burns | No | No | No | Yes (50% of base fee) |
+| Fee Burns | No | No | No | No (BTC-faithful) |
 | AI-Native | No (general GPU) | No (general compute) | Partial | Yes (inference-first) |
