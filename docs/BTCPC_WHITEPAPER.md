@@ -1476,3 +1476,92 @@ Bitcoin does not have gas. Its transactions are simple and predictable. BTCPC L1
 - Better UX for non-technical users
 
 Gas exists on L2 because L2 needs it — arbitrary code execution demands resource metering. L1 does not run arbitrary code, so L1 does not need gas.
+
+## Appendix K: L2 Gas Token — The Four-Way Value Engine
+
+### L2 Gas Token
+
+The BTCPC L2 uses a dedicated gas token for WASM contract execution. This token is:
+- **Purchased with stablecoins only** (USDC, USDT, DAI)
+- **Priced at $1 = 1 GAS** (always, no speculation)
+- **Not mineable** — purchase only
+- **Burns on use** — deflationary by design
+
+### The Four-Way Split
+
+Every L2 gas purchase and expenditure creates value in four directions simultaneously:
+
+**On Purchase ($1 USDC → 1 GAS):**
+```
+$0.50 → OPS wallet                 (stablecoin operational revenue)
+$0.50 → BTCPC/USDC liquidity pool  (deepens market depth)
+```
+
+**On Use (1 GAS spent on contract call):**
+```
+0.5 GAS → burned                   (permanently destroyed, deflationary)
+0.5 GAS → buys BTCPC on market     (constant buy pressure → pays miner)
+```
+
+### Complete Flow
+
+```
+                    $1 USDC enters system
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+        $0.50 to OPS              $0.50 to LP
+        (real revenue)            (deeper markets)
+              
+              1 GAS minted to user
+              User calls L2 contract
+              1 GAS spent
+                    │
+         ┌─────────┴─────────┐
+         │                   │
+    0.5 GAS burned      0.5 GAS → market buy BTCPC
+    (deflationary)            │
+                         BTCPC → miner
+                         (compute payment)
+```
+
+### Economic Effects
+
+**OPS:** Receives $0.50 in stablecoins for every $1 of L2 gas purchased. This is sustainable, non-volatile revenue — independent of BTCPC price. At 10,000 L2 transactions per day averaging $0.10 gas each: $500/day to OPS, $182,500/year in stablecoin revenue.
+
+**Liquidity:** $0.50 of every gas purchase deepens the BTCPC/USDC trading pool. More L2 usage = deeper liquidity = tighter spreads = better price discovery = more institutional interest.
+
+**BTCPC price:** Every L2 contract call triggers a market buy of BTCPC (from the 0.5 GAS conversion). This is constant, organic buy pressure that scales with L2 adoption. Not speculative — driven by real usage.
+
+**Miners:** Receive BTCPC purchased at market rate for executing WASM contracts. They are paid in the same token they mine. Their incentive structure is unified across L1 inference and L2 contract execution.
+
+**Gas token supply:** Half of all gas tokens ever minted are eventually burned. Circulating supply stays low. No secondary market speculation — the token is minted at $1 and burned on use. It is a utility, not an investment.
+
+### The Flywheel
+
+```
+More L2 dApp usage
+  → more gas purchased with stablecoins
+    → more USDC in liquidity pools (deeper markets)
+    → more stablecoin revenue to OPS (better development)
+      → more BTCPC bought on market (price appreciation)
+        → more profitable mining (attracts miners)
+          → more compute capacity (better network)
+            → more dApps built on L2 (more usage)
+              → cycle repeats
+```
+
+Every component reinforces every other component. L2 adoption directly drives L1 token value, miner profitability, market liquidity, and operational sustainability — simultaneously.
+
+### Paying L2 Gas with BTCPC (Alternative)
+
+Users who hold BTCPC can pay L2 gas directly in BTCPC at a **15% discount** versus the stablecoin price:
+
+```
+Via stablecoin:  $1.00 USDC → 1 GAS → four-way split
+Via BTCPC:       $0.85 worth of BTCPC → 1 GAS → BTCPC distributed directly to miner
+
+The 15% discount incentivizes holding BTCPC over stablecoins.
+```
+
+When paying with BTCPC directly, there is no stablecoin revenue to OPS and no liquidity pool contribution — the BTCPC goes directly to the executing miner. This is acceptable because BTCPC payment means the user is already part of the BTCPC ecosystem. The stablecoin pathway is for onboarding new users.
