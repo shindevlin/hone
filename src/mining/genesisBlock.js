@@ -7,9 +7,13 @@ const Node = require('../models/Node');
 const Epoch = require('../models/Epoch');
 const { getBlockReward } = require('../services/emissionSchedule');
 
+const path = require('path');
+const fs = require('fs');
+
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
+const RESERVED_NAMES_PATH = path.resolve(__dirname, '../../data/reserved-names.json');
 
 /**
  * Create the genesis block (epoch 0) and the genesis miner account.
@@ -96,6 +100,28 @@ async function createGenesisBlock() {
     consensus_hash: GENESIS_STATE_HASH
   });
   await genesisEpoch.save();
+
+  // Reserve top names — owned by shindevlin, sellable later
+  let reservedCount = 0;
+  try {
+    const reservedNames = JSON.parse(fs.readFileSync(RESERVED_NAMES_PATH, 'utf8'));
+    for (const name of reservedNames) {
+      const existing = await User.findOne({ username: name });
+      if (!existing && name !== GENESIS_MINER) {
+        const rUser = new User({
+          username: name,
+          email: `${name}@reserved.btcpc.network`,
+          password: crypto.createHash('sha256').update(`reserved-${name}-genesis`).digest('hex'),
+          isActive: false  // inactive until claimed/sold
+        });
+        await rUser.save();
+        reservedCount++;
+      }
+    }
+    console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
+  } catch (err) {
+    console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
+  }
 
   console.log('[BTCPC] ================================================');
   console.log('[BTCPC]          GENESIS BLOCK CREATED');
