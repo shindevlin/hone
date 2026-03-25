@@ -11,6 +11,8 @@ const { generateWork, getEpochMetadata } = require('./workGenerator');
 const { computeStateHash } = require('./stateHash');
 const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
 const GenesisDream = require('../models/GenesisDream');
+const MiningProof = require('../models/MiningProof');
+const { filterInscription } = require('../services/contentFilter');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -137,13 +139,23 @@ async function mineEpoch(epochNumber) {
   const existingDream = await GenesisDream.findOne({ block_number: epochNumber });
   if (!existingDream) {
     const workHash = workProofs.length > 0 ? workProofs[0].result_hash : '0'.repeat(64);
+
+    // Apply content filter to inscription text
+    const tagResult = filterInscription(metadata.tag);
+    const projectResult = filterInscription(metadata.project);
+    const filteredTag = tagResult.filtered_text;
+    const filteredProject = projectResult.filtered_text;
+    if (tagResult.was_redacted || projectResult.was_redacted) {
+      console.log(`[BTCPC]   Content filter: inscription text redacted`);
+    }
+
     const dream = new GenesisDream({
       block_number: epochNumber,
       original_miner: GENESIS_MINER,
       current_owner: GENESIS_MINER,
       inscription: {
-        project: metadata.project,
-        tag: metadata.tag,
+        project: filteredProject,
+        tag: filteredTag,
         custom_data: { epoch: epochNumber, model: MODEL, work_items: workProofs.length }
       },
       proof: {
@@ -154,7 +166,24 @@ async function mineEpoch(epochNumber) {
       }
     });
     await dream.save();
-    console.log(`[BTCPC]   Dream #${epochNumber}: "${metadata.tag}" [${metadata.project}]`);
+    console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}]`);
+  }
+
+  // Step 4b: Create soulbound mining proof for this block
+  const blockReward = getBlockReward(epochNumber);
+  const existingProof = await MiningProof.findOne({ block_number: epochNumber });
+  if (!existingProof) {
+    const miningProof = new MiningProof({
+      block_number: epochNumber,
+      miner: GENESIS_MINER,
+      reward_earned: blockReward,
+      model: MODEL,
+      tokens_computed: totalTokens,
+      work_value: totalWorkValue,
+      state_hash: stateHash
+    });
+    await miningProof.save();
+    console.log(`[BTCPC]   Mining Proof #${epochNumber}: soulbound to ${GENESIS_MINER}`);
   }
 
   // Step 5: Finalize epoch and distribute rewards

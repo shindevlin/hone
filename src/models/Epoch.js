@@ -30,6 +30,10 @@ var epochSchema = new Schema({
     type: Number,
     default: 0
   },
+  difficulty: {
+    type: Number,
+    default: 1.0
+  },
   commitments: [{
     node_id: { type: Schema.Types.ObjectId, ref: 'Node', required: true },
     state_hash: { type: String, required: true },

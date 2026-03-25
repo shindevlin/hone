@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC - Bitcoin Proof of Compute</title>
+  <meta name="description" content="A sovereign blockchain where mining produces useful AI compute. 42,000,000 total supply. Created by Shin Devlin.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <div class="nav-logo-icon">B</div>
+        <div>BTCPC</div>
+      </a>
+      <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle navigation">&#9776;</button>
+      <div class="nav-links">
+        <a href="#problem">Problem</a>
+        <a href="#how">How It Works</a>
+        <a href="#dreams">Dreams</a>
+        <a href="#crosschain">Cross-Chain</a>
+        <a href="#providers">Providers</a>
+        <a href="#security">Security</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#42">42</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="hero">
+    <p class="section-label">Sovereign Blockchain</p>
+    <h1 class="hero-title">Bitcoin <span>Proof of Compute</span></h1>
+    <p class="hero-tagline">The first blockchain where mining produces useful AI compute. Every token is backed by real inference. Every unit of energy produces useful output.</p>
+    <div class="hero-badge">42,000,000 BTCPC</div>
+    <p class="hero-sub">Total supply &mdash; the answer to life, the universe, and everything</p>
+  </section>
+
+  <hr class="divider">
+
+  <!-- The Problem -->
+  <section id="problem">
+    <p class="section-label">01 &mdash; The Problem</p>
+    <h2 class="section-title">AI compute is <span>centralized</span>. Mining energy is <span>wasted</span>.</h2>
+    <p class="section-text">Today, AI inference is controlled by a handful of corporations. Meanwhile, Bitcoin's network consumes 150 TWh annually producing nothing except SHA-256 hashes. There has to be a better way.</p>
+    <ul class="bullet-list">
+      <li><strong>Single points of failure</strong> &mdash; one API outage affects millions of users. Censorship risk means providers decide what can and cannot be computed. Monopoly pricing extracts rent on compute that costs fractions of a cent.</li>
+      <li><strong>Wasted proof of work</strong> &mdash; Bitcoin's security model works, but the computational output serves no secondary purpose. The energy spent mining produces nothing except hashes that prove work was done.</li>
+      <li><strong>Siloed liquidity</strong> &mdash; every new blockchain launches with zero liquidity. Cross-chain bridges are complex, expensive, and frequent targets of exploits. There is no mechanism for organic multi-chain value creation.</li>
+    </ul>
+  </section>
+
+  <hr class="divider">
+
+  <!-- How It Works -->
+  <section id="how">
+    <p class="section-label">02 &mdash; How It Works</p>
+    <h2 class="section-title"><span>Proof of Compute</span> replaces abstract hash puzzles with useful AI inference</h2>
+    <p class="section-text">Miners run AI models on GPUs. Users submit inference requests. The work that secures the network is the work that users actually want to buy.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Run AI Models</h3>
+        <p>Install the BTCPC node software and run local AI models via Ollama. Your GPU becomes a mining rig that does useful work.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>Serve Inference</h3>
+        <p>Process encrypted inference requests from the network. Commit-reveal verification ensures honest computation across multiple nodes.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>Earn BTCPC</h3>
+        <p>Rewards distribute proportional to verified work. More tokens generated, more BTCPC earned. Real compute, real value.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Dreams -->
+  <section id="dreams">
+    <p class="section-label">03 &mdash; The Dream</p>
+    <h2 class="section-title">The smallest unit of <span>verified computation</span></h2>
+    <div class="dreams-highlight">
+      <div class="dreams-value">1 BTCPC = 100,000,000 dreams</div>
+      <div class="dreams-label">Named for Deep Thought's 7.5-million-year computation &mdash; a machine dreaming the answer into existence</div>
+      <div class="dreams-desc">Every dream on BTCPC represents a unit of verified computation: a machine dreaming an answer for someone who asked. The first dream of every block &mdash; the genesis dream &mdash; carries a permanent inscription embedded in the chain. One inscription per block, immutable, forever.</div>
+    </div>
+    <div class="feature-row" style="margin-top: 48px;">
+      <div class="feature-content">
+        <h3>Genesis Dream Inscriptions</h3>
+        <p>Every block begins with a genesis dream that can carry a builder's inscription &mdash; a permanent record of what was imagined and built on this chain.</p>
+        <p>Unlike Bitcoin Ordinals that inscribe data on arbitrary satoshis, BTCPC inscriptions sit on dreams &mdash; units of verified computation. Each inscribed dream represents real AI inference that actually happened.</p>
+        <p>The genesis dream of block 0 carries: "The Answer to the Ultimate Question of Life, the Universe, and Everything."</p>
+      </div>
+      <div class="feature-visual">
+        <pre>{
+  <span class="hl">"type"</span>: "inscribe",
+  <span class="hl">"block"</span>: 42,
+  <span class="hl">"creator"</span>: "shindevlin",
+  <span class="hl">"data"</span>: {
+    "type": "build",
+    "name": "My Decentralized AI App",
+    "description": "Built on BTCPC compute",
+    "tags": ["ai", "inference", "privacy"]
+  }
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Cross-Chain -->
+  <section id="crosschain">
+    <p class="section-label">04 &mdash; Cross-Chain Mining</p>
+    <h2 class="section-title">Mine on BTCPC. <span>Earn on every linked chain.</span></h2>
+    <p class="section-text">Link wallets from other blockchains to your BTCPC mining node. Automatically earn claimable wBTCPC tokens on every linked chain &mdash; simply by mining. This is not bridging. This is simultaneous multi-chain value creation from a single act of compute.</p>
+    <div class="feature-row" style="margin-top: 48px;">
+      <div class="feature-visual">
+        <pre>Miner registers linked wallets:
+  <span class="hl">BTCPC</span>:   btcpc1abc...     <span class="hlg">(native)</span>
+  <span class="hlb">Hive</span>:    @miner           <span class="hlg">(linked)</span>
+  <span class="hlp">Base</span>:    0x1234...        <span class="hlg">(linked)</span>
+  <span class="hlb">Solana</span>:  ABC123...        <span class="hlg">(linked)</span>
+
+Epoch reward: <span class="hl">243 BTCPC</span>
+  BTCPC chain:  <span class="hlg">+243.0  BTCPC</span>
+  Hive:         <span class="hlg">+243.0  wBTCPC</span>
+  Base:         <span class="hlg">+243.0  wBTCPC</span>
+  Solana:       <span class="hlg">+243.0  wBTCPC</span></pre>
+      </div>
+      <div class="feature-content">
+        <h3>1:1 Parity in Period 1</h3>
+        <p>Cross-chain rewards start at 1:1 parity with native mining rewards and halve with each emission period. Same compute work, more rewards across every linked chain.</p>
+        <p>Every rational miner links every available chain. Each linked wallet means wBTCPC tokens appearing on another blockchain &mdash; organic liquidity with zero effort.</p>
+        <p>Day 1 chains: Hive and Base. Adding a new chain requires only deploying a wBTCPC claim contract. No changes to the BTCPC core protocol.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Multi-Provider -->
+  <section id="providers">
+    <p class="section-label">05 &mdash; Multi-Provider CLI</p>
+    <h2 class="section-title">Use <span>any AI provider</span> through btcpc-cli</h2>
+    <p class="section-text">One CLI. Any backend. Every request creates a dream inscription on the BTCPC chain. Bring your own API keys and earn 42% rewards on every inference.</p>
+    <div class="feature-row" style="margin-top: 48px;">
+      <div class="feature-content">
+        <h3>The 42% Rule</h3>
+        <p>External provider compute follows the 42% rule. Users who bring real inference activity to the BTCPC chain using their own API key earn 42% of the block reward for that computation.</p>
+        <p>API keys never leave your device. The btcpc-cli calls external providers directly from your machine, submits the receipt to the BTCPC chain, and your key stays local. Security is identical to using the provider's SDK directly.</p>
+        <p>A natural funnel: start with your existing OpenAI key, accumulate BTCPC, try native compute, become a miner. Every stage creates token demand.</p>
+      </div>
+      <div class="feature-visual">
+        <pre><span class="hl">$</span> btcpc-cli inference \
+    --provider <span class="hlg">btcpc</span>     "Explain quantum computing"
+<span class="hl">$</span> btcpc-cli inference \
+    --provider <span class="hlb">openai</span>    "Explain quantum computing"
+<span class="hl">$</span> btcpc-cli inference \
+    --provider <span class="hlp">anthropic</span> "Explain quantum computing"
+<span class="hl">$</span> btcpc-cli inference \
+    --provider <span class="hlb">grok</span>      "Explain quantum computing"
+<span class="hl">$</span> btcpc-cli inference \
+    --provider <span class="hlg">ollama</span>    "Explain quantum computing"
+
+Supported: BTCPC Native, OpenAI, Anthropic,
+           xAI (Grok), Google, Local Ollama</pre>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Security -->
+  <section id="security">
+    <p class="section-label">06 &mdash; Security</p>
+    <h2 class="section-title">Protocol-level <span>multi-factor authentication</span></h2>
+    <p class="section-text">BTCPC is the first blockchain with protocol-enforced 2FA. This is not wallet-level security &mdash; it is consensus-level. Validators enforce authentication on every transaction.</p>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Hive-Style Key Hierarchy</h3>
+        <p>Four key pairs derived from a single BIP-39 mnemonic: Owner (cold storage), Active (financial), Posting (mining operations), and Memo (encrypted communication). A compromised mining rig cannot steal your funds.</p>
+      </div>
+      <div class="card">
+        <h3>Protocol-Enforced 2FA</h3>
+        <p>Two additional authentication factors at the consensus level: password-derived key signatures and TOTP (Google Authenticator compatible). Configurable per-account &mdash; from password-only to full multi-factor.</p>
+      </div>
+      <div class="card">
+        <h3>72-Hour Recovery</h3>
+        <p>Lost your 2FA? Submit a recovery request with the Owner key. A 72-hour time-lock begins on-chain. If the real owner contests during that window, the recovery is blocked. After 72 hours with no contest, 2FA resets safely.</p>
+      </div>
+    </div>
+    <div class="stats-row" style="margin-top: 24px;">
+      <div class="stat">
+        <div class="stat-value">4</div>
+        <div class="stat-label">Key Pairs</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">2FA</div>
+        <div class="stat-label">Consensus-Level</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">72h</div>
+        <div class="stat-label">Recovery Window</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">BIP-39</div>
+        <div class="stat-label">Hardware Wallet Compatible</div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Privacy -->
+  <section id="privacy">
+    <p class="section-label">07 &mdash; Privacy</p>
+    <h2 class="section-title">End-to-end <span>encrypted inference</span></h2>
+    <p class="section-text">All inference on the BTCPC chain is end-to-end encrypted. This is not optional. No plaintext prompt or result ever touches the chain or is visible to validators, other nodes, or the public.</p>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Encrypted Inference</h3>
+        <p>Prompts are encrypted with the compute node's memo key. Results are encrypted back with the requester's memo key. On-chain, only hashes and ciphertext exist. No plaintext, ever. Always on, mandatory.</p>
+      </div>
+      <div class="card">
+        <h3>Anonymous Routing</h3>
+        <p>Submit inference requests through a relay mixer. Requests route through relay nodes that strip your identity before forwarding to the compute node. Nobody can link the request to you. Optional per-request.</p>
+      </div>
+      <div class="card">
+        <h3>Stealth Accounts</h3>
+        <p>One-time addresses derived from the recipient's public key that cannot be linked back to their main account. Each transaction generates a new stealth address. An observer sees transfers between unrelated accounts.</p>
+      </div>
+      <div class="card">
+        <h3>Node IP Privacy</h3>
+        <p>Mining nodes can expose their endpoint as a Tor hidden service or I2P address. No one can determine the physical location of a compute node. ISPs cannot see that a machine is running a BTCPC node.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- The 42 Connection -->
+  <section id="42">
+    <p class="section-label">08 &mdash; The 42 Connection</p>
+    <h2 class="section-title">The answer is <span>42</span>. The question was always about compute.</h2>
+    <p class="section-text">Deep Thought was arguably the first proof of compute system: a massive computer that ran for millennia to produce a single, verified answer. BTCPC is the modern incarnation of that idea.</p>
+    <div class="forty-two-grid">
+      <div class="forty-two-item">
+        <div class="num">42,000,000</div>
+        <h3>Total Supply</h3>
+        <p>The Answer to the Ultimate Question of Life, the Universe, and Everything, as computed by Deep Thought over 7.5 million years in Douglas Adams' The Hitchhiker's Guide to the Galaxy.</p>
+      </div>
+      <div class="forty-two-item">
+        <div class="num">42%</div>
+        <h3>External Provider Reward</h3>
+        <p>Users who bring inference activity to the chain through external providers earn 42% of the block reward. The answer, applied to the reward structure.</p>
+      </div>
+      <div class="forty-two-item">
+        <div class="num">420</div>
+        <h3>Reserved Names</h3>
+        <p>420 account names reserved at genesis for protocol infrastructure, early contributors, and community allocation. Scarce digital identities on the chain.</p>
+      </div>
+      <div class="forty-two-item">
+        <div class="num">4,200</div>
+        <h3>Character Limit</h3>
+        <p>Genesis dream inscriptions are capped at 4,200 characters (42 x 100). Dream #0 is unlimited. All others respect the limit. Concise, permanent, meaningful.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quote -->
+  <div class="quote">
+    <blockquote>"I think the problem, to be quite honest with you, is that you've never actually known what the question is."</blockquote>
+    <cite>&mdash; Deep Thought, The Hitchhiker's Guide to the Galaxy</cite>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <p class="footer-creator">Created by Shin Devlin</p>
+      <div class="footer-links">
+        <a href="../docs/BTCPC_WHITEPAPER.md">Whitepaper</a>
+        <a href="/explorer">Block Explorer</a>
+        <a href="https://github.com">GitHub</a>
+      </div>
+      <p class="footer-copy">Bitcoin Proof of Compute &mdash; A Sovereign Blockchain for Verifiable AI Inference, Secured by Useful Work</p>
+    </div>
+  </footer>
+
+</body>
+</html>

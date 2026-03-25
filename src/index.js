@@ -22,11 +22,15 @@ const userRoutes = require("./routes/userRoutes");
 const walletRoutes = require("./routes/walletRoutes");
 const stakingRoutes = require("./routes/stakingRoutes");
 const nodeRoutes = require("./routes/nodeRoutes");
+const delegationRoutes = require("./routes/delegationRoutes");
 const inferenceApi = require("./inference/api");
+const dreamRoutes = require("./routes/dreamRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/node", nodeRoutes);
+app.use("/api/delegation", delegationRoutes);
+app.use("/api", dreamRoutes);
 app.use(inferenceApi);
 
 app.use(morgan('combined'));
@@ -65,6 +69,11 @@ app.get('/', (req, res) => {
       '/api/wallet',
       '/api/staking',
       '/api/node',
+      '/api/dreams/:account',
+      '/api/dream/:blockNumber',
+      '/api/dream/:blockNumber/inscribe',
+      '/api/dream/:blockNumber/transfer',
+      '/api/delegation',
       '/v1/chat/completions',
       '/v1/models'
     ]

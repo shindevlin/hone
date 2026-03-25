@@ -18,6 +18,8 @@ const Transaction = require("../src/models/Transaction");
 const Wallet = require("../src/models/Wallet");
 const User = require("../src/models/User");
 const StakingPool = require("../src/models/StakingPool");
+const Delegation = require("../src/models/Delegation");
+const MiningProof = require("../src/models/MiningProof");
 const {
   getBlockReward,
   getCurrentPeriod,
@@ -25,9 +27,11 @@ const {
   TOTAL_SUPPLY,
   EPOCHS_PER_MONTH
 } = require("../src/services/emissionSchedule");
-const { EPOCH_DURATION_MS } = require("../src/services/epochManager");
+const { EPOCH_DURATION_MS, DIFFICULTY_ADJUSTMENT_INTERVAL } = require("../src/services/epochManager");
 const keyManager = require("../src/wallet/keyManager");
 const accountManager = require("../src/wallet/accountManager");
+const { getProvider, listProviders, DEFAULT_MODEL } = require("../src/inference/providers");
+const axios = require("axios");
 const readline = require("readline");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -163,6 +167,12 @@ program
       ]);
       const totalWork = workAgg.length > 0 ? workAgg[0].total : 0;
 
+      // Current difficulty from latest epoch
+      const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
+      const difficulty = latestEpoch && latestEpoch.difficulty ? latestEpoch.difficulty : 1.0;
+      const nextAdjustmentEpoch = Math.ceil((currentEpochNum + 1) / DIFFICULTY_ADJUSTMENT_INTERVAL) * DIFFICULTY_ADJUSTMENT_INTERVAL;
+      const epochsUntilAdjustment = nextAdjustmentEpoch - currentEpochNum;
+
       console.log("");
       console.log("BTCPC Network Status");
       console.log("====================");
@@ -174,6 +184,8 @@ program
       console.log("  Total mined:         " + formatBTCPC(totalMined) + " BTCPC");
       console.log("  Active miners:       " + formatNumber(activeMiners));
       console.log("  Network work:        " + formatNumber(totalWork));
+      console.log("  Difficulty:          " + difficulty.toFixed(8));
+      console.log("  Next adjustment:     epoch " + formatNumber(nextAdjustmentEpoch) + " (" + formatNumber(epochsUntilAdjustment) + " epochs)");
       console.log("");
 
       await disconnect();
@@ -231,6 +243,18 @@ program
       console.log("  Total earned:        " + formatBTCPC(totalEarned) + " BTCPC");
       console.log("  Epochs mined:        " + formatNumber(epochsMined));
       console.log("");
+
+      // Mining proofs (soulbound)
+      const proofs = await MiningProof.find({ miner: username }).sort({ block_number: 1 });
+      if (proofs.length > 0) {
+        console.log("  Mining Proofs (soulbound): " + proofs.length);
+        for (const p of proofs) {
+          const date = new Date(p.timestamp).toISOString().split("T")[0];
+          const rewardStr = p.reward_earned.toFixed(2);
+          console.log("    Block " + pad(String(p.block_number), 6) + pad(rewardStr, 12, true) + " BTCPC    " + pad(p.model, 18) + date);
+        }
+        console.log("");
+      }
 
       await disconnect();
     } catch (err) {
@@ -755,6 +779,249 @@ walletCmd
     }
   });
 
+// --- dreams ----------------------------------------------------------------
+
+const GenesisDream = require("../src/models/GenesisDream");
+const {
+  getDreams: fetchDreams,
+  getDream: fetchDream,
+  inscribeDream,
+  transferDream
+} = require("../src/controllers/dreamController");
+
+program
+  .command("dreams [account]")
+  .description("List all genesis dreams owned by an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const dreams = await fetchDreams(username);
+
+      if (dreams.length === 0) {
+        console.log("\n  No genesis dreams found for '" + username + "'.\n");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Genesis Dreams: " + username + " (" + dreams.length + ")");
+      console.log("=".repeat(25 + username.length));
+      console.log("");
+
+      const hdr = ["Block", "Inscription", "Status", "Original Miner", "Transferred"];
+      const w = [7, 36, 12, 16, 12];
+      const a = [true, false, false, false, false];
+
+      printRow(hdr, w, a);
+      printSep(w);
+
+      for (const d of dreams) {
+        const hasInscription = d.inscription && d.inscription.project && d.inscription.tag;
+        const inscriptionTag = hasInscription
+          ? d.inscription.tag.length > 34
+            ? d.inscription.tag.substring(0, 31) + "..."
+            : d.inscription.tag
+          : "[uninscribed]";
+        const status = hasInscription ? "inscribed" : "uninscribed";
+
+        printRow([
+          String(d.block_number),
+          inscriptionTag,
+          status,
+          d.original_miner,
+          d.transferred ? "yes" : "no"
+        ], w, a);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- dream (single) -------------------------------------------------------
+
+program
+  .command("dream <block_number>")
+  .description("View details of a specific genesis dream")
+  .action(async (blockNumber) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const dream = await fetchDream(num);
+      if (!dream) {
+        console.error("error: Genesis Dream #" + num + " not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const hasInscription = dream.inscription && dream.inscription.project && dream.inscription.tag;
+
+      console.log("");
+      console.log("Genesis Dream #" + dream.block_number);
+      console.log("=".repeat(18 + String(dream.block_number).length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Original miner:    " + dream.original_miner);
+      console.log("  Current owner:     " + dream.current_owner);
+      console.log("  Transferred:       " + (dream.transferred ? "yes" : "no"));
+      console.log("  Inscribed at:      " + ts(dream.inscribed_at));
+      console.log("");
+
+      // Proof
+      if (dream.proof) {
+        console.log("  Proof");
+        console.log("  -----");
+        console.log("  State hash:        " + (dream.proof.state_hash || "-"));
+        console.log("  Work hash:         " + (dream.proof.work_hash || "-"));
+        console.log("  Tokens computed:   " + formatNumber(dream.proof.tokens_computed || 0));
+        console.log("  Model:             " + (dream.proof.model || "-"));
+        console.log("");
+      }
+
+      // Inscription
+      console.log("  Inscription");
+      console.log("  -----------");
+      if (hasInscription) {
+        console.log("  Project:           " + dream.inscription.project);
+        console.log("  Tag:               " + dream.inscription.tag);
+        if (dream.inscription.custom_data) {
+          console.log("  Custom data:       " + JSON.stringify(dream.inscription.custom_data));
+        }
+      } else {
+        console.log("  [uninscribed]");
+      }
+      console.log("");
+
+      // Transfer history
+      if (dream.transfer_history && dream.transfer_history.length > 0) {
+        console.log("  Transfer History");
+        console.log("  ----------------");
+        const thdr = ["From", "To", "Timestamp"];
+        const tw = [16, 16, 26];
+        printRow(thdr, tw);
+        printSep(tw);
+        for (const t of dream.transfer_history) {
+          printRow([t.from, t.to, ts(t.timestamp)], tw);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- inscribe --------------------------------------------------------------
+
+program
+  .command("inscribe <block_number>")
+  .description("Inscribe a genesis dream (once, permanently)")
+  .requiredOption("--project <name>", "Project name for the inscription")
+  .requiredOption("--tag <description>", "Tag / description for the inscription")
+  .option("--data <json>", "Optional custom data (JSON string)")
+  .option("--account <username>", "Account performing the inscription", "shindevlin")
+  .action(async (blockNumber, opts) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      let customData = null;
+      if (opts.data) {
+        try {
+          customData = JSON.parse(opts.data);
+        } catch (e) {
+          console.error("error: invalid JSON in --data");
+          await disconnect();
+          process.exit(1);
+        }
+      }
+
+      const inscription = {
+        project: opts.project,
+        tag: opts.tag,
+        custom_data: customData
+      };
+
+      const dream = await inscribeDream(num, opts.account, inscription);
+
+      console.log("");
+      console.log("Genesis Dream #" + num + " inscribed");
+      console.log("=".repeat(22 + String(num).length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Owner:             " + dream.current_owner);
+      console.log("  Project:           " + dream.inscription.project);
+      console.log("  Tag:               " + dream.inscription.tag);
+      console.log("  Inscribed at:      " + ts(dream.inscribed_at));
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- transfer-dream --------------------------------------------------------
+
+program
+  .command("transfer-dream <block_number>")
+  .description("Transfer a genesis dream to another account")
+  .requiredOption("--to <account>", "Recipient account")
+  .option("--from <account>", "Sender account", "shindevlin")
+  .action(async (blockNumber, opts) => {
+    try {
+      await connect();
+
+      const num = parseInt(blockNumber);
+      if (isNaN(num)) {
+        console.error("error: invalid block number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const dream = await transferDream(num, opts.from, opts.to);
+
+      console.log("");
+      console.log("Transferred Genesis Dream #" + num + " to " + opts.to);
+      console.log("=".repeat(32 + String(num).length + opts.to.length));
+      console.log("");
+      console.log("  Block:             " + dream.block_number);
+      console.log("  Original miner:    " + dream.original_miner + " (permanently recorded)");
+      console.log("  New owner:         " + dream.current_owner);
+      console.log("  Transferred:       yes");
+      if (dream.inscription && dream.inscription.project) {
+        console.log("  Inscription:       " + dream.inscription.tag);
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
 // --- peers -----------------------------------------------------------------
 
 program
@@ -840,6 +1107,461 @@ program
       console.log("  Active Epochs:       " + formatNumber(activeCount));
       console.log("  Sync Status:         " + syncStatus);
       console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- inference -------------------------------------------------------------
+
+program
+  .command("inference <prompt>")
+  .description("Run inference through any supported provider (42% rule for external)")
+  .option("--provider <name>", "inference provider", "btcpc")
+  .option("--model <model>", "model name (provider-specific)")
+  .option("--temperature <n>", "sampling temperature", parseFloat)
+  .option("--max-tokens <n>", "max tokens to generate", parseInt)
+  .action(async (prompt, opts) => {
+    try {
+      const providerName = opts.provider;
+      const provider = getProvider(providerName);
+      const model = opts.model || (providerName === "btcpc" ? DEFAULT_MODEL : undefined);
+      const isExternal = providerName !== "btcpc";
+
+      const options = {
+        temperature: opts.temperature,
+        maxTokens: opts.maxTokens
+      };
+
+      const headers = provider.getHeaders();
+      const body = provider.formatRequest(prompt, model, options);
+
+      console.log("");
+      console.log("BTCPC Inference");
+      console.log("===============");
+      console.log("");
+      console.log("  Provider:  " + providerName);
+      console.log("  Model:     " + (model || body.model || "(provider default)"));
+      console.log("  Prompt:    " + (prompt.length > 60 ? prompt.substring(0, 57) + "..." : prompt));
+      console.log("");
+      console.log("  Sending request...");
+
+      const startTime = Date.now();
+
+      const response = await axios.post(provider.baseUrl, body, {
+        headers: headers,
+        timeout: 180000
+      });
+
+      const elapsed = Date.now() - startTime;
+      const parsed = provider.parseResponse(response.data);
+
+      // -- Compute BTCPC reward (42% rule for external providers) -----------
+      const userRate = isExternal ? 0.42 : 1.0;
+      const btcpcEarned = (parsed.completion_tokens / 100 * 0.001 * userRate);
+
+      // -- Build provider receipt for on-chain logging ----------------------
+      const promptHash = crypto
+        .createHash("sha256")
+        .update(prompt)
+        .digest("hex");
+      const resultHash = crypto
+        .createHash("sha256")
+        .update(parsed.content)
+        .digest("hex");
+
+      // -- Log WorkProof on-chain (best-effort) -----------------------------
+      let proofId = null;
+      let onChain = false;
+      try {
+        await connect();
+        const WorkProof = require("../src/models/WorkProof");
+        const { getCurrentEpoch } = require("../src/services/epochManager");
+        const { getModelWeight } = require("../src/mining/workGenerator");
+
+        const epochNumber = await getCurrentEpoch();
+        const weightFactor = getModelWeight(parsed.model);
+        const workValue = parsed.completion_tokens * weightFactor;
+
+        const proof = new WorkProof({
+          epoch_number: epochNumber,
+          node_id: isExternal
+            ? "external-" + providerName
+            : "inference-cli",
+          prompt_hash: promptHash,
+          result_hash: resultHash,
+          model: parsed.model,
+          tokens_generated: parsed.completion_tokens,
+          model_weight_factor: weightFactor,
+          work_value: workValue
+        });
+        const saved = await proof.save();
+        proofId = saved._id.toString();
+        onChain = true;
+        await disconnect();
+      } catch (_dbErr) {
+        // Chain may not be running -- still show the result
+        proofId = crypto
+          .createHash("sha256")
+          .update(promptHash + resultHash + Date.now().toString())
+          .digest("hex");
+      }
+
+      // -- Display results --------------------------------------------------
+      console.log("");
+      console.log("  Response");
+      console.log("  --------");
+      console.log("");
+
+      // Word-wrap the content at ~78 cols, indented 4 spaces
+      const lines = parsed.content.split("\n");
+      for (const line of lines) {
+        if (line.length <= 74) {
+          console.log("    " + line);
+        } else {
+          const words = line.split(" ");
+          let cur = "";
+          for (const w of words) {
+            if (cur.length + w.length + 1 > 74) {
+              console.log("    " + cur);
+              cur = w;
+            } else {
+              cur = cur ? cur + " " + w : w;
+            }
+          }
+          if (cur) console.log("    " + cur);
+        }
+      }
+
+      console.log("");
+      console.log("  Receipt");
+      console.log("  -------");
+      console.log("  Provider:            " + providerName);
+      console.log("  Model:               " + parsed.model);
+      console.log("  Request ID:          " + (parsed.request_id || "(none)"));
+      console.log("  Tokens used:         " + formatNumber(parsed.tokens_used));
+      console.log("    Prompt tokens:     " + formatNumber(parsed.prompt_tokens));
+      console.log("    Completion tokens: " + formatNumber(parsed.completion_tokens));
+      console.log("  Elapsed:             " + elapsed + "ms");
+      console.log("");
+      console.log("  On-Chain");
+      console.log("  --------");
+      console.log("  Proof ID:            " + (proofId || "-"));
+      console.log("  Logged on-chain:     " + (onChain ? "yes" : "no (chain unavailable)"));
+      console.log("  Reward rate:         " + (isExternal ? "42% (external provider)" : "100% (native compute)"));
+      console.log("  BTCPC earned:        " + btcpcEarned.toFixed(8) + " BTCPC");
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        const errData = err.response.data;
+        const msg = errData.error
+          ? (errData.error.message || JSON.stringify(errData.error))
+          : JSON.stringify(errData);
+        console.error("error: " + opts.provider + " API returned: " + msg);
+      } else {
+        console.error("error: " + err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- delegate --------------------------------------------------------------
+
+program
+  .command("delegate <amount>")
+  .description("Delegate BTCPC to a miner")
+  .requiredOption("--to <miner>", "Miner username to delegate to")
+  .action(async (amount, opts) => {
+    try {
+      await connect();
+
+      const delegateAmount = parseFloat(amount);
+      if (isNaN(delegateAmount) || delegateAmount <= 0) {
+        console.error("error: invalid amount");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const minerUsername = opts.to;
+      const minerUser = await User.findOne({ username: minerUsername });
+      if (!minerUser) {
+        console.error("error: miner '" + minerUsername + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Verify miner has a registered node
+      const minerNode = await Node.findOne({
+        account: minerUser._id,
+        status: { $in: ["registered", "active"] }
+      });
+      if (!minerNode) {
+        console.error("error: '" + minerUsername + "' is not a registered miner");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Use default account (shindevlin) for CLI delegation
+      const defaultUser = await User.findOne({ username: "shindevlin" });
+      if (!defaultUser) {
+        console.error("error: default account 'shindevlin' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      if (String(defaultUser._id) === String(minerUser._id)) {
+        console.error("error: cannot delegate to yourself");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const wallet = await Wallet.findOne({ userId: defaultUser._id });
+      if (!wallet) {
+        console.error("error: wallet not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const btcpcBalance = wallet.balance.get("BTCPC") || 0;
+      if (btcpcBalance < delegateAmount) {
+        console.error("error: insufficient BTCPC balance (" + formatBTCPC(btcpcBalance) + " available)");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Check for existing active delegation
+      let delegation = await Delegation.findOne({
+        delegator: defaultUser._id,
+        miner: minerUser._id,
+        status: "active"
+      });
+
+      if (delegation) {
+        delegation.amount += delegateAmount;
+        delegation.delegated_at = new Date();
+      } else {
+        delegation = new Delegation({
+          delegator: defaultUser._id,
+          miner: minerUser._id,
+          amount: delegateAmount,
+          delegated_at: new Date(),
+          status: "active"
+        });
+      }
+
+      wallet.balance.set("BTCPC", btcpcBalance - delegateAmount);
+      await wallet.save();
+      await delegation.save();
+
+      const tx = new Transaction({
+        from: wallet.address,
+        to: "delegation_pool",
+        amount: delegateAmount,
+        type: "delegation",
+        memo: "BTCPC delegation to miner " + minerUsername
+      });
+      await tx.save();
+
+      console.log("");
+      console.log("Delegation Successful");
+      console.log("=====================");
+      console.log("");
+      console.log("  Delegated:           " + formatBTCPC(delegateAmount) + " BTCPC");
+      console.log("  To miner:            " + minerUsername);
+      console.log("  Total delegated:     " + formatBTCPC(delegation.amount) + " BTCPC");
+      console.log("  Wallet balance:      " + formatBTCPC(wallet.balance.get("BTCPC")) + " BTCPC");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- undelegate ------------------------------------------------------------
+
+program
+  .command("undelegate <amount>")
+  .description("Start undelegation (7-day unlock period)")
+  .requiredOption("--from <miner>", "Miner username to undelegate from")
+  .action(async (amount, opts) => {
+    try {
+      await connect();
+
+      const undelegateAmount = parseFloat(amount);
+      if (isNaN(undelegateAmount) || undelegateAmount <= 0) {
+        console.error("error: invalid amount");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const minerUsername = opts.from;
+      const minerUser = await User.findOne({ username: minerUsername });
+      if (!minerUser) {
+        console.error("error: miner '" + minerUsername + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const defaultUser = await User.findOne({ username: "shindevlin" });
+      if (!defaultUser) {
+        console.error("error: default account 'shindevlin' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const delegation = await Delegation.findOne({
+        delegator: defaultUser._id,
+        miner: minerUser._id,
+        status: "active"
+      });
+
+      if (!delegation) {
+        console.error("error: no active delegation to '" + minerUsername + "'");
+        await disconnect();
+        process.exit(1);
+      }
+
+      if (undelegateAmount > delegation.amount) {
+        console.error("error: amount exceeds delegated balance (" + formatBTCPC(delegation.amount) + " BTCPC)");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const now = new Date();
+      const unlockDate = new Date(now);
+      unlockDate.setDate(unlockDate.getDate() + 7);
+
+      if (undelegateAmount < delegation.amount) {
+        // Partial undelegation
+        const remaining = delegation.amount - undelegateAmount;
+        delegation.amount = remaining;
+        await delegation.save();
+
+        const undelegation = new Delegation({
+          delegator: defaultUser._id,
+          miner: minerUser._id,
+          amount: undelegateAmount,
+          delegated_at: delegation.delegated_at,
+          status: "undelegating",
+          undelegate_requested_at: now,
+          undelegate_available_at: unlockDate
+        });
+        await undelegation.save();
+      } else {
+        delegation.status = "undelegating";
+        delegation.undelegate_requested_at = now;
+        delegation.undelegate_available_at = unlockDate;
+        await delegation.save();
+      }
+
+      console.log("");
+      console.log("Undelegation Started");
+      console.log("====================");
+      console.log("");
+      console.log("  Amount:              " + formatBTCPC(undelegateAmount) + " BTCPC");
+      console.log("  From miner:          " + minerUsername);
+      console.log("  Unlock requested:    " + ts(now));
+      console.log("  Available at:        " + ts(unlockDate));
+      console.log("  Unlock period:       7 days");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- delegations -----------------------------------------------------------
+
+program
+  .command("delegations [account]")
+  .description("List delegations for an account")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const user = await User.findOne({ username });
+      if (!user) {
+        console.error("error: account '" + username + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Delegations made by this account
+      const outgoing = await Delegation.find({
+        delegator: user._id,
+        status: { $in: ["active", "undelegating"] }
+      }).populate("miner", "username");
+
+      // Delegations received by this account (if they are a miner)
+      const incoming = await Delegation.find({
+        miner: user._id,
+        status: "active"
+      }).populate("delegator", "username");
+
+      const totalOutgoing = outgoing
+        .filter(function (d) { return d.status === "active"; })
+        .reduce(function (sum, d) { return sum + d.amount; }, 0);
+      const totalIncoming = incoming.reduce(function (sum, d) { return sum + d.amount; }, 0);
+
+      console.log("");
+      console.log("Delegations: " + username);
+      console.log("=".repeat(17 + username.length));
+      console.log("");
+
+      if (outgoing.length > 0) {
+        console.log("  Outgoing Delegations (delegated to miners)");
+        console.log("  ------------------------------------------");
+        var hdr = ["Miner", "Amount", "Status", "Delegated"];
+        var w = [16, 24, 14, 24];
+        var a = [false, true, false, false];
+        printRow(hdr, w, a);
+        printSep(w);
+        for (var i = 0; i < outgoing.length; i++) {
+          var d = outgoing[i];
+          var minerName = d.miner ? d.miner.username : String(d.miner);
+          var statusStr = d.status;
+          if (d.status === "undelegating" && d.undelegate_available_at) {
+            var remaining = Math.ceil((d.undelegate_available_at - new Date()) / (1000 * 60 * 60 * 24));
+            statusStr = "unlock " + remaining + "d";
+          }
+          printRow([minerName, formatBTCPC(d.amount) + " BTCPC", statusStr, ts(d.delegated_at)], w, a);
+        }
+        console.log("");
+        console.log("  Total delegated:     " + formatBTCPC(totalOutgoing) + " BTCPC");
+        console.log("");
+      } else {
+        console.log("  No outgoing delegations.");
+        console.log("");
+      }
+
+      if (incoming.length > 0) {
+        console.log("  Incoming Delegations (received from delegators)");
+        console.log("  -----------------------------------------------");
+        var hdr2 = ["Delegator", "Amount", "Delegated"];
+        var w2 = [16, 24, 24];
+        var a2 = [false, true, false];
+        printRow(hdr2, w2, a2);
+        printSep(w2);
+        for (var j = 0; j < incoming.length; j++) {
+          var del = incoming[j];
+          var delegatorName = del.delegator ? del.delegator.username : String(del.delegator);
+          printRow([delegatorName, formatBTCPC(del.amount) + " BTCPC", ts(del.delegated_at)], w2, a2);
+        }
+        console.log("");
+        console.log("  Total received:      " + formatBTCPC(totalIncoming) + " BTCPC");
+        console.log("");
+      } else {
+        console.log("  No incoming delegations.");
+        console.log("");
+      }
 
       await disconnect();
     } catch (err) {

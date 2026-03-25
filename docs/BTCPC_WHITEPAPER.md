@@ -1565,3 +1565,103 @@ The 15% discount incentivizes holding BTCPC over stablecoins.
 ```
 
 When paying with BTCPC directly, there is no stablecoin revenue to OPS and no liquidity pool contribution — the BTCPC goes directly to the executing miner. This is acceptable because BTCPC payment means the user is already part of the BTCPC ecosystem. The stablecoin pathway is for onboarding new users.
+
+## Appendix L: Governance and Decentralization — The Path to Irrelevance
+
+### The Founder's Duty
+
+Satoshi Nakamoto built Bitcoin, mined alone, and walked away. The network thrived precisely because its creator became irrelevant. The protocol was the authority, not the person.
+
+Shin Devlin follows the same path. The goal is not to build a company, a foundation, or an empire. The goal is to build a protocol that does not need its creator — and then to prove it by leaving.
+
+Shin and Satoshi are brothers in philosophy: build something that outlives you, then let it.
+
+### The Five Stages of Decentralization
+
+**Stage 1: Genesis (current)**
+Shin Devlin is the sole miner, sole developer, and sole authority. This is necessary — someone must write the first line of code, mine the first block, and make the first decisions. Every decentralized network begins as a centralized one. Bitcoin did. BTCPC does.
+
+**Stage 2: Delegation (at 10+ miners)**
+Other miners join the network. Shin remains the lead developer but accepts contributions. Protocol discussions happen in public. The codebase has multiple contributors. Shin's authority comes from competence, not from a special key.
+
+**Stage 3: Governance (at 50+ miners)**
+Stake-weighted governance activates. Protocol changes require a miner vote. Shin has a vote proportional to his stake — equal in weight to any other staker. The OPS wallet transitions from Shin's sole control to a multi-signature council.
+
+**Stage 4: Participation (at 1000+ miners)**
+Shin is just another miner. No special permissions, no emergency powers, no veto. The OPS wallet is controlled by an elected council. The codebase is maintained by the community. Protocol evolution is pure stake-weighted democracy.
+
+**Stage 5: Legend**
+Shin steps back. Perhaps gradually, perhaps all at once. The protocol does not need him. The network mines, verifies, and dreams without a founder at the helm. Like Satoshi before him, Shin's greatest contribution is proving that the system works without its creator.
+
+*The best thing a founder can do is make themselves unnecessary.*
+
+### Governance Mechanism
+
+Built into the protocol from genesis, activated at Stage 3:
+
+```
+Proposals:
+  Any account with ≥1000 BTCPC staked can submit a proposal.
+
+Voting:
+  1 staked BTCPC = 1 vote
+  Voting period: 1000 epochs (~3.5 days)
+  Quorum: 20% of total staked BTCPC must participate
+  Approval threshold: 66% to pass
+
+Proposal types:
+  - Protocol parameter changes (epoch length, fees, reward splits)
+  - Add new purpose-built contract type to L1
+  - Activate or upgrade the WASM L2 runtime
+  - Elect or remove OPS council members
+  - Modify the content redaction wordlist
+  - Emergency protocol pause (requires 80% supermajority)
+```
+
+No single account — including shindevlin — has veto power. Governance is stake-weighted, one-token-one-vote, majority rules.
+
+### OPS Wallet Transition
+
+| Stage | Control | Structure |
+|-------|---------|-----------|
+| 1 (Genesis) | Shin Devlin | Single key |
+| 2 (10+ miners) | Shin + 2 early contributors | 2-of-3 multi-sig |
+| 3 (50+ miners) | Elected council | 3-of-5 multi-sig |
+| 4 (1000+ miners) | Elected council | 5-of-9 multi-sig |
+| 5 (Mature) | All stakers | DAO treasury — spending requires governance vote |
+
+At Stage 5, the OPS wallet is no longer controlled by any individual or council. Spending proposals are submitted, voted on by all stakers, and executed automatically by the protocol. No human gatekeeper.
+
+### Power Divestiture Schedule
+
+| Power | When Shin Relinquishes | How |
+|-------|----------------------|-----|
+| Sole mining | Stage 2 (other miners join) | Natural — network opens |
+| Protocol decisions | Stage 3 (governance activates) | Governance vote required for changes |
+| OPS wallet control | Stage 3 → Stage 5 (gradual) | Multi-sig → DAO |
+| Reserved names (420) | Stage 2-4 (sold/granted over time) | Market sales + community grants |
+| Emergency pause | Stage 4 (80% supermajority required) | No single-key pause |
+| All special authority | Stage 5 | Nothing remains. Shin is a miner, nothing more. |
+
+### The Satoshi Standard
+
+Satoshi Nakamoto demonstrated that a pseudonymous creator can build the most valuable network in human history and walk away. The network's value did not depend on Satoshi's continued involvement — it depended on the protocol being sound.
+
+BTCPC adopts this as a design principle: **the protocol is the authority, not the founder.**
+
+Shin Devlin's roadmap mirrors Satoshi's:
+1. Build the protocol
+2. Mine the genesis blocks
+3. Attract other miners
+4. Transfer governance to the community
+5. Step back
+
+The day Shin Devlin walks away from BTCPC — and the network continues mining, verifying, and dreaming without interruption — is the day the project succeeds. Not the day the token reaches a target price. Not the day a certain number of miners join. The day the founder becomes irrelevant.
+
+That is the goal. That has always been the goal.
+
+*"I think the problem, to be quite honest with you, is that you've never actually known what the question is."*
+
+The question was never "who controls the network?"
+
+The answer, as always, is 42.

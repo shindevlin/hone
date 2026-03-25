@@ -12,7 +12,8 @@
     "cli": "node bin/btcpc-cli",
     "mine": "node bin/btcpc-mine",
     "explorer": "node src/explorer/server.js",
-    "p2p": "node src/p2p/network.js"
+    "p2p": "node src/p2p/network.js",
+    "website": "npx serve website"
   },
   "dependencies": {
     "axios": "^1.6.5",
