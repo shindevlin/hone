@@ -1148,7 +1148,7 @@ Contains external URL/link:      base_fee × 10
 
 Fee destination:
   Standard:    100% to miner
-  Elevated:    50% to miner, 50% to BTCPC foundation wallet
+  Elevated:    50% to miner, 50% to BTCPC ops wallet
 ```
 
 This prevents spam-linking and generates revenue for protocol development.
@@ -1193,13 +1193,13 @@ This ensures every genesis dream has meaningful content. No empty dreams. Every 
 
 ### BTCPC Foundation Wallet
 
-A designated foundation wallet receives elevated fee revenue (from URL inscriptions). This wallet is controlled by Shin Devlin and used for:
+A designated ops wallet receives elevated fee revenue (from URL inscriptions). This wallet is controlled by Shin Devlin and used for:
 - Protocol development funding
 - Security audit funding
 - Community grants
 - Bug bounty program
 
-The foundation wallet address will be designated in a future protocol update.
+The ops wallet address will be designated in a future protocol update.
 
 ## Appendix H: Multi-Provider CLI and External Compute Rewards
 
@@ -1234,22 +1234,38 @@ The user cannot falsify it — the data comes from the provider's response, not 
 
 ### The 42% Rule
 
-External provider compute earns **42% of the native mining reward rate.**
+External provider compute follows **the 42% rule** — a completely separate reward structure from native compute:
 
 ```
-Native BTCPC compute (commit-reveal verified):    100% reward
-External provider compute (receipt verified):      42% reward
+NATIVE BTCPC COMPUTE (commit-reveal, 3 miners):
+  First miner:          50%    (fastest correct result)
+  Second miner:         30%    (verified the work)
+  Third miner:          20%    (verified the work)
+  OPS:            0%
+  Total:               100%   → all rewards go to miners who did the work
+
+EXTERNAL PROVIDER COMPUTE (receipt-verified):
+  User:                 42%    (brought the job + their API key)
+  OPS:           58%    (protocol development fund)
+  Miners:                0%    (did not perform the compute)
+  Total:               100%   → no miner reward because no miner computed
 ```
 
-**Why 42%:**
+**Why this split works:**
 
-The 100% native reward includes two components:
-1. The compute itself (doing the inference)
-2. The verification premium (participating in commit-reveal consensus)
+- **Miners earn nothing on external jobs** — they didn't do the compute. OpenAI did. BTCPC rewards only flow to those who contributed. This keeps mining rewards pure and honest.
+- **Users earn 42%** — the answer. They brought real inference activity to the BTCPC chain using their own API key and their own money. That contribution is worth 42% of the reward.
+- **The OPS wallet earns 58%** — the verification premium. In native compute, this 58% goes to the second and third verifying miners (30% + 20% + the remaining 8% implicit overhead). Since external provider jobs need no verification, this premium flows to the OPS wallet instead.
+- **OPS fees come ONLY from external provider jobs.** Native compute pays zero to the foundation. This creates a clear incentive: mine natively and keep 100% within the miner community, or use external providers and fund protocol development.
 
-External providers handle their own verification — the receipt IS the proof. The 58% premium that native miners earn represents the value of decentralized verification: running redundant computation, participating in commit-reveal, maintaining consensus.
+The ops wallet, controlled by Shin Devlin, funds:
+- Protocol development
+- Security audits
+- Bug bounty programs
+- Community grants
+- Network infrastructure
 
-42% is the fair rate for "the work happened, but it wasn't verified by our network." It is, as always, the answer.
+The ops wallet address will be designated by Shin Devlin in a future protocol update.
 
 ### Dream Types
 
