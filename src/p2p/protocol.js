@@ -10,6 +10,8 @@
 
 const { validateBlock, getChainHeight, getBlockRange } = require("./chainSync");
 const mempool = require("./mempool");
+const Block = require("../chain/block");
+const blockchain = require("../chain/blockchain");
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -68,9 +70,22 @@ function createHandshake(nodeId) {
 
 /**
  * Create a BLOCK message for broadcasting a new epoch/block.
+ * If the block is a Block instance, serialize the header to a hex string
+ * so peers can deserialize and validate it formally.
  */
 function createBlockMessage(block, nodeId) {
-  return createMessage(MESSAGE_TYPES.BLOCK, block, nodeId);
+  var data;
+  if (block instanceof Block) {
+    data = {
+      header_hex: block.serialize().toString("hex"),
+      hash: block.computeHash(),
+      transactions: block.transactions || [],
+      compute_proofs: block.compute_proofs || []
+    };
+  } else {
+    data = block;
+  }
+  return createMessage(MESSAGE_TYPES.BLOCK, data, nodeId);
 }
 
 /**
@@ -186,11 +201,48 @@ function handleHandshake(peer, msg, ctx) {
 
 /**
  * BLOCK — Validate and store a new epoch/block received from the network.
+ * Supports both serialized blocks (header_hex) and legacy plain objects.
  */
 function handleBlock(peer, msg, ctx) {
-  const block = msg.data;
-  if (!block) return;
+  const data = msg.data;
+  if (!data) return;
 
+  var block;
+
+  // If the message contains a serialized header, deserialize it
+  if (data.header_hex) {
+    try {
+      var headerBuf = Buffer.from(data.header_hex, "hex");
+      block = Block.deserialize(headerBuf);
+      block.transactions = data.transactions || [];
+      block.compute_proofs = data.compute_proofs || [];
+
+      // Verify the hash matches
+      var computedHash = block.computeHash();
+      if (data.hash && data.hash !== computedHash) {
+        console.log("[BTCPC P2P] Block hash mismatch from " + (peer.nodeId || "unknown").slice(0, 12));
+        return;
+      }
+
+      // Validate against the formal blockchain
+      var tip = blockchain.getLatestBlock();
+      if (!block.validateBlock(tip)) {
+        console.log("[BTCPC P2P] Rejected invalid serialized block from " + (peer.nodeId || "unknown").slice(0, 12));
+        return;
+      }
+
+      // Store in the formal blockchain
+      blockchain.addBlock(block);
+
+    } catch (err) {
+      console.log("[BTCPC P2P] Failed to deserialize block from " + (peer.nodeId || "unknown").slice(0, 12) + ": " + err.message);
+      return;
+    }
+  } else {
+    block = data;
+  }
+
+  // Legacy validation via chainSync
   const valid = validateBlock(block);
   if (!valid) {
     console.log("[BTCPC P2P] Rejected invalid block from " + (peer.nodeId || "unknown").slice(0, 12));

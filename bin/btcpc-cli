@@ -1570,6 +1570,346 @@ program
     }
   });
 
+// --- claims ----------------------------------------------------------------
+
+const CrossChainClaim = require("../src/models/CrossChainClaim");
+const { generateClaimProof, getCrossChainRatio } = require("../src/claims/claimProofGenerator");
+
+program
+  .command("claims [account]")
+  .description("Show pending and submitted cross-chain claims")
+  .action(async (account) => {
+    try {
+      await connect();
+
+      const username = account || "shindevlin";
+      const claims = await CrossChainClaim.find({ miner: username }).sort({ epoch: -1 });
+
+      if (claims.length === 0) {
+        console.log("\n  No cross-chain claims found for " + username + ".\n");
+        await disconnect();
+        return;
+      }
+
+      // Separate by status
+      const generated = claims.filter(function (c) { return c.status === "generated"; });
+      const submitted = claims.filter(function (c) { return c.status === "submitted" || c.status === "confirmed"; });
+      const failed = claims.filter(function (c) { return c.status === "failed"; });
+
+      console.log("");
+      console.log("Cross-Chain Claims: " + username);
+      console.log("=".repeat(25 + username.length));
+      console.log("");
+      console.log("  Total claims:    " + formatNumber(claims.length));
+      console.log("  Pending:         " + formatNumber(generated.length));
+      console.log("  Submitted:       " + formatNumber(submitted.length));
+      console.log("  Failed:          " + formatNumber(failed.length));
+      console.log("");
+
+      // Show pending claims grouped by chain
+      if (generated.length > 0) {
+        console.log("  Pending Claims");
+        console.log("  --------------");
+
+        var hdr = ["Epoch", "Chain", "Amount", "Period", "Ratio", "Created"];
+        var w = [8, 8, 22, 7, 10, 24];
+        var a = [true, false, true, true, true, false];
+        printRow(hdr, w, a);
+        printSep(w);
+
+        var display = generated.slice(0, 20);
+        for (var ci = 0; ci < display.length; ci++) {
+          var c = display[ci];
+          printRow([
+            String(c.epoch),
+            c.chain,
+            c.claim_amount + " wBTCPC",
+            String(c.period),
+            c.cross_chain_ratio,
+            ts(c.created_at)
+          ], w, a);
+        }
+
+        if (generated.length > 20) {
+          console.log("  ... and " + (generated.length - 20) + " more");
+        }
+        console.log("");
+      }
+
+      // Show submitted claims
+      if (submitted.length > 0) {
+        console.log("  Submitted Claims");
+        console.log("  ----------------");
+
+        var hdr2 = ["Epoch", "Chain", "Amount", "TX Hash", "Submitted"];
+        var w2 = [8, 8, 22, 20, 24];
+        var a2 = [true, false, true, false, false];
+        printRow(hdr2, w2, a2);
+        printSep(w2);
+
+        var display2 = submitted.slice(0, 20);
+        for (var si = 0; si < display2.length; si++) {
+          var s = display2[si];
+          var txDisplay = s.tx_hash ? s.tx_hash.slice(0, 18) + ".." : "-";
+          printRow([
+            String(s.epoch),
+            s.chain,
+            s.claim_amount + " wBTCPC",
+            txDisplay,
+            ts(s.submitted_at)
+          ], w2, a2);
+        }
+        console.log("");
+      }
+
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- claim -----------------------------------------------------------------
+
+program
+  .command("claim")
+  .description("Submit a cross-chain claim for a specific epoch")
+  .requiredOption("--chain <chain>", "Target chain (base, hive)")
+  .requiredOption("--epoch <epoch>", "Epoch number to claim")
+  .action(async (opts) => {
+    try {
+      await connect();
+
+      var chain = opts.chain.toLowerCase();
+      var epochNum = parseInt(opts.epoch);
+
+      if (isNaN(epochNum) || epochNum < 0) {
+        console.error("error: invalid epoch number");
+        await disconnect();
+        process.exit(1);
+      }
+
+      var supportedChains = ["base", "hive"];
+      if (supportedChains.indexOf(chain) === -1) {
+        console.error("error: unsupported chain '" + chain + "'. Supported: " + supportedChains.join(", "));
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Find the claim proof
+      var claim = await CrossChainClaim.findOne({
+        epoch: epochNum,
+        chain: chain
+      });
+
+      if (!claim) {
+        // Check if the epoch exists and was finalized
+        var epoch = await Epoch.findOne({ epoch_number: epochNum });
+        if (!epoch) {
+          console.error("error: epoch " + epochNum + " not found");
+        } else if (epoch.status !== "finalized") {
+          console.error("error: epoch " + epochNum + " not yet finalized (status: " + epoch.status + ")");
+        } else {
+          console.error("error: no cross-chain claim proof found for epoch " + epochNum + " on " + chain);
+          console.error("       ensure a wallet is linked for this chain on the mining node");
+        }
+        await disconnect();
+        process.exit(1);
+      }
+
+      if (claim.status === "submitted" || claim.status === "confirmed") {
+        console.log("");
+        console.log("  Claim already submitted for epoch " + epochNum + " on " + chain);
+        console.log("  TX: " + (claim.tx_hash || "-"));
+        console.log("  Status: " + claim.status);
+        console.log("");
+        await disconnect();
+        return;
+      }
+
+      console.log("");
+      console.log("Cross-Chain Claim");
+      console.log("=================");
+      console.log("");
+      console.log("  Chain:           " + chain);
+      console.log("  Epoch:           " + epochNum);
+      console.log("  Amount:          " + claim.claim_amount + " wBTCPC");
+      console.log("  Period:          " + claim.period);
+      console.log("  Ratio:           " + claim.cross_chain_ratio);
+      console.log("  Target wallet:   " + claim.target_wallet);
+      console.log("  Proof signature: " + claim.proof_signature.slice(0, 32) + "...");
+      console.log("");
+
+      if (chain === "hive") {
+        var hiveKey = process.env.HIVE_POSTING_KEY;
+        var hiveAccount = process.env.HIVE_ACCOUNT;
+        if (!hiveKey || !hiveAccount) {
+          console.error("  error: HIVE_POSTING_KEY and HIVE_ACCOUNT must be set in .env");
+          console.log("  Claim proof is ready. Set env vars and re-run to submit.");
+          console.log("");
+          await disconnect();
+          process.exit(1);
+        }
+
+        var hiveClaimManager = require("../src/claims/hiveClaimManager");
+        console.log("  Submitting to Hive...");
+        var result = await hiveClaimManager.postClaimToHive(
+          {
+            miner: claim.miner,
+            epoch: claim.epoch,
+            amount: claim.claim_amount,
+            period: claim.period,
+            cross_chain_ratio: claim.cross_chain_ratio,
+            proof_signature: claim.proof_signature,
+            timestamp: claim.created_at.toISOString()
+          },
+          hiveAccount,
+          hiveKey
+        );
+
+        if (result.status === "broadcast") {
+          claim.status = "submitted";
+          claim.tx_hash = result.tx_id;
+          claim.submitted_at = new Date();
+          await claim.save();
+          console.log("  Hive TX: " + result.tx_id);
+          console.log("  Status: submitted");
+        } else {
+          console.error("  Submission failed: " + (result.error || "unknown error"));
+        }
+      } else if (chain === "base") {
+        console.log("  EVM claim submission requires a web3 wallet.");
+        console.log("  Use the proof data below with the wBTCPC contract:");
+        console.log("");
+        console.log("  Contract call: claim(" + epochNum + ", " + claim.claim_amount + ", miner, signature)");
+        console.log("  Proof signature: " + claim.proof_signature);
+        console.log("");
+        console.log("  To submit via CLI, set BASE_RPC_URL and BASE_PRIVATE_KEY in .env");
+      }
+
+      console.log("");
+      await disconnect();
+    } catch (err) {
+      console.error("error:", err.message);
+      process.exit(1);
+    }
+  });
+
+// --- recover ---------------------------------------------------------------
+
+program
+  .command("recover <account>")
+  .description("Submit an account recovery request using the Owner key (bypasses 2FA, 72h time-lock)")
+  .option("--new-2fa-key <key>", "New 2FA public key to set after recovery completes")
+  .action(async (account, opts) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var body = {
+        account: account,
+        owner_signature: "cli-owner-sig-" + Date.now()
+      };
+      if (opts.new2faKey) {
+        body.new_2fa_public_key = opts.new2faKey;
+      }
+
+      var resp = await axios.post(baseUrl + "/api/recovery/request", body);
+      var data = resp.data;
+
+      console.log("");
+      console.log("  BTCPC Account Recovery");
+      console.log("  =====================");
+      console.log("");
+      console.log("  Account:       " + data.account);
+      console.log("  Status:        " + data.status);
+      console.log("  Requested:     " + ts(data.requested_at));
+      console.log("  Expires:       " + ts(data.expires_at));
+      console.log("  Recovery ID:   " + data.recovery_id);
+      console.log("");
+      console.log("  " + data.message);
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- contest-recovery ------------------------------------------------------
+
+program
+  .command("contest-recovery <account>")
+  .description("Contest a pending recovery request using valid 2FA (blocks the attacker)")
+  .requiredOption("--2fa-token <token>", "Valid 2FA token to prove account ownership")
+  .action(async (account, opts) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var body = {
+        account: account,
+        twofa_token: opts["2faToken"]
+      };
+
+      var resp = await axios.post(baseUrl + "/api/recovery/contest", body);
+      var data = resp.data;
+
+      console.log("");
+      console.log("  BTCPC Recovery Contest");
+      console.log("  =====================");
+      console.log("");
+      console.log("  Account:  " + data.account);
+      console.log("  Status:   " + data.status);
+      console.log("");
+      console.log("  " + data.message);
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
+// --- recovery-status -------------------------------------------------------
+
+program
+  .command("recovery-status <account>")
+  .description("Check if an account has a pending recovery request")
+  .action(async (account) => {
+    try {
+      var baseUrl = process.env.API_URL || ("http://localhost:" + (process.env.PORT || 3000));
+      var resp = await axios.get(baseUrl + "/api/recovery/status/" + encodeURIComponent(account));
+      var data = resp.data;
+
+      console.log("");
+      console.log("  BTCPC Recovery Status: " + data.account);
+      console.log("  " + "=".repeat(30));
+      console.log("");
+      if (data.pending) {
+        console.log("  Pending:         YES");
+        console.log("  Recovery ID:     " + data.recovery_id);
+        console.log("  Requested:       " + ts(data.requested_at));
+        console.log("  Expires:         " + ts(data.expires_at));
+        console.log("  Hours remaining: " + data.hours_remaining);
+        console.log("  Contested:       " + (data.contested ? "YES" : "no"));
+      } else {
+        console.log("  Pending:  no");
+        console.log("  " + data.message);
+      }
+      console.log("");
+    } catch (err) {
+      if (err.response && err.response.data) {
+        console.error("error:", err.response.data.error || err.response.data);
+      } else {
+        console.error("error:", err.message);
+      }
+      process.exit(1);
+    }
+  });
+
 // ---------------------------------------------------------------------------
 
 program.parse(process.argv);

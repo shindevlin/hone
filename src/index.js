@@ -25,11 +25,13 @@ const nodeRoutes = require("./routes/nodeRoutes");
 const delegationRoutes = require("./routes/delegationRoutes");
 const inferenceApi = require("./inference/api");
 const dreamRoutes = require("./routes/dreamRoutes");
+const recoveryRoutes = require("./routes/recoveryRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/node", nodeRoutes);
 app.use("/api/delegation", delegationRoutes);
+app.use("/api/recovery", recoveryRoutes);
 app.use("/api", dreamRoutes);
 app.use(inferenceApi);
 
@@ -74,6 +76,7 @@ app.get('/', (req, res) => {
       '/api/dream/:blockNumber/inscribe',
       '/api/dream/:blockNumber/transfer',
       '/api/delegation',
+      '/api/recovery',
       '/v1/chat/completions',
       '/v1/models'
     ]

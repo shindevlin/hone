@@ -13,6 +13,8 @@ const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
 const GenesisDream = require('../models/GenesisDream');
 const MiningProof = require('../models/MiningProof');
 const { filterInscription } = require('../services/contentFilter');
+const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
+const CrossChainClaim = require('../models/CrossChainClaim');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -189,7 +191,57 @@ async function mineEpoch(epochNumber) {
   // Step 5: Finalize epoch and distribute rewards
   const finalized = await finalizeEpoch(epochNumber);
 
-  // Step 5: Update node tracking
+  // Step 5b: Generate cross-chain claim proofs for linked wallets
+  const linkedChains = {};
+  if (node.hive_account) linkedChains.hive = node.hive_account;
+  if (node.base_wallet) linkedChains.base = node.base_wallet;
+
+  let claimProofs = [];
+  if (Object.keys(linkedChains).length > 0 && finalized) {
+    const postingKey = process.env.BTCPC_POSTING_KEY;
+    if (postingKey) {
+      try {
+        claimProofs = generateAllClaimProofs(
+          GENESIS_MINER,
+          epochNumber,
+          finalized.block_reward,
+          linkedChains,
+          postingKey
+        );
+
+        for (const proof of claimProofs) {
+          const existing = await CrossChainClaim.findOne({
+            miner: proof.miner,
+            chain: proof.chain,
+            epoch: proof.epoch
+          });
+          if (!existing) {
+            const claim = new CrossChainClaim({
+              miner: proof.miner,
+              chain: proof.chain,
+              target_wallet: proof.target_wallet,
+              epoch: proof.epoch,
+              native_reward: finalized.block_reward,
+              claim_amount: proof.amount,
+              period: proof.period,
+              cross_chain_ratio: proof.cross_chain_ratio,
+              proof_signature: proof.proof_signature,
+              proof_recovery: proof.proof_recovery
+            });
+            await claim.save();
+          }
+        }
+
+        if (claimProofs.length > 0) {
+          console.log('[BTCPC]   Cross-chain proofs: ' + claimProofs.map(function (p) { return p.chain; }).join(', '));
+        }
+      } catch (err) {
+        console.error('[BTCPC]   Cross-chain proof generation error: ' + err.message);
+      }
+    }
+  }
+
+  // Step 5c: Update node tracking
   node.last_epoch_commitment = epochNumber;
   await node.save();
 
@@ -210,6 +262,7 @@ async function mineEpoch(epochNumber) {
   console.log(`[BTCPC]   Tokens:       ${totalTokens}`);
   console.log(`[BTCPC]   Work value:   ${totalWorkValue.toFixed(1)}`);
   console.log(`[BTCPC]   State hash:   ${stateHash.slice(0, 16)}...`);
+  console.log(`[BTCPC]   Claims:       ${claimProofs.length} chain(s)`);
   console.log(`[BTCPC]   Duration:     ${elapsed}s`);
   console.log('[BTCPC] ------------------------------------------------');
 }
