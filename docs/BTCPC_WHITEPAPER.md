@@ -960,3 +960,146 @@ Inscriptions are a purpose-built contract type:
 - The genesis dream of block 0 carries: *"The Answer to the Ultimate Question of Life, the Universe, and Everything"*
 
 Every token is a dream computed into reality. Every block begins with a dream that can carry the builder's inscription — a permanent record of what was imagined and built on this chain.
+
+## Appendix E: Verification Evolution — Future-Proof Protocol
+
+### Current: Commit-Reveal Redundant Computation (N=3)
+
+The current verification model assigns each inference request to N nodes. All N run the same computation independently. Consensus determines truth. This works but costs Nx the compute.
+
+### Future: Single-Pass Verifiable Inference
+
+Research in verifiable computation, zero-knowledge machine learning (zkML), and model-level attestation is advancing rapidly. It is plausible that within the lifetime of BTCPC, methods will exist to verify that a neural network inference was performed correctly — without re-running it.
+
+Potential mechanisms:
+- **zkML proofs** — zero-knowledge proofs that a specific model produced a specific output from a specific input, without revealing the input or re-running the model
+- **Trusted Execution Environments (TEEs)** — hardware attestation (Intel SGX, AMD SEV, NVIDIA Confidential Computing) that cryptographically proves specific code ran on specific hardware
+- **Model fingerprinting** — intermediate layer activations at checkpoint positions that can be verified cheaply without full re-execution
+- **Consensus-free verification** — mathematical properties of transformer attention patterns that prove computation integrity
+
+### Protocol Upgrade Path
+
+The BTCPC protocol is designed so that the verification method is a **replaceable module**, not hardcoded into consensus:
+
+```
+Verification Interface:
+  verify(request, result, proof) → {valid: bool, confidence: float}
+
+Current implementation:
+  CommitRevealVerifier  (N=3 redundant computation)
+
+Future implementations (hot-swappable via governance vote):
+  ZKMLVerifier          (zero-knowledge proof of inference)
+  TEEVerifier           (hardware attestation)
+  HybridVerifier        (ZK for small models, commit-reveal for large)
+  SinglePassVerifier    (model-native verification, when available)
+```
+
+When a superior verification method becomes available:
+1. A governance proposal is submitted with the new verifier implementation
+2. Stake-weighted vote by node operators
+3. If approved, the new verifier is activated at a specified epoch
+4. Old proofs remain valid — verification is forward-compatible
+5. N can be reduced to 1 — eliminating redundant computation costs entirely
+
+This means BTCPC miners will eventually earn the FULL inference fee (not split N ways), making mining dramatically more profitable when single-pass verification arrives. Early miners who build the network now benefit from this future upgrade.
+
+The protocol does not assume any specific verification technology. It assumes only that verified compute exists and is improvable. The chain adapts; the economic model endures.
+
+## Appendix F: Genesis Dreams and Mining Proofs
+
+### Two Artifacts Per Block
+
+Every block on the BTCPC chain produces two distinct non-fungible artifacts:
+
+**1. Genesis Dream (transferable)**
+The first dream of the block. A unique, inscribable, tradeable NFT. The miner who produced the block receives it and can:
+- Inscribe it with metadata (once, permanently)
+- Transfer it to another account (sell, trade, gift)
+- Hold it as a collectible
+
+Genesis dreams are the BTCPC equivalent of rare ordinal sats — but each one represents verified AI compute that actually happened.
+
+**2. Mining Proof (soulbound)**
+A non-transferable badge permanently bound to the miner's account. Proves that this account produced this specific block. Cannot be bought, sold, faked, or transferred. It is soulbound to the miner forever.
+
+```
+Block 42 mined by shindevlin:
+  Reward: 243.05555556 BTCPC
+
+  Artifacts:
+    Genesis Dream #42   → transferable NFT (1 dream, locked from spendable balance)
+    Mining Proof #42    → soulbound badge (non-transferable, proves authorship)
+
+  Spendable: 243.05555555 BTCPC (reward minus 1 dream)
+```
+
+### Genesis Dream Verification
+
+Each genesis dream carries a cryptographic proof of authenticity that anyone can verify without trusting the holder:
+
+```
+Genesis Dream #42:
+  block:          42
+  original_miner: shindevlin
+  timestamp:      2026-03-25T18:55:24.123Z
+  state_hash:     abc123...  (chain state at this block)
+  work_hash:      def456...  (hash of all inference work in this block)
+  model:          qwen3.5:27b
+  tokens_computed: 1536
+  proof_signature: <signed by consensus>
+  inscription:    { ... }  (metadata, if inscribed)
+```
+
+**Verification flow:**
+1. Check `proof_signature` against the chain's consensus key for block 42
+2. Verify `state_hash` matches the canonical chain at block 42
+3. Verify `work_hash` matches the recorded work proofs for block 42
+4. Confirm `original_miner` matches the block producer record
+
+Forgery is impossible — the proof signature chain goes back to genesis block 0. A fake genesis dream would fail signature verification instantly.
+
+**Even after transfer**, the `original_miner` field is immutable. If shindevlin transfers Genesis Dream #42 to alice, alice owns the dream but shindevlin is permanently recorded as its creator. Provenance is built into the protocol.
+
+### Wallet Display
+
+```
+$ btcpc-cli balance shindevlin
+
+BTCPC Balance: shindevlin
+==============================
+
+  Spendable:           972.22222220 BTCPC
+  Staked:              0.00000000 BTCPC
+
+  Genesis Dreams (transferable NFTs):
+  ------------------------------------
+  #0    Block 0     "The Answer to the Ultimate Question..."    2026-03-25
+  #1    Block 1     [uninscribed]                                2026-03-25
+  #2    Block 2     [uninscribed]                                2026-03-25
+
+  Mining Proofs (soulbound, non-transferable):
+  ---------------------------------------------
+  Block 0     243.06 BTCPC    qwen3.5:27b    2026-03-25
+  Block 1     243.06 BTCPC    qwen3.5:27b    2026-03-25
+  Block 2     243.06 BTCPC    qwen3.5:27b    2026-03-25
+```
+
+### Transfer
+
+```
+$ btcpc-cli transfer-dream 0 --to alice
+  Enter password: ********
+
+  Transferred Genesis Dream #0 to alice
+  Original miner: shindevlin (permanently recorded)
+  Inscription: "The Answer to the Ultimate Question..."
+  Alice now owns this dream. Shindevlin retains Mining Proof #0.
+```
+
+### Purpose-Built Contract Types (updated)
+
+| Contract Type | Required Key | Purpose |
+|--------------|-------------|---------|
+| **Inscribe** | Active | Add metadata to an owned genesis dream (once, permanent) |
+| **TransferDream** | Active | Transfer a genesis dream to another account |
