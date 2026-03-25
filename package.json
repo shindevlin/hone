@@ -1,0 +1,41 @@
+{
+  "name": "urs-nerdcore-node",
+  "version": "1.0.0",
+  "description": "URSNode - Modular backend for blockchain-powered games and apps with secure wallet management, staking, and multi-chain integration (Hive/TON)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage",
+    "lint": "eslint src/**/*.js",
+    "test:watch": "jest --watch"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.0.3",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.1.5",
+    "morgan": "^1.10.0",
+    "winston": "^3.11.0",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0"
+  },
+  "keywords": [
+    "blockchain",
+    "wallet",
+    "staking",
+    "hive",
+    "ton",
+    "telegram"
+  ],
+  "author": "",
+  "license": "MIT"
+}

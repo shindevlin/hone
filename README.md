@@ -1,7 +1,7 @@
-# BRNNode
+# URSNode
 
 ## Project Overview
-BRNNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. BRNNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
+URSNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. URSNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
 
 ## Key Features
 - **Wallet module**: Secure, multi-chain wallet with 2FA enforcement for token-moving actions
@@ -13,8 +13,8 @@ BRNNode is a modular, developer-friendly backend for blockchain-powered games an
 ## Quick Start
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/your-org/brnnode.git
-   cd brnnode
+   git clone https://github.com/your-org/urs-nerdcore-node.git
+   cd urs-nerdcore-node
    ```
 2. **Install dependencies:**
    ```sh
@@ -62,7 +62,7 @@ MIT
 - The project needs a clear, execution-ready specification that aligns implementation with expected outcomes.
 
 ### Product Summary
-- `brn-node-gpt`: BRNNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. BRNNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
+- `urs-nerdcore-node`: URSNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. URSNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
 
 ### Goals
 1. Clarify the product boundary, core use cases, and success criteria.

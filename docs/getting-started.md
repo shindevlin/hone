@@ -10,8 +10,8 @@
 ## Installation
 1. Clone the repository:
    ```sh
-   git clone https://github.com/your-org/brnnode.git
-   cd brnnode
+   git clone https://github.com/your-org/urs-nerdcore-node.git
+   cd urs-nerdcore-node
    ```
 2. Install dependencies:
    ```sh

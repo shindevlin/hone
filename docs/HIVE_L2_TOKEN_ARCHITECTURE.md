@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides a comprehensive analysis of Layer 2 token architectures available on Hive blockchain and recommendations for BRN Node integration.
+This guide provides a comprehensive analysis of Layer 2 token architectures available on Hive blockchain and recommendations for URS Node integration.
 
 ## Available Hive L2 Solutions
 
@@ -28,7 +28,7 @@ This guide provides a comprehensive analysis of Layer 2 token architectures avai
 - **DeFi Protocols**: Lending, staking, and yield farming
 - **API Integration**: RESTful APIs for easy integration
 
-#### Implementation with BRN Node:
+#### Implementation with URS Node:
 ```typescript
 // Configuration
 const hiveEngineConfig: HiveEngineConfig = {
@@ -41,30 +41,30 @@ const hiveEngineConfig: HiveEngineConfig = {
 };
 
 // Create token
-const token = await brnNode.hiveEngine.createToken({
-  symbol: 'BRN',
-  name: 'BRN Army Token',
-  description: 'Official token of BRN Army ecosystem',
-  url: 'https://brnarmy.com',
+const token = await ursNode.hiveEngine.createToken({
+  symbol: 'URS',
+  name: 'URS Token',
+  description: 'Official token of URS ecosystem',
+  url: 'https://urs-nerdcore.com',
   precision: 3,
   maxSupply: 1000000000,
   circulatingSupply: 0,
   owner: 'your-hive-account',
   metadata: {
-    website: 'https://brnarmy.com',
-    whitepaper: 'https://brnarmy.com/whitepaper',
+    website: 'https://urs-nerdcore.com',
+    whitepaper: 'https://urs-nerdcore.com/whitepaper',
     social: {
-      twitter: '@brnarmy',
-      telegram: '@brnarmy'
+      twitter: '@urs-nerdcore',
+      telegram: '@urs-nerdcore'
     }
   }
 });
 
 // Issue tokens
-await brnNode.hiveEngine.issueTokens('BRN', 'user123', 1000, 'Initial distribution');
+await ursNode.hiveEngine.issueTokens('URS', 'user123', 1000, 'Initial distribution');
 
 // Transfer tokens
-await brnNode.hiveEngine.transferTokens('BRN', 'user123', 'user456', 100, 'Reward payment');
+await ursNode.hiveEngine.transferTokens('URS', 'user123', 'user456', 100, 'Reward payment');
 ```
 
 ### 2. **VSC (Virtual Smart Contracts)** (Secondary Choice)
@@ -95,8 +95,8 @@ const vscConfig = {
 };
 
 // Deploy custom smart contract
-const contract = await brnNode.vsc.deployContract({
-  name: 'BRNAdvancedToken',
+const contract = await ursNode.vsc.deployContract({
+  name: 'URSAdvancedToken',
   source: contractSource,
   parameters: {
     maxSupply: 1000000000,
@@ -140,13 +140,13 @@ const contract = await brnNode.vsc.deployContract({
 - **Social Trading**: Community-driven trading platforms
 - **Governance Tokens**: DAO and community governance
 
-## BRN Node Integration Strategy
+## URS Node Integration Strategy
 
 ### Phase 1: Hive Engine Integration (Immediate)
 
 ```typescript
-// Initialize BRN Node with Hive Engine
-const brnNode = new BRNNode({
+// Initialize URS Node with Hive Engine
+const ursNode = new URSNode({
   hiveConfig: {
     nodeUrl: 'https://api.hive.blog',
     account: 'your-hive-account',
@@ -163,11 +163,11 @@ const brnNode = new BRNNode({
 });
 
 // Create your token
-const brnToken = await brnNode.hiveEngine.createToken({
-  symbol: 'BRN',
-  name: 'BRN Army Token',
-  description: 'Official token of BRN Army ecosystem',
-  url: 'https://brnarmy.com',
+const brnToken = await ursNode.hiveEngine.createToken({
+  symbol: 'URS',
+  name: 'URS Token',
+  description: 'Official token of URS ecosystem',
+  url: 'https://urs-nerdcore.com',
   precision: 3,
   maxSupply: 1000000000,
   circulatingSupply: 0,
@@ -175,7 +175,7 @@ const brnToken = await brnNode.hiveEngine.createToken({
 });
 
 // Issue initial supply
-await brnNode.hiveEngine.issueTokens('BRN', 'your-hive-account', 100000000, 'Initial token creation');
+await ursNode.hiveEngine.issueTokens('URS', 'your-hive-account', 100000000, 'Initial token creation');
 ```
 
 ### Phase 2: VSC Integration (Advanced Features)
@@ -189,8 +189,8 @@ const vscConfig = {
 };
 
 // Deploy advanced token contract
-const advancedToken = await brnNode.vsc.deployContract({
-  name: 'BRNAdvanced',
+const advancedToken = await ursNode.vsc.deployContract({
+  name: 'URSAdvanced',
   source: advancedTokenSource,
   parameters: {
     maxSupply: 1000000000,
@@ -217,7 +217,7 @@ const bridgeConfig = {
 };
 
 // Bridge tokens between chains
-await brnNode.bridge.bridgeTokens('hive', 'ethereum', 1000, 'BRN');
+await ursNode.bridge.bridgeTokens('hive', 'ethereum', 1000, 'URS');
 ```
 
 ## Token Economics & Distribution
@@ -249,7 +249,7 @@ const tokenDistribution = {
 2. **Governance**: Token holders can vote on platform decisions
 3. **Premium Features**: Access to premium features and services
 4. **NFT Purchases**: Used to purchase NFTs and collectibles
-5. **Cross-App Benefits**: Benefits across all BRN ecosystem apps
+5. **Cross-App Benefits**: Benefits across all URS ecosystem apps
 
 ## Security Considerations
 
@@ -259,9 +259,9 @@ const tokenDistribution = {
 const multiSigConfig = {
   requiredSignatures: 3,
   signers: [
-    'brn-admin-1',
-    'brn-admin-2', 
-    'brn-admin-3'
+    'urs-admin-1',
+    'urs-admin-2', 
+    'urs-admin-3'
   ]
 };
 ```
@@ -343,4 +343,4 @@ This multi-layered approach provides:
 - **Flexibility**: Can adapt to changing requirements
 - **Cost Efficiency**: Optimized for different use cases
 
-The combination of Hive Engine as the primary platform with VSC for advanced features provides the best balance of functionality, security, and developer experience for BRN Node's token ecosystem. 
+The combination of Hive Engine as the primary platform with VSC for advanced features provides the best balance of functionality, security, and developer experience for URS Node's token ecosystem. 

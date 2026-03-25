@@ -1,8 +1,8 @@
-# Hive L2 Solutions Analysis & BRN Node Comparison
+# Hive L2 Solutions Analysis & URS Node Comparison
 
 ## Overview
 
-This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain and compares them with the BRN Node system's L2 capabilities.
+This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain and compares them with the URS Node system's L2 capabilities.
 
 ## Existing Hive L2 Solutions
 
@@ -70,7 +70,7 @@ This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain a
 - Creator economies
 - Community governance
 
-## BRN Node L2 Architecture
+## URS Node L2 Architecture
 
 ### Core L2 Modules
 
@@ -110,7 +110,7 @@ This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain a
 
 ### Performance Comparison
 
-| Feature | Honeycomb | VSC | Hive Engine | SPK Network | BRN Node |
+| Feature | Honeycomb | VSC | Hive Engine | SPK Network | URS Node |
 |---------|-----------|-----|-------------|-------------|----------|
 | **Transaction Speed** | Fast | Medium | Fast | Fast | Very Fast |
 | **Cost Efficiency** | High | Medium | High | High | Very High |
@@ -125,23 +125,23 @@ This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain a
 - **VSC**: Complex gaming logic and smart contracts
 - **Hive Engine**: Token-based gaming economies
 - **SPK Network**: Community-driven gaming
-- **BRN Node**: **Optimal** - Built for gaming with instant token transfers
+- **URS Node**: **Optimal** - Built for gaming with instant token transfers
 
 #### DeFi Applications
 - **Honeycomb**: Basic DeFi operations
 - **VSC**: Advanced DeFi protocols
 - **Hive Engine**: Comprehensive DeFi ecosystem
 - **SPK Network**: Social DeFi features
-- **BRN Node**: **Excellent** - Cross-chain DeFi with bridge support
+- **URS Node**: **Excellent** - Cross-chain DeFi with bridge support
 
 #### Social Applications
 - **Honeycomb**: Social media transactions
 - **VSC**: Social smart contracts
 - **Hive Engine**: Social token economies
 - **SPK Network**: **Optimal** - Built for social tokens
-- **BRN Node**: **Excellent** - Social features with loyalty tracking
+- **URS Node**: **Excellent** - Social features with loyalty tracking
 
-### Technical Advantages of BRN Node
+### Technical Advantages of URS Node
 
 #### 1. Multi-Node Architecture
 - **Distributed Deployment**: Different node types for different use cases
@@ -211,10 +211,10 @@ This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain a
 3. **Implement Bridge Logic**:
    ```typescript
    // Bridge Hive tokens to TON
-   await brnNode.ton.bridgeToTON(hiveAccount, tonAddress, amount);
+   await ursNode.ton.bridgeToTON(hiveAccount, tonAddress, amount);
    
    // Bridge TON tokens to Hive
-   await brnNode.ton.bridgeToHive(tonAddress, hiveAccount, amount);
+   await ursNode.ton.bridgeToHive(tonAddress, hiveAccount, amount);
    ```
 
 4. **Add Configuration**:
@@ -233,20 +233,20 @@ This document analyzes the four main L2 (Layer 2) solutions on Hive blockchain a
 ## Recommendations
 
 ### For Gaming Applications
-**Use BRN Node** with state channels for instant token transfers and rollups for cost efficiency.
+**Use URS Node** with state channels for instant token transfers and rollups for cost efficiency.
 
 ### For DeFi Applications
-**Use BRN Node** with bridge support for cross-chain DeFi and comprehensive token management.
+**Use URS Node** with bridge support for cross-chain DeFi and comprehensive token management.
 
 ### For Social Applications
-**Consider SPK Network** for pure social token features, or **BRN Node** for social features with gaming integration.
+**Consider SPK Network** for pure social token features, or **URS Node** for social features with gaming integration.
 
 ### For Enterprise Applications
-**Use BRN Node** for its modular architecture, comprehensive APIs, and cross-chain capabilities.
+**Use URS Node** for its modular architecture, comprehensive APIs, and cross-chain capabilities.
 
 ## Conclusion
 
-BRN Node provides a comprehensive L2 solution that combines the best features of existing Hive L2 solutions while adding unique capabilities:
+URS Node provides a comprehensive L2 solution that combines the best features of existing Hive L2 solutions while adding unique capabilities:
 
 1. **Multi-Node Architecture**: Scalable deployment options
 2. **Cross-Chain Support**: TON integration and bridge capabilities
@@ -254,4 +254,4 @@ BRN Node provides a comprehensive L2 solution that combines the best features of
 4. **Developer Experience**: Excellent APIs and documentation
 5. **Future-Proof**: Extensible architecture for new features
 
-The TON integration adds significant value by enabling cross-chain token transfers and expanding the ecosystem beyond Hive, making BRN Node a powerful solution for multi-chain applications. 
+The TON integration adds significant value by enabling cross-chain token transfers and expanding the ecosystem beyond Hive, making URS Node a powerful solution for multi-chain applications. 
