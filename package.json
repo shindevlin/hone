@@ -13,6 +13,7 @@
     "mine": "node bin/btcpc-mine",
     "explorer": "node src/explorer/server.js",
     "p2p": "node src/p2p/network.js",
+    "update": "node bin/btcpc-update",
     "website": "npx serve website"
   },
   "dependencies": {
