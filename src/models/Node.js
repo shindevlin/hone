@@ -58,6 +58,23 @@ var nodeSchema = new Schema({
   last_epoch_commitment: {
     type: Number,
     default: -1
+  },
+  sik_hash: {
+    type: String,
+    default: null
+  },
+  sik_type: {
+    type: String,
+    enum: ['silicon', 'software', null],
+    default: null
+  },
+  offense_count: {
+    type: Number,
+    default: 0
+  },
+  last_offense_epoch: {
+    type: Number,
+    default: -1
   }
 });
 

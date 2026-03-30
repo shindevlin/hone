@@ -333,18 +333,54 @@ Nodes declare their hardware capabilities upon registration:
 
 The network maintains benchmark data for known hardware configurations. A node claiming to generate 1000 tokens/second on a single RTX 4090 with a 27B parameter model is physically impossible (~15-30 tokens/second is realistic). Claims that violate plausibility bounds trigger automatic verification of all that node's work for the epoch.
 
-### 3.4 Slashing Protocol
+### 3.4 Slashing Protocol — Stake-Scaled Penalties
 
-When a node's result doesn't match consensus:
+Slashing is proportional to stake. Higher stake = higher assignment priority, but also higher risk. This makes corruption economically suicidal at scale.
 
-1. First offense: warning + reputation penalty
-2. Second offense within 1000 epochs: **10% of staked BTCPC slashed**
-3. Third offense: **25% slashed + 24-hour mining suspension**
-4. Persistent offenders: **full stake slashed + permanent ban**
+| Offense | Slash % | 1k Stake | 10k Stake | 100k Stake |
+|---------|---------|----------|-----------|------------|
+| First: wrong result | 10% | -100 | -1,000 | -10,000 |
+| Second (within 1000 epochs) | 25% | -250 | -2,500 | -25,000 |
+| Third | 50% + 24hr ban | -500 | -5,000 | -50,000 |
+| Data leak / prompt logging | 100% + permanent ban | -1,000 | -10,000 | -100,000 |
 
-Slashed BTCPC is redistributed to the honest nodes who produced the correct result.
+Slashed BTCPC is redistributed to the honest nodes who produced the correct result. A node staking 100,000 BTCPC for maximum assignment priority risks losing 10,000 on a single incorrect result — the penalty scales with the privilege.
 
-### 3.5 Why This Works (Game Theory)
+### 3.5 Anti-Centralization: Fair Work Distribution
+
+BTCPC prevents powerful nodes from monopolizing inference work through a **weighted assignment algorithm** that balances price, track record, and newcomer opportunity:
+
+```
+assignment_score = price_score × reputation_factor
+                 - concentration_penalty
+                 + newcomer_bonus
+                 + stake_bonus
+```
+
+| Factor | Effect | Purpose |
+|--------|--------|---------|
+| **Price score** | Lower price = higher score | Market competition |
+| **Reputation factor** | 0.5x to 1.0x multiplier | Reward honest nodes |
+| **Concentration penalty** | log₁₀(epochs_done) × 0.1, max -0.4 | Prevent monopolies |
+| **Newcomer bonus** | Up to +0.3 for nodes with < 100 epochs | Bootstrap new miners |
+| **Stake bonus** | Logarithmic, hard cap at +0.2 | Skin in the game, with diminishing returns |
+
+**Stake bonus has diminishing returns and a hard cap:**
+
+| Stake | Bonus |
+|-------|-------|
+| 1,000 (minimum) | +0.00 |
+| 10,000 | +0.10 |
+| 100,000 | +0.20 (cap) |
+| 1,000,000 | +0.20 (same as 100k) |
+
+Staking 10x more than the minimum buys a meaningful edge. Staking 1000x buys the same edge as 100x. Whales cannot buy dominance — and the newcomer bonus (+0.3) still outweighs maximum stake bonus (+0.2) for a new miner's first 100 epochs.
+
+A node that has mined 10,000 epochs gets penalized -0.4. A brand new node gets +0.3 bonus. Combined with stake-scaled slashing (Section 3.4), the system rewards commitment while actively redistributing opportunity to new participants. The bigger you are, the more you earn — but also the more you lose if you cheat.
+
+Nodes are also limited to **one active inference job per 8GB VRAM**. A 24GB GPU can run 3 concurrent jobs. A 48GB GPU can run 6. This caps how much work a single machine can monopolize regardless of score.
+
+### 3.6 Why This Works (Game Theory)
 
 For a rational miner with stake S and epoch earnings E:
 
@@ -961,7 +997,73 @@ Inscriptions are a purpose-built contract type:
 
 Every token is a dream computed into reality. Every block begins with a dream that can carry the builder's inscription — a permanent record of what was imagined and built on this chain.
 
-## Appendix E: Verification Evolution — Future-Proof Protocol
+## Appendix E: Proof of Silicon — GPU-Bound Inference Privacy
+
+### E.1 The Problem
+
+Confidential computing (NVIDIA H100, AMD SEV) provides hardware-guaranteed privacy but requires expensive datacenter hardware. Consumer GPUs — the backbone of decentralized compute — have no memory encryption. A node operator with root access can theoretically read GPU VRAM.
+
+### E.2 Silicon Identity Key (SIK)
+
+BTCPC introduces **Proof of Silicon**: a cryptographic identity derived from the physical manufacturing variations of a specific GPU die.
+
+Every GPU has transistor-level imperfections unique to that chip. These are measurable, reproducible, and unclonable:
+
+1. **VRAM Timing Probe** — Measures nanosecond-level read latency variations across thousands of memory cells. Each cell's electrical characteristics differ due to manufacturing variance.
+
+2. **Floating-Point Divergence Probe** — Runs identical deterministic math on every GPU. Due to ALU transistor variations, the least significant bits of results differ between physical dies. Same code, different silicon, different bits.
+
+Combined, these produce a 256-bit **Silicon Identity Key (SIK)** that is:
+- Unique per physical GPU
+- Reproducible across reboots
+- Not derivable from serial numbers
+- Impossible to replicate without possessing that exact chip
+
+### E.3 SIK-Bound Encryption
+
+Inference session keys are derived from: `HKDF(ECDH_shared_secret + SIK, session_id)`.
+
+The SIK component means the decryption key **physically cannot exist** without the registered GPU. Copy the node's disk to another machine → different GPU → different SIK → wrong key → cannot decrypt.
+
+### E.4 Zero-Plaintext Inference Pipeline
+
+Plaintext prompts never exist on the inference node — not even for microseconds:
+
+1. User tokenizes the prompt **on their own device**
+2. User generates a per-session random permutation of the token vocabulary
+3. User remaps all token IDs through this permutation
+4. User encrypts the remapped token IDs with the SIK-bound session key
+5. Node decrypts → receives remapped integer arrays
+6. GPU processes remapped tokens — VRAM contains only meaningless integers
+7. Node encrypts output tokens, sends back to user
+8. User de-remaps on their device
+
+The node cannot reverse the remapped tokens to text because:
+- It does not have the remap permutation table
+- The token IDs don't correspond to the model's real vocabulary
+- Even dumping GPU VRAM yields random-looking integers
+
+### E.5 Remote Verification
+
+The network can challenge any node to prove it's using its registered GPU:
+
+```
+Network → "Run SIK probe, sign result with posting key"
+Node → derives SIK from physical GPU → signs → returns
+Network → sha256(SIK) matches registered sik_hash?
+  Yes → same GPU, node is legitimate
+  No → GPU swapped or spoofed → slash stake
+```
+
+### E.6 Node Privacy Tiers
+
+| Tier | Hardware | Privacy Level | Fee Multiplier |
+|------|----------|--------------|----------------|
+| **Silicon** | Consumer GPU with SIK probe | Practical privacy — software isolation + token remapping | 1.0x |
+| **Confidential** | NVIDIA H100/H200 + SIK | Hardware-guaranteed — encrypted GPU memory + SIK | 1.5x |
+| **Software** | CPU-only, no GPU | Transport encryption only — no silicon binding | 0.5x |
+
+## Appendix F: Verification Evolution — Future-Proof Protocol
 
 ### Current: Commit-Reveal Redundant Computation (N=3)
 

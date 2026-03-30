@@ -86,7 +86,7 @@ async function createGenesisBlock() {
       },
       stake_amount: 1000,
       status: 'active',
-      hive_account: 'thisthatjosh'
+      hive_account: ''
     });
     await node.save();
     console.log('[BTCPC] Genesis mining node registered');

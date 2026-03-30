@@ -24,7 +24,15 @@ const MESSAGE_TYPES = {
   PEER_LIST: "PEER_LIST",
   EPOCH_COMMIT: "EPOCH_COMMIT",
   REQUEST_BLOCKS: "REQUEST_BLOCKS",
-  RESPONSE_BLOCKS: "RESPONSE_BLOCKS"
+  RESPONSE_BLOCKS: "RESPONSE_BLOCKS",
+  // Inference protocol
+  INFERENCE_REQUEST: "INFERENCE_REQUEST",
+  INFERENCE_CLAIM: "INFERENCE_CLAIM",
+  INFERENCE_ASSIGN: "INFERENCE_ASSIGN",
+  INFERENCE_PAYLOAD: "INFERENCE_PAYLOAD",
+  INFERENCE_COMMIT: "INFERENCE_COMMIT",
+  INFERENCE_REVEAL: "INFERENCE_REVEAL",
+  INFERENCE_RESULT: "INFERENCE_RESULT",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -160,6 +168,16 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.RESPONSE_BLOCKS:
       handleResponseBlocks(peer, msg, ctx);
+      break;
+    // Inference messages — broadcast to all peers (gossip)
+    case MESSAGE_TYPES.INFERENCE_REQUEST:
+    case MESSAGE_TYPES.INFERENCE_CLAIM:
+    case MESSAGE_TYPES.INFERENCE_ASSIGN:
+    case MESSAGE_TYPES.INFERENCE_PAYLOAD:
+    case MESSAGE_TYPES.INFERENCE_COMMIT:
+    case MESSAGE_TYPES.INFERENCE_REVEAL:
+    case MESSAGE_TYPES.INFERENCE_RESULT:
+      handleInferenceMessage(peer, msg, ctx);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type);
@@ -340,6 +358,15 @@ function handleResponseBlocks(peer, msg, ctx) {
   }
 
   console.log("[BTCPC P2P] Accepted " + accepted + "/" + blocks.length + " blocks");
+}
+
+/**
+ * INFERENCE messages — gossip to all peers and notify local handlers.
+ */
+function handleInferenceMessage(peer, msg, ctx) {
+  console.log("[BTCPC P2P] Inference " + msg.type + " from " + (msg.nodeId || "unknown").slice(0, 12));
+  // Rebroadcast to all other peers
+  ctx.broadcast(msg, peer.address);
 }
 
 // ---------------------------------------------------------------------------

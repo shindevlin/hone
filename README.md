@@ -1,94 +1,122 @@
-# URSNode
+# Bitcoin Proof of Compute (BTCPC)
 
-## Project Overview
-URSNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. URSNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
+A sovereign blockchain where mining means useful AI inference. Miners earn BTCPC by providing real GPU compute to the network. Every token is backed by verified work.
 
-## Key Features
-- **Wallet module**: Secure, multi-chain wallet with 2FA enforcement for token-moving actions
-- **Staking module**: Competitive, sustainable staking pools with customizable APY and reward logic
-- **Hive Engine and TON integration**: Plug-and-play support for both blockchains
-- **Modular architecture**: Easily extend or integrate new features and chains
-- **Developer onboarding**: Clear documentation, examples, and contribution guidelines
+**Total supply: 42,000,000 BTCPC** — the answer to life, the universe, and everything.
 
-## Quick Start
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/your-org/urs-nerdcore-node.git
-   cd urs-nerdcore-node
-   ```
-2. **Install dependencies:**
-   ```sh
-   npm install
-   # or
-   yarn install
-   ```
-3. **Configure environment:**
-   - Copy `.env.example` to `.env` and fill in required values (API keys, DB, etc.)
-4. **Run the node:**
-   ```sh
-   npm start
-   # or
-   yarn start
-   ```
-5. **Access API docs and try example flows.**
+## What BTCPC Does
+
+- Miners run AI models (Ollama) and earn BTCPC for each epoch of verified inference
+- Users submit encrypted inference requests — prompts are private, even from the node operator
+- Cross-chain rewards: mining on BTCPC automatically generates claimable wBTCPC on linked chains (Hive, Base)
+- Silicon Identity Keys (SIK) bind encryption to physical GPU hardware — no other chain has this
+
+## Node Types
+
+| Type | GPU Required | What It Does | Guide |
+|------|-------------|-------------|-------|
+| **Inference Miner** | Yes | Runs AI models, earns BTCPC | [docs/install-miner.md](docs/install-miner.md) |
+| **User Node** | No | Wallet, submit requests, trade | [docs/install-user.md](docs/install-user.md) |
+| **Validator** | No | Validates blocks, relays, no mining | [docs/install-validator.md](docs/install-validator.md) |
+
+## Quick Start (Miner)
+
+```bash
+git clone https://github.com/estejosh/btcpc.git
+cd btcpc
+npm install
+cp .env.example .env   # edit with your config
+```
+
+**Requirements:** Node.js 20+, MongoDB, Ollama with a supported model
+
+**Start mining:**
+```bash
+node bin/btcpc-mine
+```
+
+**Start API + Explorer:**
+```bash
+npm start                          # API on :3000
+node src/explorer/server.js        # Explorer on :4242
+```
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `MONGODB_URI` | Yes | `mongodb://localhost:27017/btcpc` | MongoDB connection string |
+| `OLLAMA_URL` | Yes | `http://100.122.145.60:11434` | Ollama inference endpoint |
+| `BTCPC_MODEL` | No | `qwen3.5:27b` | Model for mining inference |
+| `BTCPC_WORK_PER_EPOCH` | No | `3` | Inference tasks per epoch |
+| `P2P_PORT` | No | `6942` | WebSocket P2P port |
+| `BTCPC_SEED_PEERS` | No | — | Comma-separated peer addresses (`ws://host:6942`) |
+| `PORT` | No | `3000` | API server port |
+| `JWT_SECRET` | Yes | — | JWT signing secret |
+| `ALERTBOT_URL` | No | — | Alertbot endpoint for monitoring |
+| `ALERTBOT_API_KEY` | No | — | Alertbot API key |
+
+## Supported Models
+
+Any Ollama model works. Weight factors scale rewards with model size:
+
+| Model Size | Weight | Examples |
+|-----------|--------|---------|
+| 1B-7B | 1.0x | phi3, gemma2:2b |
+| 7B-13B | 2.0x | qwen3.5:9b, llama3.1:8b, deepseek-r1:8b |
+| 13B-30B | 4.0x | qwen3.5:27b, mixtral |
+| 30B-70B | 8.0x | qwen3-coder:30b |
+| 70B+ | 16.0x | llama3.1:70b |
+
+## Architecture
+
+```
+┌─────────────┐  ┌──────────────┐  ┌───────────────┐
+│ Mining       │  │ P2P Network  │  │ Inference API │
+│ Daemon       │  │ (WebSocket)  │  │ (Encrypted)   │
+│              │  │              │  │               │
+│ Ollama ←───→│←→│ Peers ←────→│←→│ Users         │
+│ Work proofs  │  │ Block gossip │  │ SIK-bound     │
+│ Epoch commit │  │ Peer discovery│ │ sessions      │
+└─────────────┘  └──────────────┘  └───────────────┘
+        │                │                  │
+        └────────────────┴──────────────────┘
+                         │
+              ┌──────────┴──────────┐
+              │  MongoDB            │
+              │  Accounts, Wallets, │
+              │  Epochs, Proofs,    │
+              │  Stakes, Claims     │
+              └─────────────────────┘
+```
+
+## CLI
+
+```bash
+node bin/btcpc-cli status    # Network status
+node bin/btcpc-cli balance   # Account balance
+node bin/btcpc-cli mining    # Mining stats
+```
+
+## Telegram Bot
+
+[@btcpcbot](https://t.me/btcpcbot) — check balances, mining stats, network info
 
 ## Documentation
-- [Getting Started Guide](docs/getting-started.md)
-- [Module Documentation](docs/modules.md)
+
+- [Whitepaper](docs/BTCPC_WHITEPAPER.md) ([PDF](docs/BTCPC_WHITEPAPER.pdf))
 - [API Reference](docs/api.md)
-- [Contribution Guide](docs/contributing.md)
-- [FAQ & Troubleshooting](docs/faq.md)
-- [Architecture Diagrams](docs/diagrams.md)
+- [Getting Started](docs/getting-started.md)
+- [Architecture](docs/L2_ARCHITECTURE.md)
 
-## Architecture Diagram
-See [Architecture Diagrams](docs/diagrams.md) for a system overview and module interactions.
+## Key Innovations
 
-## Community & Support
-- Discord/Telegram: _Coming soon_
-- Website: _Coming soon_
-- For issues or feature requests, open a GitHub issue.
+- **Proof of Compute** — mining produces useful AI inference, not wasted hashes
+- **Proof of Silicon** — GPU fingerprinting binds encryption to physical hardware
+- **Zero-Plaintext Inference** — prompts tokenized client-side, remapped, never exist as text on the node
+- **Anti-Centralization** — newcomer bonus + concentration penalty prevents mining monopolies
+- **Cross-Chain Mining** — earn on BTCPC + claimable wBTCPC on every linked chain
 
 ## License
-MIT 
 
-## Current State (2026-02-19 Audit)
-- README standardized for operator clarity and execution planning.
-- Detected stack: `unknown`.
-- This section reflects the currently visible repository state and should be revised as implementation evolves.
-
-## Product Requirements Document (PRD)
-
-### Problem
-- The project needs a clear, execution-ready specification that aligns implementation with expected outcomes.
-
-### Product Summary
-- `urs-nerdcore-node`: URSNode is a modular, developer-friendly backend for blockchain-powered games and apps. It provides secure wallet management, staking, and token operations with seamless integration for both TON and Hive blockchains. The system enforces 2FA for sensitive actions (like transfers and staking) for Telegram-linked users, ensuring strong security while maintaining a smooth user experience. URSNode is designed for rapid onboarding, extensibility, and easy integration with external apps and platforms.
-
-### Goals
-1. Clarify the product boundary, core use cases, and success criteria.
-2. Ensure implementation tasks map directly to measurable outcomes.
-3. Make handoff and maintenance possible without tribal knowledge.
-
-### Primary Users
-1. Project operator/owner managing roadmap and release decisions.
-2. Developer/agent implementing and validating changes.
-
-### Functional Requirements
-1. Core workflow(s) are documented as inputs, processing steps, and outputs.
-2. Runtime/deployment target is documented with required environment variables.
-3. Error states and retries are defined for critical operations.
-
-### Non-Functional Requirements
-1. Observability: actionable logs and health/status visibility.
-2. Reliability: deterministic behavior for critical paths.
-3. Security: no secrets in repo, environment-based secret injection only.
-
-### Milestones
-1. M1: Baseline architecture and runbook clarity.
-2. M2: Core workflow implementation and validation tests.
-3. M3: Deployment hardening and operational checks.
-
-### Definition of Done
-1. A new operator can run and validate the project using README instructions.
-2. Critical workflow tests pass consistently.
-3. Deploy/restart/rollback steps are documented and verified.
+MIT

@@ -24,6 +24,7 @@ const stakingRoutes = require("./routes/stakingRoutes");
 const nodeRoutes = require("./routes/nodeRoutes");
 const delegationRoutes = require("./routes/delegationRoutes");
 const inferenceApi = require("./inference/api");
+const encryptedInference = require("./inference/encrypted");
 const dreamRoutes = require("./routes/dreamRoutes");
 const recoveryRoutes = require("./routes/recoveryRoutes");
 app.use("/api/user", userRoutes);
@@ -34,6 +35,7 @@ app.use("/api/delegation", delegationRoutes);
 app.use("/api/recovery", recoveryRoutes);
 app.use("/api", dreamRoutes);
 app.use(inferenceApi);
+app.use(encryptedInference);
 
 app.use(morgan('combined'));
 

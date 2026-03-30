@@ -15,9 +15,31 @@ const MiningProof = require('../models/MiningProof');
 const { filterInscription } = require('../services/contentFilter');
 const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
 const CrossChainClaim = require('../models/CrossChainClaim');
+const p2p = require('../p2p/network');
+const { createBlockMessage } = require('../p2p/protocol');
+const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
+const silicon = require('../silicon');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
+const http = require('http');
+
+// ── Alertbot heartbeat ──
+function sendAlert(severity, message, details) {
+  const url = process.env.ALERTBOT_URL;
+  const key = process.env.ALERTBOT_API_KEY;
+  if (!url || !key) return;
+  const body = JSON.stringify({ project: 'btcpc', severity, message, service: 'miner', details });
+  const parsed = new URL('/alert', url);
+  const req = http.request({
+    hostname: parsed.hostname, port: parsed.port, path: '/alert',
+    method: 'POST', timeout: 3000,
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': key, 'Content-Length': Buffer.byteLength(body) },
+  });
+  req.on('error', () => {});
+  req.write(body);
+  req.end();
+}
 
 let running = false;
 let miningInterval = null;
@@ -117,6 +139,7 @@ async function mineEpoch(epochNumber) {
 
   if (workProofs.length === 0) {
     console.error('[BTCPC] No work completed this epoch. Ollama may be down.');
+    sendAlert('error', `Epoch ${epochNumber} failed: no work completed. Ollama may be down.`);
     return;
   }
 
@@ -265,6 +288,26 @@ async function mineEpoch(epochNumber) {
   console.log(`[BTCPC]   Claims:       ${claimProofs.length} chain(s)`);
   console.log(`[BTCPC]   Duration:     ${elapsed}s`);
   console.log('[BTCPC] ------------------------------------------------');
+
+  sendAlert('ok', `Epoch ${epochNumber} mined: +${reward} BTCPC (${totalTokens} tokens, ${elapsed}s)`);
+
+  // Broadcast finalized epoch to P2P network
+  try {
+    const blockData = {
+      epoch_number: epochNumber,
+      block_reward: reward,
+      total_work: totalWorkValue,
+      consensus_hash: stateHash,
+      status: 'finalized',
+      started_at: epoch.started_at,
+      ended_at: new Date(),
+    };
+    cacheBlock(blockData);
+    const blockMsg = createBlockMessage(blockData, p2p.NODE_ID);
+    p2p.broadcast(blockMsg);
+  } catch (err) {
+    console.error('[BTCPC] P2P broadcast error:', err.message);
+  }
 }
 
 /**
@@ -285,6 +328,40 @@ async function startMiner() {
   console.log(`[BTCPC] Work/epoch: ${WORK_ITEMS_PER_EPOCH}`);
   console.log(`[BTCPC] Epoch:      ${EPOCH_DURATION_MS / 1000}s`);
   console.log('[BTCPC] ================================================');
+
+  // Start P2P network
+  try {
+    await loadChainFromDB();
+    p2p.startServer();
+    p2p.connectToSeeds();
+    console.log(`[BTCPC] P2P network started on port ${process.env.P2P_PORT || 6942}`);
+    console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
+  } catch (err) {
+    console.error('[BTCPC] P2P startup error (mining continues):', err.message);
+  }
+
+  // Probe GPU silicon fingerprint
+  try {
+    const sik = await silicon.getFingerprint();
+    console.log(`[BTCPC] Silicon ID: ${sik.sik_hash.slice(0, 16)}...`);
+    console.log(`[BTCPC] GPU: ${sik.gpu} (${sik.vram_mb} MB)`);
+    if (sik.software_only) {
+      console.log('[BTCPC] WARNING: Software-only fingerprint. Compile CUDA probe for silicon-bound identity.');
+    }
+    // Register SIK hash on Node document
+    const sikUser = await User.findOne({ username: GENESIS_MINER });
+    if (sikUser) {
+      const sikNode = await Node.findOne({ account: sikUser._id });
+      if (sikNode && sikNode.sik_hash !== sik.sik_hash) {
+        sikNode.sik_hash = sik.sik_hash;
+        sikNode.sik_type = sik.software_only ? 'software' : 'silicon';
+        await sikNode.save();
+        console.log(`[BTCPC] SIK registered on node: ${sik.sik_hash.slice(0, 16)}... (${sikNode.sik_type})`);
+      }
+    }
+  } catch (err) {
+    console.warn('[BTCPC] SIK probe skipped:', err.message);
+  }
 
   // Create genesis block if needed
   const genesis = await createGenesisBlock();
