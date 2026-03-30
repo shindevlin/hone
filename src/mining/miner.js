@@ -15,6 +15,7 @@ const MiningProof = require('../models/MiningProof');
 const { filterInscription } = require('../services/contentFilter');
 const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
 const CrossChainClaim = require('../models/CrossChainClaim');
+const axios = require('axios');
 const p2p = require('../p2p/network');
 const { createBlockMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
@@ -336,6 +337,32 @@ async function startMiner() {
     p2p.connectToSeeds();
     console.log(`[BTCPC] P2P network started on port ${process.env.P2P_PORT || 6942}`);
     console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
+
+    // Auto-discover peers from bot registry
+    const peerRegistryUrl = process.env.PEER_REGISTRY_URL;
+    if (peerRegistryUrl) {
+      try {
+        const { data } = await axios.get(`${peerRegistryUrl}/peers`, { timeout: 5000 });
+        const discoveredPeers = (data.peers || []).map(p => p.address).filter(Boolean);
+        for (const addr of discoveredPeers) {
+          p2p.connectToPeer(addr);
+        }
+        if (discoveredPeers.length > 0) {
+          console.log(`[BTCPC] Discovered ${discoveredPeers.length} peer(s) from registry`);
+        }
+
+        // Register ourselves
+        const myPort = process.env.P2P_PORT || 6942;
+        const myAddr = `ws://${process.env.P2P_ADVERTISE_IP || 'localhost'}:${myPort}`;
+        await axios.post(`${peerRegistryUrl}/peers/register`, {
+          address: myAddr,
+          username: GENESIS_MINER,
+          gpu: null,
+        }, { timeout: 5000 }).catch(() => {});
+      } catch (err) {
+        console.warn('[BTCPC] Peer registry unreachable:', err.message);
+      }
+    }
   } catch (err) {
     console.error('[BTCPC] P2P startup error (mining continues):', err.message);
   }

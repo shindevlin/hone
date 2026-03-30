@@ -19,6 +19,7 @@ const WorkProof = require('../src/models/WorkProof');
 const MiningProof = require('../src/models/MiningProof');
 const GenesisDream = require('../src/models/GenesisDream');
 const Transaction = require('../src/models/Transaction');
+const PeerRegistry = require('../src/models/PeerRegistry');
 const { getBlockReward } = require('../src/services/emissionSchedule');
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -53,6 +54,8 @@ bot.onText(/\/start/, (msg) => {
     `/node — your node status`,
     `/history — recent transactions`,
     `/reward — current block reward`,
+    `/peers — list registered P2P peers`,
+    `/register <ws://ip:port> — register your node for peer discovery`,
     `/unlink — unlink Telegram account`,
   ].join('\n'), { parse_mode: 'Markdown' });
 });
@@ -364,6 +367,80 @@ bot.onText(/\/reward/, async (msg) => {
   }
 });
 
+// ── /register <address> — register node for peer discovery ──
+bot.onText(/\/register\s+(wss?:\/\/\S+)/, async (msg, match) => {
+  const user = await getLinkedUser(msg.from.id);
+  if (!user) return bot.sendMessage(msg.chat.id, 'Link your account first: `/link <username>`', { parse_mode: 'Markdown' });
+
+  const address = match[1];
+
+  try {
+    const node = await Node.findOne({ account: user._id }).lean();
+    const gpu = node?.hardware?.gpu || null;
+
+    await PeerRegistry.findOneAndUpdate(
+      { username: user.username },
+      {
+        node_id: node?._id?.toString() || user._id.toString(),
+        address,
+        username: user.username,
+        gpu,
+        last_seen: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+
+    const count = await PeerRegistry.countDocuments();
+    bot.sendMessage(msg.chat.id, `\u{2705} Registered \`${address}\`\n${count} peer(s) in registry.`, { parse_mode: 'Markdown' });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── /peers — list all registered peers ──
+bot.onText(/\/peers/, async (msg) => {
+  try {
+    const peers = await PeerRegistry.find().sort({ last_seen: -1 }).limit(20).lean();
+    if (!peers.length) return bot.sendMessage(msg.chat.id, 'No peers registered yet. Miners can register with `/register ws://ip:port`', { parse_mode: 'Markdown' });
+
+    const lines = peers.map(p => {
+      const ago = Math.round((Date.now() - new Date(p.last_seen).getTime()) / 60000);
+      const gpu = p.gpu ? ` (${p.gpu})` : '';
+      return `  \`${p.address}\` — ${p.username}${gpu} — ${ago}m ago`;
+    });
+
+    bot.sendMessage(msg.chat.id, [
+      `\u{1F310} *Peer Registry* (${peers.length})`,
+      ``,
+      ...lines,
+      ``,
+      `Add to your .env:`,
+      `\`BTCPC_SEED_PEERS=${peers.map(p => p.address).join(',')}\``,
+    ].join('\n'), { parse_mode: 'Markdown' });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── /heartbeat — miner calls this periodically to stay in registry ──
+bot.onText(/\/heartbeat/, async (msg) => {
+  const user = await getLinkedUser(msg.from.id);
+  if (!user) return;
+
+  try {
+    const result = await PeerRegistry.findOneAndUpdate(
+      { username: user.username },
+      { last_seen: new Date() },
+      { new: true }
+    );
+    if (result) {
+      bot.sendMessage(msg.chat.id, `\u{1F493} Heartbeat recorded.`);
+    } else {
+      bot.sendMessage(msg.chat.id, 'Not registered. Use `/register ws://ip:port` first.', { parse_mode: 'Markdown' });
+    }
+  } catch (_) {}
+});
+
 // ── Error handling ──
 bot.on('polling_error', (err) => {
   console.error('Polling error:', err.code || err.message);
@@ -376,11 +453,57 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled:', reason);
 });
 
+// ── HTTP API for peer discovery (nodes call this on startup) ──
+const express = require('express');
+const httpApp = express();
+httpApp.use(express.json());
+
+// GET /peers — returns list of registered peer addresses
+httpApp.get('/peers', async (_req, res) => {
+  try {
+    const peers = await PeerRegistry.find().sort({ last_seen: -1 }).limit(50).lean();
+    res.json({ peers: peers.map(p => ({ address: p.address, username: p.username, gpu: p.gpu, last_seen: p.last_seen })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /peers/register — node registers itself
+httpApp.post('/peers/register', async (req, res) => {
+  const { address, username, gpu } = req.body;
+  if (!address || !username) return res.status(400).json({ error: 'address and username required' });
+
+  try {
+    await PeerRegistry.findOneAndUpdate(
+      { username },
+      { address, username, gpu, last_seen: new Date(), node_id: username },
+      { upsert: true }
+    );
+    const count = await PeerRegistry.countDocuments();
+    res.json({ ok: true, peers: count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /peers/heartbeat — keep-alive
+httpApp.post('/peers/heartbeat', async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'username required' });
+  await PeerRegistry.findOneAndUpdate({ username }, { last_seen: new Date() });
+  res.json({ ok: true });
+});
+
+httpApp.get('/health', (_req, res) => res.json({ status: 'ok', service: 'btcpc-bot' }));
+
+const HTTP_PORT = process.env.BOT_HTTP_PORT || 3003;
+
 // ── Connect and start ──
 async function main() {
   console.log('[btcpc-bot] Connecting to MongoDB...');
   await mongoose.connect(MONGODB_URI);
   console.log('[btcpc-bot] MongoDB connected');
+  httpApp.listen(HTTP_PORT, () => console.log(`[btcpc-bot] HTTP peer registry on port ${HTTP_PORT}`));
   console.log('[btcpc-bot] @btcpcbot is live');
 }
 
