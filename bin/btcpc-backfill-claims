@@ -95,7 +95,19 @@ async function main() {
       );
 
       for (const proof of proofs) {
-        const claim = new CrossChainClaim(proof);
+        const claim = new CrossChainClaim({
+          miner: proof.miner,
+          chain: proof.chain,
+          target_wallet: proof.target_wallet,
+          epoch: proof.epoch,
+          native_reward: reward,
+          claim_amount: proof.amount,
+          period: proof.period,
+          cross_chain_ratio: proof.cross_chain_ratio,
+          proof_signature: proof.proof_signature,
+          proof_recovery: proof.proof_recovery,
+          status: 'generated'
+        });
         await claim.save();
         generated++;
       }
