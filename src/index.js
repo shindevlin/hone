@@ -127,6 +127,10 @@ connectDB().then(async () => {
       p2pNetwork.startServer();
       p2pNetwork.connectToSeeds();
       console.log('[BTCPC] P2P network layer started');
+
+      // Initialize P2P inference router (listens for results)
+      const { initP2PRouter } = require('./inference/p2pRouter');
+      initP2PRouter();
     } catch (err) {
       console.error('[BTCPC] Failed to start P2P network:', err.message);
     }

@@ -481,7 +481,7 @@ bot.onText(/\/models/, async (msg) => {
 });
 
 // ── Inference via relay ──
-const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.grouchly.workers.dev';
+const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.shindevlin.workers.dev';
 const RELAY_API_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
 const axios = require('axios');
 

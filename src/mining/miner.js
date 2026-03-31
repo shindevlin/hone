@@ -345,7 +345,7 @@ async function startMiner() {
     console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
 
     // Connect to public relay (works through any NAT)
-    const relayUrl = process.env.BTCPC_RELAY_URL || 'wss://btcpc-relay.grouchly.workers.dev/ws';
+    const relayUrl = process.env.BTCPC_RELAY_URL || 'wss://btcpc-relay.shindevlin.workers.dev/ws';
     p2p.connectToPeer(relayUrl);
     console.log(`[BTCPC] Connecting to relay: ${relayUrl}`);
 
