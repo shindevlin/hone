@@ -33,6 +33,8 @@ const MESSAGE_TYPES = {
   INFERENCE_COMMIT: "INFERENCE_COMMIT",
   INFERENCE_REVEAL: "INFERENCE_REVEAL",
   INFERENCE_RESULT: "INFERENCE_RESULT",
+  // Model demand broadcast
+  MODEL_DEMAND: "MODEL_DEMAND",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -177,6 +179,7 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.INFERENCE_COMMIT:
     case MESSAGE_TYPES.INFERENCE_REVEAL:
     case MESSAGE_TYPES.INFERENCE_RESULT:
+    case MESSAGE_TYPES.MODEL_DEMAND:
       handleInferenceMessage(peer, msg, ctx);
       break;
     default:

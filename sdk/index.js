@@ -60,11 +60,21 @@ class BTCPC {
   }
 
   /**
-   * Get current inference pricing (dynamic based on network load).
-   * @returns {Promise<Object>} { tokens_per_btcpc, cost_per_token, multiplier, network_load, example }
+   * Get current inference pricing (dynamic based on network load + model weight).
+   * @param {string} [model] - Model name for model-specific pricing
+   * @returns {Promise<Object>} { tokens_per_btcpc, cost_per_token, model_weight, load_multiplier, ... }
    */
-  async pricing() {
-    return this._request('GET', '/v1/pricing');
+  async pricing(model) {
+    const path = model ? `/v1/pricing?model=${encodeURIComponent(model)}` : '/v1/pricing';
+    return this._request('GET', path);
+  }
+
+  /**
+   * List all models available across the mining network + unmet demand.
+   * @returns {Promise<Object>} { available: [...], wanted: [...] }
+   */
+  async networkModels() {
+    return this._request('GET', '/v1/network/models');
   }
 
   /**

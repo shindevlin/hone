@@ -91,15 +91,19 @@ router.get('/v1/models', async (req, res) => {
 
 /**
  * GET /v1/pricing
- * Current dynamic pricing based on network load.
+ * Current dynamic pricing. Accepts ?model= to get model-specific pricing.
  */
 router.get('/v1/pricing', async (req, res) => {
   try {
-    const pricing = await getCurrentPricing();
+    const model = req.query.model || undefined;
+    const pricing = await getCurrentPricing(model);
     res.json({
+      model: pricing.model,
       tokens_per_btcpc: pricing.tokensPerBtcpc,
       cost_per_token: pricing.costPerToken,
-      multiplier: pricing.multiplier,
+      load_multiplier: pricing.loadMultiplier,
+      model_weight: pricing.modelWeight,
+      total_multiplier: pricing.totalMultiplier,
       network_load: pricing.load,
       base_rate: pricing.baseRate,
       example: {
@@ -107,6 +111,37 @@ router.get('/v1/pricing', async (req, res) => {
         '500_tokens': parseFloat((500 * pricing.costPerToken).toFixed(8)),
         '1000_tokens': parseFloat((1000 * pricing.costPerToken).toFixed(8))
       }
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message, type: 'server_error' } });
+  }
+});
+
+/**
+ * GET /v1/network/models
+ * All models available across the mining network + unmet demand.
+ */
+router.get('/v1/network/models', async (req, res) => {
+  try {
+    const { getNetworkModels, getUnmetDemand, checkModelAvailability } = require('../services/modelRegistry');
+    const models = await getNetworkModels();
+    const demand = getUnmetDemand();
+
+    // Add pricing for each available model
+    const modelsWithPricing = await Promise.all(models.map(async (m) => {
+      const pricing = await getCurrentPricing(m.model);
+      return {
+        ...m,
+        cost_per_token: pricing.costPerToken,
+        tokens_per_btcpc: pricing.tokensPerBtcpc,
+        model_weight: pricing.modelWeight
+      };
+    }));
+
+    res.json({
+      available: modelsWithPricing,
+      wanted: demand,
+      total_miners: models.reduce((sum, m) => Math.max(sum, m.miners), 0)
     });
   } catch (err) {
     res.status(500).json({ error: { message: err.message, type: 'server_error' } });
@@ -133,6 +168,37 @@ router.post('/v1/chat/completions', async (req, res) => {
   }
 
   const selectedModel = model || 'qwen3.5:27b';
+
+  // Check if model is available on the network
+  const { checkModelAvailability, recordUnmetDemand } = require('../services/modelRegistry');
+  const availability = await checkModelAvailability(selectedModel);
+
+  if (!availability.available) {
+    // Record demand so miners see what's wanted
+    recordUnmetDemand(selectedModel);
+
+    // Broadcast demand to P2P network
+    try {
+      const p2p = require('../p2p/network');
+      const { createMessage } = require('../p2p/protocol');
+      p2p.broadcast(createMessage('MODEL_DEMAND', {
+        model: selectedModel,
+        demand: (availability.demand || 0) + 1,
+        timestamp: new Date().toISOString()
+      }, p2p.NODE_ID));
+    } catch (_) {}
+
+    return res.status(503).json({
+      error: {
+        message: `No miner on the network currently has ${selectedModel}. Your request has been broadcast — miners with capable hardware may pull this model to earn from future requests.`,
+        type: 'model_unavailable',
+        code: 'no_capable_miner',
+        model: selectedModel,
+        demand: (availability.demand || 0) + 1,
+        suggestion: 'Try /v1/network/models to see what is currently available.'
+      }
+    });
+  }
 
   // Streaming not yet supported
   if (stream === true) {
@@ -216,7 +282,7 @@ router.post('/v1/chat/completions', async (req, res) => {
     const created = Math.floor(Date.now() / 1000);
 
     // Dynamic pricing based on network load
-    const { cost, pricing } = await calculateCost(evalCount);
+    const { cost, pricing } = await calculateCost(evalCount, selectedModel);
 
     // Deduct from project balance if this is a project API key request
     if (req.project) {
@@ -249,8 +315,10 @@ router.post('/v1/chat/completions', async (req, res) => {
       btcpc: {
         cost,
         tokens_per_btcpc: pricing.tokensPerBtcpc,
-        load: pricing.load,
-        multiplier: pricing.multiplier,
+        model_weight: pricing.modelWeight,
+        load_multiplier: pricing.loadMultiplier,
+        total_multiplier: pricing.totalMultiplier,
+        network_load: pricing.load,
         epoch: epochNumber,
         proof_hash: proofHash,
         verified: verified,

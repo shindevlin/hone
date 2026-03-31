@@ -43,6 +43,9 @@ function startInferenceHandler() {
       case "INFERENCE_PAYLOAD":
         await handlePayload(msg);
         break;
+      case "MODEL_DEMAND":
+        handleModelDemand(msg);
+        break;
     }
   });
 
@@ -213,6 +216,14 @@ async function handlePayload(msg) {
   } finally {
     activeJobs = Math.max(0, activeJobs - 1);
   }
+}
+
+/**
+ * Handle MODEL_DEMAND broadcast — log so miners know what to pull.
+ */
+function handleModelDemand(msg) {
+  const data = msg.data || msg;
+  console.log(`[BTCPC Inference] \u{1F4E2} MODEL DEMAND: "${data.model}" — ${data.demand} request(s) waiting. Pull this model to earn from unmet demand.`);
 }
 
 module.exports = { startInferenceHandler };

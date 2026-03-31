@@ -2,34 +2,35 @@
 
 const Epoch = require('../models/Epoch');
 const WorkProof = require('../models/WorkProof');
+const { getModelWeight } = require('../mining/workGenerator');
 
 /**
  * Dynamic pricing engine for BTCPC inference.
  *
- * Base rate: 1 BTCPC = BASE_TOKENS_PER_BTCPC tokens
- * Adjusted by network utilization over the last N epochs.
+ * Two factors determine cost:
+ * 1. Network load — busier network = higher price
+ * 2. Model size — bigger models cost more (weight factor applied)
  *
- * When network is idle → price drops (more tokens per BTCPC)
- * When network is busy → price rises (fewer tokens per BTCPC)
+ * Base rate: 1 BTCPC = BASE_TOKENS_PER_BTCPC tokens (for a 1.0x weight model)
+ * A 4.0x model costs 4x more per token than a 1.0x model.
  */
 
-// Base: 1 BTCPC buys this many tokens at normal load
+// Base: 1 BTCPC buys this many tokens at normal load (1.0x weight model)
 const BASE_TOKENS_PER_BTCPC = parseInt(process.env.BTCPC_BASE_TOKENS) || 1000;
 
 // How many recent epochs to sample for load calculation
 const LOAD_WINDOW = parseInt(process.env.BTCPC_LOAD_WINDOW) || 12; // ~1 hour at 5min epochs
 
 // Price floor/ceiling multipliers (prevents runaway pricing)
-const MIN_MULTIPLIER = 0.25;  // cheapest: 4x more tokens per BTCPC
-const MAX_MULTIPLIER = 4.0;   // most expensive: 4x fewer tokens per BTCPC
+const MIN_MULTIPLIER = 0.25;
+const MAX_MULTIPLIER = 4.0;
 
-// Cache pricing for 60s to avoid hitting DB every request
-let cachedPricing = null;
+// Cache base pricing for 60s
+let cachedBasePricing = null;
 let cacheExpiry = 0;
 
 /**
  * Calculate current network load factor (0.0 = idle, 1.0+ = busy).
- * Based on inference work proofs vs mining work proofs in recent epochs.
  */
 async function getNetworkLoad() {
   const recentEpochs = await Epoch.find({ status: 'finalized' })
@@ -41,67 +42,78 @@ async function getNetworkLoad() {
 
   const epochNumbers = recentEpochs.map(e => e.epoch_number);
 
-  // Count external inference proofs vs total proofs
   const [totalProofs, externalProofs] = await Promise.all([
     WorkProof.countDocuments({ epoch_number: { $in: epochNumbers } }),
     WorkProof.countDocuments({ epoch_number: { $in: epochNumbers }, node_id: 'inference-api' })
   ]);
 
   if (totalProofs === 0) return 0;
-
-  // Load = ratio of external inference to total capacity
-  // More external requests = higher load
   return externalProofs / totalProofs;
 }
 
 /**
- * Get the current price multiplier based on network load.
- * Returns a multiplier where 1.0 = base rate.
- *
- * Load 0.0 (idle)     → multiplier 0.5  (cheap, attract usage)
- * Load 0.25 (light)   → multiplier 0.75
- * Load 0.5 (moderate) → multiplier 1.0  (base rate)
- * Load 0.75 (busy)    → multiplier 1.5
- * Load 1.0+ (full)    → multiplier up to MAX
+ * Load → price multiplier. 1.0 = base rate.
  */
 function loadToMultiplier(load) {
-  // Sigmoid-ish curve centered at 0.5 load
   const multiplier = 0.5 + (load * 2);
   return Math.max(MIN_MULTIPLIER, Math.min(MAX_MULTIPLIER, multiplier));
 }
 
 /**
- * Get current pricing info.
- * @returns {Object} { tokensPerBtcpc, costPerToken, multiplier, load, baseRate }
+ * Get base pricing (network load only, no model factor).
+ * Cached for 60s.
  */
-async function getCurrentPricing() {
+async function getBasePricing() {
   const now = Date.now();
-  if (cachedPricing && now < cacheExpiry) return cachedPricing;
+  if (cachedBasePricing && now < cacheExpiry) return cachedBasePricing;
 
   const load = await getNetworkLoad();
-  const multiplier = loadToMultiplier(load);
-  const tokensPerBtcpc = Math.floor(BASE_TOKENS_PER_BTCPC / multiplier);
-  const costPerToken = 1 / tokensPerBtcpc; // in BTCPC
+  const loadMultiplier = loadToMultiplier(load);
 
-  cachedPricing = {
-    tokensPerBtcpc,
-    costPerToken,
-    multiplier: parseFloat(multiplier.toFixed(4)),
+  cachedBasePricing = {
+    loadMultiplier: parseFloat(loadMultiplier.toFixed(4)),
     load: parseFloat(load.toFixed(4)),
     baseRate: BASE_TOKENS_PER_BTCPC
   };
-  cacheExpiry = now + 60000; // cache for 60s
+  cacheExpiry = now + 60000;
 
-  return cachedPricing;
+  return cachedBasePricing;
 }
 
 /**
- * Calculate cost for a given number of tokens.
+ * Get current pricing for a specific model.
+ * @param {string} [model] - Model name (default: qwen3.5:27b)
+ * @returns {Object} Full pricing breakdown
+ */
+async function getCurrentPricing(model) {
+  const base = await getBasePricing();
+  const modelWeight = model ? getModelWeight(model) : 1.0;
+
+  // Total multiplier = network load * model weight
+  const totalMultiplier = base.loadMultiplier * modelWeight;
+  const tokensPerBtcpc = Math.floor(BASE_TOKENS_PER_BTCPC / totalMultiplier);
+  const costPerToken = 1 / tokensPerBtcpc;
+
+  return {
+    tokensPerBtcpc,
+    costPerToken,
+    loadMultiplier: base.loadMultiplier,
+    modelWeight,
+    totalMultiplier: parseFloat(totalMultiplier.toFixed(4)),
+    load: base.load,
+    baseRate: BASE_TOKENS_PER_BTCPC,
+    model: model || 'default (1.0x)'
+  };
+}
+
+/**
+ * Calculate cost for a given number of tokens on a specific model.
  * @param {number} tokenCount
+ * @param {string} [model] - Model name
  * @returns {Promise<{cost: number, pricing: Object}>}
  */
-async function calculateCost(tokenCount) {
-  const pricing = await getCurrentPricing();
+async function calculateCost(tokenCount, model) {
+  const pricing = await getCurrentPricing(model);
   const cost = parseFloat((tokenCount * pricing.costPerToken).toFixed(8));
   return { cost, pricing };
 }

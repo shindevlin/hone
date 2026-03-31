@@ -399,6 +399,17 @@ async function startMiner() {
     console.warn('[BTCPC] SIK probe skipped:', err.message);
   }
 
+  // Sync local Ollama models to node record
+  try {
+    const { syncLocalModels } = require('../services/modelRegistry');
+    const user = await User.findOne({ username: GENESIS_MINER });
+    const node = user ? await Node.findOne({ account: user._id }) : null;
+    const models = await syncLocalModels(node?._id);
+    console.log(`[BTCPC] Models synced: ${models.join(', ') || 'none'}`);
+  } catch (err) {
+    console.warn('[BTCPC] Model sync skipped:', err.message);
+  }
+
   // Create genesis block if needed
   const genesis = await createGenesisBlock();
 
@@ -429,6 +440,12 @@ async function startMiner() {
 
     currentEpoch++;
     try {
+      // Re-sync models each epoch (picks up newly pulled models)
+      const { syncLocalModels } = require('../services/modelRegistry');
+      const _user = await User.findOne({ username: GENESIS_MINER });
+      const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+      syncLocalModels(_node?._id).catch(() => {});
+
       await mineEpoch(currentEpoch);
     } catch (err) {
       console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);

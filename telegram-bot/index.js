@@ -57,7 +57,8 @@ bot.onText(/\/start/, (msg) => {
     `/node — your node status`,
     `/history — recent transactions`,
     `/reward — current block reward`,
-    `/price — current inference pricing`,
+    `/price [model] — inference pricing (model-aware)`,
+    `/models — models available on the network`,
     `Just type anything to submit inference (0.001 BTCPC/token)`,
     `/peers — list registered P2P peers`,
     `/register <ws://ip:port> — register your node for peer discovery`,
@@ -421,21 +422,59 @@ bot.onText(/\/reward/, async (msg) => {
   }
 });
 
-// ── /price — check current inference pricing ──
-bot.onText(/\/price/, async (msg) => {
+// ── /price [model] — check current inference pricing ──
+bot.onText(/\/price\s*(.*)/, async (msg, match) => {
   try {
     const { getCurrentPricing } = require('../src/services/pricing');
-    const p = await getCurrentPricing();
+    const model = match[1]?.trim() || undefined;
+    const p = await getCurrentPricing(model);
     bot.sendMessage(msg.chat.id, [
       `\u{1F4B0} *BTCPC Inference Pricing*`,
+      model ? `Model: \`${model}\`` : '',
       ``,
       `1 BTCPC = ${p.tokensPerBtcpc} tokens`,
       `Cost per token: ${p.costPerToken.toFixed(6)} BTCPC`,
       `Network load: ${(p.load * 100).toFixed(1)}%`,
-      `Price multiplier: ${p.multiplier}x`,
+      `Load multiplier: ${p.loadMultiplier}x`,
+      `Model weight: ${p.modelWeight}x`,
+      `Total multiplier: ${p.totalMultiplier}x`,
       ``,
-      `_Pricing adjusts dynamically based on network usage_`,
+      `_Bigger models cost more. Busier network costs more._`,
+      `_Try: /price dolphin-llama3:8b_`,
     ].join('\n'), { parse_mode: 'Markdown' });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── /models — list models available on the network ──
+bot.onText(/\/models/, async (msg) => {
+  try {
+    const { getNetworkModels, getUnmetDemand } = require('../src/services/modelRegistry');
+    const models = await getNetworkModels();
+    const demand = getUnmetDemand();
+
+    const lines = models.length > 0
+      ? models.slice(0, 15).map(m => `  \`${m.model}\` — ${m.miners} miner(s), avg rep ${m.avg_reputation}`)
+      : ['  No models registered yet'];
+
+    const demandLines = demand.length > 0
+      ? demand.slice(0, 5).map(d => `  \`${d.model}\` — ${d.requests} request(s) waiting`)
+      : [];
+
+    const parts = [
+      `\u{1F5A5} *Network Models*`,
+      ``,
+      `*Available:*`,
+      ...lines,
+    ];
+
+    if (demandLines.length > 0) {
+      parts.push('', '*Wanted (no miner has these yet):*', ...demandLines,
+        '', '_Miners: pull these models to earn from unmet demand_');
+    }
+
+    bot.sendMessage(msg.chat.id, parts.join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
@@ -491,9 +530,9 @@ bot.on('message', async (msg) => {
     const tokens = data.usage?.completion_tokens || 0;
     const elapsed = data.btcpc?.elapsed_ms || 0;
 
-    // Dynamic pricing
+    // Dynamic pricing (model-aware)
     const { calculateCost } = require('../src/services/pricing');
-    const { cost: inferCost } = await calculateCost(tokens);
+    const { cost: inferCost } = await calculateCost(tokens, 'qwen3.5:27b');
     const cost = Math.max(0.001, inferCost);
     const newBalance = balance - cost;
 
