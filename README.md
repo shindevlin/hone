@@ -22,7 +22,7 @@ A sovereign blockchain where mining means useful AI inference. Miners earn BTCPC
 ## Quick Start (Miner)
 
 ```bash
-git clone https://github.com/estejosh/btcpc.git
+git clone https://github.com/shindevlin/btcpc.git
 cd btcpc
 npm install
 cp .env.example .env   # edit with your config

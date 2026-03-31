@@ -88,7 +88,7 @@ ollama pull qwen3.5:27b
 ## 2. Clone and Install
 
 ```bash
-git clone https://github.com/UrsNerdworksLLC/btcpc.git
+git clone https://github.com/shindevlin/btcpc.git
 cd btcpc
 npm install
 ```

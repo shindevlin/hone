@@ -1,0 +1,15 @@
+[Unit]
+Description=BTCPC Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=shindevlin
+WorkingDirectory=/home/shindevlin/repos/btcpc/telegram-bot
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/shindevlin/repos/btcpc/telegram-bot/.env
+
+[Install]
+WantedBy=multi-user.target

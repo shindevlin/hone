@@ -1,6 +1,6 @@
 # URSNode Task Tracker
 
-This file tracks all tasks for the URSNode project, consolidated from the original implementation plan in `/home/ubuntclaw/.openclaw/workspace/tasks.md`.
+This file tracks all tasks for the BTCPC project.
 
 ## Task Management System
 - All tasks are tracked here for this repository
@@ -235,4 +235,4 @@ src/
 - If a task is blocked, mark it with [!]
 - Add new tasks to this file as they are identified
 
-*This task tracker was created on 2026-03-12 by Grouchly, centralizing tasks from `/home/ubuntclaw/.openclaw/workspace/tasks.md` into the repository's task directory.*
+*This task tracker was created on 2026-03-12.*

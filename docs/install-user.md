@@ -10,7 +10,7 @@ Lightweight node for wallet operations, submitting inference requests, and tradi
 ## Step 1: Clone and Install
 
 ```bash
-git clone https://github.com/estejosh/btcpc.git
+git clone https://github.com/shindevlin/btcpc.git
 cd btcpc
 npm install
 ```

@@ -39,7 +39,7 @@ docker run -d \
 
 ```bash
 cd ~/repos  # or your preferred directory
-git clone https://github.com/estejosh/btcpc.git
+git clone https://github.com/shindevlin/btcpc.git
 cd btcpc
 npm install
 ```
