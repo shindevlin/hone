@@ -1,50 +1,80 @@
-# Getting Started Guide
+# Getting Started with BTCPC
 
 ## Prerequisites
-- Node.js (v16+ recommended)
-- npm or yarn
-- MongoDB or your chosen database (see .env.example)
-- Telegram account (for 2FA/Telegram features)
-- Hive or TON account (for blockchain integration)
+- Node.js (v20+ recommended)
+- npm
+- MongoDB 7+ (Docker or native)
+- Ollama (if mining — not needed for user nodes)
 
 ## Installation
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/your-org/urs-nerdcore-node.git
-   cd urs-nerdcore-node
+
+```bash
+git clone https://github.com/shindevlin/btcpc.git
+cd btcpc
+npm install
+cp .env.example .env   # edit with your config
+```
+
+## Start the Node
+
+```bash
+npm start              # API on :3000
+```
+
+To mine (requires GPU):
+```bash
+node bin/btcpc-mine
+```
+
+## Create an Account
+
+```bash
+curl -X POST http://localhost:3000/api/user/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "yourname", "email": "you@example.com", "password": "your-password"}'
+```
+
+## Get Your First Tokens
+
+New accounts start with 0 BTCPC. There are three ways to get tokens:
+
+1. **Faucet (easiest)** — claim 1 free BTCPC per account:
+   ```bash
+   # Via API (requires JWT from login)
+   curl -X POST http://localhost:3000/api/faucet/claim \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
    ```
-2. Install dependencies:
-   ```sh
-   npm install
-   # or
-   yarn install
-   ```
-3. Configure environment:
-   - Copy `.env.example` to `.env` and fill in required values (API keys, DB connection, etc.)
-4. Start the node:
-   ```sh
-   npm start
-   # or
-   yarn start
-   ```
+   Or via Telegram: `/claim` (after linking your account with `/link yourname`)
 
-## First Use
-- Register a new user via the API or UI.
-- Link your Telegram account (if using Telegram features).
-- Enable 2FA in your account settings (required for token-moving actions).
-- Link your Hive or TON account for blockchain features.
+2. **Mine** — run a GPU miner node and earn BTCPC per epoch. See [install-miner.md](install-miner.md).
 
-## Example Flows
-### Sending Tokens
-- Use the wallet API to transfer tokens to another user or address.
-- 2FA will be required for Telegram-linked users.
+3. **Request more** — email **shin@btcpc.network** with your username for additional tokens.
 
-### Staking
-- Join a staking pool via the staking API.
-- Stake tokens and monitor rewards.
-- Unstake and claim rewards as needed.
+## Link Telegram (Optional)
 
-### Viewing Balances
-- Use the wallet API to view your token balances (no 2FA required for read-only actions).
+Use [@btcpcbot](https://t.me/btcpcbot) to check balances, mining stats, and submit inference:
 
-For more details, see the [Module Documentation](modules.md) and [API Reference](api.md). 
+1. Message the bot: `/link yourname`
+2. Claim starter tokens: `/claim`
+3. Check balance: `/balance`
+4. Submit inference: just type any message
+
+## Use Inference
+
+Once you have tokens, submit AI inference requests:
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen3.5:27b", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+Cost: 0.001 BTCPC per completion token.
+
+## What's Next
+
+- [Mining Guide](install-miner.md) — earn BTCPC with your GPU
+- [API Reference](api.md) — full endpoint docs
+- [Whitepaper](BTCPC_WHITEPAPER.md) — how Proof of Compute works
+- [FAQ](faq.md) — common issues

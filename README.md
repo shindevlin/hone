@@ -98,9 +98,29 @@ node bin/btcpc-cli balance   # Account balance
 node bin/btcpc-cli mining    # Mining stats
 ```
 
+## Get Your First Tokens
+
+New accounts start at 0 BTCPC. Claim free starter tokens:
+
+```bash
+# Via API (after login)
+curl -X POST http://localhost:3000/api/faucet/claim \
+  -H "Authorization: Bearer YOUR_JWT"
+```
+
+Or via Telegram bot: `/claim` (after `/link yourname`)
+
+Need more? Email **shin@btcpc.network** with your username.
+
 ## Telegram Bot
 
-[@btcpcbot](https://t.me/btcpcbot) — check balances, mining stats, network info
+[@btcpcbot](https://t.me/btcpcbot) — check balances, claim tokens, mining stats, submit inference
+
+## Contact
+
+- Email: shin@btcpc.network
+- Telegram Bot: [@btcpcbot](https://t.me/btcpcbot)
+- Issues: [github.com/shindevlin/btcpc/issues](https://github.com/shindevlin/btcpc/issues)
 
 ## Documentation
 

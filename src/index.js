@@ -27,8 +27,10 @@ const inferenceApi = require("./inference/api");
 const encryptedInference = require("./inference/encrypted");
 const dreamRoutes = require("./routes/dreamRoutes");
 const recoveryRoutes = require("./routes/recoveryRoutes");
+const faucetRoutes = require("./routes/faucetRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/faucet", faucetRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/node", nodeRoutes);
 app.use("/api/delegation", delegationRoutes);
@@ -65,7 +67,7 @@ app.get('/health', (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    name: 'URSNode API',
+    name: 'BTCPC API',
     version: '1.0.0',
     endpoints: [
       '/health',
@@ -77,6 +79,7 @@ app.get('/', (req, res) => {
       '/api/dream/:blockNumber',
       '/api/dream/:blockNumber/inscribe',
       '/api/dream/:blockNumber/transfer',
+      '/api/faucet/claim',
       '/api/delegation',
       '/api/recovery',
       '/v1/chat/completions',
@@ -101,7 +104,7 @@ const { loadFromDatabase } = require('./p2p/chainSync');
 const PORT = process.env.PORT || 3000;
 connectDB().then(async () => {
   app.listen(PORT, () => {
-    console.log(`URSNode server running on port ${PORT}`);
+    console.log(`BTCPC server running on port ${PORT}`);
   });
 
   // Start the BTCPC epoch loop after DB is connected

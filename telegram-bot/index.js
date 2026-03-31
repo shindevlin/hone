@@ -47,6 +47,7 @@ bot.onText(/\/start/, (msg) => {
     `Link your account: \`/link <username>\``,
     ``,
     `*Commands:*`,
+    `/claim — get 1 free BTCPC (one-time)`,
     `/balance — BTCPC balance & staked`,
     `/mining — mining stats & recent epochs`,
     `/epoch — current epoch info`,
@@ -105,6 +106,55 @@ bot.onText(/\/unlink/, async (msg) => {
     user.telegramUsername = null;
     await user.save();
     bot.sendMessage(msg.chat.id, '\u{1F517} Unlinked.');
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── /claim — one-time faucet for new accounts ──
+bot.onText(/\/claim/, async (msg) => {
+  const user = await getLinkedUser(msg.from.id);
+  if (!user) return bot.sendMessage(msg.chat.id, 'Link your account first: `/link <username>`', { parse_mode: 'Markdown' });
+
+  try {
+    const FAUCET_AMOUNT = 1;
+
+    let wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+    if (!wallet) {
+      wallet = new Wallet({
+        userId: user._id,
+        chain: 'btcpc',
+        address: 'btcpc_' + require('crypto').randomBytes(20).toString('hex'),
+        balance: new Map([['BTCPC', 0]])
+      });
+    }
+
+    const alreadyClaimed = await Transaction.findOne({ to: wallet.address, type: 'faucet' });
+    if (alreadyClaimed) {
+      return bot.sendMessage(msg.chat.id, `You've already claimed your starter tokens. To request more, email shin@btcpc.network with your username.`);
+    }
+
+    const balance = wallet.balance.get('BTCPC') || 0;
+    wallet.balance.set('BTCPC', balance + FAUCET_AMOUNT);
+    await wallet.save();
+
+    const tx = new Transaction({
+      from: 'btcpc_faucet',
+      to: wallet.address,
+      amount: FAUCET_AMOUNT,
+      type: 'faucet',
+      memo: 'Welcome to BTCPC — starter tokens'
+    });
+    await tx.save();
+
+    bot.sendMessage(msg.chat.id, [
+      `\u{2705} *Claimed ${FAUCET_AMOUNT} BTCPC*`,
+      ``,
+      `Balance: \`${fmt(balance + FAUCET_AMOUNT)} BTCPC\``,
+      ``,
+      `You can now use inference \\(just type a message\\)`,
+      `Need more? Email shin@btcpc\\.network`,
+    ].join('\n'), { parse_mode: 'MarkdownV2' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
