@@ -657,7 +657,11 @@ Miner performs compute in epoch 1, earns 243 BTCPC:
   BTCPC chain:  +243.0  BTCPC      ← native reward (always)
   Hive:         +243.0  wBTCPC     ← cross-chain bonus (claimable)
   Base:         +243.0  wBTCPC     ← cross-chain bonus (claimable)
+  Arbitrum:     +243.0  wBTCPC     ← cross-chain bonus (claimable)
+  Optimism:     +243.0  wBTCPC     ← cross-chain bonus (claimable)
   Solana:       +243.0  wBTCPC     ← cross-chain bonus (claimable)
+  TON:          +243.0  wBTCPC     ← cross-chain bonus (claimable)
+  Bitcoin:      +243.0  wBTCPC     ← cross-chain bonus (claimable)
 ```
 
 **The cross-chain bonus starts at 1:1 parity with the native reward and halves with each emission period:**
@@ -762,7 +766,7 @@ Models: qwen3.5:27b
 State Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
 Message: "The Answer to the Ultimate Question of Life, the Universe, and Everything"
 Reward: 243 BTCPC
-Cross-Chain: 243 wBTCPC-Hive (claimable), 243 wBTCPC-Base (claimable)
+Cross-Chain: 243 wBTCPC per linked chain (Hive, Base, Arbitrum, Optimism, Solana, TON, Bitcoin)
 ```
 
 ### 6.3 Opening the Network
