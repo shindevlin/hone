@@ -17,7 +17,10 @@ const { createMessage } = require("../p2p/protocol");
 // Map<requestId, { resolve, reject, timer, startTime }>
 const pendingRequests = new Map();
 
-const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 30000; // 30s P2P, then fallback
+// Track requests we've already sent to avoid re-processing our own echoes
+const sentRequests = new Set();
+
+const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 300000; // 5 min — large models take time
 
 /**
  * Initialize the P2P result listener.

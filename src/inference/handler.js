@@ -21,9 +21,13 @@ const Node = require("../models/Node");
 const User = require("../models/User");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://100.122.145.60:11434";
-const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_INFERENCE) || 2;
+const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_INFERENCE) || 1;
 
 let activeJobs = 0;
+
+// Track request IDs we've already seen to ignore relay echoes
+const seenRequests = new Set();
+const SEEN_MAX = 1000;
 
 /**
  * Start listening for inference requests on the P2P network.
@@ -57,9 +61,18 @@ function startInferenceHandler() {
  */
 async function handleInferenceRequest(msg) {
   const data = msg.data || msg;
+  const reqId = data.request_id;
+
+  // Deduplicate relay echoes
+  if (!reqId || seenRequests.has(reqId)) return;
+  seenRequests.add(reqId);
+  if (seenRequests.size > SEEN_MAX) {
+    const first = seenRequests.values().next().value;
+    seenRequests.delete(first);
+  }
 
   if (activeJobs >= MAX_CONCURRENT) {
-    console.log(`[BTCPC Inference] Skipping request ${data.request_id?.slice(0, 8)} — at capacity (${activeJobs}/${MAX_CONCURRENT})`);
+    console.log(`[BTCPC Inference] Skipping request ${reqId?.slice(0, 8)} — at capacity (${activeJobs}/${MAX_CONCURRENT})`);
     return;
   }
 
@@ -118,12 +131,16 @@ async function handleAssignment(msg) {
  */
 async function handlePayload(msg) {
   const data = msg.data || msg;
+  const requestId = data.request_id;
+
+  // Deduplicate — only process each payload once
+  const payloadKey = 'payload_' + requestId;
+  if (!requestId || seenRequests.has(payloadKey)) return;
+  seenRequests.add(payloadKey);
 
   // Check if this payload is for us
   const targetNode = data.node_id || data.target_node;
   if (targetNode && targetNode !== p2p.NODE_ID && targetNode !== GENESIS_MINER) return;
-
-  const requestId = data.request_id;
   const prompt = data.prompt; // plaintext for now; encrypted later
   const model = data.model || "qwen3.5:27b";
 
