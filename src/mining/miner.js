@@ -338,6 +338,11 @@ async function startMiner() {
     console.log(`[BTCPC] P2P network started on port ${process.env.P2P_PORT || 6942}`);
     console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
 
+    // Connect to public relay (works through any NAT)
+    const relayUrl = process.env.BTCPC_RELAY_URL || 'wss://btcpc-relay.grouchly.workers.dev/ws';
+    p2p.connectToPeer(relayUrl);
+    console.log(`[BTCPC] Connecting to relay: ${relayUrl}`);
+
     // Auto-discover peers from bot registry
     const peerRegistryUrl = process.env.PEER_REGISTRY_URL;
     if (peerRegistryUrl) {
