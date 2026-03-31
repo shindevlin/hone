@@ -1,0 +1,17 @@
+{
+  "name": "@btcpc/sdk",
+  "version": "0.1.0",
+  "description": "BTCPC SDK — use AI inference powered by Proof of Compute",
+  "main": "index.js",
+  "keywords": ["btcpc", "inference", "ai", "blockchain", "proof-of-compute"],
+  "author": "Shin Devlin <shin@btcpc.network>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shindevlin/btcpc"
+  },
+  "homepage": "https://github.com/shindevlin/btcpc#sdk",
+  "engines": {
+    "node": ">=16"
+  }
+}

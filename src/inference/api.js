@@ -4,6 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
 const WorkProof = require('../models/WorkProof');
+const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getModelWeight, OLLAMA_URL } = require('../mining/workGenerator');
 
@@ -11,9 +12,9 @@ const router = express.Router();
 
 /**
  * Bearer token authentication middleware.
- * Accepts any non-empty token for now.
+ * Accepts btcpc_ project keys (verified + balance check) or any non-empty token.
  */
-function authenticateBearer(req, res, next) {
+async function authenticateBearer(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ') || !authHeader.slice(7).trim()) {
     return res.status(401).json({
@@ -24,7 +25,31 @@ function authenticateBearer(req, res, next) {
       }
     });
   }
-  req.apiKey = authHeader.slice(7).trim();
+
+  const token = authHeader.slice(7).trim();
+  req.apiKey = token;
+
+  // Resolve btcpc_ project keys
+  if (token.startsWith('btcpc_')) {
+    const project = await Project.findOne({ apiKey: token, isActive: true });
+    if (!project) {
+      return res.status(401).json({
+        error: { message: 'Invalid or deactivated API key.', type: 'authentication_error', code: 'invalid_api_key' }
+      });
+    }
+    if (!project.verified) {
+      return res.status(403).json({
+        error: { message: 'Project not verified. See /api/projects/verify.', type: 'authorization_error', code: 'unverified' }
+      });
+    }
+    if (project.balance <= 0) {
+      return res.status(402).json({
+        error: { message: `Insufficient project balance (${project.balance} BTCPC). Fund your project wallet.`, type: 'billing_error', code: 'insufficient_balance' }
+      });
+    }
+    req.project = project;
+  }
+
   next();
 }
 
@@ -165,8 +190,16 @@ router.post('/v1/chat/completions', async (req, res) => {
     const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
     const created = Math.floor(Date.now() / 1000);
 
-    // Estimate cost: 0.001 BTCPC per 100 tokens of output (placeholder pricing)
-    const cost = (evalCount / 100 * 0.001).toFixed(8);
+    // Cost: 0.001 BTCPC per token
+    const cost = parseFloat((evalCount * 0.001).toFixed(8));
+
+    // Deduct from project balance if this is a project API key request
+    if (req.project) {
+      req.project.balance = Math.max(0, req.project.balance - cost);
+      req.project.totalSpent += cost;
+      req.project.totalRequests += 1;
+      await req.project.save();
+    }
 
     res.json({
       id: requestId,
