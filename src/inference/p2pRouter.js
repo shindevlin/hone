@@ -17,7 +17,7 @@ const { createMessage } = require("../p2p/protocol");
 // Map<requestId, { resolve, reject, timer, startTime }>
 const pendingRequests = new Map();
 
-const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 180000; // 3 min
+const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 30000; // 30s P2P, then fallback
 
 /**
  * Initialize the P2P result listener.
@@ -25,14 +25,28 @@ const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 1800
  */
 function initP2PRouter() {
   p2p.onMessage(async (msg) => {
-    if (!msg || msg.type !== 'INFERENCE_RESULT') return;
+    if (!msg) return;
+
+    // Log all inference messages for debugging
+    if (msg.type && msg.type.startsWith('INFERENCE_')) {
+      const data = msg.data || msg;
+      console.log(`[BTCPC P2P Router] Received ${msg.type} | request_id: ${data.request_id || 'none'} | pending: ${pendingRequests.size}`);
+    }
+
+    if (msg.type !== 'INFERENCE_RESULT') return;
 
     const data = msg.data || msg;
     const requestId = data.request_id;
-    if (!requestId) return;
+    if (!requestId) {
+      console.log('[BTCPC P2P Router] INFERENCE_RESULT with no request_id, keys:', Object.keys(data));
+      return;
+    }
 
     const pending = pendingRequests.get(requestId);
-    if (!pending) return;
+    if (!pending) {
+      console.log(`[BTCPC P2P Router] No pending request for ${requestId.slice(0, 12)}`);
+      return;
+    }
 
     clearTimeout(pending.timer);
     pendingRequests.delete(requestId);

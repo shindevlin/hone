@@ -6,9 +6,9 @@ const axios = require('axios');
 const WorkProof = require('../models/WorkProof');
 const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
-const { getModelWeight, OLLAMA_URL } = require('../mining/workGenerator');
+const { getModelWeight } = require('../mining/workGenerator');
 const { calculateCost, getCurrentPricing } = require('../services/pricing');
-const { requestInference, hasMiners } = require('./p2pRouter');
+const { requestInference, hasMiners, peerCount } = require('./p2pRouter');
 
 const router = express.Router();
 
@@ -214,47 +214,29 @@ router.post('/v1/chat/completions', async (req, res) => {
 
   try {
     const startTime = Date.now();
-    let assistantContent, evalCount, promptEvalCount;
 
-    // Route via P2P if miners are available, otherwise fall back to direct Ollama
-    if (hasMiners()) {
-      console.log(`[BTCPC Inference] Routing via P2P (${selectedModel})`);
-      const result = await requestInference({
-        model: selectedModel,
-        messages,
-        maxTokens: max_tokens,
-        temperature
+    if (!hasMiners()) {
+      return res.status(503).json({
+        error: {
+          message: 'No miners connected to the P2P network. Inference requires at least one active miner.',
+          type: 'network_error',
+          code: 'no_miners',
+          peers: peerCount()
+        }
       });
-
-      assistantContent = result.content || '';
-      evalCount = result.tokens || estimateTokens(assistantContent);
-      promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
-    } else {
-      // Direct Ollama fallback (local node or no peers)
-      console.log(`[BTCPC Inference] No P2P peers, falling back to direct Ollama`);
-      const ollamaPayload = {
-        model: selectedModel,
-        messages: messages,
-        stream: false,
-        options: {}
-      };
-
-      if (typeof temperature === 'number') ollamaPayload.options.temperature = temperature;
-      if (typeof max_tokens === 'number') ollamaPayload.options.num_predict = max_tokens;
-
-      const ollamaResponse = await axios.post(
-        `${OLLAMA_URL}/api/chat`,
-        ollamaPayload,
-        { timeout: 180000 }
-      );
-
-      const data = ollamaResponse.data;
-      assistantContent = (data.message && data.message.content) || '';
-      evalCount = data.eval_count || estimateTokens(assistantContent);
-      promptEvalCount = data.prompt_eval_count || estimateTokens(
-        messages.map(m => m.content || '').join(' ')
-      );
     }
+
+    console.log(`[BTCPC Inference] Routing via P2P (${selectedModel})`);
+    const result = await requestInference({
+      model: selectedModel,
+      messages,
+      maxTokens: max_tokens,
+      temperature
+    });
+
+    const assistantContent = result.content || '';
+    const evalCount = result.tokens || estimateTokens(assistantContent);
+    const promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
 
     // Compute hashes for work proof
     const promptText = messages.map(m => `${m.role}:${m.content || ''}`).join('|');
