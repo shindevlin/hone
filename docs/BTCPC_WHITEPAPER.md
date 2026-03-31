@@ -689,7 +689,21 @@ Formula: `ratio = 0.9 ^ ccStep` where `ccStep = (period - 1) × 2` for the first
 
 5. **No cap on linked chains.** A miner can link as many chains as BTCPC supports. More linked chains = more total value earned per epoch of compute. This incentivizes miners to expand the BTCPC ecosystem.
 
-### 5.4 Why This Works
+### 5.4 Cross-Chain Liquidity Strategy
+
+Miners are encouraged to allocate a portion of their claimed wBTCPC to liquidity pools on each chain. The recommended strategy has two phases:
+
+**Phase 1: Bridge Pools (BTCPC/wBTCPC)**
+
+50% of claimed wBTCPC is paired with equivalent native BTCPC in a BTCPC/wBTCPC pool on each chain (e.g. Uniswap V3 on Base, Raydium on Solana). This proves 1:1 backing between the native token and its wrapped counterpart. Because both sides represent the same underlying value, impermanent loss is near zero. LP tokens are held in a multi-sig wallet — liquidity can be added automatically on each claim, but removal requires multi-sig approval.
+
+**Phase 2: Speculative Pairs (wBTCPC/USDC, wBTCPC/ETH, etc.)**
+
+The remaining 50% of claimed wBTCPC is held by the miner. As real dollar-denominated value develops through trading, miners can deploy this reserve into speculative pairs (wBTCPC/USDC, wBTCPC/ETH, wBTCPC/SOL, etc.) on each chain's native DEXs. This creates price discovery and tradeable markets.
+
+Phase 1 happens at launch. Phase 2 happens organically as the ecosystem grows.
+
+### 5.5 Why This Works
 
 **For miners:** Linking wallets is pure upside. Same compute work, more rewards. Every rational miner links every available chain.
 
