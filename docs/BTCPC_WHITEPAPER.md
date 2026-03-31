@@ -664,17 +664,18 @@ Miner performs compute in epoch 1, earns 243 BTCPC:
   Bitcoin:      +243.0  wBTCPC     ← cross-chain bonus (claimable)
 ```
 
-**The cross-chain bonus starts at 1:1 parity with the native reward and halves with each emission period:**
+**The cross-chain bonus decays at 10% per step, with 2 steps per native period (one at each half).** This creates a gentler decay than the native reward, keeping cross-chain incentives meaningful for years.
 
-| Period | Duration | Native Reward | Cross-Chain Ratio | wBTCPC per Linked Chain |
-|--------|----------|--------------|-------------------|------------------------|
-| 1 | 1 month | 243.06 / epoch | 1:1 (100%) | 243.06 / epoch |
-| 2 | 2 months | 137.85 / epoch | 1:2 (50%) | 68.93 / epoch |
-| 3 | 4 months | 78.19 / epoch | 1:4 (25%) | 19.55 / epoch |
-| 4 | 8 months | 38.01 / epoch | 1:8 (12.5%) | 4.75 / epoch |
-| 5 | 16 months | 25.15 / epoch | 1:16 (6.25%) | 1.57 / epoch |
-| 6 | 32 months | 14.24 / epoch | 1:32 (3.125%) | 0.45 / epoch |
-| ... | ... | ... | ... | ... |
+| Period | Duration | Native Reward | CC Ratio (1st half) | CC Ratio (2nd half) | wBTCPC/Chain (avg) |
+|--------|----------|--------------|--------------------|--------------------|-------------------|
+| 1 | 1 month | 243.06 / epoch | 100% | 90% | ~231 / epoch |
+| 2 | 2 months | 137.85 / epoch | 81% | 72.9% | ~106 / epoch |
+| 3 | 4 months | 78.19 / epoch | 65.6% | 59.0% | ~49 / epoch |
+| 4 | 8 months | 38.01 / epoch | 53.1% | 47.8% | ~19 / epoch |
+| 5 | 16 months | 25.15 / epoch | 43.0% | 38.7% | ~10 / epoch |
+| 6 | 32 months | 14.24 / epoch | 34.9% | 31.4% | ~4.7 / epoch |
+
+Formula: `ratio = 0.9 ^ ccStep` where `ccStep = (period - 1) × 2` for the first half, `+1` for the second half. The ratio never reaches zero — it compounds down 10% at each step, ensuring cross-chain rewards remain non-trivial even in later periods.
 
 ### 5.3 Key Rules
 
