@@ -56,7 +56,7 @@ bot.onText(/\/start/, (msg) => {
     `/node — your node status`,
     `/history — recent transactions`,
     `/reward — current block reward`,
-    `/ask <prompt> — submit inference to the BTCPC network`,
+    `Just type anything to submit inference (0.001 BTCPC/token)`,
     `/peers — list registered P2P peers`,
     `/register <ws://ip:port> — register your node for peer discovery`,
     `/unlink — unlink Telegram account`,
@@ -375,9 +375,11 @@ const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.grouchly.w
 const RELAY_API_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
 const axios = require('axios');
 
-bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
+// ── Default message handler — any text that isn't a command goes to inference ──
+bot.on('message', async (msg) => {
+  if (!msg.text || msg.text.startsWith('/')) return; // skip commands
   const chatId = msg.chat.id;
-  const prompt = match[1].trim();
+  const prompt = msg.text.trim();
 
   if (!prompt) return bot.sendMessage(chatId, 'Usage: `/ask your question here`', { parse_mode: 'Markdown' });
 
@@ -396,17 +398,12 @@ bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
     return bot.sendMessage(chatId, `\u{274C} You need at least 1 BTCPC staked to use inference. Currently staked: ${fmt(staked)}. Use the CLI to stake.`);
   }
 
-  const cost = 1; // 1 BTCPC per inference request
-
-  if (balance < cost) {
-    return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} BTCPC, need ${cost}.`);
+  const minBalance = 0.01; // minimum to submit
+  if (balance < minBalance) {
+    return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} BTCPC, need at least ${minBalance}.`);
   }
 
-  // Deduct cost
-  wallet.balance.set('BTCPC', balance - cost);
-  await wallet.save();
-
-  const status = await bot.sendMessage(chatId, `\u{1F504} Submitting to BTCPC network... (${cost} BTCPC deducted)`);
+  const status = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
 
   try {
     const res = await axios.post(`${RELAY_URL}/v1/inference`, {
@@ -423,30 +420,31 @@ bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
     const tokens = data.usage?.completion_tokens || 0;
     const elapsed = data.btcpc?.elapsed_ms || 0;
 
+    // Cost: 0.001 BTCPC per token (1 BTCPC = 1000 tokens)
+    const cost = Math.max(0.001, tokens * 0.001);
+    const newBalance = balance - cost;
+
+    // Deduct actual cost based on tokens used
+    wallet.balance.set('BTCPC', Math.max(0, newBalance));
+    await wallet.save();
+
     // Delete "Submitting..." message
     bot.deleteMessage(chatId, status.message_id).catch(() => {});
 
     // Truncate long responses for Telegram (4096 char limit)
-    const maxLen = 3800;
+    const maxLen = 3600;
     const truncated = text.length > maxLen ? text.slice(0, maxLen) + '\n\n... (truncated)' : text;
 
-    bot.sendMessage(chatId, [
-      truncated,
-      ``,
-      `\u{26D3} _${node} | ${tokens} tokens | ${(elapsed / 1000).toFixed(1)}s_`,
-    ].join('\n'), { parse_mode: 'Markdown' }).catch(() => {
-      // Fallback without markdown if parsing fails
-      bot.sendMessage(chatId, `${truncated}\n\n[${node} | ${tokens} tokens | ${(elapsed / 1000).toFixed(1)}s]`);
+    const footer = `\n\n\u{26D3} ${tokens} tokens | ${fmt(cost)} BTCPC | bal: ${fmt(newBalance)} | ${(elapsed / 1000).toFixed(1)}s | ${node}`;
+
+    bot.sendMessage(chatId, truncated + footer).catch(() => {
+      bot.sendMessage(chatId, text.slice(0, 3600) + footer);
     });
   } catch (err) {
-    // Refund on failure
-    try {
-      const w = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-      if (w) { w.balance.set('BTCPC', (w.balance.get('BTCPC') || 0) + cost); await w.save(); }
-    } catch (_) {}
+    // No deduction happened yet (we deduct after success), so no refund needed
     bot.deleteMessage(chatId, status.message_id).catch(() => {});
     const errMsg = err.response?.data?.error || err.message;
-    bot.sendMessage(chatId, `\u{274C} Inference failed (${cost} BTCPC refunded): ${errMsg}`);
+    bot.sendMessage(chatId, `\u{274C} Inference failed: ${errMsg}`);
   }
 });
 
