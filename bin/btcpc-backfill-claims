@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/**
+ * Retroactive wBTCPC Claim Backfill
+ *
+ * Generates cross-chain claim proofs for all finalized epochs
+ * that don't already have claims. Run this after linking wallets
+ * to retroactively grant wBTCPC back to genesis.
+ *
+ * Usage: node bin/btcpc-backfill-claims [--dry-run]
+ */
+
+require('dotenv').config();
+const mongoose = require('mongoose');
+const Epoch = require('../src/models/Epoch');
+const Node = require('../src/models/Node');
+const User = require('../src/models/User');
+const CrossChainClaim = require('../src/models/CrossChainClaim');
+const { generateAllClaimProofs } = require('../src/claims/claimProofGenerator');
+const { GENESIS_MINER } = require('../src/mining/genesisBlock');
+
+const dryRun = process.argv.includes('--dry-run');
+
+async function main() {
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://root:example@localhost:27017/btcpc?authSource=admin');
+  console.log('[backfill] Connected to MongoDB');
+
+  const user = await User.findOne({ username: GENESIS_MINER });
+  if (!user) { console.error('Genesis miner not found'); process.exit(1); }
+
+  const node = await Node.findOne({ account: user._id });
+  if (!node) { console.error('Genesis node not found'); process.exit(1); }
+
+  // Build linked chains from node
+  const linkedChains = {};
+  if (node.hive_account) linkedChains.hive = node.hive_account;
+  if (node.base_wallet) linkedChains.base = node.base_wallet;
+  if (node.arbitrum_wallet) linkedChains.arbitrum = node.arbitrum_wallet;
+  if (node.optimism_wallet) linkedChains.optimism = node.optimism_wallet;
+  if (node.solana_wallet) linkedChains.solana = node.solana_wallet;
+  if (node.ton_wallet) linkedChains.ton = node.ton_wallet;
+
+  const chainCount = Object.keys(linkedChains).length;
+  if (chainCount === 0) {
+    console.error('No wallets linked on any chain. Link wallets first via the API or directly in MongoDB.');
+    console.log('Example: db.nodes.updateOne({account: userId}, {$set: {base_wallet: "0x...", hive_account: "shindevlin"}})');
+    process.exit(1);
+  }
+
+  console.log(`[backfill] Miner: ${GENESIS_MINER}`);
+  console.log(`[backfill] Linked chains (${chainCount}): ${Object.entries(linkedChains).map(([c,w]) => `${c}=${w}`).join(', ')}`);
+
+  const postingKey = process.env.BTCPC_POSTING_KEY;
+  if (!postingKey) { console.error('BTCPC_POSTING_KEY required in .env'); process.exit(1); }
+
+  // Get all finalized epochs
+  const epochs = await Epoch.find({ status: 'finalized' }).sort({ epoch_number: 1 }).lean();
+  console.log(`[backfill] ${epochs.length} finalized epochs found`);
+
+  // Get existing claims to skip
+  const existingClaims = await CrossChainClaim.find({ miner: GENESIS_MINER }).lean();
+  const claimedSet = new Set(existingClaims.map(c => `${c.chain}:${c.epoch}`));
+  console.log(`[backfill] ${existingClaims.length} existing claims found`);
+
+  let generated = 0;
+  let skipped = 0;
+
+  for (const epoch of epochs) {
+    const reward = epoch.block_reward || 0;
+    if (reward <= 0) { skipped++; continue; }
+
+    // Check which chains need claims for this epoch
+    const chainsNeeded = {};
+    for (const [chain, wallet] of Object.entries(linkedChains)) {
+      if (!claimedSet.has(`${chain}:${epoch.epoch_number}`)) {
+        chainsNeeded[chain] = wallet;
+      }
+    }
+
+    if (Object.keys(chainsNeeded).length === 0) { skipped++; continue; }
+
+    if (dryRun) {
+      console.log(`[dry-run] Epoch ${epoch.epoch_number}: ${reward.toFixed(8)} BTCPC → ${Object.keys(chainsNeeded).join(', ')}`);
+      generated += Object.keys(chainsNeeded).length;
+      continue;
+    }
+
+    try {
+      const proofs = generateAllClaimProofs(
+        GENESIS_MINER,
+        epoch.epoch_number,
+        reward,
+        chainsNeeded,
+        postingKey
+      );
+
+      for (const proof of proofs) {
+        const claim = new CrossChainClaim(proof);
+        await claim.save();
+        generated++;
+      }
+
+      if (generated % 50 === 0) {
+        console.log(`[backfill] Progress: ${generated} claims generated (epoch ${epoch.epoch_number})`);
+      }
+    } catch (err) {
+      console.error(`[backfill] Epoch ${epoch.epoch_number} error: ${err.message}`);
+    }
+  }
+
+  console.log(`\n[backfill] Done.`);
+  console.log(`[backfill] Generated: ${generated} new claim proofs`);
+  console.log(`[backfill] Skipped: ${skipped} epochs (already claimed or zero reward)`);
+
+  if (dryRun) {
+    console.log(`[backfill] This was a dry run. Run without --dry-run to actually generate claims.`);
+  }
+
+  await mongoose.disconnect();
+}
+
+main().catch(err => {
+  console.error('[backfill] Fatal:', err.message);
+  process.exit(1);
+});

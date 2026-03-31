@@ -15,18 +15,24 @@ var nodeSchema = new Schema({
     ref: 'User',
     unique: true
   },
-  hive_account: {
-    type: String,
-    default: null
-  },
-  base_wallet: {
-    type: String,
-    default: null
-  },
+  // Cross-chain wallet addresses for wBTCPC claims
+  hive_account: { type: String, default: null },
+  base_wallet: { type: String, default: null },
+  arbitrum_wallet: { type: String, default: null },
+  optimism_wallet: { type: String, default: null },
+  solana_wallet: { type: String, default: null },
+  ton_wallet: { type: String, default: null },
   endpoint: {
     type: String,
     required: true
   },
+  // Inference engine running on this node
+  inference_engine: {
+    type: String,
+    enum: ['ollama', 'vllm', 'llama.cpp', 'text-generation-webui', 'localai', 'other', null],
+    default: 'ollama'
+  },
+  inference_engine_version: { type: String, default: null },
   models: {
     type: [String],
     default: []

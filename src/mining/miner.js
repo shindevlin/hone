@@ -220,6 +220,10 @@ async function mineEpoch(epochNumber) {
   const linkedChains = {};
   if (node.hive_account) linkedChains.hive = node.hive_account;
   if (node.base_wallet) linkedChains.base = node.base_wallet;
+  if (node.arbitrum_wallet) linkedChains.arbitrum = node.arbitrum_wallet;
+  if (node.optimism_wallet) linkedChains.optimism = node.optimism_wallet;
+  if (node.solana_wallet) linkedChains.solana = node.solana_wallet;
+  if (node.ton_wallet) linkedChains.ton = node.ton_wallet;
 
   let claimProofs = [];
   if (Object.keys(linkedChains).length > 0 && finalized) {
