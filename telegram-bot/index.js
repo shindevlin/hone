@@ -388,6 +388,14 @@ bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
   const Wallet = require('../src/models/Wallet');
   const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
   const balance = wallet?.balance?.get('BTCPC') || 0;
+  // Check user has staked at least 1 BTCPC for bot access
+  const StakingPool = require('../src/models/StakingPool');
+  const stake = await StakingPool.findOne({ account: user._id, status: 'active' });
+  const staked = stake?.staked_amount || 0;
+  if (staked < 1) {
+    return bot.sendMessage(chatId, `\u{274C} You need at least 1 BTCPC staked to use inference. Currently staked: ${fmt(staked)}. Use the CLI to stake.`);
+  }
+
   const cost = 1; // 1 BTCPC per inference request
 
   if (balance < cost) {
