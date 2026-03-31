@@ -372,6 +372,7 @@ bot.onText(/\/reward/, async (msg) => {
 
 // ── /ask <prompt> — submit inference request to the BTCPC network ──
 const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.grouchly.workers.dev';
+const RELAY_API_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
 const axios = require('axios');
 
 bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
@@ -380,13 +381,33 @@ bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
 
   if (!prompt) return bot.sendMessage(chatId, 'Usage: `/ask your question here`', { parse_mode: 'Markdown' });
 
-  const status = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
+  // Check user has linked account and sufficient balance
+  const user = await getLinkedUser(msg.from.id);
+  if (!user) return bot.sendMessage(chatId, 'Link your account first: `/link <username>`', { parse_mode: 'Markdown' });
+
+  const Wallet = require('../src/models/Wallet');
+  const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+  const balance = wallet?.balance?.get('BTCPC') || 0;
+  const cost = 1; // 1 BTCPC per inference request
+
+  if (balance < cost) {
+    return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} BTCPC, need ${cost}.`);
+  }
+
+  // Deduct cost
+  wallet.balance.set('BTCPC', balance - cost);
+  await wallet.save();
+
+  const status = await bot.sendMessage(chatId, `\u{1F504} Submitting to BTCPC network... (${cost} BTCPC deducted)`);
 
   try {
     const res = await axios.post(`${RELAY_URL}/v1/inference`, {
       model: 'qwen3.5:27b',
       prompt,
-    }, { timeout: 130000 });
+    }, {
+      timeout: 130000,
+      headers: { 'Authorization': `Bearer ${RELAY_API_KEY}` },
+    });
 
     const data = res.data;
     const text = data.choices?.[0]?.message?.content || 'No response';
@@ -410,9 +431,14 @@ bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
       bot.sendMessage(chatId, `${truncated}\n\n[${node} | ${tokens} tokens | ${(elapsed / 1000).toFixed(1)}s]`);
     });
   } catch (err) {
+    // Refund on failure
+    try {
+      const w = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+      if (w) { w.balance.set('BTCPC', (w.balance.get('BTCPC') || 0) + cost); await w.save(); }
+    } catch (_) {}
     bot.deleteMessage(chatId, status.message_id).catch(() => {});
     const errMsg = err.response?.data?.error || err.message;
-    bot.sendMessage(chatId, `\u{274C} Inference failed: ${errMsg}`);
+    bot.sendMessage(chatId, `\u{274C} Inference failed (${cost} BTCPC refunded): ${errMsg}`);
   }
 });
 
