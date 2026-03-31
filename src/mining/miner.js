@@ -20,6 +20,7 @@ const p2p = require('../p2p/network');
 const { createBlockMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
 const silicon = require('../silicon');
+const { startInferenceHandler } = require('../inference/handler');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -342,6 +343,9 @@ async function startMiner() {
     const relayUrl = process.env.BTCPC_RELAY_URL || 'wss://btcpc-relay.grouchly.workers.dev/ws';
     p2p.connectToPeer(relayUrl);
     console.log(`[BTCPC] Connecting to relay: ${relayUrl}`);
+
+    // Start inference handler — listen for jobs on P2P
+    startInferenceHandler();
 
     // Auto-discover peers from bot registry
     const peerRegistryUrl = process.env.PEER_REGISTRY_URL;

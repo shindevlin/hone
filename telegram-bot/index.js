@@ -21,6 +21,8 @@ const GenesisDream = require('../src/models/GenesisDream');
 const Transaction = require('../src/models/Transaction');
 const PeerRegistry = require('../src/models/PeerRegistry');
 const { getBlockReward } = require('../src/services/emissionSchedule');
+const WebSocket = require('ws');
+const crypto = require('crypto');
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
@@ -54,6 +56,7 @@ bot.onText(/\/start/, (msg) => {
     `/node — your node status`,
     `/history — recent transactions`,
     `/reward — current block reward`,
+    `/ask <prompt> — submit inference to the BTCPC network`,
     `/peers — list registered P2P peers`,
     `/register <ws://ip:port> — register your node for peer discovery`,
     `/unlink — unlink Telegram account`,
@@ -364,6 +367,52 @@ bot.onText(/\/reward/, async (msg) => {
     ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── /ask <prompt> — submit inference request to the BTCPC network ──
+const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.grouchly.workers.dev';
+const axios = require('axios');
+
+bot.onText(/\/ask\s+(.+)/s, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const prompt = match[1].trim();
+
+  if (!prompt) return bot.sendMessage(chatId, 'Usage: `/ask your question here`', { parse_mode: 'Markdown' });
+
+  const status = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
+
+  try {
+    const res = await axios.post(`${RELAY_URL}/v1/inference`, {
+      model: 'qwen3.5:27b',
+      prompt,
+    }, { timeout: 130000 });
+
+    const data = res.data;
+    const text = data.choices?.[0]?.message?.content || 'No response';
+    const node = data.btcpc?.node || 'unknown';
+    const tokens = data.usage?.completion_tokens || 0;
+    const elapsed = data.btcpc?.elapsed_ms || 0;
+
+    // Delete "Submitting..." message
+    bot.deleteMessage(chatId, status.message_id).catch(() => {});
+
+    // Truncate long responses for Telegram (4096 char limit)
+    const maxLen = 3800;
+    const truncated = text.length > maxLen ? text.slice(0, maxLen) + '\n\n... (truncated)' : text;
+
+    bot.sendMessage(chatId, [
+      truncated,
+      ``,
+      `\u{26D3} _${node} | ${tokens} tokens | ${(elapsed / 1000).toFixed(1)}s_`,
+    ].join('\n'), { parse_mode: 'Markdown' }).catch(() => {
+      // Fallback without markdown if parsing fails
+      bot.sendMessage(chatId, `${truncated}\n\n[${node} | ${tokens} tokens | ${(elapsed / 1000).toFixed(1)}s]`);
+    });
+  } catch (err) {
+    bot.deleteMessage(chatId, status.message_id).catch(() => {});
+    const errMsg = err.response?.data?.error || err.message;
+    bot.sendMessage(chatId, `\u{274C} Inference failed: ${errMsg}`);
   }
 });
 
