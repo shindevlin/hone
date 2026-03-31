@@ -22,6 +22,7 @@ var nodeSchema = new Schema({
   optimism_wallet: { type: String, default: null },
   solana_wallet: { type: String, default: null },
   ton_wallet: { type: String, default: null },
+  bitcoin_wallet: { type: String, default: null },
   endpoint: {
     type: String,
     required: true

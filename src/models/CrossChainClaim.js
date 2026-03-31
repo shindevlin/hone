@@ -21,7 +21,7 @@ var crossChainClaimSchema = new Schema({
   chain: {
     type: String,
     required: true,
-    enum: ["hive", "base", "solana", "arbitrum", "optimism", "ton"]
+    enum: ["hive", "base", "solana", "arbitrum", "optimism", "ton", "bitcoin"]
   },
   target_wallet: {
     type: String,

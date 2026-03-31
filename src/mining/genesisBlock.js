@@ -63,7 +63,7 @@ async function createGenesisBlock() {
   if (!wallet) {
     wallet = new Wallet({
       userId: user._id,
-      chain: 'hive',
+      chain: 'btcpc',
       address: GENESIS_MINER,
       balance: new Map([['BTCPC', 0]])
     });
@@ -86,7 +86,15 @@ async function createGenesisBlock() {
       },
       stake_amount: 1000,
       status: 'active',
-      hive_account: ''
+      inference_engine: 'ollama',
+      // Cross-chain wallets (env override or defaults)
+      hive_account: process.env.BTCPC_HIVE_ACCOUNT || 'shindevlin',
+      base_wallet: process.env.BTCPC_BASE_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
+      arbitrum_wallet: process.env.BTCPC_ARBITRUM_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
+      optimism_wallet: process.env.BTCPC_OPTIMISM_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
+      solana_wallet: process.env.BTCPC_SOLANA_WALLET || '7B7pqWCYTgSSysmyMk2iwhCECB8SFphDSrVQJvn9M2bB',
+      ton_wallet: process.env.BTCPC_TON_WALLET || 'UQCx_w46JZwxw8_VUoahnnwHWeOZY8_3sW1fmPtBYCPvA7cJ',
+      bitcoin_wallet: process.env.BTCPC_BITCOIN_WALLET || 'bc1p2yeza4mezdjmphwqkgcshfmnzjmnthnpr6medmvzcldna0encyjs4x8fep'
     });
     await node.save();
     console.log('[BTCPC] Genesis mining node registered');

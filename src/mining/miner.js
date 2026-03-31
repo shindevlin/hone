@@ -224,6 +224,7 @@ async function mineEpoch(epochNumber) {
   if (node.optimism_wallet) linkedChains.optimism = node.optimism_wallet;
   if (node.solana_wallet) linkedChains.solana = node.solana_wallet;
   if (node.ton_wallet) linkedChains.ton = node.ton_wallet;
+  if (node.bitcoin_wallet) linkedChains.bitcoin = node.bitcoin_wallet;
 
   let claimProofs = [];
   if (Object.keys(linkedChains).length > 0 && finalized) {
