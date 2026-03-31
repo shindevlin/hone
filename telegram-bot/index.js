@@ -57,6 +57,7 @@ bot.onText(/\/start/, (msg) => {
     `/node — your node status`,
     `/history — recent transactions`,
     `/reward — current block reward`,
+    `/price — current inference pricing`,
     `Just type anything to submit inference (0.001 BTCPC/token)`,
     `/peers — list registered P2P peers`,
     `/register <ws://ip:port> — register your node for peer discovery`,
@@ -420,7 +421,27 @@ bot.onText(/\/reward/, async (msg) => {
   }
 });
 
-// ── /ask <prompt> — submit inference request to the BTCPC network ──
+// ── /price — check current inference pricing ──
+bot.onText(/\/price/, async (msg) => {
+  try {
+    const { getCurrentPricing } = require('../src/services/pricing');
+    const p = await getCurrentPricing();
+    bot.sendMessage(msg.chat.id, [
+      `\u{1F4B0} *BTCPC Inference Pricing*`,
+      ``,
+      `1 BTCPC = ${p.tokensPerBtcpc} tokens`,
+      `Cost per token: ${p.costPerToken.toFixed(6)} BTCPC`,
+      `Network load: ${(p.load * 100).toFixed(1)}%`,
+      `Price multiplier: ${p.multiplier}x`,
+      ``,
+      `_Pricing adjusts dynamically based on network usage_`,
+    ].join('\n'), { parse_mode: 'Markdown' });
+  } catch (err) {
+    bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+  }
+});
+
+// ── Inference via relay ──
 const RELAY_URL = process.env.BTCPC_RELAY_URL || 'https://btcpc-relay.grouchly.workers.dev';
 const RELAY_API_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
 const axios = require('axios');
@@ -470,8 +491,10 @@ bot.on('message', async (msg) => {
     const tokens = data.usage?.completion_tokens || 0;
     const elapsed = data.btcpc?.elapsed_ms || 0;
 
-    // Cost: 0.001 BTCPC per token (1 BTCPC = 1000 tokens)
-    const cost = Math.max(0.001, tokens * 0.001);
+    // Dynamic pricing
+    const { calculateCost } = require('../src/services/pricing');
+    const { cost: inferCost } = await calculateCost(tokens);
+    const cost = Math.max(0.001, inferCost);
     const newBalance = balance - cost;
 
     // Deduct actual cost based on tokens used

@@ -7,6 +7,7 @@ const WorkProof = require('../models/WorkProof');
 const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getModelWeight, OLLAMA_URL } = require('../mining/workGenerator');
+const { calculateCost, getCurrentPricing } = require('../services/pricing');
 
 const router = express.Router();
 
@@ -85,6 +86,30 @@ router.get('/v1/models', async (req, res) => {
         code: 'backend_unreachable'
       }
     });
+  }
+});
+
+/**
+ * GET /v1/pricing
+ * Current dynamic pricing based on network load.
+ */
+router.get('/v1/pricing', async (req, res) => {
+  try {
+    const pricing = await getCurrentPricing();
+    res.json({
+      tokens_per_btcpc: pricing.tokensPerBtcpc,
+      cost_per_token: pricing.costPerToken,
+      multiplier: pricing.multiplier,
+      network_load: pricing.load,
+      base_rate: pricing.baseRate,
+      example: {
+        '100_tokens': parseFloat((100 * pricing.costPerToken).toFixed(8)),
+        '500_tokens': parseFloat((500 * pricing.costPerToken).toFixed(8)),
+        '1000_tokens': parseFloat((1000 * pricing.costPerToken).toFixed(8))
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message, type: 'server_error' } });
   }
 });
 
@@ -190,8 +215,8 @@ router.post('/v1/chat/completions', async (req, res) => {
     const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
     const created = Math.floor(Date.now() / 1000);
 
-    // Cost: 0.001 BTCPC per token
-    const cost = parseFloat((evalCount * 0.001).toFixed(8));
+    // Dynamic pricing based on network load
+    const { cost, pricing } = await calculateCost(evalCount);
 
     // Deduct from project balance if this is a project API key request
     if (req.project) {
@@ -222,10 +247,14 @@ router.post('/v1/chat/completions', async (req, res) => {
         total_tokens: promptEvalCount + evalCount
       },
       btcpc: {
-        cost: cost,
+        cost,
+        tokens_per_btcpc: pricing.tokensPerBtcpc,
+        load: pricing.load,
+        multiplier: pricing.multiplier,
         epoch: epochNumber,
         proof_hash: proofHash,
-        verified: verified
+        verified: verified,
+        remaining_balance: req.project ? req.project.balance : undefined
       }
     });
 

@@ -60,6 +60,14 @@ class BTCPC {
   }
 
   /**
+   * Get current inference pricing (dynamic based on network load).
+   * @returns {Promise<Object>} { tokens_per_btcpc, cost_per_token, multiplier, network_load, example }
+   */
+  async pricing() {
+    return this._request('GET', '/v1/pricing');
+  }
+
+  /**
    * Convenience: extract just the text from a chat response.
    * @param {Object} options - Same as chat()
    * @returns {Promise<string>} The assistant's response text
