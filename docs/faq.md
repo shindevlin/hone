@@ -36,6 +36,7 @@ Mining on CPU works but is very slow and earns minimal rewards. An NVIDIA GPU wi
 
 ## Support
 
-- GitHub Issues: [shindevlin/btcpc](https://github.com/shindevlin/btcpc/issues)
-- Email: shin@btcpc.network
+- Telegram Group: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
 - Telegram Bot: [@btcpcbot](https://t.me/btcpcbot)
+- Email: shin@btcpc.network
+- GitHub Issues: [shindevlin/btcpc](https://github.com/shindevlin/btcpc/issues)

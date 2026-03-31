@@ -116,10 +116,11 @@ Need more? Email **shin@btcpc.network** with your username.
 
 [@btcpcbot](https://t.me/btcpcbot) — check balances, claim tokens, mining stats, submit inference
 
-## Contact
+## Community & Contact
 
-- Email: shin@btcpc.network
+- Telegram Group: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
 - Telegram Bot: [@btcpcbot](https://t.me/btcpcbot)
+- Email: shin@btcpc.network
 - Issues: [github.com/shindevlin/btcpc/issues](https://github.com/shindevlin/btcpc/issues)
 
 ## Documentation
