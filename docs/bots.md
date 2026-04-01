@@ -1,57 +1,103 @@
 # BTCPC Telegram Bots
 
+## Architecture
+
+Bots are **thin HTTP clients**. They have no database access — all data comes from the BTCPC API at `/api/bot/*`, authenticated by `x-bot-key` header.
+
+```
+Telegram → Bot (polling) → BTCPC API (/api/bot/*) → MongoDB
+```
+
 ## Active Bots
 
-| Bot | Token Prefix | Username | Port | Purpose | Location |
-|-----|-------------|----------|------|---------|----------|
-| BTCPC Bot | `8754439991` | @btcpcbot | 3003 | Inference, network, mining, linking | `btcpc/telegram-bot/index.js` |
-| Wallet Bot | `8756458842` | @btcpcwalletbot | 9900 | Balance, history, claim, projects, alerts | `alertbot/index.js` |
+| Bot | Username | Repo | Purpose |
+|-----|----------|------|---------|
+| BTCPC Bot | @btcpcbot | `~/repos/btcpcbot/` | Inference, network, mining, linking |
+| Wallet Bot | @btcpcwalletbot | `~/repos/btcpcwalletbot/` | Balance, history, claim, projects, alerts |
 
-## Token Locations
+## Token Management
 
-- `btcpc/telegram-bot/.env` — `BTCPC_BOT_TOKEN`
-- `alertbot/.env` — `ALERTBOT_TOKEN`
+- Tokens are in each bot's `.env` file (NEVER in git)
+- `.env` files are gitignored
+- If tokens get compromised, revoke via @BotFather and paste new tokens directly into `.env`
+- **NEVER share tokens in chat, commits, or any text that could be logged**
 
-## Shared State
+## Starting Bots
 
-Both bots connect to the same MongoDB (`btcpc` database) and share the same User model.
-A user linked on one bot is immediately visible to the other.
+```bash
+# IMPORTANT: Kill all zombies first
+for pid in $(pgrep -x node); do
+  cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
+  if echo "$cwd" | grep -qE "btcpcbot|btcpcwalletbot|telegram-bot|alertbot"; then
+    kill -9 $pid
+  fi
+done
 
-## Known Process Issues
+# Wait for Telegram session release
+sleep 35
 
-**CRITICAL: Only ONE instance of each bot can poll Telegram at a time.**
+# Start exactly one of each
+cd ~/repos/btcpcbot && node index.js > /tmp/btcpcbot.log 2>&1 &
+sleep 5
+cd ~/repos/btcpcwalletbot && node index.js > /tmp/btcpcwalletbot.log 2>&1 &
+```
 
-If you get `409 Conflict: terminated by other getUpdates request`, there are zombie processes:
+## Zombie Prevention
+
+409 "Conflict" errors mean multiple processes are polling the same token.
 
 ```bash
 # Find zombies
-pgrep -a node | grep -E "btcpc/telegram-bot|alertbot"
-
-# Kill all
-pkill -9 -f "btcpc/telegram-bot/index"
-pkill -9 -f "alertbot/index"
-
-# Wait 30s for Telegram session release
-sleep 30
-
-# Start exactly one of each
-cd ~/repos/btcpc/telegram-bot && node index.js > /tmp/btcpcbot.log 2>&1 &
-cd ~/repos/alertbot && node index.js > /tmp/btcpcwalletbot.log 2>&1 &
+for pid in $(pgrep -x node); do
+  cwd=$(readlink /proc/$pid/cwd 2>/dev/null)
+  if echo "$cwd" | grep -qE "btcpcbot|btcpcwalletbot|telegram-bot|alertbot"; then
+    echo "PID $pid: $cwd"
+  fi
+done
 ```
 
-## Other Telegram Bots (NOT BTCPC)
+## API Endpoints Used
 
-These use DIFFERENT tokens — no conflict with BTCPC bots:
+All at `/api/bot/*`, require `x-bot-key` header:
 
-| Bot | Token Prefix | Project | Location |
-|-----|-------------|---------|----------|
-| Bullship Bot | `7830932174` | bullship | Docker: `bullship-telegram-bot-1` |
-| nsfwotica Bot | (separate) | nsfwotica | `nsfwotica/telegram/bot.js` |
-| ursOS Bot | (separate) | ursOS | Docker: `urs-node-vault-app` |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| /user | GET | Get user by telegramId |
+| /link | POST | Start verification challenge |
+| /verify | POST | Verify posting key signature |
+| /unlink | POST | Unlink telegram |
+| /balance | GET | Balance, staked, proofs, dreams |
+| /history | GET | Transaction history |
+| /claim | POST | Faucet claim |
+| /mining | GET | Mining stats |
+| /proofs | GET | Mining proofs |
+| /dreams | GET | Genesis dreams |
+| /node | GET | Node status |
+| /network | GET | Network overview |
+| /epoch | GET | Current epoch |
+| /reward | GET | Block reward |
+| /pricing | GET | Inference pricing |
+| /models | GET | Network models |
+| /peers | GET | Peer list |
+| /peers/register | POST | Register peer |
+| /peers/heartbeat | POST | Peer heartbeat |
+| /projects | GET | User projects |
+| /inference | POST | Submit inference |
+| /inference/:jobId | GET | Poll inference job |
+| /linked-users | GET | All linked users (for alerts) |
 
 ## Linking Flow
 
 1. User sends `/link <username>` on either bot
-2. Bot returns challenge: `BTCPC-VERIFY-xxxxxxxx`
-3. User replies `/verify BTCPC-VERIFY-xxxxxxxx`
-4. Bot records verification on-chain and links Telegram ID to BTCPC account
+2. Bot calls `POST /api/bot/link` → gets challenge
+3. User signs challenge with posting key: `node bin/btcpc-cli sign-challenge <challenge>`
+4. User sends `/verify <signature>:<recovery>`
+5. Bot calls `POST /api/bot/verify` → posting key signature verified → on-chain tx recorded
+
+## Other Telegram Bots (NOT BTCPC)
+
+| Bot | Project | Location |
+|-----|---------|----------|
+| Bullship Bot | bullship | Docker: `bullship-telegram-bot-1` |
+| nsfwotica Bot | nsfwotica | `nsfwotica/telegram/bot.js` |
+| brutus11 Bot | brutus11 | `brutus11/telegram-bot/bot.js` |
