@@ -185,7 +185,7 @@ router.get('/v1/network/models', async (req, res) => {
  * Poll GET /v1/inference/:job_id for the result.
  */
 router.post('/v1/inference/submit', async (req, res) => {
-  const { model, messages, max_tokens, temperature, max_fee } = req.body;
+  const { model, messages, max_tokens, temperature, max_fee, context } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: { message: 'messages is required', type: 'invalid_request_error' } });
@@ -208,6 +208,38 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
+  // ── RAG: Prepend context documents to messages ──
+  // context can be a string or array of { text, source? } objects
+  let augmentedMessages = [...messages];
+  if (context) {
+    let contextText;
+    if (typeof context === 'string') {
+      contextText = context;
+    } else if (Array.isArray(context)) {
+      contextText = context.map((doc, i) => {
+        const source = doc.source ? ` [source: ${doc.source}]` : '';
+        const text = doc.text || doc.content || String(doc);
+        return `[Document ${i + 1}${source}]\n${text}`;
+      }).join('\n\n');
+    } else {
+      return res.status(400).json({ error: { message: 'context must be a string or array of {text, source?} objects', type: 'invalid_request_error' } });
+    }
+
+    // Prepend as system message — miner sees a longer prompt, doesn't know it's RAG
+    const ragSystem = {
+      role: 'system',
+      content: `Use the following context to answer the user's question. If the context doesn't contain relevant information, say so.\n\n${contextText}`
+    };
+
+    // Insert RAG system message before user messages, after any existing system messages
+    const existingSystemEnd = augmentedMessages.findLastIndex(m => m.role === 'system');
+    if (existingSystemEnd >= 0) {
+      augmentedMessages.splice(existingSystemEnd + 1, 0, ragSystem);
+    } else {
+      augmentedMessages.unshift(ragSystem);
+    }
+  }
+
   try {
     let fee = max_fee;
     if (!fee) {
@@ -217,7 +249,7 @@ router.post('/v1/inference/submit', async (req, res) => {
 
     const job = await submitInference({
       model: model || 'qwen3.5:27b',
-      messages,
+      messages: augmentedMessages,
       maxTokens: max_tokens,
       temperature,
       maxFee: fee,
@@ -227,6 +259,7 @@ router.post('/v1/inference/submit', async (req, res) => {
     res.status(202).json({
       job_id: job.job_id,
       status: 'pending',
+      rag: !!context,
       message: 'Request submitted to the network. Poll GET /v1/inference/' + job.job_id + ' for the result.'
     });
   } catch (err) {

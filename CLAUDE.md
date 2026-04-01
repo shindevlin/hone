@@ -1,6 +1,6 @@
 # btcpc
 
-Bitcoin Proof of Compute — sovereign chain for AI inference. Genesis miner running on Beastly.
+Bitcoin Proof of Compute — sovereign chain for AI inference.
 
 ## Stack
 - Node.js, MongoDB, WebSocket P2P
@@ -36,6 +36,6 @@ See [docs/bots.md](docs/bots.md) for full bot documentation.
 - Kill zombies before starting (see bots.md for commands)
 
 ## Current State
-- Genesis miner (shindevlin) mining on Beastly
+- Genesis miner (shindevlin) running on GPU node
 - 420 reserved premium names
 - Whitepaper v0.3 complete with 12 appendices

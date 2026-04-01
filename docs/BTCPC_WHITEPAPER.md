@@ -619,6 +619,131 @@ const res = await client.inference({
 // Encrypted end-to-end. Paid in BTCPC. Verified on-chain.
 ```
 
+### 4.7 Retrieval-Augmented Generation (RAG)
+
+BTCPC supports RAG natively at the protocol level. Users submit context documents alongside their inference request. The API prepends the context as a system message before routing to the miner network. The miner processes a longer prompt — it never knows or cares that context was injected.
+
+**Why RAG matters for BTCPC:**
+- Users can ground inference in their own data without fine-tuning
+- The context travels with the request through P2P — encrypted end-to-end
+- Miners are stateless: they don't store documents, they process prompts
+- Billing accounts for the full token count (context + generation)
+
+**Request format:**
+
+```json
+POST /v1/inference/submit
+{
+  "model": "qwen3.5:27b",
+  "messages": [{ "role": "user", "content": "Summarize the Q4 results" }],
+  "context": [
+    { "text": "Q4 revenue was $12.3M, up 18% YoY...", "source": "earnings.pdf" },
+    { "text": "Operating margin improved to 22%...", "source": "financials.csv" }
+  ]
+}
+```
+
+The `context` field accepts a string (raw text) or an array of document objects with `text` and optional `source` fields. Documents are numbered and labeled in the system prompt so the model can cite sources.
+
+**How it works internally:**
+
+1. User submits request with `context` field
+2. API constructs a system message: "Use the following context to answer..."
+3. Context documents are numbered and prepended
+4. Augmented messages are sent to the P2P network as a normal inference job
+5. Miner processes the full prompt (context + question)
+6. User is billed for total tokens (context input + generated output)
+
+RAG is transparent to miners — they see a prompt, they compute. The intelligence is in the API layer, not the mining layer. This means any model on the network supports RAG automatically.
+
+### 4.8 Model Context Protocol (MCP)
+
+BTCPC inference supports MCP (Model Context Protocol), allowing users to connect external tool servers — GitHub, databases, APIs, file systems — as context sources for inference requests.
+
+**How MCP works with BTCPC:**
+
+A user configures MCP servers in their project settings. When an inference request is submitted, the API can invoke MCP tools to gather context before routing to a miner. This turns BTCPC inference into an agentic system where the model can:
+
+- Query a GitHub repository for code context
+- Search a database for relevant records
+- Fetch live data from external APIs
+- Read documents from cloud storage
+
+**Architecture:**
+
+```
+User Request → BTCPC API → MCP Tool Server(s) → Context gathered
+                                                      ↓
+                                              Augmented prompt
+                                                      ↓
+                                              P2P → Miner → Result
+```
+
+MCP tool execution happens at the API layer before the request enters the P2P network. The miner receives a fully-formed prompt with all tool results already embedded. This preserves the stateless miner model — miners compute, they don't fetch.
+
+**MCP server registration:**
+
+```json
+POST /api/projects/mcp-servers
+{
+  "servers": [
+    { "name": "github", "url": "http://localhost:3001", "tools": ["search_code", "read_file"] },
+    { "name": "postgres", "url": "http://localhost:3002", "tools": ["query"] }
+  ]
+}
+```
+
+**Inference with MCP tools:**
+
+```json
+POST /v1/inference/submit
+{
+  "model": "qwen3.5:27b",
+  "messages": [{ "role": "user", "content": "Find the bug in our auth middleware" }],
+  "tools": ["github.search_code", "github.read_file"],
+  "tool_context": { "repo": "shindevlin/btcpc", "branch": "main" }
+}
+```
+
+The API calls the registered MCP servers, gathers tool results, and injects them as RAG context before submitting to the miner network. Billing covers the full token count including tool-gathered context.
+
+**Security:** MCP servers run on the user's infrastructure, not on miners. The miner never connects to external services. User data flows: User → API → MCP Server → API → (encrypted) → Miner. The miner only sees the assembled prompt.
+
+**Status:** RAG is implemented and live. MCP server integration is designed but not yet built in code — the protocol is defined here so projects can begin building MCP servers that will plug into BTCPC when the integration layer ships.
+
+### 4.9 Multi-Party Computation (MPC) — Sharded Privacy
+
+For sensitive workloads (medical records, legal documents, financial data), BTCPC offers MPC-sharded inference as a premium tier. The user's prompt is split across multiple miners so that no single miner sees the full input or output.
+
+**How MPC sharding works:**
+
+1. User submits request with `"privacy": "mpc"` flag
+2. API splits the prompt into N shards (minimum 3 miners)
+3. Each miner processes their shard independently
+4. API reassembles the partial results into the final output
+5. No miner ever sees more than 1/N of the prompt or result
+
+**Pricing:** MPC inference costs N× the standard rate (where N = number of shards/miners) because N miners each perform partial work. The premium pays for privacy.
+
+**Trade-offs:**
+
+| Feature | Standard | MPC Sharded |
+|---------|----------|-------------|
+| Privacy | End-to-end encrypted | No single miner sees full data |
+| Cost | 1× | 3-5× |
+| Latency | Single miner round-trip | Slowest shard + reassembly |
+| Quality | Full context to model | Partial context per shard |
+| Min miners | 1 | 3 |
+
+**Quality consideration:** Sharding a prompt means each miner sees partial context, which can reduce output quality. MPC works best for:
+- Structured data processing (each shard handles a subset of records)
+- Classification tasks (each shard votes independently)
+- Summarization (each shard summarizes a section, API merges)
+
+For tasks requiring full context (creative writing, complex reasoning), standard encrypted inference is recommended.
+
+**Status:** MPC is designed but not yet implemented. Requires the 3-miner consensus code (section 3.7) as a prerequisite. The sharding protocol and reassembly logic will be built once multi-miner coordination is live.
+
 ---
 
 ## 4. Token Economics
