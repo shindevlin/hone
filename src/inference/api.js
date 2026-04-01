@@ -325,7 +325,7 @@ router.post('/v1/chat/completions', async (req, res) => {
             role: 'assistant',
             content: assistantContent
           },
-          finish_reason: data.done_reason || 'stop'
+          finish_reason: 'stop'
         }
       ],
       usage: {
