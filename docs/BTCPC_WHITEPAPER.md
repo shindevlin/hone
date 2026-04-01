@@ -11,9 +11,9 @@
 
 Bitcoin proved that a decentralized network, secured by proof of work, can create and maintain digital scarcity. But Bitcoin's work is purpose-agnostic — SHA-256 puzzles that produce nothing except security. Meanwhile, the world's demand for AI compute grows exponentially, concentrated in the hands of a few corporations.
 
-Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain that applies Bitcoin's core insight — that costly, verifiable work can secure a network and back a scarce asset — to a problem that matters: AI inference. Miners earn BTCPC by providing real AI compute to the network. The work that secures the network is the work that users actually want to buy.
+Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain that applies Bitcoin's core insight — that costly, verifiable work can secure a network and back a scarce asset — to a problem that matters: AI inference. BTCPC is a **Proof of Useful Work** system — miners earn BTCPC by providing real AI compute to the network. Unlike Bitcoin's Proof of Work where hash puzzles produce nothing of value, every unit of energy spent on BTCPC produces real, useful AI inference that users actually want to buy. The work that secures the network IS the work that serves the users.
 
-BTCPC introduces two innovations beyond Bitcoin: **Proof of Compute** replaces abstract hash puzzles with useful AI inference, and **Cross-Chain Mining Rewards** automatically generate claimable tokens on every blockchain a miner links to their rig — creating multi-chain liquidity from the first block.
+BTCPC introduces two innovations beyond Bitcoin: **Proof of Useful Work (Proof of Compute)** replaces abstract hash puzzles with useful AI inference, and **Cross-Chain Mining Rewards** automatically generate claimable tokens on every blockchain a miner links to their rig — creating multi-chain liquidity from the first block.
 
 Total supply: **42,000,000 BTCPC** — the answer to life, the universe, and everything.
 
@@ -52,7 +52,7 @@ BTCPC is its own blockchain — not a Layer 2, not a sidechain, not a token on a
 
 - **Its own genesis block**
 - **Its own P2P network** for transaction and block gossip
-- **Its own consensus mechanism** (Proof of Compute)
+- **Its own consensus mechanism** (Proof of Useful Work / Proof of Compute)
 - **Its own mempool** for pending transactions and inference requests
 - **Its own account-based ledger** tracking balances, stakes, and mining rewards
 - **Its own block format** containing transactions, inference proofs, and epoch commitments
@@ -1019,7 +1019,7 @@ The answer is 42. The question was always about compute.
 | Chain Type | Token on Ethereum/Solana | Cosmos chain | Token on Solana | Sovereign chain |
 | Token Model | Utility (inflationary) | Utility (inflationary) | Utility (inflationary) | Fixed supply (42M) |
 | Mining | No mining | No mining | No mining | Yes — earn by providing compute |
-| Consensus | None (marketplace) | Tendermint (PoS) | None (marketplace) | Proof of Compute |
+| Consensus | None (marketplace) | Tendermint (PoS) | None (marketplace) | Proof of Useful Work (Proof of Compute) |
 | Verification | Trust-based | Trust-based | Trust-based | Commit-reveal (100%) |
 | Halvings | No | No | No | Yes (doubling intervals) |
 | Multi-Chain Rewards | No | No | No | Yes (1:1 halving cross-chain) |
