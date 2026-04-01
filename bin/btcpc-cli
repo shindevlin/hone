@@ -788,6 +788,39 @@ walletCmd
     }
   });
 
+// --- sign-challenge --------------------------------------------------------
+
+program
+  .command("sign-challenge <challenge>")
+  .description("Sign a Telegram verification challenge with your posting key")
+  .action(async (challenge) => {
+    try {
+      if (!challenge.startsWith("BTCPC-VERIFY-")) {
+        console.error("error: challenge must start with BTCPC-VERIFY-");
+        process.exit(1);
+      }
+
+      const postingKey = await prompt("  Enter your posting private key (hex): ");
+      if (!postingKey || postingKey.trim().length !== 64) {
+        console.error("error: posting key must be a 64-character hex string");
+        process.exit(1);
+      }
+
+      const { signTransaction } = keyManager;
+      const result = signTransaction(challenge, postingKey.trim());
+
+      console.log("");
+      console.log("  Challenge signed successfully.");
+      console.log("");
+      console.log("  Send this to the bot:");
+      console.log("  /verify " + result.signature + ":" + result.recovery);
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
 // --- dreams ----------------------------------------------------------------
 
 const GenesisDream = require("../src/models/GenesisDream");

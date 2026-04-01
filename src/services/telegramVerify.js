@@ -3,13 +3,13 @@
 const crypto = require('crypto');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const { verifySignature, txHash } = require('../wallet/keyManager');
 
-const CHALLENGE_EXPIRY_MS = 600000; // 10 minutes — user needs time to post on-chain
+const CHALLENGE_EXPIRY_MS = 600000; // 10 minutes
 
 /**
  * Start a telegram link — generates a challenge code.
- * User must post this challenge on the BTCPC blockchain with their posting key.
- * The bot watches the chain for matching transactions.
+ * User must sign this challenge with their BTCPC posting key.
  */
 async function startLink(username, telegramId, telegramUsername) {
   const user = await User.findOne({ username: username.toLowerCase() });
@@ -20,6 +20,10 @@ async function startLink(username, telegramId, telegramUsername) {
   }
   if (user.telegramId === telegramId) {
     throw new Error('Already linked');
+  }
+
+  if (!user.postingPublicKey) {
+    throw new Error('Account has no posting key set. Register via CLI first.');
   }
 
   const challenge = 'BTCPC-VERIFY-' + crypto.randomBytes(8).toString('hex');
@@ -39,21 +43,25 @@ async function startLink(username, telegramId, telegramUsername) {
 }
 
 /**
- * Post the verification transaction on-chain.
- * Called via API: POST /api/user/verify-telegram
- * Requires JWT auth (proves they hold the account credentials).
- * The transaction itself is recorded on the blockchain.
+ * Verify a signed challenge to complete Telegram linking.
+ * The signature must be produced by the account's posting private key.
+ * This proves the Telegram user controls the BTCPC account.
+ *
+ * @param {string} username - BTCPC username
+ * @param {string} telegramId - Telegram user ID (must match pending link)
+ * @param {string} signature - Hex-encoded secp256k1 signature of the challenge
+ * @param {number} recovery - Signature recovery ID (0 or 1)
  */
-async function postVerification(userId, challenge) {
-  const user = await User.findById(userId);
+async function verifySignedChallenge(username, telegramId, signature, recovery) {
+  const user = await User.findOne({ username: username.toLowerCase() });
   if (!user) throw new Error('User not found');
 
   const pending = user.pendingTelegramLink;
   if (!pending || !pending.challenge) {
     throw new Error('No pending link. Use /link on Telegram first.');
   }
-  if (challenge !== pending.challenge) {
-    throw new Error('Challenge does not match');
+  if (pending.telegramId !== telegramId) {
+    throw new Error('Telegram ID does not match the pending link.');
   }
   if (new Date() > pending.expiresAt) {
     user.pendingTelegramLink = {};
@@ -61,7 +69,18 @@ async function postVerification(userId, challenge) {
     throw new Error('Challenge expired. Use /link again.');
   }
 
-  // Record the verification ON CHAIN as a transaction
+  // Verify the signature against the posting public key
+  if (!user.postingPublicKey) {
+    throw new Error('Account has no posting key. Cannot verify.');
+  }
+
+  const challenge = pending.challenge;
+  const valid = verifySignature(challenge, signature, user.postingPublicKey);
+  if (!valid) {
+    throw new Error('Invalid signature. Must be signed with the posting key for this account.');
+  }
+
+  // Signature valid — record on-chain and link
   const Wallet = require('../models/Wallet');
   const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
 
@@ -72,15 +91,16 @@ async function postVerification(userId, challenge) {
     type: 'verification',
     memo: JSON.stringify({
       action: 'verify-telegram',
-      challenge: pending.challenge,
+      challenge: challenge,
       telegram_id: pending.telegramId,
       telegram_username: pending.telegramUsername,
+      signature: signature,
       timestamp: new Date().toISOString()
     })
   });
   await tx.save();
 
-  // Link confirmed — the on-chain transaction IS the proof
+  // Link confirmed
   user.telegramId = pending.telegramId;
   user.telegramUsername = pending.telegramUsername;
   user.pendingTelegramLink = {};
@@ -90,7 +110,7 @@ async function postVerification(userId, challenge) {
     success: true,
     username: user.username,
     tx_id: tx._id.toString(),
-    message: 'Telegram linked. Verification recorded on-chain.'
+    message: 'Telegram linked. Posting key signature verified and recorded on-chain.'
   };
 }
 
@@ -104,4 +124,4 @@ async function checkPendingLink(username) {
   return user.pendingTelegramLink;
 }
 
-module.exports = { startLink, postVerification, checkPendingLink };
+module.exports = { startLink, verifySignedChallenge, checkPendingLink };

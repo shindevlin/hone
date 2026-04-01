@@ -70,7 +70,7 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // ── /link <username> — start on-chain verification ──
-const { startLink, postVerification } = require('../src/services/telegramVerify');
+const { startLink, verifySignedChallenge } = require('../src/services/telegramVerify');
 
 bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   const chatId = msg.chat.id;
@@ -87,10 +87,14 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
     bot.sendMessage(chatId, [
       `*Verify ownership of ${username}*`,
       ``,
-      `Your challenge code:`,
+      `Sign this challenge with your posting key:`,
       `\`${result.challenge}\``,
       ``,
-      `Reply with: \`/verify ${result.challenge}\``,
+      `*How to sign (CLI):*`,
+      `\`node bin/btcpc-cli sign-challenge ${result.challenge}\``,
+      ``,
+      `Then reply here with:`,
+      `\`/verify <signature>:<recovery>\``,
       ``,
       `_Expires in ${result.expiresIn / 60} minutes_`,
     ].join('\n'), { parse_mode: 'Markdown' });
@@ -100,26 +104,35 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   }
 });
 
-// ── /verify <challenge> — complete on-chain verification ──
-bot.onText(/\/verify\s+(BTCPC-VERIFY-\S+)/, async (msg, match) => {
+// ── /verify <signature:recovery> — verify posting key signature ──
+bot.onText(/\/verify\s+(\S+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const tgId = String(msg.from.id);
-  const challenge = match[1];
+  const input = match[1];
 
   try {
-    // Find the user with this pending challenge for this telegram ID
-    const user = await User.findOne({
-      'pendingTelegramLink.telegramId': tgId,
-      'pendingTelegramLink.challenge': challenge
-    });
-
-    if (!user) {
-      return bot.sendMessage(chatId, 'No pending link matches this challenge. Use `/link <username>` first.', { parse_mode: 'Markdown' });
+    // Parse signature:recovery format
+    const parts = input.split(':');
+    if (parts.length !== 2) {
+      return bot.sendMessage(chatId, 'Format: `/verify <signature>:<recovery>`\nGet this from: `node bin/btcpc-cli sign-challenge <challenge>`', { parse_mode: 'Markdown' });
     }
 
-    // Complete verification — records on-chain transaction
-    const result = await postVerification(user._id, challenge);
-    bot.sendMessage(chatId, `*${result.username}* verified and linked! On-chain proof recorded (tx: \`${result.tx_id}\`).`, { parse_mode: 'Markdown' });
+    const signature = parts[0];
+    const recovery = parseInt(parts[1], 10);
+
+    if (!/^[0-9a-f]{128}$/i.test(signature) || isNaN(recovery)) {
+      return bot.sendMessage(chatId, 'Invalid signature format. Use the output from `btcpc-cli sign-challenge`.', { parse_mode: 'Markdown' });
+    }
+
+    // Find user with pending link for this telegram ID
+    const user = await User.findOne({ 'pendingTelegramLink.telegramId': tgId });
+    if (!user) {
+      return bot.sendMessage(chatId, 'No pending link. Use `/link <username>` first.', { parse_mode: 'Markdown' });
+    }
+
+    // Verify signature against posting key
+    const result = await verifySignedChallenge(user.username, tgId, signature, recovery);
+    bot.sendMessage(chatId, `*${result.username}* verified and linked! Posting key signature verified on-chain (tx: \`${result.tx_id}\`).`, { parse_mode: 'Markdown' });
 
   } catch (err) {
     bot.sendMessage(chatId, `Error: ${err.message}`);
