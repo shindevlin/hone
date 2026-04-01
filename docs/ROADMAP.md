@@ -16,6 +16,18 @@
 - [x] Cross-chain wallet derivation on registration
 - [x] Whitepaper v0.4 with consensus, RAG, MCP, MPC design
 - [x] Genesis dreams (soulbound NFTs per block)
+- [x] Shared epochs — multiple miners submit to same epoch, never double rewards
+- [x] Finalization delay (60s) to wait for all miners before splitting
+
+## Pending (user-requested, not yet scheduled)
+
+- [ ] Wallet bot alerts only for users whose miner earned tokens (not broadcast to all)
+- [ ] OpenClaw feature parity audit — identify missing features
+- [ ] Inference cron jobs routed through real blockchain (not localhost)
+- [ ] Auto-updater: stage updates, notify miner, apply on restart (not auto-apply)
+- [ ] Systemd services for bots (auto-restart, no zombies)
+- [ ] Cloudflare webhook mode for bots (eliminate polling entirely)
+- [ ] Scrub git history to remove leaked .env / bot tokens
 
 ## Phase 1 — Multi-Miner
 
