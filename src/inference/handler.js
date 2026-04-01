@@ -15,6 +15,7 @@ const axios = require("axios");
 const p2p = require("../p2p/network");
 const { createMessage } = require("../p2p/protocol");
 const { GENESIS_MINER } = require("../mining/genesisBlock");
+const MINER_NAME = process.env.BTCPC_MINER || GENESIS_MINER;
 const { getModelWeight } = require("../mining/workGenerator");
 const WorkProof = require("../models/WorkProof");
 const Node = require("../models/Node");
@@ -76,22 +77,25 @@ async function handleInferenceRequest(msg) {
     return;
   }
 
-  // Check if we support the requested model
+  // Check if we have the exact requested model
   const model = data.model || "qwen3.5:27b";
   try {
     const modelsResp = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 5000 });
     const available = (modelsResp.data.models || []).map(m => m.name);
-    if (!available.some(m => m.startsWith(model.split(":")[0]))) {
-      console.log(`[BTCPC Inference] Skipping — model ${model} not available`);
-      return;
+    // Exact match: "qwen3:4b" must match "qwen3:4b", not "qwen3.5:27b"
+    if (!available.includes(model)) {
+      // Also try without tag (e.g. "qwen3:4b" matches "qwen3:4b" but not "qwen3.5:27b")
+      const modelBase = model.includes(':') ? model : model + ':latest';
+      if (!available.includes(modelBase)) {
+        return; // silently skip — don't log spam for every model we don't have
+      }
     }
   } catch (_) {
-    console.log("[BTCPC Inference] Skipping — Ollama unreachable");
-    return;
+    return; // Ollama unreachable, skip silently
   }
 
   // Get our node info for the claim
-  const user = await User.findOne({ username: GENESIS_MINER });
+  const user = await User.findOne({ username: MINER_NAME });
   const node = user ? await Node.findOne({ account: user._id }) : null;
 
   const claim = createMessage("INFERENCE_CLAIM", {
@@ -100,7 +104,7 @@ async function handleInferenceRequest(msg) {
     sik_hash: node?.sik_hash || "none",
     price: Math.min(data.max_fee || 10, 5), // bid 5 or less
     model: model,
-    node_name: GENESIS_MINER,
+    node_name: MINER_NAME,
   }, p2p.NODE_ID);
 
   p2p.broadcast(claim);
@@ -115,7 +119,7 @@ async function handleAssignment(msg) {
   const myNodeId = p2p.NODE_ID;
 
   const assigned = (data.assignments || []).find(
-    a => a.node_id === myNodeId || a.node_name === GENESIS_MINER
+    a => a.node_id === myNodeId || a.node_name === MINER_NAME
   );
 
   if (!assigned) return; // not assigned to us
@@ -140,7 +144,7 @@ async function handlePayload(msg) {
 
   // Check if this payload is for us
   const targetNode = data.node_id || data.target_node;
-  if (targetNode && targetNode !== p2p.NODE_ID && targetNode !== GENESIS_MINER) return;
+  if (targetNode && targetNode !== p2p.NODE_ID && targetNode !== MINER_NAME) return;
   const prompt = data.prompt; // plaintext for now; encrypted later
   const model = data.model || "qwen3.5:27b";
 
@@ -173,7 +177,7 @@ async function handlePayload(msg) {
     const weightFactor = getModelWeight(model);
     const proof = new WorkProof({
       epoch_number: 0, // will be set by epoch manager
-      node_id: GENESIS_MINER,
+      node_id: MINER_NAME,
       prompt_hash: promptHash,
       result_hash: resultHash,
       model,
@@ -187,7 +191,7 @@ async function handlePayload(msg) {
     const commit = createMessage("INFERENCE_COMMIT", {
       request_id: requestId,
       node_id: p2p.NODE_ID,
-      node_name: GENESIS_MINER,
+      node_name: MINER_NAME,
       result_hash: resultHash,
       tokens_generated: tokensGenerated,
     }, p2p.NODE_ID);
@@ -197,7 +201,7 @@ async function handlePayload(msg) {
     const reveal = createMessage("INFERENCE_REVEAL", {
       request_id: requestId,
       node_id: p2p.NODE_ID,
-      node_name: GENESIS_MINER,
+      node_name: MINER_NAME,
       result_hash: resultHash,
       result_text: resultText, // plaintext for now; encrypted in production
       tokens_generated: tokensGenerated,
@@ -215,7 +219,7 @@ async function handlePayload(msg) {
       tokens_generated: tokensGenerated,
       model,
       elapsed_ms: elapsed,
-      node_name: GENESIS_MINER,
+      node_name: MINER_NAME,
     }, p2p.NODE_ID);
     p2p.broadcast(result);
 
@@ -227,7 +231,7 @@ async function handlePayload(msg) {
     const fail = createMessage("INFERENCE_RESULT", {
       request_id: requestId,
       error: err.message,
-      node_name: GENESIS_MINER,
+      node_name: MINER_NAME,
     }, p2p.NODE_ID);
     p2p.broadcast(fail);
   } finally {

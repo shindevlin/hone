@@ -3,9 +3,9 @@
 /**
  * BTCPC Auto-Updater
  *
- * Runs inside the miner process. Checks GitHub for new commits
- * every CHECK_INTERVAL. If updates found, pulls and restarts
- * the process automatically.
+ * Stage-and-notify model: checks for updates, downloads them,
+ * but does NOT auto-restart. Notifies the miner that an update
+ * is available. Applied on next manual restart.
  *
  * Set BTCPC_AUTO_UPDATE=false to disable.
  */
@@ -15,22 +15,26 @@ const path = require('path');
 
 const REPO_DIR = path.resolve(__dirname, '../..');
 const CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS) || 900000; // 15 min
+const IS_WINDOWS = process.platform === 'win32';
 
 let updateTimer = null;
+let pendingUpdate = null; // { version, commits, pulledAt }
 
 function run(cmd) {
-  return execSync(cmd, { cwd: REPO_DIR, encoding: 'utf8', timeout: 120000 }).trim();
+  // Use platform-appropriate shell
+  const shell = IS_WINDOWS ? { shell: 'cmd.exe' } : {};
+  return execSync(cmd, { cwd: REPO_DIR, encoding: 'utf8', timeout: 120000, ...shell }).trim();
 }
 
 function log(msg) {
-  console.log(`[BTCPC-UPDATE] ${new Date().toISOString()} -- ${msg}`);
+  console.log(`[auto-updater] ${new Date().toISOString()} -- ${msg}`);
 }
 
 /**
- * Check for updates and apply if found.
- * Returns true if an update was applied (process will restart).
+ * Check for updates. If found, stage them (git pull) but do NOT restart.
+ * Returns update info or null.
  */
-function checkAndUpdate() {
+function checkAndStage() {
   try {
     run('git fetch origin');
 
@@ -38,53 +42,49 @@ function checkAndUpdate() {
     const remoteHash = run('git rev-parse origin/main');
 
     if (localHash === remoteHash) {
-      return false;
+      return null;
     }
 
     const behindCount = run('git rev-list HEAD..origin/main --count');
     log(`${behindCount} new commit(s) available`);
 
-    // Show what's coming
     const commitLog = run('git log HEAD..origin/main --oneline');
-    log('Incoming:\n' + commitLog);
+    log('Available:\n' + commitLog);
 
-    // Check the remote version
+    // Get remote version
+    let remoteVersion = 'unknown';
     try {
-      const remoteVersion = run('git show origin/main:package.json | node -e "process.stdin.resume();let d=\'\';process.stdin.on(\'data\',c=>d+=c);process.stdin.on(\'end\',()=>console.log(JSON.parse(d).version))"');
-      log(`Updating to v${remoteVersion}`);
+      const pkgJson = run('git show origin/main:package.json');
+      remoteVersion = JSON.parse(pkgJson).version;
     } catch (_) {}
 
-    // Pull
-    run('git stash 2>/dev/null; git pull origin main');
-    log('Pulled latest code');
+    // Stage: pull the code but don't restart
+    // Cross-platform: avoid shell redirects that break on Windows
+    try { run('git stash'); } catch (_) {} // stash any local changes
+    run('git pull origin main');
+    log(`Staged v${remoteVersion} (${behindCount} commits). Will apply on next restart.`);
 
-    // Install deps if needed
-    const changed = run('git diff HEAD~' + behindCount + ' --name-only');
-    if (changed.includes('package.json') || changed.includes('package-lock.json')) {
-      log('Installing new dependencies...');
-      run('npm install');
-    }
+    // Install deps if package.json changed
+    try {
+      const changed = run('git diff HEAD~' + behindCount + ' --name-only');
+      if (changed.includes('package.json') || changed.includes('package-lock.json')) {
+        log('Installing new dependencies...');
+        run('npm install');
+      }
+    } catch (_) {}
 
-    log('Restarting process...');
+    pendingUpdate = {
+      version: remoteVersion,
+      commits: parseInt(behindCount),
+      commitLog,
+      pulledAt: new Date().toISOString()
+    };
 
-    // Restart: spawn a new process and exit this one
-    const { spawn } = require('child_process');
-    const args = process.argv.slice(1);
-    const child = spawn(process.argv[0], args, {
-      cwd: REPO_DIR,
-      detached: true,
-      stdio: 'inherit',
-      env: process.env
-    });
-    child.unref();
-
-    // Give the new process a moment to start, then exit
-    setTimeout(() => process.exit(0), 2000);
-    return true;
+    return pendingUpdate;
 
   } catch (err) {
     log('Update check failed: ' + err.message);
-    return false;
+    return null;
   }
 }
 
@@ -93,7 +93,7 @@ function checkAndUpdate() {
  */
 function startAutoUpdater() {
   if (process.env.BTCPC_AUTO_UPDATE === 'false') {
-    log('Auto-update disabled (BTCPC_AUTO_UPDATE=false)');
+    log('Disabled (BTCPC_AUTO_UPDATE=false)');
     return;
   }
 
@@ -101,17 +101,13 @@ function startAutoUpdater() {
     try { return require('../../package.json').version; } catch (_) { return 'unknown'; }
   })();
 
-  log(`Running v${currentVersion}, checking for updates every ${CHECK_INTERVAL_MS / 60000}min`);
+  log(`Running v${currentVersion}, checking every ${CHECK_INTERVAL_MS / 60000}min (stage-only, no auto-restart)`);
 
-  // Check once on startup (delayed 30s to let the miner stabilize)
-  setTimeout(() => {
-    checkAndUpdate();
-  }, 30000);
+  // Check once on startup (delayed 60s)
+  setTimeout(() => checkAndStage(), 60000);
 
   // Then check periodically
-  updateTimer = setInterval(() => {
-    checkAndUpdate();
-  }, CHECK_INTERVAL_MS);
+  updateTimer = setInterval(() => checkAndStage(), CHECK_INTERVAL_MS);
 }
 
 function stopAutoUpdater() {
@@ -121,4 +117,8 @@ function stopAutoUpdater() {
   }
 }
 
-module.exports = { startAutoUpdater, stopAutoUpdater, checkAndUpdate };
+function getPendingUpdate() {
+  return pendingUpdate;
+}
+
+module.exports = { startAutoUpdater, stopAutoUpdater, checkAndStage, getPendingUpdate };
