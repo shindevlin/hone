@@ -24,6 +24,7 @@ const silicon = require('../silicon');
 const { startInferenceHandler } = require('../inference/handler');
 const { startAutoUpdater } = require('../services/autoUpdater');
 const { verifyAllModels, verifyModel } = require('../services/modelVerifier');
+const { startModelManager } = require('../services/modelManager');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -632,8 +633,11 @@ async function startMiner() {
 
   console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
 
-  // Start auto-updater (checks GitHub every 15min, pulls + restarts if new version)
+  // Start auto-updater (checks GitHub every 15min, stages + notifies)
   startAutoUpdater();
+
+  // Start model manager (auto-pulls in-demand models within disk budget)
+  startModelManager();
 }
 
 /**
