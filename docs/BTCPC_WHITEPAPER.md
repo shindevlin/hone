@@ -750,19 +750,25 @@ Formula: `ratio = 0.9 ^ ccStep` where `ccStep = (period - 1) × 2` for the first
 
 5. **No cap on linked chains.** A miner can link as many chains as BTCPC supports. More linked chains = more total value earned per epoch of compute. This incentivizes miners to expand the BTCPC ecosystem.
 
-### 5.4 Cross-Chain Liquidity Strategy
+### 5.4 Cross-Chain Reward Distribution
 
-Miners are encouraged to allocate a portion of their claimed wBTCPC to liquidity pools on each chain. The recommended strategy has two phases:
+Cross-chain rewards are split at the protocol level:
 
-**Phase 1: Bridge Pools (BTCPC/wBTCPC)**
+**50% → Miner wallet (direct)**
+The miner receives half of their wBTCPC claim directly. These tokens are liquid and immediately usable — the miner can hold, sell, stake, or deploy to speculative LP pairs. This is the miner's paycheck for running GPU compute.
 
-50% of claimed wBTCPC is paired with equivalent native BTCPC in a BTCPC/wBTCPC pool on each chain (e.g. Uniswap V3 on Base, Raydium on Solana). This proves 1:1 backing between the native token and its wrapped counterpart. Because both sides represent the same underlying value, impermanent loss is near zero. LP tokens are held in a multi-sig wallet — liquidity can be added automatically on each claim, but removal requires multi-sig approval.
+**50% → BTCPC/wBTCPC liquidity pool (automatic)**
+The other half is deposited into a BTCPC/wBTCPC bridge pool on each chain (Uniswap V3 on Base, Raydium on Solana, etc.), paired with equivalent native BTCPC. This happens automatically on each claim — no manual action required. The miner owns their LP position and earns trading fees from it. LP tokens are held with a timelock to prevent immediate withdrawal.
 
-**Phase 2: Speculative Pairs (wBTCPC/USDC, wBTCPC/ETH, etc.)**
+This creates a unique economic model: **mining automatically builds cross-chain liquidity.** Every epoch of compute deepens the BTCPC/wBTCPC pool on every linked chain. No other blockchain generates liquidity as a byproduct of mining.
 
-The remaining 50% of claimed wBTCPC is held by the miner. As real dollar-denominated value develops through trading, miners can deploy this reserve into speculative pairs (wBTCPC/USDC, wBTCPC/ETH, wBTCPC/SOL, etc.) on each chain's native DEXs. This creates price discovery and tradeable markets.
+**Why 50/50:**
+- 100% direct → no liquidity, tokens have nowhere to trade
+- 100% LP → miners can't access rewards, no incentive to mine early when volume is zero
+- 50/50 → miners get immediate liquid value AND build long-term LP positions that earn fees as volume grows
 
-Phase 1 happens at launch. Phase 2 happens organically as the ecosystem grows.
+**Phase 2: Speculative Pairs**
+As real dollar-denominated value develops through trading, miners can deploy their direct 50% into speculative pairs (wBTCPC/USDC, wBTCPC/ETH, wBTCPC/SOL) on each chain's native DEXs. This creates price discovery. Phase 2 happens organically — the protocol only enforces the 50% bridge pool allocation.
 
 ### 5.5 Why This Works
 

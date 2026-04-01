@@ -102,6 +102,8 @@ async function main() {
           epoch: proof.epoch,
           native_reward: reward,
           claim_amount: proof.amount,
+          direct_amount: proof.direct_amount,
+          lp_amount: proof.lp_amount,
           period: proof.period,
           cross_chain_ratio: proof.cross_chain_ratio,
           proof_signature: proof.proof_signature,

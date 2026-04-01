@@ -39,6 +39,14 @@ var crossChainClaimSchema = new Schema({
     type: String,
     required: true
   },
+  direct_amount: {
+    type: String,
+    default: null
+  },
+  lp_amount: {
+    type: String,
+    default: null
+  },
   period: {
     type: Number,
     required: true
