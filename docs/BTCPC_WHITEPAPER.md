@@ -346,6 +346,33 @@ Slashing is proportional to stake. Higher stake = higher assignment priority, bu
 
 Slashed BTCPC is redistributed to the honest nodes who produced the correct result. A node staking 100,000 BTCPC for maximum assignment priority risks losing 10,000 on a single incorrect result — the penalty scales with the privilege.
 
+### 3.4.1 Miner Replacement Protocol
+
+When a miner's work is rejected (model hash mismatch, wrong result, or slashing), their slot is **backfilled** — not redistributed to existing miners.
+
+**Flow:**
+
+1. Job assigned to miners A, B, C (N=3 per model)
+2. A and B submit matching results (consensus)
+3. C is rejected (tampered model, wrong result, or timeout)
+4. C's slot is reassigned to D (next available miner for that model)
+5. D processes the job, submits result
+6. If D matches A+B consensus → D receives C's reward share
+7. If D does not match → slot reassigned to E, and D is flagged
+
+**Why replacement, not redistribution:**
+
+- Redistribution rewards A and B for C's failure — they did nothing extra to earn it
+- Replacement ensures 3 independent computations actually happen — the verification integrity is preserved
+- The replacement miner (D) actually does the work, so they earn the reward
+- This maintains the security guarantee: every job has N independent verifications
+
+**Replacement queue priority:** Same as initial assignment (section 3.5) — weighted by price, reputation, newcomer bonus, and stake. C is excluded from the replacement queue for this job.
+
+**Timeout:** If no replacement miner is available within 2 epoch durations (10 minutes), the slot is dropped and the reward for that slot is burned (removed from circulation). This prevents reward inflation when the network has fewer than N miners for a model.
+
+**Genesis phase (N=1):** With fewer than 3 miners per model, replacement is not possible. Single-miner mode auto-switches to N=3 per model when 3+ miners serve that model (section 3.7).
+
 ### 3.5 Anti-Centralization: Fair Work Distribution
 
 BTCPC prevents powerful nodes from monopolizing inference work through a **weighted assignment algorithm** that balances price, track record, and newcomer opportunity:
