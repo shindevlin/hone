@@ -185,7 +185,7 @@ router.get('/v1/network/models', async (req, res) => {
  * Poll GET /v1/inference/:job_id for the result.
  */
 router.post('/v1/inference/submit', async (req, res) => {
-  const { model, messages, max_tokens, temperature, max_fee, context } = req.body;
+  const { model, messages, max_tokens, temperature, max_fee, context, mcp_servers, tools, tool_context, use_saved_mcp } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: { message: 'messages is required', type: 'invalid_request_error' } });
@@ -208,30 +208,94 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
-  // ── RAG: Prepend context documents to messages ──
-  // context can be a string or array of { text, source? } objects
-  let augmentedMessages = [...messages];
-  if (context) {
-    let contextText;
-    if (typeof context === 'string') {
-      contextText = context;
-    } else if (Array.isArray(context)) {
-      contextText = context.map((doc, i) => {
-        const source = doc.source ? ` [source: ${doc.source}]` : '';
-        const text = doc.text || doc.content || String(doc);
-        return `[Document ${i + 1}${source}]\n${text}`;
-      }).join('\n\n');
-    } else {
-      return res.status(400).json({ error: { message: 'context must be a string or array of {text, source?} objects', type: 'invalid_request_error' } });
+  // ── MCP: Call user-specified tool servers to gather context ──
+  // Users bring their own servers — no registration, no approval.
+  // Pass inline: mcp_servers: [{ url, tools }]
+  // Or use saved: use_saved_mcp: true (loads from user profile)
+  // Or both — inline servers merge with saved ones.
+  let allServers = mcp_servers ? [...mcp_servers] : [];
+
+  // Load user's saved MCP servers if requested
+  if (use_saved_mcp && req.project) {
+    try {
+      const User = require('../models/User');
+      const Project = require('../models/Project');
+      const project = await Project.findById(req.project._id);
+      if (project) {
+        const user = await User.findOne({ username: project.owner });
+        if (user && user.mcpServers && user.mcpServers.length > 0) {
+          allServers = allServers.concat(user.mcpServers.map(s => ({
+            url: s.url, tools: s.tools, name: s.name
+          })));
+        }
+      }
+    } catch (_) {}
+  }
+
+  let mcpResults = [];
+  if (allServers.length > 0 && tools && Array.isArray(tools)) {
+    const toolCalls = [];
+
+    for (const toolName of tools) {
+      // Find which server provides this tool
+      const server = allServers.find(s =>
+        s.tools && s.tools.includes(toolName)
+      );
+      if (!server || !server.url) continue;
+
+      toolCalls.push(
+        axios.post(server.url, {
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: toolName, arguments: tool_context || {} },
+          id: crypto.randomUUID()
+        }, { timeout: 15000 })
+        .then(r => ({
+          tool: toolName,
+          result: r.data?.result?.content?.[0]?.text || JSON.stringify(r.data?.result || r.data),
+          server: server.url
+        }))
+        .catch(err => ({
+          tool: toolName,
+          result: `[Error: ${err.message}]`,
+          server: server.url
+        }))
+      );
     }
 
-    // Prepend as system message — miner sees a longer prompt, doesn't know it's RAG
+    mcpResults = await Promise.all(toolCalls);
+  }
+
+  // ── RAG: Build context from explicit context + MCP tool results ──
+  let augmentedMessages = [...messages];
+  const contextParts = [];
+
+  // Add explicit context documents
+  if (context) {
+    if (typeof context === 'string') {
+      contextParts.push(context);
+    } else if (Array.isArray(context)) {
+      for (let i = 0; i < context.length; i++) {
+        const doc = context[i];
+        const source = doc.source ? ` [source: ${doc.source}]` : '';
+        const text = doc.text || doc.content || String(doc);
+        contextParts.push(`[Document ${i + 1}${source}]\n${text}`);
+      }
+    }
+  }
+
+  // Add MCP tool results as context
+  for (const mcpResult of mcpResults) {
+    contextParts.push(`[Tool: ${mcpResult.tool}]\n${mcpResult.result}`);
+  }
+
+  // Inject combined context as system message
+  if (contextParts.length > 0) {
     const ragSystem = {
       role: 'system',
-      content: `Use the following context to answer the user's question. If the context doesn't contain relevant information, say so.\n\n${contextText}`
+      content: `Use the following context to answer the user's question. If the context doesn't contain relevant information, say so.\n\n${contextParts.join('\n\n')}`
     };
 
-    // Insert RAG system message before user messages, after any existing system messages
     const existingSystemEnd = augmentedMessages.findLastIndex(m => m.role === 'system');
     if (existingSystemEnd >= 0) {
       augmentedMessages.splice(existingSystemEnd + 1, 0, ragSystem);
@@ -259,7 +323,8 @@ router.post('/v1/inference/submit', async (req, res) => {
     res.status(202).json({
       job_id: job.job_id,
       status: 'pending',
-      rag: !!context,
+      rag: contextParts.length > 0,
+      mcp_tools_called: mcpResults.length > 0 ? mcpResults.map(r => r.tool) : undefined,
       message: 'Request submitted to the network. Poll GET /v1/inference/' + job.job_id + ' for the result.'
     });
   } catch (err) {

@@ -681,35 +681,39 @@ User Request → BTCPC API → MCP Tool Server(s) → Context gathered
 
 MCP tool execution happens at the API layer before the request enters the P2P network. The miner receives a fully-formed prompt with all tool results already embedded. This preserves the stateless miner model — miners compute, they don't fetch.
 
-**MCP server registration:**
+**Open model — no gatekeeping:**
 
-```json
-POST /api/projects/mcp-servers
-{
-  "servers": [
-    { "name": "github", "url": "http://localhost:3001", "tools": ["search_code", "read_file"] },
-    { "name": "postgres", "url": "http://localhost:3002", "tools": ["query"] }
-  ]
-}
-```
+BTCPC does not register, approve, or restrict MCP servers. Users bring their own servers and specify them inline with each request, or save favorites to their profile. This is a permissionless abstraction layer — like Bitcoin doesn't care what you're paying for, BTCPC doesn't care what tools you're using.
 
-**Inference with MCP tools:**
+**Inline MCP servers (any request):**
 
 ```json
 POST /v1/inference/submit
 {
   "model": "qwen3.5:27b",
   "messages": [{ "role": "user", "content": "Find the bug in our auth middleware" }],
-  "tools": ["github.search_code", "github.read_file"],
+  "mcp_servers": [
+    { "url": "http://localhost:3001", "tools": ["search_code", "read_file"] }
+  ],
+  "tools": ["search_code", "read_file"],
   "tool_context": { "repo": "shindevlin/btcpc", "branch": "main" }
 }
 ```
 
-The API calls the registered MCP servers, gathers tool results, and injects them as RAG context before submitting to the miner network. Billing covers the full token count including tool-gathered context.
+**Saved MCP servers (user profile):**
+
+Users can save frequently-used MCP servers to their profile:
+
+```json
+POST /api/user/mcp-servers
+{ "name": "github", "url": "http://localhost:3001", "tools": ["search_code", "read_file"] }
+```
+
+Then use them in any request with `"use_saved_mcp": true`. Inline servers merge with saved ones — the user controls everything.
 
 **Security:** MCP servers run on the user's infrastructure, not on miners. The miner never connects to external services. User data flows: User → API → MCP Server → API → (encrypted) → Miner. The miner only sees the assembled prompt.
 
-**Status:** RAG is implemented and live. MCP server integration is designed but not yet built in code — the protocol is defined here so projects can begin building MCP servers that will plug into BTCPC when the integration layer ships.
+**Status:** RAG and MCP are implemented and live.
 
 ### 4.9 Multi-Party Computation (MPC) — Sharded Privacy
 

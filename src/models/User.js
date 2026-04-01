@@ -78,7 +78,14 @@ var userSchema = new Schema({
     telegramUsername: { type: String, default: null },
     challenge: { type: String, default: null },
     expiresAt: { type: Date, default: null }
-  }
+  },
+  // Saved MCP servers — user brings their own, saves favorites to profile
+  mcpServers: [{
+    name: { type: String, required: true },      // e.g. "github", "my-postgres"
+    url: { type: String, required: true },        // e.g. "http://localhost:3001"
+    tools: [{ type: String }],                    // e.g. ["search_code", "read_file"]
+    description: { type: String, default: null }  // optional human note
+  }]
 });
 
 module.exports = mongoose.model("User", userSchema);

@@ -87,9 +87,11 @@ async function getBasePricing() {
  */
 async function getCurrentPricing(model) {
   const base = await getBasePricing();
-  const modelWeight = model ? getModelWeight(model) : 1.0;
+  const rawWeight = model ? getModelWeight(model) : 1;
+  // Normalize: if weight looks like raw param count (>100), convert to billions
+  const modelWeight = rawWeight > 100 ? rawWeight / 1e9 : rawWeight;
 
-  // Total multiplier = network load * model weight
+  // Total multiplier = network load * model weight (in billions)
   const totalMultiplier = base.loadMultiplier * modelWeight;
   const tokensPerBtcpc = Math.floor(BASE_TOKENS_PER_BTCPC / totalMultiplier);
   const costPerToken = 1 / tokensPerBtcpc;

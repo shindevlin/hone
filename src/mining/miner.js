@@ -48,6 +48,111 @@ function sendAlert(severity, message, details) {
 let running = false;
 let miningInterval = null;
 
+// ── Finalization scheduling ──
+// After a miner submits work, finalization waits FINALIZATION_DELAY_MS
+// for other miners to submit their work to the same epoch.
+// Only then does it split rewards proportionally by work_value.
+const FINALIZATION_DELAY_MS = parseInt(process.env.BTCPC_FINALIZATION_DELAY_MS) || 60000; // 60s default
+const pendingFinalizations = new Set();
+
+async function scheduleFinalization(epochNumber) {
+  // If already finalized, return it
+  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  if (!epoch) return null;
+  if (epoch.status === 'finalized') return epoch;
+
+  // If finalization is already scheduled for this epoch, skip
+  if (pendingFinalizations.has(epochNumber)) {
+    console.log(`[BTCPC] Epoch ${epochNumber} finalization already scheduled, waiting...`);
+    // Wait for it to finalize
+    return waitForFinalization(epochNumber);
+  }
+
+  pendingFinalizations.add(epochNumber);
+  console.log(`[BTCPC] Epoch ${epochNumber} finalization scheduled in ${FINALIZATION_DELAY_MS / 1000}s (waiting for other miners)`);
+
+  return new Promise((resolve) => {
+    setTimeout(async () => {
+      try {
+        const result = await finalizeAndSplitRewards(epochNumber);
+        resolve(result);
+      } catch (err) {
+        console.error(`[BTCPC] Finalization error for epoch ${epochNumber}:`, err.message);
+        resolve(null);
+      } finally {
+        pendingFinalizations.delete(epochNumber);
+      }
+    }, FINALIZATION_DELAY_MS);
+  });
+}
+
+async function waitForFinalization(epochNumber) {
+  // Poll until finalized or timeout
+  const start = Date.now();
+  while (Date.now() - start < FINALIZATION_DELAY_MS + 30000) {
+    const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+    if (epoch && epoch.status === 'finalized') return epoch;
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  return null;
+}
+
+/**
+ * Finalize epoch and split rewards by work_value (tokens × verified_params).
+ * Each miner's MiningProof.reward_earned is updated with their proportional share.
+ */
+async function finalizeAndSplitRewards(epochNumber) {
+  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  if (!epoch || epoch.status === 'finalized') return epoch;
+
+  // Get all mining proofs submitted for this epoch
+  const proofs = await MiningProof.find({ block_number: epochNumber });
+  const totalWorkValue = proofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+  const blockReward = getBlockReward(epochNumber);
+
+  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${proofs.length} miner(s), total work_value: ${totalWorkValue}`);
+
+  // Split reward proportionally
+  for (const proof of proofs) {
+    let share;
+    if (totalWorkValue === 0) {
+      share = blockReward / proofs.length; // equal split if no work reported
+    } else {
+      share = blockReward * ((proof.work_value || 0) / totalWorkValue);
+    }
+    share = parseFloat(share.toFixed(10));
+
+    proof.reward_earned = share;
+    await proof.save();
+
+    // Credit the miner's wallet
+    const user = await User.findOne({ username: proof.miner });
+    if (user) {
+      const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+      if (wallet) {
+        const balance = wallet.balance.get('BTCPC') || 0;
+        wallet.balance.set('BTCPC', balance + share);
+        await wallet.save();
+      }
+    }
+
+    const pct = totalWorkValue > 0 ? ((proof.work_value / totalWorkValue) * 100).toFixed(1) : (100 / proofs.length).toFixed(1);
+    console.log(`[BTCPC]   ${proof.miner}: ${share.toFixed(4)} BTCPC (${pct}% of block, model: ${proof.model})`);
+  }
+
+  // Now finalize the epoch (consensus, difficulty, etc.) — but skip distributeRewards since we did it above
+  epoch.consensus_hash = epoch.commitments?.length > 0 ? epoch.commitments[0].state_hash : '0'.repeat(64);
+  epoch.total_work = epoch.commitments?.reduce((sum, c) => sum + c.inference_count + c.tx_count, 0) || 0;
+  epoch.rewards_distributed = proofs.map(p => ({ node_id: p.miner, amount: p.reward_earned }));
+  epoch.block_reward = blockReward;
+  epoch.ended_at = new Date();
+  epoch.status = 'finalized';
+  await epoch.save();
+
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | ${proofs.length} miner(s) | reward: ${blockReward} BTCPC split`);
+  return epoch;
+}
+
 /**
  * Run one full mining cycle for the given epoch.
  *
@@ -207,25 +312,25 @@ async function mineEpoch(epochNumber) {
     console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}]`);
   }
 
-  // Step 4b: Create soulbound mining proof for this block
-  const blockReward = getBlockReward(epochNumber);
-  const existingProof = await MiningProof.findOne({ block_number: epochNumber });
+  // Step 4b: Create soulbound mining proof (reward set to 0 until finalization splits it)
+  const existingProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
   if (!existingProof) {
     const miningProof = new MiningProof({
       block_number: epochNumber,
       miner: MINER_ACCOUNT,
-      reward_earned: blockReward,
+      reward_earned: 0, // Set during finalization based on work_value share
       model: MODEL,
       tokens_computed: totalTokens,
       work_value: totalWorkValue,
       state_hash: stateHash
     });
     await miningProof.save();
-    console.log(`[BTCPC]   Mining Proof #${epochNumber}: soulbound to ${MINER_ACCOUNT}`);
+    console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
   }
 
-  // Step 5: Finalize epoch and distribute rewards
-  const finalized = await finalizeEpoch(epochNumber);
+  // Step 5: Schedule finalization — waits for other miners to submit
+  // First miner to finish schedules the timer. If already scheduled, skip.
+  const finalized = await scheduleFinalization(epochNumber);
 
   // Step 5b: Generate cross-chain claim proofs for linked wallets
   const linkedChains = {};
@@ -239,13 +344,17 @@ async function mineEpoch(epochNumber) {
 
   let claimProofs = [];
   if (Object.keys(linkedChains).length > 0 && finalized) {
+    // Use the miner's actual reward share, not the full block reward
+    const myProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
+    const myReward = myProof ? myProof.reward_earned : 0;
+
     const postingKey = process.env.BTCPC_POSTING_KEY;
-    if (postingKey) {
+    if (postingKey && myReward > 0) {
       try {
         claimProofs = generateAllClaimProofs(
           MINER_ACCOUNT,
           epochNumber,
-          finalized.block_reward,
+          myReward,
           linkedChains,
           postingKey
         );
