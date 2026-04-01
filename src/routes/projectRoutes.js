@@ -205,4 +205,77 @@ router.post('/fund', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/projects/transfer
+ * Transfer project ownership to another BTCPC user.
+ * Rotates API key (old owner loses access immediately).
+ * Transfers project wallet, balance, billing history, and all future revenue.
+ *
+ * Auth: Bearer btcpc_... (current project API key)
+ * Body: { newOwner: "buyerusername" }
+ */
+router.post('/transfer', authenticateToken, async (req, res) => {
+  const { projectName, newOwner } = req.body;
+  if (!projectName || !newOwner) {
+    return res.status(400).json({ error: 'projectName and newOwner required' });
+  }
+
+  try {
+    const User = require('../models/User');
+
+    // Find the project — must be owned by the authenticated user
+    const project = await Project.findOne({ name: projectName });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Verify current owner is the authenticated user
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) return res.status(401).json({ error: 'User not found' });
+
+    if (project.owner !== currentUser.username) {
+      return res.status(403).json({ error: 'You do not own this project' });
+    }
+
+    // Verify new owner exists and is active
+    const buyer = await User.findOne({ username: newOwner, isActive: true });
+    if (!buyer) {
+      return res.status(404).json({ error: 'New owner account not found or inactive' });
+    }
+    if (buyer.username === currentUser.username) {
+      return res.status(400).json({ error: 'Cannot transfer to yourself' });
+    }
+
+    // Rotate API key — old owner loses access immediately
+    const oldApiKey = project.apiKey;
+    const newApiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
+
+    // Transfer ownership
+    const previousOwner = project.owner;
+    project.owner = buyer.username;
+    project.apiKey = newApiKey;
+    await project.save();
+
+    // Record transfer on-chain as a transaction
+    const tx = new Transaction({
+      from: currentUser.username,
+      to: buyer.username,
+      amount: project.balance,
+      type: 'transfer',
+      memo: `Project transfer: ${project.name} (${previousOwner} → ${buyer.username})`
+    });
+    await tx.save();
+
+    res.json({
+      success: true,
+      project: project.name,
+      previousOwner: previousOwner,
+      newOwner: buyer.username,
+      newApiKey: newApiKey,
+      balance: project.balance,
+      warning: 'Old API key has been revoked. New owner must use the new API key.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
