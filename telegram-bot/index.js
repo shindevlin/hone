@@ -66,7 +66,9 @@ bot.onText(/\/start/, (msg) => {
   ].join('\n'), { parse_mode: 'Markdown' });
 });
 
-// ── /link <username> ──
+// ── /link <username> — start verification ──
+const { startLink, completeLink } = require('../src/services/telegramVerify');
+
 bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const tgId = String(msg.from.id);
@@ -78,23 +80,38 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
       return bot.sendMessage(chatId, `Already linked to *${esc(existing.username)}*\\. Use /unlink first\\.`, { parse_mode: 'MarkdownV2' });
     }
 
-    const user = await User.findOne({ username });
-    if (!user) {
-      return bot.sendMessage(chatId, `Account \`${username}\` not found on BTCPC chain.`, { parse_mode: 'Markdown' });
-    }
-
-    if (user.telegramId && user.telegramId !== tgId) {
-      return bot.sendMessage(chatId, `That account is already linked to another Telegram user.`);
-    }
-
-    user.telegramId = tgId;
-    user.telegramUsername = msg.from.username || null;
-    await user.save();
-
-    bot.sendMessage(chatId, `\u{2705} Linked to *${esc(username)}*`, { parse_mode: 'MarkdownV2' });
+    const result = await startLink(username, tgId, msg.from.username);
+    bot.sendMessage(chatId, [
+      `\u{1F512} *Verify ownership of ${esc(username)}*`,
+      ``,
+      `Challenge: \`${result.challenge}\``,
+      ``,
+      `To complete, paste:`,
+      `/verify ${username} ${result.challenge}`,
+      ``,
+      `Or sign with your posting key:`,
+      `/verify ${username} <hex\\-signature>`,
+      ``,
+      `_Expires in ${result.expiresIn}s_`,
+    ].join('\n'), { parse_mode: 'MarkdownV2' });
   } catch (err) {
-    console.error('Link error:', err.message);
     bot.sendMessage(chatId, `Error: ${err.message}`);
+  }
+});
+
+// ── /verify <username> <signature|challenge> — complete verification ──
+bot.onText(/\/verify\s+(\S+)\s+(.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const tgId = String(msg.from.id);
+  const username = match[1].toLowerCase();
+  const proof = match[2].trim();
+
+  try {
+    const result = await completeLink(username, proof, tgId);
+    const method = result.method === 'signature' ? '(cryptographic)' : '(challenge verified)';
+    bot.sendMessage(chatId, `\u{2705} Linked to *${esc(result.username)}* ${method}`, { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    bot.sendMessage(chatId, `\u{274C} ${err.message}`);
   }
 });
 

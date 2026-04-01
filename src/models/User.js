@@ -71,6 +71,13 @@ var userSchema = new Schema({
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  // Telegram link verification
+  pendingTelegramLink: {
+    telegramId: { type: String, default: null },
+    telegramUsername: { type: String, default: null },
+    challenge: { type: String, default: null },
+    expiresAt: { type: Date, default: null }
   }
 });
 
