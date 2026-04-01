@@ -89,7 +89,7 @@ function getCurrentPeriod(epochNumber) {
 function getBlockReward(epochNumber) {
   const period = getCurrentPeriod(epochNumber);
   if (!period) return 0;
-  return parseFloat(period.reward_per_epoch.toFixed(8));
+  return parseFloat(period.reward_per_epoch.toFixed(10));
 }
 
 /**

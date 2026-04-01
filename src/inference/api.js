@@ -108,9 +108,9 @@ router.get('/v1/pricing', async (req, res) => {
       network_load: pricing.load,
       base_rate: pricing.baseRate,
       example: {
-        '100_tokens': parseFloat((100 * pricing.costPerToken).toFixed(8)),
-        '500_tokens': parseFloat((500 * pricing.costPerToken).toFixed(8)),
-        '1000_tokens': parseFloat((1000 * pricing.costPerToken).toFixed(8))
+        '100_tokens': parseFloat((100 * pricing.costPerToken).toFixed(10)),
+        '500_tokens': parseFloat((500 * pricing.costPerToken).toFixed(10)),
+        '1000_tokens': parseFloat((1000 * pricing.costPerToken).toFixed(10))
       }
     });
   } catch (err) {

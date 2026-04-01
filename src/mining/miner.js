@@ -297,7 +297,7 @@ async function mineEpoch(epochNumber) {
   console.log('[BTCPC] ------------------------------------------------');
   console.log(`[BTCPC] Epoch ${epochNumber} complete`);
   console.log(`[BTCPC]   Reward:       +${reward} BTCPC`);
-  console.log(`[BTCPC]   Balance:      ${currentBalance.toFixed(8)} BTCPC`);
+  console.log(`[BTCPC]   Balance:      ${currentBalance.toFixed(10)} BTCPC`);
   console.log(`[BTCPC]   Work items:   ${workProofs.length}`);
   console.log(`[BTCPC]   Tokens:       ${totalTokens}`);
   console.log(`[BTCPC]   Work value:   ${totalWorkValue.toFixed(1)}`);

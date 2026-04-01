@@ -14,8 +14,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * (consensus key) is rotatable by the contract owner for key rotation.
  */
 contract wBTCPC is ERC20, Ownable {
-    /// @notice 8 decimals to match native BTCPC precision
-    uint8 private constant _DECIMALS = 8;
+    /// @notice 10 decimals — base10 to the tenth
+    uint8 private constant _DECIMALS = 10;
 
     /// @notice The public address whose signatures authorize claim proofs
     address public signingAuthority;

@@ -157,7 +157,7 @@ async function distributeRewards(epoch) {
       minerReward = epoch.block_reward * (effectiveWork / totalEffectiveWork);
     }
 
-    minerReward = parseFloat(minerReward.toFixed(8));
+    minerReward = parseFloat(minerReward.toFixed(10));
     if (minerReward <= 0) continue;
 
     // Find the node's account to credit their wallet
@@ -186,7 +186,7 @@ async function distributeRewards(epoch) {
     if (totalDelegated > 0 && totalPool > 0) {
       // Distribute proportionally between miner and delegators
       const minerShare = minerStakeAmount / totalPool;
-      const minerAmount = parseFloat((minerReward * minerShare).toFixed(8));
+      const minerAmount = parseFloat((minerReward * minerShare).toFixed(10));
 
       // Credit miner their share
       if (minerAmount > 0) {
@@ -207,7 +207,7 @@ async function distributeRewards(epoch) {
       // Distribute delegator shares
       for (const delegation of activeDelegations) {
         const delegatorShare = delegation.amount / totalPool;
-        const delegatorAmount = parseFloat((minerReward * delegatorShare).toFixed(8));
+        const delegatorAmount = parseFloat((minerReward * delegatorShare).toFixed(10));
         if (delegatorAmount <= 0) continue;
 
         const delegatorWallet = await Wallet.findOne({ userId: delegation.delegator });
@@ -291,7 +291,7 @@ async function adjustDifficulty(epochNumber) {
     adjustmentRatio = MAX_DIFFICULTY_DECREASE;
   }
 
-  const newDifficulty = parseFloat((currentDifficulty * adjustmentRatio).toFixed(8));
+  const newDifficulty = parseFloat((currentDifficulty * adjustmentRatio).toFixed(10));
   currentDifficulty = newDifficulty;
 
   console.log(`[BTCPC] Difficulty adjusted at epoch ${epochNumber}: ${newDifficulty} (ratio: ${adjustmentRatio.toFixed(4)})`);

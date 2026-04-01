@@ -66,15 +66,15 @@ function generateClaimProof(miner, epoch, amount, chain, targetWallet, postingKe
   const periodNumber = period.period;
   const epochInPeriod = epoch - period.start_epoch;
   const crossChainRatio = getCrossChainRatio(periodNumber, epochInPeriod, period.epochs);
-  const totalClaimAmount = parseFloat((amount * crossChainRatio).toFixed(8));
+  const totalClaimAmount = parseFloat((amount * crossChainRatio).toFixed(10));
 
   if (totalClaimAmount <= 0) {
     return null;
   }
 
   // Protocol-level 50/50 split: direct to miner + LP pool
-  const directAmount = parseFloat((totalClaimAmount * 0.5).toFixed(8));
-  const lpAmount = parseFloat((totalClaimAmount - directAmount).toFixed(8));
+  const directAmount = parseFloat((totalClaimAmount * 0.5).toFixed(10));
+  const lpAmount = parseFloat((totalClaimAmount - directAmount).toFixed(10));
 
   // Build the claim proof payload
   const proof = {
@@ -82,9 +82,9 @@ function generateClaimProof(miner, epoch, amount, chain, targetWallet, postingKe
     miner: miner,
     target_wallet: targetWallet,
     epoch: epoch,
-    amount: totalClaimAmount.toFixed(8),
-    direct_amount: directAmount.toFixed(8),
-    lp_amount: lpAmount.toFixed(8),
+    amount: totalClaimAmount.toFixed(10),
+    direct_amount: directAmount.toFixed(10),
+    lp_amount: lpAmount.toFixed(10),
     period: periodNumber,
     cross_chain_ratio: crossChainRatio.toString(),
     linked_at_epoch: 0,
@@ -97,7 +97,7 @@ function generateClaimProof(miner, epoch, amount, chain, targetWallet, postingKe
     miner,
     targetWallet,
     String(epoch),
-    claimAmount.toFixed(8),
+    claimAmount.toFixed(10),
     String(periodNumber)
   ].join(":");
 

@@ -9,7 +9,7 @@ var projectSchema = new Schema({
   repo: { type: String, required: true },           // repo name
   apiKey: { type: String, required: true, unique: true },
   walletAddress: { type: String, required: true },
-  balance: { type: Number, default: 0 },            // BTCPC balance
+  balance: { type: Number, default: 0, set: v => parseFloat(v.toFixed(10)) }, // 10 decimals — base10 to the tenth
   verified: { type: Boolean, default: false },
   verifiedAt: { type: Date, default: null },
   totalSpent: { type: Number, default: 0 },

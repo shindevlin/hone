@@ -114,7 +114,7 @@ async function getCurrentPricing(model) {
  */
 async function calculateCost(tokenCount, model) {
   const pricing = await getCurrentPricing(model);
-  const cost = parseFloat((tokenCount * pricing.costPerToken).toFixed(8));
+  const cost = parseFloat((tokenCount * pricing.costPerToken).toFixed(10));
   return { cost, pricing };
 }
 
@@ -162,11 +162,11 @@ async function getAutoBid(model, estimatedTokens) {
   // Early: blockRewardCoverage ≈ 1.0 → bid ≈ fairCost × 0.05 (minimum)
   // Late: blockRewardCoverage ≈ 0.0 → bid ≈ fairCost × 1.0 (full price)
   const bidMultiplier = Math.max(0.05, 1.0 - (blockRewardCoverage * 0.95));
-  const bid = parseFloat((fairCost * bidMultiplier).toFixed(8));
+  const bid = parseFloat((fairCost * bidMultiplier).toFixed(10));
 
   return {
     bid,
-    fair_cost: parseFloat(fairCost.toFixed(8)),
+    fair_cost: parseFloat(fairCost.toFixed(10)),
     block_reward_coverage: parseFloat(blockRewardCoverage.toFixed(4)),
     bid_multiplier: parseFloat(bidMultiplier.toFixed(4)),
     miners: minerCount,
