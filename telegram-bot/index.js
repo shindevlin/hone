@@ -77,12 +77,12 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   try {
     const existing = await User.findOne({ telegramId: tgId });
     if (existing) {
-      return bot.sendMessage(chatId, `Already linked to *${esc(existing.username)}*\\. Use /unlink first\\.`, { parse_mode: 'MarkdownV2' });
+      return bot.sendMessage(chatId, `Already linked to *${existing.username}*. Use /unlink first.`, { parse_mode: 'Markdown' });
     }
 
     const result = await startLink(username, tgId, msg.from.username);
     bot.sendMessage(chatId, [
-      `\u{1F512} *Verify ownership of ${esc(username)}*`,
+      `\u{1F512} *Verify ownership of ${username}*`,
       ``,
       `Challenge: \`${result.challenge}\``,
       ``,
@@ -90,10 +90,10 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
       `/verify ${username} ${result.challenge}`,
       ``,
       `Or sign with your posting key:`,
-      `/verify ${username} <hex\\-signature>`,
+      `/verify ${username} <hex-signature>`,
       ``,
       `_Expires in ${result.expiresIn}s_`,
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(chatId, `Error: ${err.message}`);
   }
@@ -109,7 +109,7 @@ bot.onText(/\/verify\s+(\S+)\s+(.+)/, async (msg, match) => {
   try {
     const result = await completeLink(username, proof, tgId);
     const method = result.method === 'signature' ? '(cryptographic)' : '(challenge verified)';
-    bot.sendMessage(chatId, `\u{2705} Linked to *${esc(result.username)}* ${method}`, { parse_mode: 'MarkdownV2' });
+    bot.sendMessage(chatId, `\u{2705} Linked to *${result.username}* ${method}`, { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(chatId, `\u{274C} ${err.message}`);
   }
@@ -173,7 +173,7 @@ bot.onText(/\/claim/, async (msg) => {
       ``,
       `You can now use inference \\(just type a message\\)`,
       `Need more? Email shin@btcpc\\.network`,
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
@@ -195,7 +195,7 @@ bot.onText(/\/balance/, async (msg) => {
     const dreamCount = await GenesisDream.countDocuments({ current_owner: user.username });
 
     bot.sendMessage(msg.chat.id, [
-      `\u{1F4B0} *${esc(user.username)}* Balance`,
+      `\u{1F4B0} *${user.username}* Balance`,
       ``,
       `Spendable: \`${fmt(balance)} BTCPC\``,
       `Staked: \`${fmt(staked)} BTCPC\``,
@@ -203,7 +203,7 @@ bot.onText(/\/balance/, async (msg) => {
       ``,
       `Mining Proofs: ${proofCount} \\(soulbound\\)`,
       `Genesis Dreams: ${dreamCount} \\(NFTs\\)`,
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
@@ -234,7 +234,7 @@ bot.onText(/\/mining/, async (msg) => {
     });
 
     bot.sendMessage(msg.chat.id, [
-      `\u{26CF} *${esc(user.username)}* Mining Stats`,
+      `\u{26CF} *${user.username}* Mining Stats`,
       ``,
       `Epochs mined: ${totalEpochs}`,
       `Work proofs: ${totalWork}`,
@@ -242,7 +242,7 @@ bot.onText(/\/mining/, async (msg) => {
       ``,
       `*Recent epochs:*`,
       ...recentLines,
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
@@ -323,11 +323,11 @@ bot.onText(/\/proofs/, async (msg) => {
     );
 
     bot.sendMessage(msg.chat.id, [
-      `\u{1F3C5} *${esc(user.username)}* Mining Proofs \\(soulbound\\)`,
+      `\u{1F3C5} *${user.username}* Mining Proofs \\(soulbound\\)`,
       ``,
       `Last ${proofs.length}:`,
       ...lines.map(l => esc(l)),
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
@@ -355,7 +355,7 @@ bot.onText(/\/dreams/, async (msg) => {
       `\u{1F4AD} *Genesis Dreams* \\(${dreams.length} owned\\)`,
       ``,
       ...lines.map(l => esc(l)),
-    ].join('\n'), { parse_mode: 'MarkdownV2' });
+    ].join('\n'), { parse_mode: 'Markdown' });
   } catch (err) {
     bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
   }
