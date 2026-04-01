@@ -468,4 +468,33 @@ router.get('/linked-users', async (_req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════
+// UPDATE MANAGEMENT
+// ════════════════════════════════════════════════════════════════════
+
+// GET /api/bot/update-status — check if there's a pending update
+router.get('/update-status', async (_req, res) => {
+  try {
+    const { getPendingUpdate } = require('../services/autoUpdater');
+    const update = getPendingUpdate();
+    res.json({ pending: !!update, update });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/approve-update — approve and restart with pending update
+router.post('/approve-update', async (req, res) => {
+  try {
+    const { approveUpdate, getPendingUpdate } = require('../services/autoUpdater');
+    const update = getPendingUpdate();
+    if (!update) return res.status(404).json({ error: 'No pending update' });
+
+    const approved = approveUpdate();
+    if (approved) {
+      res.json({ success: true, message: `Restarting to v${update.version}...` });
+    } else {
+      res.status(400).json({ error: 'Could not approve update' });
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

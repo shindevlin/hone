@@ -3,25 +3,29 @@
 /**
  * BTCPC Auto-Updater
  *
- * Stage-and-notify model: checks for updates, downloads them,
- * but does NOT auto-restart. Notifies the miner that an update
- * is available. Applied on next manual restart.
+ * Checks for updates, stages them, notifies miner via Telegram,
+ * and waits for confirmation before restarting.
+ *
+ * Flow: check → pull → notify bot → miner confirms → restart
  *
  * Set BTCPC_AUTO_UPDATE=false to disable.
  */
 
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const path = require('path');
+const axios = require('axios');
 
 const REPO_DIR = path.resolve(__dirname, '../..');
 const CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS) || 900000; // 15 min
 const IS_WINDOWS = process.platform === 'win32';
+const BOT_API_URL = process.env.BTCPC_API_URL || 'http://localhost:3100';
+const BOT_API_KEY = process.env.BOT_API_KEY;
 
 let updateTimer = null;
-let pendingUpdate = null; // { version, commits, pulledAt }
+let pendingUpdate = null;
+let restartApproved = false;
 
 function run(cmd) {
-  // Use platform-appropriate shell
   const shell = IS_WINDOWS ? { shell: 'cmd.exe' } : {};
   return execSync(cmd, { cwd: REPO_DIR, encoding: 'utf8', timeout: 120000, ...shell }).trim();
 }
@@ -31,10 +35,38 @@ function log(msg) {
 }
 
 /**
- * Check for updates. If found, stage them (git pull) but do NOT restart.
- * Returns update info or null.
+ * Send a notification to the miner via the bot API alert endpoint.
  */
-function checkAndStage() {
+async function notifyMiner(message) {
+  if (!BOT_API_KEY) return;
+  try {
+    await axios.post(`${BOT_API_URL}/api/bot/linked-users`, {}, {
+      headers: { 'x-bot-key': BOT_API_KEY },
+      timeout: 5000
+    }).then(async (res) => {
+      // Use the walletbot alert webhook to notify all linked miners
+      const alertUrl = process.env.ALERTBOT_URL || 'http://localhost:9900';
+      const alertKey = process.env.ALERTBOT_API_KEY;
+      if (alertKey) {
+        await axios.post(`${alertUrl}/alert`, {
+          project: 'btcpc-updater',
+          severity: 'info',
+          message
+        }, {
+          headers: { 'x-api-key': alertKey },
+          timeout: 5000
+        }).catch(() => {});
+      }
+    });
+  } catch (_) {
+    log('Could not notify via bot (bot may not be running)');
+  }
+}
+
+/**
+ * Check for updates and stage if found. Notify miner via Telegram.
+ */
+async function checkAndStage() {
   try {
     run('git fetch origin');
 
@@ -49,22 +81,23 @@ function checkAndStage() {
     log(`${behindCount} new commit(s) available`);
 
     const commitLog = run('git log HEAD..origin/main --oneline');
-    log('Available:\n' + commitLog);
 
-    // Get remote version
     let remoteVersion = 'unknown';
     try {
       const pkgJson = run('git show origin/main:package.json');
       remoteVersion = JSON.parse(pkgJson).version;
     } catch (_) {}
 
-    // Stage: pull the code but don't restart
-    // Cross-platform: avoid shell redirects that break on Windows
-    try { run('git stash'); } catch (_) {} // stash any local changes
-    run('git pull origin main');
-    log(`Staged v${remoteVersion} (${behindCount} commits). Will apply on next restart.`);
+    const currentVersion = (() => {
+      try { return require('../../package.json').version; } catch (_) { return 'unknown'; }
+    })();
 
-    // Install deps if package.json changed
+    // Stage: pull but don't restart
+    try { run('git stash'); } catch (_) {}
+    run('git pull origin main');
+    log(`Staged v${remoteVersion} (${behindCount} commits)`);
+
+    // Install deps if needed
     try {
       const changed = run('git diff HEAD~' + behindCount + ' --name-only');
       if (changed.includes('package.json') || changed.includes('package-lock.json')) {
@@ -75,10 +108,23 @@ function checkAndStage() {
 
     pendingUpdate = {
       version: remoteVersion,
+      previousVersion: currentVersion,
       commits: parseInt(behindCount),
       commitLog,
       pulledAt: new Date().toISOString()
     };
+
+    // Notify miner via Telegram
+    const msg = [
+      `Update available: v${currentVersion} → v${remoteVersion}`,
+      `${behindCount} commit(s):`,
+      commitLog.split('\n').slice(0, 5).join('\n'),
+      '',
+      'Code is staged. Reply /approve-update to restart, or it will apply on next manual restart.'
+    ].join('\n');
+
+    await notifyMiner(msg);
+    log(`Miner notified. Waiting for approval or manual restart.`);
 
     return pendingUpdate;
 
@@ -86,6 +132,33 @@ function checkAndStage() {
     log('Update check failed: ' + err.message);
     return null;
   }
+}
+
+/**
+ * Approve and apply the pending update (restart the process).
+ * Called when miner confirms via Telegram.
+ */
+function approveUpdate() {
+  if (!pendingUpdate) {
+    log('No pending update to approve');
+    return false;
+  }
+
+  log(`Update approved. Restarting to v${pendingUpdate.version}...`);
+  restartApproved = true;
+
+  // Restart: spawn a new process and exit
+  const args = process.argv.slice(1);
+  const child = spawn(process.argv[0], args, {
+    cwd: REPO_DIR,
+    detached: true,
+    stdio: 'inherit',
+    env: process.env
+  });
+  child.unref();
+
+  setTimeout(() => process.exit(0), 2000);
+  return true;
 }
 
 /**
@@ -101,7 +174,7 @@ function startAutoUpdater() {
     try { return require('../../package.json').version; } catch (_) { return 'unknown'; }
   })();
 
-  log(`Running v${currentVersion}, checking every ${CHECK_INTERVAL_MS / 60000}min (stage-only, no auto-restart)`);
+  log(`Running v${currentVersion}, checking every ${CHECK_INTERVAL_MS / 60000}min`);
 
   // Check once on startup (delayed 60s)
   setTimeout(() => checkAndStage(), 60000);
@@ -121,4 +194,4 @@ function getPendingUpdate() {
   return pendingUpdate;
 }
 
-module.exports = { startAutoUpdater, stopAutoUpdater, checkAndStage, getPendingUpdate };
+module.exports = { startAutoUpdater, stopAutoUpdater, checkAndStage, getPendingUpdate, approveUpdate };
