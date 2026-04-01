@@ -51,47 +51,68 @@ let running = false;
 let miningInterval = null;
 
 // ── Finalization scheduling ──
-// After a miner submits work, finalization waits FINALIZATION_DELAY_MS
-// for other miners to submit their work to the same epoch.
-// Only then does it split rewards proportionally by work_value.
-const FINALIZATION_DELAY_MS = parseInt(process.env.BTCPC_FINALIZATION_DELAY_MS) || 60000; // 60s default
+// Finalization waits until ALL active miners have submitted proofs for the epoch.
+// The LAST miner to submit triggers finalization (they see all proofs).
+// Max wait prevents hanging if a miner goes offline.
+const MAX_FINALIZATION_WAIT_MS = parseInt(process.env.BTCPC_MAX_FINALIZATION_WAIT_MS) || 180000; // 3 min max
+const PROOF_POLL_INTERVAL_MS = 10000; // check every 10s
 const pendingFinalizations = new Set();
 
 async function scheduleFinalization(epochNumber) {
-  // If already finalized, return it
   const epoch = await Epoch.findOne({ epoch_number: epochNumber });
   if (!epoch) return null;
   if (epoch.status === 'finalized') return epoch;
 
-  // If finalization is already scheduled for this epoch, skip
   if (pendingFinalizations.has(epochNumber)) {
-    console.log(`[BTCPC] Epoch ${epochNumber} finalization already scheduled, waiting...`);
-    // Wait for it to finalize
     return waitForFinalization(epochNumber);
   }
 
   pendingFinalizations.add(epochNumber);
-  console.log(`[BTCPC] Epoch ${epochNumber} finalization scheduled in ${FINALIZATION_DELAY_MS / 1000}s (waiting for other miners)`);
 
-  return new Promise((resolve) => {
-    setTimeout(async () => {
-      try {
-        const result = await finalizeAndSplitRewards(epochNumber);
-        resolve(result);
-      } catch (err) {
-        console.error(`[BTCPC] Finalization error for epoch ${epochNumber}:`, err.message);
-        resolve(null);
-      } finally {
-        pendingFinalizations.delete(epochNumber);
-      }
-    }, FINALIZATION_DELAY_MS);
-  });
+  // Count active miners on the network
+  const activeMiners = await Node.countDocuments({ status: 'active' });
+  console.log(`[BTCPC] Epoch ${epochNumber}: waiting for proofs from ${activeMiners} active miner(s)...`);
+
+  // Poll until all active miners have submitted, or max wait
+  const startTime = Date.now();
+  while (Date.now() - startTime < MAX_FINALIZATION_WAIT_MS) {
+    const proofCount = await MiningProof.countDocuments({ block_number: epochNumber });
+
+    if (proofCount >= activeMiners) {
+      console.log(`[BTCPC] Epoch ${epochNumber}: all ${proofCount} proof(s) received. Finalizing.`);
+      break;
+    }
+
+    // Check if epoch was finalized by another node
+    const check = await Epoch.findOne({ epoch_number: epochNumber });
+    if (check && check.status === 'finalized') {
+      pendingFinalizations.delete(epochNumber);
+      return check;
+    }
+
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    if (elapsed % 30 === 0 && elapsed > 0) {
+      console.log(`[BTCPC] Epoch ${epochNumber}: ${proofCount}/${activeMiners} proofs after ${elapsed}s...`);
+    }
+
+    await new Promise(r => setTimeout(r, PROOF_POLL_INTERVAL_MS));
+  }
+
+  // Finalize with whatever proofs we have
+  try {
+    const result = await finalizeAndSplitRewards(epochNumber);
+    return result;
+  } catch (err) {
+    console.error(`[BTCPC] Finalization error for epoch ${epochNumber}:`, err.message);
+    return null;
+  } finally {
+    pendingFinalizations.delete(epochNumber);
+  }
 }
 
 async function waitForFinalization(epochNumber) {
-  // Poll until finalized or timeout
   const start = Date.now();
-  while (Date.now() - start < FINALIZATION_DELAY_MS + 30000) {
+  while (Date.now() - start < MAX_FINALIZATION_WAIT_MS + 30000) {
     const epoch = await Epoch.findOne({ epoch_number: epochNumber });
     if (epoch && epoch.status === 'finalized') return epoch;
     await new Promise(r => setTimeout(r, 5000));
