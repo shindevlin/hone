@@ -117,13 +117,64 @@ async function createAccount(username, mnemonic, password) {
     twoFactorPublicKey: twoFactorPublicKey
   });
 
-  // Store wallet record
+  // Store BTCPC wallet
   await Wallet().create({
     userId: user._id,
     chain: "btcpc",
     address: address,
     publicKey: keys.owner.publicKey,
     balance: new Map([["BTCPC", 0]])
+  });
+
+  // Derive and store wallets for all external chains
+  const chainWallets = await keyManager.deriveChainWallets(mnemonic);
+
+  // EVM address is shared across Base, Arbitrum, Optimism
+  const evmChains = ["base", "arbitrum", "optimism"];
+  for (const chain of evmChains) {
+    await Wallet().create({
+      userId: user._id,
+      chain: chain,
+      address: chainWallets.evm.address,
+      publicKey: chainWallets.evm.publicKey,
+      balance: new Map()
+    });
+  }
+
+  // Solana wallet
+  await Wallet().create({
+    userId: user._id,
+    chain: "solana",
+    address: chainWallets.solana.address,
+    publicKey: chainWallets.solana.publicKey,
+    balance: new Map()
+  });
+
+  // TON wallet (raw address — real address computed on wallet contract deploy)
+  await Wallet().create({
+    userId: user._id,
+    chain: "ton",
+    address: chainWallets.ton.address,
+    publicKey: chainWallets.ton.publicKey,
+    balance: new Map()
+  });
+
+  // Bitcoin wallet (native segwit bc1q)
+  await Wallet().create({
+    userId: user._id,
+    chain: "bitcoin",
+    address: chainWallets.bitcoin.address,
+    publicKey: chainWallets.bitcoin.publicKey,
+    balance: new Map()
+  });
+
+  // Hive wallet (username-based — account must be purchased separately on Hive)
+  await Wallet().create({
+    userId: user._id,
+    chain: "hive",
+    address: username, // Hive account name = username
+    publicKey: keys.posting.publicKey, // posting key for Hive operations
+    balance: new Map()
   });
 
   return {
@@ -135,6 +186,14 @@ async function createAccount(username, mnemonic, password) {
       active: keys.active.publicKey,
       posting: keys.posting.publicKey,
       memo: keys.memo.publicKey
+    },
+    chainWallets: {
+      btcpc: address,
+      evm: chainWallets.evm.address,
+      solana: chainWallets.solana.address,
+      ton: chainWallets.ton.address,
+      bitcoin: chainWallets.bitcoin.address,
+      hive: username
     },
     twoFactorPublicKey: twoFactorPublicKey,
     authProfile: authProfile

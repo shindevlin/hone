@@ -9,6 +9,10 @@ const crypto = require("crypto");
 const bip39 = require("bip39");
 const HDKey = require("hdkey");
 const secp256k1 = require("secp256k1");
+const { derivePath, getPublicKey: ed25519PubKey } = require("ed25519-hd-key");
+const keccak256 = require("js-sha3").keccak256;
+const bs58 = require("bs58");
+const { bech32 } = require("bech32");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -23,6 +27,14 @@ const ROLE_PATHS = {
   active:  "m/44'/8888'/0'/1/0",
   posting: "m/44'/8888'/0'/2/0",
   memo:    "m/44'/8888'/0'/3/0"
+};
+
+// BIP-44 derivation paths for external chains
+const CHAIN_PATHS = {
+  evm:     "m/44'/60'/0'/0/0",     // ETH, Base, Arbitrum, Optimism — same address
+  solana:  "m/44'/501'/0'/0'",     // Solana (SLIP-0010 ed25519)
+  ton:     "m/44'/607'/0'",        // TON (SLIP-0010 ed25519)
+  bitcoin: "m/84'/0'/0'/0/0"       // Bitcoin native segwit (BIP-84, P2WPKH)
 };
 
 const PBKDF2_ROUNDS = 100000;
@@ -242,6 +254,112 @@ function decryptKey(encrypted, totpOrPassword) {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-Chain Wallet Derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive an EVM wallet (ETH/Base/Arbitrum/Optimism — all share one address).
+ * @param {Buffer} seed - BIP-39 seed
+ * @returns {{ privateKey: string, publicKey: string, address: string }}
+ */
+function deriveEVMWallet(seed) {
+  const master = HDKey.fromMasterSeed(seed);
+  const child = master.derive(CHAIN_PATHS.evm);
+  const privKey = child.privateKey;
+  const pubKey = secp256k1.publicKeyCreate(privKey, false); // uncompressed 65 bytes
+  // EVM address = last 20 bytes of keccak256(uncompressed pubkey without 0x04 prefix)
+  const hash = keccak256(Buffer.from(pubKey.slice(1)));
+  const address = "0x" + hash.slice(-40);
+  return {
+    privateKey: privKey.toString("hex"),
+    publicKey: Buffer.from(pubKey).toString("hex"),
+    address: address
+  };
+}
+
+/**
+ * Derive a Solana wallet (ed25519 via SLIP-0010).
+ * @param {Buffer} seed - BIP-39 seed
+ * @returns {{ privateKey: string, publicKey: string, address: string }}
+ */
+function deriveSolanaWallet(seed) {
+  const { key } = derivePath(CHAIN_PATHS.solana, seed.toString("hex"));
+  const pubKey = ed25519PubKey(new Uint8Array(key), false); // 32-byte ed25519 public key
+  const address = bs58.encode(Buffer.from(pubKey));
+  return {
+    privateKey: Buffer.from(key).toString("hex"),
+    publicKey: Buffer.from(pubKey).toString("hex"),
+    address: address
+  };
+}
+
+/**
+ * Derive a TON wallet keypair (ed25519 via SLIP-0010).
+ * Note: TON addresses depend on wallet contract version (v4r2 etc).
+ * The raw public key is stored; actual TON address is computed on deployment.
+ * User imports raw key into Tonkeeper/TON wallets.
+ * @param {Buffer} seed - BIP-39 seed
+ * @returns {{ privateKey: string, publicKey: string, address: string }}
+ */
+function deriveTONWallet(seed) {
+  const { key } = derivePath(CHAIN_PATHS.ton, seed.toString("hex"));
+  const pubKey = ed25519PubKey(new Uint8Array(key), false);
+  // TON raw address: 0:<sha256 of pubkey> (workchain 0, simplified)
+  // Real TON address requires wallet contract state init hash — this is a placeholder
+  // that uniquely identifies the keypair. User gets real address on import.
+  const pubHash = crypto.createHash("sha256").update(Buffer.from(pubKey)).digest("hex");
+  const address = "0:" + pubHash;
+  return {
+    privateKey: Buffer.from(key).toString("hex"),
+    publicKey: Buffer.from(pubKey).toString("hex"),
+    address: address
+  };
+}
+
+/**
+ * Derive a Bitcoin native segwit wallet (BIP-84, P2WPKH, bc1q...).
+ * @param {Buffer} seed - BIP-39 seed
+ * @returns {{ privateKey: string, publicKey: string, address: string }}
+ */
+function deriveBitcoinWallet(seed) {
+  const master = HDKey.fromMasterSeed(seed);
+  const child = master.derive(CHAIN_PATHS.bitcoin);
+  const privKey = child.privateKey;
+  const pubKey = secp256k1.publicKeyCreate(privKey, true); // compressed 33 bytes
+  // P2WPKH address: bech32 encode of HASH160(compressed pubkey)
+  const sha = crypto.createHash("sha256").update(pubKey).digest();
+  const hash160 = crypto.createHash("ripemd160").update(sha).digest();
+  const words = bech32.toWords(hash160);
+  words.unshift(0); // witness version 0
+  const address = bech32.encode("bc", words);
+  return {
+    privateKey: privKey.toString("hex"),
+    publicKey: Buffer.from(pubKey).toString("hex"),
+    address: address
+  };
+}
+
+/**
+ * Derive wallets for all supported chains from a single BIP-39 mnemonic.
+ * Returns addresses the user can import into MetaMask, Phantom, etc.
+ *
+ * @param {string} mnemonic - 12-word BIP-39 mnemonic
+ * @returns {Promise<Object>} Chain wallets: { evm, solana, ton, bitcoin }
+ */
+async function deriveChainWallets(mnemonic) {
+  if (!validateMnemonic(mnemonic)) {
+    throw new Error("Invalid BIP-39 mnemonic");
+  }
+  const seed = await bip39.mnemonicToSeed(mnemonic);
+  return {
+    evm: deriveEVMWallet(seed),
+    solana: deriveSolanaWallet(seed),
+    ton: deriveTONWallet(seed),
+    bitcoin: deriveBitcoinWallet(seed)
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -249,11 +367,13 @@ module.exports = {
   generateMnemonic,
   validateMnemonic,
   mnemonicToKeys,
+  deriveChainWallets,
   deriveSecondFactor,
   signTransaction,
   verifySignature,
   encryptKey,
   decryptKey,
   ROLE_PATHS,
+  CHAIN_PATHS,
   txHash
 };

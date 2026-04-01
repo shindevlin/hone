@@ -1,28 +1,29 @@
 "use strict";
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { createAccount } = require('../wallet/accountManager');
 
 /**
  * Register New User
+ * Creates BTCPC account with BIP-39 mnemonic and wallets on all 7 chains.
+ * Mnemonic is shown ONCE — user must save it. We never store it.
  */
 async function registerUser(req, res) {
-  const { username, email, password } = req.body;
+  const { username, password } = req.body;
 
   try {
-    // Check if user exists
-    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
-    if (existingUser) {
-      return res.status(400).json({ error: 'Username or email already registered' });
-    }
+    const result = await createAccount(username, null, password);
 
-    // Create new user
-    const hashedPassword = require('bcryptjs').hashSync(password, 12);
-    const user = new User({ username, email, password: hashedPassword });
-
-    await user.save();
-    res.status(201).json({ success: true, user: { username, email } });
+    res.status(201).json({
+      success: true,
+      username: result.username,
+      mnemonic: result.mnemonic,
+      wallets: result.chainWallets,
+      publicKeys: result.publicKeys,
+      warning: "SAVE YOUR MNEMONIC. This is the only time it will be shown."
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.message.includes('already exists') ? 400 : 500).json({ error: err.message });
   }
 }
 
