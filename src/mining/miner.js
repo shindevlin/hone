@@ -596,8 +596,8 @@ async function startMiner() {
 
   // Determine the starting epoch number — use highest of:
   // 1. Time-based calculation from genesis
-  // 2. Highest epoch in DB (may have synced from network)
-  // This ensures miners who synced blocks jump to the right epoch.
+  // 2. Highest epoch in MongoDB
+  // 3. P2P chain height (blocks synced from other miners)
   let currentEpoch;
   if (genesis.alreadyExisted) {
     const genesisTime = genesis.epoch.started_at.getTime();
@@ -606,12 +606,13 @@ async function startMiner() {
     const highestInDB = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
     const dbBased = highestInDB ? highestInDB.epoch_number + 1 : 0;
 
-    currentEpoch = Math.max(timeBased, dbBased);
+    const { getChainHeight } = require('../p2p/chainSync');
+    const p2pHeight = getChainHeight() + 1; // next epoch after highest synced block
+
+    currentEpoch = Math.max(timeBased, dbBased, p2pHeight);
     if (currentEpoch < 1) currentEpoch = 1;
 
-    if (dbBased > timeBased) {
-      console.log(`[BTCPC] Epoch sync: DB height ${dbBased} > time-based ${timeBased}. Jumping to ${currentEpoch}`);
-    }
+    console.log(`[BTCPC] Epoch sync: time=${timeBased}, db=${dbBased}, p2p=${p2pHeight} → starting at ${currentEpoch}`);
   } else {
     currentEpoch = 0;
   }
