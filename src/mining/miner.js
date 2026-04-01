@@ -10,6 +10,7 @@ const { finalizeEpoch, EPOCH_DURATION_MS } = require('../services/epochManager')
 const { generateWork, getEpochMetadata } = require('./workGenerator');
 const { computeStateHash } = require('./stateHash');
 const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
+const MINER_ACCOUNT = process.env.BTCPC_MINER || GENESIS_MINER;
 const GenesisDream = require('../models/GenesisDream');
 const MiningProof = require('../models/MiningProof');
 const { filterInscription } = require('../services/contentFilter');
@@ -64,7 +65,7 @@ async function mineEpoch(epochNumber) {
   console.log(`\n[BTCPC] ${ts} -- Epoch ${epochNumber} mining started`);
 
   // Get genesis miner references
-  const user = await User.findOne({ username: GENESIS_MINER });
+  const user = await User.findOne({ username: MINER_ACCOUNT });
   if (!user) {
     console.error('[BTCPC] Genesis miner account not found. Run genesis first.');
     return;
@@ -129,7 +130,7 @@ async function mineEpoch(epochNumber) {
 
       const proof = new WorkProof({
         epoch_number: epochNumber,
-        node_id: GENESIS_MINER,
+        node_id: MINER_ACCOUNT,
         prompt_hash: work.prompt_hash,
         result_hash: work.result_hash,
         model: work.model,
@@ -188,8 +189,8 @@ async function mineEpoch(epochNumber) {
 
     const dream = new GenesisDream({
       block_number: epochNumber,
-      original_miner: GENESIS_MINER,
-      current_owner: GENESIS_MINER,
+      original_miner: MINER_ACCOUNT,
+      current_owner: MINER_ACCOUNT,
       inscription: {
         project: filteredProject,
         tag: filteredTag,
@@ -212,7 +213,7 @@ async function mineEpoch(epochNumber) {
   if (!existingProof) {
     const miningProof = new MiningProof({
       block_number: epochNumber,
-      miner: GENESIS_MINER,
+      miner: MINER_ACCOUNT,
       reward_earned: blockReward,
       model: MODEL,
       tokens_computed: totalTokens,
@@ -220,7 +221,7 @@ async function mineEpoch(epochNumber) {
       state_hash: stateHash
     });
     await miningProof.save();
-    console.log(`[BTCPC]   Mining Proof #${epochNumber}: soulbound to ${GENESIS_MINER}`);
+    console.log(`[BTCPC]   Mining Proof #${epochNumber}: soulbound to ${MINER_ACCOUNT}`);
   }
 
   // Step 5: Finalize epoch and distribute rewards
@@ -242,7 +243,7 @@ async function mineEpoch(epochNumber) {
     if (postingKey) {
       try {
         claimProofs = generateAllClaimProofs(
-          GENESIS_MINER,
+          MINER_ACCOUNT,
           epochNumber,
           finalized.block_reward,
           linkedChains,
@@ -380,7 +381,7 @@ async function startMiner() {
         const myAddr = `ws://${process.env.P2P_ADVERTISE_IP || 'localhost'}:${myPort}`;
         await axios.post(`${peerRegistryUrl}/peers/register`, {
           address: myAddr,
-          username: GENESIS_MINER,
+          username: MINER_ACCOUNT,
           gpu: null,
         }, { timeout: 5000 }).catch(() => {});
       } catch (err) {
@@ -400,7 +401,7 @@ async function startMiner() {
       console.log('[BTCPC] WARNING: Software-only fingerprint. Compile CUDA probe for silicon-bound identity.');
     }
     // Register SIK hash on Node document
-    const sikUser = await User.findOne({ username: GENESIS_MINER });
+    const sikUser = await User.findOne({ username: MINER_ACCOUNT });
     if (sikUser) {
       const sikNode = await Node.findOne({ account: sikUser._id });
       if (sikNode && sikNode.sik_hash !== sik.sik_hash) {
@@ -417,7 +418,7 @@ async function startMiner() {
   // Sync local Ollama models to node record
   try {
     const { syncLocalModels } = require('../services/modelRegistry');
-    const user = await User.findOne({ username: GENESIS_MINER });
+    const user = await User.findOne({ username: MINER_ACCOUNT });
     const node = user ? await Node.findOne({ account: user._id }) : null;
     const models = await syncLocalModels(node?._id);
     console.log(`[BTCPC] Models synced: ${models.join(', ') || 'none'}`);
@@ -457,7 +458,7 @@ async function startMiner() {
     try {
       // Re-sync models each epoch (picks up newly pulled models)
       const { syncLocalModels } = require('../services/modelRegistry');
-      const _user = await User.findOne({ username: GENESIS_MINER });
+      const _user = await User.findOne({ username: MINER_ACCOUNT });
       const _node = _user ? await Node.findOne({ account: _user._id }) : null;
       syncLocalModels(_node?._id).catch(() => {});
 
