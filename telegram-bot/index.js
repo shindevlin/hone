@@ -47,6 +47,7 @@ bot.onText(/\/start/, (msg) => {
     `\u{26D3} *BTCPC Node Bot*`,
     ``,
     `Link your account: \`/link <username>\``,
+    `Then verify: \`/verify <challenge>\``,
     ``,
     `*Commands:*`,
     `/claim — get 1 free BTCPC (one-time)`,
@@ -69,7 +70,7 @@ bot.onText(/\/start/, (msg) => {
 });
 
 // ── /link <username> — start on-chain verification ──
-const { startLink, checkPendingLink } = require('../src/services/telegramVerify');
+const { startLink, postVerification } = require('../src/services/telegramVerify');
 
 bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   const chatId = msg.chat.id;
@@ -84,43 +85,41 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
 
     const result = await startLink(username, tgId, msg.from.username);
     bot.sendMessage(chatId, [
-      `\u{1F512} *Verify ownership of ${username}*`,
+      `*Verify ownership of ${username}*`,
       ``,
-      `Post this challenge on the BTCPC blockchain:`,
+      `Your challenge code:`,
       `\`${result.challenge}\``,
       ``,
-      `*How:*`,
-      `\`\`\``,
-      `curl -X POST http://localhost:3100/api/user/verify-telegram \\`,
-      `  -H "Authorization: Bearer YOUR_JWT" \\`,
-      `  -H "Content-Type: application/json" \\`,
-      `  -d '{"challenge": "${result.challenge}"}'`,
-      `\`\`\``,
+      `Reply with: \`/verify ${result.challenge}\``,
       ``,
-      `Or via CLI:`,
-      `\`node bin/btcpc-cli verify-telegram ${result.challenge}\``,
-      ``,
-      `The verification is recorded on-chain. I'll detect it automatically.`,
-      `_Expires in ${result.expiresIn}s_`,
+      `_Expires in ${result.expiresIn / 60} minutes_`,
     ].join('\n'), { parse_mode: 'Markdown' });
 
-    // Poll for on-chain verification
-    const pollInterval = setInterval(async () => {
-      try {
-        const user = await User.findOne({ username });
-        if (user && user.telegramId === tgId) {
-          clearInterval(pollInterval);
-          bot.sendMessage(chatId, `\u{2705} *${username}* verified and linked! On-chain proof recorded.`, { parse_mode: 'Markdown' });
-        }
-        const pending = await checkPendingLink(username);
-        if (!pending) clearInterval(pollInterval); // expired
-      } catch (_) {
-        clearInterval(pollInterval);
-      }
-    }, 5000); // check every 5s
+  } catch (err) {
+    bot.sendMessage(chatId, `Error: ${err.message}`);
+  }
+});
 
-    // Stop polling after expiry
-    setTimeout(() => clearInterval(pollInterval), result.expiresIn * 1000);
+// ── /verify <challenge> — complete on-chain verification ──
+bot.onText(/\/verify\s+(BTCPC-VERIFY-\S+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const tgId = String(msg.from.id);
+  const challenge = match[1];
+
+  try {
+    // Find the user with this pending challenge for this telegram ID
+    const user = await User.findOne({
+      'pendingTelegramLink.telegramId': tgId,
+      'pendingTelegramLink.challenge': challenge
+    });
+
+    if (!user) {
+      return bot.sendMessage(chatId, 'No pending link matches this challenge. Use `/link <username>` first.', { parse_mode: 'Markdown' });
+    }
+
+    // Complete verification — records on-chain transaction
+    const result = await postVerification(user._id, challenge);
+    bot.sendMessage(chatId, `*${result.username}* verified and linked! On-chain proof recorded (tx: \`${result.tx_id}\`).`, { parse_mode: 'Markdown' });
 
   } catch (err) {
     bot.sendMessage(chatId, `Error: ${err.message}`);
