@@ -124,67 +124,108 @@ async function waitForFinalization(epochNumber) {
 }
 
 /**
- * Finalize epoch and split rewards by work_value (tokens × verified_params).
- * Each miner's MiningProof.reward_earned is updated with their proportional share.
+ * Finalize epoch — distribute rewards based on jobs that SETTLED in this epoch.
+ *
+ * A job settles when all required verifications are in.
+ * Miners get paid in the epoch the job settles, not the epoch they did the work.
+ * Reward per miner = their total work_value from settled jobs / total work_value.
+ *
+ * Also handles synthetic mining proofs (epochs with no inference jobs).
  */
 async function finalizeAndSplitRewards(epochNumber) {
   const epoch = await Epoch.findOne({ epoch_number: epochNumber });
   if (!epoch || epoch.status === 'finalized') return epoch;
 
-  // Get all mining proofs submitted for this epoch
-  const allProofs = await MiningProof.find({ block_number: epochNumber });
-  const blockReward = getBlockReward(epochNumber);
-
-  // Verify model hashes — reject proofs with tampered models
   const { getRegistryModelHash } = require('../services/modelVerifier');
-  const honestProofs = [];
-  const rejectedProofs = [];
+  const InferenceJob = require('../models/InferenceJob');
 
-  for (const proof of allProofs) {
-    if (!proof.model_hash) {
-      // Old proofs without hash — allow during transition period
-      honestProofs.push(proof);
-      continue;
-    }
+  // ── Reward number tracks emission schedule, not epoch number ──
+  // Empty epochs (no settled jobs) don't consume a reward slot.
+  // The reward number only advances when work is done.
+  // This means the emission schedule stretches — no rewards are skipped or stacked.
+  // Reward number = count of epochs that actually had work.
+  // Empty epochs don't consume emission slots — the schedule stretches.
+  const rewardedEpochs = await Epoch.countDocuments({ status: 'finalized', settled_jobs: { $gt: 0 } });
+  const rewardNumber = rewardedEpochs;
+  const blockReward = getBlockReward(rewardNumber);
+  const epochsDeferred = epochNumber - rewardNumber; // how far behind the reward schedule is
 
-    const registryHash = await getRegistryModelHash(proof.model);
-    if (!registryHash) {
-      // Registry unreachable — allow (don't punish for network issues)
-      honestProofs.push(proof);
-    } else if (proof.model_hash === registryHash) {
-      honestProofs.push(proof);
-    } else {
-      rejectedProofs.push(proof);
-      proof.reward_earned = 0;
-      await proof.save();
-      console.error(`[BTCPC] REJECTED proof from ${proof.miner}: model ${proof.model} hash mismatch`);
+  // ── Collect work from jobs that settled in this epoch ──
+  const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber, status: 'settled' });
+
+  // ── Also collect synthetic mining proofs (work done when no inference jobs) ──
+  const syntheticProofs = await MiningProof.find({ block_number: epochNumber });
+
+  // Build per-miner work_value totals
+  const minerWork = {}; // { minerName: { work_value, model_hashes: Set, models: Set } }
+
+  // From settled inference jobs
+  for (const job of settledJobs) {
+    for (const v of (job.verifications || [])) {
+      if (!v.miner || !v.result_hash) continue;
+
+      // Verify model hash
+      if (v.model_hash) {
+        const registryHash = await getRegistryModelHash(job.model);
+        if (registryHash && v.model_hash !== registryHash) {
+          console.error(`[BTCPC] REJECTED verification from ${v.miner}: model hash mismatch on job ${job.job_id}`);
+          continue; // skip this miner's work — they used a fake model
+        }
+      }
+
+      if (!minerWork[v.miner]) minerWork[v.miner] = { work_value: 0, models: new Set() };
+      minerWork[v.miner].work_value += (v.work_value || 0);
+      minerWork[v.miner].models.add(job.model);
     }
   }
 
-  if (rejectedProofs.length > 0) {
-    console.log(`[BTCPC] ${rejectedProofs.length} proof(s) rejected — their share goes to honest miners`);
+  // From synthetic proofs (no inference jobs that epoch)
+  for (const proof of syntheticProofs) {
+    // Verify model hash
+    if (proof.model_hash) {
+      const registryHash = await getRegistryModelHash(proof.model);
+      if (registryHash && proof.model_hash !== registryHash) {
+        console.error(`[BTCPC] REJECTED proof from ${proof.miner}: model hash mismatch`);
+        continue;
+      }
+    }
+
+    if (!minerWork[proof.miner]) minerWork[proof.miner] = { work_value: 0, models: new Set() };
+    minerWork[proof.miner].work_value += (proof.work_value || 0);
+    minerWork[proof.miner].models.add(proof.model);
   }
 
-  // Split full block reward among HONEST proofs only
-  // Rejected miners get nothing — their share goes to honest miners
-  const totalWorkValue = honestProofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+  const miners = Object.keys(minerWork);
+  const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 
-  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${honestProofs.length} honest miner(s) (${rejectedProofs.length} rejected), total work_value: ${totalWorkValue}`);
+  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${settledJobs.length} settled jobs, ${syntheticProofs.length} synthetic proofs, ${miners.length} miner(s), total work_value: ${totalWorkValue}`);
 
-  for (const proof of honestProofs) {
+  // ── Empty epoch: no work done, no reward, doesn't consume emission slot ──
+  if (miners.length === 0 || totalWorkValue === 0) {
+    epoch.total_work = 0;
+    epoch.rewards_distributed = [];
+    epoch.block_reward = 0; // no reward consumed
+    epoch.ended_at = new Date();
+    epoch.status = 'finalized';
+    epoch.settled_jobs = 0;
+    await epoch.save();
+    console.log(`[BTCPC] Epoch ${epochNumber} finalized | EMPTY — no work, reward deferred to next epoch with work`);
+    return epoch;
+  }
+
+  // ── Split rewards ──
+  const rewards = [];
+  for (const miner of miners) {
     let share;
     if (totalWorkValue === 0) {
-      share = blockReward / honestProofs.length;
+      share = blockReward / miners.length;
     } else {
-      share = blockReward * ((proof.work_value || 0) / totalWorkValue);
+      share = blockReward * (minerWork[miner].work_value / totalWorkValue);
     }
     share = parseFloat(share.toFixed(10));
 
-    proof.reward_earned = share;
-    await proof.save();
-
     // Credit the miner's wallet
-    const user = await User.findOne({ username: proof.miner });
+    const user = await User.findOne({ username: miner });
     if (user) {
       const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
       if (wallet) {
@@ -194,20 +235,32 @@ async function finalizeAndSplitRewards(epochNumber) {
       }
     }
 
-    const pct = totalWorkValue > 0 ? ((proof.work_value / totalWorkValue) * 100).toFixed(1) : (100 / honestProofs.length).toFixed(1);
-    console.log(`[BTCPC]   ${proof.miner}: ${share.toFixed(4)} BTCPC (${pct}% of block, model: ${proof.model})`);
+    // Update mining proof with earned reward
+    const proof = await MiningProof.findOne({ block_number: epochNumber, miner });
+    if (proof) {
+      proof.reward_earned = share;
+      await proof.save();
+    }
+
+    const pct = totalWorkValue > 0 ? ((minerWork[miner].work_value / totalWorkValue) * 100).toFixed(1) : (100 / miners.length).toFixed(1);
+    const modelList = [...minerWork[miner].models].join(', ');
+    console.log(`[BTCPC]   ${miner}: ${share.toFixed(4)} BTCPC (${pct}%, models: ${modelList})`);
+    rewards.push({ node_id: miner, amount: share });
   }
 
-  // Now finalize the epoch (consensus, difficulty, etc.) — but skip distributeRewards since we did it above
+  // Finalize epoch record
   epoch.consensus_hash = epoch.commitments?.length > 0 ? epoch.commitments[0].state_hash : '0'.repeat(64);
-  epoch.total_work = epoch.commitments?.reduce((sum, c) => sum + c.inference_count + c.tx_count, 0) || 0;
-  epoch.rewards_distributed = honestProofs.map(p => ({ node_id: p.miner, amount: p.reward_earned }));
+  epoch.total_work = totalWorkValue;
+  epoch.rewards_distributed = rewards;
   epoch.block_reward = blockReward;
+  epoch.reward_number = rewardNumber;
+  epoch.epochs_deferred = epochsDeferred; // how many empty epochs pushed this reward out
   epoch.ended_at = new Date();
   epoch.status = 'finalized';
+  epoch.settled_jobs = settledJobs.length;
   await epoch.save();
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | ${honestProofs.length} miner(s) | reward: ${blockReward} BTCPC split`);
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${rewardNumber} (deferred ${epochsDeferred}) | ${miners.length} miner(s) | ${settledJobs.length} settled jobs | ${blockReward.toFixed(4)} BTCPC split`);
   return epoch;
 }
 
