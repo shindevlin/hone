@@ -46,7 +46,7 @@ var epochSchema = new Schema({
     default: null
   },
   rewards_distributed: [{
-    node_id: { type: Schema.Types.ObjectId, ref: 'Node' },
+    node_id: { type: Schema.Types.Mixed }, // ObjectId or miner username
     amount: { type: Number }
   }],
   status: {
