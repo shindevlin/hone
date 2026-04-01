@@ -21,7 +21,7 @@ var transactionSchema = new Schema({
   },
   type: {
     type: String,
-    enum: ['transfer', 'mining_reward', 'staking_reward', 'staking', 'unstaking', 'faucet'],
+    enum: ['transfer', 'mining_reward', 'staking_reward', 'staking', 'unstaking', 'faucet', 'verification'],
     required: true
   },
   timestamp: {

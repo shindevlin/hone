@@ -68,8 +68,8 @@ bot.onText(/\/start/, (msg) => {
   ].join('\n'), { parse_mode: 'Markdown' });
 });
 
-// ── /link <username> — start verification ──
-const { startLink, completeLink } = require('../src/services/telegramVerify');
+// ── /link <username> — start on-chain verification ──
+const { startLink, checkPendingLink } = require('../src/services/telegramVerify');
 
 bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
   const chatId = msg.chat.id;
@@ -86,32 +86,44 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
     bot.sendMessage(chatId, [
       `\u{1F512} *Verify ownership of ${username}*`,
       ``,
-      `Sign this challenge with your BTCPC posting key:`,
+      `Post this challenge on the BTCPC blockchain:`,
       `\`${result.challenge}\``,
       ``,
-      `Then paste the hex signature:`,
-      `/verify ${username} <hex-signature>`,
+      `*How:*`,
+      `\`\`\``,
+      `curl -X POST http://localhost:3100/api/user/verify-telegram \\`,
+      `  -H "Authorization: Bearer YOUR_JWT" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '{"challenge": "${result.challenge}"}'`,
+      `\`\`\``,
       ``,
+      `Or via CLI:`,
+      `\`node bin/btcpc-cli verify-telegram ${result.challenge}\``,
+      ``,
+      `The verification is recorded on-chain. I'll detect it automatically.`,
       `_Expires in ${result.expiresIn}s_`,
     ].join('\n'), { parse_mode: 'Markdown' });
+
+    // Poll for on-chain verification
+    const pollInterval = setInterval(async () => {
+      try {
+        const user = await User.findOne({ username });
+        if (user && user.telegramId === tgId) {
+          clearInterval(pollInterval);
+          bot.sendMessage(chatId, `\u{2705} *${username}* verified and linked! On-chain proof recorded.`, { parse_mode: 'Markdown' });
+        }
+        const pending = await checkPendingLink(username);
+        if (!pending) clearInterval(pollInterval); // expired
+      } catch (_) {
+        clearInterval(pollInterval);
+      }
+    }, 5000); // check every 5s
+
+    // Stop polling after expiry
+    setTimeout(() => clearInterval(pollInterval), result.expiresIn * 1000);
+
   } catch (err) {
     bot.sendMessage(chatId, `Error: ${err.message}`);
-  }
-});
-
-// ── /verify <username> <signature|challenge> — complete verification ──
-bot.onText(/\/verify\s+(\S+)\s+(.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const tgId = String(msg.from.id);
-  const username = match[1].toLowerCase();
-  const proof = match[2].trim();
-
-  try {
-    const result = await completeLink(username, proof, tgId);
-    const method = result.method === 'signature' ? '(cryptographic)' : '(challenge verified)';
-    bot.sendMessage(chatId, `\u{2705} Linked to *${result.username}* ${method}`, { parse_mode: 'Markdown' });
-  } catch (err) {
-    bot.sendMessage(chatId, `\u{274C} ${err.message}`);
   }
 });
 
