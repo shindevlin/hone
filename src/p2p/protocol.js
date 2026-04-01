@@ -35,6 +35,8 @@ const MESSAGE_TYPES = {
   INFERENCE_RESULT: "INFERENCE_RESULT",
   // Model demand broadcast
   MODEL_DEMAND: "MODEL_DEMAND",
+  // Mining proof gossip — miners broadcast proofs so all nodes can finalize
+  MINING_PROOF: "MINING_PROOF",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -181,6 +183,9 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.INFERENCE_RESULT:
     case MESSAGE_TYPES.MODEL_DEMAND:
       handleInferenceMessage(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.MINING_PROOF:
+      handleMiningProof(peer, msg, ctx);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type);
@@ -369,6 +374,46 @@ function handleResponseBlocks(peer, msg, ctx) {
 function handleInferenceMessage(peer, msg, ctx) {
   console.log("[BTCPC P2P] Inference " + msg.type + " from " + (msg.nodeId || "unknown").slice(0, 12));
   // Rebroadcast to all other peers
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * MINING_PROOF — A miner broadcasts their proof for an epoch.
+ * Receiving nodes store it locally so finalization can collect all proofs.
+ * This eliminates the need for a shared database between miners.
+ */
+function handleMiningProof(peer, msg, ctx) {
+  const data = msg.data || {};
+  if (!data.block_number || !data.miner) return;
+
+  console.log("[BTCPC P2P] Mining proof from " + data.miner + " for block " + data.block_number);
+
+  // Store in local DB (if we don't already have it)
+  const MiningProof = require("../models/MiningProof");
+  MiningProof.findOne({ block_number: data.block_number, miner: data.miner })
+    .then(existing => {
+      if (existing) return; // already have this proof
+      return MiningProof.create({
+        block_number: data.block_number,
+        miner: data.miner,
+        reward_earned: 0, // set during finalization
+        model: data.model,
+        model_hash: data.model_hash || null,
+        tokens_computed: data.tokens_computed || 0,
+        work_value: data.work_value || 0,
+        state_hash: data.state_hash || null
+      });
+    })
+    .then(created => {
+      if (created) {
+        console.log("[BTCPC P2P] Stored remote proof: " + data.miner + " block " + data.block_number + " (wv=" + data.work_value + ")");
+      }
+    })
+    .catch(err => {
+      console.error("[BTCPC P2P] Failed to store mining proof:", err.message);
+    });
+
+  // Rebroadcast to other peers
   ctx.broadcast(msg, peer.address);
 }
 

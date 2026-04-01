@@ -370,6 +370,19 @@ async function mineEpoch(epochNumber) {
     });
     await miningProof.save();
     console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
+
+    // Broadcast proof via P2P so other nodes can collect it for finalization
+    const proofMsg = createMessage('MINING_PROOF', {
+      block_number: epochNumber,
+      miner: MINER_ACCOUNT,
+      model: MODEL,
+      model_hash: modelHash,
+      tokens_computed: totalTokens,
+      work_value: totalWorkValue,
+      state_hash: stateHash
+    }, p2p.NODE_ID);
+    p2p.broadcast(proofMsg);
+    console.log(`[BTCPC]   Proof broadcast to P2P network`);
   }
 
   // Step 5: Schedule finalization — waits for other miners to submit
