@@ -50,9 +50,23 @@ async function authenticateBearer(req, res, next) {
       });
     }
     req.project = project;
+    return next();
   }
 
-  next();
+  // Non-btcpc_ tokens: reject on inference endpoints, allow on read-only
+  // Read-only paths (models, pricing, network) don't require project auth
+  const readOnlyPaths = ['/v1/models', '/v1/pricing', '/v1/network/models'];
+  if (readOnlyPaths.some(p => req.path.startsWith(p))) {
+    return next();
+  }
+
+  return res.status(401).json({
+    error: {
+      message: 'Valid btcpc_ API key required for inference. Register at /api/projects/register.',
+      type: 'authentication_error',
+      code: 'api_key_required'
+    }
+  });
 }
 
 router.use(authenticateBearer);
@@ -179,6 +193,19 @@ router.post('/v1/inference/submit', async (req, res) => {
 
   if (!hasMiners()) {
     return res.status(503).json({ error: { message: 'No miners connected', type: 'network_error', code: 'no_miners' } });
+  }
+
+  // Per-project rate limit: max 5 concurrent jobs
+  if (req.project) {
+    const activeJobs = await require('../models/InferenceJob').countDocuments({
+      project_id: req.project._id,
+      status: { $in: ['pending', 'claimed', 'processing'] }
+    });
+    if (activeJobs >= 5) {
+      return res.status(429).json({
+        error: { message: `Too many concurrent jobs (${activeJobs}/5). Wait for current jobs to complete.`, type: 'rate_limit', code: 'too_many_jobs' }
+      });
+    }
   }
 
   try {

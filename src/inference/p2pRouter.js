@@ -40,10 +40,17 @@ function initP2PRouter() {
 
     if (msg.type === 'INFERENCE_RESULT' && reqId) {
       if (data.error) {
-        await InferenceJob.findOneAndUpdate(
+        const failedJob = await InferenceJob.findOneAndUpdate(
           { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
-          { status: 'failed', result_text: data.error, completed_at: new Date() }
+          { status: 'failed', result_text: data.error, completed_at: new Date() },
+          { new: true }
         );
+        // Refund pre-deducted cost on failure
+        if (failedJob?.project_id && failedJob?.cost > 0) {
+          const Project = require('../models/Project');
+          await Project.findByIdAndUpdate(failedJob.project_id, { $inc: { balance: failedJob.cost } });
+          console.log(`[BTCPC P2P Router] Refunded ${failedJob.cost} BTCPC to project`);
+        }
         console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed: ${data.error}`);
         return;
       }
@@ -63,6 +70,20 @@ function initP2PRouter() {
       );
 
       if (updated) {
+        // Reconcile billing — refund difference between estimated and actual cost
+        if (updated.project_id && updated.cost > 0) {
+          const Project = require('../models/Project');
+          const { calculateCost } = require('../services/pricing');
+          const actual = await calculateCost(updated.tokens_generated, updated.model);
+          const actualCost = actual.cost;
+          const diff = updated.cost - actualCost;
+
+          if (diff > 0) {
+            await Project.findByIdAndUpdate(updated.project_id, { $inc: { balance: diff } });
+          }
+          await Project.findByIdAndUpdate(updated.project_id, { $inc: { totalSpent: actualCost } });
+          await InferenceJob.findByIdAndUpdate(updated._id, { cost: actualCost });
+        }
         console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} completed: ${updated.tokens_generated} tokens, ${updated.elapsed_ms}ms`);
       }
     }
@@ -90,6 +111,25 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
 
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
+  // Pre-deduct estimated cost from project balance
+  let estimatedCost = 0;
+  if (projectId) {
+    const Project = require('../models/Project');
+    const { calculateCost } = require('../services/pricing');
+    const estimated = await calculateCost(maxTokens || 1024, model);
+    estimatedCost = estimated.cost;
+
+    const project = await Project.findById(projectId);
+    if (project) {
+      if (project.balance < estimatedCost) {
+        throw new Error(`Insufficient balance. Need ~${estimatedCost.toFixed(10)} BTCPC, have ${project.balance.toFixed(10)}`);
+      }
+      project.balance -= estimatedCost;
+      project.totalRequests += 1;
+      await project.save();
+    }
+  }
+
   // Store job in DB
   const job = new InferenceJob({
     job_id: jobId,
@@ -101,6 +141,7 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
     max_fee: maxFee || 0,
     prompt_hash: promptHash,
     project_id: projectId || null,
+    cost: estimatedCost,
     expires_at: new Date(Date.now() + 600000) // 10 min expiry
   });
   await job.save();
