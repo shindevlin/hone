@@ -29,6 +29,7 @@ const dreamRoutes = require("./routes/dreamRoutes");
 const recoveryRoutes = require("./routes/recoveryRoutes");
 const faucetRoutes = require("./routes/faucetRoutes");
 const projectRoutes = require("./routes/projectRoutes");
+const botRoutes = require("./routes/botRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -38,6 +39,7 @@ app.use("/api/node", nodeRoutes);
 app.use("/api/delegation", delegationRoutes);
 app.use("/api/recovery", recoveryRoutes);
 app.use("/api", dreamRoutes);
+app.use("/api/bot", botRoutes);
 app.use(inferenceApi);
 app.use(encryptedInference);
 
