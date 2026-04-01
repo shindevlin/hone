@@ -7,29 +7,76 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.122.145.60:11434';
 const DEFAULT_MODEL = 'qwen3.5:27b';
 
 /**
- * Model weight factors per whitepaper section 2.5:
- *   1B-7B   = 1.0x
- *   7B-13B  = 2.0x
- *   13B-30B = 4.0x
- *   30B-70B = 8.0x
- *   70B+    = 16.0x
+ * Model weight = verified parameter count in billions from Ollama engine.
+ *
+ * Work value = tokens_generated × verified_param_billions
+ * Reward split = miner_work_value / total_work_value
+ *
+ * SECURITY: We query Ollama's /api/show for general.parameter_count
+ * rather than trusting the model name. A model named "fake:100b" with
+ * 1B actual params will be weighted at 1, not 100.
+ *
+ * Cache is populated on first use and on model sync. Falls back to
+ * name parsing only if Ollama is unreachable (logged as warning).
  */
-const MODEL_WEIGHTS = {
-  'qwen3.5:27b':       4.0,
-  'deepseek-r1:8b':    2.0,
-  'glm-4.7-flash':     1.0,
-  'llama3:8b':         2.0,
-  'llama3:70b':        8.0,
-  'mixtral:8x7b':      4.0,
-  'codellama:34b':     8.0,
-  'phi3:14b':          4.0,
-  'gemma2:27b':        4.0,
-  'qwen2.5:72b':      16.0,
-};
+const verifiedParamCache = {};
 
-function getModelWeight(model) {
-  return MODEL_WEIGHTS[model] || 1.0;
+/**
+ * Query Ollama for the real parameter count of a model.
+ * Returns param count in billions (e.g. 4.02 for qwen3:4b).
+ */
+/**
+ * Query Ollama for the real parameter count of a model.
+ * Returns the raw parameter count (e.g. 4022468096 for qwen3:4b).
+ * This is the actual number — no rounding, no trusting the name.
+ */
+async function verifyModelParams(model) {
+  if (verifiedParamCache[model]) return verifiedParamCache[model];
+
+  try {
+    const res = await axios.post(`${OLLAMA_URL}/api/show`, { name: model }, { timeout: 5000 });
+    const paramCount = res.data?.model_info?.['general.parameter_count'];
+    if (paramCount && paramCount > 0) {
+      verifiedParamCache[model] = paramCount;
+      console.log(`[BTCPC] Verified model ${model}: ${paramCount} params`);
+      return paramCount;
+    }
+  } catch (_) {
+    // Ollama unreachable — fall back to name parsing with warning
+  }
+
+  // Fallback: parse from name, convert to raw count (less secure, logged)
+  const fromName = parseModelWeightFromName(model);
+  const estimated = Math.round(fromName * 1e9);
+  console.warn(`[BTCPC] WARNING: Using unverified param count for ${model}: ${estimated} (Ollama unreachable)`);
+  return estimated;
 }
+
+/**
+ * Parse param count from model name as fallback.
+ * Only used when Ollama is unreachable.
+ */
+function parseModelWeightFromName(model) {
+  if (!model) return 1;
+  const match = model.match(/(\d+(?:\.\d+)?)b/i);
+  if (match) return parseFloat(match[1]);
+  const moe = model.match(/(\d+)x(\d+)b/i);
+  if (moe) return parseInt(moe[1]) * parseInt(moe[2]);
+  return 1;
+}
+
+/**
+ * Get model weight (raw param count) synchronously from cache.
+ * Must call verifyModelParams() first to populate cache.
+ * Falls back to name parsing × 1e9 if not cached.
+ */
+function getModelWeight(model) {
+  if (verifiedParamCache[model]) return verifiedParamCache[model];
+  return Math.round(parseModelWeightFromName(model) * 1e9);
+}
+
+// Legacy — kept for export compatibility
+const MODEL_WEIGHTS = {};
 
 /**
  * Diverse prompt pool for synthetic inference work.
@@ -120,15 +167,16 @@ async function generateWork(model, customPrompt) {
       const resultText = response.data.response || '';
       const tokensGenerated = response.data.eval_count || estimateTokens(resultText);
       const resultHash = crypto.createHash('sha256').update(resultText).digest('hex');
-      const weightFactor = getModelWeight(model);
+      // Use verified param count from Ollama, not model name
+      const paramCount = await verifyModelParams(model);
 
       return {
         prompt_hash: promptHash,
         result_hash: resultHash,
         tokens_generated: tokensGenerated,
         model: model,
-        model_weight_factor: weightFactor,
-        work_value: tokensGenerated * weightFactor
+        model_weight_factor: paramCount,
+        work_value: tokensGenerated * paramCount
       };
     } catch (err) {
       attempt++;
@@ -159,6 +207,7 @@ module.exports = {
   BUILD_METADATA,
   generateWork,
   getModelWeight,
+  verifyModelParams,
   PROMPT_POOL,
   MODEL_WEIGHTS,
   DEFAULT_MODEL,

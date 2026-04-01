@@ -137,24 +137,39 @@ async function distributeRewards(epoch) {
   const honestCommitments = epoch.commitments.filter(c => c.state_hash === consensusHash);
   if (honestCommitments.length === 0) return [];
 
-  // Calculate total effective work from honest nodes (adjusted by difficulty)
-  const totalEffectiveWork = honestCommitments.reduce((sum, c) => {
-    const rawWork = c.inference_count + c.tx_count;
-    return sum + (rawWork / difficulty);
-  }, 0);
+  // Calculate work_value per miner from WorkProofs: tokens × param_billions
+  // This is the fair reward basis — bigger models doing more tokens earn more
+  const WorkProof = require('../models/WorkProof');
+  const minerWorkValues = {};
+  let totalWorkValue = 0;
+
+  for (const commitment of honestCommitments) {
+    const nodeId = commitment.node_id.toString();
+    const node = await Node.findById(commitment.node_id);
+    const user = node ? await require('../models/User').findById(node.account) : null;
+    const minerName = user ? user.username : nodeId;
+
+    // Sum work_value from all WorkProofs this miner submitted in this epoch
+    const proofs = await WorkProof.find({ epoch_number: epoch.epoch_number, node_id: minerName });
+    const workValue = proofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+
+    minerWorkValues[nodeId] = workValue;
+    totalWorkValue += workValue;
+  }
 
   const rewards = [];
 
   for (const commitment of honestCommitments) {
-    const rawWork = commitment.inference_count + commitment.tx_count;
-    const effectiveWork = rawWork / difficulty;
+    const nodeId = commitment.node_id.toString();
+    const workValue = minerWorkValues[nodeId] || 0;
     let minerReward;
 
-    if (totalEffectiveWork === 0) {
+    if (totalWorkValue === 0) {
       // No work reported — split equally among honest nodes
       minerReward = epoch.block_reward / honestCommitments.length;
     } else {
-      minerReward = epoch.block_reward * (effectiveWork / totalEffectiveWork);
+      // Reward proportional to tokens × param_billions
+      minerReward = epoch.block_reward * (workValue / totalWorkValue);
     }
 
     minerReward = parseFloat(minerReward.toFixed(10));
