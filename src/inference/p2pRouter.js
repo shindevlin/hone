@@ -40,18 +40,36 @@ function initP2PRouter() {
 
     if (msg.type === 'INFERENCE_RESULT' && reqId) {
       if (data.error) {
+        // Only accept failure from the miner who claimed the job.
+        // Other miners failing (e.g. wrong model) should not kill the job.
+        const job = await InferenceJob.findOne({ job_id: reqId });
+        if (!job) return;
+
+        // If the job is claimed by a specific miner, only that miner can fail it
+        if (job.claimed_by && data.node_name && job.claimed_by !== data.node_name) {
+          // Different miner failed — ignore, the real miner is still working
+          return;
+        }
+
+        // If job is still pending (no one claimed), revert to pending so another miner can try
+        if (job.status === 'pending') {
+          return; // don't fail unclaimed jobs
+        }
+
         const failedJob = await InferenceJob.findOneAndUpdate(
-          { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
+          { job_id: reqId, claimed_by: data.node_name, status: { $in: ['claimed', 'processing'] } },
           { status: 'failed', result_text: data.error, completed_at: new Date() },
           { new: true }
         );
+        if (!failedJob) return; // not our claim to fail
+
         // Refund pre-deducted cost on failure
-        if (failedJob?.project_id && failedJob?.cost > 0) {
+        if (failedJob.project_id && failedJob.cost > 0) {
           const Project = require('../models/Project');
           await Project.findByIdAndUpdate(failedJob.project_id, { $inc: { balance: failedJob.cost } });
           console.log(`[BTCPC P2P Router] Refunded ${failedJob.cost} BTCPC to project`);
         }
-        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed: ${data.error}`);
+        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed by ${data.node_name}: ${data.error}`);
         return;
       }
 
