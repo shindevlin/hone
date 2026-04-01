@@ -380,15 +380,51 @@ async function mineEpoch(epochNumber) {
     }
   }
 
+  // If no synthetic work, check if we completed any inference jobs this epoch
   if (workProofs.length === 0) {
-    console.log(`[BTCPC] No work this epoch — announcing idle to network`);
-    const idleMsg = createMessage('MINER_IDLE', {
-      block_number: epochNumber,
-      miner: MINER_ACCOUNT,
-      reason: 'no_work_completed'
-    }, p2p.NODE_ID);
-    p2p.broadcast(idleMsg);
-    return;
+    // Count inference work done by this miner in the epoch time window
+    const epochStart = epoch.started_at || new Date(Date.now() - EPOCH_DURATION_MS);
+    const inferenceWork = await WorkProof.find({
+      node_id: MINER_ACCOUNT,
+      epoch_number: { $gte: epochNumber - 1 }
+    }).sort({ _id: -1 }).limit(10);
+
+    // Also check recently completed inference jobs
+    const recentJobs = await InferenceJob.find({
+      node_name: MINER_ACCOUNT,
+      status: 'completed',
+      completed_at: { $gte: epochStart }
+    });
+
+    if (recentJobs.length > 0) {
+      // Calculate work value from inference jobs processed
+      const { verifyModelParams } = require('./workGenerator');
+      for (const job of recentJobs) {
+        const params = await verifyModelParams(job.model || MODEL);
+        const tokens = job.tokens_generated || 0;
+        totalTokens += tokens;
+        totalWorkValue += tokens * params;
+
+        // Tag job with settlement epoch
+        if (!job.settlement_epoch) {
+          job.settlement_epoch = epochNumber;
+          job.settled_at = new Date();
+          await job.save();
+        }
+      }
+      console.log(`[BTCPC]   ${recentJobs.length} inference job(s) completed this epoch: ${totalTokens} tokens, work_value=${totalWorkValue}`);
+    }
+
+    if (totalWorkValue === 0) {
+      console.log(`[BTCPC] No work this epoch — announcing idle to network`);
+      const idleMsg = createMessage('MINER_IDLE', {
+        block_number: epochNumber,
+        miner: MINER_ACCOUNT,
+        reason: 'no_work_completed'
+      }, p2p.NODE_ID);
+      p2p.broadcast(idleMsg);
+      return;
+    }
   }
 
   // Step 2: Compute state hash
