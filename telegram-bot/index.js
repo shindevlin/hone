@@ -24,7 +24,9 @@ const { getBlockReward } = require('../src/services/emissionSchedule');
 const WebSocket = require('ws');
 const crypto = require('crypto');
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(BOT_TOKEN, {
+  polling: { interval: 2000, autoStart: true, params: { timeout: 10 } }
+});
 
 // ── Helpers ──
 function fmt(n, decimals = 4) {
@@ -84,12 +86,10 @@ bot.onText(/\/link\s+(\S+)/, async (msg, match) => {
     bot.sendMessage(chatId, [
       `\u{1F512} *Verify ownership of ${username}*`,
       ``,
-      `Challenge: \`${result.challenge}\``,
+      `Sign this challenge with your BTCPC posting key:`,
+      `\`${result.challenge}\``,
       ``,
-      `To complete, paste:`,
-      `/verify ${username} ${result.challenge}`,
-      ``,
-      `Or sign with your posting key:`,
+      `Then paste the hex signature:`,
       `/verify ${username} <hex-signature>`,
       ``,
       `_Expires in ${result.expiresIn}s_`,

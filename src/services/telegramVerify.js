@@ -73,25 +73,16 @@ async function completeLink(username, signature, telegramId) {
     throw new Error('Challenge expired. Use /link <username> to get a new one.');
   }
 
-  // Verify signature against posting public key
+  // Verify signature against posting public key — no fallback, must sign
   const postingPubKey = user.postingPublicKey;
   if (!postingPubKey) {
-    // If no posting key registered, fall back to challenge-code-only verification
-    // (user types the challenge back as proof they initiated the link)
-    if (signature === pending.challenge) {
-      user.telegramId = pending.telegramId;
-      user.telegramUsername = pending.telegramUsername;
-      user.pendingTelegramLink = {};
-      await user.save();
-      return { success: true, username: user.username, method: 'challenge-echo' };
-    }
-    throw new Error('Invalid verification. Paste the exact challenge code, or register your posting public key first.');
+    throw new Error('No posting public key registered on this account. Register your posting key first via the API: POST /api/user/keys with your public key.');
   }
 
-  // Cryptographic verification
+  // Cryptographic verification — signature must be valid against the challenge
   try {
     const valid = verifySignature(pending.challenge, signature, postingPubKey);
-    if (!valid) throw new Error('Invalid signature');
+    if (!valid) throw new Error('Signature does not match posting key');
   } catch (err) {
     throw new Error('Signature verification failed: ' + err.message);
   }
