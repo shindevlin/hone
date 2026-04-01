@@ -185,7 +185,7 @@ router.get('/v1/network/models', async (req, res) => {
  * Poll GET /v1/inference/:job_id for the result.
  */
 router.post('/v1/inference/submit', async (req, res) => {
-  const { model, messages, max_tokens, temperature, max_fee, context, mcp_servers, tools, tool_context, use_saved_mcp } = req.body;
+  const { model, messages, max_tokens, temperature, max_fee, context, mcp_servers, tools, tool_context, use_saved_mcp, local } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: { message: 'messages is required', type: 'invalid_request_error' } });
@@ -304,15 +304,62 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
+  // ── Auto model picker ──
+  // If no model specified, or model is "auto", pick based on prompt complexity
+  let selectedModel = model;
+  if (!selectedModel || selectedModel === 'auto') {
+    const promptLen = augmentedMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+    if (promptLen < 200) {
+      selectedModel = 'qwen3:4b';       // simple tasks → small model, cheap
+    } else if (promptLen < 2000) {
+      selectedModel = 'qwen3.5:9b';     // medium tasks → mid model
+    } else {
+      selectedModel = 'qwen3.5:27b';    // complex / long context → big model
+    }
+  }
+
+  // ── Local mode: direct Ollama, no P2P, no rewards ──
+  if (local) {
+    try {
+      const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+      const prompt = augmentedMessages.map(m => {
+        if (m.role === 'system') return `System: ${m.content}`;
+        if (m.role === 'assistant') return `Assistant: ${m.content}`;
+        return m.content;
+      }).join('\n\n');
+
+      const ollamaRes = await axios.post(`${OLLAMA_URL}/api/generate`, {
+        model: selectedModel,
+        prompt,
+        stream: false,
+        options: { temperature: temperature || 0.7, num_predict: max_tokens || 512 }
+      }, { timeout: 300000 });
+
+      return res.json({
+        status: 'completed',
+        local: true,
+        model: selectedModel,
+        result_text: ollamaRes.data.response || '',
+        tokens_generated: ollamaRes.data.eval_count || 0,
+        elapsed_ms: ollamaRes.data.total_duration ? Math.round(ollamaRes.data.total_duration / 1e6) : 0,
+        cost: 0,
+        message: 'Local inference — no network rewards, no billing.'
+      });
+    } catch (err) {
+      return res.status(500).json({ error: { message: `Local inference failed: ${err.message}`, type: 'inference_error' } });
+    }
+  }
+
+  // ── Network mode: submit to P2P for miners to process ──
   try {
     let fee = max_fee;
     if (!fee) {
-      const autoBid = await getAutoBid(model || 'qwen3.5:27b', max_tokens || 512);
+      const autoBid = await getAutoBid(selectedModel, max_tokens || 512);
       fee = autoBid.bid;
     }
 
     const job = await submitInference({
-      model: model || 'qwen3.5:27b',
+      model: selectedModel,
       messages: augmentedMessages,
       maxTokens: max_tokens,
       temperature,
@@ -323,6 +370,8 @@ router.post('/v1/inference/submit', async (req, res) => {
     res.status(202).json({
       job_id: job.job_id,
       status: 'pending',
+      model: selectedModel,
+      local: false,
       rag: contextParts.length > 0,
       mcp_tools_called: mcpResults.length > 0 ? mcpResults.map(r => r.tool) : undefined,
       message: 'Request submitted to the network. Poll GET /v1/inference/' + job.job_id + ' for the result.'
