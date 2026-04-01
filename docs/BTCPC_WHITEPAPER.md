@@ -369,9 +369,9 @@ When a miner's work is rejected (model hash mismatch, wrong result, or slashing)
 
 **Replacement queue priority:** Same as initial assignment (section 3.5) — weighted by price, reputation, newcomer bonus, and stake. C is excluded from the replacement queue for this job.
 
-**Timeout:** If no replacement miner is available within 2 epoch durations (10 minutes), the slot is dropped and the reward for that slot is burned (removed from circulation). This prevents reward inflation when the network has fewer than N miners for a model.
+**No timeout, no burn:** The job stays open until 3 honest miners have verified it. If the network only has 2 honest miners for a model, the job waits until a third comes online. Consensus requires 3 — always. The reward is never burned, it waits for the work to be done.
 
-**Genesis phase (N=1):** With fewer than 3 miners per model, replacement is not possible. Single-miner mode auto-switches to N=3 per model when 3+ miners serve that model (section 3.7).
+**Genesis phase (N=1):** With fewer than 3 miners per model, consensus verification is deferred. Single-miner mode auto-switches to N=3 per model when 3+ miners serve that model (section 3.7). During genesis, rewards are distributed based on work_value (tokens × verified_param_count) without multi-miner consensus.
 
 ### 3.5 Anti-Centralization: Fair Work Distribution
 
