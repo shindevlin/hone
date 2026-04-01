@@ -160,7 +160,7 @@ async function handlePayload(msg) {
       prompt,
       stream: false,
       options: { temperature: 0.7, num_predict: 1024 },
-    }, { timeout: 120000 });
+    }, { timeout: 600000 }); // 10 min — large models on busy GPU need time
 
     const resultText = response.data.response || "";
     const tokensGenerated = response.data.eval_count || Math.ceil(resultText.length / 4);
