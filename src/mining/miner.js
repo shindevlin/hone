@@ -23,6 +23,7 @@ const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainS
 const silicon = require('../silicon');
 const { startInferenceHandler } = require('../inference/handler');
 const { startAutoUpdater } = require('../services/autoUpdater');
+const { verifyAllModels, verifyModel } = require('../services/modelVerifier');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -106,17 +107,49 @@ async function finalizeAndSplitRewards(epochNumber) {
   if (!epoch || epoch.status === 'finalized') return epoch;
 
   // Get all mining proofs submitted for this epoch
-  const proofs = await MiningProof.find({ block_number: epochNumber });
-  const totalWorkValue = proofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+  const allProofs = await MiningProof.find({ block_number: epochNumber });
   const blockReward = getBlockReward(epochNumber);
 
-  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${proofs.length} miner(s), total work_value: ${totalWorkValue}`);
+  // Verify model hashes — reject proofs with tampered models
+  const { getRegistryModelHash } = require('../services/modelVerifier');
+  const honestProofs = [];
+  const rejectedProofs = [];
 
-  // Split reward proportionally
-  for (const proof of proofs) {
+  for (const proof of allProofs) {
+    if (!proof.model_hash) {
+      // Old proofs without hash — allow during transition period
+      honestProofs.push(proof);
+      continue;
+    }
+
+    const registryHash = await getRegistryModelHash(proof.model);
+    if (!registryHash) {
+      // Registry unreachable — allow (don't punish for network issues)
+      honestProofs.push(proof);
+    } else if (proof.model_hash === registryHash) {
+      honestProofs.push(proof);
+    } else {
+      rejectedProofs.push(proof);
+      proof.reward_earned = 0;
+      await proof.save();
+      console.error(`[BTCPC] REJECTED proof from ${proof.miner}: model ${proof.model} hash mismatch`);
+    }
+  }
+
+  if (rejectedProofs.length > 0) {
+    console.log(`[BTCPC] ${rejectedProofs.length} proof(s) rejected — their share goes to honest miners`);
+  }
+
+  // Split full block reward among HONEST proofs only
+  // Rejected miners get nothing — their share goes to honest miners
+  const totalWorkValue = honestProofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+
+  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${honestProofs.length} honest miner(s) (${rejectedProofs.length} rejected), total work_value: ${totalWorkValue}`);
+
+  for (const proof of honestProofs) {
     let share;
     if (totalWorkValue === 0) {
-      share = blockReward / proofs.length; // equal split if no work reported
+      share = blockReward / honestProofs.length;
     } else {
       share = blockReward * ((proof.work_value || 0) / totalWorkValue);
     }
@@ -136,14 +169,14 @@ async function finalizeAndSplitRewards(epochNumber) {
       }
     }
 
-    const pct = totalWorkValue > 0 ? ((proof.work_value / totalWorkValue) * 100).toFixed(1) : (100 / proofs.length).toFixed(1);
+    const pct = totalWorkValue > 0 ? ((proof.work_value / totalWorkValue) * 100).toFixed(1) : (100 / honestProofs.length).toFixed(1);
     console.log(`[BTCPC]   ${proof.miner}: ${share.toFixed(4)} BTCPC (${pct}% of block, model: ${proof.model})`);
   }
 
   // Now finalize the epoch (consensus, difficulty, etc.) — but skip distributeRewards since we did it above
   epoch.consensus_hash = epoch.commitments?.length > 0 ? epoch.commitments[0].state_hash : '0'.repeat(64);
   epoch.total_work = epoch.commitments?.reduce((sum, c) => sum + c.inference_count + c.tx_count, 0) || 0;
-  epoch.rewards_distributed = proofs.map(p => ({ node_id: p.miner, amount: p.reward_earned }));
+  epoch.rewards_distributed = honestProofs.map(p => ({ node_id: p.miner, amount: p.reward_earned }));
   epoch.block_reward = blockReward;
   epoch.ended_at = new Date();
   epoch.status = 'finalized';
@@ -222,6 +255,15 @@ async function mineEpoch(epochNumber) {
   if (pendingJobs > 0) {
     console.log(`[BTCPC]   ${pendingJobs} real job(s) in queue — skipping synthetic work this epoch`);
   }
+
+  // Verify mining model against Ollama registry before doing any work
+  const modelCheck = await verifyModel(MODEL);
+  if (!modelCheck.verified) {
+    console.error(`[BTCPC] REFUSING TO MINE: model ${MODEL} failed verification — ${modelCheck.reason}`);
+    console.error(`[BTCPC] Pull the official model: ollama pull ${MODEL}`);
+    return;
+  }
+  const modelHash = modelCheck.localHash; // store on proofs for verification
 
   for (let i = 0; i < syntheticCount; i++) {
     try {
@@ -320,6 +362,7 @@ async function mineEpoch(epochNumber) {
       miner: MINER_ACCOUNT,
       reward_earned: 0, // Set during finalization based on work_value share
       model: MODEL,
+      model_hash: modelHash, // SHA-256 verified against Ollama registry
       tokens_computed: totalTokens,
       work_value: totalWorkValue,
       state_hash: stateHash
@@ -531,6 +574,16 @@ async function startMiner() {
     const node = user ? await Node.findOne({ account: user._id }) : null;
     const models = await syncLocalModels(node?._id);
     console.log(`[BTCPC] Models synced: ${models.join(', ') || 'none'}`);
+
+    // Verify all models against Ollama registry
+    const verResults = await verifyAllModels();
+    for (const v of verResults) {
+      if (v.verified) {
+        console.log(`[BTCPC] Model ${v.model}: VERIFIED`);
+      } else {
+        console.error(`[BTCPC] Model ${v.model}: REJECTED — ${v.reason}`);
+      }
+    }
   } catch (err) {
     console.warn('[BTCPC] Model sync skipped:', err.message);
   }
