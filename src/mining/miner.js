@@ -183,7 +183,7 @@ async function finalizeAndSplitRewards(epochNumber) {
   epoch.status = 'finalized';
   await epoch.save();
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | ${proofs.length} miner(s) | reward: ${blockReward} BTCPC split`);
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | ${honestProofs.length} miner(s) | reward: ${blockReward} BTCPC split`);
   return epoch;
 }
 
@@ -594,15 +594,25 @@ async function startMiner() {
 
   running = true;
 
-  // Determine the starting epoch number
+  // Determine the starting epoch number — use highest of:
+  // 1. Time-based calculation from genesis
+  // 2. Highest epoch in DB (may have synced from network)
+  // This ensures miners who synced blocks jump to the right epoch.
   let currentEpoch;
   if (genesis.alreadyExisted) {
-    // Calculate current epoch based on genesis time
     const genesisTime = genesis.epoch.started_at.getTime();
-    currentEpoch = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
+    const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
+
+    const highestInDB = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
+    const dbBased = highestInDB ? highestInDB.epoch_number + 1 : 0;
+
+    currentEpoch = Math.max(timeBased, dbBased);
     if (currentEpoch < 1) currentEpoch = 1;
+
+    if (dbBased > timeBased) {
+      console.log(`[BTCPC] Epoch sync: DB height ${dbBased} > time-based ${timeBased}. Jumping to ${currentEpoch}`);
+    }
   } else {
-    // Fresh genesis -- start with epoch 0 mining
     currentEpoch = 0;
   }
 
