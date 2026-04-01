@@ -118,4 +118,62 @@ async function calculateCost(tokenCount, model) {
   return { cost, pricing };
 }
 
-module.exports = { getCurrentPricing, calculateCost, getNetworkLoad };
+/**
+ * Calculate an automatic bid for an inference request.
+ *
+ * Early network: block reward is high, miners earn from mining.
+ *   → auto-bid is low (near minimum), miners still process because
+ *     block reward covers their GPU time.
+ *
+ * Mature network: block reward drops, miners depend on fees.
+ *   → auto-bid rises to fair market rate based on model + load.
+ *
+ * @param {string} [model] - Model name
+ * @param {number} [estimatedTokens] - Expected output tokens (default 512)
+ * @returns {Promise<Object>} { bid, breakdown }
+ */
+async function getAutoBid(model, estimatedTokens) {
+  estimatedTokens = estimatedTokens || 512;
+
+  const pricing = await getCurrentPricing(model);
+  const { getBlockReward } = require('../mining/workGenerator');
+  const Node = require('../models/Node');
+
+  // Current block reward
+  const Epoch = require('../models/Epoch');
+  const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
+  const epochNumber = latestEpoch ? latestEpoch.epoch_number : 0;
+  const blockReward = getBlockReward ? getBlockReward(epochNumber) : 243;
+
+  // Active miners on the network
+  const minerCount = Math.max(1, await Node.countDocuments({ status: 'active' }));
+
+  // What each miner earns per epoch from block reward alone
+  const rewardPerMiner = blockReward / minerCount;
+
+  // Fair cost for this inference (3x for redundancy)
+  const fairCost = estimatedTokens * pricing.costPerToken * 3;
+
+  // How much of the fair cost is already covered by block reward?
+  // If reward per miner is high relative to fair cost, bid can be low
+  const blockRewardCoverage = Math.min(1.0, rewardPerMiner / (fairCost * 10));
+
+  // Auto-bid: fair cost scaled down by how much block reward covers
+  // Early: blockRewardCoverage ≈ 1.0 → bid ≈ fairCost × 0.05 (minimum)
+  // Late: blockRewardCoverage ≈ 0.0 → bid ≈ fairCost × 1.0 (full price)
+  const bidMultiplier = Math.max(0.05, 1.0 - (blockRewardCoverage * 0.95));
+  const bid = parseFloat((fairCost * bidMultiplier).toFixed(8));
+
+  return {
+    bid,
+    fair_cost: parseFloat(fairCost.toFixed(8)),
+    block_reward_coverage: parseFloat(blockRewardCoverage.toFixed(4)),
+    bid_multiplier: parseFloat(bidMultiplier.toFixed(4)),
+    miners: minerCount,
+    reward_per_miner: parseFloat(rewardPerMiner.toFixed(4)),
+    model_weight: pricing.modelWeight,
+    estimated_tokens: estimatedTokens
+  };
+}
+
+module.exports = { getCurrentPricing, calculateCost, getNetworkLoad, getAutoBid };

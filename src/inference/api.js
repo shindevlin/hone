@@ -7,7 +7,7 @@ const WorkProof = require('../models/WorkProof');
 const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getModelWeight } = require('../mining/workGenerator');
-const { calculateCost, getCurrentPricing } = require('../services/pricing');
+const { calculateCost, getCurrentPricing, getAutoBid } = require('../services/pricing');
 const { requestInference, hasMiners, peerCount } = require('./p2pRouter');
 
 const router = express.Router();
@@ -119,6 +119,22 @@ router.get('/v1/pricing', async (req, res) => {
 });
 
 /**
+ * GET /v1/pricing/bid
+ * Calculate what the auto-bid would be for a given model and token count.
+ * Query params: model, tokens (default 512)
+ */
+router.get('/v1/pricing/bid', async (req, res) => {
+  try {
+    const model = req.query.model || undefined;
+    const tokens = parseInt(req.query.tokens) || 512;
+    const autoBid = await getAutoBid(model, tokens);
+    res.json(autoBid);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message, type: 'server_error' } });
+  }
+});
+
+/**
  * GET /v1/network/models
  * All models available across the mining network + unmet demand.
  */
@@ -155,7 +171,7 @@ router.get('/v1/network/models', async (req, res) => {
  * Routes inference to Ollama, logs a WorkProof, returns OpenAI-format response.
  */
 router.post('/v1/chat/completions', async (req, res) => {
-  const { model, messages, max_tokens, temperature, stream } = req.body;
+  const { model, messages, max_tokens, temperature, stream, max_fee } = req.body;
 
   // Validate required fields
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -226,12 +242,21 @@ router.post('/v1/chat/completions', async (req, res) => {
       });
     }
 
-    console.log(`[BTCPC Inference] Routing via P2P (${selectedModel})`);
+    // Calculate bid — use requester's max_fee or auto-bid
+    let fee = max_fee;
+    if (!fee) {
+      const autoBid = await getAutoBid(selectedModel, max_tokens || 512);
+      fee = autoBid.bid;
+      console.log(`[BTCPC Inference] Auto-bid: ${fee} BTCPC (coverage: ${autoBid.block_reward_coverage}, multiplier: ${autoBid.bid_multiplier})`);
+    }
+
+    console.log(`[BTCPC Inference] Routing via P2P (${selectedModel}, fee: ${fee})`);
     const result = await requestInference({
       model: selectedModel,
       messages,
       maxTokens: max_tokens,
-      temperature
+      temperature,
+      maxFee: fee
     });
 
     const assistantContent = result.content || '';
