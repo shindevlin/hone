@@ -39,10 +39,14 @@
 - [ ] Model auto-download on demand broadcast
 - [ ] Streaming inference (/v1/chat/completions SSE)
 
-## Phase 2 — Token Launch
+## Phase 2 — Token Launch + Cross-Chain
 
+- [ ] Cross-chain wallet watcher — monitor linked addresses on all 7 chains
+- [ ] Proof of life: detect signed transactions from BTCPC-linked wallets
+- [ ] Cross-chain reputation scoring (active wallets = higher trust)
 - [ ] wBTCPC ERC-20 deployment on Base
 - [ ] Bridge signer (shindevlin → multisig transition)
+- [ ] Bridge transaction detection via chain watcher
 - [ ] wBTCPC/USDC liquidity pool on Base DEX
 - [ ] Solana wBTCPC SPL token + pool
 - [ ] TON claim manager

@@ -972,6 +972,45 @@ The claim contract on each chain verifies:
 
 Adding a new chain requires only deploying a wBTCPC claim contract on that chain. No changes to the BTCPC core protocol.
 
+### 5.7 Cross-Chain Wallet Watcher
+
+BTCPC knows every user's wallet addresses on all 7 chains — they're derived deterministically at registration from the same BIP-39 mnemonic. The chain watcher monitors these addresses on each chain for signed transactions.
+
+**What it detects:**
+
+| Signal | Meaning |
+|--------|---------|
+| Wallet has signed transactions | Proof of life — the wallet is real and active |
+| wBTCPC transfer on EVM | Bridge claim detected — verify against BTCPC records |
+| New smart contract deployed from linked address | User building on another chain with their BTCPC identity |
+| Wallet inactive for 90+ days | Dormant — reduce cross-chain reputation weight |
+
+**How it works:**
+
+1. BTCPC maintains a registry of all linked wallet addresses per chain
+2. Chain watcher connects to RPCs on each supported chain (Infura, Alchemy, public RPCs)
+3. Periodically scans for transactions from/to known addresses
+4. Records cross-chain activity on the user's BTCPC profile
+5. Feeds into reputation scoring — active cross-chain users are more trusted
+
+**Cross-chain reputation score:**
+
+```
+cc_reputation = base_reputation
+              + (active_chains × 5)           // +5 per chain with recent activity
+              + (deployed_contracts × 10)     // +10 per smart contract deployed
+              - (dormant_chains × 2)          // -2 per chain inactive >90 days
+```
+
+This score influences:
+- Assignment priority for inference jobs (higher reputation = more work = more rewards)
+- Trust level for new miners (active cross-chain presence = less likely to cheat)
+- Bridge claim verification (active wallet more likely legitimate)
+
+**Privacy:** The watcher only monitors public blockchain data. It does not track private transactions, decrypt anything, or access user keys. All monitored addresses were derived by the user during registration — they chose to link them.
+
+**Status:** Designed, not yet built. Requires RPC connections to each chain. Will ship with Phase 2 (token launch) when cross-chain activity begins.
+
 ---
 
 ## 6. Genesis: The shindevlin Epoch
