@@ -37,6 +37,8 @@ const MESSAGE_TYPES = {
   MODEL_DEMAND: "MODEL_DEMAND",
   // Mining proof gossip — miners broadcast proofs so all nodes can finalize
   MINING_PROOF: "MINING_PROOF",
+  // Miner idle — no work this epoch, don't wait for my proof
+  MINER_IDLE: "MINER_IDLE",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -186,6 +188,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.MINING_PROOF:
       handleMiningProof(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.MINER_IDLE:
+      handleMinerIdle(peer, msg, ctx);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type);
@@ -417,6 +422,36 @@ function handleMiningProof(peer, msg, ctx) {
   ctx.broadcast(msg, peer.address);
 }
 
+/**
+ * MINER_IDLE — A miner announces it has no work for this epoch.
+ * Other nodes should not wait for a proof from this miner.
+ */
+// Track idle announcements per epoch: { epochNumber: Set<minerName> }
+const idleMiners = {};
+
+function handleMinerIdle(peer, msg, ctx) {
+  const data = msg.data || {};
+  if (!data.block_number || !data.miner) return;
+
+  if (!idleMiners[data.block_number]) idleMiners[data.block_number] = new Set();
+  idleMiners[data.block_number].add(data.miner);
+
+  console.log("[BTCPC P2P] Miner idle: " + data.miner + " has no work for epoch " + data.block_number + " (reason: " + (data.reason || "none") + ")");
+
+  // Rebroadcast
+  ctx.broadcast(msg, peer.address);
+
+  // Clean up old entries (keep last 20 epochs)
+  const epochs = Object.keys(idleMiners).map(Number).sort((a, b) => a - b);
+  while (epochs.length > 20) {
+    delete idleMiners[epochs.shift()];
+  }
+}
+
+function getIdleMiners(epochNumber) {
+  return idleMiners[epochNumber] || new Set();
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -430,5 +465,6 @@ module.exports = {
   createPeerListMessage,
   createEpochCommitMessage,
   createRequestBlocksMessage,
-  createMessage
+  createMessage,
+  getIdleMiners
 };

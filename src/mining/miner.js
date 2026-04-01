@@ -70,16 +70,19 @@ async function scheduleFinalization(epochNumber) {
   pendingFinalizations.add(epochNumber);
 
   // Count active miners on the network
+  const { getIdleMiners } = require('../p2p/protocol');
   const activeMiners = await Node.countDocuments({ status: 'active' });
   console.log(`[BTCPC] Epoch ${epochNumber}: waiting for proofs from ${activeMiners} active miner(s)...`);
 
-  // Poll until all active miners have submitted, or max wait
+  // Poll until all active miners have submitted proofs OR announced idle
   const startTime = Date.now();
   while (Date.now() - startTime < MAX_FINALIZATION_WAIT_MS) {
     const proofCount = await MiningProof.countDocuments({ block_number: epochNumber });
+    const idleCount = getIdleMiners(epochNumber).size;
+    const accountedFor = proofCount + idleCount;
 
-    if (proofCount >= activeMiners) {
-      console.log(`[BTCPC] Epoch ${epochNumber}: all ${proofCount} proof(s) received. Finalizing.`);
+    if (accountedFor >= activeMiners) {
+      console.log(`[BTCPC] Epoch ${epochNumber}: all miners accounted for (${proofCount} proofs, ${idleCount} idle). Finalizing.`);
       break;
     }
 
@@ -92,7 +95,7 @@ async function scheduleFinalization(epochNumber) {
 
     const elapsed = Math.round((Date.now() - startTime) / 1000);
     if (elapsed % 30 === 0 && elapsed > 0) {
-      console.log(`[BTCPC] Epoch ${epochNumber}: ${proofCount}/${activeMiners} proofs after ${elapsed}s...`);
+      console.log(`[BTCPC] Epoch ${epochNumber}: ${proofCount} proofs + ${idleCount} idle = ${accountedFor}/${activeMiners} after ${elapsed}s...`);
     }
 
     await new Promise(r => setTimeout(r, PROOF_POLL_INTERVAL_MS));
@@ -282,7 +285,12 @@ async function mineEpoch(epochNumber) {
   const modelCheck = await verifyModel(MODEL);
   if (!modelCheck.verified) {
     console.error(`[BTCPC] REFUSING TO MINE: model ${MODEL} failed verification — ${modelCheck.reason}`);
-    console.error(`[BTCPC] Pull the official model: ollama pull ${MODEL}`);
+    const idleMsg = createMessage('MINER_IDLE', {
+      block_number: epochNumber,
+      miner: MINER_ACCOUNT,
+      reason: 'model_verification_failed'
+    }, p2p.NODE_ID);
+    p2p.broadcast(idleMsg);
     return;
   }
   const modelHash = modelCheck.localHash; // store on proofs for verification
@@ -320,8 +328,13 @@ async function mineEpoch(epochNumber) {
   }
 
   if (workProofs.length === 0) {
-    console.error('[BTCPC] No work completed this epoch. Ollama may be down.');
-    sendAlert('error', `Epoch ${epochNumber} failed: no work completed. Ollama may be down.`);
+    console.log(`[BTCPC] No work this epoch — announcing idle to network`);
+    const idleMsg = createMessage('MINER_IDLE', {
+      block_number: epochNumber,
+      miner: MINER_ACCOUNT,
+      reason: 'no_work_completed'
+    }, p2p.NODE_ID);
+    p2p.broadcast(idleMsg);
     return;
   }
 
