@@ -393,6 +393,67 @@ With commit-reveal redundant computation, P(caught) = 1.0 for any request assign
 
 ---
 
+## 3.7 Block Consensus: Every Miner Validates
+
+BTCPC has no validator set, no delegation, no staking requirement to verify blocks. Every miner who runs the software mines AND validates simultaneously — the same as Bitcoin.
+
+**The work IS the validation.** When three miners independently process the same inference request and 2-of-3 results match, that match IS consensus. No separate validation step exists. The act of doing the work proves you validated it.
+
+#### How blocks form
+
+1. **During each epoch (5 minutes):** inference requests flow across the P2P network. Each request is assigned to 3 miners. All three process it, commit-reveal their results. Verified work proofs are gossiped to all nodes.
+
+2. **Blocks are variable size.** A quiet epoch might contain 1 proof. A busy epoch might contain thousands. The block wraps whatever verified work was done in that window — there is no fixed block size.
+
+3. **At epoch boundary:** every miner computes a state hash from the same data:
+   ```
+   state_hash = SHA256(
+     previous_state_hash +
+     sorted(verified_work_proofs_this_epoch) +
+     sorted(wallet_balances) +
+     sorted(active_stakes)
+   )
+   ```
+   Because all miners received the same proofs via P2P gossip and sort them deterministically, honest miners with complete data compute the same hash.
+
+4. **Each miner broadcasts their state hash** as an epoch commitment.
+
+5. **Majority hash wins.** The state hash submitted by the most miners becomes the finalized block. Miners who submitted the winning hash receive block reward proportional to their work. Miners who submitted a different hash receive nothing for that epoch.
+
+#### Why this works
+
+- No trusted validator set — any miner can verify
+- No block producer election — all miners propose simultaneously
+- Majority rule prevents any single miner from forging state
+- Gossip ensures all honest miners see the same proofs
+- Deterministic sorting ensures the same proofs produce the same hash
+- Dishonest miners (who exclude proofs or fabricate state) simply don't match the majority and earn nothing
+
+#### Comparison to Bitcoin
+
+| | Bitcoin | BTCPC |
+|---|---|---|
+| **Who mines** | Anyone with ASICs | Anyone with a GPU |
+| **What is mined** | SHA-256 hashes (waste) | AI inference (useful work) |
+| **Who validates** | Every miner + full node | Every miner (same role) |
+| **Block content** | Variable transactions | Variable work proofs |
+| **Consensus rule** | Longest chain (most work) | Majority state hash (most agreement) |
+| **Finality** | Probabilistic (6 blocks) | Deterministic (1 epoch, majority vote) |
+| **Verification** | Re-hash the block header | 3-miner redundant compute + commit-reveal |
+
+The key difference: Bitcoin's consensus is competitive (one miner wins per block), BTCPC's is cooperative (all miners who agree share the reward). This is because BTCPC's work is useful — there's no reason to discard it. Every miner's compute contributes to the network.
+
+#### Scaling
+
+- **1 miner:** Consensus is trivial (genesis phase, solo mining)
+- **3-10 miners:** Every request goes to 3 miners, all verify everything
+- **10-100 miners:** Requests are sharded across miner groups, all miners verify the block state hash
+- **100-1000+ miners:** Same — more miners means more parallel inference capacity, not more overhead. Block verification is just comparing hashes, not re-running inference.
+
+The network scales horizontally. More miners = more inference throughput = more work proofs per block = more value. Block consensus cost stays constant regardless of block size because it's a single hash comparison, not a re-execution of every proof.
+
+---
+
 ## 4. Inference Protocol: End-to-End Encrypted Compute
 
 ### 4.1 Mandatory Encryption
