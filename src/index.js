@@ -113,6 +113,10 @@ connectDB().then(async () => {
     console.log(`BTCPC server running on port ${PORT}`);
   });
 
+  // Start auto-updater
+  const { startAutoUpdater } = require('./services/autoUpdater');
+  startAutoUpdater();
+
   // Start the BTCPC epoch loop after DB is connected
   if (process.env.BTCPC_EPOCH_ENABLED !== 'false') {
     startEpochLoop().catch(err => {

@@ -21,6 +21,7 @@ const { createBlockMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
 const silicon = require('../silicon');
 const { startInferenceHandler } = require('../inference/handler');
+const { startAutoUpdater } = require('../services/autoUpdater');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -458,6 +459,9 @@ async function startMiner() {
   }, EPOCH_DURATION_MS);
 
   console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
+
+  // Start auto-updater (checks GitHub every 15min, pulls + restarts if new version)
+  startAutoUpdater();
 }
 
 /**
