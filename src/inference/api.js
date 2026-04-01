@@ -8,7 +8,7 @@ const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getModelWeight } = require('../mining/workGenerator');
 const { calculateCost, getCurrentPricing, getAutoBid } = require('../services/pricing');
-const { requestInference, hasMiners, peerCount } = require('./p2pRouter');
+const { submitInference, getJob, hasMiners, peerCount } = require('./p2pRouter');
 
 const router = express.Router();
 
@@ -166,6 +166,89 @@ router.get('/v1/network/models', async (req, res) => {
 });
 
 /**
+ * POST /v1/inference/submit
+ * Submit an inference request asynchronously. Returns job_id immediately.
+ * Poll GET /v1/inference/:job_id for the result.
+ */
+router.post('/v1/inference/submit', async (req, res) => {
+  const { model, messages, max_tokens, temperature, max_fee } = req.body;
+
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: { message: 'messages is required', type: 'invalid_request_error' } });
+  }
+
+  if (!hasMiners()) {
+    return res.status(503).json({ error: { message: 'No miners connected', type: 'network_error', code: 'no_miners' } });
+  }
+
+  try {
+    let fee = max_fee;
+    if (!fee) {
+      const autoBid = await getAutoBid(model || 'qwen3.5:27b', max_tokens || 512);
+      fee = autoBid.bid;
+    }
+
+    const job = await submitInference({
+      model: model || 'qwen3.5:27b',
+      messages,
+      maxTokens: max_tokens,
+      temperature,
+      maxFee: fee,
+      projectId: req.project?._id
+    });
+
+    res.status(202).json({
+      job_id: job.job_id,
+      status: 'pending',
+      message: 'Request submitted to the network. Poll GET /v1/inference/' + job.job_id + ' for the result.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message, type: 'server_error' } });
+  }
+});
+
+/**
+ * GET /v1/inference/:job_id
+ * Check the status of an inference job. Returns result when completed.
+ */
+router.get('/v1/inference/:job_id', async (req, res) => {
+  try {
+    const job = await getJob(req.params.job_id);
+    if (!job) return res.status(404).json({ error: { message: 'Job not found', type: 'not_found' } });
+
+    const response = {
+      job_id: job.job_id,
+      status: job.status,
+      model: job.model,
+      created_at: job.created_at
+    };
+
+    if (job.status === 'completed') {
+      response.result = {
+        content: job.result_text,
+        tokens: job.tokens_generated,
+        elapsed_ms: job.elapsed_ms,
+        node: job.node_name
+      };
+      response.completed_at = job.completed_at;
+    }
+
+    if (job.status === 'failed') {
+      response.error = job.result_text;
+    }
+
+    if (job.status === 'claimed') {
+      response.claimed_by = job.claimed_by;
+      response.claimed_at = job.claimed_at;
+    }
+
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message, type: 'server_error' } });
+  }
+});
+
+/**
  * POST /v1/chat/completions
  * OpenAI-compatible chat completions endpoint.
  * Routes inference to Ollama, logs a WorkProof, returns OpenAI-format response.
@@ -242,25 +325,48 @@ router.post('/v1/chat/completions', async (req, res) => {
       });
     }
 
-    // Calculate bid — use requester's max_fee or auto-bid
+    // Calculate bid
     let fee = max_fee;
     if (!fee) {
       const autoBid = await getAutoBid(selectedModel, max_tokens || 512);
       fee = autoBid.bid;
-      console.log(`[BTCPC Inference] Auto-bid: ${fee} BTCPC (coverage: ${autoBid.block_reward_coverage}, multiplier: ${autoBid.bid_multiplier})`);
     }
 
-    console.log(`[BTCPC Inference] Routing via P2P (${selectedModel}, fee: ${fee})`);
-    const result = await requestInference({
+    // Submit async job
+    const { job_id } = await submitInference({
       model: selectedModel,
       messages,
       maxTokens: max_tokens,
       temperature,
-      maxFee: fee
+      maxFee: fee,
+      projectId: req.project?._id
     });
 
-    const assistantContent = result.content || '';
-    const evalCount = result.tokens || estimateTokens(assistantContent);
+    // Poll until complete (OpenAI compat — client expects sync response)
+    const MAX_WAIT = 300000; // 5 min
+    const POLL_INTERVAL = 2000; // 2s
+    let job = null;
+
+    while (Date.now() - startTime < MAX_WAIT) {
+      job = await getJob(job_id);
+      if (job && (job.status === 'completed' || job.status === 'failed')) break;
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+
+    if (!job || job.status !== 'completed') {
+      const status = job?.status || 'unknown';
+      return res.status(504).json({
+        error: {
+          message: `Inference not completed. Job status: ${status}. Check GET /v1/inference/${job_id}`,
+          type: 'timeout',
+          code: 'inference_pending',
+          job_id
+        }
+      });
+    }
+
+    const assistantContent = job.result_text || '';
+    const evalCount = job.tokens_generated || estimateTokens(assistantContent);
     const promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
 
     // Compute hashes for work proof

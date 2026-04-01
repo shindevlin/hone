@@ -1,153 +1,157 @@
 "use strict";
 
 /**
- * P2P Inference Router
+ * P2P Inference Router — Async Model
  *
- * Routes inference requests through the P2P network instead of
- * calling Ollama directly. The API broadcasts INFERENCE_REQUEST,
- * miners claim and process it, and the result comes back via
- * INFERENCE_RESULT message.
+ * Requests are submitted to the blockchain, stored in DB, and
+ * broadcast via P2P. Miners claim and process them. Results come
+ * back via INFERENCE_RESULT and update the job in DB.
+ *
+ * No timeouts. No long-polling. Submit and check back.
  */
 
 const crypto = require("crypto");
 const p2p = require("../p2p/network");
 const { createMessage } = require("../p2p/protocol");
+const InferenceJob = require("../models/InferenceJob");
 
-// Pending requests waiting for results
-// Map<requestId, { resolve, reject, timer, startTime }>
-const pendingRequests = new Map();
-
-// Track requests we've already sent to avoid re-processing our own echoes
-const sentRequests = new Set();
-
-const REQUEST_TIMEOUT_MS = parseInt(process.env.BTCPC_INFERENCE_TIMEOUT) || 300000; // 5 min — large models take time
+// Track request IDs we originated to avoid re-processing our own echoes
+const originatedRequests = new Set();
 
 /**
  * Initialize the P2P result listener.
- * Call once after P2P network is started.
  */
 function initP2PRouter() {
   p2p.onMessage(async (msg) => {
     if (!msg) return;
 
-    // Log all inference messages for debugging
-    if (msg.type && msg.type.startsWith('INFERENCE_')) {
-      const data = msg.data || msg;
-      console.log(`[BTCPC P2P Router] Received ${msg.type} | request_id: ${data.request_id || 'none'} | pending: ${pendingRequests.size}`);
-    }
-
-    if (msg.type !== 'INFERENCE_RESULT') return;
-
     const data = msg.data || msg;
-    const requestId = data.request_id;
-    if (!requestId) {
-      console.log('[BTCPC P2P Router] INFERENCE_RESULT with no request_id, keys:', Object.keys(data));
-      return;
+    const reqId = data.request_id;
+
+    if (msg.type === 'INFERENCE_CLAIM' && reqId) {
+      // Miner claimed our job — update status
+      try {
+        await InferenceJob.findOneAndUpdate(
+          { job_id: reqId, status: 'pending' },
+          { status: 'claimed', claimed_by: data.node_name || data.node_id, claimed_at: new Date() }
+        );
+      } catch (_) {}
     }
 
-    const pending = pendingRequests.get(requestId);
-    if (!pending) {
-      console.log(`[BTCPC P2P Router] No pending request for ${requestId.slice(0, 12)}`);
-      return;
-    }
+    if (msg.type === 'INFERENCE_RESULT' && reqId) {
+      if (data.error) {
+        await InferenceJob.findOneAndUpdate(
+          { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
+          { status: 'failed', result_text: data.error, completed_at: new Date() }
+        );
+        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed: ${data.error}`);
+        return;
+      }
 
-    clearTimeout(pending.timer);
-    pendingRequests.delete(requestId);
+      const updated = await InferenceJob.findOneAndUpdate(
+        { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
+        {
+          status: 'completed',
+          result_text: data.result_text || '',
+          result_hash: data.result_hash || null,
+          tokens_generated: data.tokens_generated || 0,
+          elapsed_ms: data.elapsed_ms || 0,
+          node_name: data.node_name || 'unknown',
+          completed_at: new Date()
+        },
+        { new: true }
+      );
 
-    if (data.error) {
-      pending.reject(new Error(data.error));
-    } else {
-      pending.resolve({
-        content: data.result_text || '',
-        tokens: data.tokens_generated || 0,
-        model: data.model || 'unknown',
-        elapsed_ms: data.elapsed_ms || (Date.now() - pending.startTime),
-        node: data.node_name || 'unknown',
-        result_hash: data.result_hash || null
-      });
+      if (updated) {
+        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} completed: ${updated.tokens_generated} tokens, ${updated.elapsed_ms}ms`);
+      }
     }
   });
 
-  console.log('[BTCPC P2P Router] Listening for inference results');
+  console.log('[BTCPC P2P Router] Listening for inference results (async model)');
 }
 
 /**
- * Send an inference request via P2P and wait for the result.
+ * Submit an inference request to the blockchain.
+ * Returns the job_id immediately — caller polls for result.
  *
  * @param {Object} options
- * @param {string} options.model - Model name
- * @param {Array} options.messages - OpenAI-format messages
- * @param {number} [options.maxTokens] - Max tokens
- * @param {number} [options.temperature] - Temperature
- * @param {number} [options.maxFee] - Max BTCPC willing to pay
- * @returns {Promise<Object>} Inference result
+ * @returns {Promise<Object>} { job_id, status }
  */
-function requestInference({ model, messages, maxTokens, temperature, maxFee }) {
-  return new Promise((resolve, reject) => {
-    const requestId = 'req_' + crypto.randomBytes(16).toString('hex');
+async function submitInference({ model, messages, maxTokens, temperature, maxFee, projectId }) {
+  const jobId = 'req_' + crypto.randomBytes(16).toString('hex');
 
-    // Build the prompt from messages
-    const prompt = messages.map(m => {
-      if (m.role === 'system') return `System: ${m.content}`;
-      if (m.role === 'assistant') return `Assistant: ${m.content}`;
-      return m.content;
-    }).join('\n\n');
+  // Build prompt for P2P broadcast
+  const prompt = messages.map(m => {
+    if (m.role === 'system') return `System: ${m.content}`;
+    if (m.role === 'assistant') return `Assistant: ${m.content}`;
+    return m.content;
+  }).join('\n\n');
 
-    const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
+  const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
-    // Set timeout
-    const timer = setTimeout(() => {
-      pendingRequests.delete(requestId);
-      reject(new Error(`Inference request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. No miner responded.`));
-    }, REQUEST_TIMEOUT_MS);
+  // Store job in DB
+  const job = new InferenceJob({
+    job_id: jobId,
+    status: 'pending',
+    model: model || 'qwen3.5:27b',
+    messages,
+    max_tokens: maxTokens || 1024,
+    temperature: temperature || 0.7,
+    max_fee: maxFee || 0,
+    prompt_hash: promptHash,
+    project_id: projectId || null,
+    expires_at: new Date(Date.now() + 600000) // 10 min expiry
+  });
+  await job.save();
 
-    // Store pending request
-    pendingRequests.set(requestId, { resolve, reject, timer, startTime: Date.now() });
+  originatedRequests.add(jobId);
 
-    // Broadcast INFERENCE_REQUEST to the network
-    const msg = createMessage('INFERENCE_REQUEST', {
-      request_id: requestId,
-      model: model || 'qwen3.5:27b',
-      prompt_hash: promptHash,
-      max_fee: maxFee || 10,
-      max_tokens: maxTokens || 1024,
-      temperature: temperature || 0.7,
-      redundancy: 1
-    }, p2p.NODE_ID);
+  // Broadcast to P2P
+  const reqMsg = createMessage('INFERENCE_REQUEST', {
+    request_id: jobId,
+    model: model || 'qwen3.5:27b',
+    prompt_hash: promptHash,
+    max_fee: maxFee || 0,
+    max_tokens: maxTokens || 1024,
+    temperature: temperature || 0.7,
+    redundancy: 1
+  }, p2p.NODE_ID);
+  p2p.broadcast(reqMsg);
 
-    p2p.broadcast(msg);
-
-    // Also broadcast the payload immediately (single-step for now,
-    // full claim/assign flow for multi-miner later)
+  // Send payload after brief delay for claim
+  setTimeout(() => {
     const payload = createMessage('INFERENCE_PAYLOAD', {
-      request_id: requestId,
-      prompt: prompt,
+      request_id: jobId,
+      prompt,
       model: model || 'qwen3.5:27b',
       max_tokens: maxTokens || 1024,
       temperature: temperature || 0.7
     }, p2p.NODE_ID);
+    p2p.broadcast(payload);
+  }, 500);
 
-    // Small delay to let claim happen, then send payload
-    setTimeout(() => {
-      p2p.broadcast(payload);
-    }, 500);
+  console.log(`[BTCPC P2P Router] Submitted job ${jobId.slice(0, 12)} (model: ${model})`);
 
-    console.log(`[BTCPC P2P Router] Sent inference request ${requestId.slice(0, 12)} (model: ${model})`);
-  });
+  return { job_id: jobId, status: 'pending' };
 }
 
 /**
- * Check if we have P2P peers connected (can route requests).
+ * Get job status and result.
+ */
+async function getJob(jobId) {
+  return InferenceJob.findOne({ job_id: jobId }).lean();
+}
+
+/**
+ * Check if we have P2P peers connected.
  */
 function hasMiners() {
   return p2p.peers && p2p.peers.size > 0;
 }
 
-/**
- * Get count of connected peers.
- */
 function peerCount() {
   return p2p.peers ? p2p.peers.size : 0;
 }
 
-module.exports = { initP2PRouter, requestInference, hasMiners, peerCount };
+module.exports = { initP2PRouter, submitInference, getJob, hasMiners, peerCount };

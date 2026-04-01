@@ -513,40 +513,77 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, `\u{274C} Insufficient balance. You have ${fmt(balance)} BTCPC, need at least ${minBalance}.`);
   }
 
-  const status = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
+  const statusMsg = await bot.sendMessage(chatId, '\u{1F504} Submitting to BTCPC network...');
 
   try {
-    const res = await axios.post(`${RELAY_URL}/v1/inference`, {
+    // Submit async job via local API
+    const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3100';
+    const submitRes = await axios.post(`${API_URL}/v1/inference/submit`, {
       model: 'qwen3.5:27b',
-      prompt,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 1024
     }, {
-      timeout: 130000,
+      timeout: 10000,
       headers: { 'Authorization': `Bearer ${RELAY_API_KEY}` },
     });
 
-    const data = res.data;
-    const text = data.choices?.[0]?.message?.content || 'No response';
-    const node = data.btcpc?.node || 'unknown';
-    const tokens = data.usage?.completion_tokens || 0;
-    const elapsed = data.btcpc?.elapsed_ms || 0;
+    const jobId = submitRes.data.job_id;
 
-    // Dynamic pricing (model-aware)
+    // Update status message
+    bot.editMessageText(`\u{2699} Job submitted. Waiting for miner...`, {
+      chat_id: chatId, message_id: statusMsg.message_id
+    }).catch(() => {});
+
+    // Poll for result
+    const InferenceJob = require('../src/models/InferenceJob');
+    const MAX_WAIT = 300000; // 5 min
+    const POLL_INTERVAL = 3000; // 3s
+    const startTime = Date.now();
+    let job = null;
+
+    while (Date.now() - startTime < MAX_WAIT) {
+      job = await InferenceJob.findOne({ job_id: jobId }).lean();
+      if (job && (job.status === 'completed' || job.status === 'failed')) break;
+
+      // Update status periodically
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (elapsed % 15 === 0 && elapsed > 0) {
+        bot.editMessageText(`\u{2699} Processing... (${elapsed}s, status: ${job?.status || 'pending'})`, {
+          chat_id: chatId, message_id: statusMsg.message_id
+        }).catch(() => {});
+      }
+
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+    }
+
+    if (!job || job.status !== 'completed') {
+      bot.editMessageText(`\u{23F3} Job still processing. Check back with /status ${jobId}`, {
+        chat_id: chatId, message_id: statusMsg.message_id
+      }).catch(() => {});
+      return;
+    }
+
+    const text = job.result_text || 'No response';
+    const tokens = job.tokens_generated || 0;
+    const elapsed = job.elapsed_ms || 0;
+    const node = job.node_name || 'unknown';
+
+    // Dynamic pricing
     const { calculateCost } = require('../src/services/pricing');
     const { cost: inferCost } = await calculateCost(tokens, 'qwen3.5:27b');
     const cost = Math.max(0.001, inferCost);
     const newBalance = balance - cost;
 
-    // Deduct actual cost based on tokens used
+    // Deduct
     wallet.balance.set('BTCPC', Math.max(0, newBalance));
     await wallet.save();
 
-    // Delete "Submitting..." message
-    bot.deleteMessage(chatId, status.message_id).catch(() => {});
+    // Delete status message
+    bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
 
-    // Truncate long responses for Telegram (4096 char limit)
+    // Send result
     const maxLen = 3600;
     const truncated = text.length > maxLen ? text.slice(0, maxLen) + '\n\n... (truncated)' : text;
-
     const footer = `\n\n\u{26D3} ${tokens} tokens | ${fmt(cost)} BTCPC | bal: ${fmt(newBalance)} | ${(elapsed / 1000).toFixed(1)}s | ${node}`;
 
     bot.sendMessage(chatId, truncated + footer).catch(() => {
