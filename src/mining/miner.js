@@ -150,32 +150,70 @@ async function finalizeAndSplitRewards(epochNumber) {
   const blockReward = getBlockReward(rewardNumber);
   const epochsDeferred = epochNumber - rewardNumber; // how far behind the reward schedule is
 
-  // ── Collect work from jobs that settled in this epoch ──
-  const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber, status: 'settled' });
+  // ── Sweep: find jobs that are fully verified and ready to settle ──
+  // A job settles when it has enough verifications (3 in consensus, 1 in genesis).
+  // Authority tags them at EPOCH_END — miners don't get paid until all verifications are in.
+  const candidateJobs = await InferenceJob.find({
+    status: { $in: ['completed', 'verifying'] },
+    settlement_epoch: null
+  });
 
-  // ── Also collect synthetic mining proofs (work done when no inference jobs) ──
+  let sweptCount = 0;
+  for (const job of candidateJobs) {
+    const required = job.required_verifications || 1;
+    const verified = (job.verifications || []).length;
+
+    // In genesis/old mode: status 'completed' with node_name counts as 1 verification
+    const effectiveVerified = verified > 0 ? verified : (job.node_name ? 1 : 0);
+
+    if (effectiveVerified >= required) {
+      job.settlement_epoch = epochNumber;
+      job.settled_at = new Date();
+      if (job.status !== 'settled') job.status = 'settled';
+      await job.save();
+      sweptCount++;
+    }
+  }
+
+  if (sweptCount > 0) {
+    console.log(`[BTCPC] Epoch ${epochNumber}: ${sweptCount} job(s) settled (all verifications complete)`);
+  }
+
+  // ── Collect all jobs that settled in this epoch ──
+  const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber });
+
+  // ── Also collect synthetic mining proofs ──
   const syntheticProofs = await MiningProof.find({ block_number: epochNumber });
 
   // Build per-miner work_value totals
   const minerWork = {}; // { minerName: { work_value, model_hashes: Set, models: Set } }
 
   // From settled inference jobs
+  const { verifyModelParams } = require('./workGenerator');
   for (const job of settledJobs) {
-    for (const v of (job.verifications || [])) {
-      if (!v.miner || !v.result_hash) continue;
-
-      // Verify model hash
-      if (v.model_hash) {
-        const registryHash = await getRegistryModelHash(job.model);
-        if (registryHash && v.model_hash !== registryHash) {
-          console.error(`[BTCPC] REJECTED verification from ${v.miner}: model hash mismatch on job ${job.job_id}`);
-          continue; // skip this miner's work — they used a fake model
+    // New model: verifications array
+    if (job.verifications && job.verifications.length > 0) {
+      for (const v of job.verifications) {
+        if (!v.miner || !v.result_hash) continue;
+        if (v.model_hash) {
+          const registryHash = await getRegistryModelHash(job.model);
+          if (registryHash && v.model_hash !== registryHash) {
+            console.error(`[BTCPC] REJECTED verification from ${v.miner}: model hash mismatch`);
+            continue;
+          }
         }
+        if (!minerWork[v.miner]) minerWork[v.miner] = { work_value: 0, models: new Set() };
+        minerWork[v.miner].work_value += (v.work_value || 0);
+        minerWork[v.miner].models.add(job.model);
       }
-
-      if (!minerWork[v.miner]) minerWork[v.miner] = { work_value: 0, models: new Set() };
-      minerWork[v.miner].work_value += (v.work_value || 0);
-      minerWork[v.miner].models.add(job.model);
+    } else if (job.node_name) {
+      // Genesis/legacy mode: single miner, no verifications array
+      const params = await verifyModelParams(job.model || 'qwen3:4b');
+      const tokens = job.tokens_generated || 0;
+      const wv = tokens * params;
+      if (!minerWork[job.node_name]) minerWork[job.node_name] = { work_value: 0, models: new Set() };
+      minerWork[job.node_name].work_value += wv;
+      minerWork[job.node_name].models.add(job.model);
     }
   }
 
