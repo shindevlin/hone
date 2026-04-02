@@ -885,16 +885,45 @@ walletCmd
       }
 
       // Sign the transaction with active key
+      const txTimestamp = Date.now();
       const txData = {
         from: senderName,
         to: to,
         amount: amount,
         type: "transfer",
-        timestamp: Date.now()
+        timestamp: txTimestamp
       };
       const sig = keyManager.signTransaction(txData, activeKey);
 
-      // Execute transfer
+      // Submit to mempool — validates balance, prevents double-spend
+      const mempool = require("../src/p2p/mempool");
+      const ledger = require("../src/services/ledger");
+      const epoch = await ledger.getCurrentEpoch();
+
+      const mempoolTx = {
+        type: "TRANSFER",
+        from: senderName,
+        to: to,
+        amount: amount,
+        token: "BTCPC",
+        epoch: epoch,
+        nonce: txTimestamp,
+        timestamp: txTimestamp,
+        memo: null,
+        signature: sig.signature
+      };
+
+      const mResult = mempool.submit(mempoolTx);
+      if (!mResult.accepted) {
+        console.error("error: transaction rejected by mempool: " + mResult.reason);
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Record on permanent ledger — source of truth
+      await ledger.recordTransfer(senderName, to, amount, "BTCPC", sig.signature, epoch, null);
+
+      // Update wallet caches
       senderWallet.balance.set("BTCPC", balance - amount);
       await senderWallet.save();
 
@@ -902,31 +931,28 @@ walletCmd
       recipientWallet.balance.set("BTCPC", recipBalance + amount);
       await recipientWallet.save();
 
-      // Record on-chain
-      const Transaction = require("../src/models/Transaction");
-      const tx = new Transaction({
-        from: senderWallet.address,
-        to: recipientWallet.address,
-        amount: amount,
-        type: "transfer",
-        memo: JSON.stringify({
-          action: "send",
-          from_username: senderName,
-          to_username: to,
-          claimed: !!recipient // false if unclaimed username
-        }),
-        signature: sig.signature
-      });
-      await tx.save();
+      // Broadcast to P2P if network is available
+      try {
+        const p2p = require("../src/p2p/network");
+        const { createTransactionMessage } = require("../src/p2p/protocol");
+        if (p2p.NODE_ID) {
+          const txMsg = createTransactionMessage(mempoolTx, p2p.NODE_ID);
+          p2p.broadcast(txMsg);
+          console.log("  Broadcast to P2P network.");
+        }
+      } catch (_) {
+        console.log("  P2P not available — will propagate at next epoch finalization.");
+      }
 
       console.log("");
       console.log("  Transfer complete.");
       console.log("");
-      console.log("  From:   " + senderName + " (" + senderWallet.address + ")");
-      console.log("  To:     " + to + " (" + recipientWallet.address + ")");
-      console.log("  Amount: " + amount.toFixed(10) + " BTCPC");
-      console.log("  Tx ID:  " + tx._id.toString());
-      console.log("  Sig:    " + sig.signature.slice(0, 20) + "...");
+      console.log("  From:    " + senderName);
+      console.log("  To:      " + to);
+      console.log("  Amount:  " + amount.toFixed(10) + " BTCPC");
+      console.log("  TxHash:  " + mResult.txHash);
+      console.log("  Sig:     " + sig.signature.slice(0, 20) + "...");
+      console.log("  Epoch:   " + epoch);
       console.log("");
       console.log("  " + senderName + " balance: " + (balance - amount).toFixed(10) + " BTCPC");
       console.log("  " + to + " balance: " + (recipBalance + amount).toFixed(10) + " BTCPC");

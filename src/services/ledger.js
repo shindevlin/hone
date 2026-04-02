@@ -73,10 +73,34 @@ async function recordAccountCreate(username, publicKeys, chainAddresses, epoch) 
 }
 
 /**
- * Record a transfer on the ledger. Requires active key signature.
+ * Record a transfer on the ledger. ALL transfers go through here.
+ * Validates via mempool (double-spend protection), writes to ledger,
+ * updates wallet caches. Nothing bypasses this.
  */
 async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
   if (amount <= 0) throw new Error('Amount must be positive');
+  if (!from) throw new Error('Sender required');
+  if (!to) throw new Error('Recipient required');
+  if (from === to) throw new Error('Cannot transfer to self');
+
+  // Mempool validation — reject double-spends, enforce nonces
+  const mempool = require('../p2p/mempool');
+  const tx = {
+    type: 'TRANSFER',
+    from,
+    to,
+    amount,
+    token: token || 'BTCPC',
+    nonce: Date.now(),
+    timestamp: Date.now(),
+    memo: memo || null,
+    signature: signature || null
+  };
+  const mResult = mempool.submit(tx);
+  // Allow 'duplicate' — caller may have already submitted to mempool
+  if (!mResult.accepted && mResult.reason !== 'duplicate') {
+    throw new Error('Transfer rejected: ' + mResult.reason);
+  }
 
   const entry = new LedgerEntry({
     type: 'TRANSFER',
@@ -91,6 +115,11 @@ async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
   });
   await entry.save();
   pendingEntries.push(entry.toObject());
+
+  // Update wallet caches — balance reflects immediately
+  await updateWalletCache(from, token || 'BTCPC', -amount);
+  await updateWalletCache(to, token || 'BTCPC', amount);
+
   return entry;
 }
 
