@@ -826,16 +826,16 @@ async function startMiner() {
 
   if (isEpochAuthority) {
     console.log(`[BTCPC] This node is the EPOCH AUTHORITY (genesis miner)`);
-  } else {
-    console.log(`[BTCPC] Following epoch authority (genesis miner)`);
-  }
 
-  // Mine the current epoch
-  currentEpoch = getCurrentEpochNumber();
-  try {
-    await mineEpoch(currentEpoch);
-  } catch (err) {
-    console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+    // Authority mines the current epoch immediately
+    currentEpoch = getCurrentEpochNumber();
+    try {
+      await mineEpoch(currentEpoch);
+    } catch (err) {
+      console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+    }
+  } else {
+    console.log(`[BTCPC] Following epoch authority — waiting for EPOCH_START...`);
   }
 
   if (isEpochAuthority) {
