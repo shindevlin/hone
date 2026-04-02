@@ -382,18 +382,14 @@ async function mineEpoch(epochNumber) {
 
   // If no synthetic work, check if we completed any inference jobs this epoch
   if (workProofs.length === 0) {
-    // Count inference work done by this miner in the epoch time window
-    const epochStart = epoch.started_at || new Date(Date.now() - EPOCH_DURATION_MS);
-    const inferenceWork = await WorkProof.find({
-      node_id: MINER_ACCOUNT,
-      epoch_number: { $gte: epochNumber - 1 }
-    }).sort({ _id: -1 }).limit(10);
-
-    // Also check recently completed inference jobs
+    // Check for inference jobs completed since the previous epoch
+    // (jobs completed in the last EPOCH_DURATION window belong to this epoch)
+    const lookback = new Date(Date.now() - EPOCH_DURATION_MS);
     const recentJobs = await InferenceJob.find({
       node_name: MINER_ACCOUNT,
       status: 'completed',
-      completed_at: { $gte: epochStart }
+      settlement_epoch: null, // not yet assigned to an epoch
+      completed_at: { $gte: lookback }
     });
 
     if (recentJobs.length > 0) {
