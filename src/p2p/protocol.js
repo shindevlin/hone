@@ -193,7 +193,7 @@ function handleMessage(peer, msg, ctx) {
       handleMinerIdle(peer, msg, ctx);
       break;
     default:
-      console.log("[BTCPC P2P] Unknown message type: " + msg.type);
+      console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
   }
 }
 
