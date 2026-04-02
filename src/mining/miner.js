@@ -30,6 +30,7 @@ const Block = require('../chain/block');
 const blockStore = require('../chain/blockStore');
 const blockchain = require('../chain/blockchain');
 const stateManager = require('../chain/stateManager');
+const mempool = require('../p2p/mempool');
 
 const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
@@ -390,6 +391,14 @@ async function finalizeAndSplitRewards(epochNumber) {
       if (pruned > 0) {
         console.log(`[BTCPC] Lucid Pruning: ${pruned} block files pruned (before epoch ${epochNumber})`);
       }
+    }
+
+    // Clear mempool — transactions are now in the block
+    const mempoolTxs = mempool.getTransactions();
+    const clearedHashes = mempoolTxs.map(t => t.txHash).filter(Boolean);
+    if (clearedHashes.length > 0) {
+      mempool.removeTransactions(clearedHashes);
+      console.log(`[BTCPC] Mempool: ${clearedHashes.length} transactions included in block ${epochNumber}`);
     }
 
     // Attach block data to epoch for broadcast

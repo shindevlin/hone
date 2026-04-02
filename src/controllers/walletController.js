@@ -4,6 +4,9 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
+const mempool = require('../p2p/mempool');
+const p2p = require('../p2p/network');
+const { createTransactionMessage } = require('../p2p/protocol');
 
 /**
  * Create Wallet for Authenticated User
@@ -116,18 +119,56 @@ async function transfer(req, res) {
     const senderName = senderUser?.username || senderWallet.address;
     const recipientName = recipientUser?.username || recipientWallet.address;
 
-    // Record on permanent ledger — this IS the chain
+    // Check effective balance (ledger balance minus pending mempool debits)
+    const pendingDebit = mempool.getPendingDebit(senderName);
+    if (senderBalance - pendingDebit < amount) {
+      return res.status(400).json({
+        error: 'Insufficient balance (pending transactions)',
+        balance: senderBalance,
+        pending: pendingDebit,
+        available: senderBalance - pendingDebit
+      });
+    }
+
+    // Build transaction and submit to mempool
     const epoch = await ledger.getCurrentEpoch();
+    const tx = {
+      type: 'TRANSFER',
+      from: senderName,
+      to: recipientName,
+      amount,
+      token: 'BTCPC',
+      epoch,
+      nonce: Date.now(),
+      timestamp: Date.now(),
+      memo: memo || null,
+      signature: null
+    };
+
+    const result = mempool.submit(tx);
+    if (!result.accepted) {
+      return res.status(400).json({ error: 'Transaction rejected: ' + result.reason });
+    }
+
+    // Record on permanent ledger — this IS the chain
     await ledger.recordTransfer(senderName, recipientName, amount, 'BTCPC', null, epoch, memo || null);
 
-    // Update wallet caches
+    // Update wallet caches immediately — sender sees reduced balance
     senderWallet.balance.set('BTCPC', senderBalance - amount);
     const recipientBalance = recipientWallet.balance.get('BTCPC') || 0;
     recipientWallet.balance.set('BTCPC', recipientBalance + amount);
     await senderWallet.save();
     await recipientWallet.save();
 
-    // Record transaction (legacy index — ledger is source of truth)
+    // Broadcast to P2P network — all nodes see this immediately
+    try {
+      const txMsg = createTransactionMessage(tx, p2p.NODE_ID);
+      p2p.broadcast(txMsg);
+    } catch (_) {
+      // Non-fatal: tx is on the ledger, will propagate at epoch finalization
+    }
+
+    // Record transaction (legacy index)
     const transaction = new Transaction({
       from: senderWallet.address,
       to: toAddress,
@@ -139,13 +180,15 @@ async function transfer(req, res) {
 
     res.json({
       success: true,
+      txHash: result.txHash,
       transaction: {
-        from: transaction.from,
-        to: transaction.to,
-        amount: transaction.amount,
-        type: transaction.type,
-        memo: transaction.memo,
-        timestamp: transaction.timestamp
+        txHash: result.txHash,
+        from: senderName,
+        to: recipientName,
+        amount,
+        type: 'transfer',
+        memo: memo || null,
+        timestamp: tx.timestamp
       }
     });
   } catch (err) {

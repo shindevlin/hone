@@ -329,6 +329,15 @@ function handleTransaction(peer, msg, ctx) {
 
   const added = mempool.addTransaction(tx);
   if (added) {
+    console.log("[BTCPC P2P] Tx " + (tx.txHash || "?").slice(0, 12) + "... " + tx.from + " → " + tx.to + " " + tx.amount + " " + (tx.token || "BTCPC"));
+
+    // Update local wallet caches immediately — balance reflects before block inclusion
+    if (tx.type === "TRANSFER" && tx.from && tx.to && tx.amount > 0) {
+      const { updateWalletCache } = require("../services/ledger");
+      updateWalletCache(tx.from, tx.token || "BTCPC", -tx.amount).catch(function () {});
+      updateWalletCache(tx.to, tx.token || "BTCPC", tx.amount).catch(function () {});
+    }
+
     // Rebroadcast to other peers
     ctx.broadcast(msg, peer.address);
   }
