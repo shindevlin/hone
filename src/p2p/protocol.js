@@ -485,25 +485,27 @@ async function handleEpochFinalized(peer, msg, ctx) {
     const User = require("../models/User");
     const Wallet = require("../models/Wallet");
 
-    // Update or create epoch record
-    let epoch = await Epoch.findOne({ epoch_number: epochNum });
-    if (!epoch) {
-      epoch = new Epoch({ epoch_number: epochNum, started_at: new Date() });
-    }
-
-    epoch.status = 'finalized';
-    epoch.block_reward = data.block_reward || 0;
-    epoch.reward_number = data.reward_number;
-    epoch.epochs_deferred = data.epochs_deferred || 0;
-    epoch.settled_jobs = data.settled_jobs || 0;
-    epoch.total_work = data.total_work || 0;
-    epoch.consensus_hash = data.consensus_hash;
-    epoch.ended_at = new Date();
-    epoch.rewards_distributed = (data.rewards || []).map(r => ({
-      node_id: r.miner,
-      amount: r.amount
-    }));
-    await epoch.save();
+    // Update or create epoch record — use findOneAndUpdate to avoid version conflicts
+    await Epoch.findOneAndUpdate(
+      { epoch_number: epochNum },
+      {
+        $set: {
+          status: 'finalized',
+          block_reward: data.block_reward || 0,
+          reward_number: data.reward_number,
+          epochs_deferred: data.epochs_deferred || 0,
+          settled_jobs: data.settled_jobs || 0,
+          total_work: data.total_work || 0,
+          consensus_hash: data.consensus_hash,
+          ended_at: new Date(),
+          rewards_distributed: (data.rewards || []).map(r => ({
+            node_id: r.miner,
+            amount: r.amount
+          }))
+        }
+      },
+      { upsert: true }
+    );
 
     // Update mining proofs with earned rewards and credit wallets
     for (const reward of (data.rewards || [])) {

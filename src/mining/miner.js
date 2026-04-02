@@ -858,6 +858,7 @@ async function startMiner() {
         console.log(`[BTCPC] Epoch ${currentEpoch} ENDED (authority)`);
 
         // Finalize and broadcast the block to all nodes
+        // Proofs that arrive late settle in the next epoch — no waiting
         try {
           const finalized = await finalizeAndSplitRewards(currentEpoch);
           if (finalized) {
