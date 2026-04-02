@@ -849,15 +849,17 @@ walletCmd
         process.exit(1);
       }
 
-      // Find recipient
+      // Find recipient — must exist (register first with their own mnemonic)
       const recipient = await User().findOne({ username: to });
       if (!recipient) {
-        console.error("error: recipient account '" + to + "' not found");
+        console.error("error: recipient '" + to + "' not found on this node");
+        console.error("  The recipient must register first (run miner or btcpc-cli wallet create)");
+        console.error("  Accounts must be created with the owner's mnemonic, not auto-generated");
         await disconnect();
         process.exit(1);
       }
 
-      const recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
+      let recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
       if (!recipientWallet) {
         console.error("error: no BTCPC wallet found for " + to);
         await disconnect();
