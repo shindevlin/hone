@@ -41,34 +41,30 @@ async function createGenesisBlock() {
   console.log('[BTCPC] Creating genesis block...');
   console.log(`[BTCPC] Genesis message: "${GENESIS_MESSAGE}"`);
 
-  // Create the genesis miner user account
+  // Create the genesis miner account using saved mnemonic if available
   let user = await User.findOne({ username: GENESIS_MINER });
+  let wallet;
   if (!user) {
-    const passwordHash = crypto.createHash('sha256')
-      .update(`${GENESIS_MINER}-genesis-${Date.now()}`)
-      .digest('hex');
-
-    user = new User({
-      username: GENESIS_MINER,
-      email: `${GENESIS_MINER}@btcpc.network`,
-      password: passwordHash,
-      isActive: true
-    });
-    await user.save();
-    console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER}`);
-  }
-
-  // Create the genesis miner wallet
-  let wallet = await Wallet.findOne({ userId: user._id });
-  if (!wallet) {
-    wallet = new Wallet({
-      userId: user._id,
-      chain: 'btcpc',
-      address: GENESIS_MINER,
-      balance: new Map([['BTCPC', 0]])
-    });
-    await wallet.save();
-    console.log(`[BTCPC] Genesis wallet created: ${GENESIS_MINER}`);
+    const { createAccount } = require('../wallet/accountManager');
+    const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
+    try {
+      const account = await createAccount(GENESIS_MINER, savedMnemonic, `${GENESIS_MINER}-genesis`);
+      user = await User.findOne({ username: GENESIS_MINER });
+      wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+      console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
+      if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC`);
+      console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
+    } catch (err) {
+      console.error(`[BTCPC] Failed to create genesis account: ${err.message}`);
+      // Fallback to simple account
+      const passwordHash = crypto.createHash('sha256').update(`${GENESIS_MINER}-genesis-${Date.now()}`).digest('hex');
+      user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@btcpc.network`, password: passwordHash, isActive: true });
+      await user.save();
+      wallet = new Wallet({ userId: user._id, chain: 'btcpc', address: GENESIS_MINER, balance: new Map([['BTCPC', 0]]) });
+      await wallet.save();
+    }
+  } else {
+    wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
   }
 
   // Create the genesis mining node (exempt from stake minimum for genesis)

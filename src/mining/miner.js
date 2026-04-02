@@ -789,13 +789,19 @@ async function startMiner() {
   const genesis = await createGenesisBlock();
 
   // Ensure this miner's account exists (auto-register on first run)
+  // Uses BTCPC_MNEMONIC from .env if set — preserves saved keys across chain resets
   let minerUser = await User.findOne({ username: MINER_ACCOUNT });
   if (!minerUser) {
     const { createAccount } = require('../wallet/accountManager');
+    const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
     try {
-      const account = await createAccount(MINER_ACCOUNT, null, `${MINER_ACCOUNT}-miner`);
+      const account = await createAccount(MINER_ACCOUNT, savedMnemonic, `${MINER_ACCOUNT}-miner`);
       minerUser = await User.findOne({ username: MINER_ACCOUNT });
       console.log(`[BTCPC] Miner account created: ${MINER_ACCOUNT} (${account.address})`);
+      if (savedMnemonic) {
+        console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC env`);
+      }
+      console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
     } catch (err) {
       console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
     }
