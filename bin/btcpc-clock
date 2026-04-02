@@ -370,6 +370,20 @@ function start() {
     }
   }
 
+  // Register this clock node — permissioned during genesis phase
+  // Clock nodes that are also known miners (from block replay) are already registered
+  if (!nodeRegistry.isRegistered(CLOCK_ACCOUNT)) {
+    nodeRegistry.registerNode(CLOCK_ACCOUNT, "clock", 0, RELAY_URL, currentEpoch, true);
+    console.log("[CLOCK] Registered as permissioned clock node");
+  } else {
+    // Ensure existing registration is permissioned
+    var existing = nodeRegistry.getNode(CLOCK_ACCOUNT);
+    if (existing && !existing.permissioned) {
+      existing.permissioned = true;
+    }
+    console.log("[CLOCK] Already registered: " + existing.type + " (permissioned: " + existing.permissioned + ")");
+  }
+
   // Start P2P server
   startServer();
 
