@@ -39,8 +39,9 @@ const MESSAGE_TYPES = {
   MINING_PROOF: "MINING_PROOF",
   // Miner idle — no work this epoch, don't wait for my proof
   MINER_IDLE: "MINER_IDLE",
-  // Epoch authority broadcasts new epoch start
+  // Epoch authority broadcasts epoch lifecycle
   EPOCH_START: "EPOCH_START",
+  EPOCH_END: "EPOCH_END",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -195,8 +196,11 @@ function handleMessage(peer, msg, ctx) {
       handleMinerIdle(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.EPOCH_START:
-      // Rebroadcast to all peers — handled by miner's onMessage listener
-      console.log("[BTCPC P2P] Epoch start: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
+      console.log("[BTCPC P2P] Epoch START: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
+      ctx.broadcast(msg, peer.address);
+      break;
+    case MESSAGE_TYPES.EPOCH_END:
+      console.log("[BTCPC P2P] Epoch END: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
       ctx.broadcast(msg, peer.address);
       break;
     default:

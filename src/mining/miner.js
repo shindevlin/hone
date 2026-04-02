@@ -785,22 +785,43 @@ async function startMiner() {
   }
 
   if (isEpochAuthority) {
-    // Epoch authority: broadcast EPOCH_START and mine on the clock
+    // ── EPOCH AUTHORITY (shindevlin) ──
+    // Bookends every epoch: START → miners work → END → finalize
     miningInterval = setInterval(async () => {
       if (!running) return;
 
       const nextEpoch = getCurrentEpochNumber();
       if (nextEpoch <= currentEpoch) return;
-      currentEpoch = nextEpoch;
 
-      // Broadcast epoch start so all miners sync
-      const epochMsg = createMessage('EPOCH_START', {
+      // ── Close previous epoch ──
+      if (currentEpoch > 0) {
+        const endMsg = createMessage('EPOCH_END', {
+          epoch_number: currentEpoch,
+          ended_at: Date.now(),
+          authority: MINER_ACCOUNT
+        }, p2p.NODE_ID);
+        p2p.broadcast(endMsg);
+        console.log(`[BTCPC] Epoch ${currentEpoch} ENDED (authority)`);
+
+        // Finalize the closed epoch — authority collects all proofs and splits rewards
+        try {
+          await finalizeAndSplitRewards(currentEpoch);
+        } catch (err) {
+          console.error(`[BTCPC] Finalization error for epoch ${currentEpoch}:`, err.message);
+        }
+      }
+
+      // ── Open new epoch ──
+      currentEpoch = nextEpoch;
+      const startMsg = createMessage('EPOCH_START', {
         epoch_number: currentEpoch,
         started_at: Date.now(),
         authority: MINER_ACCOUNT
       }, p2p.NODE_ID);
-      p2p.broadcast(epochMsg);
+      p2p.broadcast(startMsg);
+      console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (authority)`);
 
+      // Mine this epoch
       try {
         const { syncLocalModels } = require('../services/modelRegistry');
         const _user = await User.findOne({ username: MINER_ACCOUNT });
@@ -813,32 +834,39 @@ async function startMiner() {
       }
     }, 30000);
   } else {
-    // Follower: listen for EPOCH_START from authority, mine when told
-    // Also use clock as fallback if authority is down
+    // ── FOLLOWER (all other miners) ──
+    // Listen for EPOCH_START/END from authority. Mine between them.
     let lastAuthorityEpoch = currentEpoch;
 
     p2p.onMessage(async (msg) => {
-      if (msg.type !== 'EPOCH_START') return;
-      const data = msg.data || {};
-      if (!data.epoch_number || data.epoch_number <= lastAuthorityEpoch) return;
+      if (msg.type === 'EPOCH_START') {
+        const data = msg.data || {};
+        if (!data.epoch_number || data.epoch_number <= lastAuthorityEpoch) return;
 
-      lastAuthorityEpoch = data.epoch_number;
-      currentEpoch = data.epoch_number;
-      console.log(`[BTCPC] Epoch ${currentEpoch} started (from authority)`);
+        lastAuthorityEpoch = data.epoch_number;
+        currentEpoch = data.epoch_number;
+        console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (from authority)`);
 
-      try {
-        const { syncLocalModels } = require('../services/modelRegistry');
-        const _user = await User.findOne({ username: MINER_ACCOUNT });
-        const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-        syncLocalModels(_node?._id).catch(() => {});
+        try {
+          const { syncLocalModels } = require('../services/modelRegistry');
+          const _user = await User.findOne({ username: MINER_ACCOUNT });
+          const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+          syncLocalModels(_node?._id).catch(() => {});
 
-        await mineEpoch(currentEpoch);
-      } catch (err) {
-        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+          await mineEpoch(currentEpoch);
+        } catch (err) {
+          console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+        }
+      }
+
+      if (msg.type === 'EPOCH_END') {
+        const data = msg.data || {};
+        console.log(`[BTCPC] Epoch ${data.epoch_number} ENDED (from authority)`);
+        // Stop accepting new work for this epoch — finalization handled by authority
       }
     });
 
-    // Fallback: if no EPOCH_START received for 2 epoch durations, use clock
+    // Fallback: if authority is silent for 2 epoch durations, use clock
     miningInterval = setInterval(async () => {
       if (!running) return;
       const clockEpoch = getCurrentEpochNumber();
