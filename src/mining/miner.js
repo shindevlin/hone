@@ -874,7 +874,8 @@ async function startMiner() {
   } else {
     // ── FOLLOWER (all other miners) ──
     // Listen for EPOCH_START/END from authority. Mine between them.
-    let lastAuthorityEpoch = currentEpoch;
+    // Authority's epoch number is the truth — follow it regardless of local calculation.
+    let lastAuthorityEpoch = -1; // accept any epoch from authority
 
     p2p.onMessage(async (msg) => {
       if (msg.type === 'EPOCH_START') {
