@@ -294,15 +294,18 @@ async function finalizeAndSplitRewards(epochNumber) {
     rewards.push({ node_id: miner, amount: share, type: 'mining' });
   }
 
-  // ── Clock node rewards (2%) — split among active clock nodes ──
+  // ── Clock node rewards (2%) — split among active REGISTERED clock nodes ──
   const { getActiveClockNodes } = require('../p2p/protocol');
-  const activeClocks = getActiveClockNodes(epochNumber);
+  const activeClocks = getActiveClockNodes(epochNumber).filter(account => {
+    // Only pay registered nodes — no random clock-XXXX accounts
+    if (!account || account.length < 2) return false;
+    if (account.startsWith('clock-')) return false; // unregistered auto-generated
+    return nodeRegistry.isRegistered(account);
+  });
 
   if (activeClocks.length > 0 && clockPoolReward > 0) {
     const clockShare = parseFloat((clockPoolReward / activeClocks.length).toFixed(10));
     for (const clockNode of activeClocks) {
-      // Skip system/unknown accounts
-      if (!clockNode || clockNode.length < 2) continue;
 
       await ledger.recordMiningReward(clockNode, clockShare, epochNumber);
       await ledger.updateWalletCache(clockNode, 'BTCPC', clockShare);

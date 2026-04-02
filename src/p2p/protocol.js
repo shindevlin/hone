@@ -247,6 +247,14 @@ function handleHandshake(peer, msg, ctx) {
 
   console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
 
+  // Reject peers on incompatible versions — chain requires v2.0.75+
+  var MIN_VERSION = "2.0.75";
+  if (peer.version !== "unknown" && peer.version < MIN_VERSION) {
+    console.log("[BTCPC P2P] Rejected " + msg.nodeId.slice(0, 12) + " — version " + peer.version + " below minimum " + MIN_VERSION);
+    if (peer.ws) peer.ws.close();
+    return;
+  }
+
   // Send our peer list to the new peer
   const knownAddresses = [];
   for (const [addr, p] of ctx.peers) {
