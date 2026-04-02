@@ -378,15 +378,8 @@ async function mineEpoch(epochNumber) {
     console.log(`[BTCPC]   Expired ${staleJobs.modifiedCount} stale claim(s) back to pending`);
   }
 
-  const myActiveJobs = await InferenceJob.countDocuments({
-    claimed_by: MINER_ACCOUNT,
-    status: { $in: ['claimed', 'processing'] }
-  });
-  const syntheticCount = myActiveJobs > 0 ? 0 : WORK_ITEMS_PER_EPOCH;
-
-  if (myActiveJobs > 0) {
-    console.log(`[BTCPC]   ${myActiveJobs} job(s) actively processing — skipping synthetic work`);
-  }
+  // No synthetic work — miners only earn from real inference jobs
+  const syntheticCount = 0;
 
   // Verify mining model against Ollama registry before doing any work
   const modelCheck = await verifyModel(MODEL);
