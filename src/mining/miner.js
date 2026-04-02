@@ -363,8 +363,21 @@ async function mineEpoch(epochNumber) {
   // Genesis epoch gets a special first prompt
   const GENESIS_PROMPT = "What is the meaning of computation? If a machine dreams an answer into existence through pure mathematical reasoning, is that dream less real than a human thought? Describe a future where every unit of energy spent computing produces something useful — where proof of work means proof of value created, not value destroyed. The answer, as always, is 42.";
 
-  // Only skip synthetic work if THIS miner is actively processing inference jobs
+  // Only skip synthetic work if THIS miner has RECENT active inference jobs
+  // Stale claims (>10 min) are expired back to pending so other miners can take them
   const InferenceJob = require('../models/InferenceJob');
+  const STALE_CLAIM_MS = 600000; // 10 min
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS);
+
+  // Expire stale claims from this miner
+  const staleJobs = await InferenceJob.updateMany(
+    { claimed_by: MINER_ACCOUNT, status: { $in: ['claimed', 'processing'] }, claimed_at: { $lt: staleThreshold } },
+    { $set: { status: 'pending', claimed_by: null, claimed_at: null } }
+  );
+  if (staleJobs.modifiedCount > 0) {
+    console.log(`[BTCPC]   Expired ${staleJobs.modifiedCount} stale claim(s) back to pending`);
+  }
+
   const myActiveJobs = await InferenceJob.countDocuments({
     claimed_by: MINER_ACCOUNT,
     status: { $in: ['claimed', 'processing'] }
