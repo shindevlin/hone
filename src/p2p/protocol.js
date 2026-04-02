@@ -255,10 +255,11 @@ function handleHandshake(peer, msg, ctx) {
     return;
   }
 
-  // Send our peer list to the new peer
+  // Send our peer list to the new peer — only outbound (connectable) addresses
+  // Inbound addresses are ephemeral ports, not connectable
   const knownAddresses = [];
   for (const [addr, p] of ctx.peers) {
-    if (p.status === "connected" && addr !== peer.address) {
+    if (p.status === "connected" && addr !== peer.address && !addr.startsWith("inbound:")) {
       knownAddresses.push(addr);
     }
   }

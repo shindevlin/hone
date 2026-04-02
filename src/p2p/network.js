@@ -43,8 +43,11 @@ function startServer(port) {
   wss = new WebSocket.Server({ port: listenPort });
 
   wss.on("connection", function (ws, req) {
-    const remoteAddr = req.socket.remoteAddress + ":" + req.socket.remotePort;
-    console.log("[BTCPC P2P] Incoming connection from " + remoteAddr);
+    // Strip IPv4-mapped IPv6 prefix (::ffff:) — not a valid WebSocket URL
+    var rawAddr = req.socket.remoteAddress || "unknown";
+    if (rawAddr.startsWith("::ffff:")) rawAddr = rawAddr.slice(7);
+    var remoteAddr = "inbound:" + rawAddr + ":" + req.socket.remotePort;
+    console.log("[BTCPC P2P] Incoming connection from " + rawAddr);
 
     setupPeerSocket(ws, remoteAddr, "inbound");
 
@@ -102,6 +105,12 @@ function stopServer() {
  */
 function connectToPeer(address) {
   if (!address) return;
+
+  // Skip inbound peer addresses — they're not connectable
+  if (address.startsWith("inbound:")) return;
+
+  // Skip IPv4-mapped IPv6 addresses — not valid WebSocket URLs
+  if (address.includes("::ffff:")) return;
 
   // Normalize address
   if (!address.startsWith("ws://") && !address.startsWith("wss://")) {
