@@ -568,9 +568,14 @@ async function mineEpoch(epochNumber) {
     console.log(`[BTCPC]   Proof broadcast to P2P network`);
   }
 
-  // Step 5: Schedule finalization — waits for other miners to submit
-  // First miner to finish schedules the timer. If already scheduled, skip.
-  const finalized = await scheduleFinalization(epochNumber);
+  // Step 5: Finalization — ONLY the epoch authority finalizes
+  // Followers wait for EPOCH_FINALIZED broadcast from authority
+  const isAuthority = (MINER_ACCOUNT === GENESIS_MINER);
+  let finalized = null;
+  if (!isAuthority) {
+    console.log(`[BTCPC] Proof submitted. Waiting for authority to finalize epoch ${epochNumber}.`);
+    // Follower does not finalize — authority handles it at EPOCH_END
+  }
 
   // Step 5b: Generate cross-chain claim proofs for linked wallets
   const linkedChains = {};
