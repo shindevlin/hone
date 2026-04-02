@@ -1,9 +1,12 @@
 "use strict";
 
 /**
- * BTCPC Block Explorer
- * Bitcoin Proof of Compute — Web Explorer
+ * BTCPC Block Explorer (btcpcscan)
+ * Bitcoin Proof of Compute — Chain Explorer
  * Port 4242 (42 x 101)
+ *
+ * Reads from the permanent ledger and block files — the source of truth.
+ * MongoDB is used as a cache for fast queries.
  *
  * Designed by Shin Devlin
  */
@@ -15,13 +18,19 @@ const mongoose = require("mongoose");
 // Models
 const Epoch = require("../models/Epoch");
 const Node = require("../models/Node");
-const Transaction = require("../models/Transaction");
 const User = require("../models/User");
 const StakingPool = require("../models/StakingPool");
-const WorkProof = require("../models/WorkProof");
+const LedgerEntry = require("../models/LedgerEntry");
+
+// Chain
+const blockStore = require("../chain/blockStore");
+const stateManager = require("../chain/stateManager");
+const { verifyBalance, verifyAccountState } = require("../chain/computeVerifier");
+const mempool = require("../p2p/mempool");
 
 // Emission schedule
 const { getCurrentPeriod, getPeriodTable, TOTAL_SUPPLY } = require("../services/emissionSchedule");
+const ledger = require("../services/ledger");
 
 // Views
 const dashboardView = require("./views/dashboard");
@@ -39,9 +48,9 @@ const PORT = 4242;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin";
 
 mongoose.connect(MONGODB_URI).then(() => {
-  console.log("[explorer] Connected to MongoDB");
+  console.log("[btcpcscan] Connected to MongoDB");
 }).catch(err => {
-  console.error("[explorer] MongoDB connection error:", err.message);
+  console.error("[btcpcscan] MongoDB connection error:", err.message);
   process.exit(1);
 });
 
@@ -58,24 +67,24 @@ app.get("/", async (req, res) => {
       latestEpochs,
       epochCount,
       totalMiners,
-      recentTransactions,
-      totalTransactions,
+      recentLedgerEntries,
+      totalLedgerEntries,
       stakingAgg
     ] = await Promise.all([
       Epoch.find().sort({ epoch_number: -1 }).limit(15).lean(),
       Epoch.countDocuments(),
       Node.countDocuments(),
-      Transaction.find().sort({ timestamp: -1 }).limit(10).lean(),
-      Transaction.countDocuments(),
+      LedgerEntry.find().sort({ timestamp: -1 }).limit(10).lean(),
+      LedgerEntry.countDocuments(),
       StakingPool.aggregate([
         { $match: { status: "active" } },
         { $group: { _id: null, total: { $sum: "$staked_amount" } } }
       ])
     ]);
 
-    // Compute total mined from finalized epochs
-    const minedAgg = await Transaction.aggregate([
-      { $match: { type: "mining_reward" } },
+    // Compute total mined from ledger (source of truth)
+    const minedAgg = await LedgerEntry.aggregate([
+      { $match: { type: "MINING_REWARD", token: "BTCPC" } },
       { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
 
@@ -84,43 +93,52 @@ app.get("/", async (req, res) => {
     const currentEpoch = epochCount > 0 ? latestEpochs[0].epoch_number : 0;
     const currentPeriod = getCurrentPeriod(currentEpoch);
 
+    // Map ledger entries to transaction-like format for the view
+    const recentTransactions = recentLedgerEntries.map(formatLedgerEntry);
+
     res.send(dashboardView({
       totalSupply: TOTAL_SUPPLY,
       totalMined,
       currentEpoch,
       totalMiners,
-      totalTransactions,
+      totalTransactions: totalLedgerEntries,
       latestEpochs,
       recentTransactions,
       currentPeriod,
-      totalStaked
+      totalStaked,
+      mempoolSize: mempool.size(),
+      latestBlockOnDisk: blockStore.getLatestBlockNumber()
     }));
   } catch (err) {
-    console.error("[explorer] Dashboard error:", err);
+    console.error("[btcpcscan] Dashboard error:", err);
     res.status(500).send("Internal server error");
   }
 });
 
 /**
- * GET /block/:epoch — Epoch detail
+ * GET /block/:epoch — Block detail (reads from disk)
  */
 app.get("/block/:epoch", async (req, res) => {
   try {
     const epochNum = parseInt(req.params.epoch, 10);
     if (isNaN(epochNum)) return res.status(400).send("Invalid epoch number");
 
+    // Read from block file (source of truth) if available
+    const blockData = blockStore.readBlock(epochNum);
+
+    // Fall back to MongoDB for epoch metadata
     const epoch = await Epoch.findOne({ epoch_number: epochNum }).lean();
     const period = getCurrentPeriod(epochNum);
 
-    res.send(blockView(epoch, period));
+    res.send(blockView(epoch, period, blockData));
   } catch (err) {
-    console.error("[explorer] Block error:", err);
+    console.error("[btcpcscan] Block error:", err);
     res.status(500).send("Internal server error");
   }
 });
 
 /**
- * GET /account/:username — Account page
+ * GET /account/:username — Account page (balance from ledger)
  */
 app.get("/account/:username", async (req, res) => {
   try {
@@ -131,44 +149,40 @@ app.get("/account/:username", async (req, res) => {
       return res.send(accountView({ user: null }));
     }
 
-    const [node, stake, transactions, miningRewards] = await Promise.all([
+    const [node, stake, ledgerEntries, miningRewards] = await Promise.all([
       Node.findOne({ account: user._id }).lean(),
       StakingPool.findOne({ account: user._id, status: { $in: ["active", "unstaking"] } }).lean(),
-      Transaction.find({
+      LedgerEntry.find({
         $or: [{ from: username }, { to: username }]
       }).sort({ timestamp: -1 }).limit(50).lean(),
-      Transaction.find({ to: username, type: "mining_reward" }).lean()
+      LedgerEntry.find({ to: username, type: "MINING_REWARD" }).lean()
     ]);
 
-    // Compute balance: sum of incoming - sum of outgoing
-    const balanceAgg = await Transaction.aggregate([
-      {
-        $facet: {
-          incoming: [
-            { $match: { to: username } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
-          ],
-          outgoing: [
-            { $match: { from: username } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
-          ]
-        }
-      }
-    ]);
+    // Compute balance from ledger (source of truth)
+    const balance = await ledger.getBalance(username, "BTCPC");
+    const pendingDebit = mempool.getPendingDebit(username);
 
-    const incoming = balanceAgg[0].incoming.length ? balanceAgg[0].incoming[0].total : 0;
-    const outgoing = balanceAgg[0].outgoing.length ? balanceAgg[0].outgoing[0].total : 0;
-    const balance = incoming - outgoing;
+    // Get SMT proof if available
+    const smtState = stateManager.getAccountState(username);
 
-    res.send(accountView({ user, node, stake, transactions, miningRewards, balance }));
+    // Map ledger entries to transaction-like format for the view
+    const transactions = ledgerEntries.map(formatLedgerEntry);
+
+    res.send(accountView({
+      user, node, stake, transactions, miningRewards,
+      balance,
+      pendingDebit,
+      availableBalance: balance - pendingDebit,
+      smtProof: smtState ? { root: smtState.root, state: smtState.state } : null
+    }));
   } catch (err) {
-    console.error("[explorer] Account error:", err);
+    console.error("[btcpcscan] Account error:", err);
     res.status(500).send("Internal server error");
   }
 });
 
 /**
- * GET /tx — Recent transactions list
+ * GET /tx — Ledger entries list (permanent on-chain transactions)
  */
 app.get("/tx", async (req, res) => {
   try {
@@ -176,15 +190,50 @@ app.get("/tx", async (req, res) => {
     const perPage = 25;
     const skip = (page - 1) * perPage;
 
-    const [transactions, total] = await Promise.all([
-      Transaction.find().sort({ timestamp: -1 }).skip(skip).limit(perPage).lean(),
-      Transaction.countDocuments()
+    const [entries, total] = await Promise.all([
+      LedgerEntry.find().sort({ timestamp: -1 }).skip(skip).limit(perPage).lean(),
+      LedgerEntry.countDocuments()
     ]);
+
+    const transactions = entries.map(formatLedgerEntry);
 
     res.send(transactionsView({ transactions, total, page, perPage }));
   } catch (err) {
-    console.error("[explorer] Transactions error:", err);
+    console.error("[btcpcscan] Transactions error:", err);
     res.status(500).send("Internal server error");
+  }
+});
+
+/**
+ * GET /tx/:txHash — Transaction detail by hash
+ */
+app.get("/tx/:txHash", async (req, res) => {
+  try {
+    var txHash = req.params.txHash;
+
+    // Search mempool first
+    if (mempool.hasTransaction(txHash)) {
+      var mempoolTx = mempool.getTransactions().find(function (t) { return t.txHash === txHash; });
+      if (mempoolTx) {
+        return res.json({
+          status: "pending",
+          txHash: txHash,
+          type: mempoolTx.type,
+          from: mempoolTx.from,
+          to: mempoolTx.to,
+          amount: mempoolTx.amount,
+          token: mempoolTx.token || "BTCPC",
+          timestamp: mempoolTx.timestamp,
+          memo: mempoolTx.memo
+        });
+      }
+    }
+
+    // Search ledger — compute hash of each entry to find match
+    // For now, return 404 — txHash lookup requires an index we'll add later
+    res.status(404).json({ error: "Transaction not found", txHash: txHash });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -195,7 +244,6 @@ app.get("/miners", async (req, res) => {
   try {
     const miners = await Node.find().sort({ reputation: -1 }).populate("account", "username").lean();
 
-    // Map populated account to _account for the view
     const mappedMiners = miners.map(m => ({
       ...m,
       _account: m.account && typeof m.account === "object" ? m.account : null
@@ -211,8 +259,37 @@ app.get("/miners", async (req, res) => {
       totalCount: miners.length
     }));
   } catch (err) {
-    console.error("[explorer] Miners error:", err);
+    console.error("[btcpcscan] Miners error:", err);
     res.status(500).send("Internal server error");
+  }
+});
+
+/**
+ * GET /mempool — Pending transactions
+ */
+app.get("/mempool", async (req, res) => {
+  try {
+    var txs = mempool.getTransactions();
+    var stats = mempool.getStats();
+    res.json({
+      size: stats.size,
+      maxSize: stats.maxSize,
+      oldestAgeSec: stats.oldestAgeSec,
+      transactions: txs.map(function (t) {
+        return {
+          txHash: t.txHash,
+          type: t.type,
+          from: t.from,
+          to: t.to,
+          amount: t.amount,
+          token: t.token || "BTCPC",
+          timestamp: t.timestamp,
+          age_ms: Date.now() - t._mempoolAddedAt
+        };
+      })
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -226,7 +303,7 @@ app.get("/api/stats", async (req, res) => {
       latestEpoch,
       totalMiners,
       activeMiners,
-      totalTransactions,
+      totalLedgerEntries,
       stakingAgg,
       minedAgg
     ] = await Promise.all([
@@ -234,13 +311,13 @@ app.get("/api/stats", async (req, res) => {
       Epoch.findOne().sort({ epoch_number: -1 }).lean(),
       Node.countDocuments(),
       Node.countDocuments({ status: "active" }),
-      Transaction.countDocuments(),
+      LedgerEntry.countDocuments(),
       StakingPool.aggregate([
         { $match: { status: "active" } },
         { $group: { _id: null, total: { $sum: "$staked_amount" } } }
       ]),
-      Transaction.aggregate([
-        { $match: { type: "mining_reward" } },
+      LedgerEntry.aggregate([
+        { $match: { type: "MINING_REWARD", token: "BTCPC" } },
         { $group: { _id: null, total: { $sum: "$amount" } } }
       ])
     ]);
@@ -263,16 +340,112 @@ app.get("/api/stats", async (req, res) => {
       } : null,
       total_miners: totalMiners,
       active_miners: activeMiners,
-      total_transactions: totalTransactions,
+      total_ledger_entries: totalLedgerEntries,
       total_staked: stakingAgg.length ? stakingAgg[0].total : 0,
+      mempool_size: mempool.size(),
+      blocks_on_disk: blockStore.getLatestBlockNumber() + 1,
+      latest_finality: blockStore.getLatestFinalityNumber(),
+      state_root: stateManager.getStateRoot(),
       emission_periods: periodTable.length,
-      explorer_version: "1.0.0"
+      explorer_version: "2.0.0"
     });
   } catch (err) {
-    console.error("[explorer] API stats error:", err);
+    console.error("[btcpcscan] API stats error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+/**
+ * GET /api/verify/:username — Verify account state via SMT
+ */
+app.get("/api/verify/:username", async (req, res) => {
+  try {
+    var result = verifyAccountState(req.params.username);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/block/:epoch — Block data as JSON (from disk)
+ */
+app.get("/api/block/:epoch", async (req, res) => {
+  try {
+    var epochNum = parseInt(req.params.epoch, 10);
+    if (isNaN(epochNum)) return res.status(400).json({ error: "Invalid epoch" });
+
+    var blockData = blockStore.readBlock(epochNum);
+    if (!blockData) return res.status(404).json({ error: "Block not found on disk" });
+
+    res.json({
+      epoch: epochNum,
+      hash: blockData.block.computeHash(),
+      previous_hash: blockData.block.previous_block_hash,
+      state_root: blockData.block.state_root,
+      merkle_root_transactions: blockData.block.merkle_root_transactions,
+      merkle_root_compute_proofs: blockData.block.merkle_root_compute_proofs,
+      timestamp: blockData.block.timestamp,
+      difficulty: blockData.block.difficulty,
+      miner_id: blockData.block.miner_id,
+      ledger_entries: blockData.payload.ledger_entries,
+      rewards: blockData.payload.rewards,
+      compute_proofs: blockData.payload.compute_proofs,
+      mining_proofs: blockData.payload.mining_proofs
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/account/:username — Account data as JSON (from ledger)
+ */
+app.get("/api/account/:username", async (req, res) => {
+  try {
+    var username = req.params.username;
+    var balance = await ledger.getBalance(username, "BTCPC");
+    var allBalances = await ledger.getTokenBalances(username);
+    var accountRecord = await ledger.getAccountRecord(username);
+    var pendingDebit = mempool.getPendingDebit(username);
+    var smtState = stateManager.getAccountState(username);
+
+    res.json({
+      username: username,
+      balance: balance,
+      pending_debit: pendingDebit,
+      available: balance - pendingDebit,
+      token_balances: allBalances,
+      account: accountRecord,
+      smt: smtState ? { root: smtState.root, state: smtState.state } : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a LedgerEntry to look like a transaction for the view layer.
+ */
+function formatLedgerEntry(entry) {
+  return {
+    _id: entry._id,
+    txHash: blockStore.hashLedgerEntry(entry),
+    type: entry.type ? entry.type.toLowerCase() : "unknown",
+    from: entry.from || "",
+    to: entry.to || "",
+    amount: entry.amount || 0,
+    token: entry.token || "BTCPC",
+    memo: entry.memo || "",
+    timestamp: entry.timestamp,
+    epoch: entry.epoch,
+    signed_by: entry.signed_by
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Start
@@ -280,7 +453,7 @@ app.get("/api/stats", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`
   ============================================
-    BTCPC Block Explorer
+    btcpcscan — BTCPC Chain Explorer
     Bitcoin Proof of Compute
     http://localhost:${PORT}
   ============================================

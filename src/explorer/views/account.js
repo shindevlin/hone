@@ -16,7 +16,15 @@ function formatDate(d) {
 }
 
 function accountView(data) {
-  const { user, node, stake, transactions, miningRewards, balance } = data;
+  var user = data.user;
+  var node = data.node;
+  var stake = data.stake;
+  var transactions = data.transactions || [];
+  var miningRewards = data.miningRewards || [];
+  var balance = data.balance || 0;
+  var pendingDebit = data.pendingDebit || 0;
+  var availableBalance = data.availableBalance || balance;
+  var smtProof = data.smtProof;
 
   if (!user) {
     return layout("Account Not Found", `
@@ -27,28 +35,37 @@ function accountView(data) {
     `);
   }
 
-  const txRows = (transactions || []).map(t => `
+  var txRows = transactions.map(function (t) {
+    var typeClass = (t.type || "").replace(/_/g, "-");
+    var dirClass = t.to === user.username ? "positive" : t.from === user.username ? "negative" : "";
+    var dirSign = t.to === user.username ? "+" : "-";
+    return `
     <tr>
-      <td><span class="type-badge type-${t.type}">${t.type.replace("_", " ")}</span></td>
-      <td>${t.from === user.username ? `<strong>${t.from}</strong>` : `<a href="/account/${t.from}">${t.from}</a>`}</td>
-      <td>${t.to === user.username ? `<strong>${t.to}</strong>` : `<a href="/account/${t.to}">${t.to}</a>`}</td>
-      <td class="amount ${t.to === user.username ? 'positive' : t.from === user.username ? 'negative' : ''}">${t.to === user.username ? '+' : '-'}${formatNumber(t.amount)}</td>
-      <td>${t.memo || "--"}</td>
+      <td><span class="type-badge type-${typeClass}">${(t.type || "").replace(/_/g, " ")}</span></td>
+      <td>${t.from === user.username ? `<strong>${t.from}</strong>` : t.from ? `<a href="/account/${t.from}">${t.from}</a>` : "--"}</td>
+      <td>${t.to === user.username ? `<strong>${t.to}</strong>` : t.to ? `<a href="/account/${t.to}">${t.to}</a>` : "--"}</td>
+      <td class="amount ${dirClass}">${dirSign}${formatNumber(t.amount)} ${t.token || "BTCPC"}</td>
+      <td>${t.epoch !== undefined ? `<a href="/block/${t.epoch}">#${t.epoch}</a>` : "--"}</td>
       <td>${formatDate(t.timestamp)}</td>
-    </tr>
-  `).join("");
+    </tr>`;
+  }).join("");
 
-  const stakedAmount = stake ? stake.staked_amount : 0;
-  const totalMined = (miningRewards || []).reduce((sum, t) => sum + t.amount, 0);
+  var stakedAmount = stake ? stake.staked_amount : 0;
+  var totalMined = miningRewards.reduce(function (sum, t) { return sum + t.amount; }, 0);
 
-  const content = `
+  var content = `
     <h1 class="page-title">Account: <span>${user.username}</span></h1>
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Available Balance</div>
+        <div class="stat-label">Ledger Balance</div>
         <div class="stat-value accent">${formatNumber(balance)}</div>
-        <div class="stat-sub">BTCPC</div>
+        <div class="stat-sub">BTCPC (source of truth)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Available</div>
+        <div class="stat-value">${formatNumber(availableBalance)}</div>
+        <div class="stat-sub">${pendingDebit > 0 ? formatNumber(pendingDebit) + " pending" : "No pending txs"}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Staked</div>
@@ -58,14 +75,30 @@ function accountView(data) {
       <div class="stat-card">
         <div class="stat-label">Total Mined</div>
         <div class="stat-value">${formatNumber(totalMined)}</div>
-        <div class="stat-sub">${(miningRewards || []).length} rewards received</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Member Since</div>
-        <div class="stat-value" style="font-size: 16px;">${formatDate(user.createdAt)}</div>
-        <div class="stat-sub">Last login: ${formatDate(user.lastLogin)}</div>
+        <div class="stat-sub">${miningRewards.length} rewards received</div>
       </div>
     </div>
+
+    ${smtProof ? `
+    <div class="card">
+      <div class="card-header">
+        <h2>State Proof (SMT)</h2>
+        <span class="status status-active">verified</span>
+      </div>
+      <dl class="detail-grid">
+        <dt>State Root</dt>
+        <dd><span class="hash" style="max-width: none;">${smtProof.root}</span></dd>
+        <dt>Balance (SMT)</dt>
+        <dd class="amount">${formatNumber(smtProof.state.balance)} BTCPC</dd>
+        <dt>Staked (SMT)</dt>
+        <dd>${formatNumber(smtProof.state.staked)} BTCPC</dd>
+        <dt>Delegated (SMT)</dt>
+        <dd>${formatNumber(smtProof.state.delegated)} BTCPC</dd>
+        <dt>Nonce</dt>
+        <dd>${smtProof.state.nonce}</dd>
+      </dl>
+    </div>
+    ` : ""}
 
     ${node ? `
     <div class="card">
@@ -80,28 +113,20 @@ function accountView(data) {
         <dd>${node.hardware && node.hardware.gpu ? node.hardware.gpu : "Not declared"}</dd>
         <dt>VRAM</dt>
         <dd>${node.hardware && node.hardware.vram_gb ? node.hardware.vram_gb + " GB" : "--"}</dd>
-        <dt>CPU Cores</dt>
-        <dd>${node.hardware && node.hardware.cpu_cores ? node.hardware.cpu_cores : "--"}</dd>
-        <dt>RAM</dt>
-        <dd>${node.hardware && node.hardware.ram_gb ? node.hardware.ram_gb + " GB" : "--"}</dd>
         <dt>Stake</dt>
         <dd class="amount">${formatNumber(node.stake_amount)} BTCPC</dd>
         <dt>Reputation</dt>
         <dd>${node.reputation}/100</dd>
         <dt>Models</dt>
-        <dd>${(node.models || []).length ? node.models.map(m => `<span class="model-tag">${m}</span>`).join(" ") : "None declared"}</dd>
-        <dt>Last Commitment</dt>
-        <dd>${node.last_epoch_commitment >= 0 ? `<a href="/block/${node.last_epoch_commitment}">Epoch #${node.last_epoch_commitment}</a>` : "Never"}</dd>
-        <dt>Registered</dt>
-        <dd>${formatDate(node.registered_at)}</dd>
+        <dd>${(node.models || []).length ? node.models.map(function (m) { return '<span class="model-tag">' + m + '</span>'; }).join(" ") : "None"}</dd>
       </dl>
     </div>
     ` : ""}
 
     <div class="card">
       <div class="card-header">
-        <h2>Transaction History</h2>
-        <span class="badge">${(transactions || []).length} transactions</span>
+        <h2>Ledger History</h2>
+        <span class="badge">${transactions.length} entries</span>
       </div>
       ${txRows.length ? `
       <table>
@@ -111,13 +136,13 @@ function accountView(data) {
             <th>From</th>
             <th>To</th>
             <th>Amount</th>
-            <th>Memo</th>
+            <th>Block</th>
             <th>Time</th>
           </tr>
         </thead>
         <tbody>${txRows}</tbody>
       </table>
-      ` : '<div class="empty-state">No transactions found for this account</div>'}
+      ` : '<div class="empty-state">No ledger entries for this account</div>'}
     </div>
   `;
 

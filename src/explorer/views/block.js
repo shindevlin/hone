@@ -15,40 +15,74 @@ function formatDate(d) {
   });
 }
 
-function blockView(epoch, period) {
+function truncHash(h) {
+  if (!h || h === "0".repeat(64)) return "--";
+  return h.slice(0, 12) + "..." + h.slice(-8);
+}
+
+function blockView(epoch, period, blockData) {
   if (!epoch) {
-    return layout("Epoch Not Found", `
-      <h1 class="page-title">Epoch <span>Not Found</span></h1>
+    return layout("Block Not Found", `
+      <h1 class="page-title">Block <span>Not Found</span></h1>
       <div class="card">
-        <div class="empty-state">This epoch does not exist in the database.</div>
+        <div class="empty-state">This block does not exist.</div>
       </div>
     `);
   }
 
-  const commitmentRows = (epoch.commitments || []).map((c, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${c.node_id ? `<span class="hash">${c.node_id}</span>` : "--"}</td>
-      <td><span class="hash">${c.state_hash || "--"}</span></td>
-      <td>${c.tx_count || 0}</td>
-      <td>${c.inference_count || 0}</td>
-      <td>${formatDate(c.submitted_at)}</td>
-    </tr>
-  `).join("");
+  var block = blockData ? blockData.block : null;
+  var payload = blockData ? blockData.payload : null;
 
-  const rewardRows = (epoch.rewards_distributed || []).map(r => `
+  var blockHash = block ? block.computeHash() : null;
+  var prevHash = block ? block.previous_block_hash : null;
+  var stateRoot = block ? block.state_root : null;
+  var txMerkle = block ? block.merkle_root_transactions : null;
+  var cpMerkle = block ? block.merkle_root_compute_proofs : null;
+
+  // Ledger entries from block file
+  var ledgerEntries = payload ? payload.ledger_entries || [] : [];
+  var ledgerRows = ledgerEntries.map(function (e) {
+    var typeClass = (e.type || "").toLowerCase().replace(/_/g, "-");
+    return `
     <tr>
-      <td>${r.node_id ? `<span class="hash">${r.node_id}</span>` : "--"}</td>
+      <td><span class="type-badge type-${typeClass}">${e.type}</span></td>
+      <td>${e.from ? `<a href="/account/${e.from}">${e.from}</a>` : "--"}</td>
+      <td>${e.to ? `<a href="/account/${e.to}">${e.to}</a>` : "--"}</td>
+      <td class="amount">${formatNumber(e.amount)} ${e.token || "BTCPC"}</td>
+      <td>${e.memo || ""}</td>
+    </tr>`;
+  }).join("");
+
+  // Reward distribution
+  var rewards = payload ? payload.rewards || [] : (epoch.rewards_distributed || []);
+  var rewardRows = rewards.map(function (r) {
+    var miner = r.miner || r.node_id || "--";
+    return `
+    <tr>
+      <td><a href="/account/${miner}">${miner}</a></td>
       <td class="amount">${formatNumber(r.amount)} BTCPC</td>
-    </tr>
-  `).join("");
+    </tr>`;
+  }).join("");
 
-  const prevEpoch = epoch.epoch_number > 0 ? epoch.epoch_number - 1 : null;
-  const nextEpoch = epoch.epoch_number + 1;
+  // Compute proofs
+  var proofs = payload ? payload.compute_proofs || [] : [];
+  var proofRows = proofs.map(function (p) {
+    return `
+    <tr>
+      <td><a href="/account/${p.node_id}">${p.node_id}</a></td>
+      <td>${p.model}</td>
+      <td>${formatNumber(p.tokens_generated)}</td>
+      <td>${formatNumber(p.work_value)}</td>
+      <td><span class="hash">${truncHash(p.result_hash)}</span></td>
+    </tr>`;
+  }).join("");
 
-  const content = `
+  var prevEpoch = epoch.epoch_number > 0 ? epoch.epoch_number - 1 : null;
+  var nextEpoch = epoch.epoch_number + 1;
+
+  var content = `
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-      <h1 class="page-title" style="margin-bottom: 0;">Epoch <span>#${epoch.epoch_number}</span></h1>
+      <h1 class="page-title" style="margin-bottom: 0;">Block <span>#${epoch.epoch_number}</span></h1>
       <div style="display: flex; gap: 8px;">
         ${prevEpoch !== null ? `<a href="/block/${prevEpoch}" style="background: var(--bg-card); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; font-size: 13px;">&#8592; Prev</a>` : ""}
         <a href="/block/${nextEpoch}" style="background: var(--bg-card); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; font-size: 13px;">Next &#8594;</a>
@@ -57,54 +91,54 @@ function blockView(epoch, period) {
 
     <div class="card">
       <div class="card-header">
-        <h2>Epoch Details</h2>
+        <h2>Block Header</h2>
         <span class="status status-${epoch.status}">${epoch.status}</span>
       </div>
       <dl class="detail-grid">
-        <dt>Epoch Number</dt>
+        <dt>Block Number</dt>
         <dd>${epoch.epoch_number}</dd>
-        <dt>Status</dt>
-        <dd><span class="status status-${epoch.status}">${epoch.status}</span></dd>
+        ${blockHash ? `<dt>Block Hash</dt><dd><span class="hash" style="max-width: none;">${blockHash}</span></dd>` : ""}
+        ${prevHash ? `<dt>Previous Hash</dt><dd><span class="hash" style="max-width: none;">${prevEpoch !== null ? `<a href="/block/${prevEpoch}">${prevHash}</a>` : prevHash}</span></dd>` : ""}
+        ${stateRoot ? `<dt>State Root (SMT)</dt><dd><span class="hash" style="max-width: none;">${stateRoot}</span></dd>` : ""}
+        ${txMerkle ? `<dt>Tx Merkle Root</dt><dd><span class="hash" style="max-width: none;">${truncHash(txMerkle)}</span></dd>` : ""}
+        ${cpMerkle ? `<dt>Compute Merkle Root</dt><dd><span class="hash" style="max-width: none;">${truncHash(cpMerkle)}</span></dd>` : ""}
         <dt>Block Reward</dt>
         <dd class="amount">${formatNumber(epoch.block_reward)} BTCPC</dd>
         <dt>Total Work</dt>
         <dd>${formatNumber(epoch.total_work)}</dd>
         <dt>Emission Period</dt>
         <dd>${period ? `Period ${period.period} (${period.duration_months} months, ${formatNumber(period.allotment)} BTCPC allotment)` : "--"}</dd>
-        <dt>Consensus Hash</dt>
-        <dd><span class="hash" style="max-width: none;">${epoch.consensus_hash || "pending"}</span></dd>
-        <dt>Commitments</dt>
-        <dd>${(epoch.commitments || []).length} nodes</dd>
-        <dt>Started</dt>
-        <dd>${formatDate(epoch.started_at)}</dd>
-        <dt>Ended</dt>
-        <dd>${formatDate(epoch.ended_at)}</dd>
+        <dt>Difficulty</dt>
+        <dd>${block ? block.difficulty : epoch.difficulty || 1}</dd>
+        <dt>Timestamp</dt>
+        <dd>${block ? formatDate(new Date(block.timestamp)) : formatDate(epoch.ended_at)}</dd>
+        <dt>On Disk</dt>
+        <dd>${block ? '<span class="status status-active">yes</span>' : '<span class="status status-committed">no</span>'}</dd>
       </dl>
     </div>
 
-    <div class="two-col">
-      <div class="card">
-        <div class="card-header">
-          <h2>Node Commitments</h2>
-          <span class="badge">${(epoch.commitments || []).length}</span>
-        </div>
-        ${commitmentRows.length ? `
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Node</th>
-              <th>State Hash</th>
-              <th>Txns</th>
-              <th>Inferences</th>
-              <th>Submitted</th>
-            </tr>
-          </thead>
-          <tbody>${commitmentRows}</tbody>
-        </table>
-        ` : '<div class="empty-state">No commitments for this epoch</div>'}
+    <div class="card">
+      <div class="card-header">
+        <h2>Ledger Entries</h2>
+        <span class="badge">${ledgerEntries.length} on-chain</span>
       </div>
+      ${ledgerRows.length ? `
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Amount</th>
+            <th>Memo</th>
+          </tr>
+        </thead>
+        <tbody>${ledgerRows}</tbody>
+      </table>
+      ` : '<div class="empty-state">No ledger entries in this block</div>'}
+    </div>
 
+    <div class="two-col">
       <div class="card">
         <div class="card-header">
           <h2>Reward Distribution</h2>
@@ -112,20 +146,28 @@ function blockView(epoch, period) {
         </div>
         ${rewardRows.length ? `
         <table>
-          <thead>
-            <tr>
-              <th>Node</th>
-              <th>Reward</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Miner</th><th>Reward</th></tr></thead>
           <tbody>${rewardRows}</tbody>
         </table>
-        ` : '<div class="empty-state">No rewards distributed yet</div>'}
+        ` : '<div class="empty-state">No rewards distributed</div>'}
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Compute Proofs</h2>
+          <span class="badge">${proofs.length}</span>
+        </div>
+        ${proofRows.length ? `
+        <table>
+          <thead><tr><th>Node</th><th>Model</th><th>Tokens</th><th>Work</th><th>Result Hash</th></tr></thead>
+          <tbody>${proofRows}</tbody>
+        </table>
+        ` : '<div class="empty-state">No compute proofs</div>'}
       </div>
     </div>
   `;
 
-  return layout(`Epoch #${epoch.epoch_number}`, content);
+  return layout(`Block #${epoch.epoch_number}`, content);
 }
 
 module.exports = blockView;
