@@ -1062,9 +1062,117 @@ The staking requirement creates a bootstrapping challenge: early nodes need BTCP
 
 ---
 
-## 7. Node Software
+## 7. Lucid Pruning
 
-### 7.1 Reference Implementation
+Traditional blockchains grow forever. Every node stores every transaction from genesis. Bitcoin's chain is 600GB+. Ethereum's archive node exceeds 15TB. This is unsustainable for a compute chain where inference results can be kilobytes per job.
+
+BTCPC introduces **Lucid Pruning** — a self-compressing chain that uses its own inference network to dream its history into progressively denser forms. The chain is aware of what it's forgetting, and it proves the forgotten data was real by retaining the ability to recall it through recomputation.
+
+### 7.1 The Principle
+
+When you dream, your brain replays the day's events and compresses them into long-term memory. Unimportant details are discarded. Important patterns are strengthened. You wake up with less data but more knowledge.
+
+Lucid Pruning works the same way. Periodically, the chain enters a **dreamstate** — a special compression epoch where miners summarize historical chain data using the same inference engine they use for regular work. The summary is hashed. The raw data is pruned. The hash proves the data existed.
+
+The chain literally dreams itself smaller. And because it's a compute chain, the dreaming is paid work — miners earn rewards for compression just like any other inference job.
+
+### 7.2 How It Works
+
+**Three tiers of chain state:**
+
+| Tier | Age | Stored | Size |
+|------|-----|--------|------|
+| **Active** | Last 100 epochs (~8 hours) | Full data: proofs, jobs, results, prompts | ~100MB |
+| **Recalled** | 100–1,000 epochs | Proof hashes + Merkle roots | ~10MB |
+| **Dreamed** | 1,000+ epochs | Dreamstate hash (one per compression cycle) | ~1KB per cycle |
+
+**Compression cycle (every 100 epochs):**
+
+1. A **dreamstate job** is submitted to the network — a standard inference request
+2. Input: serialized proof data from the last 100 epochs
+3. Miners process it like any other job (3 verifications in consensus mode)
+4. Output: compressed summary + Merkle root of the raw data
+5. The dreamstate hash (summary hash + Merkle root) is stored on-chain
+6. Raw data from those epochs is pruned from all nodes
+
+```
+Epoch 100:  Dreamstate #1
+  Input:    Epochs 1-100 (proofs, jobs, rewards)
+  Output:   Compressed summary
+  Stored:   dreamstate_hash + merkle_root (64 bytes)
+  Pruned:   Full data from epochs 1-100
+
+Epoch 200:  Dreamstate #2
+  Input:    Dreamstate #1 hash + Epochs 101-200
+  Output:   Compressed summary (includes proof of Dreamstate #1)
+  Stored:   dreamstate_hash + merkle_root (64 bytes)
+  Pruned:   Full data from epochs 101-200
+
+Epoch 1000: Dreamstate #10
+  Input:    Dreamstate #9 hash + Epochs 901-1000
+  Output:   Compressed summary (proves ALL previous dreamstates)
+  Stored:   64 bytes (proves 1000 epochs of history)
+```
+
+Each dreamstate contains the hash of the previous dreamstate. Dreamstate #10 proves dreamstate #9 proves dreamstate #8 proves... all the way back to genesis. A single 64-byte hash proves the entire chain history.
+
+### 7.3 Verification and Recall
+
+**"Is this historical data real?"**
+
+Three levels of verification, from cheapest to most expensive:
+
+1. **Merkle proof** (instant): Check the data's hash against the Merkle root stored in the dreamstate. If it's in the tree, it existed. Cost: 0 BTCPC.
+
+2. **Summary recall** (fast): Ask the network to decompress the dreamstate summary. The compressed form retains enough structure to answer questions about the historical period. Cost: standard inference rate.
+
+3. **Full recomputation** (expensive): Challenge a specific epoch. The network re-runs the original computations. If the result hashes match, the history is valid. Cost: N × inference rate (one per original job). This is the nuclear option — rarely needed, always available.
+
+**The guarantee:** Any historical claim about the BTCPC chain can be verified, even after the raw data is pruned. The proof is not storage — it's the ability to recompute. The chain doesn't remember everything. It remembers how to remember.
+
+### 7.4 Why This Is Novel
+
+No other blockchain compresses its own state using its own consensus mechanism:
+
+| Chain | Storage Strategy | Self-Compressing? |
+|-------|-----------------|-------------------|
+| Bitcoin | Store everything forever | No |
+| Ethereum | State trie pruning, archive nodes | No |
+| Mina | Recursive zk-SNARKs (constant size) | Yes, but external proof system |
+| Filecoin | Incentivized external storage | No |
+| **BTCPC** | **Lucid Pruning — inference-based self-compression** | **Yes — miners earn rewards for dreaming** |
+
+BTCPC is the first chain where the work that secures the network (inference) is the same work that compresses the chain. Miners don't just mine — they dream. And the dreams are the chain's memory.
+
+### 7.5 Dreamstate Economics
+
+Dreamstate compression jobs are treated as regular inference work:
+
+- Submitted every 100 epochs (~8 hours)
+- Assigned to 3 miners (consensus verification)
+- Miners earn standard block rewards for the compression epoch
+- The compression IS useful work — it maintains the chain
+- No separate "storage fee" or "pruning incentive" needed
+
+The chain pays for its own maintenance through the same mechanism it pays for everything else: Proof of Compute.
+
+### 7.6 What Never Gets Pruned
+
+Some data is permanent, regardless of dreamstate compression:
+
+- **Dreamstate hashes** — the chain of proofs (64 bytes each, grows linearly)
+- **Current wallet balances** — the live state (UTXO-equivalent)
+- **Active mining proofs** — last 1000 epochs
+- **Genesis block** — block 0 is sacred, never pruned
+- **Genesis Dreams** — soulbound NFTs persist forever (inscriptions are small)
+
+Everything else is dreamable. The chain wakes up lighter every cycle.
+
+---
+
+## 8. Node Software
+
+### 8.1 Reference Implementation
 
 The reference BTCPC node is built in Node.js:
 
@@ -1076,7 +1184,7 @@ btcpc-node start \
   --link-base 0x1234...
 ```
 
-### 7.2 Node Components
+### 8.2 Node Components
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -1123,7 +1231,7 @@ btcpc-node start \
 
 ---
 
-## 8. Roadmap
+## 9. Roadmap
 
 ### Phase 0: Genesis (Current)
 - [x] Whitepaper
@@ -1166,7 +1274,7 @@ btcpc-node start \
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 Bitcoin proved that decentralized proof of work can create sound money. BTCPC extends this insight in two fundamental ways:
 
