@@ -318,16 +318,16 @@ async function mineEpoch(epochNumber) {
 
   console.log(`\n[BTCPC] ${ts} -- Epoch ${epochNumber} mining started`);
 
-  // Get genesis miner references
+  // Get miner references
   const user = await User.findOne({ username: MINER_ACCOUNT });
   if (!user) {
-    console.error('[BTCPC] Genesis miner account not found. Run genesis first.');
+    console.error(`[BTCPC] Miner account '${MINER_ACCOUNT}' not found.`);
     return;
   }
 
   const node = await Node.findOne({ account: user._id });
   if (!node) {
-    console.error('[BTCPC] Genesis mining node not found. Run genesis first.');
+    console.error(`[BTCPC] Mining node for '${MINER_ACCOUNT}' not found.`);
     return;
   }
 
@@ -787,6 +787,37 @@ async function startMiner() {
 
   // Create genesis block if needed
   const genesis = await createGenesisBlock();
+
+  // Ensure this miner's account exists (auto-register on first run)
+  let minerUser = await User.findOne({ username: MINER_ACCOUNT });
+  if (!minerUser) {
+    const { createAccount } = require('../wallet/accountManager');
+    try {
+      const account = await createAccount(MINER_ACCOUNT, null, `${MINER_ACCOUNT}-miner`);
+      minerUser = await User.findOne({ username: MINER_ACCOUNT });
+      console.log(`[BTCPC] Miner account created: ${MINER_ACCOUNT} (${account.address})`);
+    } catch (err) {
+      console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
+    }
+  }
+
+  // Ensure mining node exists
+  if (minerUser) {
+    let minerNode = await Node.findOne({ account: minerUser._id });
+    if (!minerNode) {
+      minerNode = new Node({
+        account: minerUser._id,
+        endpoint: process.env.OLLAMA_URL || 'http://localhost:11434',
+        models: [MODEL],
+        stake_amount: 1000,
+        status: 'active',
+        inference_engine: 'ollama',
+        reputation: 100
+      });
+      await minerNode.save();
+      console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT}`);
+    }
+  }
 
   running = true;
 
