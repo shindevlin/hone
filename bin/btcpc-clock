@@ -404,6 +404,17 @@ function start() {
     startEpochClock();
   }, 5000);
 
+  // Heartbeat — prove we're online for clock rewards
+  setInterval(function () {
+    if (!running || currentEpoch < 0) return;
+    var hb = createMessage("CLOCK_HEARTBEAT", {
+      account: CLOCK_ACCOUNT,
+      epoch_number: currentEpoch,
+      timestamp: Date.now()
+    });
+    broadcast(hb);
+  }, 60000);
+
   // Status logging
   setInterval(function () {
     var connectedPeers = 0;

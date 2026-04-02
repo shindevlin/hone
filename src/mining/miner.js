@@ -258,14 +258,20 @@ async function finalizeAndSplitRewards(epochNumber) {
     return epoch;
   }
 
-  // ── Split rewards ──
+  // ── Split rewards: 98% miners, 2% clock nodes ──
+  const CLOCK_POOL_PCT = 0.02;
+  const minerPoolReward = parseFloat((blockReward * (1 - CLOCK_POOL_PCT)).toFixed(10));
+  const clockPoolReward = parseFloat((blockReward * CLOCK_POOL_PCT).toFixed(10));
+
   const rewards = [];
+
+  // ── Miner rewards (98%) ──
   for (const miner of miners) {
     let share;
     if (totalWorkValue === 0) {
-      share = blockReward / miners.length;
+      share = minerPoolReward / miners.length;
     } else {
-      share = blockReward * (minerWork[miner].work_value / totalWorkValue);
+      share = minerPoolReward * (minerWork[miner].work_value / totalWorkValue);
     }
     share = parseFloat(share.toFixed(10));
 
@@ -284,8 +290,38 @@ async function finalizeAndSplitRewards(epochNumber) {
 
     const pct = totalWorkValue > 0 ? ((minerWork[miner].work_value / totalWorkValue) * 100).toFixed(1) : (100 / miners.length).toFixed(1);
     const modelList = [...minerWork[miner].models].join(', ');
-    console.log(`[BTCPC]   ${miner}: ${share.toFixed(4)} BTCPC (${pct}%, models: ${modelList})`);
-    rewards.push({ node_id: miner, amount: share });
+    console.log(`[BTCPC]   ${miner}: ${share.toFixed(4)} BTCPC (${pct}%, mining)`);
+    rewards.push({ node_id: miner, amount: share, type: 'mining' });
+  }
+
+  // ── Clock node rewards (2%) — split among active clock nodes ──
+  const { getActiveClockNodes } = require('../p2p/protocol');
+  const activeClocks = getActiveClockNodes(epochNumber);
+
+  if (activeClocks.length > 0 && clockPoolReward > 0) {
+    const clockShare = parseFloat((clockPoolReward / activeClocks.length).toFixed(10));
+    for (const clockNode of activeClocks) {
+      // Skip system/unknown accounts
+      if (!clockNode || clockNode.length < 2) continue;
+
+      await ledger.recordMiningReward(clockNode, clockShare, epochNumber);
+      await ledger.updateWalletCache(clockNode, 'BTCPC', clockShare);
+
+      console.log(`[BTCPC]   ${clockNode}: ${clockShare.toFixed(4)} BTCPC (clock)`);
+      rewards.push({ node_id: clockNode, amount: clockShare, type: 'clock' });
+    }
+    console.log(`[BTCPC]   Clock pool: ${clockPoolReward.toFixed(4)} BTCPC → ${activeClocks.length} node(s)`);
+  } else if (clockPoolReward > 0) {
+    // No active clocks — give the 2% to miners instead
+    const extraPerMiner = parseFloat((clockPoolReward / miners.length).toFixed(10));
+    for (const miner of miners) {
+      await ledger.recordMiningReward(miner, extraPerMiner, epochNumber);
+      await ledger.updateWalletCache(miner, 'BTCPC', extraPerMiner);
+      // Find the existing reward entry and add to it
+      const existing = rewards.find(r => r.node_id === miner);
+      if (existing) existing.amount = parseFloat((existing.amount + extraPerMiner).toFixed(10));
+    }
+    console.log(`[BTCPC]   No active clocks — ${clockPoolReward.toFixed(4)} BTCPC redistributed to miners`);
   }
 
   // Finalize epoch record

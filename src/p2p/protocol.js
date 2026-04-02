@@ -50,6 +50,8 @@ const MESSAGE_TYPES = {
   // Ledger sync — request/response for missing ledger entries
   REQUEST_LEDGER: "REQUEST_LEDGER",
   RESPONSE_LEDGER: "RESPONSE_LEDGER",
+  // Clock heartbeat — clock nodes prove they're online
+  CLOCK_HEARTBEAT: "CLOCK_HEARTBEAT",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -217,6 +219,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.ACCOUNT_ANNOUNCE:
       handleAccountAnnounce(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.CLOCK_HEARTBEAT:
+      handleClockHeartbeat(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.REQUEST_LEDGER:
       handleRequestLedger(peer, msg, ctx);
@@ -707,6 +712,57 @@ async function handleAccountAnnounce(peer, msg, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Clock Heartbeat — uptime tracking for clock node rewards
+// ---------------------------------------------------------------------------
+
+// Track active nodes per epoch: Map<epochNumber, Set<username>>
+var clockUptimeByEpoch = new Map();
+var _currentClockEpoch = -1;
+
+/**
+ * Record that a node was active during an epoch.
+ * Called from any message handler when we see a nodeId.
+ */
+function recordNodeActivity(nodeId, username, epochNumber) {
+  if (!epochNumber || epochNumber < 0) return;
+  if (!clockUptimeByEpoch.has(epochNumber)) {
+    clockUptimeByEpoch.set(epochNumber, new Set());
+  }
+  // Store username if known, otherwise nodeId
+  clockUptimeByEpoch.get(epochNumber).add(username || nodeId);
+
+  // Prune old epochs (keep last 5)
+  if (epochNumber > _currentClockEpoch) {
+    _currentClockEpoch = epochNumber;
+    for (var key of clockUptimeByEpoch.keys()) {
+      if (key < epochNumber - 5) clockUptimeByEpoch.delete(key);
+    }
+  }
+}
+
+/**
+ * Get the list of active clock nodes for a given epoch.
+ * Returns array of usernames/nodeIds that were online.
+ */
+function getActiveClockNodes(epochNumber) {
+  var nodes = clockUptimeByEpoch.get(epochNumber);
+  return nodes ? Array.from(nodes) : [];
+}
+
+/**
+ * CLOCK_HEARTBEAT — clock node announces it's alive.
+ */
+function handleClockHeartbeat(peer, msg, ctx) {
+  var data = msg.data || {};
+  var account = data.account || msg.nodeId;
+  var epoch = data.epoch_number;
+
+  recordNodeActivity(msg.nodeId, account, epoch);
+  // Rebroadcast so all nodes see the heartbeat
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
 // Ledger Sync — request and reconcile missing ledger entries
 // ---------------------------------------------------------------------------
 
@@ -805,5 +861,7 @@ module.exports = {
   createRequestBlocksMessage,
   createRequestLedgerMessage,
   createMessage,
-  getIdleMiners
+  getIdleMiners,
+  recordNodeActivity,
+  getActiveClockNodes
 };
