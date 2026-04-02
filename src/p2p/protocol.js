@@ -83,9 +83,10 @@ function createMessage(type, data, nodeId) {
  * Create a HANDSHAKE message with chain state and known peers.
  */
 function createHandshake(nodeId) {
+  var pkg = require("../../package.json");
   return createMessage(MESSAGE_TYPES.HANDSHAKE, {
     chainHeight: getChainHeight(),
-    version: "0.1.0",
+    version: pkg.version,
     peerCount: 0 // filled by caller if needed
   }, nodeId);
 }
@@ -227,9 +228,10 @@ function handleHandshake(peer, msg, ctx) {
 
   peer.nodeId = msg.nodeId;
   peer.chainHeight = data.chainHeight || 0;
+  peer.version = data.version || "unknown";
   peer.status = "connected";
 
-  console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (height: " + peer.chainHeight + ")");
+  console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
 
   // Send our peer list to the new peer
   const knownAddresses = [];
