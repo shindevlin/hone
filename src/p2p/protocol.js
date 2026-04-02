@@ -12,6 +12,8 @@ const { validateBlock, getChainHeight, getBlockRange } = require("./chainSync");
 const mempool = require("./mempool");
 const Block = require("../chain/block");
 const blockchain = require("../chain/blockchain");
+const blockStore = require("../chain/blockStore");
+const stateManager = require("../chain/stateManager");
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -282,8 +284,18 @@ function handleBlock(peer, msg, ctx) {
         return;
       }
 
-      // Store in the formal blockchain
+      // Store in the formal blockchain and write to disk
       blockchain.addBlock(block);
+
+      if (!blockStore.hasBlock(block.epoch_number)) {
+        var payload = {
+          ledger_entries: data.ledger_entries || [],
+          rewards: data.rewards || [],
+          compute_proofs: data.compute_proofs || [],
+          mining_proofs: data.mining_proofs || []
+        };
+        blockStore.writeBlock(block, payload);
+      }
 
     } catch (err) {
       console.log("[BTCPC P2P] Failed to deserialize block from " + (peer.nodeId || "unknown").slice(0, 12) + ": " + err.message);
@@ -384,9 +396,27 @@ function handleResponseBlocks(peer, msg, ctx) {
     (peer.nodeId || "unknown").slice(0, 12));
 
   let accepted = 0;
-  for (const block of blocks) {
-    if (validateBlock(block)) {
+  for (const blockData of blocks) {
+    if (validateBlock(blockData)) {
       accepted++;
+
+      // Write to disk if block has header_hex
+      if (blockData.header_hex && !blockStore.hasBlock(blockData.epoch_number)) {
+        try {
+          var headerBuf = Buffer.from(blockData.header_hex, "hex");
+          var block = Block.deserialize(headerBuf);
+          var payload = {
+            ledger_entries: blockData.ledger_entries || [],
+            rewards: blockData.rewards || [],
+            compute_proofs: blockData.compute_proofs || [],
+            mining_proofs: blockData.mining_proofs || []
+          };
+          blockStore.writeBlock(block, payload);
+          blockchain.addBlock(block);
+        } catch (e) {
+          // Non-fatal — block still validated via chainSync
+        }
+      }
     }
   }
 
@@ -512,7 +542,17 @@ async function handleEpochFinalized(peer, msg, ctx) {
       { upsert: true }
     );
 
-    // Update mining proofs with earned rewards and credit wallets
+    // Apply permanent ledger entries from this block — this IS the chain
+    // Mining rewards, transfers, staking, etc. all come through here
+    if (data.ledger && data.ledger.length > 0) {
+      const { applyRemoteEntries, updateWalletCache } = require("../services/ledger");
+      const applied = await applyRemoteEntries(data.ledger);
+      if (applied > 0) {
+        console.log("[BTCPC P2P]   Ledger: " + applied + " entries applied (permanent)");
+      }
+    }
+
+    // Update mining proofs and wallet caches from reward data
     for (const reward of (data.rewards || [])) {
       // Update mining proof
       const proof = await MiningProof.findOne({ block_number: epochNum, miner: reward.miner });
@@ -521,7 +561,7 @@ async function handleEpochFinalized(peer, msg, ctx) {
         await proof.save();
       }
 
-      // Credit wallet
+      // Update wallet cache (ledger entry already applied above)
       const user = await User.findOne({ username: reward.miner });
       if (user) {
         const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
@@ -529,16 +569,40 @@ async function handleEpochFinalized(peer, msg, ctx) {
           const balance = wallet.balance.get('BTCPC') || 0;
           wallet.balance.set('BTCPC', balance + reward.amount);
           await wallet.save();
-          console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC");
+          console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC (cache)");
         }
       }
     }
-    // Apply permanent ledger entries from this block
-    if (data.ledger && data.ledger.length > 0) {
-      const { applyRemoteEntries } = require("../services/ledger");
-      const applied = await applyRemoteEntries(data.ledger);
-      if (applied > 0) {
-        console.log("[BTCPC P2P]   Ledger: " + applied + " entries applied (permanent)");
+    // ── Write block to disk — source of truth ──
+    if (data.header_hex) {
+      try {
+        const headerBuf = Buffer.from(data.header_hex, "hex");
+        const block = Block.deserialize(headerBuf);
+
+        // Apply ledger entries to local SMT and verify state root
+        if (data.ledger && data.ledger.length > 0) {
+          stateManager.applyLedgerEntries(data.ledger);
+        }
+        const localStateRoot = stateManager.getStateRoot();
+        if (data.state_root && localStateRoot !== data.state_root) {
+          console.log("[BTCPC P2P]   State root mismatch: local=" + localStateRoot.slice(0, 16) + " remote=" + data.state_root.slice(0, 16));
+        }
+
+        // Build payload from message data
+        const payload = {
+          ledger_entries: data.ledger || [],
+          rewards: data.rewards || [],
+          compute_proofs: [],
+          mining_proofs: []
+        };
+
+        if (!blockStore.hasBlock(epochNum)) {
+          blockStore.writeBlock(block, payload);
+          blockchain.addBlock(block);
+          console.log("[BTCPC P2P]   Block " + epochNum + " written to disk: " + block.computeHash().slice(0, 16) + "...");
+        }
+      } catch (blockErr) {
+        console.error("[BTCPC P2P]   Failed to write block to disk:", blockErr.message);
       }
     }
   } catch (err) {

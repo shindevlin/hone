@@ -11,6 +11,44 @@
  */
 
 const LedgerEntry = require('../models/LedgerEntry');
+const Wallet = require('../models/Wallet');
+const User = require('../models/User');
+const Epoch = require('../models/Epoch');
+
+/**
+ * Get the current epoch number for ledger entries created via API.
+ */
+async function getCurrentEpoch() {
+  const latest = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
+  return latest ? latest.epoch_number : 0;
+}
+
+/**
+ * Update wallet balance cache after a ledger write.
+ * Wallet.balance is a CACHE — the ledger is the source of truth.
+ */
+async function updateWalletCache(username, token, delta) {
+  token = token || 'BTCPC';
+  const user = await User.findOne({ username });
+  if (!user) return;
+  const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+  if (!wallet) return;
+  const current = wallet.balance.get(token) || 0;
+  wallet.balance.set(token, parseFloat((current + delta).toFixed(10)));
+  await wallet.save();
+}
+
+/**
+ * Update wallet balance cache by userId (for controllers that have userId, not username).
+ */
+async function updateWalletCacheByUserId(userId, token, delta) {
+  token = token || 'BTCPC';
+  const wallet = await Wallet.findOne({ userId, chain: 'btcpc' });
+  if (!wallet) return;
+  const current = wallet.balance.get(token) || 0;
+  wallet.balance.set(token, parseFloat((current + delta).toFixed(10)));
+  await wallet.save();
+}
 
 // Pending entries — collected during an epoch, written at EPOCH_END
 const pendingEntries = [];
@@ -143,6 +181,24 @@ async function recordStake(account, amount, purpose, epoch) {
 }
 
 /**
+ * Record unstake (withdrawal from staking pool) on the ledger.
+ */
+async function recordUnstake(account, amount, epoch, memo) {
+  const entry = new LedgerEntry({
+    type: 'UNSTAKE',
+    from: 'btcpc_staking_pool',
+    to: account,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
  * Record delegation on the ledger.
  */
 async function recordDelegate(from, to, amount, purpose, epoch) {
@@ -154,6 +210,78 @@ async function recordDelegate(from, to, amount, purpose, epoch) {
     amount,
     epoch,
     delegation_data: { purpose }
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record undelegation on the ledger.
+ */
+async function recordUndelegate(from, to, amount, epoch, memo) {
+  const entry = new LedgerEntry({
+    type: 'UNDELEGATE',
+    from,
+    to,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record escrow lock on the ledger.
+ */
+async function recordEscrowLock(payer, requestId, amount, epoch) {
+  const entry = new LedgerEntry({
+    type: 'ESCROW_LOCK',
+    from: payer,
+    to: 'btcpc_escrow',
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo: 'escrow:' + requestId
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record escrow release (payment to node) on the ledger.
+ */
+async function recordEscrowRelease(recipient, requestId, amount, epoch, memo) {
+  const entry = new LedgerEntry({
+    type: 'ESCROW_RELEASE',
+    from: 'btcpc_escrow',
+    to: recipient,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo: memo || 'escrow:' + requestId
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record escrow refund on the ledger.
+ */
+async function recordEscrowRefund(payer, requestId, amount, epoch) {
+  const entry = new LedgerEntry({
+    type: 'ESCROW_REFUND',
+    from: 'btcpc_escrow',
+    to: payer,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo: 'escrow:' + requestId
   });
   await entry.save();
   pendingEntries.push(entry.toObject());
@@ -262,7 +390,15 @@ module.exports = {
   recordFaucet,
   recordTokenCreate,
   recordStake,
+  recordUnstake,
   recordDelegate,
+  recordUndelegate,
+  recordEscrowLock,
+  recordEscrowRelease,
+  recordEscrowRefund,
+  getCurrentEpoch,
+  updateWalletCache,
+  updateWalletCacheByUserId,
   getBalance,
   getTokenBalances,
   getAccountRecord,

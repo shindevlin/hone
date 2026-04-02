@@ -16,8 +16,9 @@ var ledgerEntrySchema = new Schema({
     type: String,
     enum: [
       'ACCOUNT_CREATE', 'TRANSFER', 'TOKEN_CREATE',
-      'STAKE', 'DELEGATE', 'UNDELEGATE',
-      'MINING_REWARD', 'FAUCET'
+      'STAKE', 'UNSTAKE', 'DELEGATE', 'UNDELEGATE',
+      'MINING_REWARD', 'FAUCET',
+      'ESCROW_LOCK', 'ESCROW_RELEASE', 'ESCROW_REFUND'
     ],
     required: true,
     index: true

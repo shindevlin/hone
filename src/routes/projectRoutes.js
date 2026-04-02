@@ -6,6 +6,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middlewares/auth');
 const Project = require('../models/Project');
 const Transaction = require('../models/Transaction');
+const ledger = require('../services/ledger');
 
 /**
  * POST /api/projects/register
@@ -177,14 +178,23 @@ router.post('/fund', authenticateToken, async (req, res) => {
     const senderBalance = senderWallet.balance.get('BTCPC') || 0;
     if (senderBalance < amount) return res.status(400).json({ error: 'Insufficient balance' });
 
-    // Transfer
+    // Resolve username for ledger
+    const User = require('../models/User');
+    const senderUser = await User.findById(req.user.id);
+    const senderName = senderUser?.username || senderWallet.address;
+
+    // Record on permanent ledger
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordTransfer(senderName, 'project:' + project.name, amount, 'BTCPC', null, epoch, `Fund project: ${project.name}`);
+
+    // Update wallet cache
     senderWallet.balance.set('BTCPC', senderBalance - amount);
     await senderWallet.save();
 
     project.balance += amount;
     await project.save();
 
-    // Record transaction
+    // Record transaction (legacy index)
     const tx = new Transaction({
       from: senderWallet.address,
       to: walletAddress,

@@ -2,6 +2,8 @@
 const Wallet = require('../models/Wallet');
 const StakingPool = require('../models/StakingPool');
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+const ledger = require('../services/ledger');
 
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
@@ -52,12 +54,18 @@ async function stake(req, res) {
       });
     }
 
-    // Deduct from wallet balance
+    // Record on permanent ledger
+    const user = await User.findById(userId);
+    const username = user?.username || wallet.address;
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordStake(username, amount, 'mining', epoch);
+
+    // Update wallet cache
     wallet.balance.set('BTCPC', btcpcBalance - amount);
     await wallet.save();
     await stakeRecord.save();
 
-    // Record staking transaction
+    // Record transaction (legacy index)
     const transaction = new Transaction({
       from: wallet.address,
       to: 'staking_pool',
@@ -165,6 +173,17 @@ async function withdrawStake(req, res) {
 
     // Return staked amount (minus any slashed amount) to wallet
     const returnAmount = stakeRecord.staked_amount - stakeRecord.slashed_amount;
+
+    // Record on permanent ledger
+    const user = await User.findById(userId);
+    const username = user?.username || wallet.address;
+    const epoch = await ledger.getCurrentEpoch();
+    const slashMemo = stakeRecord.slashed_amount > 0
+      ? 'Stake withdrawal (slashed ' + stakeRecord.slashed_amount + ' BTCPC)'
+      : 'Stake withdrawal';
+    await ledger.recordUnstake(username, returnAmount, epoch, slashMemo);
+
+    // Update wallet cache
     const currentBalance = wallet.balance.get('BTCPC') || 0;
     wallet.balance.set('BTCPC', currentBalance + returnAmount);
     await wallet.save();
@@ -172,7 +191,7 @@ async function withdrawStake(req, res) {
     stakeRecord.status = 'withdrawn';
     await stakeRecord.save();
 
-    // Record withdrawal transaction
+    // Record transaction (legacy index)
     const transaction = new Transaction({
       from: 'staking_pool',
       to: wallet.address,

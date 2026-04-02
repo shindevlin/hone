@@ -4,6 +4,7 @@ const Delegation = require('../models/Delegation');
 const Transaction = require('../models/Transaction');
 const Node = require('../models/Node');
 const User = require('../models/User');
+const ledger = require('../services/ledger');
 
 const UNLOCK_PERIOD_DAYS = 7;
 
@@ -82,12 +83,18 @@ async function delegate(req, res) {
       });
     }
 
-    // Deduct from wallet balance
+    // Record on permanent ledger
+    const delegatorUser = await User.findById(userId);
+    const delegatorName = delegatorUser?.username || wallet.address;
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordDelegate(delegatorName, minerUser.username, amount, 'mining', epoch);
+
+    // Update wallet cache
     wallet.balance.set('BTCPC', btcpcBalance - amount);
     await wallet.save();
     await delegation.save();
 
-    // Record delegation transaction
+    // Record transaction (legacy index)
     const tx = new Transaction({
       from: wallet.address,
       to: 'delegation_pool',
@@ -245,6 +252,10 @@ async function withdrawDelegation(req, res) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
+    const delegatorUser = await User.findById(userId);
+    const delegatorName = delegatorUser?.username || wallet.address;
+    const epoch = await ledger.getCurrentEpoch();
+
     let totalWithdrawn = 0;
     const withdrawn = [];
     const pending = [];
@@ -253,6 +264,13 @@ async function withdrawDelegation(req, res) {
       if (now >= d.undelegate_available_at) {
         const returnAmount = d.amount;
         totalWithdrawn += returnAmount;
+
+        // Resolve miner name for ledger
+        const minerUser = await User.findById(d.miner);
+        const minerName = minerUser?.username || String(d.miner);
+
+        // Record on permanent ledger
+        await ledger.recordUndelegate(minerName, delegatorName, returnAmount, epoch, 'Delegation withdrawal');
 
         d.status = 'withdrawn';
         await d.save();
@@ -281,6 +299,7 @@ async function withdrawDelegation(req, res) {
     }
 
     if (totalWithdrawn > 0) {
+      // Update wallet cache
       const currentBalance = wallet.balance.get('BTCPC') || 0;
       wallet.balance.set('BTCPC', currentBalance + totalWithdrawn);
       await wallet.save();

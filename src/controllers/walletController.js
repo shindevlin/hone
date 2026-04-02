@@ -2,6 +2,8 @@
 const crypto = require('crypto');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+const ledger = require('../services/ledger');
 
 /**
  * Create Wallet for Authenticated User
@@ -104,15 +106,28 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'Cannot transfer to your own wallet' });
     }
 
-    // Execute transfer
+    // Resolve usernames for ledger
+    const senderUser = await User.findById(userId);
+    const recipientUser = await User.findOne({
+      $or: [
+        { _id: recipientWallet.userId }
+      ]
+    });
+    const senderName = senderUser?.username || senderWallet.address;
+    const recipientName = recipientUser?.username || recipientWallet.address;
+
+    // Record on permanent ledger — this IS the chain
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordTransfer(senderName, recipientName, amount, 'BTCPC', null, epoch, memo || null);
+
+    // Update wallet caches
     senderWallet.balance.set('BTCPC', senderBalance - amount);
     const recipientBalance = recipientWallet.balance.get('BTCPC') || 0;
     recipientWallet.balance.set('BTCPC', recipientBalance + amount);
-
     await senderWallet.save();
     await recipientWallet.save();
 
-    // Record transaction
+    // Record transaction (legacy index — ledger is source of truth)
     const transaction = new Transaction({
       from: senderWallet.address,
       to: toAddress,

@@ -7,6 +7,7 @@ const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const Project = require('../models/Project');
+const ledger = require('../services/ledger');
 
 const FAUCET_AMOUNT = 1; // 1 BTCPC per claim
 const FAUCET_ADDRESS = 'btcpc_faucet';
@@ -88,9 +89,19 @@ router.post('/claim', authenticateToken, async (req, res) => {
 });
 
 async function grantFaucet(wallet, currentBalance, memo, res) {
+  // Resolve username for ledger
+  const user = await User.findById(wallet.userId);
+  const username = user?.username || wallet.address;
+
+  // Record on permanent ledger
+  const epoch = await ledger.getCurrentEpoch();
+  await ledger.recordFaucet(username, FAUCET_AMOUNT, epoch);
+
+  // Update wallet cache
   wallet.balance.set('BTCPC', currentBalance + FAUCET_AMOUNT);
   await wallet.save();
 
+  // Record transaction (legacy index)
   const tx = new Transaction({
     from: FAUCET_ADDRESS,
     to: wallet.address,

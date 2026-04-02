@@ -19,9 +19,9 @@ var EPOCH_SIZE = 4;
 var DIFFICULTY_SIZE = 4;
 var MINER_ID_SIZE = 32;
 
-var HEADER_SIZE = VERSION_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE +
+var HEADER_SIZE = VERSION_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE +
   TIMESTAMP_SIZE + EPOCH_SIZE + DIFFICULTY_SIZE + MINER_ID_SIZE;
-// 4 + 32 + 32 + 32 + 8 + 4 + 4 + 32 = 148 bytes
+// 4 + 32 + 32 + 32 + 32 + 8 + 4 + 4 + 32 = 180 bytes
 
 /**
  * Block — Represents a BTCPC block with formal binary serialization.
@@ -31,6 +31,7 @@ var HEADER_SIZE = VERSION_SIZE + HASH_SIZE + HASH_SIZE + HASH_SIZE +
  *   previous_block_hash        — 32-byte hash
  *   merkle_root_transactions   — 32-byte hash
  *   merkle_root_compute_proofs — 32-byte hash
+ *   state_root                 — 32-byte hash (Sparse Merkle Tree root)
  *   timestamp                  — uint64 (ms since epoch)
  *   epoch_number               — uint32
  *   difficulty                 — uint32
@@ -42,6 +43,7 @@ function Block(opts) {
   this.previous_block_hash = opts.previous_block_hash || "0".repeat(64);
   this.merkle_root_transactions = opts.merkle_root_transactions || "0".repeat(64);
   this.merkle_root_compute_proofs = opts.merkle_root_compute_proofs || "0".repeat(64);
+  this.state_root = opts.state_root || "0".repeat(64);
   this.timestamp = opts.timestamp || Date.now();
   this.epoch_number = opts.epoch_number || 0;
   this.difficulty = opts.difficulty || 1;
@@ -77,6 +79,11 @@ Block.prototype.serialize = function () {
   // merkle_root_compute_proofs — 32 bytes
   var cpRoot = normalizeHash(this.merkle_root_compute_proofs);
   cpRoot.copy(buf, offset);
+  offset += HASH_SIZE;
+
+  // state_root — 32 bytes (Sparse Merkle Tree root)
+  var stRoot = normalizeHash(this.state_root);
+  stRoot.copy(buf, offset);
   offset += HASH_SIZE;
 
   // timestamp — 8 bytes, little-endian uint64
@@ -127,6 +134,9 @@ Block.deserialize = function (buffer) {
   var merkle_root_compute_proofs = buffer.slice(offset, offset + HASH_SIZE).toString("hex");
   offset += HASH_SIZE;
 
+  var state_root = buffer.slice(offset, offset + HASH_SIZE).toString("hex");
+  offset += HASH_SIZE;
+
   var tsLow = buffer.readUInt32LE(offset);
   var tsHigh = buffer.readUInt32LE(offset + 4);
   var timestamp = tsHigh * 0x100000000 + tsLow;
@@ -145,6 +155,7 @@ Block.deserialize = function (buffer) {
     previous_block_hash: previous_block_hash,
     merkle_root_transactions: merkle_root_transactions,
     merkle_root_compute_proofs: merkle_root_compute_proofs,
+    state_root: state_root,
     timestamp: timestamp,
     epoch_number: epoch_number,
     difficulty: difficulty,

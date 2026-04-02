@@ -11,6 +11,10 @@ const path = require('path');
 const fs = require('fs');
 const GenesisDream = require('../models/GenesisDream');
 
+const Block = require('../chain/block');
+const blockStore = require('../chain/blockStore');
+const stateManager = require('../chain/stateManager');
+
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
@@ -26,6 +30,41 @@ async function createGenesisBlock() {
   const existingEpoch = await Epoch.findOne({ epoch_number: 0 });
   if (existingEpoch) {
     console.log('[BTCPC] Genesis block already exists');
+
+    // Ensure genesis block file exists on disk (migration path)
+    if (!blockStore.hasBlock(0)) {
+      try {
+        blockStore.ensureBlockDir();
+        const LedgerEntry = require('../models/LedgerEntry');
+        const entries = await LedgerEntry.find({ epoch: 0 }).lean();
+        const cleanEntries = entries.map(e => ({
+          type: e.type, from: e.from, to: e.to, token: e.token,
+          amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
+          memo: e.memo, timestamp: e.timestamp,
+          account_data: e.account_data, token_data: e.token_data,
+          delegation_data: e.delegation_data
+        }));
+        stateManager.applyLedgerEntries(cleanEntries);
+        const txHashes = cleanEntries.map(e => blockStore.hashLedgerEntry(e));
+        const block = new Block({
+          version: 1, epoch_number: 0,
+          previous_block_hash: '0'.repeat(64),
+          merkle_root_transactions: Block.computeMerkleRoot(txHashes),
+          merkle_root_compute_proofs: '0'.repeat(64),
+          state_root: stateManager.getStateRoot(),
+          timestamp: existingEpoch.started_at.getTime(),
+          difficulty: 1, miner_id: GENESIS_MINER
+        });
+        blockStore.writeBlock(block, {
+          ledger_entries: cleanEntries, rewards: [],
+          compute_proofs: [], mining_proofs: []
+        });
+        console.log('[BTCPC] Genesis block migrated to disk: ' + block.computeHash().slice(0, 16) + '...');
+      } catch (err) {
+        console.error('[BTCPC] Genesis migration to disk failed: ' + err.message);
+      }
+    }
+
     const user = await User.findOne({ username: GENESIS_MINER });
     const wallet = user ? await Wallet.findOne({ userId: user._id }) : null;
     const node = user ? await Node.findOne({ account: user._id }) : null;
@@ -164,6 +203,57 @@ async function createGenesisBlock() {
     console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
   } catch (err) {
     console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
+  }
+
+  // ── Write genesis block to disk — the source of truth ──
+  try {
+    blockStore.ensureBlockDir();
+
+    // Collect genesis ledger entries for the block payload
+    const LedgerEntry = require('../models/LedgerEntry');
+    const genesisLedgerEntries = await LedgerEntry.find({ epoch: 0 }).lean();
+    const cleanEntries = genesisLedgerEntries.map(e => ({
+      type: e.type, from: e.from, to: e.to, token: e.token,
+      amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
+      memo: e.memo, timestamp: e.timestamp,
+      account_data: e.account_data, token_data: e.token_data,
+      delegation_data: e.delegation_data
+    }));
+
+    // Apply genesis entries to SMT
+    stateManager.applyLedgerEntries(cleanEntries);
+    const stateRoot = stateManager.getStateRoot();
+
+    // Compute Merkle roots
+    const txHashes = cleanEntries.map(e => blockStore.hashLedgerEntry(e));
+    const txMerkleRoot = Block.computeMerkleRoot(txHashes);
+
+    const genesisBlock = new Block({
+      version: 1,
+      epoch_number: 0,
+      previous_block_hash: '0'.repeat(64),
+      merkle_root_transactions: txMerkleRoot,
+      merkle_root_compute_proofs: '0'.repeat(64),
+      state_root: stateRoot,
+      timestamp: genesisEpoch.started_at.getTime(),
+      difficulty: 1,
+      miner_id: GENESIS_MINER
+    });
+
+    const payload = {
+      ledger_entries: cleanEntries,
+      rewards: [],
+      compute_proofs: [],
+      mining_proofs: []
+    };
+
+    blockStore.writeBlock(genesisBlock, payload);
+    const blockHash = genesisBlock.computeHash();
+    console.log(`[BTCPC] Genesis block written to disk: ${blockHash.slice(0, 16)}...`);
+    console.log(`[BTCPC]   State root: ${stateRoot.slice(0, 16)}...`);
+    console.log(`[BTCPC]   Tx Merkle root: ${txMerkleRoot.slice(0, 16)}...`);
+  } catch (err) {
+    console.error(`[BTCPC] Failed to write genesis block to disk: ${err.message}`);
   }
 
   console.log('[BTCPC] ================================================');

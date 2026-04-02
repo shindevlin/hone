@@ -9,10 +9,13 @@
  */
 
 const crypto = require("crypto");
+const blockStore = require("../chain/blockStore");
+const Block = require("../chain/block");
+const blockchain = require("../chain/blockchain");
+const stateManager = require("../chain/stateManager");
 
 // In-memory chain state cache
-// In production this is backed by MongoDB (Epoch model), but for the P2P layer
-// we maintain a fast in-memory index keyed by epoch number.
+// Backed by block files on disk (source of truth) and MongoDB (cache).
 const blockCache = new Map();
 let chainHeight = -1;
 
@@ -160,11 +163,60 @@ function comparePeer(peerChainHeight) {
 }
 
 /**
- * Load finalized epochs from the database into the block cache.
- * Called on startup to initialize the chain state.
+ * Load chain from disk first, then fall back to MongoDB.
+ * Block files on disk are the source of truth.
  */
 async function loadFromDatabase() {
   try {
+    blockStore.ensureBlockDir();
+
+    // ── Try loading from block files on disk first ──
+    const latestOnDisk = blockStore.getLatestBlockNumber();
+
+    if (latestOnDisk >= 0) {
+      console.log("[BTCPC P2P] Loading chain from disk (blocks 0-" + latestOnDisk + ")...");
+
+      // Find latest finality block for fast SMT restore
+      const latestFinality = blockStore.getLatestFinalityNumber();
+      let replayFrom = 0;
+
+      if (latestFinality >= 0) {
+        const finData = blockStore.readFinality(latestFinality);
+        if (finData && finData.snapshot) {
+          stateManager.loadFromFinality(finData.snapshot);
+          replayFrom = latestFinality + 1;
+          console.log("[BTCPC P2P]   Loaded finality block at epoch " + latestFinality + " (" + (finData.snapshot.account_count || 0) + " accounts)");
+        }
+      }
+
+      // Replay blocks from finality (or genesis) to rebuild state
+      blockStore.iterateBlocks(replayFrom, latestOnDisk, function (block, payload, epoch) {
+        // Apply ledger entries to SMT (skip if already loaded from finality at this epoch)
+        if (epoch > latestFinality && payload.ledger_entries) {
+          stateManager.applyLedgerEntries(payload.ledger_entries);
+        }
+
+        // Cache for P2P serving
+        cacheBlock({
+          epoch_number: block.epoch_number,
+          block_reward: 0,
+          total_work: 0,
+          consensus_hash: block.state_root,
+          status: "finalized",
+          header_hex: block.serialize().toString("hex"),
+          block_hash: block.computeHash()
+        });
+
+        // Add to formal blockchain
+        blockchain.addBlock(block);
+      });
+
+      console.log("[BTCPC P2P] Chain loaded from disk: " + blockCache.size + " blocks, height=" + chainHeight + " | state root: " + stateManager.getStateRoot().slice(0, 16) + "...");
+      return;
+    }
+
+    // ── Fall back to MongoDB ──
+    console.log("[BTCPC P2P] No block files on disk, loading from MongoDB...");
     const Epoch = require("../models/Epoch");
     const epochs = await Epoch.find({ status: "finalized" }).sort({ epoch_number: 1 });
 
@@ -189,9 +241,80 @@ async function loadFromDatabase() {
       chainHeight = latestActive.epoch_number;
     }
 
-    console.log("[BTCPC P2P] Chain loaded: " + blockCache.size + " blocks cached, height=" + chainHeight);
+    console.log("[BTCPC P2P] Chain loaded from MongoDB: " + blockCache.size + " blocks cached, height=" + chainHeight);
+
+    // ── One-time migration: write existing epochs to disk ──
+    if (epochs.length > 0) {
+      await migrateFromMongoDB(epochs);
+    }
   } catch (err) {
-    console.error("[BTCPC P2P] Failed to load chain from database:", err.message);
+    console.error("[BTCPC P2P] Failed to load chain:", err.message);
+  }
+}
+
+/**
+ * One-time migration: write MongoDB epochs to disk as block files.
+ * Pre-migration blocks get zero-hash state roots (no SMT data existed).
+ */
+async function migrateFromMongoDB(epochs) {
+  try {
+    const LedgerEntry = require("../models/LedgerEntry");
+    console.log("[BTCPC P2P] Migrating " + epochs.length + " epochs from MongoDB to disk...");
+
+    let prevHash = "0".repeat(64);
+    for (const epoch of epochs) {
+      if (blockStore.hasBlock(epoch.epoch_number)) continue;
+
+      // Get ledger entries for this epoch
+      const entries = await LedgerEntry.find({ epoch: epoch.epoch_number }).lean();
+      const cleanEntries = entries.map(function (e) {
+        return {
+          type: e.type, from: e.from, to: e.to, token: e.token,
+          amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
+          memo: e.memo, timestamp: e.timestamp,
+          account_data: e.account_data, token_data: e.token_data,
+          delegation_data: e.delegation_data
+        };
+      });
+
+      // Apply to SMT
+      stateManager.applyLedgerEntries(cleanEntries);
+
+      // Compute Merkle roots
+      const txHashes = cleanEntries.map(function (e) { return blockStore.hashLedgerEntry(e); });
+      const txRoot = Block.computeMerkleRoot(txHashes);
+
+      const block = new Block({
+        version: 1,
+        epoch_number: epoch.epoch_number,
+        previous_block_hash: prevHash,
+        merkle_root_transactions: txRoot,
+        merkle_root_compute_proofs: "0".repeat(64),
+        state_root: stateManager.getStateRoot(),
+        timestamp: epoch.ended_at ? epoch.ended_at.getTime() : epoch.started_at.getTime(),
+        difficulty: epoch.difficulty || 1,
+        miner_id: (epoch.rewards_distributed && epoch.rewards_distributed[0])
+          ? epoch.rewards_distributed[0].node_id
+          : "shindevlin"
+      });
+
+      const payload = {
+        ledger_entries: cleanEntries,
+        rewards: (epoch.rewards_distributed || []).map(function (r) {
+          return { miner: r.node_id, amount: r.amount };
+        }),
+        compute_proofs: [],
+        mining_proofs: []
+      };
+
+      blockStore.writeBlock(block, payload);
+      blockchain.addBlock(block);
+      prevHash = block.computeHash();
+    }
+
+    console.log("[BTCPC P2P] Migration complete: " + epochs.length + " blocks written to disk");
+  } catch (err) {
+    console.error("[BTCPC P2P] Migration failed:", err.message);
   }
 }
 

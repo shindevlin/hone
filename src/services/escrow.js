@@ -11,6 +11,7 @@ const Escrow = require("../models/Escrow");
 const Wallet = require("../models/Wallet");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const ledger = require("./ledger");
 
 /**
  * Lock funds for an inference request.
@@ -28,7 +29,11 @@ async function lockFunds(requestId, payerUsername, amount) {
     throw new Error(`Insufficient balance: have ${balance}, need ${amount}`);
   }
 
-  // Deduct from wallet
+  // Record on permanent ledger
+  const epoch = await ledger.getCurrentEpoch();
+  await ledger.recordEscrowLock(payerUsername, requestId, amount, epoch);
+
+  // Update wallet cache
   wallet.balance.set("BTCPC", balance - amount);
   await wallet.save();
 
@@ -41,7 +46,7 @@ async function lockFunds(requestId, payerUsername, amount) {
   });
   await escrow.save();
 
-  // Record transaction
+  // Record transaction (legacy index)
   const tx = new Transaction({
     from: payerUsername,
     to: "escrow:" + requestId,
@@ -65,6 +70,8 @@ async function releaseFunds(requestId, payouts) {
 
   const released = [];
 
+  const epoch = await ledger.getCurrentEpoch();
+
   for (const payout of payouts) {
     const node = await require("../models/Node").findById(payout.node_id);
     if (!node) continue;
@@ -73,11 +80,16 @@ async function releaseFunds(requestId, payouts) {
     const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
     if (!wallet) continue;
 
+    // Record on permanent ledger
+    await ledger.recordEscrowRelease(user.username, requestId, payout.amount, epoch, `Inference payout rank #${payout.rank}`);
+
+    // Update wallet cache
     wallet.balance.set("BTCPC", (wallet.balance.get("BTCPC") || 0) + payout.amount);
     await wallet.save();
 
     released.push({ node_id: payout.node_id, amount: payout.amount });
 
+    // Record transaction (legacy index)
     const tx = new Transaction({
       from: "escrow:" + requestId,
       to: user.username,
@@ -109,6 +121,11 @@ async function refundFunds(requestId) {
   const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
   if (!wallet) throw new Error("Wallet not found");
 
+  // Record on permanent ledger
+  const epoch = await ledger.getCurrentEpoch();
+  await ledger.recordEscrowRefund(escrow.payer, requestId, escrow.amount, epoch);
+
+  // Update wallet cache
   wallet.balance.set("BTCPC", (wallet.balance.get("BTCPC") || 0) + escrow.amount);
   await wallet.save();
 
@@ -116,6 +133,7 @@ async function refundFunds(requestId) {
   escrow.released_at = new Date();
   await escrow.save();
 
+  // Record transaction (legacy index)
   const tx = new Transaction({
     from: "escrow:" + requestId,
     to: escrow.payer,

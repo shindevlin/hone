@@ -12,6 +12,7 @@ const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const Node = require('../models/Node');
+const ledger = require('../services/ledger');
 const Epoch = require('../models/Epoch');
 const WorkProof = require('../models/WorkProof');
 const MiningProof = require('../models/MiningProof');
@@ -162,9 +163,15 @@ router.post('/claim', async (req, res) => {
       }
     }
 
+    // Record on permanent ledger
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordFaucet(user.username, 1, epoch);
+
+    // Update wallet cache
     wallet.balance.set('BTCPC', balance + 1);
     await wallet.save();
 
+    // Record transaction (legacy index)
     await new Transaction({
       from: 'btcpc_faucet', to: wallet.address, amount: 1, type: 'faucet',
       memo: faucetClaims === 0 ? 'Welcome to BTCPC' : 'Faucet refill'

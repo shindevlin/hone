@@ -26,7 +26,12 @@ const { startAutoUpdater } = require('../services/autoUpdater');
 const { verifyAllModels, verifyModel } = require('../services/modelVerifier');
 const { startModelManager } = require('../services/modelManager');
 const ledger = require('../services/ledger');
+const Block = require('../chain/block');
+const blockStore = require('../chain/blockStore');
+const blockchain = require('../chain/blockchain');
+const stateManager = require('../chain/stateManager');
 
+const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
 const http = require('http');
@@ -263,19 +268,11 @@ async function finalizeAndSplitRewards(epochNumber) {
     }
     share = parseFloat(share.toFixed(10));
 
-    // Record mining reward on permanent ledger
+    // Record mining reward on permanent ledger — this IS the chain
     await ledger.recordMiningReward(miner, share, epochNumber);
 
-    // Credit the miner's wallet (cache — ledger is source of truth)
-    const user = await User.findOne({ username: miner });
-    if (user) {
-      const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-      if (wallet) {
-        const balance = wallet.balance.get('BTCPC') || 0;
-        wallet.balance.set('BTCPC', balance + share);
-        await wallet.save();
-      }
-    }
+    // Update wallet cache (ledger is source of truth)
+    await ledger.updateWalletCache(miner, 'BTCPC', share);
 
     // Update mining proof with earned reward
     const proof = await MiningProof.findOne({ block_number: epochNumber, miner });
@@ -303,6 +300,113 @@ async function finalizeAndSplitRewards(epochNumber) {
   await epoch.save();
 
   console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${rewardNumber} (deferred ${epochsDeferred}) | ${miners.length} miner(s) | ${settledJobs.length} settled jobs | ${blockReward.toFixed(4)} BTCPC split`);
+
+  // ── Write block to disk — source of truth ──
+  try {
+    // Get ledger entries for this epoch (already flushed to pending)
+    const epochLedgerEntries = ledger.flushPendingEntries();
+
+    // Apply entries to SMT for state root
+    stateManager.applyLedgerEntries(epochLedgerEntries);
+    const stateRoot = stateManager.getStateRoot();
+
+    // Compute Merkle roots
+    const txHashes = epochLedgerEntries.map(e => blockStore.hashLedgerEntry(e));
+    const txMerkleRoot = Block.computeMerkleRoot(txHashes);
+
+    // Collect compute proofs for this epoch
+    const epochProofs = await WorkProof.find({ epoch_number: epochNumber }).lean();
+    const proofHashes = epochProofs.map(p => blockStore.hashComputeProof(p));
+    const cpMerkleRoot = Block.computeMerkleRoot(proofHashes);
+
+    // Get previous block hash
+    let prevHash = '0'.repeat(64);
+    if (epochNumber > 0) {
+      const prevHeader = blockStore.readBlockHeader(epochNumber - 1);
+      if (prevHeader) {
+        prevHash = prevHeader.computeHash();
+      }
+    }
+
+    const block = new Block({
+      version: 1,
+      epoch_number: epochNumber,
+      previous_block_hash: prevHash,
+      merkle_root_transactions: txMerkleRoot,
+      merkle_root_compute_proofs: cpMerkleRoot,
+      state_root: stateRoot,
+      timestamp: epoch.ended_at.getTime(),
+      difficulty: epoch.difficulty || 1,
+      miner_id: MINER_ACCOUNT
+    });
+
+    const miningProofs = await MiningProof.find({ block_number: epochNumber }).lean();
+
+    const payload = {
+      ledger_entries: epochLedgerEntries,
+      rewards: rewards.map(r => ({ miner: r.node_id, amount: r.amount })),
+      compute_proofs: epochProofs.map(p => ({
+        node_id: p.node_id, prompt_hash: p.prompt_hash,
+        result_hash: p.result_hash, model: p.model,
+        tokens_generated: p.tokens_generated, work_value: p.work_value
+      })),
+      mining_proofs: miningProofs.map(p => ({
+        miner: p.miner, reward_earned: p.reward_earned,
+        model: p.model, tokens_computed: p.tokens_computed,
+        work_value: p.work_value, state_hash: p.state_hash
+      }))
+    };
+
+    blockStore.writeBlock(block, payload);
+    blockchain.addBlock(block);
+
+    const blockHash = block.computeHash();
+    console.log(`[BTCPC] Block ${epochNumber} written to disk: ${blockHash.slice(0, 16)}... | state: ${stateRoot.slice(0, 16)}...`);
+
+    // ── Finality block every N epochs ──
+    if (epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0) {
+      const snapshot = stateManager.generateFinalitySnapshot();
+      // Rolling commitment: SHA256(prev_finality_hash + current_state_root)
+      const prevFinalityEpoch = epochNumber - FINALITY_INTERVAL;
+      let prevFinalityHash = '0'.repeat(64);
+      if (prevFinalityEpoch >= 0 && blockStore.hasFinality(prevFinalityEpoch)) {
+        const prevFin = blockStore.readFinality(prevFinalityEpoch);
+        if (prevFin && prevFin.snapshot.rolling_commitment) {
+          prevFinalityHash = prevFin.snapshot.rolling_commitment;
+        }
+      }
+      const crypto = require('crypto');
+      snapshot.rolling_commitment = crypto.createHash('sha256')
+        .update(prevFinalityHash + stateRoot)
+        .digest('hex');
+      snapshot.finality_epoch = epochNumber;
+      snapshot.block_hash = blockHash;
+
+      blockStore.writeFinality(block, snapshot);
+      console.log(`[BTCPC] Finality block ${epochNumber} written | ${snapshot.account_count} accounts | commitment: ${snapshot.rolling_commitment.slice(0, 16)}...`);
+
+      // Lucid Pruning — remove block files before this finality block
+      const pruned = blockStore.pruneBeforeFinality(epochNumber);
+      if (pruned > 0) {
+        console.log(`[BTCPC] Lucid Pruning: ${pruned} block files pruned (before epoch ${epochNumber})`);
+      }
+    }
+
+    // Attach block data to epoch for broadcast
+    epoch._blockData = {
+      header_hex: block.serialize().toString('hex'),
+      block_hash: blockHash,
+      state_root: stateRoot,
+      ledger: epochLedgerEntries,
+      is_finality: epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0
+    };
+  } catch (err) {
+    console.error(`[BTCPC] Failed to write block to disk: ${err.message}`);
+    // Non-fatal: chain continues, block can be reconstructed later
+    // Still flush ledger entries so they make it to P2P broadcast
+    epoch._blockData = { ledger: ledger.flushPendingEntries() };
+  }
+
   return epoch;
 }
 
@@ -947,9 +1051,8 @@ async function startMiner() {
         try {
           const finalized = await finalizeAndSplitRewards(currentEpoch);
           if (finalized) {
-            // Broadcast the finalized block — this IS the chain
-            // Flush ledger entries accumulated during this epoch
-            const ledgerEntries = ledger.flushPendingEntries();
+            // Block data was attached by finalizeAndSplitRewards
+            const bd = finalized._blockData || {};
 
             const blockMsg = createMessage('EPOCH_FINALIZED', {
               epoch_number: currentEpoch,
@@ -965,7 +1068,12 @@ async function startMiner() {
               consensus_hash: finalized.consensus_hash,
               authority: MINER_ACCOUNT,
               // Permanent ledger entries — accounts, transfers, rewards
-              ledger: ledgerEntries
+              ledger: bd.ledger || [],
+              // Block header for P2P chain replication
+              header_hex: bd.header_hex || null,
+              block_hash: bd.block_hash || null,
+              state_root: bd.state_root || null,
+              is_finality: bd.is_finality || false
             }, p2p.NODE_ID);
             p2p.broadcast(blockMsg);
             console.log(`[BTCPC] Block ${currentEpoch} broadcast to network`);
