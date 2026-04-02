@@ -47,6 +47,9 @@ const MESSAGE_TYPES = {
   EPOCH_FINALIZED: "EPOCH_FINALIZED",
   // Account announcement — any node can broadcast
   ACCOUNT_ANNOUNCE: "ACCOUNT_ANNOUNCE",
+  // Ledger sync — request/response for missing ledger entries
+  REQUEST_LEDGER: "REQUEST_LEDGER",
+  RESPONSE_LEDGER: "RESPONSE_LEDGER",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -215,6 +218,12 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.ACCOUNT_ANNOUNCE:
       handleAccountAnnounce(peer, msg, ctx);
       break;
+    case MESSAGE_TYPES.REQUEST_LEDGER:
+      handleRequestLedger(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.RESPONSE_LEDGER:
+      handleResponseLedger(peer, msg, ctx);
+      break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
   }
@@ -252,6 +261,16 @@ function handleHandshake(peer, msg, ctx) {
     const reqMsg = createRequestBlocksMessage(localHeight + 1, peer.chainHeight, ctx.NODE_ID);
     ctx.send(peer.ws, reqMsg);
   }
+
+  // Request ledger sync — peer may have entries we're missing
+  (async function () {
+    try {
+      var LedgerEntry = require("../models/LedgerEntry");
+      var localCount = await LedgerEntry.countDocuments();
+      var ledgerReq = createRequestLedgerMessage(localCount, ctx.NODE_ID);
+      ctx.send(peer.ws, ledgerReq);
+    } catch (_) {}
+  })();
 }
 
 /**
@@ -688,6 +707,90 @@ async function handleAccountAnnounce(peer, msg, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Ledger Sync — request and reconcile missing ledger entries
+// ---------------------------------------------------------------------------
+
+/**
+ * REQUEST_LEDGER — A peer requests ledger entries it's missing.
+ * Sends { localCount: N } — the number of entries we have.
+ * Responder sends all entries the requester is missing.
+ */
+async function handleRequestLedger(peer, msg, ctx) {
+  var data = msg.data || {};
+  var remoteCount = data.localCount || 0;
+
+  try {
+    var LedgerEntry = require("../models/LedgerEntry");
+    var localCount = await LedgerEntry.countDocuments();
+
+    if (localCount <= remoteCount) return; // they have more or same, nothing to send
+
+    // Send all entries — the receiver deduplicates
+    var entries = await LedgerEntry.find().sort({ timestamp: 1 }).lean();
+    var cleanEntries = entries.map(function (e) {
+      return {
+        type: e.type, from: e.from, to: e.to, token: e.token,
+        amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
+        memo: e.memo, timestamp: e.timestamp,
+        account_data: e.account_data, token_data: e.token_data,
+        delegation_data: e.delegation_data
+      };
+    });
+
+    var response = createMessage(MESSAGE_TYPES.RESPONSE_LEDGER, {
+      entries: cleanEntries,
+      count: cleanEntries.length
+    }, ctx.NODE_ID);
+
+    ctx.send(peer.ws, response);
+    console.log("[BTCPC P2P] Sent " + cleanEntries.length + " ledger entries to " + (peer.nodeId || "unknown").slice(0, 12));
+  } catch (err) {
+    console.error("[BTCPC P2P] Failed to handle ledger request:", err.message);
+  }
+}
+
+/**
+ * RESPONSE_LEDGER — Received ledger entries from a peer.
+ * Apply any entries we're missing.
+ */
+async function handleResponseLedger(peer, msg, ctx) {
+  var data = msg.data || {};
+  var entries = data.entries || [];
+
+  if (entries.length === 0) return;
+
+  try {
+    var { applyRemoteEntries, updateWalletCache } = require("../services/ledger");
+    var applied = await applyRemoteEntries(entries);
+
+    if (applied > 0) {
+      console.log("[BTCPC P2P] Ledger sync: " + applied + " new entries from " + (peer.nodeId || "unknown").slice(0, 12));
+
+      // Update wallet caches for applied entries
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        if (e.amount > 0) {
+          if (e.to) await updateWalletCache(e.to, e.token || "BTCPC", e.amount).catch(function () {});
+          if (e.from) await updateWalletCache(e.from, e.token || "BTCPC", -e.amount).catch(function () {});
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[BTCPC P2P] Failed to process ledger response:", err.message);
+  }
+}
+
+/**
+ * Request ledger sync from a peer.
+ * Called after handshake or when a node suspects it's missing entries.
+ */
+function createRequestLedgerMessage(localCount, nodeId) {
+  return createMessage(MESSAGE_TYPES.REQUEST_LEDGER, {
+    localCount: localCount
+  }, nodeId);
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -700,6 +803,7 @@ module.exports = {
   createPeerListMessage,
   createEpochCommitMessage,
   createRequestBlocksMessage,
+  createRequestLedgerMessage,
   createMessage,
   getIdleMiners
 };
