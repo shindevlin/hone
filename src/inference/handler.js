@@ -173,6 +173,33 @@ async function handlePayload(msg) {
     const resultHash = crypto.createHash("sha256").update(resultText).digest("hex");
     const promptHash = crypto.createHash("sha256").update(prompt).digest("hex");
 
+    // Store InferenceJob locally (authority needs this for settlement sweep)
+    const InferenceJob = require("../models/InferenceJob");
+    const existingJob = await InferenceJob.findOne({ job_id: requestId });
+    if (!existingJob) {
+      await InferenceJob.create({
+        job_id: requestId,
+        status: "completed",
+        model,
+        messages: [],
+        result_text: resultText,
+        result_hash: resultHash,
+        tokens_generated: tokensGenerated,
+        elapsed_ms: elapsed,
+        node_name: MINER_NAME,
+        completed_at: new Date()
+      });
+    } else {
+      existingJob.status = "completed";
+      existingJob.result_text = resultText;
+      existingJob.result_hash = resultHash;
+      existingJob.tokens_generated = tokensGenerated;
+      existingJob.elapsed_ms = elapsed;
+      existingJob.node_name = MINER_NAME;
+      existingJob.completed_at = new Date();
+      await existingJob.save();
+    }
+
     // Store work proof
     const weightFactor = getModelWeight(model);
     const proof = new WorkProof({
