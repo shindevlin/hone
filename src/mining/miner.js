@@ -475,22 +475,32 @@ async function mineEpoch(epochNumber) {
   }
 
   // Step 4b: Create soulbound mining proof (reward set to 0 until finalization splits it)
-  const existingProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
-  if (!existingProof) {
-    const miningProof = new MiningProof({
-      block_number: epochNumber,
-      miner: MINER_ACCOUNT,
-      reward_earned: 0, // Set during finalization based on work_value share
-      model: MODEL,
-      model_hash: modelHash, // SHA-256 verified against Ollama registry
-      tokens_computed: totalTokens,
-      work_value: totalWorkValue,
-      state_hash: stateHash
-    });
-    await miningProof.save();
-    console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
+  // Save to DB — if duplicate, that's fine, we still broadcast
+  try {
+    const existingProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
+    if (!existingProof) {
+      const miningProof = new MiningProof({
+        block_number: epochNumber,
+        miner: MINER_ACCOUNT,
+        reward_earned: 0,
+        model: MODEL,
+        model_hash: modelHash,
+        tokens_computed: totalTokens,
+        work_value: totalWorkValue,
+        state_hash: stateHash
+      });
+      await miningProof.save();
+      console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
+    } else {
+      console.log(`[BTCPC]   Mining Proof #${epochNumber}: already exists for ${MINER_ACCOUNT}`);
+    }
+  } catch (err) {
+    console.log(`[BTCPC]   Mining Proof #${epochNumber}: save error (${err.message}) — broadcasting anyway`);
+  }
 
-    // Broadcast proof via P2P so other nodes can collect it for finalization
+  // ALWAYS broadcast proof via P2P — even if DB save failed or proof already existed
+  // Other nodes need this to finalize the epoch
+  {
     const proofMsg = createMessage('MINING_PROOF', {
       block_number: epochNumber,
       miner: MINER_ACCOUNT,
