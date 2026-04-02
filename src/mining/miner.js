@@ -25,6 +25,7 @@ const { startInferenceHandler } = require('../inference/handler');
 const { startAutoUpdater } = require('../services/autoUpdater');
 const { verifyAllModels, verifyModel } = require('../services/modelVerifier');
 const { startModelManager } = require('../services/modelManager');
+const ledger = require('../services/ledger');
 
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
@@ -262,7 +263,10 @@ async function finalizeAndSplitRewards(epochNumber) {
     }
     share = parseFloat(share.toFixed(10));
 
-    // Credit the miner's wallet
+    // Record mining reward on permanent ledger
+    await ledger.recordMiningReward(miner, share, epochNumber);
+
+    // Credit the miner's wallet (cache — ledger is source of truth)
     const user = await User.findOne({ username: miner });
     if (user) {
       const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
@@ -801,6 +805,10 @@ async function startMiner() {
       }
       console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
 
+      // Record account creation on the permanent ledger
+      await ledger.recordAccountCreate(MINER_ACCOUNT, account.publicKeys, account.chainWallets, 0);
+      console.log(`[BTCPC] Account announced to ledger (permanent)`);
+
       // Check for unclaimed tokens sent to this username before it existed
       const crypto = require('crypto');
       const unclaimedAddr = 'BTCPC' + crypto.createHash('sha256').update('btcpc-username:' + MINER_ACCOUNT).digest('hex').slice(0, 40);
@@ -930,6 +938,9 @@ async function startMiner() {
           const finalized = await finalizeAndSplitRewards(currentEpoch);
           if (finalized) {
             // Broadcast the finalized block — this IS the chain
+            // Flush ledger entries accumulated during this epoch
+            const ledgerEntries = ledger.flushPendingEntries();
+
             const blockMsg = createMessage('EPOCH_FINALIZED', {
               epoch_number: currentEpoch,
               block_reward: finalized.block_reward,
@@ -942,7 +953,9 @@ async function startMiner() {
               })),
               total_work: finalized.total_work,
               consensus_hash: finalized.consensus_hash,
-              authority: MINER_ACCOUNT
+              authority: MINER_ACCOUNT,
+              // Permanent ledger entries — accounts, transfers, rewards
+              ledger: ledgerEntries
             }, p2p.NODE_ID);
             p2p.broadcast(blockMsg);
             console.log(`[BTCPC] Block ${currentEpoch} broadcast to network`);

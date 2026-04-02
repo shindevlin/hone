@@ -1062,13 +1062,169 @@ The staking requirement creates a bootstrapping challenge: early nodes need BTCP
 
 ---
 
-## 7. Lucid Pruning
+## 7. The Ledger — Permanent On-Chain State
+
+The BTCPC blockchain has two distinct layers:
+
+| Layer | Content | Prunable? | Growth |
+|-------|---------|-----------|--------|
+| **Ledger** | Accounts, balances, transfers, staking | Never | Slow (small txs) |
+| **Compute** | Inference jobs, work proofs, epoch details | Yes (Lucid Pruning) | Fast (large results) |
+
+The ledger is sacred. It never compresses, never prunes, never enters dreamstate. Every node stores the full ledger from genesis to present. This is the source of truth for who owns what.
+
+### 7.1 Account Records (Permanent)
+
+When an account is created, the following is written to the ledger and broadcast to all nodes:
+
+```json
+{
+  "type": "ACCOUNT_CREATE",
+  "username": "shindevlin",
+  "public_keys": {
+    "owner": "03abc...",
+    "active": "02def...",
+    "posting": "03ghi...",
+    "memo": "02jkl..."
+  },
+  "chain_addresses": {
+    "btcpc": "BTCPCabc123...",
+    "evm": "0x1234...",
+    "solana": "ABC123...",
+    "bitcoin": "bc1q...",
+    "ton": "0:abc...",
+    "hive": "shindevlin"
+  },
+  "created_at": "2026-04-02T17:30:00Z",
+  "created_in_epoch": 0
+}
+```
+
+The username is permanent and unique. The cross-chain addresses are deterministically derived from the mnemonic and permanently bound to the username. Anyone can look up `shindevlin` and find all their addresses on all chains.
+
+**On-chain identity binding:** When someone sends ETH to `0x1234...`, the BTCPC chain knows that's shindevlin's address. The cross-chain wallet watcher (section 5.7) monitors these addresses and records activity. The ledger stores the binding — the watcher tracks the activity.
+
+Sending tokens to a username that doesn't exist yet is allowed. Tokens sit at a deterministic address derived from the username. When the username is registered, the tokens are automatically claimed.
+
+### 7.2 Transfer Records (Permanent)
+
+Every token transfer is recorded on the ledger:
+
+```json
+{
+  "type": "TRANSFER",
+  "from": "shindevlin",
+  "to": "natoshisakamoto",
+  "amount": 500,
+  "token": "BTCPC",
+  "signature": "...",
+  "signed_by": "active_key",
+  "epoch": 42,
+  "timestamp": "2026-04-02T18:00:00Z"
+}
+```
+
+Transfers require the sender's **active key** signature. The posting key cannot move money — it's for lightweight operations (Telegram linking, content posting). The owner key can do everything including changing other keys.
+
+**Balance derivation:** A wallet's balance is not stored — it's computed:
+
+```
+balance(account) = sum(incoming transfers) + sum(mining rewards) - sum(outgoing transfers)
+```
+
+Any node can verify any balance by replaying the ledger from genesis. The "balance" field in the database is a cache for performance, not the source of truth.
+
+### 7.3 Token Creation Records (Permanent)
+
+Custom tokens can be created on the BTCPC chain:
+
+```json
+{
+  "type": "TOKEN_CREATE",
+  "creator": "shindevlin",
+  "token": {
+    "name": "My Token",
+    "symbol": "MTK",
+    "supply": 1000000,
+    "decimals": 10
+  },
+  "fee": 42,
+  "fee_to": "shindevlin",
+  "epoch": 100,
+  "timestamp": "2026-04-10T12:00:00Z"
+}
+```
+
+Cost: 42 BTCPC to create a token (paid to the genesis operator during genesis phase, to protocol treasury later). Custom tokens use the same transfer mechanism as BTCPC — same ledger, same signatures, same permanence.
+
+### 7.4 Staking and Delegation Records (Permanent)
+
+Staking and delegation changes are ledger entries:
+
+```json
+{
+  "type": "STAKE",
+  "account": "shindevlin",
+  "amount": 10000,
+  "purpose": "mining"
+}
+
+{
+  "type": "DELEGATE",
+  "from": "shindevlin",
+  "to": "natoshisakamoto",
+  "amount": 5000,
+  "purpose": "clock_node"
+}
+```
+
+Delegation lends staking power without transferring ownership. The delegator can revoke at any time (with a cooldown period to prevent gaming). The delegatee can use the staked power for mining or clock node operations but cannot spend the tokens.
+
+### 7.5 Ledger Propagation
+
+Every ledger entry is broadcast via P2P as part of the EPOCH_FINALIZED block:
+
+```
+EPOCH_FINALIZED {
+  epoch: 42,
+  ledger_entries: [
+    { type: "TRANSFER", from: "shin", to: "natoshi", amount: 500, ... },
+    { type: "ACCOUNT_CREATE", username: "newuser", ... },
+    { type: "STAKE", account: "shin", amount: 10000, ... }
+  ],
+  rewards: [
+    { miner: "shin", amount: 231.87 },
+    { miner: "natoshi", amount: 11.19 }
+  ],
+  inference: { ... }  // compressible layer
+}
+```
+
+All nodes process ledger entries and update their local state. The ledger entries are permanent — they exist in every finalized block and are never pruned.
+
+### 7.6 What's On The Ledger vs What's Compressible
+
+| On Ledger (permanent) | On Compute Layer (compressible) |
+|-----------------------|-------------------------------|
+| Account creation + public keys | Inference prompts + results |
+| Cross-chain address bindings | Work proof details |
+| Token transfers + signatures | Epoch commitment data |
+| Token creation | Model verification records |
+| Staking + delegation changes | P2P routing metadata |
+| Mining reward distributions | Genesis dream inscription content |
+| Balance checkpoints | |
+
+The ledger is the chain's memory. It never forgets. The compute layer is the chain's workspace — it dreams itself smaller through Lucid Pruning, but the ledger remains intact.
+
+---
+
+## 8. Lucid Pruning
 
 Traditional blockchains grow forever. Every node stores every transaction from genesis. Bitcoin's chain is 600GB+. Ethereum's archive node exceeds 15TB. This is unsustainable for a compute chain where inference results can be kilobytes per job.
 
 BTCPC introduces **Lucid Pruning** — a self-compressing chain that uses its own inference network to dream its history into progressively denser forms. The chain is aware of what it's forgetting, and it proves the forgotten data was real by retaining the ability to recall it through recomputation.
 
-### 7.1 The Principle
+### 9.1 The Principle
 
 When you dream, your brain replays the day's events and compresses them into long-term memory. Unimportant details are discarded. Important patterns are strengthened. You wake up with less data but more knowledge.
 
@@ -1076,7 +1232,7 @@ Lucid Pruning works the same way. Periodically, the chain enters a **dreamstate*
 
 The chain literally dreams itself smaller. And because it's a compute chain, the dreaming is paid work — miners earn rewards for compression just like any other inference job.
 
-### 7.2 How It Works
+### 9.2 How It Works
 
 **Three tiers of chain state:**
 
@@ -1116,7 +1272,7 @@ Epoch 1000: Dreamstate #10
 
 Each dreamstate contains the hash of the previous dreamstate. Dreamstate #10 proves dreamstate #9 proves dreamstate #8 proves... all the way back to genesis. A single 64-byte hash proves the entire chain history.
 
-### 7.3 Verification and Recall
+### 9.3 Verification and Recall
 
 **"Is this historical data real?"**
 
@@ -1130,7 +1286,7 @@ Three levels of verification, from cheapest to most expensive:
 
 **The guarantee:** Any historical claim about the BTCPC chain can be verified, even after the raw data is pruned. The proof is not storage — it's the ability to recompute. The chain doesn't remember everything. It remembers how to remember.
 
-### 7.4 Why This Is Novel
+### 9.4 Why This Is Novel
 
 No other blockchain compresses its own state using its own consensus mechanism:
 
@@ -1144,7 +1300,7 @@ No other blockchain compresses its own state using its own consensus mechanism:
 
 BTCPC is the first chain where the work that secures the network (inference) is the same work that compresses the chain. Miners don't just mine — they dream. And the dreams are the chain's memory.
 
-### 7.5 Dreamstate Economics
+### 9.5 Dreamstate Economics
 
 Dreamstate compression jobs are treated as regular inference work:
 
@@ -1156,7 +1312,7 @@ Dreamstate compression jobs are treated as regular inference work:
 
 The chain pays for its own maintenance through the same mechanism it pays for everything else: Proof of Compute.
 
-### 7.6 What Never Gets Pruned
+### 9.6 What Never Gets Pruned
 
 Some data is permanent, regardless of dreamstate compression:
 
@@ -1170,9 +1326,9 @@ Everything else is dreamable. The chain wakes up lighter every cycle.
 
 ---
 
-## 8. Node Software
+## 9. Node Software
 
-### 8.1 Reference Implementation
+### 9.1 Reference Implementation
 
 The reference BTCPC node is built in Node.js:
 
@@ -1184,7 +1340,7 @@ btcpc-node start \
   --link-base 0x1234...
 ```
 
-### 8.2 Node Components
+### 9.2 Node Components
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -1231,7 +1387,7 @@ btcpc-node start \
 
 ---
 
-## 9. Roadmap
+## 10. Roadmap
 
 ### Phase 0: Genesis (Current)
 - [x] Whitepaper
@@ -1274,7 +1430,7 @@ btcpc-node start \
 
 ---
 
-## 10. Conclusion
+## 11. Conclusion
 
 Bitcoin proved that decentralized proof of work can create sound money. BTCPC extends this insight in two fundamental ways:
 

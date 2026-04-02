@@ -1,0 +1,272 @@
+"use strict";
+
+/**
+ * Ledger Service — permanent on-chain state management.
+ *
+ * The ledger never prunes. All entries from genesis forward are permanent.
+ * Balance is always computed from the ledger, never stored directly.
+ *
+ * Every write creates a LedgerEntry AND is included in the next
+ * EPOCH_FINALIZED broadcast so all nodes have the same ledger.
+ */
+
+const LedgerEntry = require('../models/LedgerEntry');
+
+// Pending entries — collected during an epoch, written at EPOCH_END
+const pendingEntries = [];
+
+/**
+ * Record an account creation on the ledger.
+ */
+async function recordAccountCreate(username, publicKeys, chainAddresses, epoch) {
+  const entry = new LedgerEntry({
+    type: 'ACCOUNT_CREATE',
+    to: username,
+    epoch: epoch || 0,
+    account_data: {
+      username,
+      public_keys: publicKeys || {},
+      chain_addresses: chainAddresses || {}
+    }
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record a transfer on the ledger. Requires active key signature.
+ */
+async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
+  if (amount <= 0) throw new Error('Amount must be positive');
+
+  const entry = new LedgerEntry({
+    type: 'TRANSFER',
+    from,
+    to,
+    token: token || 'BTCPC',
+    amount,
+    epoch,
+    signature,
+    signed_by: 'active',
+    memo
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record a mining reward on the ledger.
+ */
+async function recordMiningReward(miner, amount, epoch) {
+  const entry = new LedgerEntry({
+    type: 'MINING_REWARD',
+    to: miner,
+    token: 'BTCPC',
+    amount,
+    epoch
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record a faucet distribution.
+ */
+async function recordFaucet(to, amount, epoch) {
+  const entry = new LedgerEntry({
+    type: 'FAUCET',
+    from: 'btcpc_genesis',
+    to,
+    token: 'BTCPC',
+    amount,
+    epoch
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record a token creation on the ledger.
+ */
+async function recordTokenCreate(creator, tokenData, fee, epoch) {
+  // Fee payment to genesis operator
+  if (fee > 0) {
+    await recordTransfer(creator, 'shindevlin', fee, 'BTCPC', null, epoch, 'Token creation fee');
+  }
+
+  const entry = new LedgerEntry({
+    type: 'TOKEN_CREATE',
+    from: creator,
+    token: tokenData.symbol,
+    epoch,
+    token_data: tokenData
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+
+  // Mint initial supply to creator
+  const mintEntry = new LedgerEntry({
+    type: 'FAUCET',
+    from: 'btcpc_mint',
+    to: creator,
+    token: tokenData.symbol,
+    amount: tokenData.supply,
+    epoch,
+    memo: 'Initial supply: ' + tokenData.name
+  });
+  await mintEntry.save();
+  pendingEntries.push(mintEntry.toObject());
+
+  return entry;
+}
+
+/**
+ * Record staking on the ledger.
+ */
+async function recordStake(account, amount, purpose, epoch) {
+  const entry = new LedgerEntry({
+    type: 'STAKE',
+    from: account,
+    to: 'btcpc_staking_pool',
+    token: 'BTCPC',
+    amount,
+    epoch,
+    delegation_data: { purpose }
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Record delegation on the ledger.
+ */
+async function recordDelegate(from, to, amount, purpose, epoch) {
+  const entry = new LedgerEntry({
+    type: 'DELEGATE',
+    from,
+    to,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    delegation_data: { purpose }
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Compute balance for an account by replaying the ledger.
+ * This is the source of truth — not the Wallet model.
+ *
+ * @param {string} username
+ * @param {string} [token='BTCPC']
+ * @returns {Promise<number>}
+ */
+async function getBalance(username, token) {
+  token = token || 'BTCPC';
+
+  const incoming = await LedgerEntry.aggregate([
+    { $match: { to: username, token } },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]);
+
+  const outgoing = await LedgerEntry.aggregate([
+    { $match: { from: username, token } },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]);
+
+  const inTotal = incoming.length > 0 ? incoming[0].total : 0;
+  const outTotal = outgoing.length > 0 ? outgoing[0].total : 0;
+
+  return parseFloat((inTotal - outTotal).toFixed(10));
+}
+
+/**
+ * Get all tokens held by an account.
+ */
+async function getTokenBalances(username) {
+  const tokens = await LedgerEntry.distinct('token', {
+    $or: [{ from: username }, { to: username }]
+  });
+
+  const balances = {};
+  for (const token of tokens) {
+    balances[token] = await getBalance(username, token);
+  }
+  return balances;
+}
+
+/**
+ * Get the full account record from the ledger (public info only).
+ */
+async function getAccountRecord(username) {
+  const entry = await LedgerEntry.findOne({
+    type: 'ACCOUNT_CREATE',
+    'account_data.username': username
+  }).lean();
+  return entry ? entry.account_data : null;
+}
+
+/**
+ * Get all accounts registered on the ledger.
+ */
+async function getAllAccounts() {
+  return LedgerEntry.find({ type: 'ACCOUNT_CREATE' })
+    .select('account_data timestamp epoch')
+    .lean();
+}
+
+/**
+ * Flush pending entries — returns them for inclusion in EPOCH_FINALIZED.
+ */
+function flushPendingEntries() {
+  const entries = [...pendingEntries];
+  pendingEntries.length = 0;
+  return entries;
+}
+
+/**
+ * Apply ledger entries received from EPOCH_FINALIZED broadcast.
+ * Used by follower nodes to sync their ledger.
+ */
+async function applyRemoteEntries(entries) {
+  let applied = 0;
+  for (const entry of entries) {
+    // Check for duplicate (by type + from + to + amount + epoch + timestamp)
+    const exists = await LedgerEntry.findOne({
+      type: entry.type,
+      from: entry.from,
+      to: entry.to,
+      amount: entry.amount,
+      epoch: entry.epoch,
+      token: entry.token
+    });
+    if (exists) continue;
+
+    await LedgerEntry.create(entry);
+    applied++;
+  }
+  return applied;
+}
+
+module.exports = {
+  recordAccountCreate,
+  recordTransfer,
+  recordMiningReward,
+  recordFaucet,
+  recordTokenCreate,
+  recordStake,
+  recordDelegate,
+  getBalance,
+  getTokenBalances,
+  getAccountRecord,
+  getAllAccounts,
+  flushPendingEntries,
+  applyRemoteEntries
+};

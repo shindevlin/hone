@@ -528,6 +528,14 @@ async function handleEpochFinalized(peer, msg, ctx) {
         }
       }
     }
+    // Apply permanent ledger entries from this block
+    if (data.ledger && data.ledger.length > 0) {
+      const { applyRemoteEntries } = require("../services/ledger");
+      const applied = await applyRemoteEntries(data.ledger);
+      if (applied > 0) {
+        console.log("[BTCPC P2P]   Ledger: " + applied + " entries applied (permanent)");
+      }
+    }
   } catch (err) {
     console.error("[BTCPC P2P] Failed to process finalized block:", err.message);
   }
