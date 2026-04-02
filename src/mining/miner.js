@@ -809,6 +809,16 @@ async function startMiner() {
       await ledger.recordAccountCreate(MINER_ACCOUNT, account.publicKeys, account.chainWallets, 0);
       console.log(`[BTCPC] Account announced to ledger (permanent)`);
 
+      // Broadcast to all nodes so they have the account too
+      const announceMsg = createMessage('ACCOUNT_ANNOUNCE', {
+        username: MINER_ACCOUNT,
+        public_keys: account.publicKeys,
+        chain_addresses: account.chainWallets,
+        epoch: 0
+      }, p2p.NODE_ID);
+      p2p.broadcast(announceMsg);
+      console.log(`[BTCPC] Account broadcast to P2P network`);
+
       // Check for unclaimed tokens sent to this username before it existed
       const crypto = require('crypto');
       const unclaimedAddr = 'BTCPC' + crypto.createHash('sha256').update('btcpc-username:' + MINER_ACCOUNT).digest('hex').slice(0, 40);

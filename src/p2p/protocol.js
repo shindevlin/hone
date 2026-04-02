@@ -43,6 +43,8 @@ const MESSAGE_TYPES = {
   EPOCH_START: "EPOCH_START",
   EPOCH_END: "EPOCH_END",
   EPOCH_FINALIZED: "EPOCH_FINALIZED",
+  // Account announcement — any node can broadcast
+  ACCOUNT_ANNOUNCE: "ACCOUNT_ANNOUNCE",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -206,6 +208,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.EPOCH_FINALIZED:
       handleEpochFinalized(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.ACCOUNT_ANNOUNCE:
+      handleAccountAnnounce(peer, msg, ctx);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
@@ -541,6 +546,69 @@ async function handleEpochFinalized(peer, msg, ctx) {
   }
 
   // Rebroadcast
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * ACCOUNT_ANNOUNCE — Any node broadcasts a new account to the network.
+ * Receiving nodes store the ledger entry permanently.
+ */
+async function handleAccountAnnounce(peer, msg, ctx) {
+  const data = msg.data || {};
+  if (!data.username) return;
+
+  console.log("[BTCPC P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
+
+  try {
+    const LedgerEntry = require("../models/LedgerEntry");
+    const existing = await LedgerEntry.findOne({ type: 'ACCOUNT_CREATE', 'account_data.username': data.username });
+    if (!existing) {
+      await LedgerEntry.create({
+        type: 'ACCOUNT_CREATE',
+        to: data.username,
+        epoch: data.epoch || 0,
+        account_data: {
+          username: data.username,
+          public_keys: data.public_keys || {},
+          chain_addresses: data.chain_addresses || {}
+        }
+      });
+      console.log("[BTCPC P2P]   Stored on ledger (permanent)");
+    }
+
+    // Also create local User + Wallet if needed (for transfers to work)
+    const User = require("../models/User");
+    const Wallet = require("../models/Wallet");
+    let user = await User.findOne({ username: data.username });
+    if (!user) {
+      const crypto = require("crypto");
+      user = new User({
+        username: data.username,
+        email: data.username + "@btcpc.network",
+        password: crypto.createHash("sha256").update(data.username + "-announced").digest("hex"),
+        isActive: true,
+        ownerPublicKey: data.public_keys?.owner || null,
+        activePublicKey: data.public_keys?.active || null,
+        postingPublicKey: data.public_keys?.posting || null,
+        memoPublicKey: data.public_keys?.memo || null
+      });
+      await user.save();
+
+      // Create BTCPC wallet
+      if (data.chain_addresses?.btcpc) {
+        await Wallet.create({
+          userId: user._id, chain: "btcpc",
+          address: data.chain_addresses.btcpc,
+          publicKey: data.public_keys?.owner || null,
+          balance: new Map([["BTCPC", 0]])
+        });
+      }
+      console.log("[BTCPC P2P]   Local account created for " + data.username);
+    }
+  } catch (err) {
+    console.error("[BTCPC P2P] Failed to process account announcement:", err.message);
+  }
+
   ctx.broadcast(msg, peer.address);
 }
 
