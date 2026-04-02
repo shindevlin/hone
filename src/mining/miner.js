@@ -868,14 +868,25 @@ async function startMiner() {
 
   if (isEpochAuthority) {
     console.log(`[BTCPC] This node is the EPOCH AUTHORITY (genesis miner)`);
-
-    // Authority mines the current epoch immediately
     currentEpoch = getCurrentEpochNumber();
-    try {
-      await mineEpoch(currentEpoch);
-    } catch (err) {
-      console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
-    }
+
+    // Broadcast EPOCH_START immediately so followers can begin
+    const startMsg = createMessage('EPOCH_START', {
+      epoch_number: currentEpoch,
+      started_at: Date.now(),
+      authority: MINER_ACCOUNT
+    }, p2p.NODE_ID);
+    p2p.broadcast(startMsg);
+    console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (authority — initial)`);
+
+    // Mine — fire and forget, don't block the clock
+    setImmediate(async () => {
+      try {
+        await mineEpoch(currentEpoch);
+      } catch (err) {
+        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+      }
+    });
   } else {
     console.log(`[BTCPC] Following epoch authority — waiting for EPOCH_START...`);
   }
@@ -937,17 +948,21 @@ async function startMiner() {
       p2p.broadcast(startMsg);
       console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (authority)`);
 
-      // Mine this epoch
-      try {
-        const { syncLocalModels } = require('../services/modelRegistry');
-        const _user = await User.findOne({ username: MINER_ACCOUNT });
-        const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-        syncLocalModels(_node?._id).catch(() => {});
+      // Mine this epoch — fire and forget, don't block the clock
+      // If mining takes longer than the epoch, it settles in a later epoch
+      const epochToMine = currentEpoch;
+      setImmediate(async () => {
+        try {
+          const { syncLocalModels } = require('../services/modelRegistry');
+          const _user = await User.findOne({ username: MINER_ACCOUNT });
+          const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+          syncLocalModels(_node?._id).catch(() => {});
 
-        await mineEpoch(currentEpoch);
-      } catch (err) {
-        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
-      }
+          await mineEpoch(epochToMine);
+        } catch (err) {
+          console.error(`[BTCPC] Epoch ${epochToMine} mining error:`, err.message);
+        }
+      });
     }, 30000);
   } else {
     // ── FOLLOWER (all other miners) ──
@@ -964,16 +979,20 @@ async function startMiner() {
         currentEpoch = data.epoch_number;
         console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (from authority)`);
 
-        try {
-          const { syncLocalModels } = require('../services/modelRegistry');
-          const _user = await User.findOne({ username: MINER_ACCOUNT });
-          const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-          syncLocalModels(_node?._id).catch(() => {});
+        // Mine — fire and forget, don't block message handler
+        const epochToMine = currentEpoch;
+        setImmediate(async () => {
+          try {
+            const { syncLocalModels } = require('../services/modelRegistry');
+            const _user = await User.findOne({ username: MINER_ACCOUNT });
+            const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+            syncLocalModels(_node?._id).catch(() => {});
 
-          await mineEpoch(currentEpoch);
-        } catch (err) {
-          console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
-        }
+            await mineEpoch(epochToMine);
+          } catch (err) {
+            console.error(`[BTCPC] Epoch ${epochToMine} mining error:`, err.message);
+          }
+        });
       }
 
       if (msg.type === 'EPOCH_END') {
