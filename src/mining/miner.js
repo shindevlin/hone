@@ -1000,29 +1000,42 @@ async function startMiner() {
     currentEpoch = 0;
   }
 
-  // ── Epoch authority ──
-  // Genesis miner (shindevlin) is the epoch clock.
-  // It broadcasts EPOCH_START messages. Other miners follow.
-  // When enough miners exist, transition to consensus-based epochs.
+  // ── Epoch consensus ──
+  // Any eligible node can be the epoch authority.
+  // Eligibility: permissioned nodes (approved by genesis) or staked nodes.
+  // Genesis miner is always eligible as a fallback.
   const genesisTime = genesis.epoch.started_at.getTime();
-  const isEpochAuthority = (MINER_ACCOUNT === GENESIS_MINER);
+  const epochConsensus = require('../chain/authorityRotation');
+  const nodeRegistry = require('../chain/nodeRegistry');
+
+  // Register this miner in the node registry (permissioned if genesis miner)
+  nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, null, 0, MINER_ACCOUNT === GENESIS_MINER);
+
+  // Load node registry from block files
+  nodeRegistry.loadFromBlocks();
 
   function getCurrentEpochNumber() {
     return Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
   }
 
-  if (isEpochAuthority) {
-    console.log(`[BTCPC] This node is the EPOCH AUTHORITY (genesis miner)`);
+  function isEpochAuthority() {
+    const nodeInfo = nodeRegistry.getNode(MINER_ACCOUNT);
+    return epochConsensus.isEpochEligible(MINER_ACCOUNT, nodeInfo, nodeRegistry.PERMISSIONLESS_MIN_STAKE).eligible;
+  }
+
+  // All eligible nodes participate in epoch consensus
+  if (isEpochAuthority()) {
+    console.log(`[BTCPC] This node is EPOCH ELIGIBLE (${MINER_ACCOUNT})`);
     currentEpoch = getCurrentEpochNumber();
 
-    // Broadcast EPOCH_START immediately so followers can begin
+    // Broadcast EPOCH_START immediately so other nodes can begin
     const startMsg = createMessage('EPOCH_START', {
       epoch_number: currentEpoch,
       started_at: Date.now(),
       authority: MINER_ACCOUNT
     }, p2p.NODE_ID);
     p2p.broadcast(startMsg);
-    console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (authority — initial)`);
+    console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (this node — initial)`);
 
     // Mine — fire and forget, don't block the clock
     setImmediate(async () => {
@@ -1033,11 +1046,11 @@ async function startMiner() {
       }
     });
   } else {
-    console.log(`[BTCPC] Following epoch authority — waiting for EPOCH_START...`);
+    console.log(`[BTCPC] Following epoch consensus — waiting for EPOCH_START...`);
   }
 
-  if (isEpochAuthority) {
-    // ── EPOCH AUTHORITY (shindevlin) ──
+  if (isEpochAuthority()) {
+    // ── EPOCH CONSENSUS — this node participates in epoch timing ──
     // Bookends every epoch: START → miners work → END → finalize
     miningInterval = setInterval(async () => {
       if (!running) return;

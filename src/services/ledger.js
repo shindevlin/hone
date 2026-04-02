@@ -318,6 +318,29 @@ async function recordEscrowRefund(payer, requestId, amount, epoch) {
 }
 
 /**
+ * Register a node on the permanent ledger.
+ * Permissioned nodes are approved by the genesis operator.
+ * Permissionless nodes need to stake to participate in epoch consensus.
+ */
+async function recordNodeRegister(username, nodeType, p2pAddress, permissioned, epoch) {
+  const entry = new LedgerEntry({
+    type: 'NODE_REGISTER',
+    from: username,
+    epoch: epoch || 0,
+    memo: nodeType || 'clock',
+    account_data: {
+      username,
+      node_type: nodeType || 'clock',
+      p2p_address: p2pAddress || null,
+      permissioned: !!permissioned
+    }
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
  * Compute balance for an account by replaying the ledger.
  * This is the source of truth — not the Wallet model.
  *
@@ -429,6 +452,7 @@ module.exports = {
   recordEscrowLock,
   recordEscrowRelease,
   recordEscrowRefund,
+  recordNodeRegister,
   getCurrentEpoch,
   updateWalletCache,
   updateWalletCacheByUserId,

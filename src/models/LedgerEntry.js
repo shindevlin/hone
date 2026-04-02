@@ -18,7 +18,8 @@ var ledgerEntrySchema = new Schema({
       'ACCOUNT_CREATE', 'TRANSFER', 'TOKEN_CREATE',
       'STAKE', 'UNSTAKE', 'DELEGATE', 'UNDELEGATE',
       'MINING_REWARD', 'FAUCET',
-      'ESCROW_LOCK', 'ESCROW_RELEASE', 'ESCROW_REFUND'
+      'ESCROW_LOCK', 'ESCROW_RELEASE', 'ESCROW_REFUND',
+      'NODE_REGISTER'
     ],
     required: true,
     index: true

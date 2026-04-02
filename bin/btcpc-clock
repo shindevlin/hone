@@ -1,0 +1,417 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-clock — Lightweight Clock Node
+ * Shin Devlin
+ *
+ * Participates in BTCPC epoch consensus without mining.
+ * No MongoDB, no Ollama, no GPU required.
+ * Runs on any hardware: iPad, Pi, VPS, laptop.
+ *
+ * Usage:
+ *   BTCPC_CLOCK_ACCOUNT=josh P2P_PORT=6943 node bin/btcpc-clock
+ *
+ * What it does:
+ *   - Connects to P2P network (seed peers + relay)
+ *   - Receives and relays all messages
+ *   - Tracks chain state via block files
+ *   - Participates in epoch timing consensus
+ *   - When it's this node's turn: broadcasts EPOCH_START/END/FINALIZED
+ */
+
+var path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+
+var crypto = require("crypto");
+var WebSocket = require("ws");
+var Block = require("../src/chain/block");
+var blockStore = require("../src/chain/blockStore");
+var stateManager = require("../src/chain/stateManager");
+var nodeRegistry = require("../src/chain/nodeRegistry");
+var epochConsensus = require("../src/chain/authorityRotation");
+var mempool = require("../src/p2p/mempool");
+var { getBlockReward } = require("../src/services/emissionSchedule");
+
+// ─── Configuration ───────────────────────────────────────────────
+
+var CLOCK_ACCOUNT = process.env.BTCPC_CLOCK_ACCOUNT || process.env.BTCPC_MINER || "clock-" + crypto.randomBytes(4).toString("hex");
+var P2P_PORT = parseInt(process.env.P2P_PORT) || 6943;
+var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
+var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+var EPOCH_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+// ─── State ───────────────────────────────────────────────────────
+
+var currentEpoch = -1;
+var genesisTimestamp = null;
+var peers = new Map();
+var seenMessages = new Set();
+var running = false;
+
+// ─── P2P Layer ───────────────────────────────────────────────────
+
+var wss = null;
+
+function startServer() {
+  wss = new WebSocket.Server({ port: P2P_PORT });
+  wss.on("connection", function (ws, req) {
+    var addr = "inbound:" + (req.socket.remoteAddress || "unknown") + ":" + req.socket.remotePort;
+    setupPeer(ws, addr);
+    sendHandshake(ws);
+  });
+  console.log("[CLOCK] P2P server listening on port " + P2P_PORT);
+}
+
+function connectToPeer(address) {
+  if (peers.has(address)) return;
+
+  try {
+    var ws = new WebSocket(address);
+    ws.on("open", function () {
+      setupPeer(ws, address);
+      sendHandshake(ws);
+      console.log("[CLOCK] Connected to " + address);
+    });
+    ws.on("error", function () {
+      // Retry with backoff
+      var attempt = (peers.get(address) || {}).reconnectAttempts || 0;
+      var delay = Math.min(2000 * Math.pow(2, attempt), 300000);
+      setTimeout(function () {
+        peers.delete(address);
+        connectToPeer(address);
+      }, delay);
+      if (peers.has(address)) {
+        var p = peers.get(address);
+        p.reconnectAttempts = attempt + 1;
+      } else {
+        peers.set(address, { ws: null, reconnectAttempts: attempt + 1 });
+      }
+    });
+  } catch (e) {
+    // Invalid URL, skip
+  }
+}
+
+function setupPeer(ws, address) {
+  peers.set(address, {
+    ws: ws,
+    nodeId: null,
+    chainHeight: -1,
+    reconnectAttempts: 0
+  });
+
+  ws.on("message", function (data) {
+    try {
+      var msg = JSON.parse(data.toString());
+      handleMessage(msg, address);
+    } catch (e) {}
+  });
+
+  ws.on("close", function () {
+    peers.delete(address);
+  });
+}
+
+function sendHandshake(ws) {
+  send(ws, {
+    type: "HANDSHAKE",
+    data: {
+      chainHeight: currentEpoch,
+      version: require("../package.json").version
+    },
+    nodeId: NODE_ID,
+    id: crypto.randomBytes(8).toString("hex"),
+    timestamp: Date.now()
+  });
+}
+
+function send(ws, msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function broadcast(msg, excludeAddress) {
+  var data = JSON.stringify(msg);
+  peers.forEach(function (peer, addr) {
+    if (addr === excludeAddress) return;
+    if (peer.ws && peer.ws.readyState === WebSocket.OPEN) {
+      peer.ws.send(data);
+    }
+  });
+}
+
+function createMessage(type, data) {
+  return {
+    type: type,
+    data: data,
+    nodeId: NODE_ID,
+    id: crypto.randomBytes(8).toString("hex"),
+    timestamp: Date.now()
+  };
+}
+
+// ─── Message Handling ────────────────────────────────────────────
+
+function handleMessage(msg, fromAddress) {
+  if (!msg || !msg.type) return;
+  if (msg.nodeId === NODE_ID) return;
+  if (msg.id && seenMessages.has(msg.id)) return;
+  if (msg.id) {
+    seenMessages.add(msg.id);
+    if (seenMessages.size > 5000) {
+      var iter = seenMessages.values();
+      for (var i = 0; i < 500; i++) seenMessages.delete(iter.next().value);
+    }
+  }
+
+  switch (msg.type) {
+    case "HANDSHAKE":
+      var peer = peers.get(fromAddress);
+      if (peer) {
+        peer.nodeId = msg.nodeId;
+        peer.chainHeight = (msg.data || {}).chainHeight || 0;
+      }
+      var ver = (msg.data || {}).version || "?";
+      console.log("[CLOCK] Peer " + (msg.nodeId || "?").slice(0, 12) + " (v" + ver + ", height " + ((msg.data || {}).chainHeight || 0) + ")");
+      break;
+
+    case "EPOCH_START":
+      var epoch = (msg.data || {}).epoch_number;
+      if (epoch > currentEpoch) {
+        currentEpoch = epoch;
+        console.log("[CLOCK] Epoch " + epoch + " START (from " + ((msg.data || {}).authority || "?") + ")");
+      }
+      broadcast(msg, fromAddress);
+      break;
+
+    case "EPOCH_END":
+      console.log("[CLOCK] Epoch " + ((msg.data || {}).epoch_number || "?") + " END");
+      broadcast(msg, fromAddress);
+      break;
+
+    case "EPOCH_FINALIZED":
+      handleEpochFinalized(msg);
+      broadcast(msg, fromAddress);
+      break;
+
+    case "BLOCK":
+      handleBlock(msg);
+      broadcast(msg, fromAddress);
+      break;
+
+    case "TRANSACTION":
+      mempool.addTransaction(msg.data || {});
+      broadcast(msg, fromAddress);
+      break;
+
+    case "RESPONSE_LEDGER":
+      handleLedgerResponse(msg);
+      break;
+
+    default:
+      // Relay everything else (inference, mining proofs, etc.)
+      broadcast(msg, fromAddress);
+      break;
+  }
+}
+
+function handleEpochFinalized(msg) {
+  var data = msg.data || {};
+  var epochNum = data.epoch_number;
+  if (!epochNum && epochNum !== 0) return;
+
+  console.log("[CLOCK] Block " + epochNum + " finalized | reward: " + ((data.block_reward || 0).toFixed(4)) + " BTCPC | " + ((data.rewards || []).length) + " miner(s)");
+
+  // Apply ledger entries to state manager
+  if (data.ledger && data.ledger.length > 0) {
+    stateManager.applyLedgerEntries(data.ledger);
+    nodeRegistry.processLedgerEntries(data.ledger);
+  }
+
+  // Write block to disk if header available
+  if (data.header_hex) {
+    try {
+      var headerBuf = Buffer.from(data.header_hex, "hex");
+      var block = Block.deserialize(headerBuf);
+      var payload = {
+        ledger_entries: data.ledger || [],
+        rewards: data.rewards || [],
+        compute_proofs: [],
+        mining_proofs: []
+      };
+      if (!blockStore.hasBlock(epochNum)) {
+        blockStore.writeBlock(block, payload);
+        console.log("[CLOCK] Block " + epochNum + " written to disk: " + block.computeHash().slice(0, 16) + "...");
+      }
+    } catch (e) {
+      console.error("[CLOCK] Block write error: " + e.message);
+    }
+  }
+
+  currentEpoch = Math.max(currentEpoch, epochNum);
+}
+
+function handleBlock(msg) {
+  var data = msg.data || {};
+  if (data.header_hex) {
+    try {
+      var headerBuf = Buffer.from(data.header_hex, "hex");
+      var block = Block.deserialize(headerBuf);
+      if (!blockStore.hasBlock(block.epoch_number)) {
+        var payload = {
+          ledger_entries: data.ledger_entries || [],
+          rewards: data.rewards || [],
+          compute_proofs: data.compute_proofs || [],
+          mining_proofs: data.mining_proofs || []
+        };
+        blockStore.writeBlock(block, payload);
+      }
+    } catch (e) {}
+  }
+}
+
+function handleLedgerResponse(msg) {
+  var entries = (msg.data || {}).entries || [];
+  if (entries.length > 0) {
+    stateManager.applyLedgerEntries(entries);
+    nodeRegistry.processLedgerEntries(entries);
+    console.log("[CLOCK] Synced " + entries.length + " ledger entries");
+  }
+}
+
+// ─── Epoch Clock Loop ────────────────────────────────────────────
+
+function startEpochClock() {
+  if (!genesisTimestamp) {
+    console.log("[CLOCK] Waiting for genesis timestamp from peers...");
+    return;
+  }
+
+  console.log("[CLOCK] Epoch clock started (" + CLOCK_ACCOUNT + ")");
+
+  setInterval(function () {
+    if (!running) return;
+
+    var clockEpoch = epochConsensus.computeEpochNumber(genesisTimestamp, EPOCH_DURATION_MS);
+    if (clockEpoch <= currentEpoch) return;
+
+    // Check if we're eligible to participate in epoch consensus
+    var nodeInfo = nodeRegistry.getNode(CLOCK_ACCOUNT);
+    var eligible = epochConsensus.isEpochEligible(CLOCK_ACCOUNT, nodeInfo, nodeRegistry.PERMISSIONLESS_MIN_STAKE);
+
+    if (!eligible.eligible) {
+      // Not eligible — just update our local epoch tracker
+      currentEpoch = clockEpoch;
+      return;
+    }
+
+    // We're eligible — broadcast EPOCH_START
+    currentEpoch = clockEpoch;
+
+    // End previous epoch
+    if (currentEpoch > 1) {
+      var endMsg = createMessage("EPOCH_END", {
+        epoch_number: currentEpoch - 1,
+        ended_at: Date.now(),
+        authority: CLOCK_ACCOUNT
+      });
+      broadcast(endMsg);
+    }
+
+    // Start new epoch
+    var startMsg = createMessage("EPOCH_START", {
+      epoch_number: currentEpoch,
+      started_at: Date.now(),
+      authority: CLOCK_ACCOUNT
+    });
+    broadcast(startMsg);
+    console.log("[CLOCK] Epoch " + currentEpoch + " START (this node)");
+
+  }, 30000); // Check every 30 seconds
+}
+
+// ─── Startup ─────────────────────────────────────────────────────
+
+function start() {
+  console.log("");
+  console.log("  ============================================");
+  console.log("    btcpc-clock — Lightweight Clock Node");
+  console.log("    Bitcoin Proof of Compute");
+  console.log("    Account: " + CLOCK_ACCOUNT);
+  console.log("    Node ID: " + NODE_ID.slice(0, 12) + "...");
+  console.log("    P2P Port: " + P2P_PORT);
+  console.log("  ============================================");
+  console.log("");
+
+  // Initialize block storage
+  blockStore.ensureBlockDir();
+
+  // Load chain from disk
+  var latestBlock = blockStore.getLatestBlockNumber();
+  if (latestBlock >= 0) {
+    console.log("[CLOCK] Loading " + (latestBlock + 1) + " blocks from disk...");
+    blockStore.iterateBlocks(0, latestBlock, function (block, payload) {
+      if (payload && payload.ledger_entries) {
+        stateManager.applyLedgerEntries(payload.ledger_entries);
+        nodeRegistry.processLedgerEntries(payload.ledger_entries);
+      }
+      currentEpoch = Math.max(currentEpoch, block.epoch_number);
+    });
+    console.log("[CLOCK] Chain loaded: height " + currentEpoch + " | " + nodeRegistry.getNodeCount() + " nodes | state: " + stateManager.getStateRoot().slice(0, 16) + "...");
+
+    // Estimate genesis timestamp from epoch 0 block
+    var genesis = blockStore.readBlock(0);
+    if (genesis) {
+      genesisTimestamp = genesis.block.timestamp;
+      console.log("[CLOCK] Genesis timestamp: " + new Date(genesisTimestamp).toISOString());
+    }
+  }
+
+  // Start P2P server
+  startServer();
+
+  // Connect to seed peers
+  SEED_PEERS.forEach(connectToPeer);
+  if (RELAY_URL) connectToPeer(RELAY_URL);
+
+  running = true;
+
+  // Start the epoch clock after a delay (let peers connect first)
+  setTimeout(function () {
+    if (!genesisTimestamp) {
+      // If we still don't have genesis, use the epoch 0 block from disk or estimate
+      var g = blockStore.readBlock(0);
+      if (g) {
+        genesisTimestamp = g.block.timestamp;
+      } else {
+        console.log("[CLOCK] No genesis block — waiting for sync from peers...");
+        // Keep checking
+        var checkInterval = setInterval(function () {
+          var g2 = blockStore.readBlock(0);
+          if (g2) {
+            genesisTimestamp = g2.block.timestamp;
+            console.log("[CLOCK] Genesis found: " + new Date(genesisTimestamp).toISOString());
+            startEpochClock();
+            clearInterval(checkInterval);
+          }
+        }, 10000);
+        return;
+      }
+    }
+    startEpochClock();
+  }, 5000);
+
+  // Status logging
+  setInterval(function () {
+    var connectedPeers = 0;
+    peers.forEach(function (p) {
+      if (p.ws && p.ws.readyState === WebSocket.OPEN) connectedPeers++;
+    });
+    console.log("[CLOCK] Status: epoch " + currentEpoch + " | peers " + connectedPeers + " | nodes " + nodeRegistry.getNodeCount() + " | blocks " + (blockStore.getLatestBlockNumber() + 1));
+  }, 60000);
+}
+
+start();
