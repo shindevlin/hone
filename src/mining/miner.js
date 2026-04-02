@@ -759,20 +759,30 @@ async function startMiner() {
     currentEpoch = 0;
   }
 
-  // Mine the first epoch immediately
+  // Calculate epoch from genesis clock — all miners agree on the same number
+  const genesisTime = genesis.epoch.started_at.getTime();
+  function getCurrentEpochNumber() {
+    return Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
+  }
+
+  // Mine the current epoch immediately
+  currentEpoch = getCurrentEpochNumber();
   try {
     await mineEpoch(currentEpoch);
   } catch (err) {
     console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
   }
 
-  // Schedule subsequent epochs
+  // Schedule subsequent epochs — recalculate from clock every cycle
+  // This ensures all miners are on the same epoch regardless of start time
   miningInterval = setInterval(async () => {
     if (!running) return;
 
-    currentEpoch++;
+    const nextEpoch = getCurrentEpochNumber();
+    if (nextEpoch <= currentEpoch) return; // not time yet
+    currentEpoch = nextEpoch;
+
     try {
-      // Re-sync models each epoch (picks up newly pulled models)
       const { syncLocalModels } = require('../services/modelRegistry');
       const _user = await User.findOne({ username: MINER_ACCOUNT });
       const _node = _user ? await Node.findOne({ account: _user._id }) : null;
@@ -782,7 +792,7 @@ async function startMiner() {
     } catch (err) {
       console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
     }
-  }, EPOCH_DURATION_MS);
+  }, 30000); // check every 30s, only mine when epoch changes
 
   console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
 
