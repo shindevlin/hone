@@ -11,7 +11,6 @@ var miningProofSchema = new Schema({
   block_number: {
     type: Number,
     required: true,
-    unique: true,
     index: true
   },
   miner: {
@@ -44,6 +43,9 @@ var miningProofSchema = new Schema({
     default: Date.now
   }
 });
+
+// Compound unique: one proof per miner per block (multiple miners per block is expected)
+miningProofSchema.index({ block_number: 1, miner: 1 }, { unique: true });
 
 // Soulbound: prevent any update to the miner field
 miningProofSchema.pre('save', function(next) {
