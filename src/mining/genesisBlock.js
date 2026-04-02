@@ -54,6 +54,11 @@ async function createGenesisBlock() {
       console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
       if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC`);
       console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
+
+      // Announce genesis miner on the permanent ledger
+      const ledger = require('../services/ledger');
+      await ledger.recordAccountCreate(GENESIS_MINER, account.publicKeys, account.chainWallets, 0);
+      console.log(`[BTCPC] Genesis miner announced to permanent ledger`);
     } catch (err) {
       console.error(`[BTCPC] Failed to create genesis account: ${err.message}`);
       // Fallback to simple account
