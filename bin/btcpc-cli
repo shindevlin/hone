@@ -849,21 +849,39 @@ walletCmd
         process.exit(1);
       }
 
-      // Find recipient — must exist (register first with their own mnemonic)
+      // Find recipient — or send to unclaimed username
+      // Tokens sit at the username. When someone registers that name, they own them.
       const recipient = await User().findOne({ username: to });
-      if (!recipient) {
-        console.error("error: recipient '" + to + "' not found on this node");
-        console.error("  The recipient must register first (run miner or btcpc-cli wallet create)");
-        console.error("  Accounts must be created with the owner's mnemonic, not auto-generated");
-        await disconnect();
-        process.exit(1);
-      }
+      let recipientWallet;
 
-      let recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
-      if (!recipientWallet) {
-        console.error("error: no BTCPC wallet found for " + to);
-        await disconnect();
-        process.exit(1);
+      if (recipient) {
+        recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
+        if (!recipientWallet) {
+          console.error("error: no BTCPC wallet found for " + to);
+          await disconnect();
+          process.exit(1);
+        }
+      } else {
+        // Username doesn't exist yet — create a placeholder wallet
+        // Tokens sit here until someone registers this username and claims them
+        console.log("  '" + to + "' is not registered. Tokens will be held at this username.");
+        console.log("  When '" + to + "' registers, they will own these tokens.");
+
+        // Use a deterministic address from the username
+        const addrHash = require("crypto").createHash("sha256").update("btcpc-username:" + to).digest("hex");
+        const address = "BTCPC" + addrHash.slice(0, 40);
+
+        // Check if we already have an unclaimed wallet for this username
+        recipientWallet = await Wallet.findOne({ address: address, chain: "btcpc" });
+        if (!recipientWallet) {
+          recipientWallet = new Wallet({
+            userId: null, // unclaimed — no user yet
+            chain: "btcpc",
+            address: address,
+            publicKey: null,
+            balance: new Map([["BTCPC", 0]])
+          });
+        }
       }
 
       // Sign the transaction with active key
@@ -891,7 +909,12 @@ walletCmd
         to: recipientWallet.address,
         amount: amount,
         type: "transfer",
-        memo: "CLI transfer: " + senderName + " → " + to,
+        memo: JSON.stringify({
+          action: "send",
+          from_username: senderName,
+          to_username: to,
+          claimed: !!recipient // false if unclaimed username
+        }),
         signature: sig.signature
       });
       await tx.save();

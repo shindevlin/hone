@@ -800,6 +800,27 @@ async function startMiner() {
         console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC env`);
       }
       console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
+
+      // Check for unclaimed tokens sent to this username before it existed
+      const crypto = require('crypto');
+      const unclaimedAddr = 'BTCPC' + crypto.createHash('sha256').update('btcpc-username:' + MINER_ACCOUNT).digest('hex').slice(0, 40);
+      const unclaimedWallet = await Wallet.findOne({ address: unclaimedAddr, userId: null, chain: 'btcpc' });
+      if (unclaimedWallet) {
+        const unclaimedBalance = unclaimedWallet.balance.get('BTCPC') || 0;
+        if (unclaimedBalance > 0) {
+          // Transfer unclaimed tokens to the new account
+          const myWallet = await Wallet.findOne({ userId: minerUser._id, chain: 'btcpc' });
+          if (myWallet) {
+            const myBal = myWallet.balance.get('BTCPC') || 0;
+            myWallet.balance.set('BTCPC', myBal + unclaimedBalance);
+            await myWallet.save();
+            unclaimedWallet.balance.set('BTCPC', 0);
+            unclaimedWallet.userId = minerUser._id; // link to real account
+            await unclaimedWallet.save();
+            console.log(`[BTCPC] Claimed ${unclaimedBalance.toFixed(4)} BTCPC from unclaimed address`);
+          }
+        }
+      }
     } catch (err) {
       console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
     }
