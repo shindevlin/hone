@@ -377,7 +377,11 @@ async function applyRemoteEntries(entries) {
     });
     if (exists) continue;
 
-    await LedgerEntry.create(entry);
+    // Strip MongoDB _id to avoid duplicate key errors from remote entries
+    const clean = { ...entry };
+    delete clean._id;
+    delete clean.__v;
+    await LedgerEntry.create(clean);
     applied++;
   }
   return applied;
