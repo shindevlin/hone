@@ -363,13 +363,16 @@ async function mineEpoch(epochNumber) {
   // Genesis epoch gets a special first prompt
   const GENESIS_PROMPT = "What is the meaning of computation? If a machine dreams an answer into existence through pure mathematical reasoning, is that dream less real than a human thought? Describe a future where every unit of energy spent computing produces something useful — where proof of work means proof of value created, not value destroyed. The answer, as always, is 42.";
 
-  // Check for pending real inference jobs — skip synthetic work if GPU is needed
+  // Only skip synthetic work if THIS miner is actively processing inference jobs
   const InferenceJob = require('../models/InferenceJob');
-  const pendingJobs = await InferenceJob.countDocuments({ status: { $in: ['pending', 'claimed', 'processing'] } });
-  const syntheticCount = pendingJobs > 0 ? 0 : WORK_ITEMS_PER_EPOCH;
+  const myActiveJobs = await InferenceJob.countDocuments({
+    claimed_by: MINER_ACCOUNT,
+    status: { $in: ['claimed', 'processing'] }
+  });
+  const syntheticCount = myActiveJobs > 0 ? 0 : WORK_ITEMS_PER_EPOCH;
 
-  if (pendingJobs > 0) {
-    console.log(`[BTCPC]   ${pendingJobs} real job(s) in queue — skipping synthetic work this epoch`);
+  if (myActiveJobs > 0) {
+    console.log(`[BTCPC]   ${myActiveJobs} job(s) actively processing — skipping synthetic work`);
   }
 
   // Verify mining model against Ollama registry before doing any work
