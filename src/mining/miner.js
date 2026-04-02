@@ -759,13 +759,24 @@ async function startMiner() {
     currentEpoch = 0;
   }
 
-  // Calculate epoch from genesis clock — all miners agree on the same number
+  // ── Epoch authority ──
+  // Genesis miner (shindevlin) is the epoch clock.
+  // It broadcasts EPOCH_START messages. Other miners follow.
+  // When enough miners exist, transition to consensus-based epochs.
   const genesisTime = genesis.epoch.started_at.getTime();
+  const isEpochAuthority = (MINER_ACCOUNT === GENESIS_MINER);
+
   function getCurrentEpochNumber() {
     return Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
   }
 
-  // Mine the current epoch immediately
+  if (isEpochAuthority) {
+    console.log(`[BTCPC] This node is the EPOCH AUTHORITY (genesis miner)`);
+  } else {
+    console.log(`[BTCPC] Following epoch authority (genesis miner)`);
+  }
+
+  // Mine the current epoch
   currentEpoch = getCurrentEpochNumber();
   try {
     await mineEpoch(currentEpoch);
@@ -773,26 +784,75 @@ async function startMiner() {
     console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
   }
 
-  // Schedule subsequent epochs — recalculate from clock every cycle
-  // This ensures all miners are on the same epoch regardless of start time
-  miningInterval = setInterval(async () => {
-    if (!running) return;
+  if (isEpochAuthority) {
+    // Epoch authority: broadcast EPOCH_START and mine on the clock
+    miningInterval = setInterval(async () => {
+      if (!running) return;
 
-    const nextEpoch = getCurrentEpochNumber();
-    if (nextEpoch <= currentEpoch) return; // not time yet
-    currentEpoch = nextEpoch;
+      const nextEpoch = getCurrentEpochNumber();
+      if (nextEpoch <= currentEpoch) return;
+      currentEpoch = nextEpoch;
 
-    try {
-      const { syncLocalModels } = require('../services/modelRegistry');
-      const _user = await User.findOne({ username: MINER_ACCOUNT });
-      const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-      syncLocalModels(_node?._id).catch(() => {});
+      // Broadcast epoch start so all miners sync
+      const epochMsg = createMessage('EPOCH_START', {
+        epoch_number: currentEpoch,
+        started_at: Date.now(),
+        authority: MINER_ACCOUNT
+      }, p2p.NODE_ID);
+      p2p.broadcast(epochMsg);
 
-      await mineEpoch(currentEpoch);
-    } catch (err) {
-      console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
-    }
-  }, 30000); // check every 30s, only mine when epoch changes
+      try {
+        const { syncLocalModels } = require('../services/modelRegistry');
+        const _user = await User.findOne({ username: MINER_ACCOUNT });
+        const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+        syncLocalModels(_node?._id).catch(() => {});
+
+        await mineEpoch(currentEpoch);
+      } catch (err) {
+        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+      }
+    }, 30000);
+  } else {
+    // Follower: listen for EPOCH_START from authority, mine when told
+    // Also use clock as fallback if authority is down
+    let lastAuthorityEpoch = currentEpoch;
+
+    p2p.onMessage(async (msg) => {
+      if (msg.type !== 'EPOCH_START') return;
+      const data = msg.data || {};
+      if (!data.epoch_number || data.epoch_number <= lastAuthorityEpoch) return;
+
+      lastAuthorityEpoch = data.epoch_number;
+      currentEpoch = data.epoch_number;
+      console.log(`[BTCPC] Epoch ${currentEpoch} started (from authority)`);
+
+      try {
+        const { syncLocalModels } = require('../services/modelRegistry');
+        const _user = await User.findOne({ username: MINER_ACCOUNT });
+        const _node = _user ? await Node.findOne({ account: _user._id }) : null;
+        syncLocalModels(_node?._id).catch(() => {});
+
+        await mineEpoch(currentEpoch);
+      } catch (err) {
+        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+      }
+    });
+
+    // Fallback: if no EPOCH_START received for 2 epoch durations, use clock
+    miningInterval = setInterval(async () => {
+      if (!running) return;
+      const clockEpoch = getCurrentEpochNumber();
+      if (clockEpoch > currentEpoch + 1) {
+        console.log(`[BTCPC] Authority silent — falling back to clock (epoch ${clockEpoch})`);
+        currentEpoch = clockEpoch;
+        try {
+          await mineEpoch(currentEpoch);
+        } catch (err) {
+          console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+        }
+      }
+    }, EPOCH_DURATION_MS);
+  }
 
   console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
 
