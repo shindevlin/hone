@@ -857,9 +857,28 @@ async function startMiner() {
         p2p.broadcast(endMsg);
         console.log(`[BTCPC] Epoch ${currentEpoch} ENDED (authority)`);
 
-        // Finalize the closed epoch — authority collects all proofs and splits rewards
+        // Finalize and broadcast the block to all nodes
         try {
-          await finalizeAndSplitRewards(currentEpoch);
+          const finalized = await finalizeAndSplitRewards(currentEpoch);
+          if (finalized) {
+            // Broadcast the finalized block — this IS the chain
+            const blockMsg = createMessage('EPOCH_FINALIZED', {
+              epoch_number: currentEpoch,
+              block_reward: finalized.block_reward,
+              reward_number: finalized.reward_number,
+              epochs_deferred: finalized.epochs_deferred,
+              settled_jobs: finalized.settled_jobs || 0,
+              rewards: (finalized.rewards_distributed || []).map(r => ({
+                miner: r.node_id,
+                amount: r.amount
+              })),
+              total_work: finalized.total_work,
+              consensus_hash: finalized.consensus_hash,
+              authority: MINER_ACCOUNT
+            }, p2p.NODE_ID);
+            p2p.broadcast(blockMsg);
+            console.log(`[BTCPC] Block ${currentEpoch} broadcast to network`);
+          }
         } catch (err) {
           console.error(`[BTCPC] Finalization error for epoch ${currentEpoch}:`, err.message);
         }

@@ -42,6 +42,7 @@ const MESSAGE_TYPES = {
   // Epoch authority broadcasts epoch lifecycle
   EPOCH_START: "EPOCH_START",
   EPOCH_END: "EPOCH_END",
+  EPOCH_FINALIZED: "EPOCH_FINALIZED",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -202,6 +203,9 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.EPOCH_END:
       console.log("[BTCPC P2P] Epoch END: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
       ctx.broadcast(msg, peer.address);
+      break;
+    case MESSAGE_TYPES.EPOCH_FINALIZED:
+      handleEpochFinalized(peer, msg, ctx);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
@@ -461,6 +465,73 @@ function handleMinerIdle(peer, msg, ctx) {
 
 function getIdleMiners(epochNumber) {
   return idleMiners[epochNumber] || new Set();
+}
+
+/**
+ * EPOCH_FINALIZED — Authority broadcasts the completed block.
+ * All nodes update their local DB with the reward distribution.
+ * This IS the chain — the finalized block is the source of truth.
+ */
+async function handleEpochFinalized(peer, msg, ctx) {
+  const data = msg.data || {};
+  if (!data.epoch_number) return;
+
+  const epochNum = data.epoch_number;
+  console.log("[BTCPC P2P] Block finalized: epoch " + epochNum + " | reward: " + (data.block_reward || 0).toFixed(4) + " BTCPC | " + (data.rewards || []).length + " miner(s)");
+
+  try {
+    const Epoch = require("../models/Epoch");
+    const MiningProof = require("../models/MiningProof");
+    const User = require("../models/User");
+    const Wallet = require("../models/Wallet");
+
+    // Update or create epoch record
+    let epoch = await Epoch.findOne({ epoch_number: epochNum });
+    if (!epoch) {
+      epoch = new Epoch({ epoch_number: epochNum, started_at: new Date() });
+    }
+
+    epoch.status = 'finalized';
+    epoch.block_reward = data.block_reward || 0;
+    epoch.reward_number = data.reward_number;
+    epoch.epochs_deferred = data.epochs_deferred || 0;
+    epoch.settled_jobs = data.settled_jobs || 0;
+    epoch.total_work = data.total_work || 0;
+    epoch.consensus_hash = data.consensus_hash;
+    epoch.ended_at = new Date();
+    epoch.rewards_distributed = (data.rewards || []).map(r => ({
+      node_id: r.miner,
+      amount: r.amount
+    }));
+    await epoch.save();
+
+    // Update mining proofs with earned rewards and credit wallets
+    for (const reward of (data.rewards || [])) {
+      // Update mining proof
+      const proof = await MiningProof.findOne({ block_number: epochNum, miner: reward.miner });
+      if (proof) {
+        proof.reward_earned = reward.amount;
+        await proof.save();
+      }
+
+      // Credit wallet
+      const user = await User.findOne({ username: reward.miner });
+      if (user) {
+        const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+        if (wallet) {
+          const balance = wallet.balance.get('BTCPC') || 0;
+          wallet.balance.set('BTCPC', balance + reward.amount);
+          await wallet.save();
+          console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC");
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[BTCPC P2P] Failed to process finalized block:", err.message);
+  }
+
+  // Rebroadcast
+  ctx.broadcast(msg, peer.address);
 }
 
 // ---------------------------------------------------------------------------
