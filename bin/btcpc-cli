@@ -788,6 +788,174 @@ walletCmd
     }
   });
 
+// --- wallet send -----------------------------------------------------------
+
+walletCmd
+  .command("send <to> <amount>")
+  .description("Send BTCPC to another account (requires active key)")
+  .action(async (to, amount) => {
+    try {
+      amount = parseFloat(amount);
+      if (isNaN(amount) || amount <= 0) {
+        console.error("error: amount must be a positive number");
+        process.exit(1);
+      }
+
+      // Get sender from env or prompt
+      const senderName = process.env.BTCPC_MINER || process.env.BTCPC_USERNAME;
+      if (!senderName) {
+        console.error("error: set BTCPC_MINER or BTCPC_USERNAME env var");
+        process.exit(1);
+      }
+
+      const activeKey = process.env.BTCPC_ACTIVE_KEY;
+      if (!activeKey) {
+        console.error("error: set BTCPC_ACTIVE_KEY env var (64-char hex private key)");
+        process.exit(1);
+      }
+
+      await connect();
+
+      // Verify sender
+      const sender = await User().findOne({ username: senderName });
+      if (!sender) {
+        console.error("error: sender account '" + senderName + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Verify active key matches
+      const secp256k1 = require("secp256k1");
+      const activePub = Buffer.from(secp256k1.publicKeyCreate(Buffer.from(activeKey, "hex"), true)).toString("hex");
+      if (sender.activePublicKey && activePub !== sender.activePublicKey) {
+        console.error("error: active key does not match this account");
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Find sender wallet
+      const Wallet = require("../src/models/Wallet");
+      const senderWallet = await Wallet.findOne({ userId: sender._id, chain: "btcpc" });
+      if (!senderWallet) {
+        console.error("error: no BTCPC wallet found for " + senderName);
+        await disconnect();
+        process.exit(1);
+      }
+
+      const balance = senderWallet.balance.get("BTCPC") || 0;
+      if (balance < amount) {
+        console.error("error: insufficient balance. Have " + balance.toFixed(10) + ", need " + amount.toFixed(10));
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Find recipient
+      const recipient = await User().findOne({ username: to });
+      if (!recipient) {
+        console.error("error: recipient account '" + to + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
+      if (!recipientWallet) {
+        console.error("error: no BTCPC wallet found for " + to);
+        await disconnect();
+        process.exit(1);
+      }
+
+      // Sign the transaction with active key
+      const txData = {
+        from: senderName,
+        to: to,
+        amount: amount,
+        type: "transfer",
+        timestamp: Date.now()
+      };
+      const sig = keyManager.signTransaction(txData, activeKey);
+
+      // Execute transfer
+      senderWallet.balance.set("BTCPC", balance - amount);
+      await senderWallet.save();
+
+      const recipBalance = recipientWallet.balance.get("BTCPC") || 0;
+      recipientWallet.balance.set("BTCPC", recipBalance + amount);
+      await recipientWallet.save();
+
+      // Record on-chain
+      const Transaction = require("../src/models/Transaction");
+      const tx = new Transaction({
+        from: senderWallet.address,
+        to: recipientWallet.address,
+        amount: amount,
+        type: "transfer",
+        memo: "CLI transfer: " + senderName + " → " + to,
+        signature: sig.signature
+      });
+      await tx.save();
+
+      console.log("");
+      console.log("  Transfer complete.");
+      console.log("");
+      console.log("  From:   " + senderName + " (" + senderWallet.address + ")");
+      console.log("  To:     " + to + " (" + recipientWallet.address + ")");
+      console.log("  Amount: " + amount.toFixed(10) + " BTCPC");
+      console.log("  Tx ID:  " + tx._id.toString());
+      console.log("  Sig:    " + sig.signature.slice(0, 20) + "...");
+      console.log("");
+      console.log("  " + senderName + " balance: " + (balance - amount).toFixed(10) + " BTCPC");
+      console.log("  " + to + " balance: " + (recipBalance + amount).toFixed(10) + " BTCPC");
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet balance --------------------------------------------------------
+
+walletCmd
+  .command("balance [username]")
+  .description("Check BTCPC balance for an account")
+  .action(async (username) => {
+    try {
+      const name = username || process.env.BTCPC_MINER || process.env.BTCPC_USERNAME;
+      if (!name) {
+        console.error("error: provide username or set BTCPC_MINER env var");
+        process.exit(1);
+      }
+
+      await connect();
+
+      const user = await User().findOne({ username: name });
+      if (!user) {
+        console.error("error: account '" + name + "' not found");
+        await disconnect();
+        process.exit(1);
+      }
+
+      const Wallet = require("../src/models/Wallet");
+      const wallets = await Wallet.find({ userId: user._id });
+
+      console.log("");
+      console.log("  " + name + " wallets:");
+      console.log("");
+      for (const w of wallets) {
+        const bal = w.balance.get("BTCPC") || 0;
+        console.log("  " + w.chain.padEnd(10) + " " + w.address);
+        if (bal > 0) console.log("             " + bal.toFixed(10) + " BTCPC");
+      }
+      console.log("");
+
+      await disconnect();
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
 // --- sign-challenge --------------------------------------------------------
 
 program

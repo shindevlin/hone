@@ -4,7 +4,7 @@ var Schema = mongoose.Schema;
 
 /**
  * Transaction Schema
- * Records all URS token transactions
+ * Records all BTCPC token transactions
  */
 var transactionSchema = new Schema({
   from: {

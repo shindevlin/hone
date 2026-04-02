@@ -24,7 +24,7 @@ async function createWallet(req, res) {
       userId,
       chain: chain || 'hive',
       address,
-      balance: new Map([['URS', 0]])
+      balance: new Map([['BTCPC', 0]])
     });
 
     await wallet.save();
@@ -88,7 +88,7 @@ async function transfer(req, res) {
     }
 
     // Validate sufficient balance
-    const senderBalance = senderWallet.balance.get('URS') || 0;
+    const senderBalance = senderWallet.balance.get('BTCPC') || 0;
     if (senderBalance < amount) {
       return res.status(400).json({ error: 'Insufficient URS balance' });
     }
@@ -105,9 +105,9 @@ async function transfer(req, res) {
     }
 
     // Execute transfer
-    senderWallet.balance.set('URS', senderBalance - amount);
-    const recipientBalance = recipientWallet.balance.get('URS') || 0;
-    recipientWallet.balance.set('URS', recipientBalance + amount);
+    senderWallet.balance.set('BTCPC', senderBalance - amount);
+    const recipientBalance = recipientWallet.balance.get('BTCPC') || 0;
+    recipientWallet.balance.set('BTCPC', recipientBalance + amount);
 
     await senderWallet.save();
     await recipientWallet.save();
