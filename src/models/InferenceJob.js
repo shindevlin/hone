@@ -16,7 +16,7 @@ var inferenceJobSchema = new Schema({
   job_id: { type: String, required: true, unique: true, index: true },
   status: {
     type: String,
-    enum: ['pending', 'assigned', 'verifying', 'settled', 'failed', 'expired'],
+    enum: ['pending', 'assigned', 'verifying', 'settled', 'completed', 'failed', 'expired'],
     default: 'pending'
   },
 
