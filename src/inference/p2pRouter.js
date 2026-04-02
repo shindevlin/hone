@@ -73,7 +73,8 @@ function initP2PRouter() {
         return;
       }
 
-      const updated = await InferenceJob.findOneAndUpdate(
+      // Update existing job OR create it (authority may not have the job locally)
+      let updated = await InferenceJob.findOneAndUpdate(
         { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
         {
           status: 'completed',
@@ -86,6 +87,27 @@ function initP2PRouter() {
         },
         { new: true }
       );
+
+      // If job doesn't exist locally (e.g. authority received result from miner),
+      // create it so the settlement sweep can find it
+      if (!updated) {
+        const existing = await InferenceJob.findOne({ job_id: reqId });
+        if (!existing) {
+          updated = await InferenceJob.create({
+            job_id: reqId,
+            status: 'completed',
+            model: data.model || 'unknown',
+            messages: [],
+            result_text: data.result_text || '',
+            result_hash: data.result_hash || null,
+            tokens_generated: data.tokens_generated || 0,
+            elapsed_ms: data.elapsed_ms || 0,
+            node_name: data.node_name || 'unknown',
+            completed_at: new Date()
+          });
+          console.log(`[BTCPC P2P Router] Created job ${reqId.slice(0, 12)} from P2P result (authority sync)`);
+        }
+      }
 
       if (updated) {
         // Reconcile billing — refund difference between estimated and actual cost
