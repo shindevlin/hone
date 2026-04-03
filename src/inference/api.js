@@ -31,6 +31,13 @@ async function authenticateBearer(req, res, next) {
   const token = authHeader.slice(7).trim();
   req.apiKey = token;
 
+  // Internal relay key — used by bot endpoints
+  const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
+  if (RELAY_KEY && token === RELAY_KEY) {
+    req.isRelay = true;
+    return next();
+  }
+
   // Resolve btcpc_ project keys
   if (token.startsWith('btcpc_')) {
     const project = await Project.findOne({ apiKey: token, isActive: true });
