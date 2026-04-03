@@ -53,6 +53,91 @@ router.get('/user', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/bot/create { username, telegramId, telegramUsername }
+// Creates a new BTCPC account from Telegram. Shows mnemonic ONCE. We don't save it.
+router.post('/create', async (req, res) => {
+  try {
+    const { username, telegramId, telegramUsername } = req.body;
+    if (!username || !telegramId) {
+      return res.status(400).json({ error: 'username and telegramId required' });
+    }
+
+    // Check if username is taken
+    const existing = await User.findOne({ username });
+    if (existing) return res.status(400).json({ error: `Username "${username}" is already taken` });
+
+    // Check if telegram is already linked
+    const linked = await User.findOne({ telegramId: String(telegramId) });
+    if (linked) return res.status(400).json({ error: `Telegram already linked to ${linked.username}` });
+
+    // Validate username
+    if (!/^[a-z0-9][a-z0-9._-]{2,19}$/.test(username)) {
+      return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
+    }
+
+    // Create the account
+    const { createAccount } = require('../wallet/accountManager');
+    const keyManager = require('../wallet/keyManager');
+    const account = await createAccount(username, null, username + '-telegram');
+
+    // Derive full keys from mnemonic (createAccount doesn't return private keys)
+    const keys = await keyManager.mnemonicToKeys(account.mnemonic);
+    const chainWallets = await keyManager.deriveChainWallets(account.mnemonic);
+
+    // Link telegram immediately
+    const user = await User.findOne({ username });
+    if (user) {
+      user.telegramId = String(telegramId);
+      user.telegramUsername = telegramUsername || null;
+      await user.save();
+    }
+
+    // Record on permanent ledger
+    const ledger = require('../services/ledger');
+    await ledger.recordAccountCreate(username, account.publicKeys, account.chainWallets, 0);
+
+    // Announce to P2P
+    const p2p = require('../p2p/network');
+    const { createMessage } = require('../p2p/protocol');
+    try {
+      const announceMsg = createMessage('ACCOUNT_ANNOUNCE', {
+        username,
+        public_keys: account.publicKeys,
+        chain_addresses: account.chainWallets,
+        epoch: 0
+      }, p2p.NODE_ID);
+      p2p.broadcast(announceMsg);
+    } catch (_) {}
+
+    // Auto-stake 0 for inference (just create the record so bot doesn't block)
+    // User will need to receive tokens and stake manually for full access
+
+    res.json({
+      success: true,
+      warning: 'SAVE YOUR MNEMONIC NOW. We do not store it. If you lose it, your account is gone forever.',
+      security_note: 'Creating a wallet via Telegram is less secure than on a PC. Save your mnemonic to a password manager or write it on paper and store it safely.',
+      username,
+      mnemonic: account.mnemonic,
+      keys: {
+        owner: { private: keys.owner.privateKey, public: keys.owner.publicKey },
+        active: { private: keys.active.privateKey, public: keys.active.publicKey },
+        posting: { private: keys.posting.privateKey, public: keys.posting.publicKey },
+        memo: { private: keys.memo.privateKey, public: keys.memo.publicKey }
+      },
+      addresses: {
+        btcpc: account.address,
+        evm: chainWallets.evm ? chainWallets.evm.address : null,
+        solana: chainWallets.solana ? chainWallets.solana.address : null,
+        bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
+        ton: chainWallets.ton ? chainWallets.ton.address : null,
+        hive: username
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/bot/link { username, telegramId, telegramUsername }
 router.post('/link', async (req, res) => {
   try {
