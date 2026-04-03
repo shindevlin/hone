@@ -151,20 +151,24 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
 
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
-  // Pre-deduct estimated cost from project balance
+  // Lock funds in escrow — deducts from the permanent ledger
   let estimatedCost = 0;
   if (projectId) {
     const Project = require('../models/Project');
     const { calculateCost } = require('../services/pricing');
+    const escrow = require('../services/escrow');
     const estimated = await calculateCost(maxTokens || 1024, model);
     estimatedCost = estimated.cost;
 
     const project = await Project.findById(projectId);
     if (project) {
-      if (project.balance < estimatedCost) {
-        throw new Error(`Insufficient balance. Need ~${estimatedCost.toFixed(10)} BTCPC, have ${project.balance.toFixed(10)}`);
+      // Lock funds via escrow — writes to permanent ledger
+      try {
+        await escrow.lockFunds(jobId, project.owner, estimatedCost);
+      } catch (err) {
+        throw new Error(`Escrow lock failed: ${err.message}`);
       }
-      project.balance -= estimatedCost;
+
       project.totalRequests += 1;
       await project.save();
     }
