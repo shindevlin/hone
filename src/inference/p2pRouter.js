@@ -162,11 +162,13 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
 
     const project = await Project.findById(projectId);
     if (project) {
-      // Lock funds via escrow — writes to permanent ledger
+      // Lock funds via escrow — deducts from the project's funded account
+      // project.repo is the account name that holds the BTCPC (e.g. "bullship")
+      const payerAccount = project.repo || project.owner;
       try {
-        await escrow.lockFunds(jobId, project.owner, estimatedCost);
+        await escrow.lockFunds(jobId, payerAccount, estimatedCost);
       } catch (err) {
-        throw new Error(`Escrow lock failed: ${err.message}`);
+        throw new Error(`Escrow lock failed for ${payerAccount}: ${err.message}`);
       }
 
       project.totalRequests += 1;
