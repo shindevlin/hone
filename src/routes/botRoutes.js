@@ -423,7 +423,8 @@ router.post('/inference', async (req, res) => {
     // Submit via internal inference API
     const axios = require('axios');
     const API_URL = 'http://localhost:' + (process.env.PORT || 3100);
-    const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY || 'btcpc_0236fb3a9c63dc7e556bfeed5dc92290';
+    const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
+    if (!RELAY_KEY) return res.status(500).json({ error: 'BTCPC_RELAY_API_KEY not configured' });
 
     const submitRes = await axios.post(`${API_URL}/v1/inference/submit`, {
       model: model || 'qwen3.5:27b',
