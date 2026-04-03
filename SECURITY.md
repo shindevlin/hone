@@ -2,20 +2,21 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+The following versions of this software are currently supported:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+- Version 1.x (Latest)
+- Version 0.x (Legacy support)
 
-## Reporting a Vulnerability
+## Vulnerability Reporting
 
-Use this section to tell people how to report a vulnerability.
+If you discover a vulnerability, please report it to us via email at [shindevlin@proton.me](mailto:shindevlin@proton.me) or through our GitHub issues page. Please include:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- A description of the vulnerability
+- Steps to reproduce the issue
+- The version of the software affected
+
+We will respond to your report within 48 hours and will provide an estimated timeline for fixing the issue.
+
+## Acknowledgments
+
+We appreciate the work of security researchers and welcome their contributions to improve the security of our software.
