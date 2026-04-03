@@ -16,6 +16,13 @@ async function authenticateApiKey(req, res, next) {
 
   const token = authHeader.slice(7).trim();
 
+  // Internal relay key — used by bot endpoints to call inference API
+  const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
+  if (RELAY_KEY && token === RELAY_KEY) {
+    req.isRelay = true;
+    return next();
+  }
+
   // If it's a btcpc_ project key, resolve the project
   if (token.startsWith('btcpc_')) {
     const project = await Project.findOne({ apiKey: token, isActive: true });
