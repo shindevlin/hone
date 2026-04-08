@@ -41,8 +41,17 @@ var scheduleReduced = process.env.BTCPC_REDUCED_HOURS || null;
 function getIdleTimeMs() {
   try {
     if (platform === "linux") {
-      // xprintidle returns milliseconds since last input
-      var ms = parseInt(execSync("xprintidle", { timeout: 2000, encoding: "utf8" }).trim());
+      // Try GNOME/Mutter DBus first (works on Wayland + X11)
+      try {
+        var dbusOut = execSync(
+          'dbus-send --print-reply --dest=org.gnome.Mutter.IdleMonitor /org/gnome/Mutter/IdleMonitor/Core org.gnome.Mutter.IdleMonitor.GetIdletime',
+          { timeout: 2000, encoding: "utf8", windowsHide: true }
+        );
+        var match = dbusOut.match(/uint64\s+(\d+)/);
+        if (match) return parseInt(match[1]);
+      } catch (_) {}
+      // Fallback to xprintidle (X11 only)
+      var ms = parseInt(execSync("xprintidle", { timeout: 2000, encoding: "utf8", windowsHide: true }).trim());
       return isNaN(ms) ? Infinity : ms;
     } else if (platform === "darwin") {
       // ioreg returns nanoseconds
