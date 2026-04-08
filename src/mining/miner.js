@@ -150,6 +150,7 @@ async function computeFinalization(epochNumber) {
   const { getRegistryModelHash } = require('../services/modelVerifier');
   const InferenceJob = require('../models/InferenceJob');
   const finConsensus = require('../chain/finalizationConsensus');
+  const nodeRegistry = require('../chain/nodeRegistry');
 
   const rewardedEpochs = await Epoch.countDocuments({ status: 'finalized', settled_jobs: { $gt: 0 } });
   const rewardNumber = rewardedEpochs;
