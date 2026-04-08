@@ -141,32 +141,22 @@ async function waitForFinalization(epochNumber) {
  *
  * Also handles synthetic mining proofs (epochs with no inference jobs).
  */
-async function finalizeAndSplitRewards(epochNumber) {
-  // Atomic claim: only one miner can finalize an epoch
-  const epoch = await Epoch.findOneAndUpdate(
-    { epoch_number: epochNumber, status: { $ne: 'finalized' } },
-    { $set: { status: 'finalizing' } },
-    { new: true }
-  );
-  if (!epoch) return await Epoch.findOne({ epoch_number: epochNumber }); // already finalized by another miner
-
+/**
+ * computeFinalization — compute the reward split WITHOUT writing to DB.
+ * Returns a proposal object that can be broadcast for consensus.
+ * Every miner computes this independently from their local proofs.
+ */
+async function computeFinalization(epochNumber) {
   const { getRegistryModelHash } = require('../services/modelVerifier');
   const InferenceJob = require('../models/InferenceJob');
+  const finConsensus = require('../chain/finalizationConsensus');
 
-  // ── Reward number tracks emission schedule, not epoch number ──
-  // Empty epochs (no settled jobs) don't consume a reward slot.
-  // The reward number only advances when work is done.
-  // This means the emission schedule stretches — no rewards are skipped or stacked.
-  // Reward number = count of epochs that actually had work.
-  // Empty epochs don't consume emission slots — the schedule stretches.
   const rewardedEpochs = await Epoch.countDocuments({ status: 'finalized', settled_jobs: { $gt: 0 } });
   const rewardNumber = rewardedEpochs;
   const blockReward = getBlockReward(rewardNumber);
-  const epochsDeferred = epochNumber - rewardNumber; // how far behind the reward schedule is
+  const epochsDeferred = epochNumber - rewardNumber;
 
-  // ── Sweep: find jobs that are fully verified and ready to settle ──
-  // A job settles when it has enough verifications (3 in consensus, 1 in genesis).
-  // Authority tags them at EPOCH_END — miners don't get paid until all verifications are in.
+  // Sweep: settle verified jobs
   const candidateJobs = await InferenceJob.find({
     status: { $in: ['completed', 'verifying'] },
     settlement_epoch: null
@@ -176,10 +166,7 @@ async function finalizeAndSplitRewards(epochNumber) {
   for (const job of candidateJobs) {
     const required = job.required_verifications || 1;
     const verified = (job.verifications || []).length;
-
-    // In genesis/old mode: status 'completed' with node_name counts as 1 verification
     const effectiveVerified = verified > 0 ? verified : (job.node_name ? 1 : 0);
-
     if (effectiveVerified >= required) {
       job.settlement_epoch = epochNumber;
       job.settled_at = new Date();
@@ -190,58 +177,43 @@ async function finalizeAndSplitRewards(epochNumber) {
   }
 
   if (sweptCount > 0) {
-    console.log(`[BTCPC] Epoch ${epochNumber}: ${sweptCount} job(s) settled (all verifications complete)`);
+    console.log(`[BTCPC] Epoch ${epochNumber}: ${sweptCount} job(s) settled`);
   }
 
-  // ── Collect all jobs that settled in this epoch ──
+  // Collect settled jobs + mining proofs
   const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber });
-
-  // ── Also collect synthetic mining proofs ──
   const syntheticProofs = await MiningProof.find({ block_number: epochNumber });
 
-  // Build per-miner work_value totals
-  const minerWork = {}; // { minerName: { work_value, model_hashes: Set, models: Set } }
-
-  // From settled inference jobs
+  // Build per-miner work values
+  const minerWork = {};
   const { verifyModelParams } = require('./workGenerator');
+
   for (const job of settledJobs) {
-    // New model: verifications array
     if (job.verifications && job.verifications.length > 0) {
       for (const v of job.verifications) {
         if (!v.miner || !v.result_hash) continue;
         if (v.model_hash) {
           const registryHash = await getRegistryModelHash(job.model);
-          if (registryHash && v.model_hash !== registryHash) {
-            console.error(`[BTCPC] REJECTED verification from ${v.miner}: model hash mismatch`);
-            continue;
-          }
+          if (registryHash && v.model_hash !== registryHash) continue;
         }
         if (!minerWork[v.miner]) minerWork[v.miner] = { work_value: 0, models: new Set() };
         minerWork[v.miner].work_value += (v.work_value || 0);
         minerWork[v.miner].models.add(job.model);
       }
     } else if (job.node_name) {
-      // Genesis/legacy mode: single miner, no verifications array
       const params = await verifyModelParams(job.model || 'qwen3:4b');
-      const tokens = job.tokens_generated || 0;
-      const wv = tokens * params;
+      const wv = (job.tokens_generated || 0) * params;
       if (!minerWork[job.node_name]) minerWork[job.node_name] = { work_value: 0, models: new Set() };
       minerWork[job.node_name].work_value += wv;
       minerWork[job.node_name].models.add(job.model);
     }
   }
 
-  // From synthetic proofs (no inference jobs that epoch)
   for (const proof of syntheticProofs) {
-    // Verify model hash
     if (proof.model_hash) {
       const registryHash = await getRegistryModelHash(proof.model);
-      if (registryHash && proof.model_hash !== registryHash) {
-        console.error(`[BTCPC] REJECTED proof from ${proof.miner}: model hash mismatch`);
-        continue;
-      }
+      if (registryHash && proof.model_hash !== registryHash) continue;
     }
-
     if (!minerWork[proof.miner]) minerWork[proof.miner] = { work_value: 0, models: new Set() };
     minerWork[proof.miner].work_value += (proof.work_value || 0);
     minerWork[proof.miner].models.add(proof.model);
@@ -250,126 +222,106 @@ async function finalizeAndSplitRewards(epochNumber) {
   const miners = Object.keys(minerWork);
   const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 
-  console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${settledJobs.length} settled jobs, ${syntheticProofs.length} synthetic proofs, ${miners.length} miner(s), total work_value: ${totalWorkValue}`);
-
-  // ── Empty epoch: no inference work done ──
-  // Clock nodes still get paid (they kept the chain alive).
-  // Mining reward is deferred — doesn't consume emission slot.
-  if (miners.length === 0 || totalWorkValue === 0) {
-    const rewards = [];
-
-    // Clock nodes still earn their 2% even in empty epochs
-    const { getActiveClockNodes } = require('../p2p/protocol');
-    const activeClocks = getActiveClockNodes(epochNumber).filter(account => {
-      if (!account || account.startsWith('clock-')) return false;
-      return nodeRegistry.isRegistered(account);
-    });
-
-    // Use a small clock-only reward from the block reward pool
-    if (activeClocks.length > 0) {
-      const clockOnlyReward = parseFloat((blockReward * 0.02).toFixed(10));
-      const clockShare = parseFloat((clockOnlyReward / activeClocks.length).toFixed(10));
-      for (const clockNode of activeClocks) {
-        await ledger.recordMiningReward(clockNode, clockShare, epochNumber);
-        await ledger.updateWalletCache(clockNode, 'BTCPC', clockShare);
-        console.log(`[BTCPC]   ${clockNode}: ${clockShare.toFixed(4)} BTCPC (clock — empty epoch)`);
-        rewards.push({ node_id: clockNode, amount: clockShare, type: 'clock' });
-      }
-    }
-
-    epoch.total_work = 0;
-    epoch.rewards_distributed = rewards;
-    epoch.block_reward = rewards.length > 0 ? rewards.reduce((s, r) => s + r.amount, 0) : 0;
-    epoch.ended_at = new Date();
-    epoch.status = 'finalized';
-    epoch.settled_jobs = 0;
-    await epoch.save();
-    console.log(`[BTCPC] Epoch ${epochNumber} finalized | EMPTY — no inference work, mining reward deferred${activeClocks.length > 0 ? ', ' + activeClocks.length + ' clock(s) paid' : ''}`);
-    return epoch;
-  }
-
-  // ── Split rewards: 98% miners, 2% clock nodes ──
+  // Compute reward split
   const CLOCK_POOL_PCT = 0.02;
-  const minerPoolReward = parseFloat((blockReward * (1 - CLOCK_POOL_PCT)).toFixed(10));
-  const clockPoolReward = parseFloat((blockReward * CLOCK_POOL_PCT).toFixed(10));
-
   const rewards = [];
 
-  // ── Miner rewards (98%) ──
-  for (const miner of miners) {
-    let share;
-    if (totalWorkValue === 0) {
-      share = minerPoolReward / miners.length;
-    } else {
-      share = minerPoolReward * (minerWork[miner].work_value / totalWorkValue);
+  if (miners.length === 0 || totalWorkValue === 0) {
+    // Empty epoch — clock rewards only
+    const { getActiveClockNodes } = require('../p2p/protocol');
+    const activeClocks = getActiveClockNodes(epochNumber).filter(a =>
+      a && !a.startsWith('clock-') && nodeRegistry.isRegistered(a)
+    );
+    if (activeClocks.length > 0) {
+      const clockReward = parseFloat((blockReward * CLOCK_POOL_PCT).toFixed(10));
+      const share = parseFloat((clockReward / activeClocks.length).toFixed(10));
+      for (const c of activeClocks) {
+        rewards.push({ miner: c, amount: share, type: 'clock' });
+      }
     }
-    share = parseFloat(share.toFixed(10));
+  } else {
+    // Mining rewards (98%) + clock rewards (2%)
+    const minerPool = parseFloat((blockReward * (1 - CLOCK_POOL_PCT)).toFixed(10));
+    const clockPool = parseFloat((blockReward * CLOCK_POOL_PCT).toFixed(10));
 
-    // Record mining reward on permanent ledger — this IS the chain
-    await ledger.recordMiningReward(miner, share, epochNumber);
+    for (const miner of miners) {
+      const share = parseFloat((minerPool * (minerWork[miner].work_value / totalWorkValue)).toFixed(10));
+      rewards.push({ miner, amount: share, type: 'mining' });
+    }
 
-    // Update wallet cache (ledger is source of truth)
-    await ledger.updateWalletCache(miner, 'BTCPC', share);
+    const { getActiveClockNodes } = require('../p2p/protocol');
+    const activeClocks = getActiveClockNodes(epochNumber).filter(a =>
+      a && !a.startsWith('clock-') && nodeRegistry.isRegistered(a)
+    );
+    if (activeClocks.length > 0) {
+      const clockShare = parseFloat((clockPool / activeClocks.length).toFixed(10));
+      for (const c of activeClocks) {
+        rewards.push({ miner: c, amount: clockShare, type: 'clock' });
+      }
+    } else if (miners.length > 0) {
+      // No clocks — redistribute to miners
+      const extra = parseFloat((clockPool / miners.length).toFixed(10));
+      for (const r of rewards) {
+        if (r.type === 'mining') r.amount = parseFloat((r.amount + extra).toFixed(10));
+      }
+    }
+  }
 
-    // Update mining proof with earned reward
-    const proof = await MiningProof.findOne({ block_number: epochNumber, miner });
+  const consensusHash = finConsensus.hashRewards(rewards, totalWorkValue, settledJobs.length);
+
+  return {
+    epoch_number: epochNumber,
+    proposer: MINER_ACCOUNT,
+    rewards,
+    total_work: totalWorkValue,
+    settled_jobs: settledJobs.length,
+    block_reward: blockReward,
+    reward_number: rewardNumber,
+    epochs_deferred: epochsDeferred,
+    consensus_hash: consensusHash,
+    timestamp: Date.now()
+  };
+}
+
+/**
+ * applyFinalization — write the winning proposal to DB, ledger, and disk.
+ * Called by the consensus winner OR when receiving EPOCH_FINALIZED.
+ */
+async function applyFinalization(epochNumber, proposal) {
+  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  if (!epoch) return null;
+  if (epoch.status === 'finalized') return epoch; // already done
+
+  const rewards = proposal.rewards || [];
+
+  // Write rewards to permanent ledger
+  for (const r of rewards) {
+    await ledger.recordMiningReward(r.miner, r.amount, epochNumber);
+    await ledger.updateWalletCache(r.miner, 'BTCPC', r.amount);
+
+    // Update mining proof
+    const proof = await MiningProof.findOne({ block_number: epochNumber, miner: r.miner });
     if (proof) {
-      proof.reward_earned = share;
+      proof.reward_earned = r.amount;
       await proof.save();
     }
 
-    const pct = totalWorkValue > 0 ? ((minerWork[miner].work_value / totalWorkValue) * 100).toFixed(1) : (100 / miners.length).toFixed(1);
-    const modelList = [...minerWork[miner].models].join(', ');
-    console.log(`[BTCPC]   ${miner}: ${share.toFixed(4)} BTCPC (${pct}%, mining)`);
-    rewards.push({ node_id: miner, amount: share, type: 'mining' });
-  }
-
-  // ── Clock node rewards (2%) — split among active REGISTERED clock nodes ──
-  const { getActiveClockNodes } = require('../p2p/protocol');
-  const activeClocks = getActiveClockNodes(epochNumber).filter(account => {
-    // Only pay registered nodes — no random clock-XXXX accounts
-    if (!account || account.length < 2) return false;
-    if (account.startsWith('clock-')) return false; // unregistered auto-generated
-    return nodeRegistry.isRegistered(account);
-  });
-
-  if (activeClocks.length > 0 && clockPoolReward > 0) {
-    const clockShare = parseFloat((clockPoolReward / activeClocks.length).toFixed(10));
-    for (const clockNode of activeClocks) {
-
-      await ledger.recordMiningReward(clockNode, clockShare, epochNumber);
-      await ledger.updateWalletCache(clockNode, 'BTCPC', clockShare);
-
-      console.log(`[BTCPC]   ${clockNode}: ${clockShare.toFixed(4)} BTCPC (clock)`);
-      rewards.push({ node_id: clockNode, amount: clockShare, type: 'clock' });
-    }
-    console.log(`[BTCPC]   Clock pool: ${clockPoolReward.toFixed(4)} BTCPC → ${activeClocks.length} node(s)`);
-  } else if (clockPoolReward > 0) {
-    // No active clocks — give the 2% to miners instead
-    const extraPerMiner = parseFloat((clockPoolReward / miners.length).toFixed(10));
-    for (const miner of miners) {
-      await ledger.recordMiningReward(miner, extraPerMiner, epochNumber);
-      await ledger.updateWalletCache(miner, 'BTCPC', extraPerMiner);
-      // Find the existing reward entry and add to it
-      const existing = rewards.find(r => r.node_id === miner);
-      if (existing) existing.amount = parseFloat((existing.amount + extraPerMiner).toFixed(10));
-    }
-    console.log(`[BTCPC]   No active clocks — ${clockPoolReward.toFixed(4)} BTCPC redistributed to miners`);
+    console.log(`[BTCPC]   ${r.miner}: ${r.amount.toFixed(4)} BTCPC (${r.type || 'mining'})`);
   }
 
   // Finalize epoch record
-  epoch.consensus_hash = epoch.commitments?.length > 0 ? epoch.commitments[0].state_hash : '0'.repeat(64);
-  epoch.total_work = totalWorkValue;
-  epoch.rewards_distributed = rewards;
-  epoch.block_reward = blockReward;
-  epoch.reward_number = rewardNumber;
-  epoch.epochs_deferred = epochsDeferred; // how many empty epochs pushed this reward out
+  epoch.consensus_hash = proposal.consensus_hash || '0'.repeat(64);
+  epoch.total_work = proposal.total_work || 0;
+  epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount }));
+  epoch.block_reward = proposal.block_reward || 0;
+  epoch.reward_number = proposal.reward_number;
+  epoch.epochs_deferred = proposal.epochs_deferred || 0;
   epoch.ended_at = new Date();
   epoch.status = 'finalized';
-  epoch.settled_jobs = settledJobs.length;
+  epoch.settled_jobs = proposal.settled_jobs || 0;
   await epoch.save();
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${rewardNumber} (deferred ${epochsDeferred}) | ${miners.length} miner(s) | ${settledJobs.length} settled jobs | ${blockReward.toFixed(4)} BTCPC split`);
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${proposal.reward_number} | ${rewards.length} reward(s) | ${(proposal.block_reward || 0).toFixed(4)} BTCPC`);
 
   // ── Write block to disk — source of truth ──
   try {
@@ -1125,7 +1077,7 @@ async function startMiner() {
       });
     }
 
-    // ── EPOCH_END from a clock node — finalize and broadcast block ──
+    // ── EPOCH_END from a clock node — compute proposal, broadcast for consensus ──
     if (msg.type === 'EPOCH_END') {
       const data = msg.data || {};
       const endedEpoch = data.epoch_number;
@@ -1133,39 +1085,67 @@ async function startMiner() {
 
       console.log(`[BTCPC] Epoch ${endedEpoch} ENDED (from ${data.authority || 'clock'})`);
 
-      // Finalize — any miner with proofs can do this
+      // Compute our finalization proposal (no DB writes yet)
       setImmediate(async () => {
         try {
-          const finalized = await finalizeAndSplitRewards(endedEpoch);
-          if (finalized) {
-            const bd = finalized._blockData || {};
+          const proposal = await computeFinalization(endedEpoch);
+          console.log(`[BTCPC] Proposal for epoch ${endedEpoch}: ${proposal.rewards.length} reward(s), work=${proposal.total_work}, hash=${proposal.consensus_hash.slice(0, 12)}...`);
 
-            const blockMsg = createMessage('EPOCH_FINALIZED', {
-              epoch_number: endedEpoch,
-              block_reward: finalized.block_reward,
-              reward_number: finalized.reward_number,
-              epochs_deferred: finalized.epochs_deferred,
-              settled_jobs: finalized.settled_jobs || 0,
-              rewards: (finalized.rewards_distributed || []).map(r => ({
-                miner: r.node_id,
-                amount: r.amount
-              })),
-              total_work: finalized.total_work,
-              consensus_hash: finalized.consensus_hash,
-              authority: MINER_ACCOUNT,
-              ledger: bd.ledger || [],
-              header_hex: bd.header_hex || null,
-              block_hash: bd.block_hash || null,
-              state_root: bd.state_root || null,
-              is_finality: bd.is_finality || false
-            }, p2p.NODE_ID);
-            p2p.broadcast(blockMsg);
-            console.log(`[BTCPC] Block ${endedEpoch} broadcast to network`);
-          }
+          // Submit to local consensus collector
+          const finConsensus = require('../chain/finalizationConsensus');
+          finConsensus.submitProposal(endedEpoch, proposal);
+
+          // Broadcast proposal to network
+          const proposalMsg = createMessage('FINALIZATION_PROPOSAL', proposal, p2p.NODE_ID);
+          p2p.broadcast(proposalMsg);
         } catch (err) {
-          console.error(`[BTCPC] Finalization error for epoch ${endedEpoch}:`, err.message);
+          console.error(`[BTCPC] Proposal error for epoch ${endedEpoch}:`, err.message);
         }
       });
+    }
+  });
+
+  // ── Consensus resolution callback — when the network agrees, apply and broadcast ──
+  const finConsensus = require('../chain/finalizationConsensus');
+  finConsensus.onResolved(async (epochNumber, winner) => {
+    try {
+      // Only the designated broadcaster applies and broadcasts
+      if (!finConsensus.amIBroadcaster(epochNumber, MINER_ACCOUNT)) {
+        console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — ${winner.proposer} will broadcast`);
+        return;
+      }
+
+      console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — I am the broadcaster`);
+
+      // Apply the winning proposal to DB + ledger
+      const epoch = await applyFinalization(epochNumber, winner);
+      if (!epoch) return;
+
+      const bd = epoch._blockData || {};
+
+      const blockMsg = createMessage('EPOCH_FINALIZED', {
+        epoch_number: epochNumber,
+        block_reward: winner.block_reward,
+        reward_number: winner.reward_number,
+        epochs_deferred: winner.epochs_deferred,
+        settled_jobs: winner.settled_jobs || 0,
+        rewards: (winner.rewards || []).map(r => ({
+          miner: r.miner,
+          amount: r.amount
+        })),
+        total_work: winner.total_work,
+        consensus_hash: winner.consensus_hash,
+        authority: MINER_ACCOUNT,
+        ledger: bd.ledger || [],
+        header_hex: bd.header_hex || null,
+        block_hash: bd.block_hash || null,
+        state_root: bd.state_root || null,
+        is_finality: bd.is_finality || false
+      }, p2p.NODE_ID);
+      p2p.broadcast(blockMsg);
+      console.log(`[BTCPC] Block ${epochNumber} broadcast to network (consensus)`);
+    } catch (err) {
+      console.error(`[BTCPC] Consensus apply error for epoch ${epochNumber}:`, err.message);
     }
   });
 
@@ -1178,7 +1158,26 @@ async function startMiner() {
       currentEpoch = clockEpoch;
       try {
         await mineEpoch(currentEpoch);
-        await finalizeAndSplitRewards(currentEpoch);
+        // Fallback: propose and self-resolve (solo miner)
+        const proposal = await computeFinalization(currentEpoch);
+        const epoch = await applyFinalization(currentEpoch, proposal);
+        if (epoch) {
+          const bd = epoch._blockData || {};
+          const blockMsg = createMessage('EPOCH_FINALIZED', {
+            epoch_number: currentEpoch,
+            block_reward: proposal.block_reward,
+            reward_number: proposal.reward_number,
+            rewards: proposal.rewards.map(r => ({ miner: r.miner, amount: r.amount })),
+            total_work: proposal.total_work,
+            consensus_hash: proposal.consensus_hash,
+            authority: MINER_ACCOUNT,
+            ledger: bd.ledger || [],
+            header_hex: bd.header_hex || null,
+            block_hash: bd.block_hash || null,
+            state_root: bd.state_root || null
+          }, p2p.NODE_ID);
+          p2p.broadcast(blockMsg);
+        }
       } catch (err) {
         console.error(`[BTCPC] Fallback epoch ${currentEpoch} error:`, err.message);
       }

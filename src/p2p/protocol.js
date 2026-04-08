@@ -52,6 +52,8 @@ const MESSAGE_TYPES = {
   RESPONSE_LEDGER: "RESPONSE_LEDGER",
   // Clock heartbeat — clock nodes prove they're online
   CLOCK_HEARTBEAT: "CLOCK_HEARTBEAT",
+  // Finalization proposal — miners propose reward splits for consensus
+  FINALIZATION_PROPOSAL: "FINALIZATION_PROPOSAL",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -219,6 +221,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.ACCOUNT_ANNOUNCE:
       handleAccountAnnounce(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.FINALIZATION_PROPOSAL:
+      handleFinalizationProposal(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.CLOCK_HEARTBEAT:
       handleClockHeartbeat(peer, msg, ctx);
@@ -717,6 +722,30 @@ async function handleAccountAnnounce(peer, msg, ctx) {
     console.error("[BTCPC P2P] Failed to process account announcement:", err.message);
   }
 
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Finalization Consensus — collect proposals from miners
+// ---------------------------------------------------------------------------
+
+/**
+ * FINALIZATION_PROPOSAL — A miner proposes their reward split for an epoch.
+ * Collected by all nodes. When majority agrees, the earliest proposer broadcasts EPOCH_FINALIZED.
+ */
+function handleFinalizationProposal(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.epoch_number || !data.proposer) return;
+
+  console.log("[BTCPC P2P] Finalization proposal from " + data.proposer +
+    " for epoch " + data.epoch_number +
+    " (hash: " + (data.consensus_hash || "?").slice(0, 12) + "...)");
+
+  // Submit to local consensus collector
+  var finConsensus = require("../chain/finalizationConsensus");
+  finConsensus.submitProposal(data.epoch_number, data);
+
+  // Rebroadcast
   ctx.broadcast(msg, peer.address);
 }
 

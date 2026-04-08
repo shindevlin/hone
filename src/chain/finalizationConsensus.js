@@ -42,12 +42,12 @@ function hashRewards(rewards, totalWork, settledJobs) {
     return aName < bName ? -1 : aName > bName ? 1 : 0;
   });
 
+  // Only hash the rewards — this is what we're reaching consensus on.
+  // total_work and settled_jobs are metadata, not part of the agreement.
   var canonical = {
     rewards: sorted.map(function (r) {
       return { miner: r.miner || r.node_id, amount: parseFloat((r.amount || 0).toFixed(10)) };
-    }),
-    total_work: totalWork || 0,
-    settled_jobs: settledJobs || 0
+    })
   };
 
   return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
