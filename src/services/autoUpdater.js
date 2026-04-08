@@ -26,8 +26,16 @@ let pendingUpdate = null;
 let restartApproved = false;
 
 function run(cmd) {
-  const shell = IS_WINDOWS ? { shell: 'cmd.exe' } : {};
-  return execSync(cmd, { cwd: REPO_DIR, encoding: 'utf8', timeout: 120000, ...shell }).trim();
+  // windowsHide: true prevents cmd.exe windows from flashing on Windows
+  const opts = {
+    cwd: REPO_DIR,
+    encoding: 'utf8',
+    timeout: 120000,
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe']
+  };
+  if (IS_WINDOWS) opts.shell = 'cmd.exe';
+  return execSync(cmd, opts).trim();
 }
 
 function log(msg) {

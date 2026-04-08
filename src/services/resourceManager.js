@@ -56,7 +56,7 @@ function getIdleTimeMs() {
       // PowerShell: get last input time
       var ps = 'Add-Type @"using System;using System.Runtime.InteropServices;public class IdleTime{[DllImport("user32.dll")]static extern bool GetLastInputInfo(ref LASTINPUTINFO p);public struct LASTINPUTINFO{public uint cbSize;public uint dwTime;}public static uint Get(){LASTINPUTINFO i=new LASTINPUTINFO();i.cbSize=(uint)Marshal.SizeOf(i);GetLastInputInfo(ref i);return((uint)Environment.TickCount-i.dwTime);}}";[IdleTime]::Get()';
       var msStr = execSync('powershell -command "' + ps.replace(/"/g, '\\"') + '"',
-        { timeout: 5000, encoding: "utf8" }).trim();
+        { timeout: 5000, encoding: "utf8", windowsHide: true }).trim();
       var msWin = parseInt(msStr);
       return isNaN(msWin) ? Infinity : msWin;
     }

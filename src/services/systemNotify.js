@@ -46,7 +46,7 @@ function notify(title, body, urgency) {
         '$t.Content.LoadXml($xml); ' +
         '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("BTCPC").Show($t)';
       execSync('powershell -command "' + ps.replace(/"/g, '\\"') + '"',
-        { timeout: 10000, stdio: 'ignore' }
+        { timeout: 10000, stdio: 'ignore', windowsHide: true }
       );
     }
   } catch (e) {
