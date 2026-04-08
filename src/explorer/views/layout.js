@@ -421,6 +421,7 @@ function layout(title, content) {
         <a href="/">Dashboard</a>
         <a href="/tx">Transactions</a>
         <a href="/miners">Miners</a>
+        <a href="/settings">Settings</a>
       </nav>
       <div class="refresh-indicator">
         <span class="dot"></span>Live

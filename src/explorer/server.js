@@ -447,6 +447,44 @@ function formatLedgerEntry(entry) {
   };
 }
 
+/**
+ * GET /settings — Miner resource management UI
+ */
+app.get("/settings", async (req, res) => {
+  try {
+    var resourceManager = require("../services/resourceManager");
+    var status = resourceManager.getStatus();
+    var settingsView = require("./views/settings");
+    res.send(settingsView(status));
+  } catch (err) {
+    res.status(500).send("Error: " + err.message);
+  }
+});
+
+/**
+ * POST /settings — Update miner settings via form
+ */
+app.use(express.urlencoded({ extended: false }));
+app.post("/settings", async (req, res) => {
+  try {
+    var resourceManager = require("../services/resourceManager");
+    var body = req.body;
+
+    if (body.action === "pause") resourceManager.pause();
+    else if (body.action === "resume") resourceManager.resume();
+    else if (body.action === "full") resourceManager.setManualMode("full");
+    else if (body.action === "reduced") resourceManager.setManualMode("reduced");
+    else if (body.action === "auto") resourceManager.setManualMode(null);
+
+    if (body.cpuCap) resourceManager.setCpuCap(parseInt(body.cpuCap));
+    if (body.gpuCap) resourceManager.setGpuCap(parseInt(body.gpuCap));
+
+    res.redirect("/settings");
+  } catch (err) {
+    res.status(500).send("Error: " + err.message);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
