@@ -1064,100 +1064,24 @@ async function startMiner() {
     return epochConsensus.isEpochEligible(MINER_ACCOUNT, nodeInfo, nodeRegistry.PERMISSIONLESS_MIN_STAKE).eligible;
   }
 
-  // All eligible nodes participate in epoch consensus
-  if (isEpochAuthority()) {
-    console.log(`[BTCPC] This node is EPOCH ELIGIBLE (${MINER_ACCOUNT})`);
-    currentEpoch = getCurrentEpochNumber();
+  // ── Miner is NEVER the clock — clocks drive timing, miners do work ──
+  // Miner listens for EPOCH_START from clock nodes, mines, and finalizes.
+  // Clock nodes (btcpc-clock) handle EPOCH_START/END timing.
 
-    // Broadcast EPOCH_START immediately so other nodes can begin
-    const startMsg = createMessage('EPOCH_START', {
-      epoch_number: currentEpoch,
-      started_at: Date.now(),
-      authority: MINER_ACCOUNT
-    }, p2p.NODE_ID);
-    p2p.broadcast(startMsg);
-    console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (this node — initial)`);
+  console.log(`[BTCPC] Miner ${MINER_ACCOUNT} — waiting for EPOCH_START from clock nodes...`);
 
-    // Mine — fire and forget, don't block the clock
-    setImmediate(async () => {
-      try {
-        await mineEpoch(currentEpoch);
-      } catch (err) {
-        console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
-      }
-    });
-  } else {
-    console.log(`[BTCPC] Following epoch consensus — waiting for EPOCH_START...`);
-  }
+  let lastEpoch = -1;
 
-  if (isEpochAuthority()) {
-    // ── EPOCH CONSENSUS — this node participates in epoch timing ──
-    // Bookends every epoch: START → miners work → END → finalize
-    miningInterval = setInterval(async () => {
-      if (!running) return;
+  p2p.onMessage(async (msg) => {
+    // ── EPOCH_START from a clock node — start mining ──
+    if (msg.type === 'EPOCH_START') {
+      const data = msg.data || {};
+      if (!data.epoch_number || data.epoch_number <= lastEpoch) return;
 
-      const nextEpoch = getCurrentEpochNumber();
-      if (nextEpoch <= currentEpoch) return;
+      lastEpoch = data.epoch_number;
+      currentEpoch = data.epoch_number;
+      console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (from ${data.authority || 'clock'})`);
 
-      // ── Close previous epoch ──
-      if (currentEpoch > 0) {
-        const endMsg = createMessage('EPOCH_END', {
-          epoch_number: currentEpoch,
-          ended_at: Date.now(),
-          authority: MINER_ACCOUNT
-        }, p2p.NODE_ID);
-        p2p.broadcast(endMsg);
-        console.log(`[BTCPC] Epoch ${currentEpoch} ENDED (authority)`);
-
-        // Finalize and broadcast the block to all nodes
-        // Proofs that arrive late settle in the next epoch — no waiting
-        try {
-          const finalized = await finalizeAndSplitRewards(currentEpoch);
-          if (finalized) {
-            // Block data was attached by finalizeAndSplitRewards
-            const bd = finalized._blockData || {};
-
-            const blockMsg = createMessage('EPOCH_FINALIZED', {
-              epoch_number: currentEpoch,
-              block_reward: finalized.block_reward,
-              reward_number: finalized.reward_number,
-              epochs_deferred: finalized.epochs_deferred,
-              settled_jobs: finalized.settled_jobs || 0,
-              rewards: (finalized.rewards_distributed || []).map(r => ({
-                miner: r.node_id,
-                amount: r.amount
-              })),
-              total_work: finalized.total_work,
-              consensus_hash: finalized.consensus_hash,
-              authority: MINER_ACCOUNT,
-              // Permanent ledger entries — accounts, transfers, rewards
-              ledger: bd.ledger || [],
-              // Block header for P2P chain replication
-              header_hex: bd.header_hex || null,
-              block_hash: bd.block_hash || null,
-              state_root: bd.state_root || null,
-              is_finality: bd.is_finality || false
-            }, p2p.NODE_ID);
-            p2p.broadcast(blockMsg);
-            console.log(`[BTCPC] Block ${currentEpoch} broadcast to network`);
-          }
-        } catch (err) {
-          console.error(`[BTCPC] Finalization error for epoch ${currentEpoch}:`, err.message);
-        }
-      }
-
-      // ── Open new epoch ──
-      currentEpoch = nextEpoch;
-      const startMsg = createMessage('EPOCH_START', {
-        epoch_number: currentEpoch,
-        started_at: Date.now(),
-        authority: MINER_ACCOUNT
-      }, p2p.NODE_ID);
-      p2p.broadcast(startMsg);
-      console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (authority)`);
-
-      // Mine this epoch — fire and forget, don't block the clock
-      // If mining takes longer than the epoch, it settles in a later epoch
       const epochToMine = currentEpoch;
       setImmediate(async () => {
         try {
@@ -1171,60 +1095,67 @@ async function startMiner() {
           console.error(`[BTCPC] Epoch ${epochToMine} mining error:`, err.message);
         }
       });
-    }, 30000);
-  } else {
-    // ── FOLLOWER (all other miners) ──
-    // Listen for EPOCH_START/END from authority. Mine between them.
-    // Authority's epoch number is the truth — follow it regardless of local calculation.
-    let lastAuthorityEpoch = -1; // accept any epoch from authority
+    }
 
-    p2p.onMessage(async (msg) => {
-      if (msg.type === 'EPOCH_START') {
-        const data = msg.data || {};
-        if (!data.epoch_number || data.epoch_number <= lastAuthorityEpoch) return;
+    // ── EPOCH_END from a clock node — finalize and broadcast block ──
+    if (msg.type === 'EPOCH_END') {
+      const data = msg.data || {};
+      const endedEpoch = data.epoch_number;
+      if (!endedEpoch) return;
 
-        lastAuthorityEpoch = data.epoch_number;
-        currentEpoch = data.epoch_number;
-        console.log(`[BTCPC] Epoch ${currentEpoch} STARTED (from authority)`);
+      console.log(`[BTCPC] Epoch ${endedEpoch} ENDED (from ${data.authority || 'clock'})`);
 
-        // Mine — fire and forget, don't block message handler
-        const epochToMine = currentEpoch;
-        setImmediate(async () => {
-          try {
-            const { syncLocalModels } = require('../services/modelRegistry');
-            const _user = await User.findOne({ username: MINER_ACCOUNT });
-            const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-            syncLocalModels(_node?._id).catch(() => {});
-
-            await mineEpoch(epochToMine);
-          } catch (err) {
-            console.error(`[BTCPC] Epoch ${epochToMine} mining error:`, err.message);
-          }
-        });
-      }
-
-      if (msg.type === 'EPOCH_END') {
-        const data = msg.data || {};
-        console.log(`[BTCPC] Epoch ${data.epoch_number} ENDED (from authority)`);
-        // Stop accepting new work for this epoch — finalization handled by authority
-      }
-    });
-
-    // Fallback: if authority is silent for 2 epoch durations, use clock
-    miningInterval = setInterval(async () => {
-      if (!running) return;
-      const clockEpoch = getCurrentEpochNumber();
-      if (clockEpoch > currentEpoch + 1) {
-        console.log(`[BTCPC] Authority silent — falling back to clock (epoch ${clockEpoch})`);
-        currentEpoch = clockEpoch;
+      // Finalize — any miner with proofs can do this
+      setImmediate(async () => {
         try {
-          await mineEpoch(currentEpoch);
+          const finalized = await finalizeAndSplitRewards(endedEpoch);
+          if (finalized) {
+            const bd = finalized._blockData || {};
+
+            const blockMsg = createMessage('EPOCH_FINALIZED', {
+              epoch_number: endedEpoch,
+              block_reward: finalized.block_reward,
+              reward_number: finalized.reward_number,
+              epochs_deferred: finalized.epochs_deferred,
+              settled_jobs: finalized.settled_jobs || 0,
+              rewards: (finalized.rewards_distributed || []).map(r => ({
+                miner: r.node_id,
+                amount: r.amount
+              })),
+              total_work: finalized.total_work,
+              consensus_hash: finalized.consensus_hash,
+              authority: MINER_ACCOUNT,
+              ledger: bd.ledger || [],
+              header_hex: bd.header_hex || null,
+              block_hash: bd.block_hash || null,
+              state_root: bd.state_root || null,
+              is_finality: bd.is_finality || false
+            }, p2p.NODE_ID);
+            p2p.broadcast(blockMsg);
+            console.log(`[BTCPC] Block ${endedEpoch} broadcast to network`);
+          }
         } catch (err) {
-          console.error(`[BTCPC] Epoch ${currentEpoch} mining error:`, err.message);
+          console.error(`[BTCPC] Finalization error for epoch ${endedEpoch}:`, err.message);
         }
+      });
+    }
+  });
+
+  // Fallback: if no clock sends EPOCH_START for 2 epoch durations, mine anyway
+  miningInterval = setInterval(async () => {
+    if (!running) return;
+    const clockEpoch = getCurrentEpochNumber();
+    if (clockEpoch > currentEpoch + 1) {
+      console.log(`[BTCPC] No clock heard — fallback mining epoch ${clockEpoch}`);
+      currentEpoch = clockEpoch;
+      try {
+        await mineEpoch(currentEpoch);
+        await finalizeAndSplitRewards(currentEpoch);
+      } catch (err) {
+        console.error(`[BTCPC] Fallback epoch ${currentEpoch} error:`, err.message);
       }
-    }, EPOCH_DURATION_MS);
-  }
+    }
+  }, EPOCH_DURATION_MS);
 
   console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
 

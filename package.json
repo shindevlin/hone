@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "2.0.85",
+  "version": "2.0.86",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
@@ -11,6 +11,9 @@
     "test:watch": "jest --watch",
     "cli": "node bin/btcpc-cli",
     "mine": "node bin/btcpc-mine",
+    "clock": "node bin/btcpc-clock",
+    "tray": "bash bin/btcpc-tray",
+    "all": "node bin/btcpc-mine & node bin/btcpc-clock & bash bin/btcpc-tray &",
     "explorer": "node src/explorer/server.js",
     "p2p": "node src/p2p/network.js",
     "update": "node bin/btcpc-update",
