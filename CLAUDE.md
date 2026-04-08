@@ -39,3 +39,7 @@ See [docs/bots.md](docs/bots.md) for full bot documentation.
 - Genesis miner (shindevlin) running on GPU node
 - 420 reserved premium names
 - Whitepaper v0.3 complete with 12 appendices
+
+## Session Notes
+- Detailed handoff notes for the 2026-04-08 cleanup/test pass live in `docs/CLAUDE_HANDOFF_2026-04-08.md`
+- Use that handoff before touching auth, tests, tracker docs, or CI added in that pass

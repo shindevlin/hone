@@ -19,7 +19,8 @@ function dashboard(data) {
   const {
     totalSupply, totalMined, currentEpoch, totalMiners,
     totalTransactions, latestEpochs, recentTransactions,
-    currentPeriod, networkHashRate, totalStaked
+    currentPeriod, networkHashRate, totalStaked,
+    mempoolSize, latestBlockOnDisk, stateRoot
   } = data;
 
   const minedPercent = totalSupply > 0 ? ((totalMined / totalSupply) * 100).toFixed(2) : "0";
@@ -79,6 +80,21 @@ function dashboard(data) {
         <div class="stat-label">Total Staked</div>
         <div class="stat-value">${formatNumber(totalStaked)}</div>
         <div class="stat-sub">BTCPC locked</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Mempool Size</div>
+        <div class="stat-value">${formatNumber(mempoolSize)}</div>
+        <div class="stat-sub">pending transactions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Blocks On Disk</div>
+        <div class="stat-value">${formatNumber(latestBlockOnDisk)}</div>
+        <div class="stat-sub">latest block height</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">State Root</div>
+        <div class="stat-value" style="font-size: 20px;">${stateRoot ? stateRoot.slice(0, 12) + "..." : "--"}</div>
+        <div class="stat-sub"><span class="hash">${stateRoot || "not available"}</span></div>
       </div>
     </div>
 

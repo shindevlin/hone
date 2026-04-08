@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "2.0.86",
+  "version": "2.0.87",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
@@ -17,7 +17,9 @@
     "explorer": "node src/explorer/server.js",
     "p2p": "node src/p2p/network.js",
     "update": "node bin/btcpc-update",
-    "website": "npx serve website"
+    "website": "npx serve website",
+    "smoke:api": "bash scripts/smoke-api.sh",
+    "smoke:inference": "node scripts/smoke-inference.js"
   },
   "dependencies": {
     "@hiveio/dhive": "^1.3.5",

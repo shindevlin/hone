@@ -107,7 +107,8 @@ app.get("/", async (req, res) => {
       currentPeriod,
       totalStaked,
       mempoolSize: mempool.size(),
-      latestBlockOnDisk: blockStore.getLatestBlockNumber()
+      latestBlockOnDisk: blockStore.getLatestBlockNumber(),
+      stateRoot: stateManager.getStateRoot()
     }));
   } catch (err) {
     console.error("[btcpcscan] Dashboard error:", err);

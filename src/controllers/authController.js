@@ -1,7 +1,35 @@
 "use strict";
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { createAccount } = require('../wallet/accountManager');
+
+function isBcryptHash(value) {
+  return typeof value === 'string' && value.startsWith('$2');
+}
+
+function matchesLegacySha256(password, storedHash) {
+  if (!password || !storedHash || isBcryptHash(storedHash)) return false;
+  const sha256 = crypto.createHash('sha256').update(password).digest('hex');
+  return sha256 === storedHash;
+}
+
+async function verifyAndUpgradePassword(user, password) {
+  if (!user || !password) return false;
+
+  if (isBcryptHash(user.password)) {
+    return bcrypt.compareSync(password, user.password);
+  }
+
+  if (!matchesLegacySha256(password, user.password)) {
+    return false;
+  }
+
+  user.password = bcrypt.hashSync(password, 10);
+  await user.save();
+  return true;
+}
 
 /**
  * Register New User
@@ -31,15 +59,22 @@ async function registerUser(req, res) {
  * Login User
  */
 async function loginUser(req, res) {
-  const { email, password } = req.body;
+  const { email, username, password } = req.body;
+  const identifier = email || username;
 
   try {
-    const user = await User.findOne({ email });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'username/email and password are required' });
+    }
+
+    const user = await User.findOne({
+      $or: [{ email: identifier }, { username: identifier }]
+    });
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = require('bcryptjs').compareSync(password, user.password);
+    const isMatch = await verifyAndUpgradePassword(user, password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -132,5 +167,7 @@ module.exports = {
   loginUser,
   linkTelegram,
   enable2FA,
-  checkTelegramLink
+  checkTelegramLink,
+  verifyAndUpgradePassword,
+  matchesLegacySha256
 };

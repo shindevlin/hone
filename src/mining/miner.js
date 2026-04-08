@@ -142,8 +142,13 @@ async function waitForFinalization(epochNumber) {
  * Also handles synthetic mining proofs (epochs with no inference jobs).
  */
 async function finalizeAndSplitRewards(epochNumber) {
-  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
-  if (!epoch || epoch.status === 'finalized') return epoch;
+  // Atomic claim: only one miner can finalize an epoch
+  const epoch = await Epoch.findOneAndUpdate(
+    { epoch_number: epochNumber, status: { $ne: 'finalized' } },
+    { $set: { status: 'finalizing' } },
+    { new: true }
+  );
+  if (!epoch) return await Epoch.findOne({ epoch_number: epochNumber }); // already finalized by another miner
 
   const { getRegistryModelHash } = require('../services/modelVerifier');
   const InferenceJob = require('../models/InferenceJob');
@@ -247,16 +252,39 @@ async function finalizeAndSplitRewards(epochNumber) {
 
   console.log(`[BTCPC] Finalizing epoch ${epochNumber}: ${settledJobs.length} settled jobs, ${syntheticProofs.length} synthetic proofs, ${miners.length} miner(s), total work_value: ${totalWorkValue}`);
 
-  // ── Empty epoch: no work done, no reward, doesn't consume emission slot ──
+  // ── Empty epoch: no inference work done ──
+  // Clock nodes still get paid (they kept the chain alive).
+  // Mining reward is deferred — doesn't consume emission slot.
   if (miners.length === 0 || totalWorkValue === 0) {
+    const rewards = [];
+
+    // Clock nodes still earn their 2% even in empty epochs
+    const { getActiveClockNodes } = require('../p2p/protocol');
+    const activeClocks = getActiveClockNodes(epochNumber).filter(account => {
+      if (!account || account.startsWith('clock-')) return false;
+      return nodeRegistry.isRegistered(account);
+    });
+
+    // Use a small clock-only reward from the block reward pool
+    if (activeClocks.length > 0) {
+      const clockOnlyReward = parseFloat((blockReward * 0.02).toFixed(10));
+      const clockShare = parseFloat((clockOnlyReward / activeClocks.length).toFixed(10));
+      for (const clockNode of activeClocks) {
+        await ledger.recordMiningReward(clockNode, clockShare, epochNumber);
+        await ledger.updateWalletCache(clockNode, 'BTCPC', clockShare);
+        console.log(`[BTCPC]   ${clockNode}: ${clockShare.toFixed(4)} BTCPC (clock — empty epoch)`);
+        rewards.push({ node_id: clockNode, amount: clockShare, type: 'clock' });
+      }
+    }
+
     epoch.total_work = 0;
-    epoch.rewards_distributed = [];
-    epoch.block_reward = 0; // no reward consumed
+    epoch.rewards_distributed = rewards;
+    epoch.block_reward = rewards.length > 0 ? rewards.reduce((s, r) => s + r.amount, 0) : 0;
     epoch.ended_at = new Date();
     epoch.status = 'finalized';
     epoch.settled_jobs = 0;
     await epoch.save();
-    console.log(`[BTCPC] Epoch ${epochNumber} finalized | EMPTY — no work, reward deferred to next epoch with work`);
+    console.log(`[BTCPC] Epoch ${epochNumber} finalized | EMPTY — no inference work, mining reward deferred${activeClocks.length > 0 ? ', ' + activeClocks.length + ' clock(s) paid' : ''}`);
     return epoch;
   }
 

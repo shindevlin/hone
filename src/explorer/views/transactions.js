@@ -21,7 +21,8 @@ function transactionsView(data) {
 
   const txRows = (transactions || []).map(t => `
     <tr>
-      <td><span class="hash">${t._id}</span></td>
+      <td><a class="hash" href="/tx/${t.txHash}">${t.txHash}</a></td>
+      <td>${t.epoch !== null && t.epoch !== undefined ? `<a href="/block/${t.epoch}">${t.epoch}</a>` : "--"}</td>
       <td><span class="type-badge type-${t.type}">${t.type.replace("_", " ")}</span></td>
       <td><a href="/account/${t.from}">${t.from}</a></td>
       <td><a href="/account/${t.to}">${t.to}</a></td>
@@ -59,7 +60,8 @@ function transactionsView(data) {
       <table>
         <thead>
           <tr>
-            <th>TX ID</th>
+            <th>TX Hash</th>
+            <th>Epoch</th>
             <th>Type</th>
             <th>From</th>
             <th>To</th>

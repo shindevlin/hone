@@ -11,6 +11,28 @@ const { calculateCost, getCurrentPricing, getAutoBid } = require('../services/pr
 const { submitInference, getJob, hasMiners, peerCount } = require('./p2pRouter');
 
 const router = express.Router();
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+
+function extractOllamaText(data) {
+  const msg = data?.message || {};
+  return msg.content || msg.thinking || data?.response || data?.thinking || '';
+}
+
+async function runDirectOllamaChat({ model, messages, max_tokens, temperature }) {
+  const response = await axios.post(`${OLLAMA_URL}/api/chat`, {
+    model,
+    messages,
+    stream: false,
+    think: false,
+    options: { temperature: temperature || 0.7, num_predict: max_tokens || 512 }
+  }, { timeout: 300000 });
+
+  return {
+    text: extractOllamaText(response.data),
+    tokens: response.data.eval_count || 0,
+    elapsedMs: response.data.total_duration ? Math.round(response.data.total_duration / 1e6) : 0
+  };
+}
 
 /**
  * Bearer token authentication middleware.
@@ -328,27 +350,20 @@ router.post('/v1/inference/submit', async (req, res) => {
   // ── Local mode: direct Ollama, no P2P, no rewards ──
   if (local) {
     try {
-      const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-      const prompt = augmentedMessages.map(m => {
-        if (m.role === 'system') return `System: ${m.content}`;
-        if (m.role === 'assistant') return `Assistant: ${m.content}`;
-        return m.content;
-      }).join('\n\n');
-
-      const ollamaRes = await axios.post(`${OLLAMA_URL}/api/generate`, {
+      const direct = await runDirectOllamaChat({
         model: selectedModel,
-        prompt,
-        stream: false,
-        options: { temperature: temperature || 0.7, num_predict: max_tokens || 512 }
-      }, { timeout: 300000 });
+        messages: augmentedMessages,
+        max_tokens,
+        temperature
+      });
 
       return res.json({
         status: 'completed',
         local: true,
         model: selectedModel,
-        result_text: ollamaRes.data.response || '',
-        tokens_generated: ollamaRes.data.eval_count || 0,
-        elapsed_ms: ollamaRes.data.total_duration ? Math.round(ollamaRes.data.total_duration / 1e6) : 0,
+        result_text: direct.text,
+        tokens_generated: direct.tokens,
+        elapsed_ms: direct.elapsedMs,
         cost: 0,
         message: 'Local inference — no network rewards, no billing.'
       });
@@ -546,8 +561,34 @@ router.post('/v1/chat/completions', async (req, res) => {
       });
     }
 
-    const assistantContent = job.result_text || '';
-    const evalCount = job.tokens_generated || estimateTokens(assistantContent);
+    let assistantContent = job.result_text || '';
+    let evalCount = job.tokens_generated || estimateTokens(assistantContent);
+
+    // Some miners still return an empty result_text for models that expose output
+    // via alternate Ollama fields. Fall back to direct local inference instead of
+    // returning a silent empty success to the caller.
+    if (!assistantContent.trim()) {
+      const direct = await runDirectOllamaChat({
+        model: selectedModel,
+        messages,
+        max_tokens,
+        temperature
+      });
+      assistantContent = direct.text;
+      evalCount = direct.tokens || evalCount;
+    }
+
+    if (!assistantContent.trim()) {
+      return res.status(502).json({
+        error: {
+          message: 'Inference completed without usable output from miners or local backend.',
+          type: 'server_error',
+          code: 'empty_inference_result',
+          job_id
+        }
+      });
+    }
+
     const promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
 
     // Compute hashes for work proof

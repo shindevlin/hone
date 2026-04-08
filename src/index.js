@@ -17,6 +17,38 @@ const app = express();
 app.use(cors());
 app.use(helmet());
 app.use(express.json());
+
+// Health routes must be mounted before inference auth middleware.
+app.get('/health', (_req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'BTCPC API',
+    version: '1.0.0',
+    endpoints: [
+      '/health',
+      '/api/user',
+      '/api/wallet',
+      '/api/staking',
+      '/api/node',
+      '/api/dreams/:account',
+      '/api/dream/:blockNumber',
+      '/api/dream/:blockNumber/inscribe',
+      '/api/dream/:blockNumber/transfer',
+      '/api/faucet/claim',
+      '/api/projects/register',
+      '/api/projects/verify',
+      '/api/projects/me',
+      '/api/projects/fund',
+      '/api/delegation',
+      '/api/recovery',
+      '/v1/chat/completions',
+      '/v1/models'
+    ]
+  });
+});
 // Import routes
 const userRoutes = require("./routes/userRoutes");
 const walletRoutes = require("./routes/walletRoutes");
@@ -63,38 +95,6 @@ async function connectDB() {
     process.exit(1);
   }
 }
-
-// Routes
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-
-app.get('/', (req, res) => {
-  res.json({
-    name: 'BTCPC API',
-    version: '1.0.0',
-    endpoints: [
-      '/health',
-      '/api/user',
-      '/api/wallet',
-      '/api/staking',
-      '/api/node',
-      '/api/dreams/:account',
-      '/api/dream/:blockNumber',
-      '/api/dream/:blockNumber/inscribe',
-      '/api/dream/:blockNumber/transfer',
-      '/api/faucet/claim',
-      '/api/projects/register',
-      '/api/projects/verify',
-      '/api/projects/me',
-      '/api/projects/fund',
-      '/api/delegation',
-      '/api/recovery',
-      '/v1/chat/completions',
-      '/v1/models'
-    ]
-  });
-});
 
 // Error handling middleware
 app.use((err, req, res, next) => {

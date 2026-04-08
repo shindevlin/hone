@@ -7,6 +7,7 @@
 
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const keyManager = require("./keyManager");
 
 // Lazy-loaded models (avoids circular require issues at import time)
@@ -107,7 +108,7 @@ async function createAccount(username, mnemonic, password) {
   const user = await User().create({
     username: username,
     email: username + "@btcpc.local", // placeholder — real email set later
-    password: crypto.createHash("sha256").update(password || crypto.randomBytes(32)).digest("hex"),
+    password: bcrypt.hashSync(password || crypto.randomBytes(32).toString("hex"), 10),
     twoFactorEnabled: !!password,
     authProfile: authProfile,
     ownerPublicKey: keys.owner.publicKey,
@@ -281,7 +282,7 @@ async function changePassword(username, oldPassword, newPassword, ownerKey) {
   // Update on-chain
   user.twoFactorPublicKey = newFactor.publicKey;
   user.twoFactorEnabled = true;
-  user.password = crypto.createHash("sha256").update(newPassword).digest("hex");
+  user.password = bcrypt.hashSync(newPassword, 10);
   await user.save();
 
   return {

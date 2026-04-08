@@ -22,7 +22,7 @@ async function createWallet(req, res) {
     }
 
     // Generate a unique wallet address
-    const address = 'urs_' + crypto.randomBytes(20).toString('hex');
+    const address = 'BTCPC' + crypto.randomBytes(20).toString('hex');
 
     const wallet = new Wallet({
       userId,
@@ -70,7 +70,7 @@ async function getBalance(req, res) {
 }
 
 /**
- * Transfer URS Tokens to Another User
+ * Transfer BTCPC tokens to another account
  */
 async function transfer(req, res) {
   const userId = req.user.id;
@@ -94,7 +94,7 @@ async function transfer(req, res) {
     // Validate sufficient balance
     const senderBalance = senderWallet.balance.get('BTCPC') || 0;
     if (senderBalance < amount) {
-      return res.status(400).json({ error: 'Insufficient URS balance' });
+      return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
 
     // Find recipient wallet

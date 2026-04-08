@@ -192,6 +192,33 @@ Bigger models = higher weight = more BTCPC per epoch. See [Mining Guide](docs/in
 - [Whitepaper](docs/BTCPC_WHITEPAPER.md) — Proof of Compute protocol
 - [Architecture](docs/L2_ARCHITECTURE.md) — cross-chain design
 
+## Project Status
+
+The repository is beyond scaffold stage. Core API, wallets, ledger, mining, P2P, inference, bots, explorer, and cross-chain groundwork are present in code.
+
+What is still in progress is verification and cleanup:
+- automated testing is still being built out
+- some roadmap items are partial or started but not production-complete
+- docs and tracker files are being aligned with the actual implementation state
+
+See [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md), [docs/EXECUTION_PLAN.md](docs/EXECUTION_PLAN.md), and [tasks/tasks.md](tasks/tasks.md) for the current state and next priorities.
+
+## Testing
+
+Run the current unit test suite with:
+
+```bash
+npm test -- --runInBand
+```
+
+Current baseline coverage focuses on:
+- authentication compatibility and login behavior
+- wallet controller safety paths
+- ledger accounting primitives
+- pricing calculations
+
+The suite is intentionally unit-focused for now. End-to-end and miner/inference integration coverage still need to be added.
+
 ## License
 
 MIT

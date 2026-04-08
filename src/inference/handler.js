@@ -147,6 +147,8 @@ async function handlePayload(msg) {
   if (targetNode && targetNode !== p2p.NODE_ID && targetNode !== MINER_NAME) return;
   const prompt = data.prompt; // plaintext for now; encrypted later
   const model = data.model || "qwen3.5:27b";
+  const maxTokens = data.max_tokens || 1024;
+  const temperature = data.temperature || 0.7;
 
   if (!prompt) {
     console.log(`[BTCPC Inference] No prompt in payload for ${requestId?.slice(0, 8)}`);
@@ -157,16 +159,31 @@ async function handlePayload(msg) {
   console.log(`[BTCPC Inference] Processing request ${requestId?.slice(0, 8)} (${prompt.length} chars, model: ${model})`);
 
   try {
-    // Run inference via Ollama
+    // Run inference via Ollama chat endpoint (works with both chat and completion models)
     const startTime = Date.now();
-    const response = await axios.post(`${OLLAMA_URL}/api/generate`, {
+
+    // Parse prompt back into messages if it contains System: prefix, otherwise use as user message
+    const messages = [];
+    const systemMatch = prompt.match(/^System:\s*([\s\S]*?)(?=\n\n|$)/);
+    if (systemMatch) {
+      messages.push({ role: 'system', content: systemMatch[1].trim() });
+      const userContent = prompt.slice(systemMatch[0].length).trim();
+      if (userContent) messages.push({ role: 'user', content: userContent });
+    } else {
+      messages.push({ role: 'user', content: prompt });
+    }
+
+    const response = await axios.post(`${OLLAMA_URL}/api/chat`, {
       model,
-      prompt,
+      messages,
       stream: false,
-      options: { temperature: 0.7, num_predict: 1024 },
+      think: false, // disable thinking/reasoning mode — we want content directly
+      options: { temperature, num_predict: maxTokens },
     }, { timeout: 600000 }); // 10 min — large models on busy GPU need time
 
-    const resultText = response.data.response || "";
+    // Some models (qwen3.5) put output in 'thinking' field when reasoning mode is on
+    const msg = response.data.message || {};
+    const resultText = msg.content || msg.thinking || response.data.response || "";
     const tokensGenerated = response.data.eval_count || Math.ceil(resultText.length / 4);
     const elapsed = Date.now() - startTime;
 
