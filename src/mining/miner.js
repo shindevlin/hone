@@ -34,6 +34,8 @@ const mempool = require('../p2p/mempool');
 
 const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
+const resourceManager = require('../services/resourceManager');
+const { notifyUpdate, notifyMining } = require('../services/systemNotify');
 const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
 const http = require('http');
 

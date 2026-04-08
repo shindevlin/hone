@@ -590,4 +590,44 @@ router.post('/approve-update', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════
+// RESOURCE MANAGEMENT
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/miner-status { telegramId }
+router.post('/miner-status', async (req, res) => {
+  try {
+    const resourceManager = require('../services/resourceManager');
+    res.json(resourceManager.getStatus());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/miner-pause { telegramId }
+router.post('/miner-pause', async (req, res) => {
+  try {
+    const resourceManager = require('../services/resourceManager');
+    resourceManager.pause();
+    res.json({ success: true, mode: 'paused', message: 'Mining paused. Use /resume to restart.' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/miner-resume { telegramId }
+router.post('/miner-resume', async (req, res) => {
+  try {
+    const resourceManager = require('../services/resourceManager');
+    resourceManager.resume();
+    res.json({ success: true, mode: 'auto', message: 'Mining resumed. Auto mode: full when idle, reduced when PC in use.' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/miner-mode { telegramId, mode }
+router.post('/miner-mode', async (req, res) => {
+  try {
+    const { mode } = req.body;
+    const resourceManager = require('../services/resourceManager');
+    resourceManager.setManualMode(mode || null);
+    res.json({ success: true, mode: resourceManager.getMode() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

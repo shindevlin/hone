@@ -114,16 +114,23 @@ async function checkAndStage() {
       pulledAt: new Date().toISOString()
     };
 
-    // Notify miner via Telegram
+    // Notify miner via Telegram + desktop notification
     const msg = [
       `Update available: v${currentVersion} → v${remoteVersion}`,
       `${behindCount} commit(s):`,
       commitLog.split('\n').slice(0, 5).join('\n'),
       '',
-      'Code is staged. Reply /approve-update to restart, or it will apply on next manual restart.'
+      'Update to keep earning. Reply /approve-update to restart.'
     ].join('\n');
 
     await notifyMiner(msg);
+
+    // Desktop notification
+    try {
+      const { notifyUpdate } = require('./systemNotify');
+      notifyUpdate(currentVersion, remoteVersion, behindCount);
+    } catch (_) {}
+
     log(`Miner notified. Waiting for approval or manual restart.`);
 
     return pendingUpdate;
