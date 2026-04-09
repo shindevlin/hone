@@ -52,5 +52,15 @@
       "deployedAt": "2026-04-09",
       "explorer": "https://basescan.org/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
     }
+  },
+  "wBTCPCBridge": {
+    "base": {
+      "chainId": 8453,
+      "contract": "0xEb1Fa14Ebda2147A172305B70c6505525F73E911",
+      "txHash": "0xd2428a0a24cf8fa2e19799e1722c06ac87fe4a36d225aa177e4a41e4b7c95f05",
+      "bridgeAuthority": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
+      "deployedAt": "2026-04-09",
+      "explorer": "https://basescan.org/address/0xEb1Fa14Ebda2147A172305B70c6505525F73E911"
+    }
   }
 }
