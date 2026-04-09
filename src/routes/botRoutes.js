@@ -591,6 +591,52 @@ router.post('/approve-update', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
+// TOKEN CREATION
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/create-token { telegramId, name, symbol }
+router.post('/create-token', async (req, res) => {
+  try {
+    const user = await resolveUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: 'Not linked' });
+
+    const { name, symbol } = req.body;
+    if (!name || !symbol) return res.status(400).json({ error: 'name and symbol required' });
+    if (symbol.length > 10) return res.status(400).json({ error: 'symbol max 10 chars' });
+
+    const ledger = require('../services/ledger');
+    const balance = await ledger.getBalance(user.username, 'BTCPC');
+    const fee = 42; // 42 BTCPC flat fee, 42M supply standard
+
+    if (balance < fee) {
+      return res.status(400).json({ error: `Insufficient balance. Need ${fee} BTCPC, have ${balance.toFixed(2)}` });
+    }
+
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordTokenCreate(user.username, {
+      name,
+      symbol: symbol.toUpperCase(),
+      supply: 42000000,
+      decimals: 10,
+      type: 'fungible'
+    }, fee, epoch);
+
+    res.json({
+      success: true,
+      token: {
+        name,
+        symbol: symbol.toUpperCase(),
+        supply: 42000000,
+        decimals: 10,
+        fee,
+        creator: user.username
+      },
+      message: `Token ${symbol.toUpperCase()} created. 42M supply minted to ${user.username}. Fee: ${fee} BTCPC.`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════
 // CHAIN LINK — Link external wallets (ETH, etc.) to BTCPC account
 // ════════════════════════════════════════════════════════════════════
 

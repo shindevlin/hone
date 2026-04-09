@@ -20,10 +20,13 @@ function dashboard(data) {
     totalSupply, totalMined, currentEpoch, totalMiners,
     totalTransactions, latestEpochs, recentTransactions,
     currentPeriod, networkHashRate, totalStaked,
-    mempoolSize, latestBlockOnDisk, stateRoot
+    mempoolSize, latestBlockOnDisk, stateRoot,
+    activeClocks, peerCount, epochAgeMs, recentDreams
   } = data;
 
   const minedPercent = totalSupply > 0 ? ((totalMined / totalSupply) * 100).toFixed(2) : "0";
+  const epochAgeMin = epochAgeMs === null || epochAgeMs === undefined ? "--" : Math.max(0, Math.floor(epochAgeMs / 60000));
+  const healthStatus = peerCount > 0 && epochAgeMs !== null && epochAgeMs < 10 * 60 * 1000 ? "healthy" : "watch";
 
   const epochRows = (latestEpochs || []).map(e => `
     <tr>
@@ -43,6 +46,15 @@ function dashboard(data) {
       <td><a href="/account/${t.to}">${t.to}</a></td>
       <td class="amount">${formatNumber(t.amount)} BTCPC</td>
       <td>${formatDate(t.timestamp)}</td>
+    </tr>
+  `).join("");
+
+  const dreamRows = (recentDreams || []).map(d => `
+    <tr>
+      <td><a href="/block/${d.block_number}">Dream #${d.block_number}</a></td>
+      <td>${d.inscription?.project || d.inscription?.title || "[uninscribed]"}</td>
+      <td><a href="/account/${d.current_owner || d.original_miner}">${d.current_owner || d.original_miner || "--"}</a></td>
+      <td>${formatDate(d.minted_at || d.createdAt)}</td>
     </tr>
   `).join("");
 
@@ -96,11 +108,41 @@ function dashboard(data) {
         <div class="stat-value" style="font-size: 20px;">${stateRoot ? stateRoot.slice(0, 12) + "..." : "--"}</div>
         <div class="stat-sub"><span class="hash">${stateRoot || "not available"}</span></div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Clocks</div>
+        <div class="stat-value">${formatNumber(activeClocks)}</div>
+        <div class="stat-sub">registered clock nodes</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Network Health</div>
+        <div class="stat-value ${healthStatus === "healthy" ? "accent" : ""}">${healthStatus}</div>
+        <div class="stat-sub">${formatNumber(peerCount)} peer(s), epoch age ${epochAgeMin} min</div>
+      </div>
     </div>
 
     <div class="search-bar" style="margin-bottom: 32px;">
       <input type="text" id="search-input" placeholder="Search by epoch number or username..." />
       <button onclick="doSearch()">Search</button>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Recent Genesis Dreams</h2>
+        <span class="badge">${formatNumber((recentDreams || []).length)} shown</span>
+      </div>
+      ${dreamRows.length ? `
+      <table>
+        <thead>
+          <tr>
+            <th>Dream</th>
+            <th>Inscription</th>
+            <th>Owner</th>
+            <th>Minted</th>
+          </tr>
+        </thead>
+        <tbody>${dreamRows}</tbody>
+      </table>
+      ` : '<div class="empty-state">No Genesis Dreams minted yet</div>'}
     </div>
 
     <div class="two-col">

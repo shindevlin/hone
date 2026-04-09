@@ -25,10 +25,103 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://100.122.145.60:11434";
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_INFERENCE) || 1;
 
 let activeJobs = 0;
+const modelActiveJobs = new Map();
+const modelStats = new Map();
+let inferenceCount = 0;
 
 // Track request IDs we've already seen to ignore relay echoes
 const seenRequests = new Set();
 const SEEN_MAX = 1000;
+const MODEL_BUSY_THRESHOLD = parseInt(process.env.BTCPC_MODEL_BUSY_THRESHOLD, 10) || 3;
+
+function getModelStats(model) {
+  if (!modelStats.has(model)) {
+    modelStats.set(model, {
+      requests: 0,
+      successes: 0,
+      failures: 0,
+      avgResponseMs: 0,
+      avgTokensPerSec: 0
+    });
+  }
+  return modelStats.get(model);
+}
+
+function parseModelParams(model) {
+  const match = String(model || "").match(/(\d+(?:\.\d+)?)\s*b/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function promptComplexity(prompt) {
+  const text = String(prompt || "");
+  if (text.length > 4000 || /analy[sz]e|architecture|proof|derive|implement|refactor|security/i.test(text)) return "high";
+  if (text.length > 1200 || /code|debug|explain|compare|summari[sz]e/i.test(text)) return "medium";
+  return "low";
+}
+
+function modelComplexityFloor(model) {
+  const params = parseModelParams(model);
+  if (params >= 20) return "high";
+  if (params >= 7) return "medium";
+  return "low";
+}
+
+function complexityRank(value) {
+  return { low: 0, medium: 1, high: 2 }[value] || 0;
+}
+
+function scoreModel(model, desiredComplexity) {
+  const stats = getModelStats(model);
+  const successRate = stats.requests ? stats.successes / stats.requests : 1;
+  const speed = stats.avgTokensPerSec || 0;
+  const busyPenalty = (modelActiveJobs.get(model) || 0) * 100;
+  const complexityPenalty = Math.max(0, complexityRank(modelComplexityFloor(model)) - complexityRank(desiredComplexity)) * 2;
+  return (parseModelParams(model) * 1000) + (successRate * 100) + speed - busyPenalty - complexityPenalty;
+}
+
+function chooseModel(requestedModel, prompt, availableModels) {
+  const available = (availableModels || []).filter(Boolean);
+  if (!available.length) return requestedModel || "qwen3.5:27b";
+
+  if (requestedModel && requestedModel !== "auto") {
+    const exact = available.includes(requestedModel) ? requestedModel : null;
+    const withLatest = !requestedModel.includes(":") && available.includes(requestedModel + ":latest") ? requestedModel + ":latest" : null;
+    return exact || withLatest || requestedModel;
+  }
+
+  const desired = promptComplexity(prompt);
+  const eligible = available.filter(model => complexityRank(modelComplexityFloor(model)) >= complexityRank(desired));
+  const candidates = eligible.length ? eligible : available;
+  const sorted = candidates.slice().sort((a, b) => scoreModel(b, desired) - scoreModel(a, desired));
+  const open = sorted.find(model => (modelActiveJobs.get(model) || 0) <= MODEL_BUSY_THRESHOLD);
+  return open || sorted[0];
+}
+
+function recordModelResult(model, elapsedMs, tokens, success) {
+  const stats = getModelStats(model);
+  stats.requests++;
+  if (success) stats.successes++;
+  else stats.failures++;
+
+  if (success) {
+    const tokensPerSec = elapsedMs > 0 ? tokens / (elapsedMs / 1000) : 0;
+    stats.avgResponseMs = stats.avgResponseMs
+      ? (stats.avgResponseMs * 0.85) + (elapsedMs * 0.15)
+      : elapsedMs;
+    stats.avgTokensPerSec = stats.avgTokensPerSec
+      ? (stats.avgTokensPerSec * 0.85) + (tokensPerSec * 0.15)
+      : tokensPerSec;
+  }
+
+  inferenceCount++;
+  if (inferenceCount % 100 === 0) {
+    const summary = Array.from(modelStats.entries()).map(([name, s]) => {
+      const successRate = s.requests ? ((s.successes / s.requests) * 100).toFixed(1) : "0.0";
+      return `${name}: ${s.requests} req, ${successRate}% ok, ${Math.round(s.avgResponseMs)}ms avg, ${s.avgTokensPerSec.toFixed(2)} tok/s`;
+    }).join(" | ");
+    console.log(`[BTCPC Inference] Model stats after ${inferenceCount} inferences: ${summary}`);
+  }
+}
 
 /**
  * Start listening for inference requests on the P2P network.
@@ -78,10 +171,12 @@ async function handleInferenceRequest(msg) {
   }
 
   // Check if we have the exact requested model
-  const model = data.model || "qwen3.5:27b";
+  const requestedModel = data.model || "qwen3.5:27b";
+  let model = requestedModel;
   try {
     const modelsResp = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 5000 });
     const available = (modelsResp.data.models || []).map(m => m.name);
+    model = chooseModel(requestedModel, data.prompt || data.messages?.map(m => m.content).join("\n") || "", available);
     // Exact match: "qwen3:4b" must match "qwen3:4b", not "qwen3.5:27b"
     if (!available.includes(model)) {
       // Also try without tag (e.g. "qwen3:4b" matches "qwen3:4b" but not "qwen3.5:27b")
@@ -161,6 +256,7 @@ async function handlePayload(msg) {
   try {
     // Run inference via Ollama chat endpoint (works with both chat and completion models)
     const startTime = Date.now();
+    modelActiveJobs.set(model, (modelActiveJobs.get(model) || 0) + 1);
 
     // Parse prompt back into messages if it contains System: prefix, otherwise use as user message
     const messages = [];
@@ -270,8 +366,10 @@ async function handlePayload(msg) {
     p2p.broadcast(result);
 
     console.log(`[BTCPC Inference] Completed ${requestId?.slice(0, 8)}: ${tokensGenerated} tokens, ${elapsed}ms`);
+    recordModelResult(model, elapsed, tokensGenerated, true);
   } catch (err) {
     console.error(`[BTCPC Inference] Failed ${requestId?.slice(0, 8)}:`, err.message);
+    recordModelResult(model, 0, 0, false);
 
     // Broadcast failure so requester knows
     const fail = createMessage("INFERENCE_RESULT", {
@@ -282,6 +380,7 @@ async function handlePayload(msg) {
     p2p.broadcast(fail);
   } finally {
     activeJobs = Math.max(0, activeJobs - 1);
+    modelActiveJobs.set(model, Math.max(0, (modelActiveJobs.get(model) || 0) - 1));
   }
 }
 
@@ -293,4 +392,15 @@ function handleModelDemand(msg) {
   console.log(`[BTCPC Inference] \u{1F4E2} MODEL DEMAND: "${data.model}" — ${data.demand} request(s) waiting. Pull this model to earn from unmet demand.`);
 }
 
-module.exports = { startInferenceHandler };
+module.exports = {
+  startInferenceHandler,
+  _modelRouting: {
+    chooseModel,
+    getModelStats,
+    modelStats,
+    modelActiveJobs,
+    parseModelParams,
+    promptComplexity,
+    recordModelResult
+  }
+};

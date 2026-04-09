@@ -173,3 +173,13 @@ The goal is to make the genesis operator irrelevant — the chain should run its
 5. Remove hardcoded values, read from governance state
 
 This can be built incrementally — start with one parameter (e.g., clock reward percentage), prove the mechanism works, then extend to all parameters.
+
+## Activation Timeline
+
+Governance is designed but not active during genesis phase. It activates when:
+1. Shin passes operational control to the network
+2. At least 10 unique staked accounts exist
+3. At least 1000 BTCPC is staked across the network
+
+Until then, the genesis operator (shindevlin) manages protocol parameters.
+After activation, all changes require network consensus votes.

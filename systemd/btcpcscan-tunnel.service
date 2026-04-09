@@ -1,0 +1,14 @@
+[Unit]
+Description=BTCPC Explorer Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://localhost:4242
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

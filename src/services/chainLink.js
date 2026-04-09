@@ -10,18 +10,26 @@
  *
  * Supported chains:
  *   EVM (Ethereum, Base, Arbitrum, Optimism) — secp256k1 + keccak256
- *   Solana — ed25519 (future)
- *   Bitcoin — secp256k1 (future)
+ *   Solana — ed25519
+ *   Bitcoin — secp256k1 compact signed message
+ *   TON — ed25519
  */
 
 var crypto = require("crypto");
 var secp256k1 = require("secp256k1");
 var { keccak256 } = require("js-sha3");
+var bs58 = require("bs58");
+var { bech32 } = require("bech32");
 
 var LedgerEntry = require("../models/LedgerEntry");
 
 // Active challenges: Map<challengeId, { username, chain, address, challenge, expiresAt }>
 var pendingChallenges = new Map();
+
+function normalizeClaimedAddress(chain, address) {
+  var value = String(address || "").trim();
+  return chain === "evm" || chain === "bitcoin" || chain === "ton" ? value.toLowerCase() : value;
+}
 
 // ─── Challenge Generation ────────────────────────────────────────
 
@@ -42,7 +50,7 @@ function generateChallenge(username, chain, address) {
   pendingChallenges.set(challengeId, {
     username: username,
     chain: chain,
-    address: address.toLowerCase(),
+    address: normalizeClaimedAddress(chain, address),
     message: message,
     expiresAt: expiresAt
   });
@@ -98,6 +106,118 @@ function recoverEVMAddress(message, signature) {
   return address.toLowerCase();
 }
 
+// ─── Non-EVM Signature Verification ───────────────────────────────
+
+function decodeFlexible(input, encodings) {
+  var value = String(input || "").trim();
+  for (var i = 0; i < encodings.length; i++) {
+    try {
+      if (encodings[i] === "hex") return Buffer.from(value.replace(/^0x/, ""), "hex");
+      if (encodings[i] === "base58") return Buffer.from(bs58.decode(value));
+      if (encodings[i] === "base64") return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    } catch (_) {}
+  }
+  throw new Error("Unable to decode signature/public key");
+}
+
+function makeEd25519PublicKey(publicKeyBytes) {
+  if (publicKeyBytes.length !== 32) throw new Error("ed25519 public key must be 32 bytes");
+  var spkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
+  return crypto.createPublicKey({
+    key: Buffer.concat([spkiPrefix, publicKeyBytes]),
+    format: "der",
+    type: "spki"
+  });
+}
+
+function verifyEd25519(message, signatureBytes, publicKeyBytes) {
+  return crypto.verify(null, Buffer.from(message), makeEd25519PublicKey(publicKeyBytes), signatureBytes);
+}
+
+function recoverSolanaAddress(message, signature, address) {
+  var publicKeyBytes = Buffer.from(bs58.decode(address));
+  var signatureBytes = decodeFlexible(signature, ["base58", "base64", "hex"]);
+  if (!verifyEd25519(message, signatureBytes, publicKeyBytes)) {
+    throw new Error("Invalid Solana signature");
+  }
+  return bs58.encode(publicKeyBytes);
+}
+
+function parseTonPublicKey(address) {
+  var value = String(address || "").trim().replace(/^ton:/i, "");
+  var decoders = [
+    function () { return Buffer.from(value.replace(/^0x/, ""), "hex"); },
+    function () { return Buffer.from(bs58.decode(value)); },
+    function () { return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64"); }
+  ];
+  for (var i = 0; i < decoders.length; i++) {
+    try {
+      var key = decoders[i]();
+      if (key.length === 32) return key;
+    } catch (_) {}
+  }
+  throw new Error("TON address must include a 32-byte public key for experimental linking");
+}
+
+function recoverTONAddress(message, signature, address) {
+  var publicKeyBytes = parseTonPublicKey(address);
+  var signatureBytes = decodeFlexible(signature, ["base64", "base58", "hex"]);
+  if (!verifyEd25519(message, signatureBytes, publicKeyBytes)) {
+    throw new Error("Invalid TON signature");
+  }
+  return String(address).trim().toLowerCase();
+}
+
+function varIntBuffer(length) {
+  if (length < 0xfd) return Buffer.from([length]);
+  if (length <= 0xffff) {
+    var small = Buffer.alloc(3);
+    small[0] = 0xfd;
+    small.writeUInt16LE(length, 1);
+    return small;
+  }
+  var large = Buffer.alloc(5);
+  large[0] = 0xfe;
+  large.writeUInt32LE(length, 1);
+  return large;
+}
+
+function bitcoinMessageHash(message) {
+  var msg = Buffer.from(message);
+  var payload = Buffer.concat([
+    Buffer.from("\x18Bitcoin Signed Message:\n", "binary"),
+    varIntBuffer(msg.length),
+    msg
+  ]);
+  var first = crypto.createHash("sha256").update(payload).digest();
+  return crypto.createHash("sha256").update(first).digest();
+}
+
+function hash160(buffer) {
+  var sha = crypto.createHash("sha256").update(buffer).digest();
+  return crypto.createHash("ripemd160").update(sha).digest();
+}
+
+function pubkeyToBitcoinBech32(pubKey) {
+  var words = bech32.toWords(hash160(Buffer.from(pubKey)));
+  words.unshift(0);
+  return bech32.encode("bc", words);
+}
+
+function recoverBitcoinAddress(message, signature) {
+  var sigBuf = decodeFlexible(signature, ["base64", "hex"]);
+  if (sigBuf.length !== 65) throw new Error("Bitcoin compact signature must be 65 bytes");
+
+  var header = sigBuf[0];
+  if (header < 27 || header > 42) throw new Error("Invalid Bitcoin compact signature header");
+  var recovery = (header - 27) & 3;
+  var compressed = header >= 31;
+  var sigOnly = sigBuf.slice(1);
+  var msgHash = bitcoinMessageHash(message);
+  var pubKey = secp256k1.ecdsaRecover(sigOnly, recovery, msgHash, compressed);
+  return pubkeyToBitcoinBech32(pubKey).toLowerCase();
+}
+
 // ─── Verification & Linking ──────────────────────────────────────
 
 /**
@@ -123,6 +243,12 @@ async function verifyAndLink(challengeId, signature) {
   try {
     if (challenge.chain === "evm") {
       recoveredAddress = recoverEVMAddress(challenge.message, signature);
+    } else if (challenge.chain === "solana") {
+      recoveredAddress = recoverSolanaAddress(challenge.message, signature, challenge.address);
+    } else if (challenge.chain === "bitcoin") {
+      recoveredAddress = recoverBitcoinAddress(challenge.message, signature);
+    } else if (challenge.chain === "ton") {
+      recoveredAddress = recoverTONAddress(challenge.message, signature, challenge.address);
     } else {
       return { success: false, error: "Chain '" + challenge.chain + "' verification not yet supported" };
     }
@@ -131,7 +257,7 @@ async function verifyAndLink(challengeId, signature) {
   }
 
   // Check recovered address matches the claimed address
-  if (recoveredAddress !== challenge.address.toLowerCase()) {
+  if (normalizeClaimedAddress(challenge.chain, recoveredAddress) !== normalizeClaimedAddress(challenge.chain, challenge.address)) {
     return {
       success: false,
       error: "Address mismatch. Expected " + challenge.address + ", recovered " + recoveredAddress
@@ -210,5 +336,8 @@ module.exports = {
   generateChallenge: generateChallenge,
   verifyAndLink: verifyAndLink,
   recoverEVMAddress: recoverEVMAddress,
+  recoverBitcoinAddress: recoverBitcoinAddress,
+  recoverSolanaAddress: recoverSolanaAddress,
+  recoverTONAddress: recoverTONAddress,
   getLinkedAddresses: getLinkedAddresses
 };

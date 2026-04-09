@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Telegram Wallet</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --panel: #111827;
+      --card: #1a2235;
+      --border: #2a3550;
+      --accent: #f7931a;
+      --accent-soft: rgba(247, 147, 26, 0.15);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --danger: #ef4444;
+      --ok: #22c55e;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top left, rgba(247, 147, 26, 0.12), transparent 32rem), var(--bg);
+      color: var(--text);
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      min-height: 100vh;
+      padding: 18px;
+    }
+
+    .shell { max-width: 720px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1 { font-size: 22px; margin: 0; letter-spacing: -0.03em; }
+    .pill {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid rgba(247, 147, 26, 0.35);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .grid { display: grid; gap: 14px; }
+    .card {
+      background: linear-gradient(180deg, rgba(26, 34, 53, 0.96), rgba(17, 24, 39, 0.96));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    }
+
+    .label {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+
+    .balance { font-size: 34px; font-weight: 800; color: var(--accent); }
+    .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .stack { display: grid; gap: 10px; }
+    input, select {
+      width: 100%;
+      background: #0d1422;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 12px;
+      font: inherit;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    button {
+      background: var(--accent);
+      color: #090909;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #0d1422;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .status { min-height: 20px; color: var(--muted); font-size: 12px; }
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--ok); }
+    .list { display: grid; gap: 8px; margin-top: 10px; }
+    .item {
+      display: grid;
+      gap: 4px;
+      background: rgba(10, 14, 23, 0.55);
+      border: 1px solid rgba(42, 53, 80, 0.75);
+      border-radius: 10px;
+      padding: 10px;
+      word-break: break-word;
+      font-size: 12px;
+    }
+    .muted { color: var(--muted); }
+    .warn { color: var(--accent); font-size: 12px; line-height: 1.5; }
+
+    @media (min-width: 720px) {
+      .grid.two { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="hero">
+      <div>
+        <h1>BTCPC Wallet</h1>
+        <div class="muted" id="userLine">Telegram Mini App</div>
+      </div>
+      <div class="pill">btcpcscan</div>
+    </div>
+
+    <section class="card">
+      <div class="label">Spendable Balance</div>
+      <div class="balance"><span id="balance">--</span> BTCPC</div>
+      <div class="muted">Staked: <span id="staked">--</span> BTCPC</div>
+      <div class="row" style="margin-top: 14px;">
+        <button id="refreshBtn">Refresh</button>
+        <button class="secondary" id="heartbeatBtn">Heartbeat</button>
+      </div>
+    </section>
+
+    <div class="grid two" style="margin-top: 14px;">
+      <section class="card">
+        <div class="label">Send Tokens</div>
+        <div class="stack">
+          <input id="toAddress" placeholder="Recipient BTCPC address">
+          <input id="amount" type="number" min="0" step="0.00000001" placeholder="Amount">
+          <input id="memo" placeholder="Memo (optional)">
+          <button id="sendBtn">Send BTCPC</button>
+        </div>
+        <div class="status" id="sendStatus"></div>
+      </section>
+
+      <section class="card">
+        <div class="label">Link External Wallet</div>
+        <div class="warn">EVM linking is recommended. Non-EVM chain linking is experimental.</div>
+        <div class="stack" style="margin-top: 10px;">
+          <select id="chain">
+            <option value="evm">ETH / EVM</option>
+            <option value="solana">Solana</option>
+            <option value="bitcoin">Bitcoin</option>
+            <option value="ton">TON</option>
+          </select>
+          <input id="externalAddress" placeholder="External wallet address">
+          <button id="linkBtn">Generate Challenge</button>
+        </div>
+        <div class="status" id="linkStatus"></div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 14px;">
+      <div class="row">
+        <div class="label">Linked Wallets</div>
+        <button class="secondary" id="walletsBtn">Reload</button>
+      </div>
+      <div class="list" id="walletList"></div>
+    </section>
+
+    <section class="card" style="margin-top: 14px;">
+      <div class="label">Recent Transactions</div>
+      <div class="list" id="history"></div>
+    </section>
+  </main>
+
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    const user = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
+    const telegramId = user && user.id ? String(user.id) : "";
+    const botKey = new URLSearchParams(location.search).get("botKey") || "";
+    const headers = botKey ? { "x-bot-key": botKey, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+
+    document.getElementById("userLine").textContent = telegramId ? `Telegram ID ${telegramId}` : "Open from Telegram to load your wallet";
+
+    function status(id, text, kind) {
+      const el = document.getElementById(id);
+      el.textContent = text || "";
+      el.className = "status" + (kind ? " " + kind : "");
+    }
+
+    async function api(path, options) {
+      const init = Object.assign({ headers }, options || {});
+      const response = await fetch(path, init);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      return data;
+    }
+
+    async function loadBalance() {
+      const data = await api(`/api/bot/balance?telegramId=${encodeURIComponent(telegramId)}`);
+      document.getElementById("balance").textContent = Number(data.balance || 0).toFixed(4);
+      document.getElementById("staked").textContent = Number(data.staked || 0).toFixed(4);
+    }
+
+    async function loadHistory() {
+      const data = await api(`/api/bot/history?telegramId=${encodeURIComponent(telegramId)}`);
+      const host = document.getElementById("history");
+      host.innerHTML = "";
+      if (!data.transactions || !data.transactions.length) {
+        host.innerHTML = '<div class="muted">No transactions yet.</div>';
+        return;
+      }
+      data.transactions.forEach(tx => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<strong>${tx.direction || "--"} ${tx.type || "tx"}</strong><span>${Number(tx.amount || 0).toFixed(4)} BTCPC</span><span class="muted">${new Date(tx.timestamp || Date.now()).toLocaleString()}</span>`;
+        host.appendChild(div);
+      });
+    }
+
+    async function loadWallets() {
+      const data = await api(`/api/bot/linked-addresses?telegramId=${encodeURIComponent(telegramId)}`);
+      const host = document.getElementById("walletList");
+      host.innerHTML = "";
+      const linked = data.linked || {};
+      const chains = Object.keys(linked);
+      if (!chains.length) {
+        host.innerHTML = '<div class="muted">No linked wallets yet.</div>';
+        return;
+      }
+      chains.forEach(chain => (linked[chain] || []).forEach(address => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<strong>${chain.toUpperCase()}</strong><span>${address}</span>`;
+        host.appendChild(div);
+      }));
+    }
+
+    async function refreshAll() {
+      if (!telegramId) return;
+      await Promise.allSettled([loadBalance(), loadHistory(), loadWallets()]);
+    }
+
+    document.getElementById("refreshBtn").onclick = refreshAll;
+    document.getElementById("walletsBtn").onclick = loadWallets;
+    document.getElementById("heartbeatBtn").onclick = async () => {
+      try {
+        const data = await api("/api/bot/heartbeat", { method: "POST", body: JSON.stringify({ telegramId }) });
+        tg && tg.showAlert ? tg.showAlert(data.message) : alert(data.message);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("sendBtn").onclick = async () => {
+      status("sendStatus", "Submitting transfer...");
+      try {
+        const data = await api("/api/wallet/transfer", {
+          method: "POST",
+          body: JSON.stringify({
+            telegramId,
+            toAddress: document.getElementById("toAddress").value.trim(),
+            amount: Number(document.getElementById("amount").value),
+            memo: document.getElementById("memo").value.trim()
+          })
+        });
+        status("sendStatus", `Transfer submitted: ${data.txHash || "ok"}`, "ok");
+        await refreshAll();
+      } catch (err) {
+        status("sendStatus", err.message, "error");
+      }
+    };
+
+    document.getElementById("linkBtn").onclick = async () => {
+      status("linkStatus", "Generating challenge...");
+      try {
+        const data = await api("/api/bot/link-chain", {
+          method: "POST",
+          body: JSON.stringify({
+            telegramId,
+            chain: document.getElementById("chain").value,
+            address: document.getElementById("externalAddress").value.trim()
+          })
+        });
+        status("linkStatus", `Challenge: ${data.message}`, "ok");
+      } catch (err) {
+        status("linkStatus", err.message, "error");
+      }
+    };
+
+    refreshAll();
+  </script>
+</body>
+</html>

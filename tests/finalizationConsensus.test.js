@@ -114,6 +114,41 @@ describe('finalizationConsensus', () => {
     expect(first.accepted).toBe(true);
     expect(second.accepted).toBe(false);
     expect(consensus.getProposals(103)).toHaveLength(1);
+    consensus.resolve(103);
+  });
+
+  test('majority reward hash wins over a conflicting higher-work minority', () => {
+    const consensus = loadConsensus();
+    const majorityRewards = [{ miner: 'alice', amount: 50 }];
+    const minorityRewards = [{ miner: 'mallory', amount: 999 }];
+
+    consensus.submitProposal(105, {
+      proposer: 'miner-a',
+      rewards: majorityRewards,
+      total_work: 10,
+      settled_jobs: 1,
+      timestamp: 100
+    });
+
+    consensus.submitProposal(105, {
+      proposer: 'miner-b',
+      rewards: minorityRewards,
+      total_work: 10000,
+      settled_jobs: 1,
+      timestamp: 101
+    });
+
+    const result = consensus.submitProposal(105, {
+      proposer: 'miner-c',
+      rewards: majorityRewards,
+      total_work: 10,
+      settled_jobs: 1,
+      timestamp: 102
+    });
+
+    expect(result.consensus).toBe(true);
+    expect(consensus.getWinner(105).proposer).toBe('miner-a');
+    expect(consensus.getWinner(105).consensus_hash).toBe(consensus.hashRewards(majorityRewards));
   });
 
   test('hashRewards is order-independent by miner name', () => {

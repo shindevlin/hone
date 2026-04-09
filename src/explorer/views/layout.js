@@ -246,8 +246,9 @@ function layout(title, content) {
       text-transform: uppercase;
     }
 
-    .type-transfer { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
+    .type-transfer { background: rgba(34, 197, 94, 0.15); color: var(--green); }
     .type-mining_reward { background: rgba(247, 147, 26, 0.15); color: var(--accent); }
+    .type-escrow_lock, .type-escrow_release, .type-escrow_refund { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
     .type-staking_reward { background: rgba(168, 85, 247, 0.15); color: var(--purple); }
     .type-staking { background: rgba(34, 197, 94, 0.15); color: var(--green); }
     .type-unstaking { background: rgba(239, 68, 68, 0.15); color: var(--red); }

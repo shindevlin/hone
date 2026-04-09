@@ -1157,6 +1157,23 @@ async function startMiner() {
       }, p2p.NODE_ID);
       p2p.broadcast(blockMsg);
       console.log(`[BTCPC] Block ${epochNumber} broadcast to network (consensus)`);
+
+      // Auto-submit cross-chain claims for this miner's rewards
+      try {
+        const myReward = (winner.rewards || []).find(r => r.miner === MINER_ACCOUNT);
+        if (myReward && myReward.amount > 0) {
+          const { submitAllClaims } = require('../claims/evmClaimSubmitter');
+          const postingKey = process.env.BTCPC_SHIN_POSTING_KEY || process.env.BTCPC_POSTING_KEY;
+          if (postingKey) {
+            const linkedChains = { evm: process.env.BTCPC_EVM_ADDRESS };
+            submitAllClaims(MINER_ACCOUNT, epochNumber, myReward.amount, linkedChains, postingKey)
+              .then(results => {
+                if (results.length > 0) console.log(`[BTCPC] Cross-chain claims: ${results.length} submitted`);
+              })
+              .catch(() => {});
+          }
+        }
+      } catch (_) {}
     } catch (err) {
       console.error(`[BTCPC] Consensus apply error for epoch ${epochNumber}:`, err.message);
     }

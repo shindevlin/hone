@@ -14,6 +14,7 @@
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
+const path = require("path");
 
 // Models
 const Epoch = require("../models/Epoch");
@@ -21,6 +22,10 @@ const Node = require("../models/Node");
 const User = require("../models/User");
 const StakingPool = require("../models/StakingPool");
 const LedgerEntry = require("../models/LedgerEntry");
+const GenesisDream = require("../models/GenesisDream");
+const PeerRegistry = require("../models/PeerRegistry");
+const Wallet = require("../models/Wallet");
+const Transaction = require("../models/Transaction");
 
 // Chain
 const blockStore = require("../chain/blockStore");
@@ -41,6 +46,9 @@ const minersView = require("./views/miners");
 
 const app = express();
 const PORT = 4242;
+const WEBAPP_PATH = path.join(__dirname, "..", "telegram-webapp", "index.html");
+
+app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // MongoDB connection
@@ -59,6 +67,136 @@ mongoose.connect(MONGODB_URI).then(() => {
 // ---------------------------------------------------------------------------
 
 /**
+ * GET /webapp — Telegram Mini App wallet.
+ */
+app.get("/webapp", (_req, res) => {
+  res.sendFile(WEBAPP_PATH);
+});
+
+async function resolveTelegramUser(telegramId) {
+  if (!telegramId) return null;
+  return User.findOne({ telegramId: String(telegramId) });
+}
+
+/**
+ * Mini App compatibility endpoints. These mirror the bot API surface from the
+ * explorer origin so Telegram can call them without exposing BOT_API_KEY.
+ */
+app.get("/api/bot/balance", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.query.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+
+    const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+    const node = await Node.findOne({ account: user._id });
+    res.json({
+      username: user.username,
+      balance: wallet?.balance?.get("BTCPC") || 0,
+      staked: node?.stake_amount || 0,
+      address: wallet?.address || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/bot/history", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.query.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+    const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+    if (!wallet) return res.json({ transactions: [] });
+
+    const txs = await Transaction.find({
+      $or: [{ from: wallet.address }, { to: wallet.address }, { from: user.username }, { to: user.username }]
+    }).sort({ timestamp: -1 }).limit(10).lean();
+
+    res.json({
+      transactions: txs.map(tx => ({
+        type: tx.type,
+        amount: tx.amount,
+        from: tx.from,
+        to: tx.to,
+        direction: (tx.to === wallet.address || tx.to === user.username) ? "in" : "out",
+        timestamp: tx.timestamp
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/bot/heartbeat", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordHeartbeat(user.username, epoch);
+    res.json({ success: true, username: user.username, message: "Heartbeat recorded. Your dormancy clock is reset for 5 years." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/bot/link-chain", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+    const { chain, address } = req.body;
+    if (!chain || !address) return res.status(400).json({ error: "chain and address required" });
+    const chainLink = require("../services/chainLink");
+    const challenge = chainLink.generateChallenge(user.username, chain, address);
+    res.json({
+      challengeId: challenge.challengeId,
+      message: challenge.message,
+      instructions: "Sign this exact message with your " + chain.toUpperCase() + " wallet, then submit the signature via /verify-chain",
+      expiresIn: challenge.expiresIn
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/bot/linked-addresses", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.query.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+    const chainLink = require("../services/chainLink");
+    res.json({ username: user.username, linked: await chainLink.getLinkedAddresses(user.username) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/wallet/transfer", async (req, res) => {
+  try {
+    const user = await resolveTelegramUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: "Not linked" });
+    const fromWallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+    if (!fromWallet) return res.status(404).json({ error: "Wallet not found" });
+
+    const amount = Number(req.body.amount);
+    if (!req.body.toAddress || !amount || amount <= 0) return res.status(400).json({ error: "toAddress and positive amount required" });
+    if (fromWallet.address === req.body.toAddress) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
+
+    const toWallet = await Wallet.findOne({ address: req.body.toAddress, chain: "btcpc" });
+    if (!toWallet) return res.status(404).json({ error: "Recipient wallet not found" });
+    const recipient = await User.findById(toWallet.userId);
+    if (!recipient) return res.status(404).json({ error: "Recipient user not found" });
+
+    const balance = fromWallet.balance.get("BTCPC") || 0;
+    if (balance < amount) return res.status(400).json({ error: "Insufficient BTCPC balance" });
+
+    const epoch = await ledger.getCurrentEpoch();
+    const entry = await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, req.body.memo || null);
+    const txHash = blockStore.hashLedgerEntry(entry);
+    res.json({ success: true, txHash, epoch });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET / — Dashboard
  */
 app.get("/", async (req, res) => {
@@ -69,7 +207,10 @@ app.get("/", async (req, res) => {
       totalMiners,
       recentLedgerEntries,
       totalLedgerEntries,
-      stakingAgg
+      stakingAgg,
+      activeClocks,
+      peerCount,
+      recentDreams
     ] = await Promise.all([
       Epoch.find().sort({ epoch_number: -1 }).limit(15).lean(),
       Epoch.countDocuments(),
@@ -79,7 +220,10 @@ app.get("/", async (req, res) => {
       StakingPool.aggregate([
         { $match: { status: "active" } },
         { $group: { _id: null, total: { $sum: "$staked_amount" } } }
-      ])
+      ]),
+      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "clock" }),
+      PeerRegistry.countDocuments({ last_seen: { $gte: new Date(Date.now() - 15 * 60 * 1000) } }),
+      GenesisDream.find().sort({ block_number: -1 }).limit(6).lean()
     ]);
 
     // Compute total mined from ledger (source of truth)
@@ -108,7 +252,11 @@ app.get("/", async (req, res) => {
       totalStaked,
       mempoolSize: mempool.size(),
       latestBlockOnDisk: blockStore.getLatestBlockNumber(),
-      stateRoot: stateManager.getStateRoot()
+      stateRoot: stateManager.getStateRoot(),
+      activeClocks,
+      peerCount,
+      epochAgeMs: latestEpochs[0]?.started_at ? Date.now() - new Date(latestEpochs[0].started_at).getTime() : null,
+      recentDreams
     }));
   } catch (err) {
     console.error("[btcpcscan] Dashboard error:", err);
