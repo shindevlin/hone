@@ -36,11 +36,21 @@ contract wBTCPCBridge is Ownable {
     /// @notice Running nonce for locks
     uint256 public lockNonce;
 
+    /// @notice Permanent binding: BTCPC username <-> EVM address
+    /// Set once during first bridge interaction, immutable after
+    mapping(string => address) public usernameToAddress;
+    mapping(address => string) public addressToUsername;
+
     event Locked(
         address indexed sender,
         uint256 amount,
         string btcpcUsername,
         uint256 nonce
+    );
+
+    event AccountBound(
+        address indexed evmAddress,
+        string btcpcUsername
     );
 
     event Released(
@@ -62,9 +72,34 @@ contract wBTCPCBridge is Ownable {
      * @param amount Amount of wBTCPC to lock (10 decimals)
      * @param btcpcUsername The user's BTCPC chain username to credit
      */
+    /**
+     * @notice Register the permanent binding between a BTCPC username and EVM address.
+     * Called by the bridge authority after verifying the account exists on BTCPC chain.
+     * Once bound, this address is the ONLY address that can bridge for this username.
+     */
+    function bindAccount(string calldata btcpcUsername, address evmAddress) external {
+        require(msg.sender == bridgeAuthority, "Only bridge authority can bind");
+        require(bytes(btcpcUsername).length >= 3, "Invalid username");
+        require(evmAddress != address(0), "Zero address");
+        require(usernameToAddress[btcpcUsername] == address(0), "Username already bound");
+        require(bytes(addressToUsername[evmAddress]).length == 0, "Address already bound");
+
+        usernameToAddress[btcpcUsername] = evmAddress;
+        addressToUsername[evmAddress] = btcpcUsername;
+
+        emit AccountBound(evmAddress, btcpcUsername);
+    }
+
     function lockForBridge(uint256 amount, string calldata btcpcUsername) external {
         require(amount > 0, "Zero amount");
         require(bytes(btcpcUsername).length > 0, "Empty username");
+
+        // Username must be bound to an address
+        address boundAddress = usernameToAddress[btcpcUsername];
+        require(boundAddress != address(0), "Username not registered - create account first via /create");
+
+        // Only the bound address can bridge for this username
+        require(msg.sender == boundAddress, "Wallet not bound to this username");
 
         require(
             wbtcpc.transferFrom(msg.sender, address(this), amount),
@@ -90,6 +125,7 @@ contract wBTCPCBridge is Ownable {
         require(amount > 0, "Zero amount");
         require(!processedNonces[nonce], "Nonce already processed");
         require(wbtcpc.balanceOf(address(this)) >= amount, "Insufficient bridge pool");
+        require(bytes(addressToUsername[msg.sender]).length > 0, "Wallet not bound to any BTCPC account");
 
         // Verify signature from bridge authority
         bytes32 messageHash = keccak256(

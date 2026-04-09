@@ -56,11 +56,15 @@
   "wBTCPCBridge": {
     "base": {
       "chainId": 8453,
-      "contract": "0xEb1Fa14Ebda2147A172305B70c6505525F73E911",
-      "txHash": "0xd2428a0a24cf8fa2e19799e1722c06ac87fe4a36d225aa177e4a41e4b7c95f05",
+      "contract": "0x62B433594672A27A3600809B753F2513770B20eE",
+      "txHash": "0x980cadc61bea7898227bf7a4eb9c609f867d3be2ead0111986c3f25334ba4ddf",
       "bridgeAuthority": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
       "deployedAt": "2026-04-09",
-      "explorer": "https://basescan.org/address/0xEb1Fa14Ebda2147A172305B70c6505525F73E911"
+      "explorer": "https://basescan.org/address/0x62B433594672A27A3600809B753F2513770B20eE",
+      "note": "v2 with account binding - username permanently tied to EVM address",
+      "boundAccounts": {
+        "shindevlin": "0xBDe88F2B3a224B242704bD166804E0E12c75e830"
+      }
     }
   }
 }
