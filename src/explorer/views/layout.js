@@ -419,9 +419,12 @@ function layout(title, content) {
         <div class="logo-text">BTCPC <span>Explorer</span></div>
       </a>
       <nav>
-        <a href="/">Dashboard</a>
+        <a href="/">Explorer</a>
+        <a href="/blocks">Blocks</a>
         <a href="/tx">Transactions</a>
         <a href="/miners">Miners</a>
+        <a href="/tokenomics">Tokenomics</a>
+        <a href="/dashboard">Dashboard</a>
         <a href="/settings">Settings</a>
       </nav>
       <div class="refresh-indicator">

@@ -43,6 +43,10 @@ const blockView = require("./views/block");
 const accountView = require("./views/account");
 const transactionsView = require("./views/transactions");
 const minersView = require("./views/miners");
+const tokenomicsView = require("./views/tokenomics");
+const blocksView = require("./views/blocks");
+const txDetailView = require("./views/txDetail");
+const userDashboardView = require("./views/userDashboard");
 
 const { sanitizeTelegramId, sanitizeString, sanitizeAmount, sanitizePagination, validAddress, validAccountName, validChain, rejectObjectInputs } = require("../middlewares/validate");
 
@@ -425,18 +429,23 @@ app.get("/tx", async (req, res) => {
 });
 
 /**
- * GET /tx/:txHash — Transaction detail by hash
+ * GET /tx/:txHash — Transaction detail by hash (HTML for browsers, JSON for API)
  */
 app.get("/tx/:txHash", async (req, res) => {
   try {
     var txHash = sanitizeString(req.params.txHash, 128);
-    if (!txHash || !/^[a-fA-F0-9]+$/.test(txHash)) return res.status(400).json({ error: "invalid transaction hash" });
+    if (!txHash || !/^[a-fA-F0-9]+$/.test(txHash)) {
+      if (req.accepts("html")) return res.send(txDetailView({ tx: null, txHash: txHash }));
+      return res.status(400).json({ error: "invalid transaction hash" });
+    }
+
+    var txData = null;
 
     // Search mempool first
     if (mempool.hasTransaction(txHash)) {
       var mempoolTx = mempool.getTransactions().find(function (t) { return t.txHash === txHash; });
       if (mempoolTx) {
-        return res.json({
+        txData = {
           status: "pending",
           txHash: txHash,
           type: mempoolTx.type,
@@ -446,14 +455,34 @@ app.get("/tx/:txHash", async (req, res) => {
           token: mempoolTx.token || "BTCPC",
           timestamp: mempoolTx.timestamp,
           memo: mempoolTx.memo
-        });
+        };
       }
     }
 
-    // Search ledger — compute hash of each entry to find match
-    // For now, return 404 — txHash lookup requires an index we'll add later
-    res.status(404).json({ error: "Transaction not found", txHash: txHash });
+    // Search ledger entries by computing hashes (limited scan for recent entries)
+    if (!txData) {
+      var recentEntries = await LedgerEntry.find().sort({ timestamp: -1 }).limit(500).lean();
+      for (var i = 0; i < recentEntries.length; i++) {
+        var entryHash = blockStore.hashLedgerEntry(recentEntries[i]);
+        if (entryHash === txHash) {
+          txData = formatLedgerEntry(recentEntries[i]);
+          txData.status = "confirmed";
+          break;
+        }
+      }
+    }
+
+    if (!txData) {
+      if (req.accepts("html")) return res.send(txDetailView({ tx: null, txHash: txHash }));
+      return res.status(404).json({ error: "Transaction not found", txHash: txHash });
+    }
+
+    if (req.accepts("html")) {
+      return res.send(txDetailView({ tx: txData }));
+    }
+    res.json(txData);
   } catch (err) {
+    if (req.accepts("html")) return res.status(500).send("Internal server error");
     res.status(500).json({ error: err.message });
   }
 });
@@ -670,6 +699,183 @@ function formatLedgerEntry(entry) {
     signed_by: entry.signed_by
   };
 }
+
+// ---------------------------------------------------------------------------
+// Tokenomics, Blocks, Dashboard, TX Detail (HTML) routes
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /tokenomics — Tokenomics dashboard
+ */
+app.get("/tokenomics", async (req, res) => {
+  try {
+    const [
+      epochCount,
+      latestEpoch,
+      stakingAgg,
+      minedAgg,
+      activeMiners,
+      activeClocks,
+      totalVerifiers
+    ] = await Promise.all([
+      Epoch.countDocuments(),
+      Epoch.findOne().sort({ epoch_number: -1 }).lean(),
+      StakingPool.aggregate([
+        { $match: { status: "active" } },
+        { $group: { _id: null, total: { $sum: "$staked_amount" } } }
+      ]),
+      LedgerEntry.aggregate([
+        { $match: { type: "MINING_REWARD", token: "BTCPC" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]),
+      Node.countDocuments(),
+      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "clock" }),
+      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "verifier" })
+    ]);
+
+    var currentEpoch = latestEpoch ? latestEpoch.epoch_number : 0;
+    var currentPeriod = getCurrentPeriod(currentEpoch);
+    var periodTable = getPeriodTable();
+    var totalMined = minedAgg.length ? minedAgg[0].total : 0;
+    var totalStaked = stakingAgg.length ? stakingAgg[0].total : 0;
+
+    var deployments = {};
+    try { deployments = require("../../contracts/deployments.json"); } catch (_) {}
+
+    res.send(tokenomicsView({
+      totalSupply: TOTAL_SUPPLY,
+      totalMined,
+      currentEpoch,
+      currentPeriod,
+      periodTable,
+      deployments,
+      totalStaked,
+      activeMiners,
+      activeClocks,
+      totalVerifiers
+    }));
+  } catch (err) {
+    console.error("[btcpcscan] Tokenomics error:", err);
+    res.status(500).send("Internal server error");
+  }
+});
+
+/**
+ * GET /blocks — Paginated block list
+ */
+app.get("/blocks", async (req, res) => {
+  try {
+    var pag = sanitizePagination(req.query.page, 25, 100);
+    var page = pag.page;
+    var perPage = 25;
+    var skip = (page - 1) * perPage;
+
+    var [epochs, total] = await Promise.all([
+      Epoch.find().sort({ epoch_number: -1 }).skip(skip).limit(perPage).lean(),
+      Epoch.countDocuments()
+    ]);
+
+    res.send(blocksView({ epochs, total, page, perPage }));
+  } catch (err) {
+    console.error("[btcpcscan] Blocks error:", err);
+    res.status(500).send("Internal server error");
+  }
+});
+
+/**
+ * GET /dashboard — User dashboard (public info for any account)
+ */
+app.get("/dashboard", async (req, res) => {
+  try {
+    var accountName = sanitizeString(req.query.account, 20);
+    if (!accountName || !validAccountName(accountName)) {
+      return res.send(userDashboardView({ user: null }));
+    }
+
+    var user = await User.findOne({ username: accountName }).lean();
+    if (!user) {
+      return res.send(userDashboardView({ user: null }));
+    }
+
+    var [node, stake, ledgerEntries, miningRewards] = await Promise.all([
+      Node.findOne({ account: user._id }).lean(),
+      StakingPool.findOne({ account: user._id, status: { $in: ["active", "unstaking"] } }).lean(),
+      LedgerEntry.find({
+        $or: [{ from: accountName }, { to: accountName }]
+      }).sort({ timestamp: -1 }).limit(20).lean(),
+      LedgerEntry.find({ to: accountName, type: "MINING_REWARD" }).lean()
+    ]);
+
+    var balance = await ledger.getBalance(accountName, "BTCPC");
+    var pendingDebit = mempool.getPendingDebit(accountName);
+    var smtState = stateManager.getAccountState(accountName);
+
+    // Try to get linked addresses
+    var linkedAddresses = [];
+    try {
+      var chainLink = require("../services/chainLink");
+      linkedAddresses = await chainLink.getLinkedAddresses(accountName);
+    } catch (_) {}
+
+    // Try to get pending claims
+    var pendingClaims = [];
+    try {
+      pendingClaims = await LedgerEntry.find({
+        to: accountName,
+        type: "CROSS_CHAIN_CLAIM",
+        status: "pending"
+      }).lean();
+    } catch (_) {}
+
+    // Check for clock node registration
+    var clockNode = null;
+    try {
+      var clockEntry = await LedgerEntry.findOne({
+        to: accountName,
+        type: "NODE_REGISTER",
+        "account_data.node_type": "clock"
+      }).lean();
+      if (clockEntry) clockNode = clockEntry.account_data || clockEntry;
+    } catch (_) {}
+
+    // Check for delegation
+    var delegation = null;
+    try {
+      var delegationEntry = await LedgerEntry.findOne({
+        from: accountName,
+        type: "DELEGATION"
+      }).sort({ timestamp: -1 }).lean();
+      if (delegationEntry) {
+        delegation = {
+          delegatee: delegationEntry.to,
+          amount: delegationEntry.amount,
+          status: "active"
+        };
+      }
+    } catch (_) {}
+
+    var recentTxs = ledgerEntries.map(formatLedgerEntry);
+
+    res.send(userDashboardView({
+      user,
+      node,
+      stake,
+      balance,
+      pendingDebit,
+      availableBalance: balance - pendingDebit,
+      miningRewards,
+      recentTxs,
+      linkedAddresses: Array.isArray(linkedAddresses) ? linkedAddresses : [],
+      pendingClaims,
+      delegation,
+      clockNode,
+      smtProof: smtState ? { root: smtState.root, state: smtState.state } : null
+    }));
+  } catch (err) {
+    console.error("[btcpcscan] Dashboard error:", err);
+    res.status(500).send("Internal server error");
+  }
+});
 
 /**
  * GET /settings — Miner resource management UI
