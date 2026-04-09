@@ -1,0 +1,356 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-setup — Auto-detect hardware, configure, and start the right nodes
+ * Shin Devlin
+ *
+ * Detects: GPU (VRAM), CPU cores, RAM, OS, disk space
+ * Decides: miner (needs GPU), clock (anything), explorer (optional)
+ * Creates: .env.local with proper config
+ * Starts: the appropriate processes
+ *
+ * Usage: node bin/btcpc-setup
+ */
+
+var os = require("os");
+var fs = require("fs");
+var path = require("path");
+var { execSync } = require("child_process");
+var crypto = require("crypto");
+
+var REPO_DIR = path.resolve(__dirname, "..");
+
+function log(msg) { console.log("[setup] " + msg); }
+function warn(msg) { console.log("[setup] WARNING: " + msg); }
+
+// ─── Hardware Detection ──────────────────────────────────────────
+
+function detectCPU() {
+  var cpus = os.cpus();
+  return {
+    cores: cpus.length,
+    model: cpus[0] ? cpus[0].model.trim() : "unknown",
+    speed: cpus[0] ? cpus[0].speed : 0
+  };
+}
+
+function detectRAM() {
+  return {
+    totalGB: Math.round(os.totalmem() / (1024 * 1024 * 1024) * 10) / 10,
+    freeGB: Math.round(os.freemem() / (1024 * 1024 * 1024) * 10) / 10
+  };
+}
+
+function detectGPU() {
+  // Try nvidia-smi first
+  try {
+    var nv = execSync("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits", {
+      encoding: "utf8", timeout: 5000, windowsHide: true
+    }).trim();
+    if (nv) {
+      var parts = nv.split(",").map(function (s) { return s.trim(); });
+      return {
+        available: true,
+        name: parts[0] || "NVIDIA GPU",
+        vramMB: parseInt(parts[1]) || 0,
+        vramGB: Math.round((parseInt(parts[1]) || 0) / 1024 * 10) / 10,
+        type: "nvidia"
+      };
+    }
+  } catch (_) {}
+
+  // Try rocm-smi (AMD)
+  try {
+    var amd = execSync("rocm-smi --showmeminfo vram --csv", {
+      encoding: "utf8", timeout: 5000, windowsHide: true
+    }).trim();
+    if (amd && !amd.includes("ERROR")) {
+      return {
+        available: true,
+        name: "AMD GPU",
+        vramMB: 0,
+        vramGB: 0,
+        type: "amd"
+      };
+    }
+  } catch (_) {}
+
+  // Try macOS metal
+  if (os.platform() === "darwin") {
+    try {
+      var metal = execSync("system_profiler SPDisplaysDataType", {
+        encoding: "utf8", timeout: 5000
+      });
+      if (metal.includes("Metal")) {
+        var vramMatch = metal.match(/VRAM.*?(\d+)\s*(MB|GB)/i);
+        var vram = 0;
+        if (vramMatch) {
+          vram = parseInt(vramMatch[1]);
+          if (vramMatch[2].toUpperCase() === "GB") vram *= 1024;
+        }
+        return {
+          available: true,
+          name: "Apple Metal GPU",
+          vramMB: vram,
+          vramGB: Math.round(vram / 1024 * 10) / 10,
+          type: "metal"
+        };
+      }
+    } catch (_) {}
+  }
+
+  return { available: false, name: "none", vramMB: 0, vramGB: 0, type: "none" };
+}
+
+function detectOllama() {
+  try {
+    var tags = execSync("curl -s http://localhost:11434/api/tags", {
+      encoding: "utf8", timeout: 5000, windowsHide: true
+    });
+    var data = JSON.parse(tags);
+    return {
+      running: true,
+      models: (data.models || []).map(function (m) { return m.name; })
+    };
+  } catch (_) {
+    return { running: false, models: [] };
+  }
+}
+
+function detectDisk() {
+  try {
+    if (os.platform() === "win32") {
+      var win = execSync("wmic logicaldisk get size,freespace /format:csv", {
+        encoding: "utf8", timeout: 5000, windowsHide: true
+      });
+      // Parse first disk
+      var lines = win.trim().split("\n").filter(function (l) { return l.includes(","); });
+      if (lines.length > 1) {
+        var cols = lines[1].split(",");
+        return {
+          freeGB: Math.round(parseInt(cols[1] || 0) / (1024 * 1024 * 1024)),
+          totalGB: Math.round(parseInt(cols[2] || 0) / (1024 * 1024 * 1024))
+        };
+      }
+    } else {
+      var df = execSync("df -BG " + REPO_DIR + " | tail -1", {
+        encoding: "utf8", timeout: 5000
+      });
+      var parts = df.trim().split(/\s+/);
+      return {
+        totalGB: parseInt(parts[1]) || 0,
+        freeGB: parseInt(parts[3]) || 0
+      };
+    }
+  } catch (_) {}
+  return { totalGB: 0, freeGB: 0 };
+}
+
+// ─── Decision Engine ─────────────────────────────────────────────
+
+function decideNodes(hw) {
+  var nodes = [];
+  var reasons = [];
+
+  // Clock node — always. Runs on anything.
+  nodes.push("clock");
+  reasons.push("Clock node: runs on any hardware");
+
+  // Miner — needs Ollama running with models. GPU preferred but CPU works too.
+  if (hw.ollama.running && hw.ollama.models.length > 0) {
+    nodes.push("miner");
+    if (hw.gpu.available) {
+      reasons.push("Miner: " + hw.gpu.name + " (" + hw.gpu.vramGB + "GB VRAM) + Ollama (" + hw.ollama.models.length + " models)");
+    } else {
+      reasons.push("Miner: Ollama running (" + hw.ollama.models.length + " models, CPU mode). GPU recommended for better performance.");
+    }
+  } else if (hw.ollama.running && hw.ollama.models.length === 0) {
+    reasons.push("Miner: Ollama running but no models installed. Run: ollama pull qwen3:4b");
+  } else {
+    reasons.push("Miner: Ollama not running. Install from https://ollama.com to mine.");
+  }
+
+  // Explorer — if disk space allows
+  if (hw.disk.freeGB >= 1) {
+    nodes.push("explorer");
+    reasons.push("Explorer: " + hw.disk.freeGB + "GB free disk");
+  }
+
+  // Pick the best model based on VRAM
+  var model = null;
+  if (hw.gpu.vramGB >= 20) {
+    model = "qwen3.5:27b";
+  } else if (hw.gpu.vramGB >= 8) {
+    model = "qwen3.5:9b";
+  } else if (hw.gpu.vramGB >= 4) {
+    model = "qwen3:4b";
+  }
+
+  // CPU/GPU caps based on RAM and cores
+  var cpuCap = 100;
+  var gpuCap = 100;
+  if (hw.cpu.cores <= 4) cpuCap = 50; // leave room on small machines
+  if (hw.ram.totalGB <= 8) cpuCap = Math.min(cpuCap, 60);
+
+  return { nodes: nodes, reasons: reasons, model: model, cpuCap: cpuCap, gpuCap: gpuCap };
+}
+
+// ─── Config Generation ───────────────────────────────────────────
+
+function generateConfig(hw, decision) {
+  var nodeId = crypto.randomBytes(16).toString("hex");
+  var account = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || "miner-" + nodeId.slice(0, 8);
+
+  var lines = [
+    "# BTCPC Node Configuration",
+    "# Auto-generated by btcpc-setup on " + new Date().toISOString(),
+    "# Hardware: " + hw.cpu.cores + " cores, " + hw.ram.totalGB + "GB RAM" + (hw.gpu.available ? ", " + hw.gpu.name + " " + hw.gpu.vramGB + "GB" : ", no GPU"),
+    "",
+    "BTCPC_NODE_ID=" + nodeId,
+    "BTCPC_MINER=" + account,
+    "BTCPC_CLOCK_ACCOUNT=" + account,
+    "P2P_PORT=6942",
+    "BTCPC_SEED_PEERS=ws://100.122.145.60:6942",
+    "BTCPC_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws",
+    "BTCPC_MAX_CPU=" + decision.cpuCap,
+    "BTCPC_MAX_GPU=" + decision.gpuCap,
+  ];
+
+  if (decision.model) {
+    lines.push("BTCPC_MODEL=" + decision.model);
+  }
+
+  if (hw.ollama.running) {
+    lines.push("OLLAMA_URL=http://localhost:11434");
+  }
+
+  return lines.join("\n") + "\n";
+}
+
+// ─── Startup ─────────────────────────────────────────────────────
+
+function startNodes(decision) {
+  var spawn = require("child_process").spawn;
+  var pids = [];
+
+  for (var i = 0; i < decision.nodes.length; i++) {
+    var node = decision.nodes[i];
+    var cmd, args, logFile;
+
+    switch (node) {
+      case "clock":
+        cmd = process.execPath;
+        args = [path.join(REPO_DIR, "bin/btcpc-clock")];
+        logFile = "/tmp/btcpc-clock.log";
+        break;
+      case "miner":
+        cmd = process.execPath;
+        args = [path.join(REPO_DIR, "bin/btcpc-mine")];
+        logFile = "/tmp/btcpc-miner.log";
+        break;
+      case "explorer":
+        cmd = process.execPath;
+        args = [path.join(REPO_DIR, "src/explorer/server.js")];
+        logFile = "/tmp/btcpc-explorer.log";
+        break;
+      default:
+        continue;
+    }
+
+    var out = fs.openSync(logFile, "a");
+    var child = spawn(cmd, args, {
+      cwd: REPO_DIR,
+      detached: true,
+      stdio: ["ignore", out, out],
+      env: Object.assign({}, process.env)
+    });
+    child.unref();
+    pids.push({ node: node, pid: child.pid, log: logFile });
+    log("Started " + node + " (pid " + child.pid + ") → " + logFile);
+  }
+
+  return pids;
+}
+
+// ─── Main ────────────────────────────────────────────────────────
+
+function main() {
+  console.log("");
+  console.log("  ============================================");
+  console.log("    btcpc-setup — Auto-configure BTCPC Node");
+  console.log("  ============================================");
+  console.log("");
+
+  // Detect hardware
+  log("Detecting hardware...");
+  var hw = {
+    platform: os.platform(),
+    cpu: detectCPU(),
+    ram: detectRAM(),
+    gpu: detectGPU(),
+    ollama: detectOllama(),
+    disk: detectDisk()
+  };
+
+  console.log("");
+  log("Hardware detected:");
+  log("  OS:     " + hw.platform + " " + os.release());
+  log("  CPU:    " + hw.cpu.cores + " cores (" + hw.cpu.model + ")");
+  log("  RAM:    " + hw.ram.totalGB + "GB total, " + hw.ram.freeGB + "GB free");
+  log("  GPU:    " + (hw.gpu.available ? hw.gpu.name + " (" + hw.gpu.vramGB + "GB VRAM)" : "none detected"));
+  log("  Ollama: " + (hw.ollama.running ? "running (" + hw.ollama.models.length + " models)" : "not running"));
+  log("  Disk:   " + hw.disk.freeGB + "GB free of " + hw.disk.totalGB + "GB");
+
+  // Decide what to run
+  console.log("");
+  var decision = decideNodes(hw);
+  log("Node selection:");
+  for (var i = 0; i < decision.reasons.length; i++) {
+    log("  " + decision.reasons[i]);
+  }
+  if (decision.model) {
+    log("  Model: " + decision.model + " (based on " + hw.gpu.vramGB + "GB VRAM)");
+  }
+
+  // Generate config
+  var configPath = path.join(REPO_DIR, ".env.node");
+  var config = generateConfig(hw, decision);
+  fs.writeFileSync(configPath, config);
+  log("Config written to " + configPath);
+
+  // Load the config
+  require("dotenv").config({ path: configPath });
+
+  // Start nodes
+  console.log("");
+  log("Starting " + decision.nodes.length + " node(s)...");
+  var pids = startNodes(decision);
+
+  console.log("");
+  console.log("  ============================================");
+  console.log("    BTCPC is running!");
+  console.log("  ============================================");
+  console.log("");
+  for (var j = 0; j < pids.length; j++) {
+    console.log("  " + pids[j].node + ": pid " + pids[j].pid + " (log: " + pids[j].log + ")");
+  }
+  console.log("");
+
+  if (decision.nodes.indexOf("miner") === -1) {
+    console.log("  No GPU detected — running as clock node only.");
+    console.log("  To mine, install a GPU and Ollama (https://ollama.com)");
+    console.log("");
+  }
+
+  if (decision.nodes.indexOf("explorer") !== -1) {
+    console.log("  Explorer: http://localhost:4242");
+    console.log("  Settings: http://localhost:4242/settings");
+    console.log("");
+  }
+
+  console.log("  Logs: tail -f /tmp/btcpc-*.log");
+  console.log("");
+}
+
+main();
