@@ -34,6 +34,18 @@
       "deployedAt": "2026-04-09",
       "explorer": "https://solscan.io/token/2WAQ9PMEMe7AVEvhCu2tcM5wJktwsThEJ9pWbEhibAof"
     },
+    "polygon": {
+      "chainId": 137,
+      "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
+      "deployedAt": "2026-04-09",
+      "explorer": "https://polygonscan.com/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
+    },
+    "bsc": {
+      "chainId": 56,
+      "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
+      "deployedAt": "2026-04-09",
+      "explorer": "https://bscscan.com/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
+    },
     "bitcoin": {
       "status": "pending - needs BTC for Runes inscription"
     },
@@ -89,6 +101,26 @@
         "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
       },
       "explorer": "https://etherscan.io/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
+    },
+    "polygon": {
+      "chainId": 137,
+      "contract": "0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26",
+      "acceptedStablecoins": {
+        "USDC": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+        "USDT": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+        "DAI": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
+      },
+      "priceUSD": "$0.10 per wBTCPC"
+    },
+    "bsc": {
+      "chainId": 56,
+      "contract": "0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26",
+      "acceptedStablecoins": {
+        "USDC": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+        "USDT": "0x55d398326f99059fF775485246999027B3197955",
+        "DAI": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3"
+      },
+      "priceUSD": "$0.10 per wBTCPC"
     }
   },
   "wBTCPCBridge": {
@@ -118,6 +150,22 @@
       "boundAccounts": {
         "shindevlin": "0xBDe88F2B3a224B242704bD166804E0E12c75e830"
       }
+    },
+    "polygon": {
+      "chainId": 137,
+      "contract": "0xeeC5d6F365576bD83d63e54b8c51a32A75CFBE4F",
+      "boundAccounts": {
+        "shindevlin": "0xBDe88F2B3a224B242704bD166804E0E12c75e830"
+      },
+      "explorer": "https://polygonscan.com/address/0xeeC5d6F365576bD83d63e54b8c51a32A75CFBE4F"
+    },
+    "bsc": {
+      "chainId": 56,
+      "contract": "0x384Fe3d260aCaF82d3e7FE1a66Eba6bFc1537107",
+      "boundAccounts": {
+        "shindevlin": "0xBDe88F2B3a224B242704bD166804E0E12c75e830"
+      },
+      "explorer": "https://bscscan.com/address/0x384Fe3d260aCaF82d3e7FE1a66Eba6bFc1537107"
     }
   },
   "domain": "btcpc.net",
@@ -165,8 +213,6 @@
     "conditions": "10 stakers + 1000 BTCPC staked + governance active"
   },
   "pending": {
-    "polygon": "WETH bridged, need MATIC gas to deploy. Send 0.5 MATIC to 0xBDe88...",
-    "bsc": "WETH bridged, need BNB gas to deploy. Send 0.005 BNB to 0xBDe88...",
     "ton": "Need TON native. Send 2 TON to 0:bea7ca44...",
     "zkSync": "Across bridge failed — try direct bridge later",
     "linea": "Across bridge failed — try direct bridge later"
