@@ -146,6 +146,15 @@
     "optimism": {
       "contract": "0x737D12eEbCB33F021378ba46C5820AbF20C23068",
       "pool": "2000 wBTCPC"
+    },
+    "ethereum": {
+      "chainId": 1,
+      "contract": "0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9",
+      "stablecoins": [
+        "USDC",
+        "USDT",
+        "DAI"
+      ]
     }
   },
   "emergencyPause": "scripts/emergency-pause.sh",
@@ -154,5 +163,12 @@
     "holder": "shindevlin",
     "revShare": "1%",
     "conditions": "10 stakers + 1000 BTCPC staked + governance active"
+  },
+  "pending": {
+    "polygon": "WETH bridged, need MATIC gas to deploy. Send 0.5 MATIC to 0xBDe88...",
+    "bsc": "WETH bridged, need BNB gas to deploy. Send 0.005 BNB to 0xBDe88...",
+    "ton": "Need TON native. Send 2 TON to 0:bea7ca44...",
+    "zkSync": "Across bridge failed — try direct bridge later",
+    "linea": "Across bridge failed — try direct bridge later"
   }
 }
