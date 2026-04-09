@@ -250,12 +250,17 @@ async function verifyAndLink(challengeId, signature) {
     } else if (challenge.chain === "ton") {
       recoveredAddress = recoverTONAddress(challenge.message, signature, challenge.address);
     } else if (challenge.chain === "reddit") {
-      // Reddit linking: the "signature" is the challenge code itself.
-      // Proof of ownership comes from the Devvit app confirming the Reddit username.
-      if (signature === challengeId) {
+      // Reddit linking: signature must be HMAC(challengeId, DEVVIT_SECRET).
+      // Only the Devvit app knows the secret, proving the request came from Reddit context.
+      var devvitSecret = process.env.BTCPC_DEVVIT_SECRET;
+      if (!devvitSecret) {
+        return { success: false, error: "Reddit linking not configured (BTCPC_DEVVIT_SECRET missing)" };
+      }
+      var expectedSig = crypto.createHmac("sha256", devvitSecret).update(challengeId).digest("hex");
+      if (signature === expectedSig) {
         recoveredAddress = challenge.address; // Reddit username
       } else {
-        return { success: false, error: "Invalid confirmation code" };
+        return { success: false, error: "Invalid Reddit verification signature" };
       }
     } else {
       return { success: false, error: "Chain '" + challenge.chain + "' verification not yet supported" };

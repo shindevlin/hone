@@ -865,19 +865,20 @@ router.post('/reddit-link', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/bot/reddit-verify { challengeId, redditUsername }
-// Step 2: Devvit app confirms the link (proof: the app knows the Reddit username)
+// POST /api/bot/reddit-verify { challengeId, redditUsername, signature }
+// Step 2: Devvit app confirms the link with HMAC proof
+// The Devvit app computes HMAC(challengeId, BTCPC_DEVVIT_SECRET) as the signature
 router.post('/reddit-verify', async (req, res) => {
   try {
-    const objErr = rejectObjectInputs(req.body, ['challengeId', 'redditUsername']);
+    const objErr = rejectObjectInputs(req.body, ['challengeId', 'redditUsername', 'signature']);
     if (objErr) return res.status(400).json({ error: objErr });
     const challengeId = sanitizeString(req.body.challengeId, 200);
     const redditUser = sanitizeString(req.body.redditUsername, 50);
-    if (!challengeId || !redditUser) return res.status(400).json({ error: 'challengeId and redditUsername required' });
+    const signature = sanitizeString(req.body.signature, 200);
+    if (!challengeId || !redditUser || !signature) return res.status(400).json({ error: 'challengeId, redditUsername, and signature required' });
 
     const chainLink = require('../services/chainLink');
-    // For Reddit, signature = challengeId (the Devvit app proves identity by knowing the Reddit username)
-    const result = await chainLink.verifyAndLink(challengeId, challengeId);
+    const result = await chainLink.verifyAndLink(challengeId, signature);
 
     if (!result.success) return res.status(400).json({ error: result.error });
 
@@ -900,10 +901,11 @@ router.get('/reddit-account', async (req, res) => {
     const chainLink = require('../services/chainLink');
     const LedgerEntry = require('../models/LedgerEntry');
 
-    // Search ledger for reddit link entries
+    // Search ledger for reddit link entries (escape regex metacharacters)
+    const escaped = redditUser.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const linkEntry = await LedgerEntry.findOne({
       type: 'ACCOUNT_CREATE',
-      memo: { $regex: ':reddit:' + redditUser.toLowerCase() }
+      memo: { $regex: ':reddit:' + escaped }
     });
 
     if (!linkEntry) return res.status(404).json({ error: 'No BTCPC account linked to u/' + redditUser });
