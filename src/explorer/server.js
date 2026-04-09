@@ -53,7 +53,8 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 // MongoDB connection
 // ---------------------------------------------------------------------------
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin";
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) { console.error("[btcpcscan] FATAL: MONGODB_URI not set"); process.exit(1); }
 
 mongoose.connect(MONGODB_URI).then(() => {
   console.log("[btcpcscan] Connected to MongoDB");

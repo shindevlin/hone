@@ -24,9 +24,13 @@ const { getBlockReward } = require('../services/emissionSchedule');
 const { startLink, verifySignedChallenge } = require('../services/telegramVerify');
 
 // ── Auth middleware ──
-const BOT_API_KEY = process.env.BOT_API_KEY || 'btcpc_bot_secret_change_me';
+const BOT_API_KEY = process.env.BOT_API_KEY;
+if (!BOT_API_KEY) {
+  console.error('[BTCPC] FATAL: BOT_API_KEY not set in .env — bot routes are disabled');
+}
 
 function requireBotKey(req, res, next) {
+  if (!BOT_API_KEY) return res.status(503).json({ error: 'Bot API not configured' });
   const key = req.headers['x-bot-key'];
   if (key !== BOT_API_KEY) return res.status(401).json({ error: 'invalid bot key' });
   next();

@@ -11,6 +11,10 @@ const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 
+// Fail-closed: require critical env vars at startup
+if (!process.env.JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
+if (!process.env.MONGODB_URI) { console.error('FATAL: MONGODB_URI not set'); process.exit(1); }
+
 const app = express();
 
 // Middleware

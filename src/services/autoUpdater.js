@@ -105,12 +105,12 @@ async function checkAndStage() {
     run('git pull origin main');
     log(`Staged v${remoteVersion} (${behindCount} commits)`);
 
-    // Install deps if needed
+    // Flag if deps changed — DO NOT auto-install (supply chain risk)
+    // User must manually run npm install after approving the update
     try {
       const changed = run('git diff HEAD~' + behindCount + ' --name-only');
       if (changed.includes('package.json') || changed.includes('package-lock.json')) {
-        log('Installing new dependencies...');
-        run('npm install');
+        log('WARNING: package.json changed — run npm install manually after restart');
       }
     } catch (_) {}
 
