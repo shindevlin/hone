@@ -118,19 +118,19 @@ router.post('/create', async (req, res) => {
       security_note: 'Creating a wallet via Telegram is less secure than on a PC. Save your mnemonic to a password manager or write it on paper and store it safely.',
       username,
       mnemonic: account.mnemonic,
-      keys: {
+      btcpc_keys: {
         owner: { private: keys.owner.privateKey, public: keys.owner.publicKey },
         active: { private: keys.active.privateKey, public: keys.active.publicKey },
         posting: { private: keys.posting.privateKey, public: keys.posting.publicKey },
         memo: { private: keys.memo.privateKey, public: keys.memo.publicKey }
       },
-      addresses: {
-        btcpc: account.address,
-        evm: chainWallets.evm ? chainWallets.evm.address : null,
-        solana: chainWallets.solana ? chainWallets.solana.address : null,
-        bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
-        ton: chainWallets.ton ? chainWallets.ton.address : null,
-        hive: username
+      chain_wallets: {
+        evm: chainWallets.evm ? { address: chainWallets.evm.address, private_key: chainWallets.evm.privateKey } : null,
+        solana: chainWallets.solana ? { address: chainWallets.solana.address, private_key: chainWallets.solana.privateKey } : null,
+        bitcoin: chainWallets.bitcoin ? { address: chainWallets.bitcoin.address, private_key: chainWallets.bitcoin.privateKey } : null,
+        ton: chainWallets.ton ? { address: chainWallets.ton.address, private_key: chainWallets.ton.privateKey } : null,
+        btcpc: { address: account.address },
+        hive: { address: username }
       }
     });
   } catch (err) {
