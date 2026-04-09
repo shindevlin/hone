@@ -17,8 +17,8 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 source "$REPO_DIR/.env"
 
 # Shin's EVM private key (derived from mnemonic)
-EVM_KEY="${BTCPC_SHIN_EVM_KEY:-d9409e6735ea61fb5408e66fe95fb3cc078bd5033915a4d5a3714dfd77a8f6bb}"
-EVM_ADDRESS="0xbde88f2b3a224b242704bd166804e0e12c75e830"
+EVM_KEY="${BTCPC_SHIN_EVM_KEY:?Set BTCPC_SHIN_EVM_KEY in .env}"
+EVM_ADDRESS="${BTCPC_SHIN_ADDRESS:-0xbde88f2b3a224b242704bd166804e0e12c75e830}"
 
 # Signing authority for the wBTCPC contract (shin's EVM address verifies claim proofs)
 SIGNING_AUTHORITY="$EVM_ADDRESS"

@@ -3,3 +3,7 @@ node_modules/
 telegram-bot/.env
 coverage/
 data/blocks/
+
+# Forge build artifacts
+out/
+cache/
