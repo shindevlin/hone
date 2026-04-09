@@ -183,7 +183,9 @@ async function handlePayload(msg) {
 
     // Some models (qwen3.5) put output in 'thinking' field when reasoning mode is on
     const msg = response.data.message || {};
-    const resultText = msg.content || msg.thinking || response.data.response || "";
+    let resultText = msg.content || msg.thinking || response.data.response || "";
+    // Strip thinking leaks — qwen3 sometimes exposes reasoning even with think:false
+    resultText = resultText.replace(/^(Okay, the user|Hmm,|Interesting|First, I need to|Let me unpack|Let me think)[^\n]*\n+/i, '').trim();
     const tokensGenerated = response.data.eval_count || Math.ceil(resultText.length / 4);
     const elapsed = Date.now() - startTime;
 

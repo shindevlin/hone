@@ -181,8 +181,20 @@ async function computeFinalization(epochNumber) {
     console.log(`[BTCPC] Epoch ${epochNumber}: ${sweptCount} job(s) settled`);
   }
 
-  // Collect settled jobs + mining proofs
+  // Release escrows for settled jobs — pay the miner, refund overpayment
+  const escrow = require('../services/escrow');
   const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber });
+  for (const job of settledJobs) {
+    const miner = job.node_name || (job.verifications && job.verifications[0] && job.verifications[0].miner);
+    if (miner && job.cost > 0) {
+      try {
+        await escrow.releaseForJob(job.job_id, miner, job.cost);
+      } catch (_) {} // non-fatal — escrow may not exist for pre-escrow jobs
+    }
+  }
+
+  // Sweep any stale escrows (safety net — auto-refund after 10 min)
+  await escrow.sweepEscrows(600000).catch(() => {});
   const syntheticProofs = await MiningProof.find({ block_number: epochNumber });
 
   // Build per-miner work values

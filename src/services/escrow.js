@@ -146,4 +146,72 @@ async function refundFunds(requestId) {
   return escrow;
 }
 
-module.exports = { lockFunds, releaseFunds, refundFunds };
+/**
+ * Sweep stale escrows — auto-refund any that are locked longer than maxAge.
+ * Should run periodically (e.g. every epoch or every 5 minutes).
+ * This prevents BTCPC from getting permanently stuck in escrow.
+ */
+async function sweepEscrows(maxAgeMs) {
+  maxAgeMs = maxAgeMs || 600000; // 10 minutes default
+  const cutoff = new Date(Date.now() - maxAgeMs);
+
+  // Use _id timestamp (ObjectId embeds creation time) as fallback
+  const mongoose = require("mongoose");
+  const cutoffId = mongoose.Types.ObjectId.createFromTime(Math.floor(cutoff.getTime() / 1000));
+  const stale = await Escrow.find({
+    status: "locked",
+    _id: { $lt: cutoffId }
+  });
+
+  let refunded = 0;
+  let totalRefunded = 0;
+
+  for (const escrow of stale) {
+    try {
+      await refundFunds(escrow.request_id);
+      refunded++;
+      totalRefunded += escrow.amount;
+    } catch (err) {
+      // Skip individual failures — don't crash the sweep
+    }
+  }
+
+  if (refunded > 0) {
+    console.log(`[BTCPC Escrow] Swept ${refunded} stale escrows, refunded ${totalRefunded.toFixed(4)} BTCPC`);
+  }
+
+  return { refunded, totalRefunded };
+}
+
+/**
+ * Release escrow for a settled inference job by job_id.
+ * Pays the miner who completed the work. Simpler than releaseFunds
+ * which expects node_id payouts — this works with username directly.
+ */
+async function releaseForJob(requestId, minerUsername, amount) {
+  const escrow = await Escrow.findOne({ request_id: requestId });
+  if (!escrow) return null; // no escrow for this job (pre-escrow era)
+  if (escrow.status !== "locked") return null; // already released/refunded
+
+  const epoch = await ledger.getCurrentEpoch();
+
+  // Pay the miner
+  await ledger.recordEscrowRelease(minerUsername, requestId, amount, epoch, "Inference settlement");
+  await ledger.updateWalletCache(minerUsername, "BTCPC", amount);
+
+  // Refund overpayment if escrow > actual cost
+  const overpayment = escrow.amount - amount;
+  if (overpayment > 0.000001) {
+    await ledger.recordEscrowRefund(escrow.payer, requestId, overpayment, epoch);
+    await ledger.updateWalletCache(escrow.payer, "BTCPC", overpayment);
+  }
+
+  escrow.status = "released";
+  escrow.released_at = new Date();
+  escrow.released_to = [{ username: minerUsername, amount }];
+  await escrow.save();
+
+  return escrow;
+}
+
+module.exports = { lockFunds, releaseFunds, refundFunds, sweepEscrows, releaseForJob };

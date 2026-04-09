@@ -126,7 +126,7 @@ async function submitJob() {
     const { data } = await axios.post(`${project.url}/v1/inference/submit`, {
       model: 'auto',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 256
+      max_tokens: 1024
     }, {
       timeout: 10000,
       headers: { 'Authorization': `Bearer ${project.key}` }
