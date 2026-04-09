@@ -228,6 +228,10 @@ function pickRandom(arr) {
 function fillTemplate(template, project) {
   return template.replace(/\{(\w+)\}/g, (_, key) => {
     if (project.prompts[key]) return pickRandom(project.prompts[key]);
+    if (project.prompts[key + 's']) return pickRandom(project.prompts[key + 's']);
+    if (key.endsWith('s') && project.prompts[key.slice(0, -1)]) return pickRandom(project.prompts[key.slice(0, -1)]);
+    var base = key.replace(/\d+$/, '');
+    if (base !== key && project.prompts[base + 's']) return pickRandom(project.prompts[base + 's']);
     return `[${key}]`;
   });
 }
