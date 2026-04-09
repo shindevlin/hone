@@ -98,6 +98,56 @@ The genesis block (block 0) is historical record — it can't be rewritten becau
 | `GOVERNANCE_VOTE` | Vote on a proposal (yes/no/abstain) |
 | `GOVERNANCE_EXECUTE` | Auto-generated when a proposal passes and timelock expires |
 
+## Chain Rollback & Block Invalidation
+
+The network can vote to undo history — like Ethereum did with the DAO hack in 2016.
+
+### What the Network Can Vote To Do
+
+| Action | What Happens | Use Case |
+|--------|-------------|----------|
+| **Invalidate a block** | Block marked void, state recomputed as if it never happened | Malicious block accepted by mistake |
+| **Reverse a transaction** | Tokens moved back to original owner | Exploit, stolen funds |
+| **Blacklist an address** | Account frozen, cannot send (can still receive) | Compromised account, active attacker |
+| **Reorg from checkpoint** | Roll back to a finality block, replay forward skipping bad blocks | Major chain corruption |
+
+### How It Works
+
+1. `GOVERNANCE_PROPOSAL` submitted with type `CHAIN_INTERVENTION`
+2. Must specify: which block(s) or transaction(s), what action, detailed rationale
+3. **90% supermajority** required (structural tier — highest bar)
+4. **40% quorum** of staked tokens must vote
+5. Voting period: 200 epochs (~16 hours) — longer than normal to allow deliberation
+6. If passed: next finalization consensus includes the intervention
+7. All nodes recompute state from the nearest finality block before the affected block
+
+### Why Finality Blocks Make This Practical
+
+Without finality blocks, a rollback means replaying from genesis — impractical as the chain grows. With finality blocks every 100 epochs:
+
+```
+Bad block at epoch 5,432
+  → Nearest finality block: epoch 5,400
+  → Roll back to epoch 5,400 state snapshot
+  → Replay epochs 5,401-5,431, skip 5,432
+  → Continue from epoch 5,433
+  → Only 32 epochs replayed, not 5,432
+```
+
+### The Ethereum Precedent
+
+Ethereum's DAO rollback in 2016 proved that "code is law" is aspirational, not absolute. When 3.6M ETH was stolen, the network voted to roll back. Those who disagreed forked to Ethereum Classic.
+
+BTCPC builds this into the protocol explicitly — not as an emergency hack, but as a governed, transparent, vote-based mechanism. The community decides, not one developer.
+
+### Safeguards
+
+- **Highest threshold**: 90% supermajority + 40% quorum — near-unanimous agreement required
+- **Extended voting**: 200 epochs instead of 100 — more time for community debate
+- **Public rationale**: proposal must include detailed justification visible to all nodes
+- **Transparency**: the CHAIN_INTERVENTION entry is permanently on the ledger — the rollback itself is recorded history
+- **No secret rollbacks**: every intervention is visible on-chain forever
+
 ## Emergency Proposals
 
 For critical security fixes, a separate fast-track path:
