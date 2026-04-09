@@ -97,7 +97,7 @@ function generateClaimProof(miner, epoch, amount, chain, targetWallet, postingKe
     miner,
     targetWallet,
     String(epoch),
-    claimAmount.toFixed(10),
+    totalClaimAmount.toFixed(10),
     String(periodNumber)
   ].join(":");
 
