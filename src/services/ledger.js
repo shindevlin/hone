@@ -159,10 +159,35 @@ async function recordFaucet(to, amount, epoch) {
 /**
  * Record a token creation on the ledger.
  */
+/**
+ * Token creation fee tiers.
+ * Standard supply (42M) is cheapest. Custom supply costs more.
+ */
+const TOKEN_FEE_TIERS = {
+  micro:    { maxSupply: 1000000,       fee: 21,  label: 'Micro (up to 1M)' },
+  standard: { maxSupply: 42000000,      fee: 42,  label: 'Standard (up to 42M)' },
+  mega:     { maxSupply: 1000000000,    fee: 84,  label: 'Mega (up to 1B)' },
+  custom:   { maxSupply: Infinity,      fee: 168, label: 'Custom (any amount)' }
+};
+
+const NFT_CREATION_FEE = 10; // BTCPC per NFT collection
+
+function getTokenFee(supply) {
+  if (supply <= TOKEN_FEE_TIERS.micro.maxSupply) return TOKEN_FEE_TIERS.micro.fee;
+  if (supply <= TOKEN_FEE_TIERS.standard.maxSupply) return TOKEN_FEE_TIERS.standard.fee;
+  if (supply <= TOKEN_FEE_TIERS.mega.maxSupply) return TOKEN_FEE_TIERS.mega.fee;
+  return TOKEN_FEE_TIERS.custom.fee;
+}
+
 async function recordTokenCreate(creator, tokenData, fee, epoch) {
-  // Fee payment to genesis operator
+  // Calculate fee from tier if not provided
+  if (!fee && fee !== 0) {
+    fee = getTokenFee(tokenData.supply || 42000000);
+  }
+
+  // Fee payment — goes to protocol treasury (genesis operator during genesis phase)
   if (fee > 0) {
-    await recordTransfer(creator, 'shindevlin', fee, 'BTCPC', null, epoch, 'Token creation fee');
+    await recordTransfer(creator, 'btcpc_treasury', fee, 'BTCPC', null, epoch, 'Token creation fee: ' + tokenData.symbol);
   }
 
   const entry = new LedgerEntry({
@@ -170,23 +195,31 @@ async function recordTokenCreate(creator, tokenData, fee, epoch) {
     from: creator,
     token: tokenData.symbol,
     epoch,
-    token_data: tokenData
+    token_data: {
+      name: tokenData.name,
+      symbol: tokenData.symbol,
+      supply: tokenData.supply,
+      decimals: tokenData.decimals || 8,
+      type: tokenData.type || 'fungible' // 'fungible' or 'nft'
+    }
   });
   await entry.save();
   pendingEntries.push(entry.toObject());
 
-  // Mint initial supply to creator
-  const mintEntry = new LedgerEntry({
-    type: 'FAUCET',
-    from: 'btcpc_mint',
-    to: creator,
-    token: tokenData.symbol,
-    amount: tokenData.supply,
-    epoch,
-    memo: 'Initial supply: ' + tokenData.name
-  });
-  await mintEntry.save();
-  pendingEntries.push(mintEntry.toObject());
+  // Mint initial supply to creator (fungible tokens only)
+  if (tokenData.type !== 'nft') {
+    const mintEntry = new LedgerEntry({
+      type: 'FAUCET',
+      from: 'btcpc_mint',
+      to: creator,
+      token: tokenData.symbol,
+      amount: tokenData.supply,
+      epoch,
+      memo: 'Initial supply: ' + tokenData.name
+    });
+    await mintEntry.save();
+    pendingEntries.push(mintEntry.toObject());
+  }
 
   return entry;
 }
@@ -341,6 +374,166 @@ async function recordNodeRegister(username, nodeType, p2pAddress, permissioned, 
 }
 
 /**
+ * Create an NFT collection on the ledger.
+ */
+async function recordNFTCreate(creator, collectionData, epoch) {
+  const fee = NFT_CREATION_FEE;
+
+  if (fee > 0) {
+    await recordTransfer(creator, 'btcpc_treasury', fee, 'BTCPC', null, epoch, 'NFT collection fee: ' + collectionData.symbol);
+  }
+
+  const entry = new LedgerEntry({
+    type: 'TOKEN_CREATE',
+    from: creator,
+    token: collectionData.symbol,
+    epoch,
+    token_data: {
+      name: collectionData.name,
+      symbol: collectionData.symbol,
+      supply: collectionData.maxSupply || 0, // 0 = unlimited minting
+      decimals: 0, // NFTs are indivisible
+      type: 'nft'
+    },
+    memo: collectionData.description || null
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Mint an NFT within a collection.
+ */
+async function recordNFTMint(collection, to, tokenId, metadata, epoch) {
+  const entry = new LedgerEntry({
+    type: 'FAUCET',
+    from: 'btcpc_mint',
+    to,
+    token: collection,
+    amount: 1,
+    epoch,
+    memo: 'nft:' + tokenId + ':' + JSON.stringify(metadata || {})
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Transfer an NFT. Rejects soulbound tokens.
+ */
+async function recordNFTTransfer(from, to, collection, tokenId, epoch, signature) {
+  // Check if this NFT is soulbound — find the mint entry
+  const mintEntry = await LedgerEntry.findOne({
+    type: 'FAUCET',
+    token: collection,
+    memo: { $regex: new RegExp('^nft:' + tokenId + ':') }
+  }).lean();
+
+  if (mintEntry) {
+    try {
+      var meta = JSON.parse(mintEntry.memo.split(':').slice(2).join(':'));
+      if (meta.soulbound) {
+        throw new Error('This NFT is soulbound and cannot be transferred');
+      }
+    } catch (e) {
+      if (e.message.includes('soulbound')) throw e;
+    }
+  }
+
+  const entry = new LedgerEntry({
+    type: 'TRANSFER',
+    from,
+    to,
+    token: collection,
+    amount: 1,
+    epoch,
+    signature,
+    signed_by: 'active',
+    memo: 'nft:' + tokenId
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Mint a soulbound NFT — permanently bound to the recipient, can never be transferred.
+ * Use cases: achievements, certifications, mining proofs, reputation badges.
+ */
+async function recordSoulboundMint(collection, to, tokenId, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.soulbound = true;
+  metadata.bound_to = to;
+  metadata.bound_at = Date.now();
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Mint a revenue-sharing NFT — holders earn a % of inference fees from a model/project.
+ * Model creators mint these to earn passive income when their model serves inference.
+ *
+ * @param {string} collection — NFT collection symbol
+ * @param {string} to — recipient (model creator)
+ * @param {string} tokenId — unique NFT id
+ * @param {object} revenueConfig — { model, revSharePercent, project }
+ * @param {object} metadata — additional metadata
+ * @param {number} epoch
+ */
+async function recordRevenueShareMint(collection, to, tokenId, revenueConfig, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.revenue_share = true;
+  metadata.model = revenueConfig.model;
+  metadata.rev_share_percent = revenueConfig.revSharePercent || 5; // default 5%
+  metadata.project = revenueConfig.project || null;
+  metadata.creator = to;
+  metadata.created_at = Date.now();
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Distribute revenue share to NFT holders for a completed inference job.
+ * Called during escrow release — skims a percentage for the model creator.
+ *
+ * @param {string} model — the model that served the inference
+ * @param {number} inferenceRevenue — total BTCPC paid for this inference
+ * @param {number} epoch
+ * @returns {Array<{to, amount}>} payouts made to NFT holders
+ */
+async function distributeRevenueShare(model, inferenceRevenue, epoch) {
+  // Find all revenue-share NFTs for this model
+  const revShareEntries = await LedgerEntry.find({
+    type: 'FAUCET',
+    from: 'btcpc_mint',
+    memo: { $regex: /revenue_share.*true/ }
+  }).lean();
+
+  const payouts = [];
+
+  for (const entry of revShareEntries) {
+    try {
+      var memoData = JSON.parse(entry.memo.split(':').slice(2).join(':'));
+      if (!memoData.revenue_share || memoData.model !== model) continue;
+
+      var percent = memoData.rev_share_percent || 5;
+      var holder = entry.to;
+      var amount = parseFloat((inferenceRevenue * percent / 100).toFixed(10));
+
+      if (amount > 0.000001) {
+        await recordMiningReward(holder, amount, epoch);
+        await updateWalletCache(holder, 'BTCPC', amount);
+        payouts.push({ to: holder, amount: amount, percent: percent });
+      }
+    } catch (_) {}
+  }
+
+  return payouts;
+}
+
+/**
  * Record a heartbeat — proves the account holder is alive.
  * Zero cost. Resets the dormancy clock. One tap every 5 years.
  */
@@ -473,6 +666,15 @@ module.exports = {
   recordEscrowRefund,
   recordNodeRegister,
   recordHeartbeat,
+  recordNFTCreate,
+  recordNFTMint,
+  recordNFTTransfer,
+  recordSoulboundMint,
+  recordRevenueShareMint,
+  distributeRevenueShare,
+  getTokenFee,
+  TOKEN_FEE_TIERS,
+  NFT_CREATION_FEE,
   getCurrentEpoch,
   updateWalletCache,
   updateWalletCacheByUserId,

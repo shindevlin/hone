@@ -188,16 +188,29 @@ async function sweepEscrows(maxAgeMs) {
  * Pays the miner who completed the work. Simpler than releaseFunds
  * which expects node_id payouts — this works with username directly.
  */
-async function releaseForJob(requestId, minerUsername, amount) {
+async function releaseForJob(requestId, minerUsername, amount, model) {
   const escrow = await Escrow.findOne({ request_id: requestId });
   if (!escrow) return null; // no escrow for this job (pre-escrow era)
   if (escrow.status !== "locked") return null; // already released/refunded
 
   const epoch = await ledger.getCurrentEpoch();
 
-  // Pay the miner
-  await ledger.recordEscrowRelease(minerUsername, requestId, amount, epoch, "Inference settlement");
-  await ledger.updateWalletCache(minerUsername, "BTCPC", amount);
+  // Revenue share — model creators earn a cut of inference fees
+  let revSharePaid = 0;
+  if (model && amount > 0) {
+    try {
+      const payouts = await ledger.distributeRevenueShare(model, amount, epoch);
+      for (const p of payouts) {
+        revSharePaid += p.amount;
+        console.log(`[BTCPC Escrow] Rev share: ${p.to} earned ${p.amount.toFixed(6)} BTCPC (${p.percent}% of ${model})`);
+      }
+    } catch (_) {}
+  }
+
+  // Pay the miner (minus revenue share)
+  const minerPayout = parseFloat((amount - revSharePaid).toFixed(10));
+  await ledger.recordEscrowRelease(minerUsername, requestId, minerPayout, epoch, "Inference settlement");
+  await ledger.updateWalletCache(minerUsername, "BTCPC", minerPayout);
 
   // Refund overpayment if escrow > actual cost
   const overpayment = escrow.amount - amount;
