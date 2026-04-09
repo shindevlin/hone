@@ -50,13 +50,29 @@ This would be computed during epoch finalization:
    - Update SMT
 3. `btcpc_recycle` balance is added to the next epoch's block reward
 
+### Keeping Your Wallet Alive
+
+Any of these resets the 5-year clock:
+- Send or receive tokens
+- Stake, unstake, delegate
+- Use inference
+- **Tap "I'm still here" once** (heartbeat — zero cost, zero fee)
+
+The heartbeat is the simplest option. One tap every 5 years. That's it. This is not a penalty — it's proof you still exist. The wallet notifies you at 4.5 years so you never forget.
+
+Available via:
+- Telegram: `/heartbeat`
+- Explorer settings page: "Keep Alive" button
+- CLI: `node bin/btcpc-cli wallet heartbeat`
+
 ### Protocol Rules
 
 - Grace period: 5 years (configurable via governance later)
 - Half-life: 1 year (50% per year after grace)
-- Minimum activity: any ledger entry (send, receive, stake, unstake, delegate)
+- Minimum activity: any ledger entry, or a zero-cost HEARTBEAT entry
 - Burn address (`btcpc_burn`) tokens also decay → recycle (even burns aren't permanent)
 - Genesis accounts (shindevlin, reserved names) follow the same rules — no exceptions
+- Notification at 4.5 years: Telegram, email, explorer — "tap to keep your BTCPC active"
 
 ### Status
 

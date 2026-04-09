@@ -341,6 +341,25 @@ async function recordNodeRegister(username, nodeType, p2pAddress, permissioned, 
 }
 
 /**
+ * Record a heartbeat — proves the account holder is alive.
+ * Zero cost. Resets the dormancy clock. One tap every 5 years.
+ */
+async function recordHeartbeat(username, epoch) {
+  const entry = new LedgerEntry({
+    type: 'HEARTBEAT',
+    from: username,
+    to: username,
+    token: 'BTCPC',
+    amount: 0,
+    epoch: epoch || 0,
+    memo: 'alive'
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
  * Compute balance for an account by replaying the ledger.
  * This is the source of truth — not the Wallet model.
  *
@@ -453,6 +472,7 @@ module.exports = {
   recordEscrowRelease,
   recordEscrowRefund,
   recordNodeRegister,
+  recordHeartbeat,
   getCurrentEpoch,
   updateWalletCache,
   updateWalletCacheByUserId,

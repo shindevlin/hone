@@ -19,7 +19,7 @@ var ledgerEntrySchema = new Schema({
       'STAKE', 'UNSTAKE', 'DELEGATE', 'UNDELEGATE',
       'MINING_REWARD', 'FAUCET',
       'ESCROW_LOCK', 'ESCROW_RELEASE', 'ESCROW_REFUND',
-      'NODE_REGISTER'
+      'NODE_REGISTER', 'HEARTBEAT'
     ],
     required: true,
     index: true

@@ -591,6 +591,24 @@ router.post('/approve-update', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
+// HEARTBEAT
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/heartbeat { telegramId }
+router.post('/heartbeat', async (req, res) => {
+  try {
+    const user = await resolveUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: 'Not linked' });
+
+    const ledger = require('../services/ledger');
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordHeartbeat(user.username, epoch);
+
+    res.json({ success: true, username: user.username, message: 'Heartbeat recorded. Your dormancy clock is reset for 5 years.' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════
 // RESOURCE MANAGEMENT
 // ════════════════════════════════════════════════════════════════════
 
