@@ -835,6 +835,96 @@ router.get('/linked-addresses', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
+// REDDIT LINKING
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/reddit-link { redditUsername, btcpcUsername }
+// Step 1: Reddit user requests to link their BTCPC account
+router.post('/reddit-link', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['redditUsername', 'btcpcUsername']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const redditUser = sanitizeString(req.body.redditUsername, 50);
+    const btcpcUser = sanitizeString(req.body.btcpcUsername, 20);
+    if (!redditUser || !btcpcUser) return res.status(400).json({ error: 'redditUsername and btcpcUsername required' });
+
+    // Verify BTCPC account exists
+    const User = require('../models/User');
+    const user = await User.findOne({ username: btcpcUser });
+    if (!user) return res.status(404).json({ error: 'BTCPC account not found' });
+
+    const chainLink = require('../services/chainLink');
+    const challenge = chainLink.generateChallenge(btcpcUser, 'reddit', redditUser);
+
+    res.json({
+      challengeId: challenge.challengeId,
+      code: challenge.challengeId, // For Reddit, the challenge ID IS the confirmation code
+      instructions: 'Confirm this link in the BTCPC Devvit app to prove you control this Reddit account',
+      expiresIn: challenge.expiresIn
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/reddit-verify { challengeId, redditUsername }
+// Step 2: Devvit app confirms the link (proof: the app knows the Reddit username)
+router.post('/reddit-verify', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['challengeId', 'redditUsername']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const challengeId = sanitizeString(req.body.challengeId, 200);
+    const redditUser = sanitizeString(req.body.redditUsername, 50);
+    if (!challengeId || !redditUser) return res.status(400).json({ error: 'challengeId and redditUsername required' });
+
+    const chainLink = require('../services/chainLink');
+    // For Reddit, signature = challengeId (the Devvit app proves identity by knowing the Reddit username)
+    const result = await chainLink.verifyAndLink(challengeId, challengeId);
+
+    if (!result.success) return res.status(400).json({ error: result.error });
+
+    res.json({
+      success: true,
+      btcpcUsername: result.username,
+      redditUsername: result.address,
+      message: 'Reddit u/' + result.address + ' linked to BTCPC ' + result.username
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/bot/reddit-account?redditUsername=xxx
+// Look up BTCPC account by Reddit username
+router.get('/reddit-account', async (req, res) => {
+  try {
+    const redditUser = sanitizeString(req.query.redditUsername, 50);
+    if (!redditUser) return res.status(400).json({ error: 'redditUsername required' });
+
+    const chainLink = require('../services/chainLink');
+    const LedgerEntry = require('../models/LedgerEntry');
+
+    // Search ledger for reddit link entries
+    const linkEntry = await LedgerEntry.findOne({
+      type: 'ACCOUNT_CREATE',
+      memo: { $regex: ':reddit:' + redditUser.toLowerCase() }
+    });
+
+    if (!linkEntry) return res.status(404).json({ error: 'No BTCPC account linked to u/' + redditUser });
+
+    const username = linkEntry.from;
+    const linked = await chainLink.getLinkedAddresses(username);
+
+    // Get balance
+    const ledger = require('../services/ledger');
+    const balance = await ledger.getBalance(username);
+
+    res.json({
+      btcpcUsername: username,
+      redditUsername: redditUser,
+      balance,
+      linked
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════
 // HEARTBEAT
 // ════════════════════════════════════════════════════════════════════
 

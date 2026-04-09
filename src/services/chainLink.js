@@ -249,6 +249,14 @@ async function verifyAndLink(challengeId, signature) {
       recoveredAddress = recoverBitcoinAddress(challenge.message, signature);
     } else if (challenge.chain === "ton") {
       recoveredAddress = recoverTONAddress(challenge.message, signature, challenge.address);
+    } else if (challenge.chain === "reddit") {
+      // Reddit linking: the "signature" is the challenge code itself.
+      // Proof of ownership comes from the Devvit app confirming the Reddit username.
+      if (signature === challengeId) {
+        recoveredAddress = challenge.address; // Reddit username
+      } else {
+        return { success: false, error: "Invalid confirmation code" };
+      }
     } else {
       return { success: false, error: "Chain '" + challenge.chain + "' verification not yet supported" };
     }
