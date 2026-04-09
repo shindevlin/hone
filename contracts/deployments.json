@@ -27,7 +27,12 @@
       "explorer": "https://etherscan.io/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
     },
     "solana": {
-      "status": "pending - needs SOL"
+      "mint": "2WAQ9PMEMe7AVEvhCu2tcM5wJktwsThEJ9pWbEhibAof",
+      "tokenAccount": "DeLSTKe7QaMdnS2RkREGD67hq8SzyqNPowHrv5JGxumb",
+      "supply": "10000 wBTCPC minted",
+      "decimals": 10,
+      "deployedAt": "2026-04-09",
+      "explorer": "https://solscan.io/token/2WAQ9PMEMe7AVEvhCu2tcM5wJktwsThEJ9pWbEhibAof"
     },
     "bitcoin": {
       "status": "pending - needs BTC for Runes inscription"
@@ -36,8 +41,11 @@
       "status": "pending - needs TON"
     },
     "hive": {
-      "status": "live - uses custom_json, no contract needed",
-      "account": "shindevlin"
+      "status": "live",
+      "account": "shindevlin",
+      "claimId": "btcpc-claim",
+      "firstClaimTx": "7025c5ffdab91885b2c483285a616f4f99072010",
+      "deployedAt": "2026-04-09"
     }
   },
   "wBTCPCSale": {
