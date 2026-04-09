@@ -79,6 +79,49 @@ Available via:
 - Genesis accounts (shindevlin, reserved names) follow the same rules — no exceptions
 - Notification at 4.5 years: Telegram, email, explorer — "tap to keep your BTCPC active"
 
+### Automatic Heartbeat — Cross-Chain Proof of Life
+
+The most elegant approach: if you're active on ANY linked blockchain, your BTCPC dormancy clock resets automatically. You never need to think about BTCPC specifically.
+
+**How it works:**
+
+Every BTCPC account has deterministic cross-chain addresses (EVM, Solana, Bitcoin, TON, Hive) derived from the same mnemonic. The BTCPC network already monitors these addresses for cross-chain mining claims. The same watcher can detect activity:
+
+```
+User makes an ETH transfer on Ethereum
+  → BTCPC cross-chain watcher sees activity on the linked EVM address
+  → Automatically writes a HEARTBEAT entry on the BTCPC ledger
+  → Dormancy clock resets for 5 years
+  → User never touched BTCPC directly
+```
+
+**Supported chains for automatic heartbeat:**
+- Ethereum / EVM (any transaction on linked address)
+- Solana (any transaction on linked address)
+- Bitcoin (any UTXO movement on linked address)
+- TON (any transaction on linked address)
+- Hive (any custom_json or transfer on linked account)
+
+**If you're active anywhere in crypto, your BTCPC is safe.** The only way tokens decay is if ALL linked addresses across ALL chains go silent for 5+ years.
+
+### Other Heartbeat Methods
+
+**1. On-chain recurring contract (set-and-forget)**
+Register a `HEARTBEAT_CONTRACT` once. The protocol auto-heartbeats your account every 4 years during epoch finalization. Costs 0.01 BTCPC one-time fee. Cancel anytime.
+
+**2. Delegated heartbeat (estate planning)**
+Authorize another account to heartbeat on your behalf using your posting key. Use case: inheritance — "If I'm gone, my family can keep my tokens alive." The delegate can heartbeat but can never move funds (posting key, not active key).
+
+### Summary of Heartbeat Options
+
+| Method | Effort | Setup | Use Case |
+|--------|--------|-------|----------|
+| Manual `/heartbeat` | 1 tap per 5 years | None | Simple, for active users |
+| Cross-chain activity | Zero — automatic | Link chains (already done at account creation) | Crypto-active users |
+| Recurring contract | Zero after setup | 0.01 BTCPC one-time | Set-and-forget |
+| Delegated | Zero for owner | Share posting key | Estate planning / inheritance |
+| Any wallet activity | Zero — automatic | None | Send, receive, stake, inference all count |
+
 ### Status
 
-**Not yet implemented.** This is a protocol design for a future version. The chain is only days old — the 5-year clock hasn't started for anyone. Implementation can happen anytime before year 5.
+**Not yet implemented.** This is a protocol design for a future version. The chain is only days old — the 5-year clock hasn't started for anyone. Implementation can happen anytime before year 5. The cross-chain watcher infrastructure already exists for mining claims — extending it to heartbeats is straightforward.
