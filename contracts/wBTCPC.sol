@@ -20,6 +20,18 @@ contract wBTCPC is ERC20, Ownable {
     /// @notice The public address whose signatures authorize claim proofs
     address public signingAuthority;
 
+    /// @notice Claim fee in native gas token (wei). 50% treasury, 50% staker pool.
+    uint256 public claimFee;
+
+    /// @notice Treasury address for claim fees
+    address public treasury;
+
+    /// @notice Staker pool address for claim fees
+    address public stakerPool;
+
+    /// @notice Total fees collected
+    uint256 public totalFeesCollected;
+
     /// @notice Tracks which epochs have been claimed by each address
     mapping(address => mapping(uint256 => bool)) public epochClaimed;
 
@@ -28,8 +40,7 @@ contract wBTCPC is ERC20, Ownable {
         address indexed miner,
         uint256 indexed epoch,
         uint256 amount,
-        uint256 period,
-        uint256 crossChainRatio
+        uint256 feePaid
     );
 
     /// @notice Emitted when the signing authority is rotated
@@ -38,11 +49,16 @@ contract wBTCPC is ERC20, Ownable {
         address indexed newAuthority
     );
 
+    event ClaimFeeUpdated(uint256 oldFee, uint256 newFee);
+
     /**
      * @param _signingAuthority Initial consensus signing key address
      */
     constructor(address _signingAuthority) ERC20("Wrapped BTCPC", "wBTCPC") Ownable(msg.sender) {
         require(_signingAuthority != address(0), "wBTCPC: zero address authority");
+        treasury = msg.sender;
+        stakerPool = msg.sender; // initially same as treasury, split later
+        claimFee = 0.0001 ether; // ~$0.01 at current ETH prices
         signingAuthority = _signingAuthority;
     }
 
@@ -66,9 +82,10 @@ contract wBTCPC is ERC20, Ownable {
         uint256 amount,
         bytes32 miner,
         bytes memory proofSignature
-    ) external {
+    ) external payable {
         require(!epochClaimed[msg.sender][epoch], "wBTCPC: epoch already claimed");
         require(amount > 0, "wBTCPC: zero amount");
+        require(msg.value >= claimFee, "wBTCPC: insufficient claim fee");
 
         // Reconstruct the message that was signed by the BTCPC consensus
         bytes32 messageHash = keccak256(
@@ -90,7 +107,17 @@ contract wBTCPC is ERC20, Ownable {
         // Mint wBTCPC to the caller
         _mint(msg.sender, amount);
 
-        emit Claimed(msg.sender, epoch, amount, 0, 0);
+        // Split fee: 50% treasury, 50% staker pool
+        if (msg.value > 0) {
+            uint256 half = msg.value / 2;
+            (bool t,) = treasury.call{value: half}("");
+            require(t, "Treasury transfer failed");
+            (bool s,) = stakerPool.call{value: msg.value - half}("");
+            require(s, "Staker pool transfer failed");
+            totalFeesCollected += msg.value;
+        }
+
+        emit Claimed(msg.sender, epoch, amount, msg.value);
     }
 
     /**
@@ -102,6 +129,21 @@ contract wBTCPC is ERC20, Ownable {
         address previous = signingAuthority;
         signingAuthority = newAuthority;
         emit SigningAuthorityUpdated(previous, newAuthority);
+    }
+
+    function setClaimFee(uint256 newFee) external onlyOwner {
+        emit ClaimFeeUpdated(claimFee, newFee);
+        claimFee = newFee;
+    }
+
+    function setTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "Zero address");
+        treasury = newTreasury;
+    }
+
+    function setStakerPool(address newPool) external onlyOwner {
+        require(newPool != address(0), "Zero address");
+        stakerPool = newPool;
     }
 
     /**
