@@ -256,30 +256,33 @@ async function pullModel(model) {
 }
 
 // Model catalog — organized by VRAM/RAM tier
+// earning: relative earning multiplier based on parameter count
+//   work_value = tokens_generated * parameter_count
+//   bigger model = higher work_value per token = more BTCPC per inference
 var MODEL_TIERS = {
   // 4GB VRAM or 8GB+ RAM (small, fast)
   small: [
-    { name: "qwen3:4b",      size: "2.5GB", desc: "Fast general-purpose (Alibaba)" },
-    { name: "llama3.2:3b",   size: "2.0GB", desc: "Meta's compact model" },
-    { name: "phi4-mini:3.8b", size: "2.3GB", desc: "Microsoft's efficient model" },
-    { name: "gemma3:4b",     size: "3.3GB", desc: "Google's open model" },
-    { name: "mistral:7b",    size: "4.1GB", desc: "Mistral AI's flagship small" },
+    { name: "qwen3:4b",       size: "2.5GB", params: "4B",   vram: "4GB",  ram: "8GB",  earning: "1x",   speed: "fast",   desc: "Alibaba — fast general-purpose" },
+    { name: "llama3.2:3b",    size: "2.0GB", params: "3B",   vram: "4GB",  ram: "8GB",  earning: "0.75x", speed: "fastest", desc: "Meta — compact, quick responses" },
+    { name: "phi4-mini:3.8b", size: "2.3GB", params: "3.8B", vram: "4GB",  ram: "8GB",  earning: "0.95x", speed: "fast",   desc: "Microsoft — efficient reasoning" },
+    { name: "gemma3:4b",      size: "3.3GB", params: "4B",   vram: "4GB",  ram: "8GB",  earning: "1x",   speed: "fast",   desc: "Google — strong for size" },
+    { name: "mistral:7b",     size: "4.1GB", params: "7B",   vram: "6GB",  ram: "12GB", earning: "1.75x", speed: "medium", desc: "Mistral — higher quality, needs more RAM" },
   ],
   // 8-12GB VRAM (medium, balanced)
   medium: [
-    { name: "qwen3.5:9b",    size: "6.5GB", desc: "Strong general-purpose (Alibaba)" },
-    { name: "llama3.1:8b",   size: "4.7GB", desc: "Meta's workhorse model" },
-    { name: "gemma3:12b",    size: "8.1GB", desc: "Google's mid-range model" },
-    { name: "deepseek-r1:8b", size: "4.9GB", desc: "DeepSeek reasoning model" },
-    { name: "mistral-nemo:12b", size: "7.1GB", desc: "Mistral's latest mid-range" },
+    { name: "qwen3.5:9b",     size: "6.5GB",  params: "9.7B",  vram: "8GB",  ram: "16GB", earning: "2.4x", speed: "medium", desc: "Alibaba — best balance of speed/quality" },
+    { name: "llama3.1:8b",    size: "4.7GB",  params: "8B",    vram: "8GB",  ram: "16GB", earning: "2x",   speed: "medium", desc: "Meta — reliable workhorse" },
+    { name: "gemma3:12b",     size: "8.1GB",  params: "12B",   vram: "10GB", ram: "20GB", earning: "3x",   speed: "medium", desc: "Google — strong mid-range" },
+    { name: "deepseek-r1:8b", size: "4.9GB",  params: "8B",    vram: "8GB",  ram: "16GB", earning: "2x",   speed: "medium", desc: "DeepSeek — specialized reasoning" },
+    { name: "mistral-nemo:12b", size: "7.1GB", params: "12B",  vram: "10GB", ram: "20GB", earning: "3x",   speed: "slower", desc: "Mistral — latest architecture" },
   ],
   // 16-24GB+ VRAM (large, high quality)
   large: [
-    { name: "qwen3.5:27b",   size: "17GB", desc: "Top-tier general-purpose (Alibaba)" },
-    { name: "llama3.3:70b",  size: "40GB", desc: "Meta's largest open model" },
-    { name: "deepseek-r1:32b", size: "19GB", desc: "DeepSeek large reasoning" },
-    { name: "gemma3:27b",    size: "17GB", desc: "Google's largest open model" },
-    { name: "command-r:35b", size: "20GB", desc: "Cohere's RAG-optimized model" },
+    { name: "qwen3.5:27b",    size: "17GB",  params: "27B",  vram: "20GB", ram: "32GB", earning: "6.75x", speed: "slower", desc: "Alibaba — top-tier quality" },
+    { name: "llama3.3:70b",   size: "40GB",  params: "70B",  vram: "48GB", ram: "64GB", earning: "17.5x", speed: "slow",   desc: "Meta — highest quality, needs serious hardware" },
+    { name: "deepseek-r1:32b", size: "19GB", params: "32B",  vram: "24GB", ram: "40GB", earning: "8x",    speed: "slower", desc: "DeepSeek — advanced reasoning" },
+    { name: "gemma3:27b",     size: "17GB",  params: "27B",  vram: "20GB", ram: "32GB", earning: "6.75x", speed: "slower", desc: "Google — largest open model" },
+    { name: "command-r:35b",  size: "20GB",  params: "35B",  vram: "24GB", ram: "40GB", earning: "8.75x", speed: "slow",   desc: "Cohere — optimized for RAG/search" },
   ]
 };
 
@@ -300,13 +303,30 @@ async function pickModels(hw) {
 
   console.log("");
   log("Recommended models for your hardware (" + tier + " tier):");
+  log("Larger models earn more per inference but run slower.");
   console.log("");
+  console.log("  #  Model                Download  Params   VRAM    RAM     Earning  Speed    Description");
+  console.log("  —  ————————————————————  ————————  ———————  ——————  ——————  ———————  ———————  ———————————————————————————————");
   for (var i = 0; i < models.length; i++) {
-    console.log("  " + (i + 1) + ". " + models[i].name + " (" + models[i].size + ") — " + models[i].desc);
+    var m = models[i];
+    var num = String(i + 1) + ".";
+    console.log("  " +
+      num.padEnd(3) +
+      m.name.padEnd(22) +
+      m.size.padEnd(10) +
+      m.params.padEnd(9) +
+      m.vram.padEnd(8) +
+      m.ram.padEnd(8) +
+      m.earning.padEnd(9) +
+      m.speed.padEnd(9) +
+      m.desc
+    );
   }
-  console.log("  A. Install all " + tier + " tier models");
-  console.log("  S. Skip — I'll install models manually later");
   console.log("");
+  console.log("  A. Install all " + tier + " tier models");
+  console.log("  S. Skip — I'll install models manually later (clock node only)");
+  console.log("");
+  log("Earning = relative reward multiplier. 1x base, 6.75x = ~7x more BTCPC per inference.");
 
   var answer = await ask("Which models to install? (1-" + models.length + ", A for all, S to skip):");
 
