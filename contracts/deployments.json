@@ -124,5 +124,27 @@
     "optimism": {
       "contract": "0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9"
     }
+  },
+  "wBTCPCBondingCurve": {
+    "base": {
+      "contract": "0xC4E330Fb0c484Acb9e38979064fB5601e4FDB4bC",
+      "basePrice": "50000",
+      "priceIncrement": "10"
+    },
+    "arbitrum": {
+      "contract": "0x46d8338f0192d42087b2A281b495e0e9C749D702",
+      "pool": "2000 wBTCPC"
+    },
+    "optimism": {
+      "contract": "0x737D12eEbCB33F021378ba46C5820AbF20C23068",
+      "pool": "2000 wBTCPC"
+    }
+  },
+  "emergencyPause": "scripts/emergency-pause.sh",
+  "handoffNFT": {
+    "collection": "BTCPC-GENESIS-OP",
+    "holder": "shindevlin",
+    "revShare": "1%",
+    "conditions": "10 stakers + 1000 BTCPC staked + governance active"
   }
 }
