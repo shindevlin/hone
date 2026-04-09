@@ -12,30 +12,45 @@
     "arbitrum": {
       "chainId": 42161,
       "contract": null,
-      "status": "pending — needs ETH bridged from Base"
+      "status": "pending - needs ETH bridged from Base"
     },
     "optimism": {
       "chainId": 10,
       "contract": null,
-      "status": "pending — needs ETH bridged from Base"
+      "status": "pending - needs ETH bridged from Base"
     },
     "ethereum": {
       "chainId": 1,
       "contract": null,
-      "status": "pending — needs ETH bridged from Base"
+      "status": "pending - needs ETH bridged from Base"
     },
     "solana": {
-      "status": "pending — needs SOL"
+      "status": "pending - needs SOL"
     },
     "bitcoin": {
-      "status": "pending — needs BTC for Runes inscription"
+      "status": "pending - needs BTC for Runes inscription"
     },
     "ton": {
-      "status": "pending — needs TON"
+      "status": "pending - needs TON"
     },
     "hive": {
-      "status": "live — uses custom_json, no contract needed",
+      "status": "live - uses custom_json, no contract needed",
       "account": "shindevlin"
+    }
+  },
+  "wBTCPCSale": {
+    "base": {
+      "chainId": 8453,
+      "contract": "0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26",
+      "txHash": "0x90bf6ba83dde759cf7f42a2680435ddbf1abc23e53f9bfd1e56d1d55fa9b0807",
+      "treasury": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
+      "pricePerToken": "100000",
+      "priceUSD": "$0.10 per wBTCPC",
+      "acceptedStablecoins": {
+        "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "deployedAt": "2026-04-09",
+      "explorer": "https://basescan.org/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
     }
   }
 }
