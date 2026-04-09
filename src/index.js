@@ -75,6 +75,8 @@ app.get('/', (_req, res) => {
       '/api/delegation',
       '/api/totp',
       '/api/recovery',
+      '/api/appeal',
+      '/api/appeal/resolve',
       '/v1/chat/completions',
       '/v1/models'
     ]
@@ -94,6 +96,7 @@ const faucetRoutes = require("./routes/faucetRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const botRoutes = require("./routes/botRoutes");
 const totpRoutes = require("./routes/totpRoutes");
+const appealRoutes = require("./routes/appealRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -103,6 +106,7 @@ app.use("/api/node", nodeRoutes);
 app.use("/api/delegation", delegationRoutes);
 app.use("/api/recovery", recoveryRoutes);
 app.use("/api/totp", totpRoutes);
+app.use("/api/appeal", appealRoutes);
 app.use("/api", dreamRoutes);
 app.use("/api/onboard", onboardLimiter, (req, res, next) => {
   req.url = "/onboard";

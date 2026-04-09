@@ -894,6 +894,29 @@ function handleVerifyResponse(peer, msg, ctx) {
           });
           if (job.status === "completed") job.status = "verifying";
           await job.save();
+
+          // Check for majority rejection → slash the miner
+          var required = job.required_verifications || 1;
+          if (job.verifications.length >= required) {
+            var invalidCount = job.verifications.filter(function (v) {
+              return v.work_value === 0;
+            }).length;
+            if (invalidCount > job.verifications.length / 2) {
+              var slashing = require("../services/slashing");
+              var minerAccount = job.node_name || (job.verifications[0] && job.verifications[0].miner);
+              if (minerAccount) {
+                var verdictSummary = job.verifications.map(function (v) {
+                  return { verifier: v.miner, valid: v.work_value > 0 };
+                });
+                slashing.recordOffense(minerAccount, "EMPTY_GARBAGE_INFERENCE", {
+                  job_id: job.job_id,
+                  verdicts: verdictSummary
+                }).catch(function (err) {
+                  console.error("[BTCPC P2P] Failed to slash miner:", err.message);
+                });
+              }
+            }
+          }
         }
       }
     } catch (err) {

@@ -344,6 +344,34 @@ async function computeFinalization(epochNumber) {
     }
   }
 
+  // ── Clock slashing: detect drift and offline clocks ──
+  try {
+    const slashing = require('../services/slashing');
+    const registeredNodes = nodeRegistry.getRegisteredNodes();
+    const registeredClocks = registeredNodes.filter(n => n.type === 'clock');
+
+    for (const clock of registeredClocks) {
+      // Check offline: clock registered but not active for > 10 consecutive epochs
+      let offlineCount = 0;
+      for (let e = epochNumber; e > Math.max(0, epochNumber - 10); e--) {
+        const active = getActiveClockNodes(e);
+        if (active.indexOf(clock.username) === -1) {
+          offlineCount++;
+        } else {
+          break; // consecutive streak broken
+        }
+      }
+      if (offlineCount >= 10) {
+        await slashing.recordOffense(clock.username, 'CLOCK_OFFLINE', {
+          epoch: epochNumber,
+          consecutive_offline_epochs: offlineCount
+        });
+      }
+    }
+  } catch (slashErr) {
+    console.error('[BTCPC] Clock slashing check failed:', slashErr.message);
+  }
+
   const consensusHash = finConsensus.hashRewards(rewards, totalWorkValue, settledJobs.length);
 
   return {
