@@ -437,8 +437,14 @@ async function recordNFTTransfer(from, to, collection, tokenId, epoch, signature
       if (meta.soulbound) {
         throw new Error('This NFT is soulbound and cannot be transferred');
       }
+      if (meta.time_locked) {
+        var currentEpoch = await getCurrentEpoch();
+        if (currentEpoch < meta.unlock_epoch) {
+          throw new Error('This NFT is time-locked until epoch ' + meta.unlock_epoch);
+        }
+      }
     } catch (e) {
-      if (e.message.includes('soulbound')) throw e;
+      if (e.message.includes('soulbound') || e.message.includes('time-locked')) throw e;
     }
   }
 
@@ -531,6 +537,120 @@ async function distributeRevenueShare(model, inferenceRevenue, epoch) {
   }
 
   return payouts;
+}
+
+/**
+ * Mint a time-locked NFT — cannot be transferred until a specific epoch.
+ * Use cases: vesting tokens, earned rewards that mature, timed exclusives.
+ */
+async function recordTimeLockedMint(collection, to, tokenId, unlockEpoch, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.time_locked = true;
+  metadata.unlock_epoch = unlockEpoch;
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Mint a rental NFT — owner retains ownership, renter gets temporary access.
+ * Use cases: model access passes, inference credit bundles, time-limited permissions.
+ */
+async function recordRentalMint(collection, to, tokenId, rentalConfig, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.rental = true;
+  metadata.owner = to;
+  metadata.max_rental_epochs = rentalConfig.maxEpochs || 8640; // default 30 days
+  metadata.rental_price = rentalConfig.price || 0;
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Rent an NFT — creates a temporary access record.
+ */
+async function recordNFTRental(collection, tokenId, renter, ownerUsername, durationEpochs, price, epoch) {
+  // Pay the owner
+  if (price > 0) {
+    await recordTransfer(renter, ownerUsername, price, 'BTCPC', null, epoch, 'NFT rental: ' + collection + ':' + tokenId);
+  }
+
+  const entry = new LedgerEntry({
+    type: 'TRANSFER',
+    from: renter,
+    to: renter, // renter is both from and to — it's an access grant, not a transfer
+    token: collection,
+    amount: 0,
+    epoch,
+    memo: 'nft-rental:' + tokenId + ':' + durationEpochs + ':' + ownerUsername
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Mint a composable NFT — can contain other NFTs/tokens as a bundle.
+ * Use cases: portfolio NFTs, loot boxes, curated collections.
+ */
+async function recordComposableMint(collection, to, tokenId, contents, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.composable = true;
+  metadata.contents = contents || []; // [{ collection, tokenId }, ...]
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Add an item to a composable NFT.
+ */
+async function recordComposableAdd(parentCollection, parentTokenId, childCollection, childTokenId, owner, epoch) {
+  const entry = new LedgerEntry({
+    type: 'TRANSFER',
+    from: owner,
+    to: 'composable:' + parentCollection + ':' + parentTokenId,
+    token: childCollection,
+    amount: 1,
+    epoch,
+    memo: 'compose:' + childTokenId
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
+}
+
+/**
+ * Mint an evolving NFT — metadata changes based on on-chain activity.
+ * Use cases: miner reputation badges, project usage trackers, achievement progression.
+ *
+ * The evolution rules define how the NFT changes:
+ *   { metric: "total_compute", thresholds: [1000, 10000, 100000], labels: ["Bronze", "Silver", "Gold"] }
+ */
+async function recordEvolvingMint(collection, to, tokenId, evolutionRules, metadata, epoch) {
+  metadata = metadata || {};
+  metadata.evolving = true;
+  metadata.evolution_rules = evolutionRules;
+  metadata.current_level = 0;
+  metadata.metric_value = 0;
+
+  return recordNFTMint(collection, to, tokenId, metadata, epoch);
+}
+
+/**
+ * Update an evolving NFT's metric and check for level-up.
+ */
+async function recordEvolvingUpdate(collection, tokenId, owner, newMetricValue, epoch) {
+  const entry = new LedgerEntry({
+    type: 'TRANSFER',
+    from: owner,
+    to: owner,
+    token: collection,
+    amount: 0,
+    epoch,
+    memo: 'evolve:' + tokenId + ':' + newMetricValue
+  });
+  await entry.save();
+  pendingEntries.push(entry.toObject());
+  return entry;
 }
 
 /**
@@ -672,6 +792,13 @@ module.exports = {
   recordSoulboundMint,
   recordRevenueShareMint,
   distributeRevenueShare,
+  recordTimeLockedMint,
+  recordRentalMint,
+  recordNFTRental,
+  recordComposableMint,
+  recordComposableAdd,
+  recordEvolvingMint,
+  recordEvolvingUpdate,
   getTokenFee,
   TOKEN_FEE_TIERS,
   NFT_CREATION_FEE,
