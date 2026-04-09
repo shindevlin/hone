@@ -117,25 +117,22 @@ router.post('/create', async (req, res) => {
     // Auto-stake 0 for inference (just create the record so bot doesn't block)
     // User will need to receive tokens and stake manually for full access
 
+    // SECURITY: Only return the mnemonic. All keys are derivable from it.
+    // Never send private keys over HTTP — the mnemonic is the master secret.
+    // Users derive keys locally using: node bin/btcpc-cli wallet keys <mnemonic>
     res.json({
       success: true,
       warning: 'SAVE YOUR MNEMONIC NOW. We do not store it. If you lose it, your account is gone forever.',
-      security_note: 'Creating a wallet via Telegram is less secure than on a PC. Save your mnemonic to a password manager or write it on paper and store it safely.',
+      security_note: 'Your mnemonic derives ALL keys on ALL chains. Use btcpc-cli or the wallet app to view your full key set locally.',
       username,
       mnemonic: account.mnemonic,
-      btcpc_keys: {
-        owner: { private: keys.owner.privateKey, public: keys.owner.publicKey },
-        active: { private: keys.active.privateKey, public: keys.active.publicKey },
-        posting: { private: keys.posting.privateKey, public: keys.posting.publicKey },
-        memo: { private: keys.memo.privateKey, public: keys.memo.publicKey }
-      },
-      chain_wallets: {
-        evm: chainWallets.evm ? { address: chainWallets.evm.address, private_key: chainWallets.evm.privateKey } : null,
-        solana: chainWallets.solana ? { address: chainWallets.solana.address, private_key: chainWallets.solana.privateKey } : null,
-        bitcoin: chainWallets.bitcoin ? { address: chainWallets.bitcoin.address, private_key: chainWallets.bitcoin.privateKey } : null,
-        ton: chainWallets.ton ? { address: chainWallets.ton.address, private_key: chainWallets.ton.privateKey } : null,
-        btcpc: { address: account.address },
-        hive: { address: username }
+      addresses: {
+        btcpc: account.address,
+        evm: chainWallets.evm ? chainWallets.evm.address : null,
+        solana: chainWallets.solana ? chainWallets.solana.address : null,
+        bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
+        ton: chainWallets.ton ? chainWallets.ton.address : null,
+        hive: username
       }
     });
   } catch (err) {

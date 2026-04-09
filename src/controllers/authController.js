@@ -118,12 +118,12 @@ async function linkTelegram(req, res) {
       return res.status(400).json({ error: 'This Telegram account is already linked to another user' });
     }
 
-    // NOTE: This endpoint does NOT verify Telegram ownership.
-    // The proper flow is: /link via the bot (which verifies posting key signature).
-    // This direct API endpoint is for backward compat and should be deprecated.
-    user.telegramId = String(telegramId);
-    user.telegramUsername = telegramUsername;
-    await user.save();
+    // DISABLED: Direct linking without Telegram verification is an identity hijack vector.
+    // Use /link <username> in the @btcpcbot Telegram bot instead.
+    return res.status(403).json({
+      error: 'Direct Telegram linking disabled. Use /link <username> in @btcpcbot instead.',
+      help: 'The bot verifies your posting key signature before linking.'
+    });
 
     res.json({ success: true, message: 'Telegram account linked. For security, use the bot /link command instead.' });
   } catch (err) {

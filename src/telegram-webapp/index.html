@@ -190,8 +190,9 @@
 
     const user = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
     const telegramId = user && user.id ? String(user.id) : "";
-    const botKey = new URLSearchParams(location.search).get("botKey") || "";
-    const headers = botKey ? { "x-bot-key": botKey, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+    // SECURITY: Never pass bot key from browser. Use Telegram initData for auth instead.
+    const initData = tg ? tg.initData : "";
+    const headers = { "Content-Type": "application/json", "x-telegram-init-data": initData };
 
     document.getElementById("userLine").textContent = telegramId ? `Telegram ID ${telegramId}` : "Open from Telegram to load your wallet";
 
