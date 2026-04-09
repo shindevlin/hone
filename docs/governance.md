@@ -70,15 +70,25 @@ After the voting period ends:
 
 The chain reads protocol parameters from the governance state (stored on-chain), not from hardcoded values. When a proposal passes and the timelock expires, the new value is active for all nodes automatically.
 
-## What Cannot Be Changed
+## Everything Is Governable
 
-Some things are immutable — even governance can't change them:
+There are no hardcoded sacred cows. If the network reaches consensus, anything can change — including the total supply.
 
-- **Total supply**: 42,000,000 BTCPC — forever
-- **Genesis block**: block 0 is sacred
-- **Ledger permanence**: past entries can never be modified or deleted
-- **Key hierarchy**: owner/active/posting/memo structure
-- **Smallest unit**: 1 dream = 0.00000001 BTCPC
+Bitcoin's 21 million cap is a social contract, not a technical constraint. A hard fork could change it tomorrow. BTCPC makes this explicit: the 42M supply is the **default**, and the network can vote to change it, the same way it can vote to change any other parameter.
+
+Some changes require a **higher bar** than others:
+
+| Change Type | Required Supermajority | Quorum |
+|-------------|----------------------|--------|
+| Normal parameters (reward %, stake minimums, etc.) | 66% | 10% of staked |
+| Economic parameters (supply, emission schedule, decay rates) | 80% | 25% of staked |
+| Structural changes (key hierarchy, ledger format, epoch model) | 90% | 40% of staked |
+
+The higher the impact, the more agreement is needed. But nothing is off the table.
+
+### Genesis Block
+
+The genesis block (block 0) is historical record — it can't be rewritten because that would invalidate the entire hash chain. This isn't a governance restriction, it's a mathematical one. You can't change the past without breaking the proofs.
 
 ## Governance Ledger Types
 
