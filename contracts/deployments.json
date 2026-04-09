@@ -1,0 +1,41 @@
+{
+  "wBTCPC": {
+    "base": {
+      "chainId": 8453,
+      "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
+      "txHash": "0xefce96412c405624da7e65e8c23ed5adf8618b71330722312b442e605a0ae1c5",
+      "deployer": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
+      "signingAuthority": "0xBDe88F2B3a224B242704bD166804E0E12c75e830",
+      "deployedAt": "2026-04-09",
+      "explorer": "https://basescan.org/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
+    },
+    "arbitrum": {
+      "chainId": 42161,
+      "contract": null,
+      "status": "pending — needs ETH bridged from Base"
+    },
+    "optimism": {
+      "chainId": 10,
+      "contract": null,
+      "status": "pending — needs ETH bridged from Base"
+    },
+    "ethereum": {
+      "chainId": 1,
+      "contract": null,
+      "status": "pending — needs ETH bridged from Base"
+    },
+    "solana": {
+      "status": "pending — needs SOL"
+    },
+    "bitcoin": {
+      "status": "pending — needs BTC for Runes inscription"
+    },
+    "ton": {
+      "status": "pending — needs TON"
+    },
+    "hive": {
+      "status": "live — uses custom_json, no contract needed",
+      "account": "shindevlin"
+    }
+  }
+}
