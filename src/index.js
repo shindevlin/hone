@@ -18,7 +18,10 @@ if (!process.env.MONGODB_URI) { console.error('FATAL: MONGODB_URI not set'); pro
 const app = express();
 
 // Middleware — security first
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net', 'http://localhost:4242', 'http://localhost:3100'],
+  credentials: true
+}));
 app.use(helmet());
 app.use(express.json({ limit: '1mb' }));
 
