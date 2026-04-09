@@ -61,13 +61,20 @@
         <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Base, Arbitrum, Optimism, Ethereum</div>
       </div>
       <div style="flex:1;min-width:140px;padding:20px;background:rgba(247,147,26,0.08);border-radius:12px;border:1px solid rgba(247,147,26,0.2);">
-        <div style="font-size:28px;font-weight:800;color:#e2e8f0;">12 Projects</div>
+        <div id="stat-projects" style="font-size:28px;font-weight:800;color:#e2e8f0;">12 Projects</div>
         <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Paying for AI inference</div>
       </div>
       <div style="flex:1;min-width:140px;padding:20px;background:rgba(247,147,26,0.08);border-radius:12px;border:1px solid rgba(247,147,26,0.2);">
-        <div style="font-size:28px;font-weight:800;color:#e2e8f0;">$0.10</div>
-        <div style="font-size:13px;color:#94a3b8;margin-top:4px;">wBTCPC on Base (USDC)</div>
+        <div id="stat-epoch" style="font-size:28px;font-weight:800;color:#e2e8f0;">--</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Current epoch</div>
       </div>
+    </div>
+    <script>
+      fetch('https://scan.btcpc.net/api/stats').then(r=>r.json()).then(d=>{
+        if(d.current_epoch)document.getElementById('stat-epoch').textContent='Epoch '+d.current_epoch;
+        if(d.total_miners)document.getElementById('stat-projects').textContent=d.total_miners+' Miners';
+      }).catch(()=>{});
+    </script>
     </div>
   </section>
 
