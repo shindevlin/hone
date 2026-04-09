@@ -18,13 +18,13 @@
     "optimism": {
       "chainId": 10,
       "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
-      "deployedAt": "2026-04-09",
-      "explorer": "https://optimistic.etherscan.io/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
+      "deployedAt": "2026-04-09"
     },
     "ethereum": {
       "chainId": 1,
-      "contract": null,
-      "status": "bridge pending - ETH in transit via Across"
+      "contract": "0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47",
+      "deployedAt": "2026-04-09",
+      "explorer": "https://etherscan.io/address/0x25E434d38F4dEc7AF2F6f6488BAe34fBc5781D47"
     },
     "solana": {
       "status": "pending - needs SOL"
@@ -72,8 +72,15 @@
         "USDC": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
         "USDT": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
         "DAI": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1"
+      }
+    },
+    "ethereum": {
+      "chainId": 1,
+      "contract": "0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26",
+      "acceptedStablecoins": {
+        "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
       },
-      "explorer": "https://optimistic.etherscan.io/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
+      "explorer": "https://etherscan.io/address/0x752b8cc5165E6f1D3c0dA8DE7cCa8AA008d69e26"
     }
   },
   "wBTCPCBridge": {
@@ -102,9 +109,20 @@
       "contract": "0xeeC5d6F365576bD83d63e54b8c51a32A75CFBE4F",
       "boundAccounts": {
         "shindevlin": "0xBDe88F2B3a224B242704bD166804E0E12c75e830"
-      },
-      "explorer": "https://optimistic.etherscan.io/address/0xeeC5d6F365576bD83d63e54b8c51a32A75CFBE4F"
+      }
     }
   },
-  "domain": "btcpc.net"
+  "domain": "btcpc.net",
+  "wBTCPC_v2": {
+    "note": "v2 contracts with claim fees (50% treasury, 50% stakers)",
+    "base": {
+      "contract": "0xC0B89F8dfaAD2e67bAe8d61204b2198997a0E0ED"
+    },
+    "arbitrum": {
+      "contract": "0x760f1D67EF32bb2b1Cbd56882f4888b40AF7C74E"
+    },
+    "optimism": {
+      "contract": "0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9"
+    }
+  }
 }
