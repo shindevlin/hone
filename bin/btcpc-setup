@@ -255,14 +255,74 @@ async function pullModel(model) {
   }
 }
 
-function pickModelForHardware(hw) {
-  if (hw.gpu.available && hw.gpu.vramGB >= 20) return "qwen3.5:27b";
-  if (hw.gpu.available && hw.gpu.vramGB >= 8) return "qwen3.5:9b";
-  if (hw.gpu.available && hw.gpu.vramGB >= 4) return "qwen3:4b";
-  // CPU-only: pick based on RAM
-  if (hw.ram.totalGB >= 16) return "qwen3:4b";
-  if (hw.ram.totalGB >= 8) return "qwen3:4b";
-  return "qwen3:4b"; // smallest supported
+// Model catalog — organized by VRAM/RAM tier
+var MODEL_TIERS = {
+  // 4GB VRAM or 8GB+ RAM (small, fast)
+  small: [
+    { name: "qwen3:4b",      size: "2.5GB", desc: "Fast general-purpose (Alibaba)" },
+    { name: "llama3.2:3b",   size: "2.0GB", desc: "Meta's compact model" },
+    { name: "phi4-mini:3.8b", size: "2.3GB", desc: "Microsoft's efficient model" },
+    { name: "gemma3:4b",     size: "3.3GB", desc: "Google's open model" },
+    { name: "mistral:7b",    size: "4.1GB", desc: "Mistral AI's flagship small" },
+  ],
+  // 8-12GB VRAM (medium, balanced)
+  medium: [
+    { name: "qwen3.5:9b",    size: "6.5GB", desc: "Strong general-purpose (Alibaba)" },
+    { name: "llama3.1:8b",   size: "4.7GB", desc: "Meta's workhorse model" },
+    { name: "gemma3:12b",    size: "8.1GB", desc: "Google's mid-range model" },
+    { name: "deepseek-r1:8b", size: "4.9GB", desc: "DeepSeek reasoning model" },
+    { name: "mistral-nemo:12b", size: "7.1GB", desc: "Mistral's latest mid-range" },
+  ],
+  // 16-24GB+ VRAM (large, high quality)
+  large: [
+    { name: "qwen3.5:27b",   size: "17GB", desc: "Top-tier general-purpose (Alibaba)" },
+    { name: "llama3.3:70b",  size: "40GB", desc: "Meta's largest open model" },
+    { name: "deepseek-r1:32b", size: "19GB", desc: "DeepSeek large reasoning" },
+    { name: "gemma3:27b",    size: "17GB", desc: "Google's largest open model" },
+    { name: "command-r:35b", size: "20GB", desc: "Cohere's RAG-optimized model" },
+  ]
+};
+
+function getModelTier(hw) {
+  if (hw.gpu.available) {
+    if (hw.gpu.vramGB >= 20) return "large";
+    if (hw.gpu.vramGB >= 8) return "medium";
+    return "small";
+  }
+  // CPU-only: use RAM as guide
+  if (hw.ram.totalGB >= 32) return "medium";
+  return "small";
+}
+
+async function pickModels(hw) {
+  var tier = getModelTier(hw);
+  var models = MODEL_TIERS[tier];
+
+  console.log("");
+  log("Recommended models for your hardware (" + tier + " tier):");
+  console.log("");
+  for (var i = 0; i < models.length; i++) {
+    console.log("  " + (i + 1) + ". " + models[i].name + " (" + models[i].size + ") — " + models[i].desc);
+  }
+  console.log("  A. Install all " + tier + " tier models");
+  console.log("  S. Skip — I'll install models manually later");
+  console.log("");
+
+  var answer = await ask("Which models to install? (1-" + models.length + ", A for all, S to skip):");
+
+  if (answer === "s" || answer === "skip") return [];
+  if (answer === "a" || answer === "all") return models.map(function (m) { return m.name; });
+
+  // Parse selection — support "1,3,5" or "1 3 5" or just "1"
+  var selections = answer.split(/[,\s]+/).map(function (s) { return parseInt(s); }).filter(function (n) { return n >= 1 && n <= models.length; });
+
+  if (selections.length === 0) {
+    // Default to first model
+    log("Defaulting to " + models[0].name);
+    return [models[0].name];
+  }
+
+  return selections.map(function (n) { return models[n - 1].name; });
 }
 
 // ─── Decision Engine ─────────────────────────────────────────────
@@ -295,14 +355,20 @@ function decideNodes(hw) {
     reasons.push("Explorer: " + hw.disk.freeGB + "GB free disk");
   }
 
-  // Pick the best model based on VRAM
+  // Pick the best installed model, or recommend one
   var model = null;
-  if (hw.gpu.vramGB >= 20) {
-    model = "qwen3.5:27b";
-  } else if (hw.gpu.vramGB >= 8) {
-    model = "qwen3.5:9b";
-  } else if (hw.gpu.vramGB >= 4) {
-    model = "qwen3:4b";
+  if (hw.ollama.models && hw.ollama.models.length > 0) {
+    // Use the largest installed model
+    var preferOrder = ["qwen3.5:27b", "llama3.3:70b", "deepseek-r1:32b", "gemma3:27b",
+      "qwen3.5:9b", "llama3.1:8b", "gemma3:12b", "mistral-nemo:12b",
+      "qwen3:4b", "llama3.2:3b", "phi4-mini:3.8b", "gemma3:4b", "mistral:7b"];
+    for (var p = 0; p < preferOrder.length; p++) {
+      if (hw.ollama.models.indexOf(preferOrder[p]) !== -1) {
+        model = preferOrder[p];
+        break;
+      }
+    }
+    if (!model) model = hw.ollama.models[0]; // fallback to first installed
   }
 
   // CPU/GPU caps based on RAM and cores
@@ -436,13 +502,10 @@ async function main() {
         if (installed) {
           var started = await startOllamaIfNeeded();
           if (started) {
-            // Pick and pull the best model for this hardware
-            var model = pickModelForHardware(hw);
-            console.log("");
-            log("Recommended model for your hardware: " + model);
-            var pullAnswer = await ask("Pull " + model + "? This downloads ~2-5GB. (y/n)");
-            if (pullAnswer === "y" || pullAnswer === "yes") {
-              await pullModel(model);
+            // Let user pick from recommended models
+            var selectedModels = await pickModels(hw);
+            for (var m = 0; m < selectedModels.length; m++) {
+              await pullModel(selectedModels[m]);
             }
             // Re-detect Ollama
             hw.ollama = detectOllama();
@@ -457,12 +520,11 @@ async function main() {
     // Ollama running but no models
     console.log("");
     log("Ollama is running but has no models installed.");
-    var model = pickModelForHardware(hw);
-    var pullAnswer = await ask("Pull " + model + " to start mining? (~2-5GB download) (y/n)");
-    if (pullAnswer === "y" || pullAnswer === "yes") {
-      await pullModel(model);
-      hw.ollama = detectOllama();
+    var selectedModels = await pickModels(hw);
+    for (var m = 0; m < selectedModels.length; m++) {
+      await pullModel(selectedModels[m]);
     }
+    hw.ollama = detectOllama();
   }
 
   // ── Ask for account name ──
