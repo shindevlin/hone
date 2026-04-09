@@ -710,6 +710,66 @@ router.post('/v1/chat/completions', async (req, res) => {
 
   const selectedModel = model || 'qwen3.5:27b';
 
+  if (local) {
+    try {
+      const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
+      const created = Math.floor(Date.now() / 1000);
+      const promptTokens = estimateTokens(messages.map(m => m.content || '').join(' '));
+
+      if (stream === true) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+        return await streamDirectOllamaChat({
+          model: selectedModel,
+          messages,
+          max_tokens,
+          temperature,
+          res,
+          requestId
+        });
+      }
+
+      const direct = await runDirectOllamaChat({
+        model: selectedModel,
+        messages,
+        max_tokens,
+        temperature
+      });
+
+      return res.json({
+        id: requestId,
+        object: 'chat.completion',
+        created,
+        model: selectedModel,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: direct.text
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: direct.tokens,
+          total_tokens: promptTokens + direct.tokens
+        },
+        btcpc: {
+          cost: 0,
+          model_weight: getModelWeight(selectedModel),
+          local: true,
+          elapsed_ms: direct.elapsedMs
+        }
+      });
+    } catch (err) {
+      return res.status(500).json({ error: { message: `Local inference failed: ${err.message}`, type: 'inference_error' } });
+    }
+  }
+
   // Check if model is available on the network
   const { checkModelAvailability, recordUnmetDemand } = require('../services/modelRegistry');
   const availability = await checkModelAvailability(selectedModel);

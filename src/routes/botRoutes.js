@@ -147,7 +147,7 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// POST /api/bot/onboard { username, source: "openclaw" }
+// POST /api/onboard or /api/bot/onboard { username, source: "openclaw" }
 // Single-step onboarding for OpenClaw integrations.
 router.post('/onboard', async (req, res) => {
   try {

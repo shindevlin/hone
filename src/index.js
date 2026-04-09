@@ -104,6 +104,10 @@ app.use("/api/delegation", delegationRoutes);
 app.use("/api/recovery", recoveryRoutes);
 app.use("/api/totp", totpRoutes);
 app.use("/api", dreamRoutes);
+app.use("/api/onboard", onboardLimiter, (req, res, next) => {
+  req.url = "/onboard";
+  botRoutes(req, res, next);
+});
 app.use("/api/bot", botRoutes);
 app.use(inferenceApi);
 app.use(encryptedInference);
