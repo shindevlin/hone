@@ -102,7 +102,31 @@ User makes an ETH transfer on Ethereum
 - TON (any transaction on linked address)
 - Hive (any custom_json or transfer on linked account)
 
-**If you're active anywhere in crypto, your BTCPC is safe.** The only way tokens decay is if ALL linked addresses across ALL chains go silent for 5+ years.
+**Cross-chain activity protects your tokens — but doesn't unlock spending.**
+
+If your linked ETH wallet is active but you haven't signed with your BTCPC key, your tokens are **frozen** (no decay, but can't spend). This protects against the scenario where someone lost their BTCPC mnemonic but their ETH wallet is still active — the tokens are preserved but locked.
+
+To spend frozen tokens: sign any BTCPC transaction (heartbeat, transfer, stake) with the native BTCPC key.
+
+### Three-Tier Dormancy Timeline
+
+| Period | Cross-Chain Active | All Chains Inactive |
+|--------|-------------------|-------------------|
+| Years 0-5 | Full access | Full access |
+| Years 5-10 | **Frozen** — safe, no decay, can't spend until BTCPC native sign | **Decaying** — 10%/year of remaining |
+| Years 10+ | **Decaying** — cross-chain alone isn't enough anymore, 10%/year | Still decaying |
+
+At ANY point: one native BTCPC signature (heartbeat, transfer, anything) → unfrozen, clock fully resets, keep whatever remains.
+
+```
+Year 0:   1000 BTCPC, active
+Year 5:   No BTCPC activity, ETH wallet active → frozen (1000, locked)
+Year 8:   Still frozen, still 1000 BTCPC — cross-chain protecting it
+Year 10:  Cross-chain grace expires → decay starts (1000 → 900)
+Year 11:  900 → 810
+Year 15:  590 BTCPC remaining
+Year 12:  User signs with BTCPC key → unfrozen, 810 BTCPC, clock resets for 5 years
+```
 
 ### Other Heartbeat Methods
 
