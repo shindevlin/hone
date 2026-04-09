@@ -16,13 +16,24 @@
 var os = require("os");
 var fs = require("fs");
 var path = require("path");
-var { execSync } = require("child_process");
+var { execSync, spawnSync } = require("child_process");
 var crypto = require("crypto");
+var readline = require("readline");
 
 var REPO_DIR = path.resolve(__dirname, "..");
 
 function log(msg) { console.log("[setup] " + msg); }
 function warn(msg) { console.log("[setup] WARNING: " + msg); }
+
+function ask(question) {
+  return new Promise(function (resolve) {
+    var rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question("[setup] " + question + " ", function (answer) {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
 
 // ─── Hardware Detection ──────────────────────────────────────────
 
@@ -145,6 +156,113 @@ function detectDisk() {
     }
   } catch (_) {}
   return { totalGB: 0, freeGB: 0 };
+}
+
+// ─── Ollama Installation ─────────────────────────────────────────
+
+function canRunOllama(hw) {
+  // Needs at least 4GB RAM for smallest model
+  if (hw.ram.totalGB < 4) return { can: false, reason: "Need at least 4GB RAM (have " + hw.ram.totalGB + "GB)" };
+  // Supported OS
+  if (hw.platform !== "linux" && hw.platform !== "darwin" && hw.platform !== "win32") {
+    return { can: false, reason: "Ollama supports Linux, macOS, and Windows only" };
+  }
+  return { can: true, reason: null };
+}
+
+async function installOllama() {
+  var platform = os.platform();
+  log("Installing Ollama...");
+
+  try {
+    if (platform === "linux") {
+      log("Running: curl -fsSL https://ollama.com/install.sh | sh");
+      execSync("curl -fsSL https://ollama.com/install.sh | sh", {
+        stdio: "inherit", timeout: 300000
+      });
+    } else if (platform === "darwin") {
+      log("Download Ollama from https://ollama.com/download");
+      log("Or install via: brew install ollama");
+      try {
+        execSync("brew install ollama", { stdio: "inherit", timeout: 300000 });
+      } catch (_) {
+        log("Please install manually from https://ollama.com/download");
+        return false;
+      }
+    } else if (platform === "win32") {
+      log("Download Ollama from https://ollama.com/download");
+      log("Run the installer, then re-run btcpc-setup.");
+      return false;
+    }
+
+    // Verify installation
+    try {
+      execSync("ollama --version", { encoding: "utf8", timeout: 5000 });
+      log("Ollama installed successfully");
+      return true;
+    } catch (_) {
+      warn("Ollama installed but not in PATH. You may need to restart your terminal.");
+      return false;
+    }
+  } catch (err) {
+    warn("Ollama installation failed: " + err.message);
+    return false;
+  }
+}
+
+async function startOllamaIfNeeded() {
+  // Check if already running
+  try {
+    execSync("curl -s http://localhost:11434/api/tags", { timeout: 3000, windowsHide: true });
+    return true; // already running
+  } catch (_) {}
+
+  // Try to start it
+  log("Starting Ollama service...");
+  try {
+    if (os.platform() === "linux") {
+      execSync("systemctl start ollama 2>/dev/null || ollama serve &", {
+        timeout: 10000, windowsHide: true, stdio: "ignore"
+      });
+    } else {
+      execSync("ollama serve &", { timeout: 10000, stdio: "ignore" });
+    }
+
+    // Wait for it to start
+    for (var i = 0; i < 10; i++) {
+      try {
+        execSync("curl -s http://localhost:11434/api/tags", { timeout: 2000, windowsHide: true });
+        log("Ollama is running");
+        return true;
+      } catch (_) {}
+      spawnSync("sleep", ["1"]);
+    }
+  } catch (_) {}
+
+  warn("Could not start Ollama. Start it manually: ollama serve");
+  return false;
+}
+
+async function pullModel(model) {
+  log("Pulling model " + model + " (this may take a few minutes)...");
+  try {
+    execSync("ollama pull " + model, { stdio: "inherit", timeout: 600000 });
+    log("Model " + model + " ready");
+    return true;
+  } catch (err) {
+    warn("Failed to pull " + model + ": " + err.message);
+    return false;
+  }
+}
+
+function pickModelForHardware(hw) {
+  if (hw.gpu.available && hw.gpu.vramGB >= 20) return "qwen3.5:27b";
+  if (hw.gpu.available && hw.gpu.vramGB >= 8) return "qwen3.5:9b";
+  if (hw.gpu.available && hw.gpu.vramGB >= 4) return "qwen3:4b";
+  // CPU-only: pick based on RAM
+  if (hw.ram.totalGB >= 16) return "qwen3:4b";
+  if (hw.ram.totalGB >= 8) return "qwen3:4b";
+  return "qwen3:4b"; // smallest supported
 }
 
 // ─── Decision Engine ─────────────────────────────────────────────
@@ -275,7 +393,7 @@ function startNodes(decision) {
 
 // ─── Main ────────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   console.log("");
   console.log("  ============================================");
   console.log("    btcpc-setup — Auto-configure BTCPC Node");
@@ -299,8 +417,66 @@ function main() {
   log("  CPU:    " + hw.cpu.cores + " cores (" + hw.cpu.model + ")");
   log("  RAM:    " + hw.ram.totalGB + "GB total, " + hw.ram.freeGB + "GB free");
   log("  GPU:    " + (hw.gpu.available ? hw.gpu.name + " (" + hw.gpu.vramGB + "GB VRAM)" : "none detected"));
-  log("  Ollama: " + (hw.ollama.running ? "running (" + hw.ollama.models.length + " models)" : "not running"));
+  log("  Ollama: " + (hw.ollama.running ? "running (" + hw.ollama.models.length + " models)" : "not installed or not running"));
   log("  Disk:   " + hw.disk.freeGB + "GB free of " + hw.disk.totalGB + "GB");
+
+  // ── Ollama setup (interactive) ──
+  if (!hw.ollama.running) {
+    var ollamaCheck = canRunOllama(hw);
+    if (ollamaCheck.can) {
+      console.log("");
+      log("Ollama is not installed or not running.");
+      log("Ollama is required for mining (earning 98% of block rewards).");
+      log("Without it, this machine runs as a clock node only (2% rewards).");
+      console.log("");
+
+      var answer = await ask("Install Ollama to enable mining? (y/n)");
+      if (answer === "y" || answer === "yes") {
+        var installed = await installOllama();
+        if (installed) {
+          var started = await startOllamaIfNeeded();
+          if (started) {
+            // Pick and pull the best model for this hardware
+            var model = pickModelForHardware(hw);
+            console.log("");
+            log("Recommended model for your hardware: " + model);
+            var pullAnswer = await ask("Pull " + model + "? This downloads ~2-5GB. (y/n)");
+            if (pullAnswer === "y" || pullAnswer === "yes") {
+              await pullModel(model);
+            }
+            // Re-detect Ollama
+            hw.ollama = detectOllama();
+          }
+        }
+      }
+    } else {
+      log("Cannot run Ollama: " + ollamaCheck.reason);
+      log("This machine will run as a clock node only.");
+    }
+  } else if (hw.ollama.models.length === 0) {
+    // Ollama running but no models
+    console.log("");
+    log("Ollama is running but has no models installed.");
+    var model = pickModelForHardware(hw);
+    var pullAnswer = await ask("Pull " + model + " to start mining? (~2-5GB download) (y/n)");
+    if (pullAnswer === "y" || pullAnswer === "yes") {
+      await pullModel(model);
+      hw.ollama = detectOllama();
+    }
+  }
+
+  // ── Ask for account name ──
+  console.log("");
+  var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
+  if (!accountName) {
+    accountName = await ask("Choose a username for this node (3-20 chars, lowercase):");
+    if (!accountName || accountName.length < 3) {
+      accountName = "miner-" + crypto.randomBytes(4).toString("hex");
+      log("Using auto-generated name: " + accountName);
+    }
+  } else {
+    log("Using account: " + accountName);
+  }
 
   // Decide what to run
   console.log("");
@@ -310,17 +486,22 @@ function main() {
     log("  " + decision.reasons[i]);
   }
   if (decision.model) {
-    log("  Model: " + decision.model + " (based on " + hw.gpu.vramGB + "GB VRAM)");
+    log("  Model: " + decision.model);
   }
 
   // Generate config
   var configPath = path.join(REPO_DIR, ".env.node");
   var config = generateConfig(hw, decision);
+  // Override account name
+  config = config.replace(/BTCPC_MINER=.*/, "BTCPC_MINER=" + accountName);
+  config = config.replace(/BTCPC_CLOCK_ACCOUNT=.*/, "BTCPC_CLOCK_ACCOUNT=" + accountName);
   fs.writeFileSync(configPath, config);
   log("Config written to " + configPath);
 
   // Load the config
-  require("dotenv").config({ path: configPath });
+  process.env.BTCPC_MINER = accountName;
+  process.env.BTCPC_CLOCK_ACCOUNT = accountName;
+  require("dotenv").config({ path: configPath, override: true });
 
   // Start nodes
   console.log("");
@@ -338,8 +519,11 @@ function main() {
   console.log("");
 
   if (decision.nodes.indexOf("miner") === -1) {
-    console.log("  No GPU detected — running as clock node only.");
-    console.log("  To mine, install a GPU and Ollama (https://ollama.com)");
+    console.log("  Running as clock node only (2% of block rewards).");
+    console.log("  Install Ollama + a model to mine (98% of block rewards).");
+    console.log("");
+  } else {
+    console.log("  Mining + clock node active. Earning full rewards.");
     console.log("");
   }
 
@@ -353,4 +537,4 @@ function main() {
   console.log("");
 }
 
-main();
+main().catch(function (err) { console.error("Setup failed: " + err.message); process.exit(1); });
