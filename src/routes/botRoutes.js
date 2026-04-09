@@ -82,7 +82,8 @@ router.post('/create', async (req, res) => {
     // Create the account
     const { createAccount } = require('../wallet/accountManager');
     const keyManager = require('../wallet/keyManager');
-    const account = await createAccount(username, null, username + '-telegram');
+    const randomPassword = require('crypto').randomBytes(32).toString('hex');
+    const account = await createAccount(username, null, randomPassword);
 
     // Derive full keys from mnemonic (createAccount doesn't return private keys)
     const keys = await keyManager.mnemonicToKeys(account.mnemonic);

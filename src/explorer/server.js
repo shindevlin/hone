@@ -172,7 +172,7 @@ app.get("/api/bot/history", async (req, res) => {
   }
 });
 
-app.post("/api/bot/heartbeat", async (req, res) => {
+app.post("/api/bot/heartbeat", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
     const user = await resolveTelegramUser(req.body.telegramId);
     if (!user) return res.status(404).json({ error: "Not linked" });
@@ -184,7 +184,7 @@ app.post("/api/bot/heartbeat", async (req, res) => {
   }
 });
 
-app.post("/api/bot/link-chain", async (req, res) => {
+app.post("/api/bot/link-chain", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
     const user = await resolveTelegramUser(req.body.telegramId);
     if (!user) return res.status(404).json({ error: "Not linked" });
@@ -214,7 +214,7 @@ app.get("/api/bot/linked-addresses", async (req, res) => {
   }
 });
 
-app.post("/api/wallet/transfer", async (req, res) => {
+app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
     const user = await resolveTelegramUser(req.body.telegramId);
     if (!user) return res.status(404).json({ error: "Not linked" });

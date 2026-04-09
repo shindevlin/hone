@@ -16,12 +16,19 @@ var {
   getRecoveryStatus
 } = require("../controllers/recoveryController");
 
-// Recovery does NOT require JWT auth — it uses Owner key signatures.
-// The owner key IS the authentication for recovery operations.
-router.post("/request", requestRecovery);
-router.post("/contest", contestRecovery);
-router.post("/complete", completeRecovery);
+// DISABLED: Recovery routes are not properly authenticated.
+// The controller accepts any owner_signature without cryptographic verification.
+// Re-enable after implementing proper secp256k1 signature verification against
+// the account's registered owner public key.
+//
+// router.post("/request", requestRecovery);
+// router.post("/contest", contestRecovery);
+// router.post("/complete", completeRecovery);
 router.get("/status", getRecoveryStatus);
 router.get("/status/:account", getRecoveryStatus);
+
+router.post("/request", (_req, res) => res.status(503).json({ error: "Recovery is temporarily disabled pending security upgrade" }));
+router.post("/contest", (_req, res) => res.status(503).json({ error: "Recovery is temporarily disabled pending security upgrade" }));
+router.post("/complete", (_req, res) => res.status(503).json({ error: "Recovery is temporarily disabled pending security upgrade" }));
 
 module.exports = router;

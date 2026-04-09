@@ -112,11 +112,20 @@ async function linkTelegram(req, res) {
       return res.status(400).json({ error: 'Telegram account already linked' });
     }
 
-    user.telegramId = telegramId;
+    // Check uniqueness — prevent hijacking another user's Telegram ID
+    const existingLink = await User.findOne({ telegramId: String(telegramId) });
+    if (existingLink) {
+      return res.status(400).json({ error: 'This Telegram account is already linked to another user' });
+    }
+
+    // NOTE: This endpoint does NOT verify Telegram ownership.
+    // The proper flow is: /link via the bot (which verifies posting key signature).
+    // This direct API endpoint is for backward compat and should be deprecated.
+    user.telegramId = String(telegramId);
     user.telegramUsername = telegramUsername;
     await user.save();
 
-    res.json({ success: true, message: 'Telegram account linked successfully' });
+    res.json({ success: true, message: 'Telegram account linked. For security, use the bot /link command instead.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

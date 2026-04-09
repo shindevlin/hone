@@ -242,7 +242,19 @@ router.post('/v1/inference/submit', async (req, res) => {
   // Pass inline: mcp_servers: [{ url, tools }]
   // Or use saved: use_saved_mcp: true (loads from user profile)
   // Or both — inline servers merge with saved ones.
-  let allServers = mcp_servers ? [...mcp_servers] : [];
+  // Validate inline MCP server URLs — block internal addresses (SSRF prevention)
+  let allServers = [];
+  if (mcp_servers) {
+    var blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254', '10.', '192.168.', '172.16.', '172.17.'];
+    for (var ms of mcp_servers) {
+      try {
+        var parsed = new URL(ms.url);
+        if (blocked.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) continue;
+        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+        allServers.push(ms);
+      } catch (_) {} // skip invalid URLs
+    }
+  }
 
   // Load user's saved MCP servers if requested
   if (use_saved_mcp && req.project) {
