@@ -591,6 +591,65 @@ router.post('/approve-update', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
+// CHAIN LINK — Link external wallets (ETH, etc.) to BTCPC account
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/link-chain { telegramId, chain, address }
+router.post('/link-chain', async (req, res) => {
+  try {
+    const user = await resolveUser(req.body.telegramId);
+    if (!user) return res.status(404).json({ error: 'Not linked' });
+
+    const { chain, address } = req.body;
+    if (!chain || !address) return res.status(400).json({ error: 'chain and address required' });
+
+    const chainLink = require('../services/chainLink');
+    const challenge = chainLink.generateChallenge(user.username, chain, address);
+
+    res.json({
+      challengeId: challenge.challengeId,
+      message: challenge.message,
+      instructions: 'Sign this exact message with your ' + chain.toUpperCase() + ' wallet, then submit the signature via /verify-chain',
+      expiresIn: challenge.expiresIn
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/bot/verify-chain { telegramId, challengeId, signature }
+router.post('/verify-chain', async (req, res) => {
+  try {
+    const { challengeId, signature } = req.body;
+    if (!challengeId || !signature) return res.status(400).json({ error: 'challengeId and signature required' });
+
+    const chainLink = require('../services/chainLink');
+    const result = await chainLink.verifyAndLink(challengeId, signature);
+
+    if (!result.success) return res.status(400).json({ error: result.error });
+
+    res.json({
+      success: true,
+      username: result.username,
+      chain: result.chain,
+      address: result.address,
+      message: result.chain.toUpperCase() + ' wallet ' + result.address + ' linked to ' + result.username
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/bot/linked-addresses?telegramId=xxx
+router.get('/linked-addresses', async (req, res) => {
+  try {
+    const user = await resolveUser(req.query.telegramId);
+    if (!user) return res.status(404).json({ error: 'Not linked' });
+
+    const chainLink = require('../services/chainLink');
+    const linked = await chainLink.getLinkedAddresses(user.username);
+
+    res.json({ username: user.username, linked });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════
 // HEARTBEAT
 // ════════════════════════════════════════════════════════════════════
 
