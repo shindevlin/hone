@@ -290,39 +290,42 @@ Any verification system must balance:
 - **Efficiency** — verification must cost less than the work itself
 - **Speed** — verification must not bottleneck the network
 
-BTCPC achieves 100% verification through redundant computation with a cryptographic commit-reveal scheme.
+BTCPC achieves verification through a **single-pass compute + random verifier panel** model that avoids the waste of redundant computation.
 
-### 3.2 Redundant Computation with Commit-Reveal
+### 3.2 Single-Pass Compute with Verifier Panel
 
-Every inference request is assigned to multiple nodes simultaneously. A cryptographic commit-reveal scheme prevents result copying.
+Unlike systems that re-run every computation N times, BTCPC separates the roles of **computing** and **verifying**. One miner performs the inference. A randomly selected panel of verifiers independently checks the output.
 
-**Phase 1 — Commit:**
-1. Network assigns the same inference request to N nodes (N=3 for standard, N=5 for high-value)
-2. Each node runs the inference independently with deterministic parameters (temperature=0, fixed seed derived from epoch + request hash)
-3. Each node encrypts their result and submits only the **hash** to the network
-4. No node can see another's result before committing — copying is impossible
+**Phase 1 — Compute:**
+1. Network assigns the inference request to a single miner
+2. The miner runs the inference and submits the full result to the network
+3. The result is recorded with timing data, token count, and model metadata
 
-**Phase 2 — Reveal:**
-1. Once all N hashes are submitted, nodes reveal their actual results
-2. Results are compared against the committed hashes (no post-hoc modification possible)
-3. Matching results form consensus — this IS the verified answer
-4. Non-matching nodes are immediately identified
+**Phase 2 — Verify:**
+1. A panel of verifiers is selected deterministically from the active node pool using `SHA256(previous_block_hash + epoch_number + job_id)` as a seed
+2. Verifiers receive the **full response** (not the prompt) along with the model name, token count, and timing metadata
+3. Each verifier independently checks:
+   - **Compute plausibility** — did the timing match what the declared hardware can produce?
+   - **Output quality** — is the response coherent, non-repetitive, and substantive?
+   - **Token integrity** — does the token count match the actual output length?
+4. Verifiers submit a binary verdict: valid or invalid
+5. Majority verdict determines the outcome
 
-**Payment distribution:**
-```
-First node to submit matching hash:   50% of request fee
-Second matching node:                 30% of request fee
-Third matching node:                  20% of request fee
-Non-matching nodes:                   slashed
-```
+**Verifier panel size scales with network:**
 
-This creates a **race** — nodes compete to finish first, incentivizing better hardware. The fastest honest miner earns the most, just like Bitcoin miners racing to find a hash.
+| Network Size | Verifiers Per Job | Rationale |
+|---|---|---|
+| 1-3 nodes | 1 | Genesis phase — limited pool |
+| 4-10 nodes | 3 | Early network — meaningful consensus |
+| 11-50 nodes | 5 | Growth phase — robust verification |
+| 50+ nodes | 7 | Mature network — high confidence |
 
-**Scaling N with network size:**
-- Genesis (solo miner): N=1 (no redundancy needed)
-- Early network (2-5 nodes): N=all nodes (everyone verifies everything)
-- Growth phase (5-50 nodes): N=3 (standard redundancy)
-- Mature network (50+ nodes): N=3 standard, N=5 for high-value requests
+**Why single-pass, not redundant:**
+
+- Redundant computation (N=3) wastes 2/3 of the network's GPU capacity re-running the same work
+- LLM inference is inherently non-deterministic — even with fixed seeds, different hardware produces different token sequences, making result-matching unreliable
+- Verifiers run lightweight quality checks, not full re-inference — verification costs a fraction of the original compute
+- The miner earns 85% of the reward for doing the heavy work; verifiers earn 10% for lightweight quality assurance
 
 ### 3.3 Physical Plausibility Bounds
 
@@ -333,45 +336,44 @@ Nodes declare their hardware capabilities upon registration:
 
 The network maintains benchmark data for known hardware configurations. A node claiming to generate 1000 tokens/second on a single RTX 4090 with a 27B parameter model is physically impossible (~15-30 tokens/second is realistic). Claims that violate plausibility bounds trigger automatic verification of all that node's work for the epoch.
 
-### 3.4 Slashing Protocol — Stake-Scaled Penalties
+### 3.4 Slashing Protocol — Role-Based Penalties
 
-Slashing is proportional to stake. Higher stake = higher assignment priority, but also higher risk. This makes corruption economically suicidal at scale.
+BTCPC's three network roles (miners, verifiers, clocks) each have distinct slashing rules. Slashing is proportional to stake and escalates with repeated offenses. All slashed tokens go to `btcpc_recycle` — never burned.
 
-| Offense | Slash % | 1k Stake | 10k Stake | 100k Stake |
-|---------|---------|----------|-----------|------------|
-| First: wrong result | 10% | -100 | -1,000 | -10,000 |
-| Second (within 1000 epochs) | 25% | -250 | -2,500 | -25,000 |
-| Third | 50% + 24hr ban | -500 | -5,000 | -50,000 |
-| Data leak / prompt logging | 100% + permanent ban | -1,000 | -10,000 | -100,000 |
+#### Miner Slashing
 
-Slashed BTCPC is redistributed to the honest nodes who produced the correct result. A node staking 100,000 BTCPC for maximum assignment priority risks losing 10,000 on a single incorrect result — the penalty scales with the privilege.
+| Offense | First | Second | Third |
+|---------|-------|--------|-------|
+| Empty/garbage inference | 10% staked | 25% staked | Deregistered |
+| Timing fraud (claimed faster than hardware allows) | 5% staked | 15% staked | 25% staked |
+| Repeated zero-quality output | Warning | 10% staked | Deregistered |
 
-### 3.4.1 Miner Replacement Protocol
+Detection: verifier panels catch bad work during normal verification (Section 3.2). If a majority of verifiers reject a miner's output, the miner is slashed.
 
-When a miner's work is rejected (model hash mismatch, wrong result, or slashing), their slot is **backfilled** — not redistributed to existing miners.
+#### Verifier Slashing
 
-**Flow:**
+| Offense | First | Second | Third |
+|---------|-------|--------|-------|
+| Rubber-stamping (approving obviously bad work) | 5% staked | 15% staked | Deregistered |
+| Griefing (rejecting demonstrably good work) | 5% staked | 10% staked | 15% staked |
+| Collusion (coordinated false verdicts) | 25% staked | Deregistered | — |
 
-1. Job assigned to miners A, B, C (N=3 per model)
-2. A and B submit matching results (consensus)
-3. C is rejected (tampered model, wrong result, or timeout)
-4. C's slot is reassigned to D (next available miner for that model)
-5. D processes the job, submits result
-6. If D matches A+B consensus → D receives C's reward share
-7. If D does not match → slot reassigned to E, and D is flagged
+Detection: cross-verification. If a job is flagged, a fresh panel of verifiers re-evaluates the work. Verifiers on the original panel whose verdicts contradict the fresh panel are investigated. Patterns of false verdicts across multiple jobs trigger escalating penalties.
 
-**Why replacement, not redistribution:**
+#### Clock Slashing
 
-- Redistribution rewards A and B for C's failure — they did nothing extra to earn it
-- Replacement ensures 3 independent computations actually happen — the verification integrity is preserved
-- The replacement miner (D) actually does the work, so they earn the reward
-- This maintains the security guarantee: every job has N independent verifications
+| Offense | First | Second | Third |
+|---------|-------|--------|-------|
+| Time drift > 30 seconds | Warning | 1% staked | 5% staked |
+| Offline > 10 consecutive epochs | 0 rewards | 1% staked | Deregistered |
 
-**Replacement queue priority:** Same as initial assignment (section 3.5) — weighted by price, reputation, newcomer bonus, and stake. C is excluded from the replacement queue for this job.
+Detection: other clocks and miners report drift. Clock heartbeats are tracked on-chain.
 
-**No timeout, no burn:** The job stays open until 3 honest miners have verified it. If the network only has 2 honest miners for a model, the job waits until a third comes online. Consensus requires 3 — always. The reward is never burned, it waits for the work to be done.
+#### Appeals
 
-**Genesis phase (N=1):** With fewer than 3 miners per model, consensus verification is deferred. Single-miner mode auto-switches to N=3 per model when 3+ miners serve that model (section 3.7). During genesis, rewards are distributed based on work_value (tokens × verified_param_count) without multi-miner consensus.
+A slashed node can submit an on-chain appeal within 100 epochs. Appeals are adjudicated by a **fresh random verifier panel** — none of the original verifiers who triggered the slash participate. The appeal panel size is one tier larger than the original (e.g., if 3 verifiers originally reviewed the work, 5 review the appeal). A 66% supermajority of the appeal panel overturns the slash. Appeal panels are selected using `SHA256(slash_tx_hash + appeal_epoch)` to ensure deterministic randomness.
+
+**Genesis phase:** With fewer than 3 nodes, slashing is deferred. Single-miner mode operates on trust until the network has enough independent nodes for meaningful verification.
 
 ### 3.5 Anti-Centralization: Fair Work Distribution
 
@@ -413,71 +415,93 @@ For a rational miner with stake S and epoch earnings E:
 
 ```
 Expected value of honest mining = E
-Expected value of cheating = E × savings_from_faking - S × 0.25 × P(caught)
+Expected value of cheating = E × savings_from_faking - S × slash_rate × P(caught)
 ```
 
-With commit-reveal redundant computation, P(caught) = 1.0 for any request assigned to multiple nodes. Since S >> E (minimum stake requirement ensures this), cheating is always negative expected value. The system is **incentive-compatible** — honest behavior is the dominant strategy regardless of what other miners do.
+With random verifier panels, P(caught) scales with network size. At 7 verifiers, a miner producing garbage output is caught with near-certainty. Even at 1 verifier (genesis phase), the risk of losing 10% of stake on a single offense makes cheating negative expected value when S >> E.
+
+For verifiers, the incentive structure is equally robust:
+
+```
+Expected value of honest verification = verifier_reward
+Expected value of rubber-stamping = verifier_reward - S × slash_rate × P(cross_verified)
+```
+
+Cross-verification (fresh panels re-checking flagged work) means dishonest verifiers face escalating detection probability over time. A verifier who rubber-stamps will eventually encounter a job that a fresh panel rejects — exposing the pattern.
+
+The three-role separation (miners compute, verifiers check, clocks time) means no single node type can unilaterally compromise the network. Collusion requires coordinating across all three roles simultaneously.
 
 ---
 
-## 3.7 Block Consensus: Every Miner Validates
+## 3.7 Block Consensus: Three-Role Network
 
-BTCPC has no validator set, no delegation, no staking requirement to verify blocks. Every miner who runs the software mines AND validates simultaneously — the same as Bitcoin.
+BTCPC separates network participants into three distinct roles, each running as an independent process:
 
-**The work IS the validation.** When three miners independently process the same inference request and 2-of-3 results match, that match IS consensus. No separate validation step exists. The act of doing the work proves you validated it.
+| Role | Work | Reward Share (Active) | Reward Share (Idle) | Hardware |
+|------|------|-----------------------|---------------------|----------|
+| **Miners** | Run AI inference | 85% | 0% | Any hardware (GPU or CPU) |
+| **Verifiers** | Check inference quality | 10% | 1% | Any hardware |
+| **Clocks** | Drive epoch timing | 5% | 1% | Any hardware |
+
+**Miners** perform inference — running AI models and producing results. A GPU mines faster than a CPU, but both earn proportional to their verified work. Hardware diversity strengthens the network: heterogeneous machines are harder to exploit simultaneously, and different architectures make timing-based collusion between miners and verifiers impractical.
+
+**Verifiers** are lightweight nodes randomly selected to check that miners actually did the work they claim. They receive the full response (not the prompt), validate output quality, timing plausibility, and token integrity. Verifier count scales from 1 to 7 as the network grows. In idle epochs (no inference jobs), verifiers still earn 1% of the block reward for staying online.
+
+**Clocks** drive epoch timing independently from miners. Any device — a phone, a Raspberry Pi, a desktop — can run a clock node. Clocks share 5% of active epoch rewards among all connected clocks. With 5,000 clocks, each gets a tiny share; with 3 clocks, each gets a meaningful one. This incentivizes early clock participation. In idle epochs, clocks earn 1% of the block reward.
+
+**Idle epochs:** When no inference work is submitted, 98% of that epoch's block reward goes unminted. Only 2% is distributed (1% verifiers, 1% clocks). This prevents inflation during quiet periods while keeping infrastructure nodes incentivized to stay online.
 
 #### How blocks form
 
-1. **During each epoch (5 minutes):** inference requests flow across the P2P network. Each request is assigned to 3 miners. All three process it, commit-reveal their results. Verified work proofs are gossiped to all nodes.
+1. **Clock nodes drive timing.** At each epoch boundary (every 5 minutes), clock nodes broadcast `CLOCK_HEARTBEAT` messages. The network's epoch advances when a majority of clocks agree on the time — miners do not control epoch timing.
 
-2. **Blocks are variable size.** A quiet epoch might contain 1 proof. A busy epoch might contain thousands. The block wraps whatever verified work was done in that window — there is no fixed block size.
+2. **During each epoch:** inference requests flow across the P2P network. Each request is assigned to a single miner. The miner processes the request and broadcasts the result. Random verifiers check the output quality.
 
-3. **At epoch boundary:** every miner computes a state hash from the same data:
+3. **Blocks are variable size.** A quiet epoch might contain 1 proof. A busy epoch might contain thousands. The block wraps whatever verified work was done in that window.
+
+4. **At epoch boundary:** every miner computes a finalization proposal:
    ```
-   state_hash = SHA256(
-     previous_state_hash +
-     sorted(verified_work_proofs_this_epoch) +
-     sorted(wallet_balances) +
-     sorted(active_stakes)
+   consensus_hash = SHA256(
+     sorted(rewards) +
+     total_work_value +
+     settled_job_count
    )
    ```
-   Because all miners received the same proofs via P2P gossip and sort them deterministically, honest miners with complete data compute the same hash.
+   Because all miners received the same work proofs via P2P gossip and compute rewards deterministically, honest miners produce the same hash.
 
-4. **Each miner broadcasts their state hash** as an epoch commitment.
-
-5. **Majority hash wins.** The state hash submitted by the most miners becomes the finalized block. Miners who submitted the winning hash receive block reward proportional to their work. Miners who submitted a different hash receive nothing for that epoch.
+5. **Miners broadcast `FINALIZATION_PROPOSAL` messages.** The proposal with the most supporters wins. The winning proposal's rewards are written to the ledger.
 
 #### Why this works
 
-- No trusted validator set — any miner can verify
-- No block producer election — all miners propose simultaneously
-- Majority rule prevents any single miner from forging state
-- Gossip ensures all honest miners see the same proofs
-- Deterministic sorting ensures the same proofs produce the same hash
-- Dishonest miners (who exclude proofs or fabricate state) simply don't match the majority and earn nothing
+- Three independent roles prevent single-point-of-failure
+- Clock nodes prevent miners from manipulating epoch timing
+- Random verifier selection prevents collusion (verifiers don't know which jobs they'll check in advance)
+- Majority finalization prevents any single miner from forging state
+- Separation of concerns: miners optimize for compute speed, verifiers optimize for quality checking, clocks optimize for uptime
 
 #### Comparison to Bitcoin
 
 | | Bitcoin | BTCPC |
 |---|---|---|
-| **Who mines** | Anyone with ASICs | Anyone with a GPU |
-| **What is mined** | SHA-256 hashes (waste) | AI inference (useful work) |
-| **Who validates** | Every miner + full node | Every miner (same role) |
+| **Who mines** | Anyone with ASICs | Anyone with a GPU or CPU |
+| **What is mined** | SHA-256 hashes (abstract) | AI inference (useful work) |
+| **Who validates** | Every miner + full node | Random verifier panel |
+| **Who keeps time** | Difficulty adjustment (~10 min) | Decentralized clock nodes (~5 min) |
 | **Block content** | Variable transactions | Variable work proofs |
-| **Consensus rule** | Longest chain (most work) | Majority state hash (most agreement) |
+| **Consensus rule** | Longest chain (most work) | Majority finalization proposal |
 | **Finality** | Probabilistic (6 blocks) | Deterministic (1 epoch, majority vote) |
-| **Verification** | Re-hash the block header | 3-miner redundant compute + commit-reveal |
+| **Verification** | Re-hash the block header | Random verifier panel (output quality check) |
 
-The key difference: Bitcoin's consensus is competitive (one miner wins per block), BTCPC's is cooperative (all miners who agree share the reward). This is because BTCPC's work is useful — there's no reason to discard it. Every miner's compute contributes to the network.
+The key difference: Bitcoin's consensus is competitive (one miner wins per block), BTCPC's is cooperative (all miners who contribute verified work share the reward proportional to their output). Every miner's compute contributes to the network.
 
 #### Scaling
 
-- **1 miner:** Consensus is trivial (genesis phase, solo mining)
-- **3-10 miners:** Every request goes to 3 miners, all verify everything
-- **10-100 miners:** Requests are sharded across miner groups, all miners verify the block state hash
-- **100-1000+ miners:** Same — more miners means more parallel inference capacity, not more overhead. Block verification is just comparing hashes, not re-running inference.
+- **1 miner:** Consensus is trivial (genesis phase, solo mining, 1 verifier)
+- **3-10 miners:** Single-miner-per-job, 3 verifiers per job
+- **10-50 miners:** Jobs distributed across miners, 5 verifiers per job
+- **50+ miners:** Full parallel inference capacity, 7 verifiers per job
 
-The network scales horizontally. More miners = more inference throughput = more work proofs per block = more value. Block consensus cost stays constant regardless of block size because it's a single hash comparison, not a re-execution of every proof.
+The network scales horizontally. More miners = more parallel inference throughput. More verifiers = higher confidence in output quality. More clocks = more resilient timing. Verification cost stays lightweight regardless of network size because verifiers check output quality, not re-run inference.
 
 ---
 
@@ -504,24 +528,26 @@ On-chain (public):                     Off-chain (private):
    - Includes prompt_hash = sha256(plaintext_prompt)
    - Posts: {encrypted_prompt, prompt_hash, model, fee}
 
-2. Network assigns request to N nodes for commit-reveal:
-   - Each node decrypts the prompt using their memo private key
-   - Runs inference with deterministic parameters
+2. Network assigns request to a miner:
+   - Miner decrypts the prompt using their memo private key
+   - Runs inference
    - Computes result_hash = sha256(plaintext_result)
    - Encrypts result with REQUESTER's memo public key
-   - Commits result_hash to the network
+   - Submits result to the network
    - Discards the decrypted prompt from memory
 
-3. Reveal phase:
-   - Nodes reveal result_hashes
-   - Consensus determined by matching hashes
-   - Winning encrypted_result delivered to requester
+3. Verification phase:
+   - Random verifier panel receives the result (not the prompt)
+   - Verifiers check output quality, timing, and token integrity
+   - Majority verdict determines validity
+   - Verified result delivered to requester
    - Requester decrypts with their own memo private key
 
 4. What remains on-chain:
    - prompt_hash, result_hash (for verification audit trail)
    - encrypted_prompt, encrypted_result (unreadable without keys)
    - model, tokens, fee, timestamp (operational metadata)
+   - verifier_verdicts (valid/invalid per verifier)
    - NO plaintext. Ever.
 ```
 
@@ -530,8 +556,9 @@ On-chain (public):                     Off-chain (private):
 | Party | Can See Prompt? | Can See Result? |
 |-------|----------------|-----------------|
 | Requester | Yes (they wrote it) | Yes (they decrypt it) |
-| Assigned compute nodes | Temporarily (decrypt to process, then discard) | Temporarily (generate, then discard after hashing) |
-| Other nodes / validators | No (only see hashes) | No (only see hashes) |
+| Assigned miner | Temporarily (decrypt to process, then discard) | Temporarily (generate, then discard after hashing) |
+| Verifiers | No (never see the prompt) | Yes (check output quality, then discard) |
+| Other nodes / clocks | No (only see hashes) | No (only see hashes) |
 | Public / block explorer | No | No |
 | Chain operator / foundation | No | No |
 
@@ -773,7 +800,7 @@ For sensitive workloads (medical records, legal documents, financial data), BTCP
 
 For tasks requiring full context (creative writing, complex reasoning), standard encrypted inference is recommended.
 
-**Status:** MPC is designed but not yet implemented. Requires the 3-miner consensus code (section 3.7) as a prerequisite. The sharding protocol and reassembly logic will be built once multi-miner coordination is live.
+**Status:** MPC is designed but not yet implemented. Requires multi-miner coordination as a prerequisite. The sharding protocol and reassembly logic will be built once sufficient miners are online to support N-way sharding.
 
 ---
 
@@ -819,15 +846,30 @@ With a genesis allocation of 5% of total supply (2,100,000 BTCPC) in the first 1
 
 ### 4.3 Reward Distribution Per Epoch
 
-Each epoch's block reward is distributed proportional to verified work:
+Each epoch's block reward is split across the three network roles:
 
 ```
-miner_reward = block_reward × (miner_work / total_network_work)
+ACTIVE EPOCH (inference work submitted):
+  Miners:    85% — split by work_value (tokens × model_weight_factor)
+  Verifiers: 10% — split among selected verifier panel (1-7 nodes)
+  Clocks:     5% — split equally among ALL active clock nodes
 
-miner_work = Σ(tokens_generated × model_weight_factor) [verified only]
+IDLE EPOCH (no inference work):
+  Miners:     0% — no work, no reward
+  Verifiers:  1% — keeping quality infrastructure online
+  Clocks:     1% — keeping epoch timing alive
+  Unminted:  98% — emission slot preserved, not inflated
 ```
 
-During the genesis period (solo mining), 100% of the block reward goes to the single miner. As more nodes join, the reward distributes naturally.
+Miner rewards within the 85% pool are proportional to verified work:
+```
+miner_reward = miner_pool × (miner_work / total_network_work)
+miner_work = Σ(tokens_generated × model_weight_factor)
+```
+
+Verifier rewards are split only among the verifiers selected for that epoch's jobs — not all verifiers on the network. With 7 verifiers checking 100 jobs, each verifier earns a meaningful share. With 5,000 clock nodes, each clock earns a small share of 5% — but any hardware can run a clock, so the barrier is near zero.
+
+If no verifiers are online, their 10% redistributes to miners. If no clocks are online, their 5% redistributes to miners. During genesis (solo mining), 100% goes to the single miner.
 
 ### 4.4 Difficulty Adjustment
 
@@ -845,7 +887,7 @@ If more GPUs join the network → each unit of compute earns fewer BTCPC → mir
 Users pay for inference in BTCPC:
 - **Base fee** = network-determined minimum per 1K tokens (adjusts with demand)
 - **Priority fee** = optional tip for faster processing
-- **Miner revenue** = block reward + 100% of fees + priority fees
+- **Miner revenue** = 85% of block reward + inference fees (minus verifier share)
 - **No burning** — every BTCPC minted stays in circulation forever, like Bitcoin
 
 As block rewards diminish through halvings, fee revenue becomes the primary miner incentive — exactly like Bitcoin's long-term security model.
@@ -1305,7 +1347,7 @@ BTCPC is the first chain where the work that secures the network (inference) is 
 Dreamstate compression jobs are treated as regular inference work:
 
 - Submitted every 100 epochs (~8 hours)
-- Assigned to 3 miners (consensus verification)
+- Assigned to a miner, verified by the standard verifier panel
 - Miners earn standard block rewards for the compression epoch
 - The compression IS useful work — it maintains the chain
 - No separate "storage fee" or "pruning incentive" needed
@@ -1411,7 +1453,7 @@ btcpc-node start \
 ### Phase 2: Network Opening
 - [ ] Node registration protocol (live)
 - [ ] Stake requirement enforcement
-- [ ] Commit-reveal verification system (N=3)
+- [x] Verifier panel system (random selection, 1-7 verifiers)
 - [ ] Difficulty adjustment
 - [ ] Block explorer
 
@@ -1463,7 +1505,7 @@ The answer is 42. The question was always about compute.
 | Work Function | SHA-256 (security-only) | AI Inference (useful) |
 | Block Time | ~10 minutes | ~5 minutes (1 epoch) |
 | Halving Interval | Fixed 4 years | Doubling intervals (1mo → 2mo → 4mo → ...) |
-| Verification | Check hash (instant) | Commit-reveal redundant computation (100%) |
+| Verification | Check hash (instant) | Random verifier panel (output quality check) |
 | Mining Hardware | ASICs | GPUs + AI models |
 | Multi-Chain | Bitcoin chain only | Native + claimable wBTCPC on linked chains |
 | Smart Contracts | Script (limited) | Purpose-built (limited) |
@@ -1610,19 +1652,20 @@ Network → sha256(SIK) matches registered sik_hash?
 
 ## Appendix F: Verification Evolution — Future-Proof Protocol
 
-### Current: Commit-Reveal Redundant Computation (N=3)
+### Current: Single-Pass Compute with Random Verifier Panel
 
-The current verification model assigns each inference request to N nodes. All N run the same computation independently. Consensus determines truth. This works but costs Nx the compute.
+The current verification model assigns each inference request to a single miner. A randomly selected panel of verifiers (1-7 nodes depending on network size) independently checks the output for quality, plausibility, and integrity. This avoids the waste of redundant computation while maintaining strong verification guarantees.
 
-### Future: Single-Pass Verifiable Inference
+Verifiers perform lightweight checks — output coherence, timing plausibility, token count integrity — not full re-inference. This means verification costs a small fraction of the original compute.
 
-Research in verifiable computation, zero-knowledge machine learning (zkML), and model-level attestation is advancing rapidly. It is plausible that within the lifetime of BTCPC, methods will exist to verify that a neural network inference was performed correctly — without re-running it.
+### Future: Enhanced Verification Methods
 
-Potential mechanisms:
-- **zkML proofs** — zero-knowledge proofs that a specific model produced a specific output from a specific input, without revealing the input or re-running the model
+Research in verifiable computation continues to advance. Future verification methods can be hot-swapped via governance vote without disrupting the existing protocol:
+
+- **zkML proofs** — zero-knowledge proofs that a specific model produced a specific output, without revealing the input or re-running the model
 - **Trusted Execution Environments (TEEs)** — hardware attestation (Intel SGX, AMD SEV, NVIDIA Confidential Computing) that cryptographically proves specific code ran on specific hardware
 - **Model fingerprinting** — intermediate layer activations at checkpoint positions that can be verified cheaply without full re-execution
-- **Consensus-free verification** — mathematical properties of transformer attention patterns that prove computation integrity
+- **Deterministic attestation** — mathematical properties of transformer attention patterns that prove computation integrity
 
 ### Protocol Upgrade Path
 
@@ -1633,23 +1676,22 @@ Verification Interface:
   verify(request, result, proof) → {valid: bool, confidence: float}
 
 Current implementation:
-  CommitRevealVerifier  (N=3 redundant computation)
+  VerifierPanelChecker  (random panel, output quality analysis)
 
 Future implementations (hot-swappable via governance vote):
   ZKMLVerifier          (zero-knowledge proof of inference)
   TEEVerifier           (hardware attestation)
-  HybridVerifier        (ZK for small models, commit-reveal for large)
-  SinglePassVerifier    (model-native verification, when available)
+  HybridVerifier        (ZK for small models, panel for large)
+  DeterministicVerifier (model-native attestation, when available)
 ```
 
 When a superior verification method becomes available:
 1. A governance proposal is submitted with the new verifier implementation
-2. Stake-weighted vote by node operators
+2. Stake-weighted vote by node operators (66% supermajority required)
 3. If approved, the new verifier is activated at a specified epoch
 4. Old proofs remain valid — verification is forward-compatible
-5. N can be reduced to 1 — eliminating redundant computation costs entirely
 
-This means BTCPC miners will eventually earn the FULL inference fee (not split N ways), making mining dramatically more profitable when single-pass verification arrives. Early miners who build the network now benefit from this future upgrade.
+As verification technology improves, the verifier panel can become smaller or the checks can become more rigorous — the reward split (85/10/5) adjusts via governance to reflect the evolving cost and value of verification.
 
 The protocol does not assume any specific verification technology. It assumes only that verified compute exists and is improvable. The chain adapts; the economic model endures.
 
@@ -1866,7 +1908,7 @@ One CLI. Any backend. Every request creates a dream inscription on the BTCPC cha
 
 ### External Provider Verification
 
-External provider requests require no redundant computation. The provider's own API response serves as verification:
+External provider requests require no on-chain verification. The provider's own API response serves as proof of compute:
 
 ```
 Provider response includes:
@@ -1884,12 +1926,12 @@ The user cannot falsify it — the data comes from the provider's response, not 
 External provider compute follows **the 42% rule** — a completely separate reward structure from native compute:
 
 ```
-NATIVE BTCPC COMPUTE (commit-reveal, 3 miners):
-  First miner:          50%    (fastest correct result)
-  Second miner:         30%    (verified the work)
-  Third miner:          20%    (verified the work)
-  OPS:            0%
-  Total:               100%   → all rewards go to miners who did the work
+NATIVE BTCPC COMPUTE (single-pass + verifier panel):
+  Miner:                85%    (performed the inference)
+  Verifier panel:       10%    (checked output quality)
+  Clock nodes:           5%    (maintained epoch timing)
+  OPS:                   0%
+  Total:               100%   → all rewards go to network participants
 
 EXTERNAL PROVIDER COMPUTE (receipt-verified):
   User:                 42%    (brought the job + their API key)
@@ -1902,7 +1944,7 @@ EXTERNAL PROVIDER COMPUTE (receipt-verified):
 
 - **Miners earn nothing on external jobs** — they didn't do the compute. OpenAI did. BTCPC rewards only flow to those who contributed. This keeps mining rewards pure and honest.
 - **Users earn 42%** — the answer. They brought real inference activity to the BTCPC chain using their own API key and their own money. That contribution is worth 42% of the reward.
-- **The OPS wallet earns 58%** — the verification premium. In native compute, this 58% goes to the second and third verifying miners (30% + 20% + the remaining 8% implicit overhead). Since external provider jobs need no verification, this premium flows to the OPS wallet instead.
+- **The OPS wallet earns 58%** — the verification premium. In native compute, 10% goes to verifiers and 5% to clocks. Since external provider jobs need no on-chain verification or timing, this premium flows to the OPS wallet instead.
 - **OPS fees come ONLY from external provider jobs.** Native compute pays zero to the foundation. This creates a clear incentive: mine natively and keep 100% within the miner community, or use external providers and fund protocol development.
 
 The ops wallet, controlled by Shin Devlin, funds:
@@ -1919,7 +1961,7 @@ The ops wallet address will be designated by Shin Devlin in a future protocol up
 Dreams created from external compute are marked differently on-chain:
 
 ```
-Verified Dream:     backed by BTCPC native compute + commit-reveal proof
+Verified Dream:     backed by BTCPC native compute + verifier panel attestation
 Registered Dream:   backed by external provider receipt
 
 Both are valid dreams. Both carry inscriptions. Both are transferable.
@@ -1992,7 +2034,7 @@ BTCPC L2 (Execution Layer):
   ├── WASM runtime — smart contracts in Rust, Go, JS, AssemblyScript
   ├── Full programmability — DeFi, NFTs, DAOs, games
   ├── Posts state roots to L1 every epoch
-  └── Secured by L1 miners (same commit-reveal verification)
+  └── Secured by L1 miners (same verifier panel verification)
 ```
 
 ### How It Works

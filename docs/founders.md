@@ -2,9 +2,9 @@
 
 ## Shindevlin — The Genesis Miner
 
-Shin Devlin is a systems engineer who spent a decade building infrastructure for other people's platforms before asking the question that started BTCPC: *why does mining have to be wasteful?*
+Shin Devlin is a systems engineer who spent a decade building infrastructure for other people's platforms before asking the question that started BTCPC: *what if the work that secures a chain also produces something people are already paying for?*
 
-Before BTCPC, Shin worked across the full stack — blockchain nodes, AI inference pipelines, distributed systems, and cross-chain architecture. He watched Bitcoin consume more electricity than countries to produce nothing but hashes, while simultaneously watching AI compute become the most valuable commodity on Earth, controlled by four corporations.
+Before BTCPC, Shin worked across the full stack — blockchain nodes, AI inference pipelines, distributed systems, and cross-chain architecture. He understood that Bitcoin's proof of work isn't wasted — SHA-256 hashes *are* the security model. But he also watched AI compute become the most valuable commodity on Earth, controlled by four corporations. The same GPUs that could secure a network could also run inference that people need.
 
 The connection was obvious. The execution was not.
 
@@ -30,13 +30,21 @@ Shin's philosophy: *build it so well that you become unnecessary.*
 
 ## Natoshisakamoto — The Second Miner
 
-The name is intentional. Not Nakamoto — *Natoshi*. A nod and a wink to the ghost who started it all, but with a twist: Natoshi isn't anonymous. Natoshi is the second node, the proof that the network works with more than one miner.
+The name is intentional. Not Nakamoto — *Natoshi*. A nod and a wink to the ghost who started it all, but with a twist: Natoshi isn't anonymous. And unlike Satoshi, he didn't start the chain. He had to be convinced it was worth joining.
 
-When BTCPC was a single machine talking to itself, it wasn't a network. It was a server. The moment Natoshisakamoto connected — a separate machine, separate GPU, separate P2P connection — BTCPC became a real blockchain. Two nodes reaching consensus. Two miners splitting rewards. Two clocks keeping time.
+Natoshi is a friend of Shin's — a Bitcoin maximalist who thought Shin was a moron for building another blockchain. Another chain, another token, another whitepaper full of promises. Natoshi had heard it all before and didn't care. Bitcoin worked. Everything else was noise.
 
-Natoshisakamoto runs on Grouchly, a 13th Gen Intel machine with no dedicated GPU, mining on CPU inference alone. This was deliberate: if BTCPC only worked on expensive GPU rigs, it wasn't truly decentralized. Natoshi proved that a mid-range desktop could mine useful AI compute alongside a GPU beast and still earn proportional rewards.
+Shin didn't argue. He asked a favor: install some software. Shin knew Natoshi was already running projects on a decent machine with a solid network connection. He didn't need Natoshi to believe in BTCPC. He needed a second node.
 
-The name also carries a deeper meaning. Satoshi Nakamoto disappeared. The Bitcoin network survived because it was built to survive the absence of its creator. Natoshisakamoto exists to prove the same thing about BTCPC: the second miner is just as important as the first. The chain doesn't belong to Shin. It belongs to every node that connects.
+So Natoshi installed it. A 13th Gen Intel i5, no dedicated GPU, mining on CPU inference alone. He expected nothing. What he got was his own machine doing real work — running AI models, answering actual inference requests, earning tokens proportional to the compute it contributed. Not hashing. Not staking. *Working.*
+
+That changed things. Natoshi went from Bitcoin maximalist to believing there is space for other things — things that make sense. Not everything. Not most things. But a chain where the mining *is* the product? Where the work that secures the network is the work people are paying for? That wasn't noise. That was the logical next step.
+
+The fact that Natoshi runs a CPU while Shin runs a GPU isn't a limitation — it's the point. Heterogeneous hardware makes the network stronger. A vulnerability in one architecture doesn't take down a diverse network. If BTCPC only worked on expensive GPU rigs, it wasn't truly decentralized. Natoshi proved otherwise.
+
+When BTCPC was a single machine talking to itself, it wasn't a network. It was a server. The moment Natoshisakamoto connected — a separate machine, separate P2P connection — BTCPC became a real blockchain. Two nodes reaching consensus. Two miners splitting rewards. Two clocks keeping time.
+
+The name carries a deeper meaning too. Satoshi Nakamoto disappeared. The Bitcoin network survived because it was built to survive the absence of its creator. Natoshisakamoto exists to prove the same thing about BTCPC: the second miner is just as important as the first. The chain doesn't belong to Shin. It belongs to every node that connects.
 
 As the network grew, Natoshi became the test case for everything: dual-miner reward splitting, consensus finalization with competing proposals, cross-chain claim verification, and the inference settlement pipeline. Every bug in the multi-miner flow was found because Natoshi existed.
 
@@ -50,13 +58,41 @@ As the network grew, Natoshi became the test case for everything: dual-miner rew
 
 ## The Relationship
 
-Shindevlin and Natoshisakamoto are two halves of a proof. Shin is the genesis — the first block, the first dream, the whitepaper inscribed on-chain. Natoshi is the consensus — the second voice that turns a monologue into a conversation.
+Shin built it. Natoshi didn't believe in it. That's what makes BTCPC real.
 
-One runs a GPU. One runs a CPU. One created the chain. One proved it works. Together, they demonstrated that BTCPC's core promise is real: useful AI compute, decentralized across independent machines, rewarding every participant fairly.
+A chain built by a true believer and validated by a skeptic is stronger than one built by two true believers. Shin had the vision but needed someone who would call bullshit. Natoshi had no patience for another altcoin — but he couldn't argue with his own machine earning tokens for real work.
+
+One runs a GPU. One runs a CPU. One created the chain. One had to be convinced. Together, they demonstrated that BTCPC's core promise is real: useful AI compute, decentralized across independent machines with different hardware, rewarding every participant fairly.
 
 The goal was always the same: build to a point where both of them are just two more nodes in a sea of thousands. Where the Genesis Operator NFT is a historical artifact, not a governance tool. Where the chain dreams on its own.
 
 *"We didn't build BTCPC to run it. We built it to let go of it."*
+
+---
+
+## Josh — The Voice
+
+Josh is an attorney. He was brought in to advise — review the tokenomics for regulatory exposure, sanity-check the governance model, make sure two engineers weren't accidentally building something that would get them sued. That was supposed to be the extent of it.
+
+But Shin and Natoshi are builders, not communicators. Shin speaks in protocol specs. Natoshi speaks in "this is stupid" or "okay, that's not stupid." Neither of them wants to be the public face of anything. Shin's whole philosophy is to disappear. Natoshi barely wanted to participate in the first place.
+
+Josh understood BTCPC differently than either of them. Not from the code — from what it meant. A network where the work is the product. Where mining earns its keep. Where the founder's exit is designed into the protocol from day one. He could explain it without jargon, without maximalism, without the defensiveness that comes from building something and needing it to succeed.
+
+Shin and Natoshi liked him. More importantly, they trusted him. When the handover comes — when governance activates and the Genesis Operator role transfers to the network — Josh becomes the voice of BTCPC. Not the authority. Not the operator. The voice. The person who talks to the world while Shin and Natoshi fade into the node pool.
+
+Josh doesn't mine. But he does run a clock node — not because the network needed him to, but because he's a nerd and he thinks it's cool. There's something satisfying about a machine in your office quietly keeping time for a blockchain. He'd never admit that's why he agreed to advise in the first place.
+
+**On-chain identity:** `josh`
+**Role:** Legal Advisor, Clock Node Operator, Post-Handover Voice
+**NFT:** Advisor (soulbound)
+
+---
+
+## The Three
+
+An engineer who builds to disappear. A skeptic who had to be convinced by his own machine. A lawyer who came to advise and stayed to speak.
+
+BTCPC doesn't need a charismatic founder. It needs someone who can explain why useful work matters — without being the person who built it or the person who doubted it. That's Josh.
 
 ---
 
