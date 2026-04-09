@@ -365,6 +365,26 @@ async function handlePayload(msg) {
     }, p2p.NODE_ID);
     p2p.broadcast(result);
 
+    // Broadcast VERIFY_REQUEST — verifiers see full response but NOT the prompt
+    try {
+      const Epoch = require("../models/Epoch");
+      const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
+      const currentEpoch = latestEpoch ? latestEpoch.epoch_number : 0;
+      const verifyReq = createMessage("VERIFY_REQUEST", {
+        job_id: requestId,
+        result: resultText,
+        model,
+        token_count: tokensGenerated,
+        timing_ms: elapsed,
+        miner: MINER_NAME,
+        epoch: currentEpoch,
+        block_hash: latestEpoch ? (latestEpoch.consensus_hash || "0".repeat(64)) : "0".repeat(64)
+      }, p2p.NODE_ID);
+      p2p.broadcast(verifyReq);
+    } catch (verifyErr) {
+      console.error(`[BTCPC Inference] Failed to broadcast VERIFY_REQUEST: ${verifyErr.message}`);
+    }
+
     console.log(`[BTCPC Inference] Completed ${requestId?.slice(0, 8)}: ${tokensGenerated} tokens, ${elapsed}ms`);
     recordModelResult(model, elapsed, tokensGenerated, true);
   } catch (err) {

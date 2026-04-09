@@ -5,6 +5,7 @@ const Epoch = require('../models/Epoch');
 const StakingPool = require('../models/StakingPool');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getBlockReward, getCurrentPeriod, getPeriodTable } = require('../services/emissionSchedule');
+const { rejectObjectInputs, sanitizeString, validEndpoint, validModel, validHexString, isPlainString } = require('../middlewares/validate');
 
 const MIN_STAKE = 1000;
 
@@ -14,15 +15,26 @@ const MIN_STAKE = 1000;
  */
 async function registerNode(req, res) {
   const userId = req.user.id;
-  const { endpoint, models, hardware, hive_account, base_wallet } = req.body;
-
   try {
+    if (typeof req.body.endpoint === 'object') return res.status(400).json({ error: 'endpoint must be a string' });
+    if (typeof req.body.hive_account === 'object') return res.status(400).json({ error: 'hive_account must be a string' });
+    if (typeof req.body.base_wallet === 'object') return res.status(400).json({ error: 'base_wallet must be a string' });
+    const endpoint = sanitizeString(req.body.endpoint, 500);
+    const models = req.body.models;
+    const hardware = (req.body.hardware && typeof req.body.hardware === 'object' && !Array.isArray(req.body.hardware)) ? req.body.hardware : {};
+    const hive_account = sanitizeString(req.body.hive_account, 20) || null;
+    const base_wallet = sanitizeString(req.body.base_wallet, 200) || null;
     if (!endpoint) {
       return res.status(400).json({ error: 'endpoint is required' });
     }
+    if (!validEndpoint(endpoint)) return res.status(400).json({ error: 'invalid endpoint' });
 
     if (!models || !Array.isArray(models) || models.length === 0) {
       return res.status(400).json({ error: 'models must be a non-empty array of model names' });
+    }
+    if (models.length > 50) return res.status(400).json({ error: 'too many models (max 50)' });
+    for (var i = 0; i < models.length; i++) {
+      if (!validModel(models[i])) return res.status(400).json({ error: 'invalid model name: ' + models[i] });
     }
 
     // Check if user already has a registered node
@@ -75,9 +87,18 @@ async function registerNode(req, res) {
  */
 async function updateNode(req, res) {
   const userId = req.user.id;
-  const { endpoint, models, hardware, hive_account, base_wallet } = req.body;
-
   try {
+    if (req.body.endpoint !== undefined && typeof req.body.endpoint === 'object') {
+      return res.status(400).json({ error: 'endpoint must be a string' });
+    }
+    if (typeof req.body.hive_account === 'object') return res.status(400).json({ error: 'hive_account must be a string' });
+    if (typeof req.body.base_wallet === 'object') return res.status(400).json({ error: 'base_wallet must be a string' });
+    const endpoint = req.body.endpoint ? sanitizeString(req.body.endpoint, 500) : null;
+    const models = req.body.models;
+    const hardware = (req.body.hardware && typeof req.body.hardware === 'object' && !Array.isArray(req.body.hardware)) ? req.body.hardware : null;
+    const hive_account = req.body.hive_account !== undefined ? sanitizeString(req.body.hive_account, 20) : undefined;
+    const base_wallet = req.body.base_wallet !== undefined ? sanitizeString(req.body.base_wallet, 200) : undefined;
+
     const node = await Node.findOne({ account: userId });
     if (!node) {
       return res.status(404).json({ error: 'No node registered for this account' });
@@ -87,8 +108,17 @@ async function updateNode(req, res) {
       return res.status(403).json({ error: 'Node is banned and cannot be updated' });
     }
 
-    if (endpoint) node.endpoint = endpoint;
-    if (models && Array.isArray(models) && models.length > 0) node.models = models;
+    if (endpoint) {
+      if (!validEndpoint(endpoint)) return res.status(400).json({ error: 'invalid endpoint' });
+      node.endpoint = endpoint;
+    }
+    if (models && Array.isArray(models) && models.length > 0) {
+      if (models.length > 50) return res.status(400).json({ error: 'too many models (max 50)' });
+      for (var i = 0; i < models.length; i++) {
+        if (!validModel(models[i])) return res.status(400).json({ error: 'invalid model name: ' + models[i] });
+      }
+      node.models = models;
+    }
     if (hardware) node.hardware = { ...node.hardware, ...hardware };
     if (hive_account !== undefined) node.hive_account = hive_account;
     if (base_wallet !== undefined) node.base_wallet = base_wallet;
@@ -158,12 +188,18 @@ async function getNodes(req, res) {
  */
 async function submitEpochCommitment(req, res) {
   const userId = req.user.id;
-  const { state_hash, tx_count, inference_count } = req.body;
 
   try {
+    if (typeof req.body.state_hash === 'object') return res.status(400).json({ error: 'state_hash must be a string' });
+    const state_hash = sanitizeString(req.body.state_hash, 128);
+    const tx_count = Number(req.body.tx_count) || 0;
+    const inference_count = Number(req.body.inference_count) || 0;
     if (!state_hash) {
       return res.status(400).json({ error: 'state_hash is required' });
     }
+    if (!validHexString(state_hash, 128)) return res.status(400).json({ error: 'state_hash must be a valid hex string' });
+    if (tx_count < 0 || !Number.isInteger(tx_count)) return res.status(400).json({ error: 'tx_count must be a non-negative integer' });
+    if (inference_count < 0 || !Number.isInteger(inference_count)) return res.status(400).json({ error: 'inference_count must be a non-negative integer' });
 
     // Find the caller's node
     const node = await Node.findOne({ account: userId, status: 'active' });

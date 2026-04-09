@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createAccount } = require('../wallet/accountManager');
+const { rejectObjectInputs, validAccountName, sanitizeString, sanitizeTelegramId } = require('../middlewares/validate');
 
 function isBcryptHash(value) {
   return typeof value === 'string' && value.startsWith('$2');
@@ -37,9 +38,16 @@ async function verifyAndUpgradePassword(user, password) {
  * Mnemonic is shown ONCE — user must save it. We never store it.
  */
 async function registerUser(req, res) {
-  const { username, password } = req.body;
-
   try {
+    const objErr = rejectObjectInputs(req.body, ['username', 'password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const username = sanitizeString(req.body.username, 20);
+    const password = req.body.password;
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    if (!validAccountName(username)) return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
+    if (typeof password !== 'string' || password.length < 8 || password.length > 200) {
+      return res.status(400).json({ error: 'password must be 8-200 characters' });
+    }
     const result = await createAccount(username, null, password);
 
     res.status(201).json({
@@ -59,12 +67,19 @@ async function registerUser(req, res) {
  * Login User
  */
 async function loginUser(req, res) {
-  const { email, username, password } = req.body;
-  const identifier = email || username;
-
   try {
+    const objErr = rejectObjectInputs(req.body, ['email', 'username', 'password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const email = sanitizeString(req.body.email, 100);
+    const username = sanitizeString(req.body.username, 20);
+    const password = req.body.password;
+    const identifier = email || username;
+
     if (!identifier || !password) {
       return res.status(400).json({ error: 'username/email and password are required' });
+    }
+    if (typeof password !== 'string' || password.length > 200) {
+      return res.status(400).json({ error: 'invalid password' });
     }
 
     const user = await User.findOne({
@@ -100,9 +115,14 @@ async function loginUser(req, res) {
  */
 async function linkTelegram(req, res) {
   const userId = req.user.id;
-  const { telegramId, telegramUsername } = req.body;
 
   try {
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'telegramUsername']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const telegramUsername = sanitizeString(req.body.telegramUsername, 40);
+    if (!telegramId) return res.status(400).json({ error: 'valid telegramId required' });
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -112,7 +132,6 @@ async function linkTelegram(req, res) {
       return res.status(400).json({ error: 'Telegram account already linked' });
     }
 
-    // Check uniqueness — prevent hijacking another user's Telegram ID
     const existingLink = await User.findOne({ telegramId: String(telegramId) });
     if (existingLink) {
       return res.status(400).json({ error: 'This Telegram account is already linked to another user' });
@@ -136,10 +155,9 @@ async function linkTelegram(req, res) {
  */
 async function enable2FA(req, res) {
   const userId = req.user.id;
-  const { token } = req.body;
-
   try {
-    // Verify 2FA token (simplified - in production use proper TOTP)
+    if (typeof req.body.token === 'object') return res.status(400).json({ error: 'token must be a string' });
+    const token = sanitizeString(req.body.token, 20);
     if (!token || token !== process.env.TWOFA_TOKEN) {
       return res.status(400).json({ error: 'Invalid 2FA token' });
     }

@@ -78,13 +78,13 @@ describe('walletController', () => {
 
   test('transfer rejects insufficient BTCPC balance', async () => {
     Wallet.findOne.mockResolvedValue({
-      address: 'BTCPCsender',
+      address: 'BTCPCsender01',
       balance: new Map([['BTCPC', 5]])
     });
 
     const req = {
       user: { id: 'user-1' },
-      body: { toAddress: 'BTCPCrecipient', amount: 10, memo: 'hello' }
+      body: { toAddress: 'BTCPCrecipient01', amount: 10, memo: 'hello' }
     };
     const res = createRes();
 
@@ -97,17 +97,17 @@ describe('walletController', () => {
   test('transfer rejects self-transfers', async () => {
     Wallet.findOne
       .mockResolvedValueOnce({
-        address: 'BTCPCsame',
+        address: 'BTCPCsameaddr',
         balance: new Map([['BTCPC', 100]])
       })
       .mockResolvedValueOnce({
-        address: 'BTCPCsame',
+        address: 'BTCPCsameaddr',
         balance: new Map([['BTCPC', 0]])
       });
 
     const req = {
       user: { id: 'user-1' },
-      body: { toAddress: 'BTCPCsame', amount: 10 }
+      body: { toAddress: 'BTCPCsameaddr', amount: 10 }
     };
     const res = createRes();
 
@@ -120,12 +120,12 @@ describe('walletController', () => {
   test('transfer records a ledger-backed transaction on success', async () => {
     Wallet.findOne
       .mockResolvedValueOnce({
-        address: 'BTCPCsender',
+        address: 'BTCPCsender01',
         balance: new Map([['BTCPC', 100]])
       })
       .mockResolvedValueOnce({
         userId: 'user-2',
-        address: 'BTCPCrecipient',
+        address: 'BTCPCrecipient01',
         balance: new Map([['BTCPC', 0]])
       });
     User.findById.mockResolvedValue({ username: 'alice' });
@@ -138,7 +138,7 @@ describe('walletController', () => {
 
     const req = {
       user: { id: 'user-1' },
-      body: { toAddress: 'BTCPCrecipient', amount: 10, memo: 'payment' }
+      body: { toAddress: 'BTCPCrecipient01', amount: 10, memo: 'payment' }
     };
     const res = createRes();
 
@@ -152,7 +152,7 @@ describe('walletController', () => {
   });
 
   test('getTransactionHistory returns transactions for the user wallet', async () => {
-    Wallet.findOne.mockResolvedValue({ address: 'BTCPCsender' });
+    Wallet.findOne.mockResolvedValue({ address: 'BTCPCsender01' });
     const sort = jest.fn().mockResolvedValue([{ amount: 1 }]);
     Transaction.find.mockReturnValue({ sort });
 
@@ -162,11 +162,11 @@ describe('walletController', () => {
     await getTransactionHistory(req, res);
 
     expect(Transaction.find).toHaveBeenCalledWith({
-      $or: [{ from: 'BTCPCsender' }, { to: 'BTCPCsender' }]
+      $or: [{ from: 'BTCPCsender01' }, { to: 'BTCPCsender01' }]
     });
     expect(res.json).toHaveBeenCalledWith({
       success: true,
-      address: 'BTCPCsender',
+      address: 'BTCPCsender01',
       transactions: [{ amount: 1 }]
     });
   });

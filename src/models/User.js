@@ -35,6 +35,18 @@ var userSchema = new Schema({
     type: Boolean,
     default: false
   },
+  totpSecret: {
+    type: String,
+    default: null
+  },
+  totpEnabled: {
+    type: Boolean,
+    default: false
+  },
+  totpBackupCodes: {
+    type: [String],
+    default: []
+  },
   authProfile: {
     type: String,
     enum: ["password", "totp", "both", "none"],

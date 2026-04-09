@@ -6,17 +6,21 @@ const User = require('../models/User');
 const ledger = require('../services/ledger');
 const p2p = require('../p2p/network');
 const { createTransactionMessage } = require('../p2p/protocol');
+const { rejectObjectInputs, sanitizeString, sanitizeAmount, validAddress, validChain } = require('../middlewares/validate');
 
 /**
  * Create Wallet for Authenticated User
  */
 async function createWallet(req, res) {
   const userId = req.user.id;
-  const { chain } = req.body;
+  const chain = sanitizeString(req.body.chain, 20) || 'hive';
 
   try {
-    // Check if user already has a wallet for this chain
-    const existing = await Wallet.findOne({ userId, chain: chain || 'hive' });
+    if (typeof req.body.chain === 'object' && req.body.chain !== null) {
+      return res.status(400).json({ error: 'chain must be a string' });
+    }
+    if (!validChain(chain)) return res.status(400).json({ error: 'unsupported chain' });
+    const existing = await Wallet.findOne({ userId, chain });
     if (existing) {
       return res.status(400).json({ error: 'Wallet already exists for this chain' });
     }
@@ -74,15 +78,18 @@ async function getBalance(req, res) {
  */
 async function transfer(req, res) {
   const userId = req.user.id;
-  const { toAddress, amount, memo } = req.body;
 
   try {
+    const objErr = rejectObjectInputs(req.body, ['toAddress', 'amount', 'memo']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const toAddress = sanitizeString(req.body.toAddress, 200);
+    const amount = sanitizeAmount(req.body.amount);
+    const memo = sanitizeString(req.body.memo, 500) || null;
     if (!toAddress || !amount) {
       return res.status(400).json({ error: 'toAddress and amount are required' });
     }
-
-    if (amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be greater than zero' });
+    if (!validAddress(toAddress)) {
+      return res.status(400).json({ error: 'invalid address format' });
     }
 
     // Find sender wallet

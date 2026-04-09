@@ -18,6 +18,45 @@ function extractOllamaText(data) {
   return msg.content || msg.thinking || data?.response || data?.thinking || '';
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function estimateTokens(text) {
+  return Math.max(1, Math.ceil(String(text || '').length / 4));
+}
+
+function sseChunk(id, content, finishReason, model) {
+  return {
+    id,
+    object: 'chat.completion.chunk',
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: content ? { content } : {},
+        finish_reason: finishReason || null
+      }
+    ]
+  };
+}
+
+function writeSSE(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function chunkText(text) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const chunks = [];
+  let i = 0;
+  while (i < words.length) {
+    const size = 3 + (chunks.length % 3);
+    chunks.push(words.slice(i, i + size).join(' '));
+    i += size;
+  }
+  return chunks.length ? chunks : [''];
+}
+
 async function runDirectOllamaChat({ model, messages, max_tokens, temperature }) {
   const response = await axios.post(`${OLLAMA_URL}/api/chat`, {
     model,
@@ -31,6 +70,200 @@ async function runDirectOllamaChat({ model, messages, max_tokens, temperature })
     text: extractOllamaText(response.data),
     tokens: response.data.eval_count || 0,
     elapsedMs: response.data.total_duration ? Math.round(response.data.total_duration / 1e6) : 0
+  };
+}
+
+async function streamDirectOllamaChat({ model, messages, max_tokens, temperature, res, requestId }) {
+  const response = await axios.post(`${OLLAMA_URL}/api/chat`, {
+    model,
+    messages,
+    stream: true,
+    think: false,
+    options: { temperature: temperature || 0.7, num_predict: max_tokens || 512 }
+  }, {
+    timeout: 300000,
+    responseType: 'stream'
+  });
+
+  let buffer = '';
+  let sawContent = false;
+
+  for await (const chunk of response.data) {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (_) {
+        continue;
+      }
+      const content = extractOllamaText(parsed);
+      if (content) {
+        sawContent = true;
+        writeSSE(res, sseChunk(requestId, content, null, model));
+      }
+      if (parsed.done) {
+        writeSSE(res, sseChunk(requestId, '', 'stop', model));
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+    }
+  }
+
+  if (!sawContent) {
+    writeSSE(res, sseChunk(requestId, '', 'stop', model));
+    res.write('data: [DONE]\n\n');
+    res.end();
+  }
+}
+
+async function pollInferenceJob(jobId, maxWait, pollInterval) {
+  const startTime = Date.now();
+  let job = null;
+
+  while (Date.now() - startTime < maxWait) {
+    job = await getJob(jobId);
+    if (job && (job.status === 'completed' || job.status === 'failed')) break;
+    await sleep(pollInterval);
+  }
+
+  return job;
+}
+
+async function finalizeChatResult({ req, selectedModel, messages, max_tokens, temperature, max_fee }) {
+  const startTime = Date.now();
+
+  if (!hasMiners()) {
+    const error = new Error('No miners connected to the P2P network. Inference requires at least one active miner.');
+    error.status = 503;
+    error.payload = {
+      error: {
+        message: error.message,
+        type: 'network_error',
+        code: 'no_miners',
+        peers: peerCount()
+      }
+    };
+    throw error;
+  }
+
+  let fee = max_fee;
+  if (!fee) {
+    const autoBid = await getAutoBid(selectedModel, max_tokens || 512);
+    fee = autoBid.bid;
+  }
+
+  const { job_id } = await submitInference({
+    model: selectedModel,
+    messages,
+    maxTokens: max_tokens,
+    temperature,
+    maxFee: fee,
+    projectId: req.project?._id
+  });
+
+  const job = await pollInferenceJob(job_id, 300000, 2000);
+  if (!job || job.status !== 'completed') {
+    const status = job?.status || 'unknown';
+    const error = new Error(`Inference not completed. Job status: ${status}. Check GET /v1/inference/${job_id}`);
+    error.status = 504;
+    error.payload = {
+      error: {
+        message: error.message,
+        type: 'timeout',
+        code: 'inference_pending',
+        job_id
+      }
+    };
+    throw error;
+  }
+
+  let assistantContent = job.result_text || '';
+  let evalCount = job.tokens_generated || estimateTokens(assistantContent);
+
+  if (!assistantContent.trim()) {
+    const direct = await runDirectOllamaChat({
+      model: selectedModel,
+      messages,
+      max_tokens,
+      temperature
+    });
+    assistantContent = direct.text;
+    evalCount = direct.tokens || evalCount;
+  }
+
+  if (!assistantContent.trim()) {
+    const error = new Error('Inference completed without usable output from miners or local backend.');
+    error.status = 502;
+    error.payload = {
+      error: {
+        message: error.message,
+        type: 'server_error',
+        code: 'empty_inference_result',
+        job_id
+      }
+    };
+    throw error;
+  }
+
+  const promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
+  const promptText = messages.map(m => `${m.role}:${m.content || ''}`).join('|');
+  const promptHash = crypto.createHash('sha256').update(promptText).digest('hex');
+  const resultHash = crypto.createHash('sha256').update(assistantContent).digest('hex');
+  const weightFactor = getModelWeight(selectedModel);
+  const workValue = evalCount * weightFactor;
+
+  let epochNumber = 0;
+  let proofHash = '';
+  let verified = false;
+
+  try {
+    epochNumber = await getCurrentEpoch();
+    const proof = new WorkProof({
+      epoch_number: epochNumber,
+      node_id: 'inference-api',
+      prompt_hash: promptHash,
+      result_hash: resultHash,
+      model: selectedModel,
+      tokens_generated: evalCount,
+      model_weight_factor: weightFactor,
+      work_value: workValue
+    });
+    const saved = await proof.save();
+    proofHash = saved._id.toString();
+    verified = true;
+  } catch (proofErr) {
+    console.error('[BTCPC Inference] Failed to save work proof:', proofErr.message);
+    proofHash = crypto.createHash('sha256')
+      .update(promptHash + resultHash + Date.now().toString())
+      .digest('hex');
+  }
+
+  const { cost, pricing } = await calculateCost(evalCount, selectedModel);
+  if (req.project) {
+    req.project.balance = Math.max(0, req.project.balance - cost);
+    req.project.totalSpent += cost;
+    req.project.totalRequests += 1;
+    await req.project.save();
+  }
+
+  return {
+    jobId: job_id,
+    assistantContent,
+    evalCount,
+    promptEvalCount,
+    epochNumber,
+    proofHash,
+    verified,
+    cost,
+    pricing,
+    elapsedMs: Date.now() - startTime
   };
 }
 
@@ -462,7 +695,7 @@ router.get('/v1/inference/:job_id', async (req, res) => {
  * Routes inference to Ollama, logs a WorkProof, returns OpenAI-format response.
  */
 router.post('/v1/chat/completions', async (req, res) => {
-  const { model, messages, max_tokens, temperature, stream, max_fee } = req.body;
+  const { model, messages, max_tokens, temperature, stream, max_fee, local } = req.body;
 
   // Validate required fields
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -508,150 +741,90 @@ router.post('/v1/chat/completions', async (req, res) => {
     });
   }
 
-  // Streaming not yet supported
-  if (stream === true) {
-    return res.status(400).json({
-      error: {
-        message: 'Streaming is not yet supported. Set stream to false.',
-        type: 'invalid_request_error',
-        code: 'streaming_not_supported'
-      }
-    });
-  }
-
   try {
-    const startTime = Date.now();
+    const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
+    const created = Math.floor(Date.now() / 1000);
 
-    if (!hasMiners()) {
-      return res.status(503).json({
-        error: {
-          message: 'No miners connected to the P2P network. Inference requires at least one active miner.',
-          type: 'network_error',
-          code: 'no_miners',
-          peers: peerCount()
-        }
+    if (stream === true) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      if (local) {
+        return await streamDirectOllamaChat({
+          model: selectedModel,
+          messages,
+          max_tokens,
+          temperature,
+          res,
+          requestId
+        });
+      }
+
+      const final = await finalizeChatResult({
+        req,
+        selectedModel,
+        messages,
+        max_tokens,
+        temperature,
+        max_fee
       });
+
+      for (const piece of chunkText(final.assistantContent)) {
+        writeSSE(res, sseChunk(requestId, piece, null, selectedModel));
+        await sleep(50);
+      }
+      writeSSE(res, sseChunk(requestId, '', 'stop', selectedModel));
+      res.write('data: [DONE]\n\n');
+      return res.end();
     }
 
-    // Calculate bid
-    let fee = max_fee;
-    if (!fee) {
-      const autoBid = await getAutoBid(selectedModel, max_tokens || 512);
-      fee = autoBid.bid;
-    }
-
-    // Submit async job
-    const { job_id } = await submitInference({
-      model: selectedModel,
-      messages,
-      maxTokens: max_tokens,
-      temperature,
-      maxFee: fee,
-      projectId: req.project?._id
-    });
-
-    // Poll until complete (OpenAI compat — client expects sync response)
-    const MAX_WAIT = 300000; // 5 min
-    const POLL_INTERVAL = 2000; // 2s
-    let job = null;
-
-    while (Date.now() - startTime < MAX_WAIT) {
-      job = await getJob(job_id);
-      if (job && (job.status === 'completed' || job.status === 'failed')) break;
-      await new Promise(r => setTimeout(r, POLL_INTERVAL));
-    }
-
-    if (!job || job.status !== 'completed') {
-      const status = job?.status || 'unknown';
-      return res.status(504).json({
-        error: {
-          message: `Inference not completed. Job status: ${status}. Check GET /v1/inference/${job_id}`,
-          type: 'timeout',
-          code: 'inference_pending',
-          job_id
-        }
-      });
-    }
-
-    let assistantContent = job.result_text || '';
-    let evalCount = job.tokens_generated || estimateTokens(assistantContent);
-
-    // Some miners still return an empty result_text for models that expose output
-    // via alternate Ollama fields. Fall back to direct local inference instead of
-    // returning a silent empty success to the caller.
-    if (!assistantContent.trim()) {
+    if (local) {
       const direct = await runDirectOllamaChat({
         model: selectedModel,
         messages,
         max_tokens,
         temperature
       });
-      assistantContent = direct.text;
-      evalCount = direct.tokens || evalCount;
-    }
 
-    if (!assistantContent.trim()) {
-      return res.status(502).json({
-        error: {
-          message: 'Inference completed without usable output from miners or local backend.',
-          type: 'server_error',
-          code: 'empty_inference_result',
-          job_id
+      return res.json({
+        id: requestId,
+        object: 'chat.completion',
+        created,
+        model: selectedModel,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: direct.text
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: estimateTokens(messages.map(m => m.content || '').join(' ')),
+          completion_tokens: direct.tokens,
+          total_tokens: estimateTokens(messages.map(m => m.content || '').join(' ')) + direct.tokens
+        },
+        btcpc: {
+          cost: 0,
+          model_weight: getModelWeight(selectedModel),
+          local: true,
+          elapsed_ms: direct.elapsedMs
         }
       });
     }
 
-    const promptEvalCount = estimateTokens(messages.map(m => m.content || '').join(' '));
-
-    // Compute hashes for work proof
-    const promptText = messages.map(m => `${m.role}:${m.content || ''}`).join('|');
-    const promptHash = crypto.createHash('sha256').update(promptText).digest('hex');
-    const resultHash = crypto.createHash('sha256').update(assistantContent).digest('hex');
-    const weightFactor = getModelWeight(selectedModel);
-    const workValue = evalCount * weightFactor;
-
-    // Log as WorkProof
-    let epochNumber = 0;
-    let proofHash = '';
-    let verified = false;
-
-    try {
-      epochNumber = await getCurrentEpoch();
-      const proof = new WorkProof({
-        epoch_number: epochNumber,
-        node_id: 'inference-api',
-        prompt_hash: promptHash,
-        result_hash: resultHash,
-        model: selectedModel,
-        tokens_generated: evalCount,
-        model_weight_factor: weightFactor,
-        work_value: workValue
-      });
-      const saved = await proof.save();
-      proofHash = saved._id.toString();
-      verified = true;
-    } catch (proofErr) {
-      console.error('[BTCPC Inference] Failed to save work proof:', proofErr.message);
-      // Still return the inference result even if proof logging fails
-      proofHash = crypto.createHash('sha256')
-        .update(promptHash + resultHash + Date.now().toString())
-        .digest('hex');
-    }
-
-    // Build OpenAI-compatible response
-    const requestId = `btcpc-${crypto.randomBytes(12).toString('hex')}`;
-    const created = Math.floor(Date.now() / 1000);
-
-    // Dynamic pricing based on network load
-    const { cost, pricing } = await calculateCost(evalCount, selectedModel);
-
-    // Deduct from project balance if this is a project API key request
-    if (req.project) {
-      req.project.balance = Math.max(0, req.project.balance - cost);
-      req.project.totalSpent += cost;
-      req.project.totalRequests += 1;
-      await req.project.save();
-    }
+    const final = await finalizeChatResult({
+      req,
+      selectedModel,
+      messages,
+      max_tokens,
+      temperature,
+      max_fee
+    });
 
     res.json({
       id: requestId,
@@ -663,26 +836,26 @@ router.post('/v1/chat/completions', async (req, res) => {
           index: 0,
           message: {
             role: 'assistant',
-            content: assistantContent
+            content: final.assistantContent
           },
           finish_reason: 'stop'
         }
       ],
       usage: {
-        prompt_tokens: promptEvalCount,
-        completion_tokens: evalCount,
-        total_tokens: promptEvalCount + evalCount
+        prompt_tokens: final.promptEvalCount,
+        completion_tokens: final.evalCount,
+        total_tokens: final.promptEvalCount + final.evalCount
       },
       btcpc: {
-        cost,
-        tokens_per_btcpc: pricing.tokensPerBtcpc,
-        model_weight: pricing.modelWeight,
-        load_multiplier: pricing.loadMultiplier,
-        total_multiplier: pricing.totalMultiplier,
-        network_load: pricing.load,
-        epoch: epochNumber,
-        proof_hash: proofHash,
-        verified: verified,
+        cost: final.cost,
+        tokens_per_btcpc: final.pricing.tokensPerBtcpc,
+        model_weight: final.pricing.modelWeight,
+        load_multiplier: final.pricing.loadMultiplier,
+        total_multiplier: final.pricing.totalMultiplier,
+        network_load: final.pricing.load,
+        epoch: final.epochNumber,
+        proof_hash: final.proofHash,
+        verified: final.verified,
         remaining_balance: req.project ? req.project.balance : undefined
       }
     });
@@ -720,12 +893,5 @@ router.post('/v1/chat/completions', async (req, res) => {
     });
   }
 });
-
-/**
- * Rough token estimate when eval_count is not available.
- */
-function estimateTokens(text) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
 
 module.exports = router;

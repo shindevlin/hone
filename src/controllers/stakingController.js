@@ -4,6 +4,7 @@ const StakingPool = require('../models/StakingPool');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
+const { rejectObjectInputs, sanitizeAmount } = require('../middlewares/validate');
 
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
@@ -14,9 +15,12 @@ const UNLOCK_PERIOD_DAYS = 7;
  */
 async function stake(req, res) {
   const userId = req.user.id;
-  const { amount } = req.body;
 
   try {
+    if (typeof req.body.amount === 'object' && req.body.amount !== null) {
+      return res.status(400).json({ error: 'amount must be a number' });
+    }
+    const amount = sanitizeAmount(req.body.amount);
     if (!amount || amount < MINIMUM_STAKE) {
       return res.status(400).json({
         error: `Minimum stake is ${MINIMUM_STAKE} BTCPC`

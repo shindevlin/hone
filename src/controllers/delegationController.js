@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const Node = require('../models/Node');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
+const { rejectObjectInputs, sanitizeAmount, sanitizeString, validAccountName } = require('../middlewares/validate');
 
 const UNLOCK_PERIOD_DAYS = 7;
 
@@ -13,9 +14,12 @@ const UNLOCK_PERIOD_DAYS = 7;
  */
 async function delegate(req, res) {
   const userId = req.user.id;
-  const { amount, miner } = req.body;
 
   try {
+    const objErr = rejectObjectInputs(req.body, ['amount', 'miner']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const amount = sanitizeAmount(req.body.amount);
+    const miner = sanitizeString(req.body.miner, 24);
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
@@ -24,7 +28,6 @@ async function delegate(req, res) {
       return res.status(400).json({ error: 'Miner account is required' });
     }
 
-    // Resolve miner — accept username or ObjectId
     let minerUser;
     if (miner.match(/^[0-9a-fA-F]{24}$/)) {
       minerUser = await User.findById(miner);
@@ -124,9 +127,12 @@ async function delegate(req, res) {
  */
 async function undelegate(req, res) {
   const userId = req.user.id;
-  const { amount, miner } = req.body;
 
   try {
+    const objErr = rejectObjectInputs(req.body, ['amount', 'miner']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const amount = sanitizeAmount(req.body.amount);
+    const miner = sanitizeString(req.body.miner, 24);
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
@@ -135,7 +141,6 @@ async function undelegate(req, res) {
       return res.status(400).json({ error: 'Miner account is required' });
     }
 
-    // Resolve miner
     let minerUser;
     if (miner.match(/^[0-9a-fA-F]{24}$/)) {
       minerUser = await User.findById(miner);
@@ -228,14 +233,18 @@ async function undelegate(req, res) {
  */
 async function withdrawDelegation(req, res) {
   const userId = req.user.id;
-  const { delegation_id } = req.body;
 
   try {
+    if (typeof req.body.delegation_id === 'object' && req.body.delegation_id !== null) {
+      return res.status(400).json({ error: 'delegation_id must be a string' });
+    }
+    const delegation_id = sanitizeString(req.body.delegation_id, 24);
     let query = {
       delegator: userId,
       status: 'undelegating'
     };
     if (delegation_id) {
+      if (!/^[0-9a-fA-F]{24}$/.test(delegation_id)) return res.status(400).json({ error: 'invalid delegation_id' });
       query._id = delegation_id;
     }
 
@@ -357,9 +366,9 @@ async function getDelegations(req, res) {
  * Get all delegations TO a miner (public endpoint).
  */
 async function getMinerDelegations(req, res) {
-  const { miner } = req.params;
-
   try {
+    if (typeof req.params.miner !== 'string') return res.status(400).json({ error: 'invalid miner' });
+    const miner = req.params.miner.slice(0, 24);
     let minerUser;
     if (miner.match(/^[0-9a-fA-F]{24}$/)) {
       minerUser = await User.findById(miner);

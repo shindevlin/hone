@@ -251,11 +251,14 @@ async function computeFinalization(epochNumber) {
     a && !a.startsWith('clock-') && nodeRegistry.isRegistered(a)
   );
 
-  // Get active verifiers for this epoch (nodes that verified jobs)
+  // Get active verifiers for this epoch (nodes that actually verified inference)
   const verifier = require('../inference/verifier');
-  const activeVerifiers = []; // TODO: track actual verifiers per epoch
-  // For now, use clock nodes as verifiers too (any node can verify)
-  const verifierPool = activeClocks.length > 0 ? activeClocks : [];
+  const { getActiveVerifiers } = require('../p2p/protocol');
+  const activeVerifiers = getActiveVerifiers(epochNumber).filter(a =>
+    a && nodeRegistry.isRegistered(a)
+  );
+  // Use real verifiers if any responded, otherwise fall back to clock nodes
+  const verifierPool = activeVerifiers.length > 0 ? activeVerifiers : activeClocks;
 
   if (miners.length === 0 || totalWorkValue === 0) {
     // Empty epoch — minimal rewards to keep nodes online

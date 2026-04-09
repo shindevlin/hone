@@ -25,12 +25,6 @@ app.use(cors({
 app.use(helmet());
 app.use(express.json({ limit: '1mb' }));
 
-// Block ReDoS: reject URLs longer than 2KB (mitigates path-to-regexp vulnerability)
-app.use((req, res, next) => {
-  if (req.originalUrl.length > 2048) return res.status(414).json({ error: 'URI too long' });
-  next();
-});
-
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 100, // 100 requests per minute per IP
@@ -46,6 +40,13 @@ const createLimiter = rateLimit({
   message: { error: 'Account creation rate limit — try again later' }
 });
 app.use('/api/bot/create', createLimiter);
+
+const onboardLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 onboard calls per hour per IP
+  message: { error: 'Onboarding rate limit — try again later' }
+});
+app.use('/api/bot/onboard', onboardLimiter);
 
 // Health routes must be mounted before inference auth middleware.
 app.get('/health', (_req, res) => {
@@ -72,6 +73,7 @@ app.get('/', (_req, res) => {
       '/api/projects/me',
       '/api/projects/fund',
       '/api/delegation',
+      '/api/totp',
       '/api/recovery',
       '/v1/chat/completions',
       '/v1/models'
@@ -91,6 +93,7 @@ const recoveryRoutes = require("./routes/recoveryRoutes");
 const faucetRoutes = require("./routes/faucetRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const botRoutes = require("./routes/botRoutes");
+const totpRoutes = require("./routes/totpRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -99,6 +102,7 @@ app.use("/api/staking", stakingRoutes);
 app.use("/api/node", nodeRoutes);
 app.use("/api/delegation", delegationRoutes);
 app.use("/api/recovery", recoveryRoutes);
+app.use("/api/totp", totpRoutes);
 app.use("/api", dreamRoutes);
 app.use("/api/bot", botRoutes);
 app.use(inferenceApi);

@@ -44,6 +44,8 @@ const accountView = require("./views/account");
 const transactionsView = require("./views/transactions");
 const minersView = require("./views/miners");
 
+const { sanitizeTelegramId, sanitizeString, sanitizeAmount, sanitizePagination, validAddress, validAccountName, validChain, rejectObjectInputs } = require("../middlewares/validate");
+
 const app = express();
 const PORT = 4242;
 const WEBAPP_PATH = path.join(__dirname, "..", "telegram-webapp", "index.html");
@@ -130,7 +132,9 @@ function requireVerifiedTelegram(req, res, next) {
  */
 app.get("/api/bot/balance", async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
 
     const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
@@ -148,7 +152,9 @@ app.get("/api/bot/balance", async (req, res) => {
 
 app.get("/api/bot/history", async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
     const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
     if (!wallet) return res.json({ transactions: [] });
@@ -174,7 +180,9 @@ app.get("/api/bot/history", async (req, res) => {
 
 app.post("/api/bot/heartbeat", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.body.telegramId);
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordHeartbeat(user.username, epoch);
@@ -186,10 +194,16 @@ app.post("/api/bot/heartbeat", validateTelegramInitData, requireVerifiedTelegram
 
 app.post("/api/bot/link-chain", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.body.telegramId);
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'chain', 'address']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
-    const { chain, address } = req.body;
+    const chain = sanitizeString(req.body.chain, 20);
+    const address = sanitizeString(req.body.address, 200);
     if (!chain || !address) return res.status(400).json({ error: "chain and address required" });
+    if (!validChain(chain)) return res.status(400).json({ error: "unsupported chain" });
     const chainLink = require("../services/chainLink");
     const challenge = chainLink.generateChallenge(user.username, chain, address);
     res.json({
@@ -205,7 +219,9 @@ app.post("/api/bot/link-chain", validateTelegramInitData, requireVerifiedTelegra
 
 app.get("/api/bot/linked-addresses", async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
     const chainLink = require("../services/chainLink");
     res.json({ username: user.username, linked: await chainLink.getLinkedAddresses(user.username) });
@@ -216,16 +232,22 @@ app.get("/api/bot/linked-addresses", async (req, res) => {
 
 app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegram, async (req, res) => {
   try {
-    const user = await resolveTelegramUser(req.body.telegramId);
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'toAddress', 'amount', 'memo']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: "valid telegramId required" });
+    const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
     const fromWallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
     if (!fromWallet) return res.status(404).json({ error: "Wallet not found" });
 
-    const amount = Number(req.body.amount);
-    if (!req.body.toAddress || !amount || amount <= 0) return res.status(400).json({ error: "toAddress and positive amount required" });
-    if (fromWallet.address === req.body.toAddress) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
+    const toAddress = sanitizeString(req.body.toAddress, 200);
+    const amount = sanitizeAmount(req.body.amount);
+    if (!toAddress || !amount) return res.status(400).json({ error: "toAddress and positive amount required" });
+    if (!validAddress(toAddress)) return res.status(400).json({ error: "invalid address format" });
+    if (fromWallet.address === toAddress) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
 
-    const toWallet = await Wallet.findOne({ address: req.body.toAddress, chain: "btcpc" });
+    const toWallet = await Wallet.findOne({ address: toAddress, chain: "btcpc" });
     if (!toWallet) return res.status(404).json({ error: "Recipient wallet not found" });
     const recipient = await User.findById(toWallet.userId);
     if (!recipient) return res.status(404).json({ error: "Recipient user not found" });
@@ -234,7 +256,8 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     if (balance < amount) return res.status(400).json({ error: "Insufficient BTCPC balance" });
 
     const epoch = await ledger.getCurrentEpoch();
-    const entry = await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, req.body.memo || null);
+    const memo = sanitizeString(req.body.memo, 500) || null;
+    const entry = await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, memo);
     const txHash = blockStore.hashLedgerEntry(entry);
     res.json({ success: true, txHash, epoch });
   } catch (err) {
@@ -337,7 +360,8 @@ app.get("/block/:epoch", async (req, res) => {
  */
 app.get("/account/:username", async (req, res) => {
   try {
-    const username = req.params.username;
+    const username = sanitizeString(req.params.username, 20);
+    if (!username || !validAccountName(username)) return res.send(accountView({ user: null }));
     const user = await User.findOne({ username }).lean();
 
     if (!user) {
@@ -381,7 +405,8 @@ app.get("/account/:username", async (req, res) => {
  */
 app.get("/tx", async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pag = sanitizePagination(req.query.page, 25, 100);
+    const page = pag.page;
     const perPage = 25;
     const skip = (page - 1) * perPage;
 
@@ -404,7 +429,8 @@ app.get("/tx", async (req, res) => {
  */
 app.get("/tx/:txHash", async (req, res) => {
   try {
-    var txHash = req.params.txHash;
+    var txHash = sanitizeString(req.params.txHash, 128);
+    if (!txHash || !/^[a-fA-F0-9]+$/.test(txHash)) return res.status(400).json({ error: "invalid transaction hash" });
 
     // Search mempool first
     if (mempool.hasTransaction(txHash)) {
@@ -555,7 +581,9 @@ app.get("/api/stats", async (req, res) => {
  */
 app.get("/api/verify/:username", async (req, res) => {
   try {
-    var result = verifyAccountState(req.params.username);
+    var uname = sanitizeString(req.params.username, 20);
+    if (!uname || !validAccountName(uname)) return res.status(400).json({ error: "invalid account name" });
+    var result = verifyAccountState(uname);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -598,7 +626,8 @@ app.get("/api/block/:epoch", async (req, res) => {
  */
 app.get("/api/account/:username", async (req, res) => {
   try {
-    var username = req.params.username;
+    var username = sanitizeString(req.params.username, 20);
+    if (!username || !validAccountName(username)) return res.status(400).json({ error: "invalid account name" });
     var balance = await ledger.getBalance(username, "BTCPC");
     var allBalances = await ledger.getTokenBalances(username);
     var accountRecord = await ledger.getAccountRecord(username);
@@ -664,6 +693,7 @@ app.post("/settings", async (req, res) => {
   try {
     var resourceManager = require("../services/resourceManager");
     var body = req.body;
+    if (typeof body.action !== 'string' && body.action !== undefined) return res.status(400).send("Invalid action");
 
     if (body.action === "pause") resourceManager.pause();
     else if (body.action === "resume") resourceManager.resume();
@@ -671,8 +701,14 @@ app.post("/settings", async (req, res) => {
     else if (body.action === "reduced") resourceManager.setManualMode("reduced");
     else if (body.action === "auto") resourceManager.setManualMode(null);
 
-    if (body.cpuCap) resourceManager.setCpuCap(parseInt(body.cpuCap));
-    if (body.gpuCap) resourceManager.setGpuCap(parseInt(body.gpuCap));
+    if (body.cpuCap) {
+      var cpu = parseInt(body.cpuCap, 10);
+      if (!isNaN(cpu) && cpu >= 0 && cpu <= 100) resourceManager.setCpuCap(cpu);
+    }
+    if (body.gpuCap) {
+      var gpu = parseInt(body.gpuCap, 10);
+      if (!isNaN(gpu) && gpu >= 0 && gpu <= 100) resourceManager.setGpuCap(gpu);
+    }
 
     res.redirect("/settings");
   } catch (err) {

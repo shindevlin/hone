@@ -9,11 +9,12 @@ const {
   getMinerDelegations
 } = require('../controllers/delegationController');
 const { authenticateToken } = require('../middlewares/auth');
+const { requireTOTP } = require('../services/totp');
 
 // Protected delegation routes
-router.post('/delegate', authenticateToken, delegate);
-router.post('/undelegate', authenticateToken, undelegate);
-router.post('/withdraw', authenticateToken, withdrawDelegation);
+router.post('/delegate', authenticateToken, requireTOTP, delegate);
+router.post('/undelegate', authenticateToken, requireTOTP, undelegate);
+router.post('/withdraw', authenticateToken, requireTOTP, withdrawDelegation);
 router.get('/list', authenticateToken, getDelegations);
 
 // Public: view delegations to a miner

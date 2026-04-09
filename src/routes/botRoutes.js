@@ -22,6 +22,11 @@ const Project = require('../models/Project');
 const InferenceJob = require('../models/InferenceJob');
 const { getBlockReward } = require('../services/emissionSchedule');
 const { startLink, verifySignedChallenge } = require('../services/telegramVerify');
+const {
+  rejectObjectInputs, validAccountName, sanitizeAmount, sanitizeString,
+  sanitizeTelegramId, validModel, validChain, validAddress, validEndpoint,
+  validMinerMode
+} = require('../middlewares/validate');
 
 // ── Auth middleware ──
 const BOT_API_KEY = process.env.BOT_API_KEY;
@@ -51,7 +56,9 @@ async function resolveUser(telegramId) {
 // GET /api/bot/user?telegramId=xxx
 router.get('/user', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.json({ found: false });
     res.json({ found: true, username: user.username, telegramId: user.telegramId });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -61,23 +68,23 @@ router.get('/user', async (req, res) => {
 // Creates a new BTCPC account from Telegram. Shows mnemonic ONCE. We don't save it.
 router.post('/create', async (req, res) => {
   try {
-    const { username, telegramId, telegramUsername } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['username', 'telegramId', 'telegramUsername']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const username = sanitizeString(req.body.username, 20);
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const telegramUsername = sanitizeString(req.body.telegramUsername, 40) || null;
     if (!username || !telegramId) {
       return res.status(400).json({ error: 'username and telegramId required' });
     }
+    if (!validAccountName(username)) {
+      return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
+    }
 
-    // Check if username is taken
     const existing = await User.findOne({ username });
     if (existing) return res.status(400).json({ error: `Username "${username}" is already taken` });
 
-    // Check if telegram is already linked
     const linked = await User.findOne({ telegramId: String(telegramId) });
     if (linked) return res.status(400).json({ error: `Telegram already linked to ${linked.username}` });
-
-    // Validate username
-    if (!/^[a-z0-9][a-z0-9._-]{2,19}$/.test(username)) {
-      return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
-    }
 
     // Create the account
     const { createAccount } = require('../wallet/accountManager');
@@ -140,10 +147,82 @@ router.post('/create', async (req, res) => {
   }
 });
 
+// POST /api/bot/onboard { username, source: "openclaw" }
+// Single-step onboarding for OpenClaw integrations.
+router.post('/onboard', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['username', 'source']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const username = sanitizeString(req.body.username, 20);
+    const source = sanitizeString(req.body.source, 20);
+
+    if (!username || source !== 'openclaw') {
+      return res.status(400).json({ error: 'username and source=openclaw required' });
+    }
+    if (!/^[a-z0-9][a-z0-9-]{2,19}$/.test(username)) {
+      return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/hyphens only' });
+    }
+
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ error: `Username "${username}" is already taken` });
+
+    const existingProject = await Project.findOne({ owner: username, repo: source });
+    if (existingProject) return res.status(400).json({ error: 'Onboarding project already exists for this username' });
+
+    const { createAccount } = require('../wallet/accountManager');
+    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const account = await createAccount(username, null, randomPassword);
+
+    await ledger.recordAccountCreate(username, account.publicKeys, account.chainWallets, 0);
+
+    const apiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
+    const project = new Project({
+      name: `openclaw/${username}`,
+      repoUrl: `openclaw://${username}`,
+      owner: username,
+      repo: source,
+      apiKey,
+      walletAddress: account.address,
+      balance: 1,
+      verified: true,
+      verifiedAt: new Date()
+    });
+    await project.save();
+
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordTransfer('btcpc_treasury', username, 1, 'BTCPC', null, epoch, 'OpenClaw onboarding bonus');
+
+    await new Transaction({
+      from: 'btcpc_treasury',
+      to: account.address,
+      amount: 1,
+      type: 'faucet',
+      memo: 'OpenClaw onboarding bonus'
+    }).save();
+
+    res.status(201).json({
+      username,
+      api_key: apiKey,
+      balance: 1,
+      models_url: '/v1/models',
+      chat_url: '/v1/chat/completions'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/bot/link { username, telegramId, telegramUsername }
 router.post('/link', async (req, res) => {
   try {
-    const { username, telegramId, telegramUsername } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['username', 'telegramId', 'telegramUsername']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const username = sanitizeString(req.body.username, 20);
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const telegramUsername = sanitizeString(req.body.telegramUsername, 40) || null;
+    if (!username || !telegramId) return res.status(400).json({ error: 'username and telegramId required' });
+    if (!validAccountName(username)) return res.status(400).json({ error: 'invalid username format' });
     const existing = await User.findOne({ telegramId: String(telegramId) });
     if (existing) return res.status(400).json({ error: `Already linked to ${existing.username}` });
     const result = await startLink(username, telegramId, telegramUsername);
@@ -154,7 +233,12 @@ router.post('/link', async (req, res) => {
 // POST /api/bot/verify { telegramId, signature, recovery }
 router.post('/verify', async (req, res) => {
   try {
-    const { telegramId, signature, recovery } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'signature', 'recovery']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const signature = sanitizeString(req.body.signature, 500);
+    const recovery = sanitizeString(req.body.recovery, 500);
+    if (!telegramId) return res.status(400).json({ error: 'valid telegramId required' });
     const user = await User.findOne({ 'pendingTelegramLink.telegramId': String(telegramId) });
     if (!user) return res.status(404).json({ error: 'No pending link' });
     const result = await verifySignedChallenge(user.username, String(telegramId), signature, recovery);
@@ -165,7 +249,9 @@ router.post('/verify', async (req, res) => {
 // POST /api/bot/unlink { telegramId }
 router.post('/unlink', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'No account linked' });
     user.telegramId = null;
     user.telegramUsername = null;
@@ -181,7 +267,9 @@ router.post('/unlink', async (req, res) => {
 // GET /api/bot/balance?telegramId=xxx
 router.get('/balance', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
@@ -203,7 +291,9 @@ router.get('/balance', async (req, res) => {
 // GET /api/bot/history?telegramId=xxx
 router.get('/history', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
@@ -226,7 +316,9 @@ router.get('/history', async (req, res) => {
 // POST /api/bot/claim { telegramId }
 router.post('/claim', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     let wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
@@ -275,7 +367,9 @@ router.post('/claim', async (req, res) => {
 // GET /api/bot/mining?telegramId=xxx
 router.get('/mining', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const totalEpochs = await Epoch.countDocuments({ status: 'finalized' });
@@ -303,7 +397,9 @@ router.get('/mining', async (req, res) => {
 // GET /api/bot/proofs?telegramId=xxx
 router.get('/proofs', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const proofs = await MiningProof.find({ miner: user.username })
@@ -321,7 +417,9 @@ router.get('/proofs', async (req, res) => {
 // GET /api/bot/dreams?telegramId=xxx
 router.get('/dreams', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const dreams = await GenesisDream.find({ current_owner: user.username })
@@ -340,7 +438,9 @@ router.get('/dreams', async (req, res) => {
 // GET /api/bot/node?telegramId=xxx
 router.get('/node', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const node = await Node.findOne({ account: user._id }).lean();
@@ -406,8 +506,10 @@ router.get('/reward', async (_req, res) => {
 // GET /api/bot/pricing?model=xxx
 router.get('/pricing', async (req, res) => {
   try {
+    const modelParam = req.query.model ? sanitizeString(req.query.model, 100) : undefined;
+    if (modelParam && !validModel(modelParam)) return res.status(400).json({ error: 'invalid model name' });
     const { getCurrentPricing } = require('../services/pricing');
-    const p = await getCurrentPricing(req.query.model || undefined);
+    const p = await getCurrentPricing(modelParam);
     res.json(p);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -437,7 +539,12 @@ router.get('/peers', async (_req, res) => {
 // POST /api/bot/peers/register { telegramId, address }
 router.post('/peers/register', async (req, res) => {
   try {
-    const { telegramId, address } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'address']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const address = sanitizeString(req.body.address, 500);
+    if (!telegramId) return res.status(400).json({ error: 'valid telegramId required' });
+    if (!address) return res.status(400).json({ error: 'address required' });
     const user = await resolveUser(telegramId);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
@@ -457,7 +564,9 @@ router.post('/peers/register', async (req, res) => {
 // POST /api/bot/peers/heartbeat { telegramId }
 router.post('/peers/heartbeat', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
     const result = await PeerRegistry.findOneAndUpdate({ username: user.username }, { last_seen: new Date() });
     res.json({ ok: !!result });
@@ -471,7 +580,9 @@ router.post('/peers/heartbeat', async (req, res) => {
 // GET /api/bot/projects?telegramId=xxx
 router.get('/projects', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const projects = await Project.find({ owner: user.username }).lean();
@@ -491,7 +602,14 @@ router.get('/projects', async (req, res) => {
 // POST /api/bot/inference { telegramId, prompt, model }
 router.post('/inference', async (req, res) => {
   try {
-    const { telegramId, prompt, model } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'prompt', 'model']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const prompt = sanitizeString(req.body.prompt, 10000);
+    const model = req.body.model ? sanitizeString(req.body.model, 100) : null;
+    if (!telegramId) return res.status(400).json({ error: 'valid telegramId required' });
+    if (!prompt || prompt.length === 0) return res.status(400).json({ error: 'prompt is required' });
+    if (model && !validModel(model)) return res.status(400).json({ error: 'invalid model name' });
     const user = await resolveUser(telegramId);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
@@ -528,7 +646,9 @@ router.post('/inference', async (req, res) => {
 // GET /api/bot/inference/:jobId
 router.get('/inference/:jobId', async (req, res) => {
   try {
-    const job = await InferenceJob.findOne({ job_id: req.params.jobId }).lean();
+    const jobId = sanitizeString(req.params.jobId, 100);
+    if (!jobId || !/^[a-zA-Z0-9_-]+$/.test(jobId)) return res.status(400).json({ error: 'invalid job ID' });
+    const job = await InferenceJob.findOne({ job_id: jobId }).lean();
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
     const result = {
@@ -599,12 +719,18 @@ router.post('/approve-update', async (req, res) => {
 // POST /api/bot/create-token { telegramId, name, symbol }
 router.post('/create-token', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'name', 'symbol']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const { name, symbol } = req.body;
+    const name = sanitizeString(req.body.name, 50);
+    const symbol = sanitizeString(req.body.symbol, 10);
     if (!name || !symbol) return res.status(400).json({ error: 'name and symbol required' });
-    if (symbol.length > 10) return res.status(400).json({ error: 'symbol max 10 chars' });
+    if (!/^[A-Za-z0-9 _-]+$/.test(name)) return res.status(400).json({ error: 'invalid token name' });
+    if (!/^[A-Za-z0-9]+$/.test(symbol)) return res.status(400).json({ error: 'invalid token symbol' });
 
     const ledger = require('../services/ledger');
     const balance = await ledger.getBalance(user.username, 'BTCPC');
@@ -645,11 +771,17 @@ router.post('/create-token', async (req, res) => {
 // POST /api/bot/link-chain { telegramId, chain, address }
 router.post('/link-chain', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const objErr = rejectObjectInputs(req.body, ['telegramId', 'chain', 'address']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const { chain, address } = req.body;
+    const chain = sanitizeString(req.body.chain, 20);
+    const address = sanitizeString(req.body.address, 200);
     if (!chain || !address) return res.status(400).json({ error: 'chain and address required' });
+    if (!validChain(chain)) return res.status(400).json({ error: 'unsupported chain' });
 
     const chainLink = require('../services/chainLink');
     const challenge = chainLink.generateChallenge(user.username, chain, address);
@@ -666,7 +798,10 @@ router.post('/link-chain', async (req, res) => {
 // POST /api/bot/verify-chain { telegramId, challengeId, signature }
 router.post('/verify-chain', async (req, res) => {
   try {
-    const { challengeId, signature } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['challengeId', 'signature']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const challengeId = sanitizeString(req.body.challengeId, 200);
+    const signature = sanitizeString(req.body.signature, 1000);
     if (!challengeId || !signature) return res.status(400).json({ error: 'challengeId and signature required' });
 
     const chainLink = require('../services/chainLink');
@@ -687,7 +822,9 @@ router.post('/verify-chain', async (req, res) => {
 // GET /api/bot/linked-addresses?telegramId=xxx
 router.get('/linked-addresses', async (req, res) => {
   try {
-    const user = await resolveUser(req.query.telegramId);
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const chainLink = require('../services/chainLink');
@@ -704,7 +841,9 @@ router.get('/linked-addresses', async (req, res) => {
 // POST /api/bot/heartbeat { telegramId }
 router.post('/heartbeat', async (req, res) => {
   try {
-    const user = await resolveUser(req.body.telegramId);
+    const tid = sanitizeTelegramId(req.body.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+    const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
     const ledger = require('../services/ledger');
@@ -748,7 +887,8 @@ router.post('/miner-resume', async (req, res) => {
 // POST /api/bot/miner-mode { telegramId, mode }
 router.post('/miner-mode', async (req, res) => {
   try {
-    const { mode } = req.body;
+    const mode = req.body.mode ? sanitizeString(req.body.mode, 20) : null;
+    if (mode && !validMinerMode(mode)) return res.status(400).json({ error: 'mode must be full, reduced, or paused' });
     const resourceManager = require('../services/resourceManager');
     resourceManager.setManualMode(mode || null);
     res.json({ success: true, mode: resourceManager.getMode() });

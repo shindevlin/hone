@@ -9,11 +9,12 @@ const {
   getNetworkStaking
 } = require('../controllers/stakingController');
 const { authenticateToken } = require('../middlewares/auth');
+const { requireTOTP } = require('../services/totp');
 
 // Protected staking routes
-router.post('/stake', authenticateToken, stake);
-router.post('/unstake', authenticateToken, unstake);
-router.post('/withdraw', authenticateToken, withdrawStake);
+router.post('/stake', authenticateToken, requireTOTP, stake);
+router.post('/unstake', authenticateToken, requireTOTP, unstake);
+router.post('/withdraw', authenticateToken, requireTOTP, withdrawStake);
 router.get('/info', authenticateToken, getStakingInfo);
 
 // Public network stats

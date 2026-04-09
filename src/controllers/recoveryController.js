@@ -11,6 +11,7 @@
 
 const RecoveryRequest = require("../models/RecoveryRequest");
 const User = require("../models/User");
+const { sanitizeString, validAccountName } = require("../middlewares/validate");
 
 const RECOVERY_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
 
@@ -219,11 +220,15 @@ async function completeRecovery(req, res) {
  * Query: ?account=<username>
  */
 async function getRecoveryStatus(req, res) {
-  var account = req.query.account || req.params.account;
+  var rawAccount = req.query.account || req.params.account;
+  var account = typeof rawAccount === 'string' ? sanitizeString(rawAccount, 20) : null;
 
   try {
     if (!account) {
       return res.status(400).json({ error: "account parameter is required" });
+    }
+    if (!validAccountName(account)) {
+      return res.status(400).json({ error: "invalid account name" });
     }
 
     // Expire any overdue pending requests

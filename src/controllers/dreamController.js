@@ -2,6 +2,7 @@
 const GenesisDream = require("../models/GenesisDream");
 const User = require("../models/User");
 const { filterInscription } = require("../services/contentFilter");
+const { rejectObjectInputs, sanitizeString, validAccountName } = require("../middlewares/validate");
 
 const INSCRIPTION_CHAR_LIMIT = GenesisDream.INSCRIPTION_CHAR_LIMIT || 4200;
 
@@ -127,7 +128,8 @@ async function transferDream(blockNumber, fromAccount, toAccount) {
  */
 async function getDreamsRoute(req, res) {
   try {
-    const account = req.params.account;
+    const account = sanitizeString(req.params.account, 20);
+    if (!account || !validAccountName(account)) return res.status(400).json({ error: "invalid account name" });
     const dreams = await getDreams(account);
     res.json({ account: account, count: dreams.length, dreams: dreams });
   } catch (err) {
@@ -161,10 +163,14 @@ async function getDreamRoute(req, res) {
 async function inscribeDreamRoute(req, res) {
   try {
     const blockNumber = parseInt(req.params.blockNumber);
-    if (isNaN(blockNumber)) {
+    if (isNaN(blockNumber) || blockNumber < 0) {
       return res.status(400).json({ error: "Invalid block number" });
     }
-    const { project, tag, custom_data } = req.body;
+    const objErr = rejectObjectInputs(req.body, ['project', 'tag']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const project = sanitizeString(req.body.project, 200);
+    const tag = sanitizeString(req.body.tag, 200);
+    const custom_data = req.body.custom_data;
     if (!project || !tag) {
       return res.status(400).json({ error: "project and tag are required" });
     }
@@ -191,13 +197,15 @@ async function inscribeDreamRoute(req, res) {
 async function transferDreamRoute(req, res) {
   try {
     const blockNumber = parseInt(req.params.blockNumber);
-    if (isNaN(blockNumber)) {
+    if (isNaN(blockNumber) || blockNumber < 0) {
       return res.status(400).json({ error: "Invalid block number" });
     }
-    const { to } = req.body;
+    if (typeof req.body.to === 'object') return res.status(400).json({ error: "to must be a string" });
+    const to = sanitizeString(req.body.to, 20);
     if (!to) {
       return res.status(400).json({ error: "to (recipient account) is required" });
     }
+    if (!validAccountName(to)) return res.status(400).json({ error: "invalid recipient account name" });
     const fromAccount = req.user.username;
     const dream = await transferDream(blockNumber, fromAccount, to);
     res.json({

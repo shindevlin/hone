@@ -7,6 +7,7 @@ const { authenticateToken } = require('../middlewares/auth');
 const Project = require('../models/Project');
 const Transaction = require('../models/Transaction');
 const ledger = require('../services/ledger');
+const { rejectObjectInputs, sanitizeString, sanitizeAmount, validUrl, validAccountName, validAddress } = require('../middlewares/validate');
 
 /**
  * POST /api/projects/register
@@ -15,10 +16,11 @@ const ledger = require('../services/ledger');
  * Returns: API key + wallet address
  */
 router.post('/register', authenticateToken, async (req, res) => {
-  const { repoUrl } = req.body;
+  if (typeof req.body.repoUrl === 'object') return res.status(400).json({ error: 'repoUrl must be a string' });
+  const repoUrl = sanitizeString(req.body.repoUrl, 500);
   if (!repoUrl) return res.status(400).json({ error: 'repoUrl is required' });
+  if (!validUrl(repoUrl)) return res.status(400).json({ error: 'invalid URL format' });
 
-  // Parse GitHub URL
   const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\s\.]+)/);
   if (!match) return res.status(400).json({ error: 'Invalid GitHub repository URL' });
 
@@ -161,10 +163,14 @@ router.get('/me', async (req, res) => {
  * Body: { walletAddress: "btcpc_proj_...", amount: 10 }
  */
 router.post('/fund', authenticateToken, async (req, res) => {
-  const { walletAddress, amount } = req.body;
-  if (!walletAddress || !amount || amount <= 0) {
+  const objErr = rejectObjectInputs(req.body, ['walletAddress', 'amount']);
+  if (objErr) return res.status(400).json({ error: objErr });
+  const walletAddress = sanitizeString(req.body.walletAddress, 200);
+  const amount = sanitizeAmount(req.body.amount);
+  if (!walletAddress || !amount) {
     return res.status(400).json({ error: 'walletAddress and positive amount required' });
   }
+  if (!validAddress(walletAddress)) return res.status(400).json({ error: 'invalid wallet address format' });
 
   try {
     const project = await Project.findOne({ walletAddress });
@@ -225,10 +231,14 @@ router.post('/fund', authenticateToken, async (req, res) => {
  * Body: { newOwner: "buyerusername" }
  */
 router.post('/transfer', authenticateToken, async (req, res) => {
-  const { projectName, newOwner } = req.body;
+  const objErr = rejectObjectInputs(req.body, ['projectName', 'newOwner']);
+  if (objErr) return res.status(400).json({ error: objErr });
+  const projectName = sanitizeString(req.body.projectName, 200);
+  const newOwner = sanitizeString(req.body.newOwner, 20);
   if (!projectName || !newOwner) {
     return res.status(400).json({ error: 'projectName and newOwner required' });
   }
+  if (!validAccountName(newOwner)) return res.status(400).json({ error: 'invalid newOwner account name' });
 
   try {
     const User = require('../models/User');

@@ -44,12 +44,12 @@ describe('authController', () => {
       publicKeys: { owner: 'owner-key' }
     });
 
-    const req = { body: { username: 'alice', password: 'pw-123' } };
+    const req = { body: { username: 'alice', password: 'pw-123456' } };
     const res = createRes();
 
     await registerUser(req, res);
 
-    expect(createAccount).toHaveBeenCalledWith('alice', null, 'pw-123');
+    expect(createAccount).toHaveBeenCalledWith('alice', null, 'pw-123456');
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
@@ -59,7 +59,7 @@ describe('authController', () => {
   });
 
   test('loginUser authenticates with a username against a bcrypt password', async () => {
-    const hashedPassword = bcrypt.hashSync('pw-123', 10);
+    const hashedPassword = bcrypt.hashSync('pw-123456', 10);
     User.findOne.mockResolvedValue({
       _id: 'user-1',
       username: 'alice',
@@ -68,7 +68,7 @@ describe('authController', () => {
       isActive: true
     });
 
-    const req = { body: { username: 'alice', password: 'pw-123' } };
+    const req = { body: { username: 'alice', password: 'pw-123456' } };
     const res = createRes();
 
     await loginUser(req, res);

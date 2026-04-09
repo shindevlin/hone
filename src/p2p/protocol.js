@@ -54,6 +54,9 @@ const MESSAGE_TYPES = {
   CLOCK_HEARTBEAT: "CLOCK_HEARTBEAT",
   // Finalization proposal — miners propose reward splits for consensus
   FINALIZATION_PROPOSAL: "FINALIZATION_PROPOSAL",
+  // Inference verification — verifiers validate miner output
+  VERIFY_REQUEST: "VERIFY_REQUEST",
+  VERIFY_RESPONSE: "VERIFY_RESPONSE",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -227,6 +230,12 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.CLOCK_HEARTBEAT:
       handleClockHeartbeat(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.VERIFY_REQUEST:
+      handleVerifyRequest(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.VERIFY_RESPONSE:
+      handleVerifyResponse(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.REQUEST_LEDGER:
       handleRequestLedger(peer, msg, ctx);
@@ -750,6 +759,153 @@ function handleFinalizationProposal(peer, msg, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Inference Verification — track verifiers per epoch
+// ---------------------------------------------------------------------------
+
+// Track which accounts actually verified work: Map<epochNumber, Set<username>>
+var verifiersByEpoch = new Map();
+var _currentVerifierEpoch = -1;
+
+/**
+ * Record that a node verified work during an epoch.
+ */
+function recordVerifier(account, epochNumber) {
+  if (!epochNumber || epochNumber < 0 || !account) return;
+  if (!verifiersByEpoch.has(epochNumber)) {
+    verifiersByEpoch.set(epochNumber, new Set());
+  }
+  verifiersByEpoch.get(epochNumber).add(account);
+
+  // Prune old epochs (keep last 10)
+  if (epochNumber > _currentVerifierEpoch) {
+    _currentVerifierEpoch = epochNumber;
+    for (var key of verifiersByEpoch.keys()) {
+      if (key < epochNumber - 10) verifiersByEpoch.delete(key);
+    }
+  }
+}
+
+/**
+ * Get accounts that verified work for a given epoch.
+ */
+function getActiveVerifiers(epochNumber) {
+  var vset = verifiersByEpoch.get(epochNumber);
+  return vset ? Array.from(vset) : [];
+}
+
+/**
+ * VERIFY_REQUEST — A miner broadcasts inference output for verification.
+ * Verifiers selected via deterministic selection process the request.
+ * The request contains the full response but NOT the prompt.
+ */
+function handleVerifyRequest(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.job_id || !data.miner) return;
+
+  console.log("[BTCPC P2P] Verify request from " + data.miner +
+    " for job " + (data.job_id || "?").slice(0, 12) + "..." +
+    " (" + (data.token_count || 0) + " tokens, " + (data.model || "?") + ")");
+
+  // Check if this node should verify — deterministic selection
+  var verifier = require("../inference/verifier");
+  var nodeRegistry = require("../chain/nodeRegistry");
+  var allNodes = nodeRegistry.getRegisteredNodes ? nodeRegistry.getRegisteredNodes() : [];
+  var myAccount = process.env.BTCPC_MINER || null;
+
+  if (!myAccount || myAccount === data.miner) {
+    // Miner doesn't verify own work; nodes without accounts can't verify
+    ctx.broadcast(msg, peer.address);
+    return;
+  }
+
+  var totalNodes = allNodes.length > 0 ? allNodes.length : 2;
+  var vCount = verifier.getVerifierCount(totalNodes);
+  var blockHash = data.block_hash || "0".repeat(64);
+  var selected = verifier.selectVerifiers(blockHash, data.job_id, data.miner, allNodes, vCount);
+
+  if (selected.indexOf(myAccount) === -1) {
+    // Not selected — just rebroadcast
+    ctx.broadcast(msg, peer.address);
+    return;
+  }
+
+  // This node is selected — verify the work
+  var verdict = verifier.verifyWork({
+    response: data.result || "",
+    model: data.model || "",
+    token_count: data.token_count || 0,
+    elapsed_ms: data.timing_ms || 0,
+    tokens_per_second: data.token_count && data.timing_ms
+      ? data.token_count / (data.timing_ms / 1000)
+      : 0
+  });
+
+  console.log("[BTCPC P2P] Verified job " + data.job_id.slice(0, 12) + "... verdict=" +
+    (verdict.valid ? "VALID" : "INVALID") + " score=" + verdict.score);
+
+  // Send VERIFY_RESPONSE
+  var response = createMessage(MESSAGE_TYPES.VERIFY_RESPONSE, {
+    job_id: data.job_id,
+    verifier: myAccount,
+    verdict: verdict.valid ? "valid" : "invalid",
+    score: verdict.score,
+    checks: verdict.checks,
+    epoch: data.epoch || 0
+  }, ctx.NODE_ID);
+  ctx.broadcast(response);
+
+  // Rebroadcast original request so other verifiers see it
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * VERIFY_RESPONSE — A verifier broadcasts their verdict on inference work.
+ * Track which verifiers actually did work so they earn rewards.
+ */
+function handleVerifyResponse(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.job_id || !data.verifier) return;
+
+  console.log("[BTCPC P2P] Verify response from " + data.verifier +
+    " for job " + (data.job_id || "?").slice(0, 12) + "..." +
+    " verdict=" + (data.verdict || "?") + " score=" + (data.score || 0));
+
+  // Record this verifier as active for the epoch
+  var epoch = data.epoch || 0;
+  if (epoch > 0) {
+    recordVerifier(data.verifier, epoch);
+  }
+
+  // Store verification on the InferenceJob if we have it locally
+  (async function () {
+    try {
+      var InferenceJob = require("../models/InferenceJob");
+      var job = await InferenceJob.findOne({ job_id: data.job_id });
+      if (job) {
+        if (!job.verifications) job.verifications = [];
+        // Don't duplicate
+        var existing = job.verifications.find(function (v) { return v.miner === data.verifier; });
+        if (!existing) {
+          job.verifications.push({
+            miner: data.verifier,
+            result_hash: job.result_hash || "",
+            work_value: data.verdict === "valid" ? (data.score || 0) : 0,
+            completed_at: new Date()
+          });
+          if (job.status === "completed") job.status = "verifying";
+          await job.save();
+        }
+      }
+    } catch (err) {
+      console.error("[BTCPC P2P] Failed to store verification:", err.message);
+    }
+  })();
+
+  // Rebroadcast
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
 // Clock Heartbeat — uptime tracking for clock node rewards
 // ---------------------------------------------------------------------------
 
@@ -901,5 +1057,6 @@ module.exports = {
   createMessage,
   getIdleMiners,
   recordNodeActivity,
-  getActiveClockNodes
+  getActiveClockNodes,
+  getActiveVerifiers
 };
