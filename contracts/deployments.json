@@ -203,6 +203,22 @@
         "USDT",
         "DAI"
       ]
+    },
+    "polygon": {
+      "chainId": 137,
+      "contract": "0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9",
+      "txHash": "0x4c52f6119225cd399809017a5dc1d29f84c51f3d5088e86999188a48c9965b59",
+      "basePrice": "50000",
+      "priceIncrement": "10",
+      "explorer": "https://polygonscan.com/address/0x238499DB061a5A39bd9bc6Dea2a33472F6e5FEC9"
+    },
+    "bsc": {
+      "chainId": 56,
+      "contract": "0x760f1D67EF32bb2b1Cbd56882f4888b40AF7C74E",
+      "txHash": "0xcad7fb33efccd37eaef14842d8f28e9652f3e9765a00331dcad8fd2a2dfde874",
+      "basePrice": "50000",
+      "priceIncrement": "10",
+      "explorer": "https://bscscan.com/address/0x760f1D67EF32bb2b1Cbd56882f4888b40AF7C74E"
     }
   },
   "emergencyPause": "scripts/emergency-pause.sh",
