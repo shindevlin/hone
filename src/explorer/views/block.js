@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -45,11 +46,11 @@ function blockView(epoch, period, blockData) {
     var typeClass = (e.type || "").toLowerCase().replace(/_/g, "-");
     return `
     <tr>
-      <td><span class="type-badge type-${typeClass}">${e.type}</span></td>
-      <td>${e.from ? `<a href="/account/${e.from}">${e.from}</a>` : "--"}</td>
-      <td>${e.to ? `<a href="/account/${e.to}">${e.to}</a>` : "--"}</td>
-      <td class="amount">${formatNumber(e.amount)} ${e.token || "BTCPC"}</td>
-      <td>${e.memo || ""}</td>
+      <td><span class="type-badge type-${escapeHtml(typeClass)}">${escapeHtml(e.type)}</span></td>
+      <td>${e.from ? `<a href="/account/${encodeURIComponent(e.from)}">${escapeHtml(e.from)}</a>` : "--"}</td>
+      <td>${e.to ? `<a href="/account/${encodeURIComponent(e.to)}">${escapeHtml(e.to)}</a>` : "--"}</td>
+      <td class="amount">${formatNumber(e.amount)} ${escapeHtml(e.token || "BTCPC")}</td>
+      <td>${escapeHtml(e.memo || "")}</td>
     </tr>`;
   }).join("");
 
@@ -59,7 +60,7 @@ function blockView(epoch, period, blockData) {
     var miner = r.miner || r.node_id || "--";
     return `
     <tr>
-      <td><a href="/account/${miner}">${miner}</a></td>
+      <td><a href="/account/${encodeURIComponent(miner)}">${escapeHtml(miner)}</a></td>
       <td class="amount">${formatNumber(r.amount)} BTCPC</td>
     </tr>`;
   }).join("");
@@ -69,8 +70,8 @@ function blockView(epoch, period, blockData) {
   var proofRows = proofs.map(function (p) {
     return `
     <tr>
-      <td><a href="/account/${p.node_id}">${p.node_id}</a></td>
-      <td>${p.model}</td>
+      <td><a href="/account/${encodeURIComponent(p.node_id)}">${escapeHtml(p.node_id)}</a></td>
+      <td>${escapeHtml(p.model)}</td>
       <td>${formatNumber(p.tokens_generated)}</td>
       <td>${formatNumber(p.work_value)}</td>
       <td><span class="hash">${truncHash(p.result_hash)}</span></td>
@@ -92,7 +93,7 @@ function blockView(epoch, period, blockData) {
     <div class="card">
       <div class="card-header">
         <h2>Block Header</h2>
-        <span class="status status-${epoch.status}">${epoch.status}</span>
+        <span class="status status-${escapeHtml(epoch.status)}">${escapeHtml(epoch.status)}</span>
       </div>
       <dl class="detail-grid">
         <dt>Block Number</dt>

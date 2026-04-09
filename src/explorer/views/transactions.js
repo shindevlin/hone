@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -21,13 +22,13 @@ function transactionsView(data) {
 
   const txRows = (transactions || []).map(t => `
     <tr>
-      <td><a class="hash" href="/tx/${t.txHash}">${t.txHash}</a></td>
+      <td><a class="hash" href="/tx/${encodeURIComponent(t.txHash)}">${escapeHtml(t.txHash)}</a></td>
       <td>${t.epoch !== null && t.epoch !== undefined ? `<a href="/block/${t.epoch}">${t.epoch}</a>` : "--"}</td>
-      <td><span class="type-badge type-${t.type}">${t.type.replace("_", " ")}</span></td>
-      <td><a href="/account/${t.from}">${t.from}</a></td>
-      <td><a href="/account/${t.to}">${t.to}</a></td>
+      <td><span class="type-badge type-${escapeHtml(t.type)}">${escapeHtml(t.type.replace("_", " "))}</span></td>
+      <td><a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a></td>
+      <td><a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a></td>
       <td class="amount">${formatNumber(t.amount)} BTCPC</td>
-      <td>${t.memo || "--"}</td>
+      <td>${escapeHtml(t.memo || "--")}</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>
   `).join("");

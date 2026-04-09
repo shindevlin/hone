@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -41,10 +42,10 @@ function accountView(data) {
     var dirSign = t.to === user.username ? "+" : "-";
     return `
     <tr>
-      <td><span class="type-badge type-${typeClass}">${(t.type || "").replace(/_/g, " ")}</span></td>
-      <td>${t.from === user.username ? `<strong>${t.from}</strong>` : t.from ? `<a href="/account/${t.from}">${t.from}</a>` : "--"}</td>
-      <td>${t.to === user.username ? `<strong>${t.to}</strong>` : t.to ? `<a href="/account/${t.to}">${t.to}</a>` : "--"}</td>
-      <td class="amount ${dirClass}">${dirSign}${formatNumber(t.amount)} ${t.token || "BTCPC"}</td>
+      <td><span class="type-badge type-${escapeHtml(typeClass)}">${escapeHtml((t.type || "").replace(/_/g, " "))}</span></td>
+      <td>${t.from === user.username ? `<strong>${escapeHtml(t.from)}</strong>` : t.from ? `<a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a>` : "--"}</td>
+      <td>${t.to === user.username ? `<strong>${escapeHtml(t.to)}</strong>` : t.to ? `<a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a>` : "--"}</td>
+      <td class="amount ${dirClass}">${dirSign}${formatNumber(t.amount)} ${escapeHtml(t.token || "BTCPC")}</td>
       <td>${t.epoch !== undefined ? `<a href="/block/${t.epoch}">#${t.epoch}</a>` : "--"}</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>`;
@@ -54,7 +55,7 @@ function accountView(data) {
   var totalMined = miningRewards.reduce(function (sum, t) { return sum + t.amount; }, 0);
 
   var content = `
-    <h1 class="page-title">Account: <span>${user.username}</span></h1>
+    <h1 class="page-title">Account: <span>${escapeHtml(user.username)}</span></h1>
 
     <div class="stats-grid">
       <div class="stat-card">
@@ -70,7 +71,7 @@ function accountView(data) {
       <div class="stat-card">
         <div class="stat-label">Staked</div>
         <div class="stat-value">${formatNumber(stakedAmount)}</div>
-        <div class="stat-sub">${stake ? `Status: ${stake.status}` : "No active stake"}</div>
+        <div class="stat-sub">${stake ? `Status: ${escapeHtml(stake.status)}` : "No active stake"}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Mined</div>
@@ -104,21 +105,21 @@ function accountView(data) {
     <div class="card">
       <div class="card-header">
         <h2>Mining Node</h2>
-        <span class="status status-${node.status}">${node.status}</span>
+        <span class="status status-${escapeHtml(node.status)}">${escapeHtml(node.status)}</span>
       </div>
       <dl class="detail-grid">
         <dt>Endpoint</dt>
-        <dd>${node.endpoint}</dd>
+        <dd>${escapeHtml(node.endpoint)}</dd>
         <dt>GPU</dt>
-        <dd>${node.hardware && node.hardware.gpu ? node.hardware.gpu : "Not declared"}</dd>
+        <dd>${node.hardware && node.hardware.gpu ? escapeHtml(node.hardware.gpu) : "Not declared"}</dd>
         <dt>VRAM</dt>
-        <dd>${node.hardware && node.hardware.vram_gb ? node.hardware.vram_gb + " GB" : "--"}</dd>
+        <dd>${node.hardware && node.hardware.vram_gb ? escapeHtml(String(node.hardware.vram_gb)) + " GB" : "--"}</dd>
         <dt>Stake</dt>
         <dd class="amount">${formatNumber(node.stake_amount)} BTCPC</dd>
         <dt>Reputation</dt>
         <dd>${node.reputation}/100</dd>
         <dt>Models</dt>
-        <dd>${(node.models || []).length ? node.models.map(function (m) { return '<span class="model-tag">' + m + '</span>'; }).join(" ") : "None"}</dd>
+        <dd>${(node.models || []).length ? node.models.map(function (m) { return '<span class="model-tag">' + escapeHtml(m) + '</span>'; }).join(" ") : "None"}</dd>
       </dl>
     </div>
     ` : ""}
@@ -146,7 +147,7 @@ function accountView(data) {
     </div>
   `;
 
-  return layout(user.username, content);
+  return layout(escapeHtml(user.username), content);
 }
 
 module.exports = accountView;

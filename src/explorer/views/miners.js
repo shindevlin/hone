@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -21,16 +22,16 @@ function minersView(data) {
   const minerRows = (miners || []).map(m => {
     const hw = m.hardware || {};
     const username = m._account ? m._account.username : (m.hive_account || "unknown");
-    const models = (m.models || []).slice(0, 4).map(mod => `<span class="model-tag">${mod}</span>`).join(" ");
+    const models = (m.models || []).slice(0, 4).map(mod => `<span class="model-tag">${escapeHtml(mod)}</span>`).join(" ");
     const moreModels = (m.models || []).length > 4 ? `<span class="model-tag">+${m.models.length - 4} more</span>` : "";
 
     return `
     <tr>
-      <td><a href="/account/${username}">${username}</a></td>
-      <td><span class="status status-${m.status}">${m.status}</span></td>
+      <td><a href="/account/${encodeURIComponent(username)}">${escapeHtml(username)}</a></td>
+      <td><span class="status status-${escapeHtml(m.status)}">${escapeHtml(m.status)}</span></td>
       <td>
         <div class="hw-specs">
-          ${hw.gpu ? hw.gpu : "N/A"}${hw.vram_gb ? ` (${hw.vram_gb}GB)` : ""}
+          ${hw.gpu ? escapeHtml(hw.gpu) : "N/A"}${hw.vram_gb ? ` (${escapeHtml(String(hw.vram_gb))}GB)` : ""}
         </div>
       </td>
       <td>${hw.cpu_cores || "--"} cores / ${hw.ram_gb || "--"} GB</td>

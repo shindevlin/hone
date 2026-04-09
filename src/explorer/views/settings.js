@@ -1,6 +1,7 @@
 "use strict";
 
 var layout = require("./layout");
+var { escapeHtml } = require("./escape");
 
 function settingsView(status) {
   var modeClass = status.mode === "full" ? "status-active" :
@@ -15,7 +16,7 @@ function settingsView(status) {
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">Mining Mode</div>
-        <div class="stat-value"><span class="${modeClass}">${status.mode}</span></div>
+        <div class="stat-value"><span class="${modeClass}">${escapeHtml(status.mode)}</span></div>
         <div class="stat-sub">${status.manualOverride ? "manual override" : "auto"}</div>
       </div>
       <div class="stat-card">
@@ -30,7 +31,7 @@ function settingsView(status) {
       </div>
       <div class="stat-card">
         <div class="stat-label">Schedule</div>
-        <div class="stat-value" style="font-size: 16px;">${status.schedule || "None"}</div>
+        <div class="stat-value" style="font-size: 16px;">${escapeHtml(status.schedule || "None")}</div>
         <div class="stat-sub">${status.inScheduledReduction ? "reduced hours active" : "full speed"}</div>
       </div>
     </div>

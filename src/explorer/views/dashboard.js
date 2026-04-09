@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -31,7 +32,7 @@ function dashboard(data) {
   const epochRows = (latestEpochs || []).map(e => `
     <tr>
       <td><a href="/block/${e.epoch_number}">${e.epoch_number}</a></td>
-      <td><span class="status status-${e.status}">${e.status}</span></td>
+      <td><span class="status status-${escapeHtml(e.status)}">${escapeHtml(e.status)}</span></td>
       <td class="amount">${formatNumber(e.block_reward)} BTCPC</td>
       <td>${formatNumber(e.total_work)}</td>
       <td>${(e.commitments || []).length}</td>
@@ -41,9 +42,9 @@ function dashboard(data) {
 
   const txRows = (recentTransactions || []).map(t => `
     <tr>
-      <td><span class="type-badge type-${t.type}">${t.type.replace("_", " ")}</span></td>
-      <td><a href="/account/${t.from}">${t.from}</a></td>
-      <td><a href="/account/${t.to}">${t.to}</a></td>
+      <td><span class="type-badge type-${escapeHtml(t.type)}">${escapeHtml(t.type.replace("_", " "))}</span></td>
+      <td><a href="/account/${encodeURIComponent(t.from)}">${escapeHtml(t.from)}</a></td>
+      <td><a href="/account/${encodeURIComponent(t.to)}">${escapeHtml(t.to)}</a></td>
       <td class="amount">${formatNumber(t.amount)} BTCPC</td>
       <td>${formatDate(t.timestamp)}</td>
     </tr>
@@ -52,8 +53,8 @@ function dashboard(data) {
   const dreamRows = (recentDreams || []).map(d => `
     <tr>
       <td><a href="/block/${d.block_number}">Dream #${d.block_number}</a></td>
-      <td>${d.inscription?.project || d.inscription?.title || "[uninscribed]"}</td>
-      <td><a href="/account/${d.current_owner || d.original_miner}">${d.current_owner || d.original_miner || "--"}</a></td>
+      <td>${escapeHtml(d.inscription?.project || d.inscription?.title || "[uninscribed]")}</td>
+      <td><a href="/account/${encodeURIComponent(d.current_owner || d.original_miner || "")}">${escapeHtml(d.current_owner || d.original_miner || "--")}</a></td>
       <td>${formatDate(d.minted_at || d.createdAt)}</td>
     </tr>
   `).join("");

@@ -435,7 +435,7 @@ app.get("/tx/:txHash", async (req, res) => {
   try {
     var txHash = sanitizeString(req.params.txHash, 128);
     if (!txHash || !/^[a-fA-F0-9]+$/.test(txHash)) {
-      if (req.accepts("html")) return res.send(txDetailView({ tx: null, txHash: txHash }));
+      if (req.accepts("html")) return res.status(400).send(txDetailView({ tx: null, txHash: txHash }));
       return res.status(400).json({ error: "invalid transaction hash" });
     }
 

@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -84,7 +85,7 @@ function tokenomicsView(data) {
     var statusClass = status === "deployed" || status === "live" ? "status-active" : "status-committed";
     var explorerBase = explorerUrls[chain];
     var addrDisplay = addr.length > 20 ? addr.slice(0, 10) + "..." + addr.slice(-8) : addr;
-    var addrLink = explorerBase && addr !== "--" ? '<a href="' + explorerBase + addr + '" target="_blank">' + addrDisplay + '</a>' : addrDisplay;
+    var addrLink = explorerBase && addr !== "--" ? '<a href="' + explorerBase + encodeURIComponent(addr) + '" target="_blank">' + escapeHtml(addrDisplay) + '</a>' : escapeHtml(addrDisplay);
     var chainId = info.chainId || "--";
 
     // Bonding curve price

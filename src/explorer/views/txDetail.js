@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -21,7 +22,7 @@ function txDetailView(data) {
     return layout("Transaction Not Found", '\
       <h1 class="page-title">Transaction <span>Not Found</span></h1>\
       <div class="card">\
-        <div class="empty-state">No transaction found with hash: ' + (hash || "unknown") + '</div>\
+        <div class="empty-state">No transaction found with hash: ' + escapeHtml(hash || "unknown") + '</div>\
       </div>\
     ');
   }
@@ -41,13 +42,13 @@ function txDetailView(data) {
       </div>\
       <dl class="detail-grid">\
         <dt>TX Hash</dt>\
-        <dd><span class="hash" style="max-width:none;">' + (tx.txHash || "--") + '</span></dd>\
+        <dd><span class="hash" style="max-width:none;">' + escapeHtml(tx.txHash || "--") + '</span></dd>\
         <dt>Type</dt>\
         <dd><span class="type-badge type-' + typeClass + '">' + (tx.type || "").replace(/_/g, " ") + '</span></dd>\
         <dt>From</dt>\
-        <dd>' + (tx.from ? '<a href="/account/' + tx.from + '">' + tx.from + '</a>' : "--") + '</dd>\
+        <dd>' + (tx.from ? '<a href="/account/' + encodeURIComponent(tx.from) + '">' + escapeHtml(tx.from) + '</a>' : "--") + '</dd>\
         <dt>To</dt>\
-        <dd>' + (tx.to ? '<a href="/account/' + tx.to + '">' + tx.to + '</a>' : "--") + '</dd>\
+        <dd>' + (tx.to ? '<a href="/account/' + encodeURIComponent(tx.to) + '">' + escapeHtml(tx.to) + '</a>' : "--") + '</dd>\
         <dt>Amount</dt>\
         <dd class="amount">' + formatNumber(tx.amount) + ' ' + (tx.token || "BTCPC") + '</dd>\
         <dt>Epoch</dt>\
@@ -55,8 +56,8 @@ function txDetailView(data) {
         <dt>Timestamp</dt>\
         <dd>' + formatDate(tx.timestamp) + '</dd>\
         <dt>Memo</dt>\
-        <dd>' + (tx.memo || "--") + '</dd>\
-        ' + (tx.signed_by ? '<dt>Signed By</dt><dd>' + tx.signed_by + '</dd>' : "") + '\
+        <dd>' + escapeHtml(tx.memo || "--") + '</dd>\
+        ' + (tx.signed_by ? '<dt>Signed By</dt><dd>' + escapeHtml(tx.signed_by) + '</dd>' : "") + '\
       </dl>\
     </div>\
   ';

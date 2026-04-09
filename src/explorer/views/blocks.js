@@ -1,6 +1,7 @@
 "use strict";
 
 const layout = require("./layout");
+const { escapeHtml } = require("./escape");
 
 function formatNumber(n) {
   if (n === null || n === undefined) return "0";
@@ -26,11 +27,11 @@ function blocksView(data) {
     var commitCount = (e.commitments || []).length;
     return '<tr>' +
       '<td><a href="/block/' + e.epoch_number + '">' + e.epoch_number + '</a></td>' +
-      '<td><span class="status status-' + e.status + '">' + e.status + '</span></td>' +
+      '<td><span class="status status-' + escapeHtml(e.status) + '">' + escapeHtml(e.status) + '</span></td>' +
       '<td class="amount">' + formatNumber(e.block_reward) + ' BTCPC</td>' +
       '<td>' + formatNumber(e.total_work) + '</td>' +
       '<td>' + commitCount + '</td>' +
-      '<td>' + (e.miner_id || "--") + '</td>' +
+      '<td>' + escapeHtml(e.miner_id || "--") + '</td>' +
       '<td>' + formatDate(e.started_at) + '</td>' +
       '<td>' + formatDate(e.ended_at) + '</td>' +
       '</tr>';
