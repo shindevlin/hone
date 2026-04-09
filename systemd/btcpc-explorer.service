@@ -1,0 +1,17 @@
+[Unit]
+Description=BTCPC Block Explorer (btcpcscan)
+After=network-online.target mongod.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/btcpc
+ExecStart=/usr/bin/node src/explorer/server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=-%h/repos/btcpc/.env
+
+[Install]
+WantedBy=default.target

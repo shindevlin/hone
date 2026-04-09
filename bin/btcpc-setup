@@ -547,7 +547,7 @@ async function main() {
     hw.ollama = detectOllama();
   }
 
-  // ── Ask for account name ──
+  // ── Account creation ──
   console.log("");
   var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
   if (!accountName) {
@@ -556,8 +556,59 @@ async function main() {
       accountName = "miner-" + crypto.randomBytes(4).toString("hex");
       log("Using auto-generated name: " + accountName);
     }
+
+    // Create the BTCPC account
+    console.log("");
+    log("Creating BTCPC account: " + accountName);
+    try {
+      var mongoose = require("mongoose");
+      require("dotenv").config({ path: path.join(REPO_DIR, ".env") });
+      var mongoUri = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin";
+      await mongoose.connect(mongoUri);
+
+      var { createAccount } = require(path.join(REPO_DIR, "src/wallet/accountManager"));
+      var keyManager = require(path.join(REPO_DIR, "src/wallet/keyManager"));
+
+      var account = await createAccount(accountName, null, accountName + "-setup");
+      var keys = await keyManager.mnemonicToKeys(account.mnemonic);
+
+      console.log("");
+      console.log("  ============================================");
+      console.log("  SAVE THIS NOW — we do NOT store your keys");
+      console.log("  ============================================");
+      console.log("");
+      console.log("  Username:  " + accountName);
+      console.log("  Mnemonic:  " + account.mnemonic);
+      console.log("");
+      console.log("  Owner key:   " + keys.owner.privateKey);
+      console.log("  Active key:  " + keys.active.privateKey);
+      console.log("  Posting key: " + keys.posting.privateKey);
+      console.log("  Memo key:    " + keys.memo.privateKey);
+      console.log("");
+      console.log("  BTCPC address: " + account.address);
+      console.log("  ============================================");
+      console.log("");
+
+      log("Write down your mnemonic. If you lose it, your account is gone forever.");
+      await ask("Press Enter when you've saved your mnemonic...");
+
+      // Record on ledger
+      var ledger = require(path.join(REPO_DIR, "src/services/ledger"));
+      await ledger.recordAccountCreate(accountName, account.publicKeys, account.chainWallets || {}, 0);
+      log("Account recorded on permanent ledger");
+
+      await mongoose.disconnect();
+    } catch (err) {
+      if (err.message && err.message.includes("duplicate")) {
+        log("Account '" + accountName + "' already exists — using it");
+      } else {
+        warn("Account creation failed: " + err.message);
+        log("You can create an account later via: node bin/btcpc-cli wallet create " + accountName);
+      }
+      try { await require("mongoose").disconnect(); } catch (_) {}
+    }
   } else {
-    log("Using account: " + accountName);
+    log("Using existing account: " + accountName);
   }
 
   // Decide what to run

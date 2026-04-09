@@ -1,0 +1,18 @@
+[Unit]
+Description=BTCPC Clock Node — Epoch Timing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/btcpc
+ExecStart=/usr/bin/node bin/btcpc-clock
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=-%h/repos/btcpc/.env
+EnvironmentFile=-%h/repos/btcpc/.env.node
+
+[Install]
+WantedBy=default.target

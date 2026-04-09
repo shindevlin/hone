@@ -1,0 +1,23 @@
+[Unit]
+Description=BTCPC Miner — Proof of Useful Work
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/btcpc
+ExecStart=/usr/bin/node bin/btcpc-mine
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=-%h/repos/btcpc/.env
+EnvironmentFile=-%h/repos/btcpc/.env.node
+
+# Resource limits
+Nice=10
+CPUQuota=80%
+MemoryMax=80%
+
+[Install]
+WantedBy=default.target
