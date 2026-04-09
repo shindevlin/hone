@@ -80,8 +80,53 @@ async function resolveTelegramUser(telegramId) {
 }
 
 /**
- * Mini App compatibility endpoints. These mirror the bot API surface from the
- * explorer origin so Telegram can call them without exposing BOT_API_KEY.
+ * Validate Telegram WebApp init data.
+ * Telegram signs the initData with the bot token — we verify to prevent spoofing.
+ * If BOT_TOKEN is not set, these endpoints are read-only (balance/history only).
+ */
+function validateTelegramInitData(req, res, next) {
+  var initData = req.headers['x-telegram-init-data'] || req.query.initData;
+  if (!initData) {
+    // No init data — allow read-only endpoints, block write operations
+    req._telegramVerified = false;
+    return next();
+  }
+
+  try {
+    var crypto = require('crypto');
+    var botToken = process.env.BTCPC_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) { req._telegramVerified = false; return next(); }
+
+    var params = new URLSearchParams(initData);
+    var hash = params.get('hash');
+    params.delete('hash');
+    var sorted = Array.from(params.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    var dataCheckString = sorted.map(([k, v]) => k + '=' + v).join('\n');
+    var secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
+    var computed = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+    if (computed === hash) {
+      req._telegramVerified = true;
+      var userData = params.get('user');
+      if (userData) req._telegramUser = JSON.parse(userData);
+    } else {
+      req._telegramVerified = false;
+    }
+  } catch (_) {
+    req._telegramVerified = false;
+  }
+  next();
+}
+
+function requireVerifiedTelegram(req, res, next) {
+  if (!req._telegramVerified) {
+    return res.status(403).json({ error: 'Telegram verification required for this action' });
+  }
+  next();
+}
+
+/**
+ * Mini App endpoints. Read-only are open, write operations require Telegram verification.
  */
 app.get("/api/bot/balance", async (req, res) => {
   try {

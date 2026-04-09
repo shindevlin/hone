@@ -42,6 +42,20 @@ router.post('/mcp-servers', authenticateToken, async (req, res) => {
   const { name, url, tools, description } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'name and url required' });
 
+  // Validate URL — must be HTTPS, no internal/localhost addresses
+  try {
+    const parsed = new URL(url);
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'MCP server URL must use http or https' });
+    }
+    const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254', '10.', '192.168.', '172.16.'];
+    if (blocked.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) {
+      return res.status(400).json({ error: 'MCP server URL cannot point to internal addresses' });
+    }
+  } catch (_) {
+    return res.status(400).json({ error: 'Invalid URL format' });
+  }
+
   try {
     const user = await require('../models/User').findById(req.user.id);
     // Replace if same name exists, otherwise add

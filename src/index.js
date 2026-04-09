@@ -17,10 +17,32 @@ if (!process.env.MONGODB_URI) { console.error('FATAL: MONGODB_URI not set'); pro
 
 const app = express();
 
-// Middleware
+// Middleware — security first
 app.use(cors());
 app.use(helmet());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// Block ReDoS: reject URLs longer than 2KB (mitigates path-to-regexp vulnerability)
+app.use((req, res, next) => {
+  if (req.originalUrl.length > 2048) return res.status(414).json({ error: 'URI too long' });
+  next();
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, slow down' }
+});
+app.use('/api/', apiLimiter);
+
+const createLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 account creations per hour per IP
+  message: { error: 'Account creation rate limit — try again later' }
+});
+app.use('/api/bot/create', createLimiter);
 
 // Health routes must be mounted before inference auth middleware.
 app.get('/health', (_req, res) => {
