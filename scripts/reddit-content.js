@@ -81,7 +81,7 @@ ${CHAINS.map(c => `- **${c.name}**: [View on Explorer](${c.explorer})`).join("\n
 
 *Mining is useful work. Every BTCPC is earned by running AI inference.*
 
-[Website](https://btcpc.net) | [Explorer](https://btcpc.net:4242) | [GitHub](https://github.com/shindevlin/btcpc)`;
+[Website](https://btcpc.net) | [Explorer](https://btcpc.net:4242) | [Substack](https://btcpc.substack.com) | [GitHub](https://github.com/shindevlin/btcpc)`;
 
   return { title, body };
 }
@@ -120,7 +120,7 @@ No staking required to mine. No special hardware. A mid-range desktop earns alon
 
 ---
 
-[Website](https://btcpc.net) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc)`;
+[Website](https://btcpc.net) | [Substack](https://btcpc.substack.com) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc)`;
 
   return { title, body };
 }
@@ -167,7 +167,7 @@ Or just run a clock node from your phone.
 
 ---
 
-[Website](https://btcpc.net) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc) | [Telegram](https://t.me/btcpcbot)
+[Website](https://btcpc.net) | [Substack](https://btcpc.substack.com) | [Whitepaper](https://github.com/shindevlin/btcpc/blob/main/docs/BTCPC_WHITEPAPER.md) | [GitHub](https://github.com/shindevlin/btcpc) | [Telegram](https://t.me/btcpcbot)
 
 *Built by Shin Devlin. Validated by Natoshi. Voiced by Josh.*`;
 
