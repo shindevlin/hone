@@ -34,6 +34,124 @@ const seenRequests = new Set();
 const SEEN_MAX = 1000;
 const MODEL_BUSY_THRESHOLD = parseInt(process.env.BTCPC_MODEL_BUSY_THRESHOLD, 10) || 3;
 
+// Per-job state: which jobs have been claimed (by us or anyone), what's in flight on this miner
+// claimedJobs: Map<request_id, { miner, claimed_at, nudges_sent }> — every claim we've seen
+// jobInFlight: { request_id, started_at, nudges_received } | null — what we're processing
+const claimedJobs = new Map();
+const claimedJobsMax = 5000;
+const jobsClaimedByOthers = new Set(); // legacy alias for back-compat lookups
+let jobInFlight = null;
+const JOB_MAX_DURATION_MS = parseInt(process.env.BTCPC_JOB_MAX_DURATION_MS, 10) || 10 * 60 * 1000; // 10 min
+const CLAIM_DELAY_MS = parseInt(process.env.BTCPC_CLAIM_DELAY_MS, 10) || 800;
+const STALE_CLAIM_MS = parseInt(process.env.BTCPC_STALE_CLAIM_MS, 10) || 90 * 1000; // 90s before nudging
+const NUDGE_INTERVAL_MS = parseInt(process.env.BTCPC_NUDGE_INTERVAL_MS, 10) || 30 * 1000; // 30s between nudges
+const MAX_NUDGES = parseInt(process.env.BTCPC_MAX_NUDGES, 10) || 2; // 2 nudges before reclaim
+
+function rememberClaim(reqId, miner) {
+  if (!reqId) return;
+  // Preserve first_claimed_at so we can enforce a hard cap regardless of refreshes
+  const existing = claimedJobs.get(reqId);
+  claimedJobs.set(reqId, {
+    miner: miner || 'unknown',
+    first_claimed_at: existing?.first_claimed_at || Date.now(),
+    claimed_at: Date.now(),
+    nudges_sent: 0,
+    refresh_count: existing ? (existing.refresh_count || 0) + 1 : 0,
+  });
+  jobsClaimedByOthers.add(reqId);
+  if (claimedJobs.size > claimedJobsMax) {
+    const first = claimedJobs.keys().next().value;
+    claimedJobs.delete(first);
+    jobsClaimedByOthers.delete(first);
+  }
+}
+
+function forgetClaim(reqId) {
+  if (!reqId) return;
+  claimedJobs.delete(reqId);
+  jobsClaimedByOthers.delete(reqId);
+}
+
+function clearJobInFlight(reason) {
+  if (jobInFlight) {
+    console.log(`[BTCPC Inference] Job ${jobInFlight.request_id?.slice(0, 8)} cleared (${reason}) after ${Date.now() - jobInFlight.started_at}ms`);
+    forgetClaim(jobInFlight.request_id);
+    jobInFlight = null;
+  }
+}
+
+// Local watchdog: clear our own jobs that exceed max duration
+setInterval(() => {
+  if (jobInFlight && Date.now() - jobInFlight.started_at > JOB_MAX_DURATION_MS) {
+    console.log(`[BTCPC Inference] WATCHDOG: clearing stuck job ${jobInFlight.request_id?.slice(0, 8)}`);
+    clearJobInFlight('watchdog timeout');
+  }
+}, 30000);
+
+// Network watchdog: nudge stale claims, reclaim if unresponsive.
+// Any node can run this — P2P network-wide stale-job recovery.
+//
+// Two timeouts:
+//   STALE_CLAIM_MS — time since last refresh before sending a nudge
+//   JOB_MAX_DURATION_MS — total time since first claim, hard cap
+//
+// The miner can extend the soft timeout by responding to nudges with refresh
+// claims, but cannot extend past the hard cap.
+setInterval(() => {
+  const now = Date.now();
+  for (const [reqId, claim] of claimedJobs) {
+    // Skip our own in-flight job (we have a local watchdog for that)
+    if (jobInFlight && jobInFlight.request_id === reqId) continue;
+
+    const ageSinceRefresh = now - claim.claimed_at;
+    const totalAge = now - claim.first_claimed_at;
+
+    // Hard cap: regardless of refreshes, force release after JOB_MAX_DURATION_MS
+    if (totalAge >= JOB_MAX_DURATION_MS) {
+      const reclaim = createMessage("INFERENCE_RECLAIM", {
+        request_id: reqId,
+        original_miner: claim.miner,
+        reason: 'exceeded hard cap (' + Math.round(JOB_MAX_DURATION_MS / 60000) + ' min)',
+        age_ms: totalAge,
+      }, p2p.NODE_ID);
+      p2p.broadcast(reclaim);
+      console.log(`[BTCPC Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} exceeded hard cap (${Math.round(totalAge/1000)}s, ${claim.refresh_count} refreshes)`);
+      forgetClaim(reqId);
+      continue;
+    }
+
+    // Soft timeout: nudge after STALE_CLAIM_MS since last refresh
+    if (ageSinceRefresh < STALE_CLAIM_MS) continue;
+
+    if (claim.nudges_sent >= MAX_NUDGES) {
+      const reclaim = createMessage("INFERENCE_RECLAIM", {
+        request_id: reqId,
+        original_miner: claim.miner,
+        reason: 'unresponsive after ' + MAX_NUDGES + ' nudges',
+        age_ms: totalAge,
+      }, p2p.NODE_ID);
+      p2p.broadcast(reclaim);
+      console.log(`[BTCPC Inference] RECLAIM ${reqId.slice(0, 8)} — ${claim.miner} silent for ${Math.round(ageSinceRefresh/1000)}s`);
+      forgetClaim(reqId);
+      continue;
+    }
+
+    const lastNudgeAge = ageSinceRefresh - (claim.nudges_sent * NUDGE_INTERVAL_MS);
+    if (lastNudgeAge < NUDGE_INTERVAL_MS) continue;
+
+    const nudge = createMessage("INFERENCE_NUDGE", {
+      request_id: reqId,
+      target_miner: claim.miner,
+      age_ms: totalAge,
+      since_refresh_ms: ageSinceRefresh,
+      nudge_number: claim.nudges_sent + 1,
+    }, p2p.NODE_ID);
+    p2p.broadcast(nudge);
+    claim.nudges_sent++;
+    console.log(`[BTCPC Inference] NUDGE ${reqId.slice(0, 8)} → ${claim.miner} (#${claim.nudges_sent}, silent: ${Math.round(ageSinceRefresh/1000)}s)`);
+  }
+}, 15000);
+
 function getModelStats(model) {
   if (!modelStats.has(model)) {
     modelStats.set(model, {
@@ -135,11 +253,26 @@ function startInferenceHandler() {
       case "INFERENCE_REQUEST":
         await handleInferenceRequest(msg);
         break;
+      case "INFERENCE_CLAIM":
+        handleInferenceClaim(msg);
+        break;
+      case "INFERENCE_NUDGE":
+        handleInferenceNudge(msg);
+        break;
+      case "INFERENCE_RECLAIM":
+        handleInferenceReclaim(msg);
+        break;
       case "INFERENCE_ASSIGN":
         await handleAssignment(msg);
         break;
       case "INFERENCE_PAYLOAD":
         await handlePayload(msg);
+        break;
+      case "INFERENCE_RESULT":
+      case "INFERENCE_REVEAL":
+      case "INFERENCE_COMMIT":
+        // A job has been completed — if it was OUR in-flight job, clear the slot
+        handleInferenceCompletion(msg);
         break;
       case "MODEL_DEMAND":
         handleModelDemand(msg);
@@ -151,7 +284,97 @@ function startInferenceHandler() {
 }
 
 /**
- * Handle incoming inference request — auto-claim if we have capacity.
+ * Record that some miner (possibly us) claimed a job. Other miners back off.
+ * Tracks claim time so the network watchdog can nudge stale claims.
+ */
+function handleInferenceClaim(msg) {
+  const data = msg.data || {};
+  const reqId = data.request_id;
+  const claimedBy = data.node_name;
+  if (!reqId) return;
+
+  rememberClaim(reqId, claimedBy);
+
+  if (claimedBy && claimedBy !== MINER_NAME) {
+    console.log(`[BTCPC Inference] Job ${reqId.slice(0, 8)} claimed by ${claimedBy} — backing off`);
+  }
+}
+
+/**
+ * Another node nudged us about a job we claimed. If it's ours, send a heartbeat
+ * (renew the claim by re-broadcasting). If it's not ours, ignore.
+ */
+function handleInferenceNudge(msg) {
+  const data = msg.data || {};
+  const reqId = data.request_id;
+  const target = data.target_miner;
+  if (!reqId) return;
+
+  if (target === MINER_NAME && jobInFlight && jobInFlight.request_id === reqId) {
+    // We're still working on it — refresh our claim by re-broadcasting
+    const elapsed = Date.now() - jobInFlight.started_at;
+    console.log(`[BTCPC Inference] Got nudge for ${reqId.slice(0, 8)} — still working (${Math.round(elapsed/1000)}s)`);
+    const refresh = createMessage("INFERENCE_CLAIM", {
+      request_id: reqId,
+      node_name: MINER_NAME,
+      node_id: p2p.NODE_ID,
+      refresh: true,
+      elapsed_ms: elapsed,
+      model: jobInFlight.model,
+    }, p2p.NODE_ID);
+    p2p.broadcast(refresh);
+  }
+}
+
+/**
+ * A claim has been released by the network — the original miner was unresponsive.
+ * Remove from claimed set so other miners can claim it. If we were stuck on it,
+ * give it up.
+ */
+function handleInferenceReclaim(msg) {
+  const data = msg.data || {};
+  const reqId = data.request_id;
+  if (!reqId) return;
+
+  console.log(`[BTCPC Inference] RECLAIM received for ${reqId.slice(0, 8)} — ${data.original_miner} unresponsive`);
+  forgetClaim(reqId);
+  // Also drop from seenRequests so we can re-process the request if it comes around again
+  seenRequests.delete(reqId);
+
+  if (jobInFlight && jobInFlight.request_id === reqId) {
+    clearJobInFlight('reclaimed by network');
+  }
+}
+
+/**
+ * When a job completes (we hear the result), if it was our in-flight job,
+ * clear the slot so we can claim the next one.
+ */
+function handleInferenceCompletion(msg) {
+  const data = msg.data || {};
+  const reqId = data.request_id;
+  if (!reqId) return;
+  // Always drop from claimed map — job is done, no longer occupying any miner
+  forgetClaim(reqId);
+  if (jobInFlight && jobInFlight.request_id === reqId) {
+    clearJobInFlight('completion broadcast');
+  }
+}
+
+/**
+ * Handle incoming inference request.
+ *
+ * Flow:
+ * 1. Dedupe relay echoes
+ * 2. If already in-flight on this miner → back off (one job at a time)
+ * 3. If already claimed by another miner → back off
+ * 4. Verify we have the model + Ollama is reachable
+ * 5. Wait CLAIM_DELAY_MS (so other miners get a chance to claim too)
+ * 6. Re-check after delay — bail if anyone else claimed
+ * 7. Mark in-flight, broadcast INFERENCE_CLAIM
+ *
+ * The miner stays locked to this job until INFERENCE_RESULT clears it
+ * (or watchdog timeout).
  */
 async function handleInferenceRequest(msg) {
   const data = msg.data || msg;
@@ -165,8 +388,12 @@ async function handleInferenceRequest(msg) {
     seenRequests.delete(first);
   }
 
-  if (activeJobs >= MAX_CONCURRENT) {
-    console.log(`[BTCPC Inference] Skipping request ${reqId?.slice(0, 8)} — at capacity (${activeJobs}/${MAX_CONCURRENT})`);
+  // Already claimed by someone (us or another miner)?
+  if (jobsClaimedByOthers.has(reqId)) return;
+
+  // We're already processing a job
+  if (jobInFlight) {
+    console.log(`[BTCPC Inference] Skipping ${reqId.slice(0, 8)} — busy with ${jobInFlight.request_id.slice(0, 8)}`);
     return;
   }
 
@@ -177,33 +404,53 @@ async function handleInferenceRequest(msg) {
     const modelsResp = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 5000 });
     const available = (modelsResp.data.models || []).map(m => m.name);
     model = chooseModel(requestedModel, data.prompt || data.messages?.map(m => m.content).join("\n") || "", available);
-    // Exact match: "qwen3:4b" must match "qwen3:4b", not "qwen3.5:27b"
     if (!available.includes(model)) {
-      // Also try without tag (e.g. "qwen3:4b" matches "qwen3:4b" but not "qwen3.5:27b")
       const modelBase = model.includes(':') ? model : model + ':latest';
       if (!available.includes(modelBase)) {
-        return; // silently skip — don't log spam for every model we don't have
+        return; // silently skip — don't have the model
       }
     }
   } catch (_) {
     return; // Ollama unreachable, skip silently
   }
 
+  // Wait a short delay before claiming so other miners on the network have
+  // a chance to claim too (random jitter to spread load fairly)
+  const jitter = Math.random() * CLAIM_DELAY_MS;
+  await new Promise((r) => setTimeout(r, jitter));
+
+  // Re-check after delay — has anyone else claimed it?
+  if (jobsClaimedByOthers.has(reqId)) {
+    return;
+  }
+
+  // Re-check that we're still not busy
+  if (jobInFlight) {
+    return;
+  }
+
   // Get our node info for the claim
   const user = await User.findOne({ username: MINER_NAME });
   const node = user ? await Node.findOne({ account: user._id }) : null;
 
+  // Mark as in-flight BEFORE broadcasting so race conditions don't double-claim
+  jobInFlight = {
+    request_id: reqId,
+    started_at: Date.now(),
+    model,
+  };
+
   const claim = createMessage("INFERENCE_CLAIM", {
-    request_id: data.request_id,
+    request_id: reqId,
     node_id: node?._id?.toString() || p2p.NODE_ID,
     sik_hash: node?.sik_hash || "none",
-    price: Math.min(data.max_fee || 10, 5), // bid 5 or less
+    price: Math.min(data.max_fee || 10, 5),
     model: model,
     node_name: MINER_NAME,
   }, p2p.NODE_ID);
 
   p2p.broadcast(claim);
-  console.log(`[BTCPC Inference] Claimed request ${data.request_id?.slice(0, 8)} at price ${claim.data.price}`);
+  console.log(`[BTCPC Inference] Claimed ${reqId.slice(0, 8)} (model: ${model}, waited: ${Math.round(jitter)}ms)`);
 }
 
 /**
@@ -248,6 +495,9 @@ async function handlePayload(msg) {
   if (!prompt) {
     console.log(`[BTCPC Inference] No prompt in payload for ${requestId?.slice(0, 8)}`);
     activeJobs = Math.max(0, activeJobs - 1);
+    if (jobInFlight && jobInFlight.request_id === requestId) {
+      clearJobInFlight('no prompt');
+    }
     return;
   }
 
@@ -401,6 +651,10 @@ async function handlePayload(msg) {
   } finally {
     activeJobs = Math.max(0, activeJobs - 1);
     modelActiveJobs.set(model, Math.max(0, (modelActiveJobs.get(model) || 0) - 1));
+    // Clear in-flight slot if this was our job
+    if (jobInFlight && jobInFlight.request_id === requestId) {
+      clearJobInFlight('local processing complete');
+    }
   }
 }
 

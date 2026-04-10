@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>BTCPC for Android — Install in 3 Taps</title>
+  <meta name="description" content="Mine BTCPC clock rewards on Android. Install in 3 taps via Termux.">
+  <link rel="manifest" href="/android-manifest.json">
+  <meta name="theme-color" content="#0a0e17">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BTCPC">
+  <link rel="apple-touch-icon" href="/btcpc-icon-180.png">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: -apple-system, system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 20px;
+      padding-top: env(safe-area-inset-top, 20px);
+      padding-bottom: env(safe-area-inset-bottom, 20px);
+    }
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .logo {
+      text-align: center;
+      font-size: 36px;
+      font-weight: 800;
+      color: #f7931a;
+      margin-bottom: 8px;
+      letter-spacing: -1px;
+    }
+    .tagline {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 15px;
+      margin-bottom: 32px;
+    }
+    .step {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .step-num {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      background: #f7931a;
+      color: #0a0e17;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: 800;
+      margin-right: 10px;
+      font-size: 14px;
+    }
+    .step-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+    }
+    .step-body {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-left: 38px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      background: #f7931a;
+      color: #0a0e17;
+      border: none;
+      padding: 16px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 16px;
+      margin-top: 12px;
+      text-decoration: none;
+      text-align: center;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: #f7931a;
+      border: 1px solid #f7931a;
+    }
+    .code-box {
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      color: #f7931a;
+      margin-top: 12px;
+      word-break: break-all;
+      position: relative;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: #2a3550;
+      color: #94a3b8;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .copy-btn.copied {
+      background: #10b981;
+      color: #0a0e17;
+    }
+    .footer {
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 32px;
+      padding: 20px;
+    }
+    .footer a { color: #f7931a; text-decoration: none; }
+    .pwa-prompt {
+      background: rgba(247, 147, 26, 0.1);
+      border: 1px dashed #f7931a;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #cbd5e1;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="logo">⚡ BTCPC</div>
+    <p class="tagline">Mine clock rewards from your Android phone</p>
+
+    <div class="pwa-prompt" id="pwa-prompt" style="display:none;">
+      Tap your browser menu → "Add to Home Screen" to keep this page handy.
+    </div>
+
+    <div class="step">
+      <div class="step-title"><span class="step-num">1</span>Install Termux</div>
+      <div class="step-body">
+        Get Termux from F-Droid (official source). Don't use the Play Store version — it's outdated.
+      </div>
+      <a href="https://f-droid.org/packages/com.termux/" class="btn">Install Termux from F-Droid</a>
+    </div>
+
+    <div class="step">
+      <div class="step-title"><span class="step-num">2</span>Open Termux & Paste</div>
+      <div class="step-body">
+        Open the Termux app and paste this command. It installs Node, downloads the BTCPC clock node, and starts mining.
+      </div>
+      <div class="code-box" id="cmd">
+        curl https://btcpc.net/android.sh | bash
+        <button class="copy-btn" onclick="copyCmd()">Copy</button>
+      </div>
+      <a href="intent://#Intent;scheme=termux;package=com.termux;end" class="btn btn-secondary">Open Termux</a>
+    </div>
+
+    <div class="step">
+      <div class="step-title"><span class="step-num">3</span>Enter Your Username</div>
+      <div class="step-body">
+        When prompted, enter your BTCPC username. Don't have one? Message <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram first to create an account.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-title">That's it</div>
+      <div class="step-body">
+        The clock node runs in the background, auto-updates every hour, and survives reboots. View your stats at <a href="/clock" style="color:#f7931a;">btcpc.net/clock</a> or in the BTCPC dashboard.
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="/install">Other install options</a> · <a href="/">btcpc.net</a> · <a href="https://btcpc.substack.com">Substack</a>
+    </div>
+  </div>
+
+  <script>
+    function copyCmd() {
+      var text = "curl https://btcpc.net/android.sh | bash";
+      var btn = document.querySelector(".copy-btn");
+      try {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copied!";
+          btn.classList.add("copied");
+          setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
+        });
+      } catch (e) {
+        // Fallback for older browsers
+        var input = document.createElement("input");
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
+      }
+    }
+
+    // PWA install prompt (fires once on Android Chrome)
+    var deferredPrompt;
+    window.addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById("pwa-prompt").style.display = "block";
+      document.getElementById("pwa-prompt").innerHTML =
+        '<button class="btn" onclick="installPWA()">📲 Add BTCPC to Home Screen</button>';
+    });
+
+    function installPWA() {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function () {
+        deferredPrompt = null;
+      });
+    }
+  </script>
+
+</body>
+</html>

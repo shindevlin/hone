@@ -35,6 +35,10 @@ const MESSAGE_TYPES = {
   INFERENCE_COMMIT: "INFERENCE_COMMIT",
   INFERENCE_REVEAL: "INFERENCE_REVEAL",
   INFERENCE_RESULT: "INFERENCE_RESULT",
+  // Stale-job nudge — any node can broadcast when a claim is overdue
+  INFERENCE_NUDGE: "INFERENCE_NUDGE",
+  // Released claim — claimer didn't respond to nudges, job is up for grabs
+  INFERENCE_RECLAIM: "INFERENCE_RECLAIM",
   // Model demand broadcast
   MODEL_DEMAND: "MODEL_DEMAND",
   // Mining proof gossip — miners broadcast proofs so all nodes can finalize
@@ -973,6 +977,9 @@ function handleClockHeartbeat(peer, msg, ctx) {
   var data = msg.data || {};
   var account = data.account || msg.nodeId;
   var epoch = data.epoch_number;
+  var source = data.source || 'p2p';
+
+  console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (epoch " + epoch + ", source: " + source + ")");
 
   recordNodeActivity(msg.nodeId, account, epoch);
   // Rebroadcast so all nodes see the heartbeat

@@ -319,6 +319,78 @@ setInterval(function () {
 // First HTTP heartbeat after 5s
 setTimeout(httpHeartbeat, 5000);
 
+// ── Auto-updater ──
+// Check btcpc.net every hour for a newer clock-lite.js. If the SHA256 differs,
+// download it to disk and exit (runit/systemd will restart the service).
+var UPDATE_URL = process.env.BTCPC_UPDATE_URL || "https://btcpc.net/clock-lite.js";
+var UPDATE_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS, 10) || 60 * 60 * 1000;
+var SCRIPT_PATH = process.argv[1]; // path to this script
+
+function selfHash() {
+  try {
+    var fs = require("fs");
+    var contents = fs.readFileSync(SCRIPT_PATH);
+    return crypto.createHash("sha256").update(contents).digest("hex");
+  } catch (e) {
+    return null;
+  }
+}
+
+function checkForUpdate() {
+  try {
+    var parsed = url.parse(UPDATE_URL);
+    var lib = parsed.protocol === "https:" ? https : http;
+    var req = lib.request({
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+      path: parsed.path,
+      method: "GET",
+      timeout: 30000,
+    }, function (res) {
+      if (res.statusCode !== 200) {
+        console.log("[CLOCK] Update check returned " + res.statusCode);
+        return;
+      }
+      var chunks = [];
+      res.on("data", function (chunk) { chunks.push(chunk); });
+      res.on("end", function () {
+        try {
+          var newContents = Buffer.concat(chunks);
+          var newHash = crypto.createHash("sha256").update(newContents).digest("hex");
+          var currentHash = selfHash();
+          if (currentHash && newHash !== currentHash) {
+            console.log("[CLOCK] New version available (" + newHash.slice(0, 12) + " vs current " + currentHash.slice(0, 12) + "), updating...");
+            var fs = require("fs");
+            fs.writeFileSync(SCRIPT_PATH + ".tmp", newContents);
+            fs.renameSync(SCRIPT_PATH + ".tmp", SCRIPT_PATH);
+            console.log("[CLOCK] Update complete, exiting for restart");
+            // runit/systemd will restart us
+            setTimeout(function () { process.exit(0); }, 1000);
+          } else {
+            console.log("[CLOCK] Up to date (" + (currentHash || "unknown").slice(0, 12) + ")");
+          }
+        } catch (e) {
+          console.log("[CLOCK] Update apply error: " + e.message);
+        }
+      });
+    });
+    req.on("error", function (err) {
+      console.log("[CLOCK] Update check error: " + err.message);
+    });
+    req.on("timeout", function () {
+      req.destroy();
+      console.log("[CLOCK] Update check timeout");
+    });
+    req.end();
+  } catch (e) {
+    console.log("[CLOCK] Update check threw: " + e.message);
+  }
+}
+
+// First update check after 5 minutes (don't hammer right after install)
+setTimeout(checkForUpdate, 5 * 60 * 1000);
+setInterval(checkForUpdate, UPDATE_INTERVAL_MS);
+
 // Status every 2 min
 setInterval(function () {
   console.log("[CLOCK] epoch " + currentEpoch + " | " + connections.length + " peers");
