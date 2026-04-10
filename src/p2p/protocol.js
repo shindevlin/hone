@@ -811,11 +811,18 @@ function recordVerifier(account, epochNumber) {
 }
 
 /**
- * Get accounts that verified work for a given epoch.
+ * Get accounts that verified work for a given epoch (and the last few).
  */
 function getActiveVerifiers(epochNumber) {
-  var vset = verifiersByEpoch.get(epochNumber);
-  return vset ? Array.from(vset) : [];
+  var WINDOW = 3;
+  var union = new Set();
+  for (var i = 0; i <= WINDOW; i++) {
+    var vset = verifiersByEpoch.get(epochNumber - i);
+    if (vset) {
+      for (var v of vset) union.add(v);
+    }
+  }
+  return Array.from(union);
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,11 +1063,20 @@ function recordNodeActivity(nodeId, username, epochNumber) {
 
 /**
  * Get the list of active clock nodes for a given epoch.
- * Returns array of usernames/nodeIds that were online.
+ * Returns array of usernames/nodeIds that were online during this epoch
+ * OR within the last few epochs (clocks may heartbeat slightly before/after
+ * the epoch boundary, so we use a small window).
  */
 function getActiveClockNodes(epochNumber) {
-  var nodes = clockUptimeByEpoch.get(epochNumber);
-  return nodes ? Array.from(nodes) : [];
+  var WINDOW = 3; // accept heartbeats from current epoch and last 3 epochs
+  var union = new Set();
+  for (var i = 0; i <= WINDOW; i++) {
+    var nodes = clockUptimeByEpoch.get(epochNumber - i);
+    if (nodes) {
+      for (var n of nodes) union.add(n);
+    }
+  }
+  return Array.from(union);
 }
 
 /**
