@@ -27,6 +27,12 @@ const MESSAGE_TYPES = {
   EPOCH_COMMIT: "EPOCH_COMMIT",
   REQUEST_BLOCKS: "REQUEST_BLOCKS",
   RESPONSE_BLOCKS: "RESPONSE_BLOCKS",
+  // Unified block proposal — replaces EPOCH_START + EPOCH_END +
+  // FINALIZATION_PROPOSAL + EPOCH_FINALIZED with a single message.
+  // Any node can broadcast one when wall clock crosses an epoch boundary.
+  // Contains everything needed: epoch number, work proofs, rewards,
+  // consensus hash, ledger entries, and block header.
+  BLOCK_PROPOSAL: "BLOCK_PROPOSAL",
   // Inference protocol
   INFERENCE_REQUEST: "INFERENCE_REQUEST",
   INFERENCE_CLAIM: "INFERENCE_CLAIM",
@@ -232,6 +238,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.FINALIZATION_PROPOSAL:
       handleFinalizationProposal(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.BLOCK_PROPOSAL:
+      handleBlockProposal(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.CLOCK_HEARTBEAT:
       handleClockHeartbeat(peer, msg, ctx);
@@ -766,6 +775,8 @@ async function handleAccountAnnounce(peer, msg, ctx) {
 /**
  * FINALIZATION_PROPOSAL — A miner proposes their reward split for an epoch.
  * Collected by all nodes. When majority agrees, the earliest proposer broadcasts EPOCH_FINALIZED.
+ *
+ * NOTE: This is the legacy multi-message ceremony. New code uses BLOCK_PROPOSAL.
  */
 function handleFinalizationProposal(peer, msg, ctx) {
   var data = msg.data || {};
@@ -780,6 +791,45 @@ function handleFinalizationProposal(peer, msg, ctx) {
   finConsensus.submitProposal(data.epoch_number, data);
 
   // Rebroadcast
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * BLOCK_PROPOSAL — Unified block proposal from a clock node.
+ * Bundles epoch, work attestations, rewards, and consensus_hash in one message.
+ * Replaces the EPOCH_START → EPOCH_END → FINALIZATION_PROPOSAL → EPOCH_FINALIZED dance.
+ *
+ * Multiple clocks running the same buildProposal() over the same gossip
+ * stream produce identical hashes → deterministic consensus.
+ */
+function handleBlockProposal(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.epoch_number || !data.proposer || !data.consensus_hash) return;
+
+  console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
+    " for epoch " + data.epoch_number +
+    " (work=" + (data.total_work || 0) +
+    ", hash=" + data.consensus_hash.slice(0, 12) + ")");
+
+  // Update the local epoch cache
+  setCurrentEpoch(data.epoch_number);
+
+  // Submit to local consensus collector — same logic as FINALIZATION_PROPOSAL
+  // but the data shape is the new unified format
+  var finConsensus = require("../chain/finalizationConsensus");
+  finConsensus.submitProposal(data.epoch_number, {
+    proposer: data.proposer,
+    rewards: (data.rewards || []).map(function (r) {
+      return { miner: r.to || r.miner, amount: r.amount, type: r.type };
+    }),
+    total_work: data.total_work || 0,
+    consensus_hash: data.consensus_hash,
+    settled_jobs: data.miners_active || 0,
+    block_reward: data.block_reward,
+    timestamp: data.timestamp,
+  });
+
+  // Rebroadcast to peers
   ctx.broadcast(msg, peer.address);
 }
 

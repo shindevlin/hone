@@ -421,8 +421,23 @@ async function computeFinalization(epochNumber) {
  * Called by the consensus winner OR when receiving EPOCH_FINALIZED.
  */
 async function applyFinalization(epochNumber, proposal) {
-  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
-  if (!epoch) return null;
+  let epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  if (!epoch) {
+    // No epoch document yet — create one (the unified BLOCK_PROPOSAL flow
+    // doesn't pre-create epoch records via EPOCH_START anymore)
+    try {
+      epoch = await Epoch.create({
+        epoch_number: epochNumber,
+        status: 'active',
+        started_at: new Date(),
+        block_reward: proposal.block_reward || 0,
+      });
+    } catch (e) {
+      // Race: another node created it first
+      epoch = await Epoch.findOne({ epoch_number: epochNumber });
+      if (!epoch) return null;
+    }
+  }
   if (epoch.status === 'finalized') return epoch; // already done
 
   const rewards = proposal.rewards || [];
@@ -1210,32 +1225,9 @@ async function startMiner() {
       });
     }
 
-    // ── EPOCH_END from a clock node — compute proposal, broadcast for consensus ──
-    if (msg.type === 'EPOCH_END') {
-      const data = msg.data || {};
-      const endedEpoch = data.epoch_number;
-      if (!endedEpoch) return;
-
-      console.log(`[BTCPC] Epoch ${endedEpoch} ENDED (from ${data.authority || 'clock'})`);
-
-      // Compute our finalization proposal (no DB writes yet)
-      setImmediate(async () => {
-        try {
-          const proposal = await computeFinalization(endedEpoch);
-          console.log(`[BTCPC] Proposal for epoch ${endedEpoch}: ${proposal.rewards.length} reward(s), work=${proposal.total_work}, hash=${proposal.consensus_hash.slice(0, 12)}...`);
-
-          // Submit to local consensus collector
-          const finConsensus = require('../chain/finalizationConsensus');
-          finConsensus.submitProposal(endedEpoch, proposal);
-
-          // Broadcast proposal to network
-          const proposalMsg = createMessage('FINALIZATION_PROPOSAL', proposal, p2p.NODE_ID);
-          p2p.broadcast(proposalMsg);
-        } catch (err) {
-          console.error(`[BTCPC] Proposal error for epoch ${endedEpoch}:`, err.message);
-        }
-      });
-    }
+    // EPOCH_END is a no-op — block proposals are now driven by the wall clock
+    // loop, not by EPOCH_END messages. Kept here only for log compat.
+    // The unified BLOCK_PROPOSAL flow handles all consensus.
   });
 
   // ── Consensus resolution callback — when the network agrees, apply and broadcast ──
@@ -1299,42 +1291,55 @@ async function startMiner() {
     }
   });
 
-  // Fallback: if no clock sends EPOCH_START for 2 epoch durations, mine anyway
-  miningInterval = setInterval(async () => {
-    if (!running) return;
-    const clockEpoch = getCurrentEpochNumber();
-    if (clockEpoch > currentEpoch + 1) {
-      console.log(`[BTCPC] No clock heard — fallback mining epoch ${clockEpoch}`);
-      currentEpoch = clockEpoch;
-      try {
-        await mineEpoch(currentEpoch);
-        // Fallback: propose and self-resolve (solo miner)
-        const proposal = await computeFinalization(currentEpoch);
-        const epoch = await applyFinalization(currentEpoch, proposal);
-        if (epoch) {
-          const bd = epoch._blockData || {};
-          const blockMsg = createMessage('EPOCH_FINALIZED', {
-            epoch_number: currentEpoch,
-            block_reward: proposal.block_reward,
-            reward_number: proposal.reward_number,
-            rewards: proposal.rewards.map(r => ({ miner: r.miner, amount: r.amount })),
-            total_work: proposal.total_work,
-            consensus_hash: proposal.consensus_hash,
-            authority: MINER_ACCOUNT,
-            ledger: bd.ledger || [],
-            header_hex: bd.header_hex || null,
-            block_hash: bd.block_hash || null,
-            state_root: bd.state_root || null
-          }, p2p.NODE_ID);
-          p2p.broadcast(blockMsg);
-        }
-      } catch (err) {
-        console.error(`[BTCPC] Fallback epoch ${currentEpoch} error:`, err.message);
-      }
-    }
-  }, EPOCH_DURATION_MS);
+  // ── Unified clock loop: any node with this code is also a clock ──
+  // Wall clock advances → build BLOCK_PROPOSAL from gossiped attestations
+  // → broadcast → consensus picks winner. Single message, no ceremony.
+  //
+  // Miners do work. Verifiers check work. Clocks aggregate and propose blocks.
+  // This same loop runs in btcpc-clock too — both nodes are clocks.
+  const blockProposal = require('../chain/blockProposal');
+  let lastProposedEpoch = -1;
 
-  console.log(`[BTCPC] Mining loop active -- next epoch in ${EPOCH_DURATION_MS / 1000}s`);
+  miningInterval = setInterval(() => {
+    if (!running) return;
+    const wallEpoch = getCurrentEpochNumber();
+    if (wallEpoch <= lastProposedEpoch) return;
+    if (wallEpoch <= currentEpoch) return;
+
+    // Update protocol's epoch cache so handlers know what epoch we're in
+    p2p.setCurrentEpoch ? p2p.setCurrentEpoch(wallEpoch) : null;
+    lastProposedEpoch = wallEpoch;
+
+    try {
+      const reward = getBlockReward(wallEpoch);
+      const proposal = blockProposal.buildProposal({
+        epochNumber: wallEpoch,
+        blockReward: reward,
+        proposerAccount: MINER_ACCOUNT,
+        protocol: p2p,
+      });
+
+      const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
+      p2p.broadcast(msg);
+      console.log(`[BTCPC] Block proposal for epoch ${wallEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
+
+      // Also submit to local consensus tracker
+      const finConsensus = require('../chain/finalizationConsensus');
+      finConsensus.submitProposal(wallEpoch, {
+        proposer: MINER_ACCOUNT,
+        rewards: proposal.rewards.map(r => ({ miner: r.to, amount: r.amount, type: r.type })),
+        total_work: proposal.total_work,
+        consensus_hash: proposal.consensus_hash,
+        settled_jobs: proposal.miners_active,
+        block_reward: reward,
+        timestamp: proposal.timestamp,
+      });
+    } catch (err) {
+      console.error(`[BTCPC] Block proposal error for epoch ${wallEpoch}:`, err.message);
+    }
+  }, 5000); // check every 5s
+
+  console.log(`[BTCPC] Block proposal loop active — checking every 5s, epoch duration ${EPOCH_DURATION_MS / 1000}s`);
 
   // Start auto-updater (checks GitHub every 15min, stages + notifies)
   startAutoUpdater();
