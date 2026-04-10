@@ -1146,6 +1146,19 @@ async function startMiner() {
 
   running = true;
 
+  // Seed the protocol's epoch cache so heartbeats arriving before the first
+  // proposal fires get filed under the right epoch
+  try {
+    const protocolMod = require('../p2p/protocol');
+    const genesisEpoch = await Epoch.findOne({ epoch_number: 0 });
+    if (genesisEpoch && genesisEpoch.started_at) {
+      const initWall = Math.floor((Date.now() - genesisEpoch.started_at.getTime()) / EPOCH_DURATION_MS);
+      if (initWall > 0 && protocolMod.setCurrentEpoch) {
+        protocolMod.setCurrentEpoch(initWall);
+      }
+    }
+  } catch (_) {}
+
   // Determine the starting epoch number — use highest of:
   // 1. Time-based calculation from genesis
   // 2. Highest epoch in MongoDB
@@ -1312,13 +1325,13 @@ async function startMiner() {
     if (wallEpoch < targetEpoch) return;
     if (targetEpoch <= lastProposedEpoch) return;
 
-    // Update protocol's epoch cache so handlers know what epoch we're in
-    p2p.setCurrentEpoch ? p2p.setCurrentEpoch(targetEpoch) : null;
     lastProposedEpoch = targetEpoch;
 
     try {
       const reward = getBlockReward(targetEpoch);
       const protocolModule = require('../p2p/protocol');
+      // Update protocol's epoch cache so subsequent heartbeats file correctly
+      if (protocolModule.setCurrentEpoch) protocolModule.setCurrentEpoch(targetEpoch);
       const proposal = blockProposal.buildProposal({
         epochNumber: targetEpoch,
         blockReward: reward,
