@@ -898,6 +898,45 @@ async function recordBlobStoreCommit(uploader, cid, size, hosts, durationEpochs,
 }
 
 /**
+ * Record a storage heartbeat on chain (v2.11.2+).
+ *
+ * Home-user-friendly durability signal. A storage host broadcasts that
+ * it's still alive and still holds a list of CIDs. Used by:
+ *   1. Uptime-weighted payout formulas
+ *   2. Verifier challenge selection (pick a recent heartbeat, challenge
+ *      the host for a random byte range from one of its declared CIDs)
+ *   3. Auto-replacement when a host goes dark
+ *
+ * Designed for flaky home internet: heartbeats are cheap, intermittent
+ * drops are tolerable, and a host that misses a few heartbeats but
+ * comes back still has a usable uptime_factor > 0. Stake slashing only
+ * kicks in for extended silence or failed challenges.
+ *
+ * @param {string} host — the reporting storage host account name
+ * @param {string[]} cids — list of CIDs currently held on disk
+ * @param {number} capacityUsedGb — optional, total disk used by blobs
+ * @param {number} epoch
+ */
+async function recordStorageHeartbeat(host, cids, capacityUsedGb, epoch) {
+  if (!host) throw new Error('host required');
+  if (!Array.isArray(cids)) throw new Error('cids must be an array');
+
+  // Filter to valid CIDs only (defense in depth — stateStore also filters)
+  const cleanCids = cids.filter((c) => typeof c === 'string' && /^[a-f0-9]{64}$/.test(c));
+
+  const entry = _entry({
+    type: 'STORAGE_HEARTBEAT',
+    from: host,
+    epoch,
+    blob_data: {
+      cids: cleanCids,
+      capacity_used_gb: Number(capacityUsedGb) || 0,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a BTCPC-FS blob serve proof on chain (v2.11.1+).
  *
  * A storage host reports how many bytes of a CID it served in the current
@@ -1072,4 +1111,5 @@ module.exports = {
   // BTCPC-FS (v2.11+)
   recordBlobStoreCommit,
   recordBlobServeProof,
+  recordStorageHeartbeat,
 };

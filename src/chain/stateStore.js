@@ -72,6 +72,24 @@ var reputationVotes = new Map();
 // src/services/blobStore.js — this Map is the chain-level metadata only.
 var blobs = new Map();
 
+// BTCPC-FS storage heartbeats (v2.11.2+): host → {
+//   last_heartbeat_epoch,
+//   heartbeats: [{ epoch, cids: [...], capacity_used_gb }, ...],  // rolling window
+//   total_heartbeats,
+//   uptime_window_start,
+// }
+// Home-user-friendly durability signal: storage hosts send a small proof
+// of liveness every N epochs, listing the CIDs they currently hold. This
+// is the foundation for uptime-weighted payouts (v2.11.2+) and for the
+// challenge protocol (verifiers pick a random host + CID from recent
+// heartbeats to challenge).
+var storageHeartbeats = new Map();
+
+// Keep at most this many recent heartbeats per host to bound memory.
+// 1000 epochs ≈ 3.5 days at 5 min epochs — enough history for uptime
+// calculation windows without unbounded growth.
+var STORAGE_HEARTBEAT_RETENTION = 1000;
+
 // Mining proofs indexed by epoch
 var miningProofsByEpoch = new Map();
 
@@ -149,6 +167,9 @@ function _entryKey(entry) {
     domainId = "v:" + entry.vote_data.target_type + ":" + entry.vote_data.target_id;
   } else if (entry.store_data && entry.store_data.action) {
     domainId = "s:" + entry.store_data.action;
+  } else if (entry.type === "STORAGE_HEARTBEAT") {
+    // Heartbeats are per-host-per-epoch; dedupe on that key.
+    domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
   } else if (entry.blob_data && entry.blob_data.cid) {
     // Serve proofs can repeat per-epoch per-host; include bytes_served
     // + timestamp so multiple proofs in one epoch aren't deduped.
@@ -669,6 +690,51 @@ function applyEntry(entry) {
       }
       break;
 
+    // ── BTCPC-FS storage heartbeats (v2.11.2+) ─────────────────────
+    // A storage host proves it's alive and listing the CIDs it has on
+    // disk. Home-user-friendly durability signal. Used by:
+    //   1. Uptime-weighted payout formulas (blobPayouts v2.11.2+)
+    //   2. Verifier challenge selection (pick host + CID from recent
+    //      heartbeats for challenge-response audits)
+    //   3. Auto-replacement when a host goes dark (no heartbeats for
+    //      extended window → removed from commit hosts list, replaced
+    //      from the pool)
+    //
+    // No chain-state mutation of the blob itself — just host liveness.
+    // Home users with slow disks or flaky ISPs can heartbeat every few
+    // epochs without needing to serve any bytes.
+    case "STORAGE_HEARTBEAT":
+      if (from) {
+        var hbRecord = storageHeartbeats.get(from) || {
+          host: from,
+          heartbeats: [],
+          total_heartbeats: 0,
+          first_heartbeat_epoch: entry.epoch,
+        };
+        var hbEntry = {
+          epoch: entry.epoch,
+          cids: Array.isArray(entry.blob_data && entry.blob_data.cids)
+            ? entry.blob_data.cids.filter(function (c) {
+                return typeof c === "string" && /^[a-f0-9]{64}$/.test(c);
+              })
+            : [],
+          capacity_used_gb:
+            (entry.blob_data && Number(entry.blob_data.capacity_used_gb)) || 0,
+        };
+        hbRecord.heartbeats.push(hbEntry);
+        if (hbRecord.heartbeats.length > STORAGE_HEARTBEAT_RETENTION) {
+          // Drop oldest entries to bound memory
+          hbRecord.heartbeats.splice(
+            0,
+            hbRecord.heartbeats.length - STORAGE_HEARTBEAT_RETENTION
+          );
+        }
+        hbRecord.total_heartbeats = (hbRecord.total_heartbeats || 0) + 1;
+        hbRecord.last_heartbeat_epoch = entry.epoch;
+        storageHeartbeats.set(from, hbRecord);
+      }
+      break;
+
     // Host reports bytes served for a CID in the current epoch.
     // Chain invariants:
     //   1. the CID must already have a BLOB_STORE_COMMIT on chain
@@ -1168,6 +1234,74 @@ function getBlobCommitsByUploader(uploader) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Storage heartbeat getters + uptime calculation (v2.11.2+)
+// ─────────────────────────────────────────────────────────────────
+
+function getStorageHeartbeat(host) {
+  return storageHeartbeats.get(host) || null;
+}
+
+function getAllStorageHosts() {
+  var result = [];
+  for (var entry of storageHeartbeats) {
+    result.push(entry[1]);
+  }
+  return result;
+}
+
+/**
+ * Compute uptime factor (0.0 to 1.0) for a storage host over a window of
+ * epochs ending at `currentEpoch`. Formula:
+ *
+ *   uptime_factor = min(1.0, heartbeats_in_window / expected_heartbeats)
+ *
+ * Where expected_heartbeats assumes the host should heartbeat at least
+ * once every `heartbeatInterval` epochs. Default interval is 5 epochs
+ * (~25 min at 5 min epochs) — frequent enough to catch downtime quickly
+ * but not so frequent that flaky home ISPs get penalized for brief drops.
+ *
+ * Returns 0 if host has no heartbeat record at all.
+ */
+function getStorageUptimeFactor(host, currentEpoch, windowEpochs, heartbeatInterval) {
+  windowEpochs = windowEpochs || 100;
+  heartbeatInterval = heartbeatInterval || 5;
+  var record = storageHeartbeats.get(host);
+  if (!record) return 0;
+
+  var windowStart = Math.max(0, currentEpoch - windowEpochs + 1);
+  var countInWindow = 0;
+  for (var i = 0; i < record.heartbeats.length; i++) {
+    var hb = record.heartbeats[i];
+    if (hb.epoch >= windowStart && hb.epoch <= currentEpoch) {
+      countInWindow++;
+    }
+  }
+
+  var expected = Math.max(1, Math.floor(windowEpochs / heartbeatInterval));
+  var factor = countInWindow / expected;
+  if (factor > 1.0) factor = 1.0;
+  if (factor < 0) factor = 0;
+  return _round(factor);
+}
+
+/**
+ * Get all hosts that have heartbeated recently (within the last
+ * `recentEpochs` epochs). Used by the auto-selector when picking
+ * hosts for new BLOB_STORE_COMMIT entries.
+ */
+function getActiveStorageHosts(currentEpoch, recentEpochs) {
+  recentEpochs = recentEpochs || 100;
+  var threshold = currentEpoch - recentEpochs;
+  var result = [];
+  for (var entry of storageHeartbeats) {
+    if ((entry[1].last_heartbeat_epoch || 0) >= threshold) {
+      result.push(entry[1]);
+    }
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Slashing getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -1216,6 +1350,7 @@ function stats() {
     reputation: reputation.size,
     reputation_votes: reputationVotes.size,
     blobs: blobs.size,
+    storage_heartbeats: storageHeartbeats.size,
     epochs: epochs.size,
     mining_proof_epochs: miningProofsByEpoch.size,
     seen_entries: seenEntries.size,
@@ -1341,6 +1476,7 @@ function resetAll() {
   reputation.clear();
   reputationVotes.clear();
   blobs.clear();
+  storageHeartbeats.clear();
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
   slashRecords.clear();
@@ -1413,6 +1549,11 @@ module.exports = {
   getAllBlobCommits: getAllBlobCommits,
   getBlobCommitsByHost: getBlobCommitsByHost,
   getBlobCommitsByUploader: getBlobCommitsByUploader,
+  // BTCPC-FS storage heartbeats + uptime (v2.11.2+)
+  getStorageHeartbeat: getStorageHeartbeat,
+  getAllStorageHosts: getAllStorageHosts,
+  getStorageUptimeFactor: getStorageUptimeFactor,
+  getActiveStorageHosts: getActiveStorageHosts,
   // Slashing
   getSlashRecords: getSlashRecords,
   // Introspection
