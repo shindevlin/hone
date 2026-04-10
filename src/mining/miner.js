@@ -478,6 +478,11 @@ async function applyFinalization(epochNumber, proposal) {
 
     // Apply entries to SMT for state root
     stateManager.applyLedgerEntries(epochLedgerEntries);
+    // Phase B: also apply to stateStore so the in-memory cache tracks live writes
+    try {
+      const stateStore = require('../chain/stateStore');
+      stateStore.applyEntries(epochLedgerEntries);
+    } catch (_) {}
     const stateRoot = stateManager.getStateRoot();
 
     // Compute Merkle roots
@@ -1195,6 +1200,16 @@ async function startMiner() {
 
   // Load node registry from block files
   nodeRegistry.loadFromBlocks();
+
+  // Phase B: replay blocks into stateStore at miner startup too
+  try {
+    const replay = require('../chain/replay');
+    const replayResult = await replay.replayFromDisk({ verbose: true });
+    console.log('[BTCPC] stateStore replay (miner): ' + replayResult.replayed + ' blocks, ' +
+      replayResult.accounts + ' accounts, ' + replayResult.durationMs + 'ms');
+  } catch (err) {
+    console.error('[BTCPC] stateStore replay error:', err.message);
+  }
 
   function getCurrentEpochNumber() {
     return Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);

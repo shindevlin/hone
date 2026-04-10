@@ -172,6 +172,16 @@ const { loadFromDatabase } = require('./p2p/chainSync');
 
 const PORT = process.env.PORT || 3000;
 connectDB().then(async () => {
+  // Phase B: replay blocks into stateStore at startup so shadow reads have data
+  try {
+    const replay = require('./chain/replay');
+    const result = await replay.replayFromDisk({ verbose: true });
+    console.log('[BTCPC] stateStore replay: ' + result.replayed + ' blocks, ' +
+      result.accounts + ' accounts, height=' + result.chainHeight + ', ' + result.durationMs + 'ms');
+  } catch (err) {
+    console.error('[BTCPC] stateStore replay error:', err.message);
+  }
+
   app.listen(PORT, () => {
     console.log(`BTCPC server running on port ${PORT}`);
   });

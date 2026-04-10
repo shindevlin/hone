@@ -696,7 +696,20 @@ async function getBalance(username, token) {
   const inTotal = incoming.length > 0 ? incoming[0].total : 0;
   const outTotal = outgoing.length > 0 ? outgoing[0].total : 0;
 
-  return parseFloat((inTotal - outTotal).toFixed(10));
+  const mongoBalance = parseFloat((inTotal - outTotal).toFixed(10));
+
+  // Phase B: shadow-read from stateStore and log any divergence.
+  // stateStore is the future source of truth — in Phase C we'll delete the Mongo path.
+  try {
+    const stateStore = require('../chain/stateStore');
+    const storeBalance = stateStore.getBalance(username, token);
+    if (Math.abs(storeBalance - mongoBalance) > 0.0000001) {
+      console.log('[BTCPC STATE DIVERGENCE] user=' + username + ' token=' + token +
+        ' mongo=' + mongoBalance + ' store=' + storeBalance);
+    }
+  } catch (_) { /* stateStore not yet populated on this process — skip */ }
+
+  return mongoBalance;
 }
 
 /**
