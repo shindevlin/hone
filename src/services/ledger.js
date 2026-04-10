@@ -594,6 +594,247 @@ async function recordHeartbeat(username, epoch) {
   return _persist(entry);
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Commerce + reputation (v2.10)
+// ─────────────────────────────────────────────────────────────────
+
+const bondingCurve = require('./stakeBondingCurve');
+
+/**
+ * Open a storefront for `seller`. Caller must have paid the stable fee +
+ * locked the BTCPC stake before calling this; those happen via recordTransfer
+ * to treasury + recordStake (handled by the route layer).
+ *
+ * storeData: { name, banner_cid, description_cid, categories }
+ * capacity: starting number of product slots (bought via bonding curve)
+ * stakeAmount: BTCPC locked as collateral
+ * stablePaidUsd: USD paid via wrapped stable
+ */
+async function recordStoreOpen(seller, storeData, capacity, stakeAmount, stablePaidUsd, epoch) {
+  if (!seller) throw new Error('seller required');
+  const existing = stateStore.getStore(seller);
+  if (existing && existing.status === 'active') throw new Error('store already open');
+
+  const entry = _entry({
+    type: 'STORE_OPEN',
+    from: seller,
+    epoch,
+    store_data: {
+      action: 'open',
+      name: (storeData && storeData.name) || seller,
+      banner_cid: (storeData && storeData.banner_cid) || null,
+      description_cid: (storeData && storeData.description_cid) || null,
+      categories: (storeData && storeData.categories) || [],
+      capacity: capacity || 0,
+      stake_amount: stakeAmount || 0,
+      stake_paid_usd: stablePaidUsd || 0,
+    },
+  });
+  return _persist(entry);
+}
+
+async function recordStoreUpdate(seller, updates, epoch) {
+  if (!seller) throw new Error('seller required');
+  const entry = _entry({
+    type: 'STORE_UPDATE',
+    from: seller,
+    epoch,
+    store_data: Object.assign({ action: 'update' }, updates || {}),
+  });
+  return _persist(entry);
+}
+
+async function recordStoreClose(seller, epoch) {
+  if (!seller) throw new Error('seller required');
+  const entry = _entry({
+    type: 'STORE_CLOSE',
+    from: seller,
+    epoch,
+    store_data: { action: 'close' },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Expand a store's product capacity via the bonding curve. Caller pays in a
+ * wrapped stable (wUSDC/wUSDT/wDAI) to the treasury before this is recorded.
+ * Additional BTCPC stake is also locked proportional to the new capacity.
+ */
+async function recordStakePurchase(seller, additionalCapacity, stableToken, stablePaidUsd, additionalStakeBtcpc, epoch) {
+  if (!seller) throw new Error('seller required');
+  if (additionalCapacity <= 0) throw new Error('capacity must be positive');
+
+  const entry = _entry({
+    type: 'STAKE_PURCHASE',
+    from: seller,
+    token: stableToken || 'wUSDC',
+    amount: stablePaidUsd || 0,
+    epoch,
+    store_data: {
+      action: 'stake_purchase',
+      capacity_delta: additionalCapacity,
+      stake_amount: additionalStakeBtcpc || 0,
+      stake_paid_usd: stablePaidUsd || 0,
+      stable_token: stableToken || 'wUSDC',
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Create a product listing. Requires an active store with remaining capacity;
+ * the stateStore dispatcher enforces that as a chain invariant.
+ *
+ * productData: { product_id, title, description_snippet, content_cid, category, price, token, stock }
+ */
+async function recordProductCreate(seller, productData, epoch) {
+  if (!seller) throw new Error('seller required');
+  if (!productData || !productData.product_id) throw new Error('product_id required');
+
+  const entry = _entry({
+    type: 'PRODUCT_CREATE',
+    from: seller,
+    epoch,
+    product_data: productData,
+  });
+  return _persist(entry);
+}
+
+async function recordProductUpdate(seller, productId, updates, epoch) {
+  if (!seller || !productId) throw new Error('seller + productId required');
+  const entry = _entry({
+    type: 'PRODUCT_UPDATE',
+    from: seller,
+    epoch,
+    product_data: Object.assign({ product_id: productId }, updates || {}),
+  });
+  return _persist(entry);
+}
+
+async function recordProductDelist(seller, productId, epoch) {
+  if (!seller || !productId) throw new Error('seller + productId required');
+  const entry = _entry({
+    type: 'PRODUCT_DELIST',
+    from: seller,
+    epoch,
+    product_data: { product_id: productId },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Place an order. Caller is expected to have locked escrow via
+ * recordEscrowLock BEFORE calling this — escrow_id is passed through.
+ */
+async function recordOrderPlace(buyer, seller, orderId, productId, quantity, unitPrice, token, escrowId, epoch) {
+  if (!buyer || !seller || !orderId || !productId) throw new Error('buyer, seller, orderId, productId required');
+  const total = parseFloat((unitPrice * quantity).toFixed(10));
+  const entry = _entry({
+    type: 'ORDER_PLACE',
+    from: buyer,
+    to: seller,
+    token: token || 'BTCPC',
+    amount: total,
+    epoch,
+    order_data: {
+      order_id: orderId,
+      product_id: productId,
+      quantity: quantity,
+      unit_price: unitPrice,
+      total: total,
+      token: token || 'BTCPC',
+      escrow_id: escrowId || null,
+    },
+  });
+  return _persist(entry);
+}
+
+async function recordOrderFulfill(seller, orderId, fulfillmentCid, epoch) {
+  if (!seller || !orderId) throw new Error('seller + orderId required');
+  const entry = _entry({
+    type: 'ORDER_FULFILL',
+    from: seller,
+    epoch,
+    order_data: {
+      order_id: orderId,
+      fulfillment_cid: fulfillmentCid || null,
+    },
+  });
+  return _persist(entry);
+}
+
+async function recordOrderDelivered(buyer, orderId, epoch) {
+  if (!buyer || !orderId) throw new Error('buyer + orderId required');
+  const entry = _entry({
+    type: 'ORDER_DELIVERED',
+    from: buyer,
+    epoch,
+    order_data: { order_id: orderId },
+  });
+  return _persist(entry);
+}
+
+async function recordOrderCancel(party, orderId, epoch) {
+  if (!party || !orderId) throw new Error('party + orderId required');
+  const entry = _entry({
+    type: 'ORDER_CANCEL',
+    from: party,
+    epoch,
+    order_data: { order_id: orderId },
+  });
+  return _persist(entry);
+}
+
+async function recordOrderDispute(buyer, orderId, memo, epoch) {
+  if (!buyer || !orderId) throw new Error('buyer + orderId required');
+  const entry = _entry({
+    type: 'ORDER_DISPUTE',
+    from: buyer,
+    epoch,
+    order_data: {
+      order_id: orderId,
+      memo: memo || null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Cast a reputation vote on a store, miner, or product.
+ *
+ * voter: the voting account
+ * targetType: "store" | "miner" | "product"
+ * targetId: the account / product_id being voted on
+ * vote: +1 or -1
+ * weight: 1-100, determined by caller (stake/completed txn count)
+ * memo: optional free-text review (can be a content_cid)
+ */
+async function recordReputationVote(voter, targetType, targetId, vote, weight, memo, epoch) {
+  if (!voter || !targetType || !targetId) throw new Error('voter, targetType, targetId required');
+  if (!['store', 'miner', 'product'].includes(targetType)) throw new Error('invalid target_type');
+
+  const entry = _entry({
+    type: 'REPUTATION_VOTE',
+    from: voter,
+    epoch,
+    vote_data: {
+      target_type: targetType,
+      target_id: targetId,
+      vote: vote > 0 ? 1 : -1,
+      weight: Math.max(1, Math.min(100, weight || 1)),
+      memo: memo || null,
+    },
+  });
+  return _persist(entry);
+}
+
+// Expose bonding curve helpers at the ledger module for callers/tests
+const commerce = {
+  costForCapacity: bondingCurve.costForCapacity,
+  capacityForPayment: bondingCurve.capacityForPayment,
+  stakeForCapacity: bondingCurve.stakeForCapacity,
+};
+
 /**
  * Get balance for an account. Phase C: reads from stateStore.
  */
@@ -702,4 +943,19 @@ module.exports = {
   getAllAccounts,
   flushPendingEntries,
   applyRemoteEntries,
+  // Commerce (v2.10)
+  recordStoreOpen,
+  recordStoreUpdate,
+  recordStoreClose,
+  recordStakePurchase,
+  recordProductCreate,
+  recordProductUpdate,
+  recordProductDelist,
+  recordOrderPlace,
+  recordOrderFulfill,
+  recordOrderDelivered,
+  recordOrderCancel,
+  recordOrderDispute,
+  recordReputationVote,
+  commerce,
 };
