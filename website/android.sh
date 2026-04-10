@@ -48,8 +48,7 @@ INSTALL_DIR="$HOME/.btcpc-clock"
 mkdir -p "$INSTALL_DIR"
 
 say "Downloading btcpc-clock-lite..."
-curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/main/bin/btcpc-clock-lite.js \
-  -o "$INSTALL_DIR/clock.js"
+curl -fsSL https://btcpc.net/clock-lite.js -o "$INSTALL_DIR/clock.js"
 
 # Prompt for account
 echo
