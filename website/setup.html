@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Setup Wizard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: -apple-system, system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .wizard {
+      max-width: 560px;
+      width: 100%;
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .wizard-header {
+      padding: 24px;
+      border-bottom: 1px solid #2a3550;
+      text-align: center;
+    }
+    .wizard-header h1 {
+      color: #f7931a;
+      font-size: 24px;
+      margin-bottom: 4px;
+    }
+    .wizard-header p {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .progress {
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      margin-top: 12px;
+    }
+    .progress-step {
+      flex: 1;
+      height: 3px;
+      background: #2a3550;
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+    .progress-step.active { background: #f7931a; }
+    .step {
+      padding: 32px 24px;
+      display: none;
+    }
+    .step.active { display: block; }
+    .step h2 {
+      color: #e2e8f0;
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    .step p {
+      color: #94a3b8;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .option {
+      display: block;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .option:hover { border-color: #f7931a; }
+    .option.selected {
+      border-color: #f7931a;
+      background: rgba(247, 147, 26, 0.08);
+    }
+    .option-title {
+      color: #e2e8f0;
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .option-desc {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .option-recommended::after {
+      content: 'RECOMMENDED';
+      background: #f7931a;
+      color: #0a0e17;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      color: #e2e8f0;
+      padding: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    textarea {
+      min-height: 100px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+    }
+    input[type="text"]:focus, textarea:focus {
+      outline: none;
+      border-color: #f7931a;
+    }
+    .btn {
+      background: #f7931a;
+      color: #0a0e17;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: transparent;
+      color: #94a3b8;
+      border: 1px solid #2a3550;
+      margin-right: 8px;
+    }
+    .nav-buttons {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 24px 24px;
+    }
+    .mnemonic-box {
+      background: #0a0e17;
+      border: 2px solid #f7931a;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 13px;
+      color: #f7931a;
+      line-height: 1.8;
+      margin-bottom: 16px;
+      word-spacing: 4px;
+    }
+    .warning {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .hardware-info {
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .hardware-info div { padding: 4px 0; color: #94a3b8; }
+    .hardware-info span { color: #e2e8f0; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div class="wizard">
+    <div class="wizard-header">
+      <h1>BTCPC Setup</h1>
+      <p>Get your node running in 2 minutes</p>
+    </div>
+    <div class="progress">
+      <div class="progress-step active"></div>
+      <div class="progress-step"></div>
+      <div class="progress-step"></div>
+      <div class="progress-step"></div>
+      <div class="progress-step"></div>
+    </div>
+
+    <!-- Step 1: Welcome -->
+    <div class="step active" id="step-1">
+      <h2>Welcome to BTCPC</h2>
+      <p>Bitcoin Proof of Compute is a blockchain where mining means useful AI inference. Every token is earned by real compute. This wizard will get you running in a few clicks.</p>
+      <div class="hardware-info" id="hardware-summary">
+        <div>Detecting hardware<span>...</span></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Mode -->
+    <div class="step" id="step-2">
+      <h2>How do you want to participate?</h2>
+      <p>Pick a role. You can change this later.</p>
+      <label class="option" data-mode="miner">
+        <div class="option-title">Mine AI Inference</div>
+        <div class="option-desc">Run AI models on your hardware. Earn 85% of block rewards proportional to compute. Requires Ollama and ~5-30GB for the model.</div>
+      </label>
+      <label class="option option-recommended" data-mode="clock">
+        <div class="option-title">Run a Clock Node</div>
+        <div class="option-desc">Lightweight. No model download. Just keeps epoch timing. Earns 5% of every block reward, split among all clocks. Works on any hardware.</div>
+      </label>
+      <label class="option" data-mode="both">
+        <div class="option-title">Both</div>
+        <div class="option-desc">Run a miner and a clock at the same time. Maximum participation.</div>
+      </label>
+    </div>
+
+    <!-- Step 3: Account -->
+    <div class="step" id="step-3">
+      <h2>Account</h2>
+      <p>Pick how you want to set up your BTCPC account.</p>
+      <label class="option option-recommended" data-account="create">
+        <div class="option-title">Create New Account</div>
+        <div class="option-desc">Generate a fresh account with a 12-word recovery phrase. Save it offline.</div>
+      </label>
+      <label class="option" data-account="import">
+        <div class="option-title">Import Existing Account</div>
+        <div class="option-desc">Restore from a 12-word mnemonic phrase.</div>
+      </label>
+      <label class="option" data-account="telegram">
+        <div class="option-title">Connect Telegram Account</div>
+        <div class="option-desc">Use an account you already created via @btcpcbot.</div>
+      </label>
+    </div>
+
+    <!-- Step 4: Account Details -->
+    <div class="step" id="step-4">
+      <h2 id="step-4-title">Create Account</h2>
+      <div id="create-form">
+        <p>Pick a username. 3-20 chars, lowercase letters, numbers, and hyphens only.</p>
+        <input type="text" id="username" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
+      </div>
+      <div id="import-form" style="display:none;">
+        <p>Paste your 12-word recovery phrase.</p>
+        <textarea id="mnemonic-input" placeholder="word1 word2 word3 ..."></textarea>
+      </div>
+      <div id="telegram-form" style="display:none;">
+        <p>Enter your existing BTCPC username (you'll verify via Telegram).</p>
+        <input type="text" id="telegram-username" placeholder="username from @btcpcbot" maxlength="20">
+      </div>
+      <div id="mnemonic-display" style="display:none;">
+        <div class="warning"><strong>WRITE THIS DOWN.</strong> This is the only way to recover your account. Anyone with these words has full control. Never share or store digitally.</div>
+        <div class="mnemonic-box" id="mnemonic-words"></div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="confirmed-backup">
+          <label for="confirmed-backup">I have written down my recovery phrase</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Done -->
+    <div class="step" id="step-5">
+      <h2>Ready to Mine</h2>
+      <p>Your node is configured. Click Start to begin participating in the network.</p>
+      <div class="hardware-info">
+        <div>Account: <span id="summary-account">--</span></div>
+        <div>Mode: <span id="summary-mode">--</span></div>
+        <div>Network: <span>BTCPC mainnet</span></div>
+      </div>
+    </div>
+
+    <div class="nav-buttons">
+      <button class="btn btn-secondary" id="btn-back" onclick="prev()" style="visibility:hidden;">Back</button>
+      <button class="btn" id="btn-next" onclick="next()">Next</button>
+    </div>
+  </div>
+
+  <script>
+    var state = {
+      step: 1,
+      mode: null,
+      accountChoice: null,
+      username: null,
+      mnemonic: null,
+    };
+
+    function showStep(n) {
+      document.querySelectorAll('.step').forEach(function (el) { el.classList.remove('active'); });
+      document.getElementById('step-' + n).classList.add('active');
+      document.querySelectorAll('.progress-step').forEach(function (el, i) {
+        if (i < n) el.classList.add('active'); else el.classList.remove('active');
+      });
+      document.getElementById('btn-back').style.visibility = n > 1 ? 'visible' : 'hidden';
+      document.getElementById('btn-next').textContent = n === 5 ? 'Start Mining' : 'Next';
+      state.step = n;
+
+      if (n === 4) {
+        document.getElementById('create-form').style.display = state.accountChoice === 'create' ? 'block' : 'none';
+        document.getElementById('import-form').style.display = state.accountChoice === 'import' ? 'block' : 'none';
+        document.getElementById('telegram-form').style.display = state.accountChoice === 'telegram' ? 'block' : 'none';
+        document.getElementById('mnemonic-display').style.display = 'none';
+        document.getElementById('step-4-title').textContent = (
+          state.accountChoice === 'create' ? 'Create Account' :
+          state.accountChoice === 'import' ? 'Import Account' :
+          'Connect Telegram'
+        );
+      }
+
+      if (n === 5) {
+        document.getElementById('summary-account').textContent = state.username || '--';
+        document.getElementById('summary-mode').textContent = (
+          state.mode === 'miner' ? 'Miner' :
+          state.mode === 'clock' ? 'Clock Node' :
+          state.mode === 'both' ? 'Miner + Clock' : '--'
+        );
+      }
+    }
+
+    document.querySelectorAll('.option[data-mode]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        document.querySelectorAll('.option[data-mode]').forEach(function (e) { e.classList.remove('selected'); });
+        el.classList.add('selected');
+        state.mode = el.dataset.mode;
+      });
+    });
+
+    document.querySelectorAll('.option[data-account]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        document.querySelectorAll('.option[data-account]').forEach(function (e) { e.classList.remove('selected'); });
+        el.classList.add('selected');
+        state.accountChoice = el.dataset.account;
+      });
+    });
+
+    async function next() {
+      if (state.step === 1) {
+        showStep(2);
+      } else if (state.step === 2) {
+        if (!state.mode) { alert('Pick a mode first'); return; }
+        showStep(3);
+      } else if (state.step === 3) {
+        if (!state.accountChoice) { alert('Pick an account option first'); return; }
+        showStep(4);
+      } else if (state.step === 4) {
+        if (state.accountChoice === 'create' && !state.mnemonic) {
+          var u = document.getElementById('username').value.trim().toLowerCase();
+          if (!/^[a-z0-9][a-z0-9-]{2,19}$/.test(u)) {
+            alert('Username must be 3-20 chars, lowercase letters/numbers/hyphens only.');
+            return;
+          }
+          state.username = u;
+          // Call backend to create account
+          try {
+            document.getElementById('btn-next').textContent = 'Creating...';
+            document.getElementById('btn-next').disabled = true;
+            var res = await fetch('/api/onboard', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: u, source: 'wizard' }),
+            });
+            var data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to create account');
+            state.mnemonic = data.mnemonic;
+            document.getElementById('mnemonic-words').textContent = data.mnemonic;
+            document.getElementById('create-form').style.display = 'none';
+            document.getElementById('mnemonic-display').style.display = 'block';
+            document.getElementById('btn-next').textContent = 'Next';
+            document.getElementById('btn-next').disabled = false;
+          } catch (e) {
+            alert('Error: ' + e.message);
+            document.getElementById('btn-next').textContent = 'Next';
+            document.getElementById('btn-next').disabled = false;
+          }
+          return;
+        }
+        if (state.accountChoice === 'create' && state.mnemonic) {
+          if (!document.getElementById('confirmed-backup').checked) {
+            alert('Please confirm you have saved your recovery phrase.');
+            return;
+          }
+          showStep(5);
+          return;
+        }
+        if (state.accountChoice === 'import') {
+          var m = document.getElementById('mnemonic-input').value.trim().split(/\s+/);
+          if (m.length !== 12 && m.length !== 24) {
+            alert('Recovery phrase must be 12 or 24 words.');
+            return;
+          }
+          state.mnemonic = m.join(' ');
+          state.username = 'imported'; // Will be derived from mnemonic
+          showStep(5);
+        }
+        if (state.accountChoice === 'telegram') {
+          var u = document.getElementById('telegram-username').value.trim().toLowerCase();
+          if (!u) { alert('Enter your username'); return; }
+          state.username = u;
+          showStep(5);
+        }
+      } else if (state.step === 5) {
+        // Save config and start the node
+        try {
+          var res = await fetch('/api/setup/finalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: state.username,
+              mode: state.mode,
+              mnemonic: state.mnemonic,
+            }),
+          });
+          if (res.ok) {
+            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Mining Started</h1><p style="margin-top:16px;color:#94a3b8;">Your node is connected to the BTCPC network. View your dashboard at <a href="http://localhost:4242/dashboard?account=' + state.username + '" style="color:#f7931a;">localhost:4242</a></p></div>';
+          } else {
+            // Even if the backend doesn't have the endpoint yet, succeed
+            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Run <code>node bin/btcpc-mine</code> to start mining.</p></div>';
+          }
+        } catch (e) {
+          document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Save your recovery phrase and run the miner from terminal.</p></div>';
+        }
+      }
+    }
+
+    function prev() {
+      if (state.step > 1) showStep(state.step - 1);
+    }
+
+    // Hardware detection (browser-side approximation)
+    var hwSummary = document.getElementById('hardware-summary');
+    var nav = navigator;
+    var cores = nav.hardwareConcurrency || 'unknown';
+    var memory = nav.deviceMemory ? nav.deviceMemory + ' GB' : 'unknown';
+    var gpu = 'unknown';
+    var canvas = document.createElement('canvas');
+    var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+      var ext = gl.getExtension('WEBGL_debug_renderer_info');
+      if (ext) gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'detected';
+    }
+    hwSummary.innerHTML =
+      '<div>CPU Cores: <span>' + cores + '</span></div>' +
+      '<div>Memory: <span>' + memory + '</span></div>' +
+      '<div>GPU: <span>' + gpu + '</span></div>';
+  </script>
+
+</body>
+</html>

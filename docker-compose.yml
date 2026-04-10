@@ -1,0 +1,66 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: btcpc-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: btcpc-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    # Uncomment to enable GPU support (NVIDIA)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  btcpc:
+    build: .
+    container_name: btcpc-node
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://root:example@mongo:27017/btcpc?authSource=admin
+      OLLAMA_URL: http://ollama:11434
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_env_file_please_seriously}
+      JWT_EXPIRES_IN: 7d
+      BTCPC_MINER: ${BTCPC_MINER:-}
+      BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
+    ports:
+      - "3000:3000"   # Inference API
+      - "4242:4242"   # Block explorer
+      - "6942:6942"   # P2P
+    volumes:
+      - btcpc_data:/app/data
+      - btcpc_blocks:/app/blocks
+
+volumes:
+  mongo_data:
+  ollama_models:
+  btcpc_data:
+  btcpc_blocks:

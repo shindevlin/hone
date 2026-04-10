@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Install BTCPC — Pick Your Path</title>
+  <meta name="description" content="Install BTCPC any way you want — desktop app, Docker, terminal, browser, or Telegram. Mining the network has never been easier.">
+  <meta property="og:title" content="Install BTCPC">
+  <meta property="og:description" content="Five ways to join the BTCPC network. Click the one that fits.">
+  <meta property="og:url" content="https://btcpc.net/install">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
+    .install-hero {
+      text-align: center;
+      padding: 80px 24px 40px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .install-hero h1 { font-size: 48px; font-weight: 800; margin: 0 0 16px; color: #e2e8f0; }
+    .install-hero h1 span { color: #f7931a; }
+    .install-hero p { font-size: 18px; color: #94a3b8; max-width: 600px; margin: 0 auto; }
+    .os-detected {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 8px 16px;
+      background: rgba(247, 147, 26, 0.1);
+      border: 1px solid rgba(247, 147, 26, 0.3);
+      border-radius: 20px;
+      font-size: 14px;
+      color: #f7931a;
+    }
+    .install-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      max-width: 1100px;
+      margin: 0 auto 80px;
+      padding: 0 24px;
+    }
+    .install-card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      padding: 28px;
+      transition: transform 0.2s, border-color 0.2s;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .install-card:hover {
+      transform: translateY(-4px);
+      border-color: #f7931a;
+    }
+    .install-card.recommended {
+      border-color: #f7931a;
+      background: linear-gradient(180deg, rgba(247, 147, 26, 0.08), #1a2235);
+    }
+    .recommended-badge {
+      display: inline-block;
+      background: #f7931a;
+      color: #0a0e17;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 10px;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .card-icon {
+      font-size: 36px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .card-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin: 0 0 8px;
+    }
+    .card-subtitle {
+      font-size: 13px;
+      color: #f7931a;
+      margin: 0 0 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card-description {
+      font-size: 14px;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin: 0 0 20px;
+    }
+    .card-features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 20px;
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+    .card-features li { margin-bottom: 6px; padding-left: 18px; position: relative; }
+    .card-features li::before {
+      content: "✓";
+      color: #f7931a;
+      position: absolute;
+      left: 0;
+      font-weight: 700;
+    }
+    .card-action {
+      display: inline-block;
+      background: #f7931a;
+      color: #0a0e17;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+    }
+    .card-code {
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      color: #f7931a;
+      margin-top: 12px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .footer {
+      text-align: center;
+      padding: 40px 24px;
+      border-top: 1px solid #2a3550;
+      color: #64748b;
+      font-size: 14px;
+    }
+    .footer a { color: #f7931a; text-decoration: none; margin: 0 8px; }
+    .back-link {
+      display: inline-block;
+      margin: 24px 24px 0;
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-link:hover { color: #f7931a; }
+  </style>
+</head>
+<body>
+
+  <a href="/" class="back-link">← Back to btcpc.net</a>
+
+  <section class="install-hero">
+    <h1>Install <span>BTCPC</span></h1>
+    <p>Five ways to join the network. Pick the one that fits — from one-click desktop apps to terminal one-liners. All paths produce a working node.</p>
+    <div id="os-detected" class="os-detected" style="display:none;"></div>
+  </section>
+
+  <div class="install-grid">
+
+    <!-- Native Desktop App -->
+    <a href="#desktop" class="install-card recommended" id="card-desktop" onclick="downloadDesktop(event)">
+      <span class="recommended-badge">EASIEST</span>
+      <span class="card-icon">🖥️</span>
+      <div class="card-title">Desktop App</div>
+      <div class="card-subtitle">macOS · Windows · Linux</div>
+      <p class="card-description">One-click install. Zero terminal. GUI for everything. The native app downloads everything you need and starts mining with a single button.</p>
+      <ul class="card-features">
+        <li>System tray icon, auto-start on boot</li>
+        <li>GUI dashboard: balance, stats, settings</li>
+        <li>Auto-updates to latest version</li>
+        <li>~40MB download</li>
+      </ul>
+      <span class="card-action">Download for <span id="os-name">Your OS</span></span>
+    </a>
+
+    <!-- Docker -->
+    <a href="#docker" class="install-card">
+      <span class="card-icon">🐳</span>
+      <div class="card-title">Docker</div>
+      <div class="card-subtitle">Mac · Linux · Windows (Docker Desktop)</div>
+      <p class="card-description">If you have Docker Desktop installed, this is the fastest path. One command brings up the entire stack: MongoDB, Ollama, and the BTCPC node.</p>
+      <ul class="card-features">
+        <li>Fully isolated, easy to remove</li>
+        <li>No system pollution</li>
+        <li>Auto-restart on crash</li>
+      </ul>
+      <div class="card-code">docker compose up -d</div>
+    </a>
+
+    <!-- Terminal -->
+    <a href="#terminal" class="install-card">
+      <span class="card-icon">⌨️</span>
+      <div class="card-title">Terminal</div>
+      <div class="card-subtitle">macOS · Linux · WSL</div>
+      <p class="card-description">For technical users. One curl command installs Node.js, Ollama, downloads the model, creates an account, and starts mining. Then runs as a background service.</p>
+      <ul class="card-features">
+        <li>Auto-detects hardware (GPU/CPU/RAM)</li>
+        <li>Configures systemd service</li>
+        <li>No GUI dependencies</li>
+      </ul>
+      <div class="card-code">curl https://btcpc.net/install.sh | bash</div>
+    </a>
+
+    <!-- Browser Clock -->
+    <a href="/clock" class="install-card">
+      <span class="card-icon">🌐</span>
+      <div class="card-title">Browser Clock</div>
+      <div class="card-subtitle">Any device with a browser</div>
+      <p class="card-description">Run a clock node in your browser. No download, no installation. Just open the page and earn 5% block rewards split among all clocks. Works on phones too.</p>
+      <ul class="card-features">
+        <li>Zero install, zero config</li>
+        <li>Earns clock rewards while open</li>
+        <li>Works on mobile, tablet, desktop</li>
+      </ul>
+      <span class="card-action">Open Browser Clock →</span>
+    </a>
+
+    <!-- Telegram -->
+    <a href="https://t.me/btcpcbot" class="install-card">
+      <span class="card-icon">💬</span>
+      <div class="card-title">Telegram Wallet</div>
+      <div class="card-subtitle">No installation needed</div>
+      <p class="card-description">Just want a wallet? Message @btcpcbot on Telegram. Send commands like <code>/create</code>, <code>/balance</code>, <code>/transfer</code>. No mining, just holding and sending BTCPC.</p>
+      <ul class="card-features">
+        <li>Wallet only — no mining</li>
+        <li>Receive cross-chain claims</li>
+        <li>Buy via @btcpcwalletbot</li>
+      </ul>
+      <span class="card-action">Open @btcpcbot →</span>
+    </a>
+
+  </div>
+
+  <div class="footer">
+    <p>Need help? <a href="https://reddit.com/r/btcpc">r/btcpc</a> · <a href="https://btcpc.substack.com">Substack</a> · <a href="https://github.com/shindevlin/btcpc">GitHub</a></p>
+    <p style="margin-top:8px;">Bitcoin Proof of Compute — every token earned, every machine welcome.</p>
+  </div>
+
+  <script>
+    // Detect OS and highlight the right download
+    var ua = navigator.userAgent;
+    var os = "Unknown";
+    var osShort = "your OS";
+    if (ua.indexOf("Mac") !== -1) { os = "macOS"; osShort = "Mac"; }
+    else if (ua.indexOf("Win") !== -1) { os = "Windows"; osShort = "Windows"; }
+    else if (ua.indexOf("Linux") !== -1) { os = "Linux"; osShort = "Linux"; }
+    else if (ua.indexOf("Android") !== -1) { os = "Android"; osShort = "Android"; }
+    else if (ua.indexOf("iPhone") !== -1 || ua.indexOf("iPad") !== -1) { os = "iOS"; osShort = "iOS"; }
+
+    document.getElementById("os-name").textContent = osShort;
+
+    var osBanner = document.getElementById("os-detected");
+    if (os !== "Unknown") {
+      osBanner.textContent = "Detected: " + os;
+      osBanner.style.display = "inline-block";
+    }
+
+    // For mobile, recommend browser clock instead of desktop app
+    if (os === "Android" || os === "iOS") {
+      var desktopCard = document.getElementById("card-desktop");
+      desktopCard.classList.remove("recommended");
+      var browserCard = document.querySelectorAll(".install-card")[3];
+      browserCard.classList.add("recommended");
+      browserCard.querySelector(".card-icon").insertAdjacentHTML(
+        "beforebegin",
+        '<span class="recommended-badge">RECOMMENDED FOR ' + osShort.toUpperCase() + '</span>'
+      );
+    }
+
+    function downloadDesktop(e) {
+      e.preventDefault();
+      var url = "https://github.com/shindevlin/btcpc-desktop/releases/latest";
+      // Future: detect OS and link to specific .dmg/.msi/.AppImage
+      window.location.href = url;
+    }
+  </script>
+
+</body>
+</html>
