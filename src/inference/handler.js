@@ -589,6 +589,11 @@ async function handlePayload(msg) {
     }, p2p.NODE_ID);
     p2p.broadcast(commit);
 
+    // Compute work_value and current epoch for the gossiped attestation.
+    // Other nodes will use this to credit our work without needing our DB.
+    const workValue = tokensGenerated * weightFactor;
+    const currentEpoch = p2p.getCurrentEpoch ? p2p.getCurrentEpoch() : 0;
+
     // Immediately reveal (single-node mode; multi-node waits for all commits)
     const reveal = createMessage("INFERENCE_REVEAL", {
       request_id: requestId,
@@ -598,6 +603,9 @@ async function handlePayload(msg) {
       result_text: resultText, // plaintext for now; encrypted in production
       tokens_generated: tokensGenerated,
       model,
+      model_weight: weightFactor,
+      work_value: workValue,
+      epoch_number: currentEpoch,
       elapsed_ms: elapsed,
       work_proof: { prompt_hash: promptHash, result_hash: resultHash },
     }, p2p.NODE_ID);
@@ -610,6 +618,9 @@ async function handlePayload(msg) {
       result_hash: resultHash,
       tokens_generated: tokensGenerated,
       model,
+      model_weight: weightFactor,
+      work_value: workValue,
+      epoch_number: currentEpoch,
       elapsed_ms: elapsed,
       node_name: MINER_NAME,
     }, p2p.NODE_ID);

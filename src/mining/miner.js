@@ -232,6 +232,29 @@ async function computeFinalization(epochNumber) {
     minerWork[proof.miner].models.add(proof.model);
   }
 
+  // ── Gossiped attestations from P2P (cross-machine consensus source) ──
+  // Every node receives INFERENCE_REVEAL/RESULT messages via the relay and
+  // records work_value in protocol.minerWorkByEpoch. This makes consensus
+  // deterministic across miners with separate MongoDB instances — they all
+  // see the same attestations and compute the same rewards.
+  try {
+    const { getMinerWorkForEpoch } = require('../p2p/protocol');
+    const gossipedWork = getMinerWorkForEpoch(epochNumber);
+    for (const minerName of Object.keys(gossipedWork)) {
+      if (!minerWork[minerName]) {
+        minerWork[minerName] = { work_value: 0, models: new Set() };
+      }
+      // Take the MAX of local and gossiped to avoid double-counting jobs
+      // that appear in both (own jobs that we processed AND broadcast)
+      const gossipedValue = gossipedWork[minerName].work_value || 0;
+      if (gossipedValue > minerWork[minerName].work_value) {
+        minerWork[minerName].work_value = gossipedValue;
+      }
+    }
+  } catch (e) {
+    console.error('[BTCPC] Could not read gossiped work:', e.message);
+  }
+
   const miners = Object.keys(minerWork);
   const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 

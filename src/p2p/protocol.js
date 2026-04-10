@@ -217,6 +217,7 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.EPOCH_START:
       console.log("[BTCPC P2P] Epoch START: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
+      if (msg.data?.epoch_number) setCurrentEpoch(msg.data.epoch_number);
       ctx.broadcast(msg, peer.address);
       break;
     case MESSAGE_TYPES.EPOCH_END:
@@ -490,6 +491,26 @@ function handleResponseBlocks(peer, msg, ctx) {
  */
 function handleInferenceMessage(peer, msg, ctx) {
   console.log("[BTCPC P2P] Inference " + msg.type + " from " + (msg.nodeId || "unknown").slice(0, 12));
+
+  // Record work attestation when a miner reveals/finalizes a result.
+  // This is the source of truth for "who did what work in this epoch" —
+  // gossiped via P2P, not local MongoDB. All nodes that receive the same
+  // gossip will compute the same rewards = consensus works across machines.
+  if (msg.type === MESSAGE_TYPES.INFERENCE_REVEAL || msg.type === MESSAGE_TYPES.INFERENCE_RESULT) {
+    var data = msg.data || {};
+    var miner = data.node_name;
+    var jobId = data.request_id;
+    var tokens = data.tokens_generated || 0;
+    var modelWeight = data.model_weight || 1; // miners may include verified model param count
+    var workValue = data.work_value || (tokens * modelWeight);
+    var epoch = data.epoch_number || _currentEpochCache;
+
+    if (miner && jobId && workValue > 0 && epoch >= 0) {
+      recordMinerWork(miner, jobId, workValue, epoch);
+      console.log("[BTCPC P2P]   work_attest: " + miner + " +" + workValue + " (job " + jobId.slice(0, 8) + ", epoch " + epoch + ")");
+    }
+  }
+
   // Rebroadcast to all other peers
   ctx.broadcast(msg, peer.address);
 }
@@ -797,6 +818,78 @@ function getActiveVerifiers(epochNumber) {
   return vset ? Array.from(vset) : [];
 }
 
+// ---------------------------------------------------------------------------
+// Miner Work Attestations — track work_value per miner per epoch
+// from gossiped INFERENCE_RESULT messages, NOT from local MongoDB.
+// This is what makes consensus deterministic across miners with separate DBs.
+// ---------------------------------------------------------------------------
+
+// Map<epochNumber, Map<minerName, { work_value, jobs: Set<request_id> }>>
+var minerWorkByEpoch = new Map();
+var _currentWorkEpoch = -1;
+
+// Cached current epoch — updated from EPOCH_START messages.
+// Used so handlers don't have to query MongoDB to know which epoch
+// to attribute work to.
+var _currentEpochCache = -1;
+function setCurrentEpoch(epochNumber) {
+  if (typeof epochNumber === 'number' && epochNumber > _currentEpochCache) {
+    _currentEpochCache = epochNumber;
+  }
+}
+function getCurrentEpochCache() { return _currentEpochCache; }
+
+/**
+ * Record that a miner produced work during an epoch.
+ * Idempotent: same job_id won't be double-counted for the same miner.
+ *
+ * @param {string} miner — username of the miner
+ * @param {string} jobId — request_id of the inference job
+ * @param {number} workValue — tokens × verified_param_count
+ * @param {number} epochNumber — epoch the work belongs to
+ */
+function recordMinerWork(miner, jobId, workValue, epochNumber) {
+  if (!miner || !jobId || !epochNumber || epochNumber < 0) return;
+  if (!workValue || workValue <= 0) return;
+
+  if (!minerWorkByEpoch.has(epochNumber)) {
+    minerWorkByEpoch.set(epochNumber, new Map());
+  }
+  var epochMap = minerWorkByEpoch.get(epochNumber);
+  if (!epochMap.has(miner)) {
+    epochMap.set(miner, { work_value: 0, jobs: new Set() });
+  }
+  var entry = epochMap.get(miner);
+  if (entry.jobs.has(jobId)) return; // already counted
+  entry.jobs.add(jobId);
+  entry.work_value += workValue;
+
+  // Prune old epochs (keep last 10)
+  if (epochNumber > _currentWorkEpoch) {
+    _currentWorkEpoch = epochNumber;
+    for (var key of minerWorkByEpoch.keys()) {
+      if (key < epochNumber - 10) minerWorkByEpoch.delete(key);
+    }
+  }
+}
+
+/**
+ * Get all miners with their work values for an epoch.
+ * Returns: { miner: { work_value, jobs: Set } }
+ */
+function getMinerWorkForEpoch(epochNumber) {
+  var epochMap = minerWorkByEpoch.get(epochNumber);
+  if (!epochMap) return {};
+  var result = {};
+  for (var entry of epochMap) {
+    result[entry[0]] = {
+      work_value: entry[1].work_value,
+      job_count: entry[1].jobs.size,
+    };
+  }
+  return result;
+}
+
 /**
  * VERIFY_REQUEST — A miner broadcasts inference output for verification.
  * Verifiers selected via deterministic selection process the request.
@@ -1088,5 +1181,9 @@ module.exports = {
   getIdleMiners,
   recordNodeActivity,
   getActiveClockNodes,
-  getActiveVerifiers
+  getActiveVerifiers,
+  recordMinerWork,
+  getMinerWorkForEpoch,
+  setCurrentEpoch,
+  getCurrentEpochCache
 };
