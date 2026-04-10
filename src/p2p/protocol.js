@@ -323,6 +323,10 @@ function handleBlock(peer, msg, ctx) {
   const data = msg.data;
   if (!data) return;
 
+  // Update epoch cache when we see a new block — keeps clock heartbeats
+  // filed under the right epoch
+  if (data.epoch_number) setCurrentEpoch(data.epoch_number);
+
   var block;
 
   // If the message contains a serialized header, deserialize it
@@ -1158,12 +1162,18 @@ function getActiveClockNodes(epochNumber) {
 function handleClockHeartbeat(peer, msg, ctx) {
   var data = msg.data || {};
   var account = data.account || msg.nodeId;
-  var epoch = data.epoch_number;
+  var claimedEpoch = data.epoch_number || 0;
   var source = data.source || 'p2p';
 
-  console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (epoch " + epoch + ", source: " + source + ")");
+  // File under THIS node's current epoch (what we think the chain height is),
+  // not the sender's claim. Heartbeats can arrive several epochs after they
+  // were sent (relay delay, sender's view stale). Crediting them as "active
+  // now" is more accurate than crediting an old epoch number.
+  var fileEpoch = _currentEpochCache > 0 ? _currentEpochCache : claimedEpoch;
 
-  recordNodeActivity(msg.nodeId, account, epoch);
+  console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (claimed epoch " + claimedEpoch + ", filing under " + fileEpoch + ", source: " + source + ")");
+
+  recordNodeActivity(msg.nodeId, account, fileEpoch);
   // Rebroadcast so all nodes see the heartbeat
   ctx.broadcast(msg, peer.address);
 }
