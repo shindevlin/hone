@@ -667,6 +667,12 @@ function applyEntry(entry) {
           size: bd.size || 0,
           uploader: from,
           hosts: [],
+          active_hosts: [],      // v2.11.2+: hosts committed to active serving
+          cold_hosts: [],        // v2.11.2+: hosts committed to durability only
+          region_constraints: [], // v2.11.2+: ISO region list, empty = any
+          target_active: 0,      // v2.11.2+: uploader-requested active count
+          target_cold: 0,        // v2.11.2+: uploader-requested cold count
+          under_replicated: false, // v2.11.2+: true when actuals < targets
           committed_epoch: entry.epoch,
           expires_epoch: entry.epoch + (bd.duration_epochs || 0),
           payment_btcpc: 0,
@@ -674,12 +680,53 @@ function applyEntry(entry) {
           bytes_served_by_host: {},
           serve_proof_count: 0,
         };
+        // Legacy hosts field: kept as the union of active + cold for
+        // backward compat with v2.11.0/v2.11.1 code paths.
         var hostSet = {};
         existingBlob.hosts.forEach(function (h) { hostSet[h] = true; });
         (bd.hosts || []).forEach(function (h) {
           if (typeof h === "string" && h.length > 0) hostSet[h] = true;
         });
         existingBlob.hosts = Object.keys(hostSet);
+
+        // v2.11.2+: track active vs cold separately
+        if (Array.isArray(bd.active_hosts)) {
+          var activeSet = {};
+          existingBlob.active_hosts.forEach(function (h) { activeSet[h] = true; });
+          bd.active_hosts.forEach(function (h) {
+            if (typeof h === "string" && h.length > 0) activeSet[h] = true;
+          });
+          existingBlob.active_hosts = Object.keys(activeSet);
+          // Also add to the unified hosts list
+          existingBlob.active_hosts.forEach(function (h) { hostSet[h] = true; });
+        }
+        if (Array.isArray(bd.cold_hosts)) {
+          var coldSet = {};
+          existingBlob.cold_hosts.forEach(function (h) { coldSet[h] = true; });
+          bd.cold_hosts.forEach(function (h) {
+            if (typeof h === "string" && h.length > 0) coldSet[h] = true;
+          });
+          existingBlob.cold_hosts = Object.keys(coldSet);
+          existingBlob.cold_hosts.forEach(function (h) { hostSet[h] = true; });
+        }
+        existingBlob.hosts = Object.keys(hostSet);
+
+        // Region constraints (chain invariant for all future selections)
+        if (Array.isArray(bd.region_constraints) && bd.region_constraints.length > 0) {
+          existingBlob.region_constraints = bd.region_constraints
+            .filter(function (r) { return typeof r === "string" && r.length > 0; })
+            .map(function (r) { return r.toUpperCase(); });
+        }
+
+        // Uploader targets (what they wanted; actuals depend on pool size)
+        if (Number.isFinite(bd.target_active)) existingBlob.target_active = bd.target_active;
+        if (Number.isFinite(bd.target_cold)) existingBlob.target_cold = bd.target_cold;
+
+        // Under-replicated flag: true when either actual is below target
+        existingBlob.under_replicated =
+          existingBlob.active_hosts.length < existingBlob.target_active ||
+          existingBlob.cold_hosts.length < existingBlob.target_cold;
+
         var newExpiry = entry.epoch + (bd.duration_epochs || 0);
         if (newExpiry > existingBlob.expires_epoch) {
           existingBlob.expires_epoch = newExpiry;

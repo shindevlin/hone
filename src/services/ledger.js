@@ -872,27 +872,74 @@ async function recordReputationVote(voter, targetType, targetId, vote, weight, m
 }
 
 /**
- * Record a BTCPC-FS blob storage commitment on chain. v2.11.0 records
- * the metadata only; escrow payment + multi-host replication land in
- * v2.11.1. See docs/PLAN_v2.10.1_to_v2.14.md.
+ * Record a BTCPC-FS blob storage commitment on chain.
+ *
+ * v2.11.0 signature: (uploader, cid, size, hosts, durationEpochs, paymentBtcpc, epoch)
+ *   - Simple hosts list, single-tier, no region constraints
+ *   - Preserved for backward compatibility
+ *
+ * v2.11.2 signature: (uploader, cid, size, options, epoch) where options is:
+ *   {
+ *     hosts: [...],              // legacy unified list (auto-populated from active+cold)
+ *     active_hosts: [...],       // v2.11.2+: hosts committed to active serving
+ *     cold_hosts: [...],         // v2.11.2+: hosts committed to durability only
+ *     duration_epochs: number,
+ *     payment_btcpc: number,
+ *     region_constraints: [...], // v2.11.2+: ISO region codes, empty = any
+ *     target_active: number,     // v2.11.2+: uploader-requested active count
+ *     target_cold: number,       // v2.11.2+: uploader-requested cold count
+ *   }
+ *
+ * Callers detect the signature by checking if the 4th argument is an
+ * array (legacy) or an object (v2.11.2+).
  */
-async function recordBlobStoreCommit(uploader, cid, size, hosts, durationEpochs, paymentBtcpc, epoch) {
+async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durationEpochsOrEpoch, paymentBtcpc, epoch) {
   if (!uploader) throw new Error('uploader required');
   if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
   if (!Number.isFinite(size) || size <= 0) throw new Error('size must be a positive number');
-  if (!Array.isArray(hosts)) throw new Error('hosts must be an array');
+
+  let blobData;
+  let effectiveEpoch;
+
+  if (Array.isArray(hostsOrOptions)) {
+    // Legacy v2.11.0 positional signature
+    blobData = {
+      cid: cid,
+      size: size,
+      hosts: hostsOrOptions,
+      duration_epochs: durationEpochsOrEpoch || 0,
+      payment_btcpc: paymentBtcpc || 0,
+    };
+    effectiveEpoch = epoch;
+  } else if (hostsOrOptions && typeof hostsOrOptions === 'object') {
+    // v2.11.2+ named options signature
+    const opts = hostsOrOptions;
+    const active = Array.isArray(opts.active_hosts) ? opts.active_hosts : [];
+    const cold = Array.isArray(opts.cold_hosts) ? opts.cold_hosts : [];
+    const legacyHosts = Array.isArray(opts.hosts) ? opts.hosts : active.concat(cold);
+
+    blobData = {
+      cid: cid,
+      size: size,
+      hosts: legacyHosts,
+      active_hosts: active,
+      cold_hosts: cold,
+      duration_epochs: opts.duration_epochs || 0,
+      payment_btcpc: opts.payment_btcpc || 0,
+      region_constraints: Array.isArray(opts.region_constraints) ? opts.region_constraints : [],
+      target_active: opts.target_active || active.length,
+      target_cold: opts.target_cold || cold.length,
+    };
+    effectiveEpoch = durationEpochsOrEpoch; // 5th arg is epoch in this signature
+  } else {
+    throw new Error('hostsOrOptions must be an array (legacy) or object (v2.11.2+)');
+  }
 
   const entry = _entry({
     type: 'BLOB_STORE_COMMIT',
     from: uploader,
-    epoch,
-    blob_data: {
-      cid: cid,
-      size: size,
-      hosts: hosts,
-      duration_epochs: durationEpochs || 0,
-      payment_btcpc: paymentBtcpc || 0,
-    },
+    epoch: effectiveEpoch,
+    blob_data: blobData,
   });
   return _persist(entry);
 }
