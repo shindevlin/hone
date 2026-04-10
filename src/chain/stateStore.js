@@ -90,6 +90,23 @@ var storageHeartbeats = new Map();
 // calculation windows without unbounded growth.
 var STORAGE_HEARTBEAT_RETENTION = 1000;
 
+// BTCPC-FS blob challenges (v2.11.2+): challenge_id → {
+//   challenger, host, cid, byte_start, byte_length, expected_hash?,
+//   issued_epoch, response_epoch, response_hash, status
+// }
+// Verifier-driven spot-checks of storage hosts. Records on chain for
+// audit trail. See feedback_storage_no_slash.md:
+// FAILURES ARE NOT SLASHED. Failed challenges reduce payout share for
+// THIS commit and dip reputation. Stake is never touched.
+var blobChallenges = new Map();
+
+// Per-host challenge tally: host → {
+//   total_issued, total_passed, total_failed, last_challenge_epoch
+// }
+// Drives the selector + reputation weighting. Recent failures push a
+// host down the auto-selector ranking but don't slash anything.
+var blobChallengeStats = new Map();
+
 // Mining proofs indexed by epoch
 var miningProofsByEpoch = new Map();
 
@@ -142,6 +159,19 @@ function _ensureAccount(username, metadata) {
   }
 }
 
+function _bumpChallengeStat(host, outcome) {
+  if (!host) return;
+  var stats = blobChallengeStats.get(host) || {
+    total_issued: 0,
+    total_passed: 0,
+    total_failed: 0,
+    last_challenge_epoch: 0,
+  };
+  if (outcome === "passed") stats.total_passed += 1;
+  else if (outcome === "failed") stats.total_failed += 1;
+  blobChallengeStats.set(host, stats);
+}
+
 function _isSystemAccount(username) {
   if (!username) return false;
   return username === "btcpc_staking_pool" ||
@@ -170,6 +200,15 @@ function _entryKey(entry) {
   } else if (entry.type === "STORAGE_HEARTBEAT") {
     // Heartbeats are per-host-per-epoch; dedupe on that key.
     domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
+  } else if (
+    entry.challenge_data &&
+    entry.challenge_data.challenge_id &&
+    (entry.type === "BLOB_CHALLENGE" ||
+     entry.type === "BLOB_CHALLENGE_RESPONSE" ||
+     entry.type === "BLOB_CHALLENGE_RESULT" ||
+     entry.type === "BLOB_CHALLENGE_TIMEOUT")
+  ) {
+    domainId = "bc:" + entry.type + ":" + entry.challenge_data.challenge_id;
   } else if (entry.blob_data && entry.blob_data.cid) {
     // Serve proofs can repeat per-epoch per-host; include bytes_served
     // + timestamp so multiple proofs in one epoch aren't deduped.
@@ -782,6 +821,106 @@ function applyEntry(entry) {
       }
       break;
 
+    // ── BTCPC-FS challenge-response (v2.11.2+) ─────────────────────
+    // A verifier issues a spot-check: "return the sha256 of bytes
+    // [start..start+length] of CID X". Host has 2 epochs to respond.
+    // No slashing — just payout weight + reputation.
+    case "BLOB_CHALLENGE":
+      if (entry.challenge_data && entry.challenge_data.challenge_id && from) {
+        var cd = entry.challenge_data;
+        var challengeId = cd.challenge_id;
+        if (blobChallenges.has(challengeId)) break; // dedupe
+        blobChallenges.set(challengeId, {
+          challenge_id: challengeId,
+          challenger: from,
+          host: cd.host,
+          cid: cd.cid,
+          byte_start: cd.byte_start || 0,
+          byte_length: cd.byte_length || 0,
+          issued_epoch: entry.epoch,
+          response_epoch: null,
+          response_hash: null,
+          expected_hash: cd.expected_hash || null,
+          status: "pending",
+        });
+        // Initialize host's stats if first challenge
+        if (cd.host) {
+          var stats = blobChallengeStats.get(cd.host) || {
+            total_issued: 0,
+            total_passed: 0,
+            total_failed: 0,
+            last_challenge_epoch: 0,
+          };
+          stats.total_issued += 1;
+          stats.last_challenge_epoch = entry.epoch;
+          blobChallengeStats.set(cd.host, stats);
+        }
+      }
+      break;
+
+    case "BLOB_CHALLENGE_RESPONSE":
+      if (entry.challenge_data && entry.challenge_data.challenge_id && from) {
+        var crd = entry.challenge_data;
+        var challenge = blobChallenges.get(crd.challenge_id);
+        if (!challenge) break;
+        if (challenge.status !== "pending") break;
+        if (challenge.host !== from) break; // only the challenged host can respond
+        challenge.response_epoch = entry.epoch;
+        challenge.response_hash = crd.response_hash || null;
+        // If the challenger pre-published the expected hash, we can
+        // resolve status immediately. Otherwise the challenger records
+        // BLOB_CHALLENGE_RESULT in a follow-up entry once they verify.
+        if (challenge.expected_hash) {
+          if (challenge.response_hash === challenge.expected_hash) {
+            challenge.status = "passed";
+            _bumpChallengeStat(from, "passed");
+          } else {
+            challenge.status = "failed_mismatch";
+            _bumpChallengeStat(from, "failed");
+          }
+        } else {
+          challenge.status = "responded"; // awaiting verifier ruling
+        }
+        blobChallenges.set(crd.challenge_id, challenge);
+      }
+      break;
+
+    case "BLOB_CHALLENGE_RESULT":
+      // Verifier records the outcome of a responded challenge.
+      // Separate from CHALLENGE_RESPONSE so the verifier can audit the
+      // response hash against their own computed hash before committing.
+      if (entry.challenge_data && entry.challenge_data.challenge_id && from) {
+        var rd = entry.challenge_data;
+        var c2 = blobChallenges.get(rd.challenge_id);
+        if (!c2) break;
+        if (c2.challenger !== from) break; // only the original challenger
+        if (c2.status !== "responded") break;
+        if (rd.passed) {
+          c2.status = "passed";
+          _bumpChallengeStat(c2.host, "passed");
+        } else {
+          c2.status = "failed_mismatch";
+          _bumpChallengeStat(c2.host, "failed");
+        }
+        blobChallenges.set(rd.challenge_id, c2);
+      }
+      break;
+
+    case "BLOB_CHALLENGE_TIMEOUT":
+      // Verifier records that a challenge exceeded its response window
+      // without a CHALLENGE_RESPONSE entry. Counts as a failure but
+      // does NOT slash — see feedback_storage_no_slash.md.
+      if (entry.challenge_data && entry.challenge_data.challenge_id && from) {
+        var td = entry.challenge_data;
+        var c3 = blobChallenges.get(td.challenge_id);
+        if (!c3) break;
+        if (c3.status !== "pending") break;
+        c3.status = "failed_timeout";
+        _bumpChallengeStat(c3.host, "failed");
+        blobChallenges.set(td.challenge_id, c3);
+      }
+      break;
+
     // Host reports bytes served for a CID in the current epoch.
     // Chain invariants:
     //   1. the CID must already have a BLOB_STORE_COMMIT on chain
@@ -1349,6 +1488,63 @@ function getActiveStorageHosts(currentEpoch, recentEpochs) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Blob challenge-response getters (v2.11.2+)
+// No slashing — these are for payout weighting + reputation only.
+// See feedback_storage_no_slash.md.
+// ─────────────────────────────────────────────────────────────────
+
+function getBlobChallenge(challengeId) {
+  return blobChallenges.get(challengeId) || null;
+}
+
+function getBlobChallengeStats(host) {
+  return blobChallengeStats.get(host) || {
+    total_issued: 0,
+    total_passed: 0,
+    total_failed: 0,
+    last_challenge_epoch: 0,
+  };
+}
+
+/**
+ * Challenge success rate for a host, 0.0 to 1.0.
+ * Returns 1.0 if the host has no challenge history (benefit of the doubt
+ * for new hosts — they're not punished for not being picked yet).
+ */
+function getChallengeSuccessRate(host) {
+  var stats = blobChallengeStats.get(host);
+  if (!stats || stats.total_passed + stats.total_failed === 0) return 1.0;
+  var total = stats.total_passed + stats.total_failed;
+  return _round(stats.total_passed / total);
+}
+
+/**
+ * Get pending challenges for a host — ones they've been asked to
+ * respond to but haven't yet. Used by host-side runners to know what
+ * they need to answer.
+ */
+function getPendingChallengesForHost(host) {
+  var result = [];
+  for (var entry of blobChallenges) {
+    if (entry[1].host === host && entry[1].status === "pending") {
+      result.push(entry[1]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Get all challenges for a specific CID — audit trail.
+ */
+function getChallengesForCid(cid) {
+  var result = [];
+  for (var entry of blobChallenges) {
+    if (entry[1].cid === cid) result.push(entry[1]);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Slashing getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -1398,6 +1594,7 @@ function stats() {
     reputation_votes: reputationVotes.size,
     blobs: blobs.size,
     storage_heartbeats: storageHeartbeats.size,
+    blob_challenges: blobChallenges.size,
     epochs: epochs.size,
     mining_proof_epochs: miningProofsByEpoch.size,
     seen_entries: seenEntries.size,
@@ -1524,6 +1721,8 @@ function resetAll() {
   reputationVotes.clear();
   blobs.clear();
   storageHeartbeats.clear();
+  blobChallenges.clear();
+  blobChallengeStats.clear();
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
   slashRecords.clear();
@@ -1601,6 +1800,12 @@ module.exports = {
   getAllStorageHosts: getAllStorageHosts,
   getStorageUptimeFactor: getStorageUptimeFactor,
   getActiveStorageHosts: getActiveStorageHosts,
+  // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery not slashing)
+  getBlobChallenge: getBlobChallenge,
+  getBlobChallengeStats: getBlobChallengeStats,
+  getChallengeSuccessRate: getChallengeSuccessRate,
+  getPendingChallengesForHost: getPendingChallengesForHost,
+  getChallengesForCid: getChallengesForCid,
   // Slashing
   getSlashRecords: getSlashRecords,
   // Introspection

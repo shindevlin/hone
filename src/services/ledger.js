@@ -945,6 +945,115 @@ async function recordBlobStoreCommit(uploader, cid, size, hostsOrOptions, durati
 }
 
 /**
+ * Issue a blob challenge (v2.11.2+).
+ *
+ * A verifier picks a random host + CID + byte range and asks the host
+ * to return the sha256 of those bytes. Host has ~2 epochs to respond.
+ *
+ * IMPORTANT: failures do NOT trigger slashing. See
+ * feedback_storage_no_slash.md — storage is pay-for-delivery, not
+ * slash-for-absence. Failed challenges just reduce the host's payout
+ * share for this specific commit and dip reputation.
+ *
+ * @param {string} challenger — verifier account issuing the challenge
+ * @param {string} challengeId — unique id, caller generates
+ * @param {string} host — storage host being challenged
+ * @param {string} cid — blob being verified
+ * @param {number} byteStart
+ * @param {number} byteLength
+ * @param {string} [expectedHash] — optional: if challenger pre-publishes
+ *        the expected hash, the chain can auto-resolve the challenge
+ *        on response without a follow-up CHALLENGE_RESULT entry
+ * @param {number} epoch
+ */
+async function recordBlobChallenge(challenger, challengeId, host, cid, byteStart, byteLength, expectedHash, epoch) {
+  if (!challenger) throw new Error('challenger required');
+  if (!challengeId) throw new Error('challengeId required');
+  if (!host) throw new Error('host required');
+  if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
+  if (!Number.isFinite(byteStart) || byteStart < 0) throw new Error('byteStart must be non-negative');
+  if (!Number.isFinite(byteLength) || byteLength <= 0) throw new Error('byteLength must be positive');
+
+  const entry = _entry({
+    type: 'BLOB_CHALLENGE',
+    from: challenger,
+    epoch,
+    challenge_data: {
+      challenge_id: challengeId,
+      host: host,
+      cid: cid,
+      byte_start: byteStart,
+      byte_length: byteLength,
+      expected_hash: expectedHash || null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Host responds to a challenge with the computed hash.
+ * If the challenger pre-published expected_hash, the chain resolves
+ * status immediately on this entry. Otherwise status transitions to
+ * "responded" and waits for BLOB_CHALLENGE_RESULT.
+ */
+async function recordBlobChallengeResponse(host, challengeId, responseHash, epoch) {
+  if (!host) throw new Error('host required');
+  if (!challengeId) throw new Error('challengeId required');
+  if (!responseHash || !/^[a-f0-9]{64}$/.test(responseHash)) {
+    throw new Error('responseHash must be 64-char hex sha256');
+  }
+
+  const entry = _entry({
+    type: 'BLOB_CHALLENGE_RESPONSE',
+    from: host,
+    epoch,
+    challenge_data: {
+      challenge_id: challengeId,
+      response_hash: responseHash,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Verifier records the outcome of a responded challenge after auditing
+ * the response hash against their own computation.
+ */
+async function recordBlobChallengeResult(verifier, challengeId, passed, epoch) {
+  if (!verifier) throw new Error('verifier required');
+  if (!challengeId) throw new Error('challengeId required');
+  const entry = _entry({
+    type: 'BLOB_CHALLENGE_RESULT',
+    from: verifier,
+    epoch,
+    challenge_data: {
+      challenge_id: challengeId,
+      passed: !!passed,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Verifier records a challenge timeout — host failed to respond within
+ * the response window (default 2 epochs). Counts as a failure but
+ * importantly does NOT slash.
+ */
+async function recordBlobChallengeTimeout(verifier, challengeId, epoch) {
+  if (!verifier) throw new Error('verifier required');
+  if (!challengeId) throw new Error('challengeId required');
+  const entry = _entry({
+    type: 'BLOB_CHALLENGE_TIMEOUT',
+    from: verifier,
+    epoch,
+    challenge_data: {
+      challenge_id: challengeId,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a storage heartbeat on chain (v2.11.2+).
  *
  * Home-user-friendly durability signal. A storage host broadcasts that
@@ -1159,4 +1268,9 @@ module.exports = {
   recordBlobStoreCommit,
   recordBlobServeProof,
   recordStorageHeartbeat,
+  // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery)
+  recordBlobChallenge,
+  recordBlobChallengeResponse,
+  recordBlobChallengeResult,
+  recordBlobChallengeTimeout,
 };
