@@ -4,6 +4,7 @@ const StakingPool = require('../models/StakingPool');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeAmount } = require('../middlewares/validate');
 
 const MINIMUM_STAKE = 1000;
@@ -27,12 +28,18 @@ async function stake(req, res) {
       });
     }
 
+    // Keep the Wallet lookup — still needed for the write-side cache update
+    // and for the wallet_address field on StakingPool. Balance check moved to
+    // stateStore.
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
-    const btcpcBalance = wallet.balance.get('BTCPC') || 0;
+    // Resolve username and check balance via stateStore
+    const stakingUser = await User.findById(userId);
+    const stakingUsername = stakingUser?.username || wallet.address;
+    const btcpcBalance = stateStore.getBalance(stakingUsername, 'BTCPC');
     if (btcpcBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
@@ -59,8 +66,7 @@ async function stake(req, res) {
     }
 
     // Record on permanent ledger
-    const user = await User.findById(userId);
-    const username = user?.username || wallet.address;
+    const username = stakingUsername;
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordStake(username, amount, 'mining', epoch);
 

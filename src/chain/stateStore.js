@@ -357,9 +357,28 @@ function setMiningProofs(epochNumber, proofs) {
   miningProofsByEpoch.set(epochNumber, proofs.slice());
 }
 
+function addMiningProof(epochNumber, proof) {
+  if (typeof epochNumber !== "number" || !proof) return;
+  var list = miningProofsByEpoch.get(epochNumber);
+  if (!list) { list = []; miningProofsByEpoch.set(epochNumber, list); }
+  // Dedupe by miner within the epoch
+  var miner = proof.miner || proof.node_id;
+  for (var i = 0; i < list.length; i++) {
+    if ((list[i].miner || list[i].node_id) === miner) { list[i] = proof; return; }
+  }
+  list.push(proof);
+}
+
 function setComputeProofs(epochNumber, proofs) {
   if (typeof epochNumber !== "number" || !Array.isArray(proofs)) return;
   computeProofsByEpoch.set(epochNumber, proofs.slice());
+}
+
+function addComputeProof(epochNumber, proof) {
+  if (typeof epochNumber !== "number" || !proof) return;
+  var list = computeProofsByEpoch.get(epochNumber);
+  if (!list) { list = []; computeProofsByEpoch.set(epochNumber, list); }
+  list.push(proof);
 }
 
 function setChainHeight(n) {
@@ -454,6 +473,10 @@ function getNFTsByCollection(collection) {
     if (entry[0].indexOf(prefix) === 0) result.push(entry[1]);
   }
   return result;
+}
+
+function getAllNFTs() {
+  return Array.from(nfts.values());
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -728,7 +751,9 @@ module.exports = {
   applyEntries: applyEntries,
   setEpoch: setEpoch,
   setMiningProofs: setMiningProofs,
+  addMiningProof: addMiningProof,
   setComputeProofs: setComputeProofs,
+  addComputeProof: addComputeProof,
   setChainHeight: setChainHeight,
   hydrateFromFinality: hydrateFromFinality,
   resetAll: resetAll,
@@ -745,6 +770,7 @@ module.exports = {
   getNFT: getNFT,
   getNFTsByOwner: getNFTsByOwner,
   getNFTsByCollection: getNFTsByCollection,
+  getAllNFTs: getAllNFTs,
   // Staking/delegation
   getStakePool: getStakePool,
   getAllStakePools: getAllStakePools,

@@ -7,6 +7,7 @@ const { authenticateToken } = require('../middlewares/auth');
 const Project = require('../models/Project');
 const Transaction = require('../models/Transaction');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validUrl, validAccountName, validAddress } = require('../middlewares/validate');
 
 /**
@@ -176,18 +177,19 @@ router.post('/fund', authenticateToken, async (req, res) => {
     const project = await Project.findOne({ walletAddress });
     if (!project) return res.status(404).json({ error: 'Project wallet not found' });
 
-    // Find sender's wallet
+    // Find sender's wallet (still needed for the write-side cache update
+    // below; balance check uses stateStore).
     const Wallet = require('../models/Wallet');
     const senderWallet = await Wallet.findOne({ userId: req.user.id, chain: 'btcpc' });
     if (!senderWallet) return res.status(404).json({ error: 'Your BTCPC wallet not found' });
 
-    const senderBalance = senderWallet.balance.get('BTCPC') || 0;
-    if (senderBalance < amount) return res.status(400).json({ error: 'Insufficient balance' });
-
-    // Resolve username for ledger
+    // Resolve username for ledger + balance lookup
     const User = require('../models/User');
     const senderUser = await User.findById(req.user.id);
     const senderName = senderUser?.username || senderWallet.address;
+
+    const senderBalance = stateStore.getBalance(senderName, 'BTCPC');
+    if (senderBalance < amount) return res.status(400).json({ error: 'Insufficient balance' });
 
     // Record on permanent ledger
     const epoch = await ledger.getCurrentEpoch();

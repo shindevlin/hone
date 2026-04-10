@@ -30,6 +30,7 @@ const Transaction = require("../models/Transaction");
 // Chain
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
+const stateStore = require("../chain/stateStore");
 const { verifyBalance, verifyAccountState } = require("../chain/computeVerifier");
 const mempool = require("../p2p/mempool");
 
@@ -141,11 +142,13 @@ app.get("/api/bot/balance", async (req, res) => {
     const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
 
+    // Balance from chain state (stateStore). Wallet doc only provides the address.
+    const balance = stateStore.getBalance(user.username, "BTCPC");
     const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
     const node = await Node.findOne({ account: user._id });
     res.json({
       username: user.username,
-      balance: wallet?.balance?.get("BTCPC") || 0,
+      balance,
       staked: node?.stake_amount || 0,
       address: wallet?.address || null
     });
@@ -251,12 +254,15 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     if (!validAddress(toAddress)) return res.status(400).json({ error: "invalid address format" });
     if (fromWallet.address === toAddress) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
 
+    // TODO Phase D: add address→username index in stateStore to drop this
+    // Wallet lookup. stateStore only keys balances by username today.
     const toWallet = await Wallet.findOne({ address: toAddress, chain: "btcpc" });
     if (!toWallet) return res.status(404).json({ error: "Recipient wallet not found" });
     const recipient = await User.findById(toWallet.userId);
     if (!recipient) return res.status(404).json({ error: "Recipient user not found" });
 
-    const balance = fromWallet.balance.get("BTCPC") || 0;
+    // Balance check via stateStore (chain state)
+    const balance = stateStore.getBalance(user.username, "BTCPC");
     if (balance < amount) return res.status(400).json({ error: "Insufficient BTCPC balance" });
 
     const epoch = await ledger.getCurrentEpoch();
@@ -274,9 +280,12 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
  */
 app.get("/", async (req, res) => {
   try {
+    // Epoch list/count come from chain state (stateStore)
+    const latestEpochs = stateStore.getRecentEpochs(15);
+    const chainHeight = stateStore.getChainHeight();
+    const epochCount = chainHeight >= 0 ? chainHeight + 1 : 0;
+
     const [
-      latestEpochs,
-      epochCount,
       totalMiners,
       recentLedgerEntries,
       totalLedgerEntries,
@@ -285,8 +294,6 @@ app.get("/", async (req, res) => {
       peerCount,
       recentDreams
     ] = await Promise.all([
-      Epoch.find().sort({ epoch_number: -1 }).limit(15).lean(),
-      Epoch.countDocuments(),
       Node.countDocuments(),
       LedgerEntry.find().sort({ timestamp: -1 }).limit(10).lean(),
       LedgerEntry.countDocuments(),
@@ -348,8 +355,9 @@ app.get("/block/:epoch", async (req, res) => {
     // Read from block file (source of truth) if available
     const blockData = blockStore.readBlock(epochNum);
 
-    // Fall back to MongoDB for epoch metadata
-    const epoch = await Epoch.findOne({ epoch_number: epochNum }).lean();
+    // Epoch metadata from stateStore, fall back to Mongo for legacy epochs
+    let epoch = stateStore.getEpoch(epochNum);
+    if (!epoch) epoch = await Epoch.findOne({ epoch_number: epochNum }).lean();
     const period = getCurrentPeriod(epochNum);
 
     res.send(blockView(epoch, period, blockData));
@@ -548,17 +556,21 @@ app.get("/mempool", async (req, res) => {
  */
 app.get("/api/stats", async (req, res) => {
   try {
+    // Chain state from stateStore
+    const chainHeight = stateStore.getChainHeight();
+    const epochCount = chainHeight >= 0 ? chainHeight + 1 : 0;
+    const latestEpochMeta = stateStore.getLatestEpoch();
+    const latestEpoch = latestEpochMeta
+      ? Object.assign({ epoch_number: chainHeight }, latestEpochMeta)
+      : null;
+
     const [
-      epochCount,
-      latestEpoch,
       totalMiners,
       activeMiners,
       totalLedgerEntries,
       stakingAgg,
       minedAgg
     ] = await Promise.all([
-      Epoch.countDocuments(),
-      Epoch.findOne().sort({ epoch_number: -1 }).lean(),
       Node.countDocuments(),
       Node.countDocuments({ status: "active" }),
       LedgerEntry.countDocuments(),
@@ -709,17 +721,21 @@ function formatLedgerEntry(entry) {
  */
 app.get("/tokenomics", async (req, res) => {
   try {
+    // Chain state from stateStore
+    var tokChainHeight = stateStore.getChainHeight();
+    var epochCount = tokChainHeight >= 0 ? tokChainHeight + 1 : 0;
+    var latestEpochMeta = stateStore.getLatestEpoch();
+    var latestEpoch = latestEpochMeta
+      ? Object.assign({ epoch_number: tokChainHeight }, latestEpochMeta)
+      : null;
+
     const [
-      epochCount,
-      latestEpoch,
       stakingAgg,
       minedAgg,
       activeMiners,
       activeClocks,
       totalVerifiers
     ] = await Promise.all([
-      Epoch.countDocuments(),
-      Epoch.findOne().sort({ epoch_number: -1 }).lean(),
       StakingPool.aggregate([
         { $match: { status: "active" } },
         { $group: { _id: null, total: { $sum: "$staked_amount" } } }
@@ -770,10 +786,17 @@ app.get("/blocks", async (req, res) => {
     var perPage = 25;
     var skip = (page - 1) * perPage;
 
-    var [epochs, total] = await Promise.all([
-      Epoch.find().sort({ epoch_number: -1 }).skip(skip).limit(perPage).lean(),
-      Epoch.countDocuments()
-    ]);
+    // Paginated block list from chain state
+    var blocksChainHeight = stateStore.getChainHeight();
+    var total = blocksChainHeight >= 0 ? blocksChainHeight + 1 : 0;
+    var epochs = [];
+    if (blocksChainHeight >= 0) {
+      var startEpoch = blocksChainHeight - skip;
+      for (var bi = 0; bi < perPage && (startEpoch - bi) >= 0; bi++) {
+        var ep = stateStore.getEpoch(startEpoch - bi);
+        if (ep) epochs.push(Object.assign({ epoch_number: startEpoch - bi }, ep));
+      }
+    }
 
     res.send(blocksView({ epochs, total, page, perPage }));
   } catch (err) {

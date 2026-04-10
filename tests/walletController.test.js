@@ -16,6 +16,13 @@ jest.mock('../src/services/ledger', () => ({
   recordTransfer: jest.fn()
 }));
 
+jest.mock('../src/chain/stateStore', () => ({
+  getBalance: jest.fn(),
+  getTokenBalances: jest.fn(),
+  getAccount: jest.fn(),
+  hasAccount: jest.fn()
+}));
+
 jest.mock('../src/p2p/network', () => ({
   NODE_ID: 'node-1',
   broadcast: jest.fn()
@@ -33,6 +40,7 @@ const Wallet = require('../src/models/Wallet');
 const User = require('../src/models/User');
 const ledger = require('../src/services/ledger');
 const Transaction = require('../src/models/Transaction');
+const stateStore = require('../src/chain/stateStore');
 const {
   createWallet,
   getBalance,
@@ -81,6 +89,8 @@ describe('walletController', () => {
       address: 'BTCPCsender01',
       balance: new Map([['BTCPC', 5]])
     });
+    User.findById.mockResolvedValue({ username: 'alice' });
+    stateStore.getBalance.mockReturnValue(5);
 
     const req = {
       user: { id: 'user-1' },
@@ -104,6 +114,8 @@ describe('walletController', () => {
         address: 'BTCPCsameaddr',
         balance: new Map([['BTCPC', 0]])
       });
+    User.findById.mockResolvedValue({ username: 'alice' });
+    stateStore.getBalance.mockReturnValue(100);
 
     const req = {
       user: { id: 'user-1' },
@@ -130,6 +142,7 @@ describe('walletController', () => {
       });
     User.findById.mockResolvedValue({ username: 'alice' });
     User.findOne.mockResolvedValue({ username: 'bob' });
+    stateStore.getBalance.mockReturnValue(100);
     ledger.getCurrentEpoch.mockResolvedValue(42);
     ledger.recordTransfer.mockResolvedValue({
       toObject: () => ({ epoch: 42, from: 'alice', to: 'bob', amount: 10 }),

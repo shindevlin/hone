@@ -6,6 +6,7 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const StakingPool = require('../models/StakingPool');
 const Delegation = require('../models/Delegation');
+const stateStore = require('../chain/stateStore');
 const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
 
 /**
@@ -40,7 +41,15 @@ async function getGenesisTimestamp() {
     return GENESIS_TIMESTAMP;
   }
 
-  // Check if epoch 0 exists in DB
+  // Check if epoch 0 exists in chain state (stateStore, fall back to Mongo)
+  const genesisEpochState = stateStore.getEpoch(0);
+  if (genesisEpochState && genesisEpochState.started_at) {
+    const startedAt = genesisEpochState.started_at instanceof Date
+      ? genesisEpochState.started_at
+      : new Date(genesisEpochState.started_at);
+    GENESIS_TIMESTAMP = startedAt.getTime();
+    return GENESIS_TIMESTAMP;
+  }
   const genesisEpoch = await Epoch.findOne({ epoch_number: 0 });
   if (genesisEpoch) {
     GENESIS_TIMESTAMP = genesisEpoch.started_at.getTime();
@@ -398,11 +407,15 @@ async function epochTick() {
 async function startEpochLoop() {
   console.log('[BTCPC] Starting epoch manager...');
 
-  // Initialize difficulty from latest epoch in DB
-  const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
+  // Initialize difficulty from the latest epoch — prefer stateStore, fall
+  // back to Mongo for back-compat if stateStore hasn't been replayed yet.
+  let latestEpoch = stateStore.getLatestEpoch();
+  if (!latestEpoch) {
+    latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
+  }
   if (latestEpoch && latestEpoch.difficulty) {
     currentDifficulty = latestEpoch.difficulty;
-    console.log(`[BTCPC] Difficulty initialized from DB: ${currentDifficulty}`);
+    console.log(`[BTCPC] Difficulty initialized from chain state: ${currentDifficulty}`);
   }
 
   // Initialize genesis if needed

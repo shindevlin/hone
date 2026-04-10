@@ -13,6 +13,7 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const Node = require('../models/Node');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 const Epoch = require('../models/Epoch');
 const WorkProof = require('../models/WorkProof');
 const MiningProof = require('../models/MiningProof');
@@ -281,8 +282,10 @@ router.get('/balance', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
+    // Balance from stateStore (O(1), no Mongo round-trip)
+    const balance = stateStore.getBalance(user.username, 'BTCPC');
+    // Still need the Wallet document for the address field
     const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    const balance = wallet?.balance?.get('BTCPC') || 0;
     const node = await Node.findOne({ account: user._id });
     const staked = node?.stake_amount || 0;
     const proofCount = await MiningProof.countDocuments({ miner: user.username });
@@ -381,7 +384,9 @@ router.get('/mining', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const totalEpochs = await Epoch.countDocuments({ status: 'finalized' });
+    // Chain height from stateStore. We still rely on WorkProof docs for
+    // per-user aggregates (those live in their own legacy index; Phase D.5).
+    const totalEpochs = Math.max(0, stateStore.getChainHeight() + 1);
     const totalWork = await WorkProof.countDocuments({ node_id: user.username });
     const totalTokens = await WorkProof.aggregate([
       { $match: { node_id: user.username } },
@@ -389,8 +394,7 @@ router.get('/mining', async (req, res) => {
     ]);
     const tokens = totalTokens[0]?.total || 0;
 
-    const recentEpochs = await Epoch.find({ status: 'finalized' })
-      .sort({ epoch_number: -1 }).limit(5).lean();
+    const recentEpochs = stateStore.getRecentEpochs(5);
 
     res.json({
       username: user.username,
@@ -471,8 +475,9 @@ router.get('/node', async (req, res) => {
 // GET /api/bot/network
 router.get('/network', async (_req, res) => {
   try {
-    const totalEpochs = await Epoch.countDocuments();
-    const finalizedEpochs = await Epoch.countDocuments({ status: 'finalized' });
+    // Chain height + epoch counts come from stateStore
+    const totalEpochs = Math.max(0, stateStore.getChainHeight() + 1);
+    const finalizedEpochs = totalEpochs; // every replayed epoch is finalized
     const activeNodes = await Node.countDocuments({ status: 'active' });
     const totalUsers = await User.countDocuments();
     const totalProofs = await WorkProof.countDocuments();
@@ -490,11 +495,14 @@ router.get('/network', async (_req, res) => {
 // GET /api/bot/epoch
 router.get('/epoch', async (_req, res) => {
   try {
-    const current = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
+    // Chain state from stateStore
+    const chainHeight = stateStore.getChainHeight();
+    const current = stateStore.getLatestEpoch();
     if (!current) return res.json({ epoch: null });
-    const reward = getBlockReward(current.epoch_number);
+    const epochNumber = chainHeight;
+    const reward = getBlockReward(epochNumber);
     res.json({
-      epoch: current.epoch_number, status: current.status, reward,
+      epoch: epochNumber, status: current.status, reward,
       totalWork: current.total_work, difficulty: current.difficulty,
       startedAt: current.started_at, endedAt: current.ended_at
     });
@@ -504,8 +512,7 @@ router.get('/epoch', async (_req, res) => {
 // GET /api/bot/reward
 router.get('/reward', async (_req, res) => {
   try {
-    const latest = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
-    const epoch = latest ? latest.epoch_number : 0;
+    const epoch = Math.max(0, stateStore.getChainHeight());
     const reward = getBlockReward(epoch);
     const nextReward = getBlockReward(epoch + 1);
     res.json({ epoch, reward, nextReward });
@@ -622,8 +629,8 @@ router.post('/inference', async (req, res) => {
     const user = await resolveUser(telegramId);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    const balance = wallet?.balance?.get('BTCPC') || 0;
+    // Balance from stateStore (no Mongo round-trip for the balance check)
+    const balance = stateStore.getBalance(user.username, 'BTCPC');
 
     const StakingPool = require('../models/StakingPool');
     const stake = await StakingPool.findOne({ account: user._id, status: 'active' });

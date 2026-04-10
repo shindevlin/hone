@@ -8,6 +8,7 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const Project = require('../models/Project');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 
 const FAUCET_AMOUNT = 1; // 1 BTCPC per claim
 const FAUCET_ADDRESS = 'btcpc_faucet';
@@ -38,7 +39,8 @@ router.post('/claim', authenticateToken, async (req, res) => {
       await wallet.save();
     }
 
-    const currentBalance = wallet.balance.get('BTCPC') || 0;
+    // Balance check from stateStore (chain state), not the Mongo Wallet cache
+    const currentBalance = stateStore.getBalance(user.username, 'BTCPC');
 
     // Check if user still has unspent tokens
     if (currentBalance > 0) {

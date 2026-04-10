@@ -30,6 +30,8 @@ const Block = require('../chain/block');
 const blockStore = require('../chain/blockStore');
 const blockchain = require('../chain/blockchain');
 const stateManager = require('../chain/stateManager');
+const stateStore = require('../chain/stateStore');
+const nodeRegistry = require('../chain/nodeRegistry');
 const mempool = require('../p2p/mempool');
 
 const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
@@ -68,7 +70,8 @@ const PROOF_POLL_INTERVAL_MS = 10000; // check every 10s
 const pendingFinalizations = new Set();
 
 async function scheduleFinalization(epochNumber) {
-  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  // Phase D: epoch state lives in stateStore — no Mongo fallback.
+  let epoch = stateStore.getEpoch(epochNumber);
   if (!epoch) return null;
   if (epoch.status === 'finalized') return epoch;
 
@@ -78,15 +81,16 @@ async function scheduleFinalization(epochNumber) {
 
   pendingFinalizations.add(epochNumber);
 
-  // Count active miners on the network
+  // Count active miners on the network (from chain state, not Mongo)
   const { getIdleMiners } = require('../p2p/protocol');
-  const activeMiners = await Node.countDocuments({ status: 'active' });
+  const activeMiners = nodeRegistry.getRegisteredNodes()
+    .filter(n => n.type === 'miner').length;
   console.log(`[BTCPC] Epoch ${epochNumber}: waiting for proofs from ${activeMiners} active miner(s)...`);
 
   // Poll until all active miners have submitted proofs OR announced idle
   const startTime = Date.now();
   while (Date.now() - startTime < MAX_FINALIZATION_WAIT_MS) {
-    const proofCount = await MiningProof.countDocuments({ block_number: epochNumber });
+    const proofCount = stateStore.getMiningProofs(epochNumber).length;
     const idleCount = getIdleMiners(epochNumber).size;
     const accountedFor = proofCount + idleCount;
 
@@ -95,8 +99,9 @@ async function scheduleFinalization(epochNumber) {
       break;
     }
 
-    // Check if epoch was finalized by another node
-    const check = await Epoch.findOne({ epoch_number: epochNumber });
+    // Check if epoch was finalized by another node (applied to stateStore
+    // via EPOCH_FINALIZED → applyRemoteEntries → block replay).
+    const check = stateStore.getEpoch(epochNumber);
     if (check && check.status === 'finalized') {
       pendingFinalizations.delete(epochNumber);
       return check;
@@ -125,7 +130,7 @@ async function scheduleFinalization(epochNumber) {
 async function waitForFinalization(epochNumber) {
   const start = Date.now();
   while (Date.now() - start < MAX_FINALIZATION_WAIT_MS + 30000) {
-    const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+    const epoch = stateStore.getEpoch(epochNumber);
     if (epoch && epoch.status === 'finalized') return epoch;
     await new Promise(r => setTimeout(r, 5000));
   }
@@ -152,7 +157,12 @@ async function computeFinalization(epochNumber) {
   const finConsensus = require('../chain/finalizationConsensus');
   const nodeRegistry = require('../chain/nodeRegistry');
 
-  const rewardedEpochs = await Epoch.countDocuments({ status: 'finalized', settled_jobs: { $gt: 0 } });
+  // Phase D: count finalized+settled epochs from stateStore
+  let rewardedEpochs = 0;
+  for (let e = 0; e <= epochNumber; e++) {
+    const meta = stateStore.getEpoch(e);
+    if (meta && meta.status === 'finalized' && (meta.settled_jobs || 0) > 0) rewardedEpochs++;
+  }
   const rewardNumber = rewardedEpochs;
   const blockReward = getBlockReward(rewardNumber);
   const epochsDeferred = epochNumber - rewardNumber;
@@ -195,7 +205,9 @@ async function computeFinalization(epochNumber) {
 
   // Sweep any stale escrows (safety net — auto-refund after 10 min)
   await escrow.sweepEscrows(600000).catch(() => {});
-  const syntheticProofs = await MiningProof.find({ block_number: epochNumber });
+  // Phase D: synthetic mining proofs live exclusively in stateStore
+  // (addMiningProof during mining, setMiningProofs on replay).
+  const syntheticProofs = stateStore.getMiningProofs(epochNumber).slice();
 
   // Build per-miner work values
   const minerWork = {};
@@ -421,43 +433,41 @@ async function computeFinalization(epochNumber) {
  * Called by the consensus winner OR when receiving EPOCH_FINALIZED.
  */
 async function applyFinalization(epochNumber, proposal) {
-  let epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  // Phase D: epoch metadata lives in stateStore + block payload, not Mongo.
+  let epoch = stateStore.getEpoch(epochNumber);
   if (!epoch) {
-    // No epoch document yet — create one (the unified BLOCK_PROPOSAL flow
-    // doesn't pre-create epoch records via EPOCH_START anymore)
-    try {
-      epoch = await Epoch.create({
-        epoch_number: epochNumber,
-        status: 'active',
-        started_at: new Date(),
-        block_reward: proposal.block_reward || 0,
-      });
-    } catch (e) {
-      // Race: another node created it first
-      epoch = await Epoch.findOne({ epoch_number: epochNumber });
-      if (!epoch) return null;
-    }
+    epoch = {
+      epoch_number: epochNumber,
+      status: 'active',
+      started_at: new Date(),
+      block_reward: proposal.block_reward || 0,
+      commitments: [],
+    };
   }
   if (epoch.status === 'finalized') return epoch; // already done
 
   const rewards = proposal.rewards || [];
 
-  // Write rewards to permanent ledger
+  // Write rewards to permanent ledger — stateStore balances update via
+  // the MINING_REWARD entry dispatcher, and the mining proof reward_earned
+  // is updated in-place on the in-memory proof entry.
+  const epochProofs = stateStore.getMiningProofs(epochNumber).slice();
   for (const r of rewards) {
     await ledger.recordMiningReward(r.miner, r.amount, epochNumber);
-    await ledger.updateWalletCache(r.miner, 'BTCPC', r.amount);
 
-    // Update mining proof
-    const proof = await MiningProof.findOne({ block_number: epochNumber, miner: r.miner });
-    if (proof) {
-      proof.reward_earned = r.amount;
-      await proof.save();
+    // Update reward_earned on the matching proof
+    for (const proof of epochProofs) {
+      if (proof.miner === r.miner) {
+        proof.reward_earned = r.amount;
+        break;
+      }
     }
 
     console.log(`[BTCPC]   ${r.miner}: ${r.amount.toFixed(4)} BTCPC (${r.type || 'mining'})`);
   }
+  stateStore.setMiningProofs(epochNumber, epochProofs);
 
-  // Finalize epoch record
+  // Finalize epoch record in stateStore
   epoch.consensus_hash = proposal.consensus_hash || '0'.repeat(64);
   epoch.total_work = proposal.total_work || 0;
   epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount }));
@@ -467,7 +477,7 @@ async function applyFinalization(epochNumber, proposal) {
   epoch.ended_at = new Date();
   epoch.status = 'finalized';
   epoch.settled_jobs = proposal.settled_jobs || 0;
-  await epoch.save();
+  stateStore.setEpoch(epochNumber, epoch);
 
   console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${proposal.reward_number} | ${rewards.length} reward(s) | ${(proposal.block_reward || 0).toFixed(4)} BTCPC`);
 
@@ -489,8 +499,9 @@ async function applyFinalization(epochNumber, proposal) {
     const txHashes = epochLedgerEntries.map(e => blockStore.hashLedgerEntry(e));
     const txMerkleRoot = Block.computeMerkleRoot(txHashes);
 
-    // Collect compute proofs for this epoch
-    const epochProofs = await WorkProof.find({ epoch_number: epochNumber }).lean();
+    // Phase D: compute proofs live exclusively in stateStore (added live
+    // via addComputeProof in the mining loop, hydrated on replay).
+    const epochProofs = stateStore.getComputeProofs(epochNumber);
     const proofHashes = epochProofs.map(p => blockStore.hashComputeProof(p));
     const cpMerkleRoot = Block.computeMerkleRoot(proofHashes);
 
@@ -515,7 +526,8 @@ async function applyFinalization(epochNumber, proposal) {
       miner_id: MINER_ACCOUNT
     });
 
-    const miningProofs = await MiningProof.find({ block_number: epochNumber }).lean();
+    // Phase D: mining proofs come exclusively from stateStore
+    const miningProofs = stateStore.getMiningProofs(epochNumber);
 
     const payload = {
       ledger_entries: epochLedgerEntries,
@@ -622,24 +634,33 @@ async function mineEpoch(epochNumber) {
     return;
   }
 
+  // Account existence check via stateStore. The Wallet document is still
+  // fetched so we can display the balance at the end of the cycle (below),
+  // but callers can rely on chain state to know the account is live.
+  if (!stateStore.hasAccount(MINER_ACCOUNT)) {
+    console.warn('[BTCPC] Miner account not yet in chain state (pre-genesis replay is normal)');
+  }
   const wallet = await Wallet.findOne({ userId: user._id });
   if (!wallet) {
     console.error('[BTCPC] Genesis wallet not found. Run genesis first.');
     return;
   }
 
-  // Ensure epoch record exists
-  let epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  // Phase D: epoch metadata lives in stateStore + block payload, not Mongo.
+  let epoch = stateStore.getEpoch(epochNumber);
   if (!epoch) {
     const reward = getBlockReward(epochNumber);
-    epoch = new Epoch({
+    epoch = {
       epoch_number: epochNumber,
       started_at: new Date(),
       block_reward: reward,
-      status: 'active'
-    });
-    await epoch.save();
+      status: 'active',
+      commitments: [],
+      consensus_hash: null,
+    };
+    stateStore.setEpoch(epochNumber, epoch);
   }
+  if (!epoch.commitments) epoch.commitments = [];
 
   if (epoch.status === 'finalized') {
     console.log(`[BTCPC] Epoch ${epochNumber} already finalized, skipping`);
@@ -696,7 +717,8 @@ async function mineEpoch(epochNumber) {
       }
       const work = await generateWork(MODEL, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
 
-      const proof = new WorkProof({
+      // Phase D: WorkProofs live in stateStore + next block payload, not Mongo.
+      const proof = {
         epoch_number: epochNumber,
         node_id: MINER_ACCOUNT,
         prompt_hash: work.prompt_hash,
@@ -704,9 +726,9 @@ async function mineEpoch(epochNumber) {
         model: work.model,
         tokens_generated: work.tokens_generated,
         model_weight_factor: work.model_weight_factor,
-        work_value: work.work_value
-      });
-      await proof.save();
+        work_value: work.work_value,
+      };
+      stateStore.addComputeProof(epochNumber, proof);
 
       workProofs.push(proof);
       totalTokens += work.tokens_generated;
@@ -762,20 +784,20 @@ async function mineEpoch(epochNumber) {
   }
 
   // Step 2: Compute state hash
-  const previousEpoch = await Epoch.findOne({ epoch_number: epochNumber - 1 });
+  const previousEpoch = stateStore.getEpoch(epochNumber - 1);
   const previousHash = previousEpoch ? previousEpoch.consensus_hash : '0'.repeat(64);
   const stateHash = await computeStateHash(epochNumber, previousHash);
 
-  // Step 3: Submit epoch commitment
+  // Step 3: Submit epoch commitment to stateStore (no Mongo write)
   epoch.commitments.push({
     node_id: node._id,
     state_hash: stateHash,
     tx_count: 0,
     inference_count: workProofs.length,
-    submitted_at: new Date()
+    submitted_at: new Date(),
   });
   epoch.consensus_hash = stateHash;
-  await epoch.save();
+  stateStore.setEpoch(epochNumber, epoch);
 
   // Step 4: Create genesis dream for this block (mandatory)
   const metadata = getEpochMetadata(epochNumber);
@@ -812,29 +834,21 @@ async function mineEpoch(epochNumber) {
     console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}]`);
   }
 
-  // Step 4b: Create soulbound mining proof (reward set to 0 until finalization splits it)
-  // Save to DB — if duplicate, that's fine, we still broadcast
-  try {
-    const existingProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
-    if (!existingProof) {
-      const miningProof = new MiningProof({
-        block_number: epochNumber,
-        miner: MINER_ACCOUNT,
-        reward_earned: 0,
-        model: MODEL,
-        model_hash: modelHash,
-        tokens_computed: totalTokens,
-        work_value: totalWorkValue,
-        state_hash: stateHash
-      });
-      await miningProof.save();
-      console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
-    } else {
-      console.log(`[BTCPC]   Mining Proof #${epochNumber}: already exists for ${MINER_ACCOUNT}`);
-    }
-  } catch (err) {
-    console.log(`[BTCPC]   Mining Proof #${epochNumber}: save error (${err.message}) — broadcasting anyway`);
-  }
+  // Step 4b: Record this miner's proof for the epoch.
+  // Phase D: proofs live in stateStore and the next block payload, not Mongo.
+  // Dedupe by miner — addMiningProof replaces any existing entry for the
+  // same miner in the same epoch.
+  stateStore.addMiningProof(epochNumber, {
+    block_number: epochNumber,
+    miner: MINER_ACCOUNT,
+    reward_earned: 0,
+    model: MODEL,
+    model_hash: modelHash,
+    tokens_computed: totalTokens,
+    work_value: totalWorkValue,
+    state_hash: stateHash,
+  });
+  console.log(`[BTCPC]   Mining Proof #${epochNumber}: submitted by ${MINER_ACCOUNT} (work_value: ${totalWorkValue})`);
 
   // ALWAYS broadcast proof via P2P — even if DB save failed or proof already existed
   // Other nodes need this to finalize the epoch
@@ -873,9 +887,10 @@ async function mineEpoch(epochNumber) {
 
   let claimProofs = [];
   if (Object.keys(linkedChains).length > 0 && finalized) {
-    // Use the miner's actual reward share, not the full block reward
-    const myProof = await MiningProof.findOne({ block_number: epochNumber, miner: MINER_ACCOUNT });
-    const myReward = myProof ? myProof.reward_earned : 0;
+    // Phase D: read the miner's reward share from stateStore
+    const myProofs = stateStore.getMiningProofs(epochNumber);
+    const myProof = myProofs.find(p => p.miner === MINER_ACCOUNT);
+    const myReward = myProof ? (myProof.reward_earned || 0) : 0;
 
     const postingKey = process.env.BTCPC_POSTING_KEY;
     if (postingKey && myReward > 0) {
@@ -887,30 +902,9 @@ async function mineEpoch(epochNumber) {
           linkedChains,
           postingKey
         );
-
-        for (const proof of claimProofs) {
-          const existing = await CrossChainClaim.findOne({
-            miner: proof.miner,
-            chain: proof.chain,
-            epoch: proof.epoch
-          });
-          if (!existing) {
-            const claim = new CrossChainClaim({
-              miner: proof.miner,
-              chain: proof.chain,
-              target_wallet: proof.target_wallet,
-              epoch: proof.epoch,
-              native_reward: finalized.block_reward,
-              claim_amount: proof.amount,
-              period: proof.period,
-              cross_chain_ratio: proof.cross_chain_ratio,
-              proof_signature: proof.proof_signature,
-              proof_recovery: proof.proof_recovery
-            });
-            await claim.save();
-          }
-        }
-
+        // Phase D: cross-chain claim proofs are not persisted to Mongo.
+        // They're signed and gossiped as needed; claim state lives on the
+        // target chain, not on BTCPC.
         if (claimProofs.length > 0) {
           console.log('[BTCPC]   Cross-chain proofs: ' + claimProofs.map(function (p) { return p.chain; }).join(', '));
         }
@@ -920,15 +914,13 @@ async function mineEpoch(epochNumber) {
     }
   }
 
-  // Step 5c: Update node tracking
+  // Step 5c: Update node tracking — in-memory only (nodeRegistry already
+  // tracks last-seen from ledger entries). The legacy Node.save() was a
+  // redundant cache.
   node.last_epoch_commitment = epochNumber;
-  await node.save();
 
-  // Step 6: Log results
-  const balanceBTCPC = wallet.balance.get('BTCPC') || 0;
-  // Re-read wallet to get updated balance after reward distribution
-  const updatedWallet = await Wallet.findOne({ userId: user._id });
-  const currentBalance = updatedWallet ? (updatedWallet.balance.get('BTCPC') || 0) : balanceBTCPC;
+  // Step 6: Log results — read updated balance from chain state (stateStore)
+  const currentBalance = stateStore.getBalance(MINER_ACCOUNT, 'BTCPC');
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const reward = finalized ? finalized.block_reward : 0;
@@ -1155,9 +1147,12 @@ async function startMiner() {
   // proposal fires get filed under the right epoch
   try {
     const protocolMod = require('../p2p/protocol');
-    const genesisEpoch = await Epoch.findOne({ epoch_number: 0 });
+    const genesisEpoch = stateStore.getEpoch(0);
     if (genesisEpoch && genesisEpoch.started_at) {
-      const initWall = Math.floor((Date.now() - genesisEpoch.started_at.getTime()) / EPOCH_DURATION_MS);
+      const startedAt = genesisEpoch.started_at instanceof Date
+        ? genesisEpoch.started_at
+        : new Date(genesisEpoch.started_at);
+      const initWall = Math.floor((Date.now() - startedAt.getTime()) / EPOCH_DURATION_MS);
       if (initWall > 0 && protocolMod.setCurrentEpoch) {
         protocolMod.setCurrentEpoch(initWall);
       }
@@ -1166,15 +1161,18 @@ async function startMiner() {
 
   // Determine the starting epoch number — use highest of:
   // 1. Time-based calculation from genesis
-  // 2. Highest epoch in MongoDB
+  // 2. Highest epoch in stateStore / block files
   // 3. P2P chain height (blocks synced from other miners)
   let currentEpoch;
   if (genesis.alreadyExisted) {
-    const genesisTime = genesis.epoch.started_at.getTime();
+    const startedAt = genesis.epoch.started_at instanceof Date
+      ? genesis.epoch.started_at
+      : new Date(genesis.epoch.started_at);
+    const genesisTime = startedAt.getTime();
     const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
 
-    const highestInDB = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
-    const dbBased = highestInDB ? highestInDB.epoch_number + 1 : 0;
+    const chainHeight = stateStore.getChainHeight();
+    const dbBased = chainHeight >= 0 ? chainHeight + 1 : 0;
 
     const { getChainHeight } = require('../p2p/chainSync');
     const p2pHeight = getChainHeight() + 1; // next epoch after highest synced block
@@ -1182,7 +1180,7 @@ async function startMiner() {
     currentEpoch = Math.max(timeBased, dbBased, p2pHeight);
     if (currentEpoch < 1) currentEpoch = 1;
 
-    console.log(`[BTCPC] Epoch sync: time=${timeBased}, db=${dbBased}, p2p=${p2pHeight} → starting at ${currentEpoch}`);
+    console.log(`[BTCPC] Epoch sync: time=${timeBased}, store=${dbBased}, p2p=${p2pHeight} → starting at ${currentEpoch}`);
   } else {
     currentEpoch = 0;
   }

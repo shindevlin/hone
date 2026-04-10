@@ -6,6 +6,7 @@ const User = require('../models/User');
 const ledger = require('../services/ledger');
 const p2p = require('../p2p/network');
 const { createTransactionMessage } = require('../p2p/protocol');
+const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validAddress, validChain } = require('../middlewares/validate');
 
 /**
@@ -57,16 +58,25 @@ async function getBalance(req, res) {
   const userId = req.user.id;
 
   try {
+    // Phase C: still look up the Wallet document for the address — stateStore
+    // doesn't index addresses → usernames yet. Balance comes from stateStore.
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
+    // Resolve username from userId so we can hit stateStore
+    const user = await User.findById(userId);
+    const username = user && user.username;
+    const btcpcBalance = username ? stateStore.getBalance(username, 'BTCPC') : 0;
+    const tokenBalances = username ? stateStore.getTokenBalances(username) : { BTCPC: btcpcBalance };
+    if (tokenBalances.BTCPC === undefined) tokenBalances.BTCPC = btcpcBalance;
+
     res.json({
       success: true,
       address: wallet.address,
       chain: wallet.chain,
-      balance: Object.fromEntries(wallet.balance)
+      balance: tokenBalances
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -92,19 +102,25 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'invalid address format' });
     }
 
-    // Find sender wallet
+    // Find sender wallet (still need address for self-transfer check)
     const senderWallet = await Wallet.findOne({ userId });
     if (!senderWallet) {
       return res.status(404).json({ error: 'Sender wallet not found' });
     }
 
-    // Validate sufficient balance
-    const senderBalance = senderWallet.balance.get('BTCPC') || 0;
+    // Resolve sender username first — balance comes from stateStore, not Wallet
+    const senderUser = await User.findById(userId);
+    const senderName = senderUser?.username || senderWallet.address;
+
+    // Validate sufficient balance via stateStore (O(1) in-memory)
+    const senderBalance = stateStore.getBalance(senderName, 'BTCPC');
     if (senderBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
 
-    // Find recipient wallet
+    // Find recipient wallet (TODO Phase D: add address→username index in stateStore
+    // so we can drop this Mongo read. Kept for now because stateStore only keys
+    // balances by username.)
     const recipientWallet = await Wallet.findOne({ address: toAddress });
     if (!recipientWallet) {
       return res.status(404).json({ error: 'Recipient wallet not found' });
@@ -115,14 +131,12 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'Cannot transfer to your own wallet' });
     }
 
-    // Resolve usernames for ledger
-    const senderUser = await User.findById(userId);
+    // Resolve recipient username for ledger
     const recipientUser = await User.findOne({
       $or: [
         { _id: recipientWallet.userId }
       ]
     });
-    const senderName = senderUser?.username || senderWallet.address;
     const recipientName = recipientUser?.username || recipientWallet.address;
 
     // Record on permanent ledger — validates via mempool, updates wallet caches
@@ -169,6 +183,10 @@ async function getTransactionHistory(req, res) {
   const userId = req.user.id;
 
   try {
+    // Phase C: Transaction history still indexes by wallet.address. Keep the
+    // Wallet lookup here to get the address — Transaction (legacy ledger
+    // cache) remains on Mongo. Phase D will move this to LedgerEntry.find
+    // keyed by username.
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });

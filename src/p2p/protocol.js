@@ -304,15 +304,8 @@ function handleHandshake(peer, msg, ctx) {
     ctx.send(peer.ws, reqMsg);
   }
 
-  // Request ledger sync — peer may have entries we're missing
-  (async function () {
-    try {
-      var LedgerEntry = require("../models/LedgerEntry");
-      var localCount = await LedgerEntry.countDocuments();
-      var ledgerReq = createRequestLedgerMessage(localCount, ctx.NODE_ID);
-      ctx.send(peer.ws, ledgerReq);
-    } catch (_) {}
-  })();
+  // Phase D: legacy REQUEST_LEDGER is a no-op. Block sync via
+  // REQUEST_BLOCKS above handles chain catch-up from block files.
 }
 
 /**
@@ -395,13 +388,8 @@ function handleTransaction(peer, msg, ctx) {
   const added = mempool.addTransaction(tx);
   if (added) {
     console.log("[BTCPC P2P] Tx " + (tx.txHash || "?").slice(0, 12) + "... " + tx.from + " → " + tx.to + " " + tx.amount + " " + (tx.token || "BTCPC"));
-
-    // Update local wallet caches immediately — balance reflects before block inclusion
-    if (tx.type === "TRANSFER" && tx.from && tx.to && tx.amount > 0) {
-      const { updateWalletCache } = require("../services/ledger");
-      updateWalletCache(tx.from, tx.token || "BTCPC", -tx.amount).catch(function () {});
-      updateWalletCache(tx.to, tx.token || "BTCPC", tx.amount).catch(function () {});
-    }
+    // Phase D: balances update when the TX is included in a block and
+    // ledger entries are applied to stateStore. No pre-inclusion cache.
 
     // Rebroadcast to other peers
     ctx.broadcast(msg, peer.address);
@@ -539,30 +527,11 @@ function handleMiningProof(peer, msg, ctx) {
 
   console.log("[BTCPC P2P] Mining proof from " + data.miner + " for block " + data.block_number);
 
-  // Store in local DB (if we don't already have it)
-  const MiningProof = require("../models/MiningProof");
-  MiningProof.findOne({ block_number: data.block_number, miner: data.miner })
-    .then(existing => {
-      if (existing) return; // already have this proof
-      return MiningProof.create({
-        block_number: data.block_number,
-        miner: data.miner,
-        reward_earned: 0, // set during finalization
-        model: data.model,
-        model_hash: data.model_hash || null,
-        tokens_computed: data.tokens_computed || 0,
-        work_value: data.work_value || 0,
-        state_hash: data.state_hash || null
-      });
-    })
-    .then(created => {
-      if (created) {
-        console.log("[BTCPC P2P] Stored remote proof: " + data.miner + " block " + data.block_number + " (wv=" + data.work_value + ")");
-      }
-    })
-    .catch(err => {
-      console.error("[BTCPC P2P] Failed to store mining proof:", err.message);
-    });
+  // Phase D: do NOT persist MiningProof to Mongo. Proofs flow into the
+  // block payload (payload.mining_proofs) when the authority writes the
+  // block, and into stateStore.miningProofsByEpoch via replay + live apply.
+  // Remote proofs are just informational here — the authoritative copy
+  // arrives in BLOCK_PROPOSAL / EPOCH_FINALIZED messages.
 
   // Rebroadcast to other peers
   ctx.broadcast(msg, peer.address);
@@ -611,63 +580,24 @@ async function handleEpochFinalized(peer, msg, ctx) {
   console.log("[BTCPC P2P] Block finalized: epoch " + epochNum + " | reward: " + (data.block_reward || 0).toFixed(4) + " BTCPC | " + (data.rewards || []).length + " miner(s)");
 
   try {
-    const Epoch = require("../models/Epoch");
-    const MiningProof = require("../models/MiningProof");
-    const User = require("../models/User");
-    const Wallet = require("../models/Wallet");
-
-    // Update or create epoch record — use findOneAndUpdate to avoid version conflicts
-    await Epoch.findOneAndUpdate(
-      { epoch_number: epochNum },
-      {
-        $set: {
-          status: 'finalized',
-          block_reward: data.block_reward || 0,
-          reward_number: data.reward_number,
-          epochs_deferred: data.epochs_deferred || 0,
-          settled_jobs: data.settled_jobs || 0,
-          total_work: data.total_work || 0,
-          consensus_hash: data.consensus_hash,
-          ended_at: new Date(),
-          rewards_distributed: (data.rewards || []).map(r => ({
-            node_id: r.miner,
-            amount: r.amount
-          }))
-        }
-      },
-      { upsert: true }
-    );
+    // Phase D: Mongo is no longer the chain state. The block file (written
+    // below from data.header_hex) is the source of truth, and stateStore is
+    // the in-memory cache updated by applyRemoteEntries + block payload replay.
 
     // Apply permanent ledger entries from this block — this IS the chain
-    // Mining rewards, transfers, staking, etc. all come through here
+    // (stateStore.applyEntry handles balance/account/token updates).
     if (data.ledger && data.ledger.length > 0) {
-      const { applyRemoteEntries, updateWalletCache } = require("../services/ledger");
+      const { applyRemoteEntries } = require("../services/ledger");
       const applied = await applyRemoteEntries(data.ledger);
       if (applied > 0) {
         console.log("[BTCPC P2P]   Ledger: " + applied + " entries applied (permanent)");
       }
     }
 
-    // Update mining proofs and wallet caches from reward data
+    // Log reward credits — the underlying MINING_REWARD ledger entries in
+    // data.ledger have already updated stateStore balances above.
     for (const reward of (data.rewards || [])) {
-      // Update mining proof
-      const proof = await MiningProof.findOne({ block_number: epochNum, miner: reward.miner });
-      if (proof) {
-        proof.reward_earned = reward.amount;
-        await proof.save();
-      }
-
-      // Update wallet cache (ledger entry already applied above)
-      const user = await User.findOne({ username: reward.miner });
-      if (user) {
-        const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-        if (wallet) {
-          const balance = wallet.balance.get('BTCPC') || 0;
-          wallet.balance.set('BTCPC', balance + reward.amount);
-          await wallet.save();
-          console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC (cache)");
-        }
-      }
+      console.log("[BTCPC P2P]   " + reward.miner + ": +" + reward.amount.toFixed(4) + " BTCPC");
     }
     // ── Write block to disk — source of truth ──
     if (data.header_hex) {
@@ -711,7 +641,9 @@ async function handleEpochFinalized(peer, msg, ctx) {
 
 /**
  * ACCOUNT_ANNOUNCE — Any node broadcasts a new account to the network.
- * Receiving nodes store the ledger entry permanently.
+ * Phase D: apply the ACCOUNT_CREATE ledger entry to stateStore. The entry
+ * is already in the block file that will flow through ledger sync, so it's
+ * also picked up on replay. No Mongoose writes.
  */
 async function handleAccountAnnounce(peer, msg, ctx) {
   const data = msg.data || {};
@@ -720,50 +652,20 @@ async function handleAccountAnnounce(peer, msg, ctx) {
   console.log("[BTCPC P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
 
   try {
-    const LedgerEntry = require("../models/LedgerEntry");
-    const existing = await LedgerEntry.findOne({ type: 'ACCOUNT_CREATE', 'account_data.username': data.username });
-    if (!existing) {
-      await LedgerEntry.create({
+    const stateStore = require("../chain/stateStore");
+    if (!stateStore.getAccount(data.username)) {
+      stateStore.applyEntry({
         type: 'ACCOUNT_CREATE',
         to: data.username,
         epoch: data.epoch || 0,
         account_data: {
           username: data.username,
           public_keys: data.public_keys || {},
-          chain_addresses: data.chain_addresses || {}
-        }
+          chain_addresses: data.chain_addresses || {},
+        },
+        timestamp: Date.now(),
       });
-      console.log("[BTCPC P2P]   Stored on ledger (permanent)");
-    }
-
-    // Also create local User + Wallet if needed (for transfers to work)
-    const User = require("../models/User");
-    const Wallet = require("../models/Wallet");
-    let user = await User.findOne({ username: data.username });
-    if (!user) {
-      const crypto = require("crypto");
-      user = new User({
-        username: data.username,
-        email: data.username + "@btcpc.network",
-        password: crypto.createHash("sha256").update(data.username + "-announced").digest("hex"),
-        isActive: true,
-        ownerPublicKey: data.public_keys?.owner || null,
-        activePublicKey: data.public_keys?.active || null,
-        postingPublicKey: data.public_keys?.posting || null,
-        memoPublicKey: data.public_keys?.memo || null
-      });
-      await user.save();
-
-      // Create BTCPC wallet
-      if (data.chain_addresses?.btcpc) {
-        await Wallet.create({
-          userId: user._id, chain: "btcpc",
-          address: data.chain_addresses.btcpc,
-          publicKey: data.public_keys?.owner || null,
-          balance: new Map([["BTCPC", 0]])
-        });
-      }
-      console.log("[BTCPC P2P]   Local account created for " + data.username);
+      console.log("[BTCPC P2P]   Applied to stateStore");
     }
   } catch (err) {
     console.error("[BTCPC P2P] Failed to process account announcement:", err.message);
@@ -1183,69 +1085,29 @@ function handleClockHeartbeat(peer, msg, ctx) {
 // ---------------------------------------------------------------------------
 
 /**
- * REQUEST_LEDGER — A peer requests ledger entries it's missing.
- * Sends { localCount: N } — the number of entries we have.
- * Responder sends all entries the requester is missing.
+ * REQUEST_LEDGER — Legacy path for pre-block-file nodes. Phase D: block
+ * files (REQUEST_BLOCKS / RESPONSE_BLOCKS) are the canonical sync channel.
+ * This handler is a no-op stub retained for backward-compatible wire format;
+ * new syncs should use the block-based flow.
  */
-async function handleRequestLedger(peer, msg, ctx) {
-  var data = msg.data || {};
-  var remoteCount = data.localCount || 0;
-
-  try {
-    var LedgerEntry = require("../models/LedgerEntry");
-    var localCount = await LedgerEntry.countDocuments();
-
-    if (localCount <= remoteCount) return; // they have more or same, nothing to send
-
-    // Send all entries — the receiver deduplicates
-    var entries = await LedgerEntry.find().sort({ timestamp: 1 }).lean();
-    var cleanEntries = entries.map(function (e) {
-      return {
-        type: e.type, from: e.from, to: e.to, token: e.token,
-        amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
-        memo: e.memo, timestamp: e.timestamp,
-        account_data: e.account_data, token_data: e.token_data,
-        delegation_data: e.delegation_data
-      };
-    });
-
-    var response = createMessage(MESSAGE_TYPES.RESPONSE_LEDGER, {
-      entries: cleanEntries,
-      count: cleanEntries.length
-    }, ctx.NODE_ID);
-
-    ctx.send(peer.ws, response);
-    console.log("[BTCPC P2P] Sent " + cleanEntries.length + " ledger entries to " + (peer.nodeId || "unknown").slice(0, 12));
-  } catch (err) {
-    console.error("[BTCPC P2P] Failed to handle ledger request:", err.message);
-  }
+async function handleRequestLedger(_peer, _msg, _ctx) {
+  // no-op: chain history lives in block files, served via REQUEST_BLOCKS
 }
 
 /**
- * RESPONSE_LEDGER — Received ledger entries from a peer.
- * Apply any entries we're missing.
+ * RESPONSE_LEDGER — Received ledger entries from a peer (legacy path).
+ * Phase D: apply to stateStore only. No Mongo writes.
  */
-async function handleResponseLedger(peer, msg, ctx) {
+async function handleResponseLedger(peer, msg, _ctx) {
   var data = msg.data || {};
   var entries = data.entries || [];
-
   if (entries.length === 0) return;
 
   try {
-    var { applyRemoteEntries, updateWalletCache } = require("../services/ledger");
+    var { applyRemoteEntries } = require("../services/ledger");
     var applied = await applyRemoteEntries(entries);
-
     if (applied > 0) {
-      console.log("[BTCPC P2P] Ledger sync: " + applied + " new entries from " + (peer.nodeId || "unknown").slice(0, 12));
-
-      // Update wallet caches for applied entries
-      for (var i = 0; i < entries.length; i++) {
-        var e = entries[i];
-        if (e.amount > 0) {
-          if (e.to) await updateWalletCache(e.to, e.token || "BTCPC", e.amount).catch(function () {});
-          if (e.from) await updateWalletCache(e.from, e.token || "BTCPC", -e.amount).catch(function () {});
-        }
-      }
+      console.log("[BTCPC P2P] Ledger sync: " + applied + " entries from " + (peer.nodeId || "unknown").slice(0, 12));
     }
   } catch (err) {
     console.error("[BTCPC P2P] Failed to process ledger response:", err.message);

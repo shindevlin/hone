@@ -80,12 +80,14 @@ async function verifySignedChallenge(username, telegramId, signature, recovery) 
     throw new Error('Invalid signature. Must be signed with the posting key for this account.');
   }
 
-  // Signature valid — record on-chain and link
-  const Wallet = require('../models/Wallet');
-  const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
+  // Signature valid — record on-chain and link. Pull the BTCPC address from
+  // stateStore so we avoid a Mongo read for chain state.
+  const stateStore = require('../chain/stateStore');
+  const acct = stateStore.getAccount(user.username);
+  const btcpcAddress = acct && acct.chain_addresses && acct.chain_addresses.btcpc;
 
   const tx = new Transaction({
-    from: wallet ? wallet.address : user.username,
+    from: btcpcAddress || user.username,
     to: 'btcpc_system',
     amount: 0,
     type: 'verification',

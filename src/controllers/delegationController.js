@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const Node = require('../models/Node');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeAmount, sanitizeString, validAccountName } = require('../middlewares/validate');
 
 const UNLOCK_PERIOD_DAYS = 7;
@@ -56,12 +57,16 @@ async function delegate(req, res) {
       return res.status(400).json({ error: 'Cannot delegate to yourself' });
     }
 
+    // Keep the Wallet.findOne — still needed for the write-side cache update
+    // below. Balance check uses stateStore.
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
-    const btcpcBalance = wallet.balance.get('BTCPC') || 0;
+    const delegatorUserForBalance = await User.findById(userId);
+    const delegatorNameForBalance = delegatorUserForBalance?.username || wallet.address;
+    const btcpcBalance = stateStore.getBalance(delegatorNameForBalance, 'BTCPC');
     if (btcpcBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
@@ -87,8 +92,7 @@ async function delegate(req, res) {
     }
 
     // Record on permanent ledger
-    const delegatorUser = await User.findById(userId);
-    const delegatorName = delegatorUser?.username || wallet.address;
+    const delegatorName = delegatorNameForBalance;
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordDelegate(delegatorName, minerUser.username, amount, 'mining', epoch);
 
