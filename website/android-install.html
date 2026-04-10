@@ -155,34 +155,33 @@
     <div class="step">
       <div class="step-title"><span class="step-num">1</span>Install Termux</div>
       <div class="step-body">
-        Get Termux from F-Droid (official source). Don't use the Play Store version — it's outdated.
+        Get Termux from F-Droid. Don't use the Play Store version — it's outdated and broken.
       </div>
       <a href="https://f-droid.org/packages/com.termux/" class="btn">Install Termux from F-Droid</a>
     </div>
 
     <div class="step">
-      <div class="step-title"><span class="step-num">2</span>Open Termux & Paste</div>
+      <div class="step-title"><span class="step-num">2</span>Tap to Copy the Command</div>
       <div class="step-body">
-        Open the Termux app and paste this command. It installs Node, downloads the BTCPC clock node, and starts mining.
+        This copies the install command to your clipboard. Then switch to Termux and long-press to paste.
       </div>
+      <button class="btn" id="copy-big" onclick="copyCmdBig()">📋 Copy Install Command</button>
       <div class="code-box" id="cmd">
         curl https://btcpc.net/android.sh | bash
-        <button class="copy-btn" onclick="copyCmd()">Copy</button>
-      </div>
-      <a href="intent://#Intent;scheme=termux;package=com.termux;end" class="btn btn-secondary">Open Termux</a>
-    </div>
-
-    <div class="step">
-      <div class="step-title"><span class="step-num">3</span>Enter Your Username</div>
-      <div class="step-body">
-        When prompted, enter your BTCPC username. Don't have one? Message <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram first to create an account.
       </div>
     </div>
 
     <div class="step">
-      <div class="step-title">That's it</div>
+      <div class="step-title"><span class="step-num">3</span>Switch to Termux & Paste</div>
       <div class="step-body">
-        The clock node runs in the background, auto-updates every hour, and survives reboots. View your stats at <a href="/clock" style="color:#f7931a;">btcpc.net/clock</a> or in the BTCPC dashboard.
+        Open the Termux app (from your apps drawer or recent apps). Long-press inside Termux → tap "Paste" → press Enter. It will ask for your BTCPC username. If you don't have one, message <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram first.
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-title">Done</div>
+      <div class="step-body">
+        Your clock node runs in the background, auto-updates every hour, and survives reboots. View your stats at <a href="/clock" style="color:#f7931a;">btcpc.net/clock</a>.
       </div>
     </div>
 
@@ -192,28 +191,57 @@
   </div>
 
   <script>
-    function copyCmd() {
-      var text = "curl https://btcpc.net/android.sh | bash";
-      var btn = document.querySelector(".copy-btn");
-      try {
-        navigator.clipboard.writeText(text).then(function () {
-          btn.textContent = "Copied!";
-          btn.classList.add("copied");
-          setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
-        });
-      } catch (e) {
-        // Fallback for older browsers
-        var input = document.createElement("input");
-        input.value = text;
-        document.body.appendChild(input);
-        input.select();
-        document.execCommand("copy");
-        document.body.removeChild(input);
-        btn.textContent = "Copied!";
-        btn.classList.add("copied");
-        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
+    var INSTALL_CMD = "curl https://btcpc.net/android.sh | bash";
+
+    function doCopy(text) {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return fallbackCopy(text); });
       }
+      return Promise.resolve(fallbackCopy(text));
     }
+
+    function fallbackCopy(text) {
+      try {
+        var input = document.createElement("textarea");
+        input.value = text;
+        input.style.position = "fixed";
+        input.style.top = "0";
+        input.style.left = "0";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+        var ok = document.execCommand("copy");
+        document.body.removeChild(input);
+        return ok;
+      } catch (e) { return false; }
+    }
+
+    function copyCmdBig() {
+      var btn = document.getElementById("copy-big");
+      doCopy(INSTALL_CMD).then(function (ok) {
+        if (ok) {
+          btn.textContent = "✓ Copied! Now open Termux";
+          btn.style.background = "#10b981";
+          setTimeout(function () {
+            btn.innerHTML = "📋 Copy Install Command";
+            btn.style.background = "#f7931a";
+          }, 4000);
+        } else {
+          btn.textContent = "⚠ Couldn't copy — long-press the command below";
+        }
+      });
+    }
+
+    // Auto-copy on first user interaction (Android Chrome blocks programmatic
+    // clipboard access without a gesture, so we wait for any tap)
+    var autoCopiedOnce = false;
+    document.addEventListener("touchstart", function () {
+      if (autoCopiedOnce) return;
+      autoCopiedOnce = true;
+      doCopy(INSTALL_CMD);
+    }, { once: false, passive: true });
 
     // PWA install prompt (fires once on Android Chrome)
     var deferredPrompt;
