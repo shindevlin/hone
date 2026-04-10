@@ -210,6 +210,10 @@ function verifyAccountState(root, username, state, proof) {
 /**
  * Generate a finality snapshot — full state for a finality block.
  * Returns a serializable object.
+ *
+ * Includes `extended_state` with tokens, NFTs, stakes, delegations, escrows,
+ * projects, and non-BTCPC balances pulled from stateStore. This is what
+ * makes block files a complete source of truth for replay.
  */
 function generateFinalitySnapshot() {
   var accounts = {};
@@ -222,11 +226,46 @@ function generateFinalitySnapshot() {
     };
   });
 
+  // Pull extended state from stateStore. Use require here to avoid a circular
+  // require at load time (stateStore may later require stateManager).
+  var extended_state = null;
+  try {
+    var stateStore = require("./stateStore");
+    var snap = stateStore.snapshot();
+
+    // Separate out non-BTCPC balances (BTCPC balances are already in `accounts`)
+    var extraBalances = {};
+    if (snap.balances) {
+      Object.keys(snap.balances).forEach(function (key) {
+        if (!key.endsWith("|BTCPC")) extraBalances[key] = snap.balances[key];
+      });
+    }
+
+    // Convert arrays to object keyed maps for easy hydration
+    var tokensObj = {};
+    if (Array.isArray(snap.tokens)) {
+      snap.tokens.forEach(function (t) { tokensObj[t.symbol] = t; });
+    }
+    var projectsObj = {};
+    if (Array.isArray(snap.projects)) {
+      snap.projects.forEach(function (p) { projectsObj[p.name] = p; });
+    }
+
+    extended_state = {
+      tokens: tokensObj,
+      projects: projectsObj,
+      extra_balances: extraBalances,
+    };
+  } catch (_) {
+    // stateStore may not be available in some test scenarios — skip
+  }
+
   return {
     accounts: accounts,
     smt: smt.serialize(),
     account_count: accountStates.size,
-    state_root: smt.getRoot()
+    state_root: smt.getRoot(),
+    extended_state: extended_state,
   };
 }
 

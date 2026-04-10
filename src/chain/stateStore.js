@@ -1,0 +1,775 @@
+"use strict";
+
+/**
+ * BTCPC State Store — in-memory chain state cache.
+ * Shin Devlin
+ *
+ * Pure in-memory cache. No I/O. No Mongoose. The blockchain (block files on
+ * disk) is the canonical source of truth. This module is the working view,
+ * rebuilt by `replay.js` at startup and kept current by `ledger.recordX`
+ * calls as new entries flow in.
+ *
+ * All reads by controllers, routes, miner, and explorer go through here.
+ * Balance queries are O(1) Map lookups, not O(N) Mongo aggregations.
+ *
+ * Mutation is always via applyEntry(entry). Entries are the universal
+ * event type — the same shape whether they come from replay, from the
+ * local recordX, or from applyRemoteEntries gossip sync.
+ *
+ * Deterministic: same gossip → same state → same snapshot hash.
+ */
+
+// Balances: "username|token" → number. Track every token separately.
+var balances = new Map();
+
+// Account metadata: username → { created_epoch, public_keys, chain_addresses, heartbeat_epoch }
+// Balance/staked/delegated/nonce live in stateManager SMT; we mirror them here for fast reads.
+var accounts = new Map();
+
+// Token metadata: symbol → { name, symbol, supply, decimals, type, creator, created_epoch }
+var tokens = new Map();
+
+// NFTs: "collection|tokenId" → { owner, metadata, minted_epoch, transferable, soulbound, time_locked, unlock_epoch, evolving, metrics }
+var nfts = new Map();
+
+// Staking pool state: username → { total_staked, purpose, first_stake_epoch }
+var stakes = new Map();
+
+// Delegations: "from|to" → { amount, purpose, epoch }
+var delegations = new Map();
+
+// Escrows: requestId → { payer, amount, status, locked_epoch, released_to }
+var escrows = new Map();
+
+// Epoch metadata: epochNumber → { started_at, ended_at, block_reward, total_work, consensus_hash, status, rewards_distributed }
+var epochs = new Map();
+
+// Projects (PROJECT_CREATE ledger entries): name → { owner, repo_url, wallet_address, created_epoch }
+// Note: API keys are NOT here — they live in ~/.btcpc/secrets.json
+var projects = new Map();
+
+// Mining proofs indexed by epoch
+var miningProofsByEpoch = new Map();
+
+// Compute proofs indexed by epoch
+var computeProofsByEpoch = new Map();
+
+// Slashing records: username → [ { epoch, offenseType, tier, amount, evidence } ]
+var slashRecords = new Map();
+
+// Chain height: highest known finalized epoch
+var chainHeight = -1;
+
+// Dedupe: entries we've already applied (by hash of canonical fields)
+var seenEntries = new Set();
+var SEEN_ENTRIES_CAP = 100000;
+
+// ─────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────
+
+function _balanceKey(username, token) {
+  return username + "|" + (token || "BTCPC");
+}
+
+function _round(n) {
+  return parseFloat(Number(n).toFixed(10));
+}
+
+function _credit(username, token, amount) {
+  if (!username || !amount) return;
+  var key = _balanceKey(username, token);
+  balances.set(key, _round((balances.get(key) || 0) + amount));
+}
+
+function _debit(username, token, amount) {
+  if (!username || !amount) return;
+  var key = _balanceKey(username, token);
+  balances.set(key, _round((balances.get(key) || 0) - amount));
+}
+
+function _ensureAccount(username, metadata) {
+  if (!username) return;
+  if (!accounts.has(username)) {
+    accounts.set(username, {
+      created_epoch: (metadata && metadata.epoch) || 0,
+      public_keys: (metadata && metadata.public_keys) || {},
+      chain_addresses: (metadata && metadata.chain_addresses) || {},
+      heartbeat_epoch: 0,
+    });
+  }
+}
+
+function _isSystemAccount(username) {
+  if (!username) return false;
+  return username === "btcpc_staking_pool" ||
+         username === "btcpc_escrow" ||
+         username === "btcpc_genesis" ||
+         username === "btcpc_mint" ||
+         username === "btcpc_recycle" ||
+         username === "btcpc_treasury" ||
+         username.startsWith("project:") ||
+         username.startsWith("escrow:");
+}
+
+// Canonical dedupe hash for an entry
+function _entryKey(entry) {
+  return [
+    entry.type || "",
+    entry.from || "",
+    entry.to || "",
+    entry.amount || 0,
+    entry.epoch || 0,
+    entry.token || "",
+    entry.memo || "",
+    entry.timestamp || 0,
+  ].join("|");
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Core mutator: applyEntry
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Apply a single ledger entry to the state.
+ * Dispatches on entry.type. Idempotent: same entry applied twice is a no-op.
+ *
+ * This is the ONLY way state gets mutated. Both replay (from disk) and
+ * live writes (recordX from ledger.js) flow through here.
+ */
+function applyEntry(entry) {
+  if (!entry || !entry.type) return;
+
+  // Dedupe: skip if we've already applied this exact entry
+  var key = _entryKey(entry);
+  if (seenEntries.has(key)) return;
+  seenEntries.add(key);
+  if (seenEntries.size > SEEN_ENTRIES_CAP) {
+    // Cheap bounded cache: drop oldest ~1/4 when full
+    var toDelete = Math.floor(SEEN_ENTRIES_CAP / 4);
+    var iter = seenEntries.values();
+    for (var i = 0; i < toDelete; i++) seenEntries.delete(iter.next().value);
+  }
+
+  var from = entry.from;
+  var to = entry.to;
+  var amount = entry.amount || 0;
+  var token = entry.token || "BTCPC";
+
+  switch (entry.type) {
+    case "ACCOUNT_CREATE":
+      _ensureAccount(to, {
+        epoch: entry.epoch,
+        public_keys: entry.account_data && entry.account_data.public_keys,
+        chain_addresses: entry.account_data && entry.account_data.chain_addresses,
+      });
+      break;
+
+    case "TRANSFER":
+      _debit(from, token, amount);
+      _credit(to, token, amount);
+      break;
+
+    case "MINING_REWARD":
+    case "FAUCET":
+      _credit(to, token, amount);
+      break;
+
+    case "TOKEN_CREATE":
+      if (entry.token_data) {
+        var td = entry.token_data;
+        tokens.set(td.symbol, {
+          name: td.name,
+          symbol: td.symbol,
+          supply: td.supply || 0,
+          decimals: td.decimals || 0,
+          type: td.type || "fungible",
+          creator: from,
+          created_epoch: entry.epoch,
+        });
+        // Credit full supply to creator if fungible
+        if (td.type === "fungible" && td.supply > 0 && from) {
+          _credit(from, td.symbol, td.supply);
+        }
+      }
+      break;
+
+    case "STAKE":
+      _debit(from, "BTCPC", amount);
+      if (from) {
+        var s = stakes.get(from) || { total_staked: 0, purpose: entry.memo, first_stake_epoch: entry.epoch };
+        s.total_staked = _round(s.total_staked + amount);
+        stakes.set(from, s);
+      }
+      break;
+
+    case "UNSTAKE":
+      _credit(to, "BTCPC", amount);
+      if (to) {
+        var us = stakes.get(to);
+        if (us) {
+          us.total_staked = _round(us.total_staked - amount);
+          if (us.total_staked <= 0) stakes.delete(to);
+          else stakes.set(to, us);
+        }
+      }
+      break;
+
+    case "DELEGATE":
+      _debit(from, "BTCPC", amount);
+      if (from && to) {
+        var dkey = from + "|" + to;
+        var d = delegations.get(dkey) || { amount: 0, purpose: entry.memo, epoch: entry.epoch };
+        d.amount = _round(d.amount + amount);
+        delegations.set(dkey, d);
+      }
+      break;
+
+    case "UNDELEGATE":
+      _credit(to, "BTCPC", amount);
+      if (entry.delegation_data) {
+        var dkey2 = entry.delegation_data.delegator + "|" + entry.delegation_data.miner;
+        var d2 = delegations.get(dkey2);
+        if (d2) {
+          d2.amount = _round(d2.amount - amount);
+          if (d2.amount <= 0) delegations.delete(dkey2);
+          else delegations.set(dkey2, d2);
+        }
+      }
+      break;
+
+    case "ESCROW_LOCK":
+      _debit(from, "BTCPC", amount);
+      if (entry.memo) {
+        // memo is usually "escrow:request_id"
+        var rid = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
+        escrows.set(rid, {
+          payer: from,
+          amount: amount,
+          status: "locked",
+          locked_epoch: entry.epoch,
+          released_to: null,
+        });
+      }
+      break;
+
+    case "ESCROW_RELEASE":
+      _credit(to, "BTCPC", amount);
+      if (entry.memo) {
+        var rid2 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
+        var e2 = escrows.get(rid2);
+        if (e2) {
+          e2.status = "released";
+          e2.released_to = to;
+          escrows.set(rid2, e2);
+        }
+      }
+      break;
+
+    case "ESCROW_REFUND":
+      _credit(to, "BTCPC", amount);
+      if (entry.memo) {
+        var rid3 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
+        var e3 = escrows.get(rid3);
+        if (e3) {
+          e3.status = "refunded";
+          escrows.set(rid3, e3);
+        }
+      }
+      break;
+
+    case "NODE_REGISTER":
+      // nodeRegistry handles its own state, but we track existence here too
+      _ensureAccount(from || to);
+      break;
+
+    case "HEARTBEAT":
+      if (from && accounts.has(from)) {
+        var acc = accounts.get(from);
+        acc.heartbeat_epoch = entry.epoch;
+        accounts.set(from, acc);
+      }
+      break;
+
+    case "PROJECT_CREATE":
+      if (entry.account_data && entry.account_data.name) {
+        projects.set(entry.account_data.name, {
+          owner: entry.account_data.owner || from,
+          repo_url: entry.account_data.repo_url || "",
+          wallet_address: entry.account_data.wallet_address || from,
+          created_epoch: entry.epoch,
+        });
+      }
+      break;
+
+    // NFT-related entries use memo-encoded JSON
+    case "FAUCET_NFT":
+    case "NFT_CREATE":
+    case "NFT_MINT":
+    case "NFT_TRANSFER":
+      // Parse memo for NFT metadata and update nfts map
+      try {
+        if (entry.memo && typeof entry.memo === "string") {
+          var nftData = JSON.parse(entry.memo);
+          if (nftData.collection && nftData.tokenId) {
+            var nkey = nftData.collection + "|" + nftData.tokenId;
+            var existing = nfts.get(nkey) || {};
+            nfts.set(nkey, Object.assign(existing, {
+              owner: to || existing.owner,
+              collection: nftData.collection,
+              tokenId: nftData.tokenId,
+              metadata: nftData.metadata || existing.metadata,
+              minted_epoch: existing.minted_epoch || entry.epoch,
+              soulbound: nftData.soulbound || existing.soulbound || false,
+              time_locked: nftData.time_locked || existing.time_locked || false,
+              unlock_epoch: nftData.unlock_epoch || existing.unlock_epoch,
+              rev_share: nftData.rev_share || existing.rev_share,
+            }));
+          }
+        }
+      } catch (_) { /* malformed memo — skip NFT update */ }
+      break;
+
+    default:
+      // Unknown type — safe to skip. New types will be added here.
+      break;
+  }
+}
+
+function applyEntries(entries) {
+  if (!Array.isArray(entries)) return;
+  for (var i = 0; i < entries.length; i++) applyEntry(entries[i]);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Epoch + proof mutators
+// ─────────────────────────────────────────────────────────────────
+
+function setEpoch(epochNumber, metadata) {
+  if (typeof epochNumber !== "number" || epochNumber < 0) return;
+  var existing = epochs.get(epochNumber) || {};
+  epochs.set(epochNumber, Object.assign(existing, metadata || {}));
+  if (epochNumber > chainHeight) chainHeight = epochNumber;
+}
+
+function setMiningProofs(epochNumber, proofs) {
+  if (typeof epochNumber !== "number" || !Array.isArray(proofs)) return;
+  miningProofsByEpoch.set(epochNumber, proofs.slice());
+}
+
+function setComputeProofs(epochNumber, proofs) {
+  if (typeof epochNumber !== "number" || !Array.isArray(proofs)) return;
+  computeProofsByEpoch.set(epochNumber, proofs.slice());
+}
+
+function setChainHeight(n) {
+  if (typeof n === "number" && n > chainHeight) chainHeight = n;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Account getters
+// ─────────────────────────────────────────────────────────────────
+
+function getBalance(username, token) {
+  return balances.get(_balanceKey(username, token)) || 0;
+}
+
+function getTokenBalances(username) {
+  var result = {};
+  if (!username) return result;
+  var prefix = username + "|";
+  for (var entry of balances) {
+    if (entry[0].indexOf(prefix) === 0) {
+      var tok = entry[0].slice(prefix.length);
+      if (entry[1] !== 0) result[tok] = entry[1];
+    }
+  }
+  return result;
+}
+
+function getAccount(username) {
+  if (!username) return null;
+  var acc = accounts.get(username);
+  if (!acc) return null;
+  return {
+    username: username,
+    created_epoch: acc.created_epoch,
+    public_keys: acc.public_keys || {},
+    chain_addresses: acc.chain_addresses || {},
+    heartbeat_epoch: acc.heartbeat_epoch || 0,
+    balance: getBalance(username, "BTCPC"),
+    staked: (stakes.get(username) || { total_staked: 0 }).total_staked,
+  };
+}
+
+function hasAccount(username) {
+  return accounts.has(username);
+}
+
+function getAllAccounts() {
+  var result = [];
+  for (var entry of accounts) {
+    result.push({
+      username: entry[0],
+      created_epoch: entry[1].created_epoch,
+      public_keys: entry[1].public_keys,
+      chain_addresses: entry[1].chain_addresses,
+    });
+  }
+  return result;
+}
+
+function getAccountCount() {
+  return accounts.size;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Token / NFT getters
+// ─────────────────────────────────────────────────────────────────
+
+function getToken(symbol) {
+  return tokens.get(symbol) || null;
+}
+
+function getAllTokens() {
+  return Array.from(tokens.values());
+}
+
+function getNFT(collection, tokenId) {
+  return nfts.get(collection + "|" + tokenId) || null;
+}
+
+function getNFTsByOwner(username) {
+  var result = [];
+  for (var entry of nfts) {
+    if (entry[1].owner === username) result.push(entry[1]);
+  }
+  return result;
+}
+
+function getNFTsByCollection(collection) {
+  var result = [];
+  var prefix = collection + "|";
+  for (var entry of nfts) {
+    if (entry[0].indexOf(prefix) === 0) result.push(entry[1]);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Staking / delegation getters
+// ─────────────────────────────────────────────────────────────────
+
+function getStakePool(username) {
+  return stakes.get(username) || null;
+}
+
+function getAllStakePools() {
+  var result = [];
+  for (var entry of stakes) {
+    result.push({ username: entry[0], ...entry[1] });
+  }
+  return result;
+}
+
+function getDelegation(from, to) {
+  return delegations.get(from + "|" + to) || null;
+}
+
+function getDelegationsByDelegator(from) {
+  var result = [];
+  var prefix = from + "|";
+  for (var entry of delegations) {
+    if (entry[0].indexOf(prefix) === 0) {
+      result.push({ to: entry[0].slice(prefix.length), ...entry[1] });
+    }
+  }
+  return result;
+}
+
+function getDelegationsByRecipient(to) {
+  var result = [];
+  for (var entry of delegations) {
+    var parts = entry[0].split("|");
+    if (parts[1] === to) {
+      result.push({ from: parts[0], ...entry[1] });
+    }
+  }
+  return result;
+}
+
+function getTotalStaked() {
+  var total = 0;
+  for (var s of stakes.values()) total += s.total_staked;
+  return _round(total);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Escrow getters
+// ─────────────────────────────────────────────────────────────────
+
+function getEscrow(requestId) {
+  return escrows.get(requestId) || null;
+}
+
+function getEscrowsByPayer(username) {
+  var result = [];
+  for (var entry of escrows) {
+    if (entry[1].payer === username) result.push({ requestId: entry[0], ...entry[1] });
+  }
+  return result;
+}
+
+function getActiveEscrows() {
+  var result = [];
+  for (var entry of escrows) {
+    if (entry[1].status === "locked") result.push({ requestId: entry[0], ...entry[1] });
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Epoch + proof getters
+// ─────────────────────────────────────────────────────────────────
+
+function getEpoch(epochNumber) {
+  return epochs.get(epochNumber) || null;
+}
+
+function getLatestEpoch() {
+  return chainHeight >= 0 ? epochs.get(chainHeight) : null;
+}
+
+function getChainHeight() {
+  return chainHeight;
+}
+
+function getRecentEpochs(n) {
+  if (chainHeight < 0) return [];
+  var result = [];
+  for (var i = chainHeight; i > Math.max(0, chainHeight - n); i--) {
+    if (epochs.has(i)) result.push({ epoch_number: i, ...epochs.get(i) });
+  }
+  return result;
+}
+
+function getMiningProofs(epochNumber) {
+  return miningProofsByEpoch.get(epochNumber) || [];
+}
+
+function getComputeProofs(epochNumber) {
+  return computeProofsByEpoch.get(epochNumber) || [];
+}
+
+function getMinerCount() {
+  // Count distinct miners who have earned a mining reward in the last 100 epochs
+  var miners = new Set();
+  for (var epoch of miningProofsByEpoch.keys()) {
+    if (epoch >= chainHeight - 100) {
+      var proofs = miningProofsByEpoch.get(epoch);
+      for (var p of proofs) if (p.miner) miners.add(p.miner);
+    }
+  }
+  return miners.size;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Project getters
+// ─────────────────────────────────────────────────────────────────
+
+function getProject(name) {
+  return projects.get(name) || null;
+}
+
+function getAllProjects() {
+  var result = [];
+  for (var entry of projects) {
+    result.push({ name: entry[0], ...entry[1] });
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Slashing getters
+// ─────────────────────────────────────────────────────────────────
+
+function getSlashRecords(username) {
+  return slashRecords.get(username) || [];
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Bulk / introspection
+// ─────────────────────────────────────────────────────────────────
+
+function snapshot() {
+  var balObj = {};
+  for (var b of balances) balObj[b[0]] = b[1];
+  return {
+    chainHeight: chainHeight,
+    accounts: getAllAccounts(),
+    balances: balObj,
+    tokens: getAllTokens(),
+    stakes: getAllStakePools(),
+    escrows: Array.from(escrows.entries()),
+    projects: getAllProjects(),
+  };
+}
+
+function stats() {
+  return {
+    chainHeight: chainHeight,
+    accounts: accounts.size,
+    balance_entries: balances.size,
+    tokens: tokens.size,
+    nfts: nfts.size,
+    stakes: stakes.size,
+    delegations: delegations.size,
+    escrows: escrows.size,
+    projects: projects.size,
+    epochs: epochs.size,
+    mining_proof_epochs: miningProofsByEpoch.size,
+    seen_entries: seenEntries.size,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Finality snapshot integration
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Hydrate stateStore from a finality snapshot. Called by replay.js when
+ * starting from a checkpoint. The snapshot may contain extended_state
+ * (new format) or just accounts (old format — legacy SMT-only snapshot).
+ */
+function hydrateFromFinality(snapshot) {
+  if (!snapshot) return;
+
+  // Legacy accounts (SMT state): balance/staked/delegated/nonce
+  if (snapshot.accounts && typeof snapshot.accounts === "object") {
+    var usernames = Object.keys(snapshot.accounts);
+    for (var i = 0; i < usernames.length; i++) {
+      var u = usernames[i];
+      var s = snapshot.accounts[u];
+      _ensureAccount(u);
+      if (typeof s.balance === "number") {
+        balances.set(_balanceKey(u, "BTCPC"), _round(s.balance));
+      }
+      if (typeof s.staked === "number" && s.staked > 0) {
+        stakes.set(u, { total_staked: s.staked, purpose: null, first_stake_epoch: 0 });
+      }
+    }
+  }
+
+  // Extended state (new format): tokens, nfts, escrows, projects
+  if (snapshot.extended_state) {
+    var ext = snapshot.extended_state;
+    if (ext.tokens) {
+      Object.keys(ext.tokens).forEach(function (sym) {
+        tokens.set(sym, ext.tokens[sym]);
+      });
+    }
+    if (ext.nfts) {
+      Object.keys(ext.nfts).forEach(function (k) {
+        nfts.set(k, ext.nfts[k]);
+      });
+    }
+    if (ext.escrows) {
+      Object.keys(ext.escrows).forEach(function (k) {
+        escrows.set(k, ext.escrows[k]);
+      });
+    }
+    if (ext.projects) {
+      Object.keys(ext.projects).forEach(function (name) {
+        projects.set(name, ext.projects[name]);
+      });
+    }
+    if (ext.delegations) {
+      Object.keys(ext.delegations).forEach(function (k) {
+        delegations.set(k, ext.delegations[k]);
+      });
+    }
+    if (ext.extra_balances) {
+      // Non-BTCPC token balances: { "user|TOKEN": amount }
+      Object.keys(ext.extra_balances).forEach(function (k) {
+        balances.set(k, ext.extra_balances[k]);
+      });
+    }
+  }
+
+  if (typeof snapshot.finality_epoch === "number") {
+    setChainHeight(snapshot.finality_epoch);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Reset (for tests and fresh replay)
+// ─────────────────────────────────────────────────────────────────
+
+function resetAll() {
+  balances.clear();
+  accounts.clear();
+  tokens.clear();
+  nfts.clear();
+  stakes.clear();
+  delegations.clear();
+  escrows.clear();
+  epochs.clear();
+  projects.clear();
+  miningProofsByEpoch.clear();
+  computeProofsByEpoch.clear();
+  slashRecords.clear();
+  seenEntries.clear();
+  chainHeight = -1;
+}
+
+module.exports = {
+  // Mutators
+  applyEntry: applyEntry,
+  applyEntries: applyEntries,
+  setEpoch: setEpoch,
+  setMiningProofs: setMiningProofs,
+  setComputeProofs: setComputeProofs,
+  setChainHeight: setChainHeight,
+  hydrateFromFinality: hydrateFromFinality,
+  resetAll: resetAll,
+  // Account
+  getBalance: getBalance,
+  getTokenBalances: getTokenBalances,
+  getAccount: getAccount,
+  hasAccount: hasAccount,
+  getAllAccounts: getAllAccounts,
+  getAccountCount: getAccountCount,
+  // Token/NFT
+  getToken: getToken,
+  getAllTokens: getAllTokens,
+  getNFT: getNFT,
+  getNFTsByOwner: getNFTsByOwner,
+  getNFTsByCollection: getNFTsByCollection,
+  // Staking/delegation
+  getStakePool: getStakePool,
+  getAllStakePools: getAllStakePools,
+  getDelegation: getDelegation,
+  getDelegationsByDelegator: getDelegationsByDelegator,
+  getDelegationsByRecipient: getDelegationsByRecipient,
+  getTotalStaked: getTotalStaked,
+  // Escrow
+  getEscrow: getEscrow,
+  getEscrowsByPayer: getEscrowsByPayer,
+  getActiveEscrows: getActiveEscrows,
+  // Epoch / proofs
+  getEpoch: getEpoch,
+  getLatestEpoch: getLatestEpoch,
+  getChainHeight: getChainHeight,
+  getRecentEpochs: getRecentEpochs,
+  getMiningProofs: getMiningProofs,
+  getComputeProofs: getComputeProofs,
+  getMinerCount: getMinerCount,
+  // Projects
+  getProject: getProject,
+  getAllProjects: getAllProjects,
+  // Slashing
+  getSlashRecords: getSlashRecords,
+  // Introspection
+  snapshot: snapshot,
+  stats: stats,
+};
