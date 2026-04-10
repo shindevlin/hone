@@ -897,6 +897,48 @@ async function recordBlobStoreCommit(uploader, cid, size, hosts, durationEpochs,
   return _persist(entry);
 }
 
+/**
+ * Record a BTCPC-FS blob serve proof on chain (v2.11.1+).
+ *
+ * A storage host reports how many bytes of a CID it served in the current
+ * epoch. Chain invariants (enforced in stateStore dispatcher):
+ *   - the CID must have a prior BLOB_STORE_COMMIT
+ *   - the reporting host must be in the committed hosts list
+ *   - bytes_served must be non-negative
+ *
+ * v2.11.1 records and aggregates. v2.11.2+ will add verifier spot-checks
+ * (sample a byte range, challenge the host to return it, slash on mismatch)
+ * to make fraudulent inflated proofs economically irrational.
+ *
+ * @param {string} host — the reporting storage host account name
+ * @param {string} cid — 64-char hex sha256
+ * @param {number} bytesServed — bytes served since last proof, non-negative
+ * @param {number} requestCount — optional, number of distinct requests served
+ * @param {string} accessLogMerkleRoot — optional, root of host's access log
+ *                 merkle tree for this epoch (used by verifier spot-checks)
+ * @param {number} epoch
+ */
+async function recordBlobServeProof(host, cid, bytesServed, requestCount, accessLogMerkleRoot, epoch) {
+  if (!host) throw new Error('host required');
+  if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
+  if (!Number.isFinite(bytesServed) || bytesServed < 0) {
+    throw new Error('bytes_served must be a non-negative number');
+  }
+
+  const entry = _entry({
+    type: 'BLOB_SERVE_PROOF',
+    from: host,
+    epoch,
+    blob_data: {
+      cid: cid,
+      bytes_served: bytesServed,
+      request_count: requestCount || 0,
+      access_log_merkle_root: accessLogMerkleRoot || null,
+    },
+  });
+  return _persist(entry);
+}
+
 // Expose bonding curve helpers at the ledger module for callers/tests
 const commerce = {
   costForCapacity: bondingCurve.costForCapacity,
@@ -1029,4 +1071,5 @@ module.exports = {
   commerce,
   // BTCPC-FS (v2.11+)
   recordBlobStoreCommit,
+  recordBlobServeProof,
 };

@@ -150,7 +150,19 @@ function _entryKey(entry) {
   } else if (entry.store_data && entry.store_data.action) {
     domainId = "s:" + entry.store_data.action;
   } else if (entry.blob_data && entry.blob_data.cid) {
-    domainId = "b:" + entry.blob_data.cid;
+    // Serve proofs can repeat per-epoch per-host; include bytes_served
+    // + timestamp so multiple proofs in one epoch aren't deduped.
+    if (entry.type === "BLOB_SERVE_PROOF") {
+      domainId =
+        "bsp:" +
+        entry.blob_data.cid +
+        ":" +
+        (entry.blob_data.bytes_served || 0) +
+        ":" +
+        (entry.blob_data.access_log_merkle_root || "");
+    } else {
+      domainId = "b:" + entry.blob_data.cid;
+    }
   }
   return [
     entry.type || "",
@@ -638,6 +650,8 @@ function applyEntry(entry) {
           expires_epoch: entry.epoch + (bd.duration_epochs || 0),
           payment_btcpc: 0,
           bytes_served_total: 0,
+          bytes_served_by_host: {},
+          serve_proof_count: 0,
         };
         var hostSet = {};
         existingBlob.hosts.forEach(function (h) { hostSet[h] = true; });
@@ -652,6 +666,33 @@ function applyEntry(entry) {
         existingBlob.payment_btcpc = _round(existingBlob.payment_btcpc + (bd.payment_btcpc || 0));
         if (bd.size && !existingBlob.size) existingBlob.size = bd.size;
         blobs.set(bd.cid, existingBlob);
+      }
+      break;
+
+    // Host reports bytes served for a CID in the current epoch.
+    // Chain invariants:
+    //   1. the CID must already have a BLOB_STORE_COMMIT on chain
+    //   2. the reporting host (`from`) must be in the committed hosts list
+    //   3. bytes_served must be non-negative
+    // Accumulates into bytes_served_total + bytes_served_by_host[from].
+    // v2.11.1: recording only. v2.11.2+ will add verifier spot-checks
+    // that can slash inflated or fraudulent serve proofs.
+    case "BLOB_SERVE_PROOF":
+      if (entry.blob_data && entry.blob_data.cid && from) {
+        var sb = entry.blob_data;
+        var servedBlob = blobs.get(sb.cid);
+        if (!servedBlob) break; // No commit → drop
+        if (servedBlob.hosts.indexOf(from) === -1) break; // Not a committed host
+        var bytesReported = Number(sb.bytes_served) || 0;
+        if (bytesReported < 0) break;
+        servedBlob.bytes_served_total = _round((servedBlob.bytes_served_total || 0) + bytesReported);
+        if (!servedBlob.bytes_served_by_host) servedBlob.bytes_served_by_host = {};
+        servedBlob.bytes_served_by_host[from] = _round(
+          (servedBlob.bytes_served_by_host[from] || 0) + bytesReported
+        );
+        servedBlob.serve_proof_count = (servedBlob.serve_proof_count || 0) + 1;
+        servedBlob.last_serve_epoch = entry.epoch;
+        blobs.set(sb.cid, servedBlob);
       }
       break;
 
