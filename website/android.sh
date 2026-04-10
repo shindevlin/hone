@@ -50,12 +50,23 @@ mkdir -p "$INSTALL_DIR"
 say "Downloading btcpc-clock-lite..."
 curl -fsSL https://btcpc.net/clock-lite.js -o "$INSTALL_DIR/clock.js"
 
-# Prompt for account
+# Prompt for account — read from /dev/tty so it works under curl | bash
 echo
-read -rp "$(printf "${ORANGE}[btcpc]${RESET} Your BTCPC username: ")" BTCPC_ACCOUNT
+if [ -n "${BTCPC_ACCOUNT:-}" ]; then
+  : # already set via env var
+elif [ -r /dev/tty ]; then
+  printf "${ORANGE}[btcpc]${RESET} Your BTCPC username: " > /dev/tty
+  read -r BTCPC_ACCOUNT < /dev/tty
+else
+  echo "ERROR: No TTY available. Run with BTCPC_ACCOUNT=yourname before piping:"
+  echo "  curl https://btcpc.net/android.sh | BTCPC_ACCOUNT=josh bash"
+  echo "Or download first then run:"
+  echo "  curl -o install.sh https://btcpc.net/android.sh && bash install.sh"
+  exit 1
+fi
 
 if [[ ! "$BTCPC_ACCOUNT" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]]; then
-  echo "Invalid username (3-20 chars, lowercase/numbers/hyphens)."
+  echo "Invalid username '$BTCPC_ACCOUNT' (3-20 chars, lowercase/numbers/hyphens)."
   exit 1
 fi
 
