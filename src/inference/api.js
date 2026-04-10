@@ -579,16 +579,39 @@ router.post('/v1/inference/submit', async (req, res) => {
   }
 
   // ── Auto model picker ──
-  // If no model specified, or model is "auto", pick based on prompt complexity
+  // If no model specified, or model is "auto", pick by complexity:
+  // small prompts → smallest model on the network
+  // medium prompts → mid-sized model
+  // big prompts → largest model
+  // The auto-picker is model-agnostic — it works with whatever miners are running
+  // (qwen, llama, mistral, gemma, deepseek, etc.).
   let selectedModel = model;
   if (!selectedModel || selectedModel === 'auto') {
     const promptLen = augmentedMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-    if (promptLen < 200) {
-      selectedModel = 'qwen3:4b';       // simple tasks → small model, cheap
-    } else if (promptLen < 2000) {
-      selectedModel = 'qwen3.5:9b';     // medium tasks → mid model
-    } else {
-      selectedModel = 'qwen3.5:27b';    // complex / long context → big model
+    try {
+      const { getNetworkModels } = require('../services/modelRegistry');
+      const { getModelWeight } = require('../mining/workGenerator');
+      const networkModels = await getNetworkModels();
+      const ranked = networkModels
+        .filter(m => m.miners > 0)
+        .map(m => ({ name: m.model, weight: getModelWeight(m.model) }))
+        .sort((a, b) => a.weight - b.weight); // smallest → largest
+
+      if (ranked.length > 0) {
+        if (promptLen < 200) {
+          selectedModel = ranked[0].name; // smallest
+        } else if (promptLen < 2000 && ranked.length >= 2) {
+          selectedModel = ranked[Math.floor(ranked.length / 2)].name; // middle
+        } else {
+          selectedModel = ranked[ranked.length - 1].name; // largest
+        }
+      } else {
+        // No miners — fall back to environment default
+        selectedModel = process.env.BTCPC_MODEL || 'qwen3.5:27b';
+      }
+    } catch (err) {
+      console.error('[BTCPC] Auto-picker error:', err.message);
+      selectedModel = process.env.BTCPC_MODEL || 'qwen3.5:27b';
     }
   }
 

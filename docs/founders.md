@@ -51,7 +51,7 @@ As the network grew, Natoshi became the test case for everything: dual-miner rew
 **On-chain identity:** `natoshisakamoto`
 **Role:** Second Miner, Founding Node, Consensus Validator
 **First block mined:** Epoch 1 — April 2, 2026
-**Hardware:** 13th Gen Intel i5-13500T, 62GB RAM, CPU inference (qwen3:4b)
+**Hardware:** 13th Gen Intel i5-13500T, 62GB RAM, CPU inference (currently runs qwen3:4b, but the network supports any Ollama model)
 **NFT:** Founding Node (soulbound), 0.1% perpetual protocol rev-share
 
 ---
