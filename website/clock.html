@@ -193,10 +193,8 @@
   </div>
 
   <script>
-    var API = location.protocol + '//' + location.hostname + ':3000/public';
-    if (location.hostname === 'btcpc.net') {
-      API = 'https://btcpc.net/public';
-    }
+    // Use same-origin /public — served through the website proxy
+    var API = location.origin + '/public';
 
     var state = {
       account: null,
@@ -229,7 +227,9 @@
         var res = await fetch(API + '/network', { cache: 'no-store' });
         if (!res.ok) throw new Error('Network error ' + res.status);
         var data = await res.json();
-        document.getElementById('network').textContent = data.peer_count + ' peers';
+        var status = data.alive ? 'live' : 'stale';
+        var nodes = data.peer_count === 1 ? '1 node' : data.peer_count + ' nodes';
+        document.getElementById('network').textContent = nodes + ' (' + status + ')';
         document.getElementById('epoch').textContent = '#' + data.epoch;
       } catch (e) {
         document.getElementById('network').textContent = 'Offline';

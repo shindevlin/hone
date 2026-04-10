@@ -35,16 +35,46 @@ router.use((req, res, next) => {
 
 /**
  * GET /public/network — public network status for browser clock UI
+ *
+ * Reports the height of the chain and whether the network is producing
+ * blocks recently. peer_count is derived from the most recent finalized
+ * epoch's reported active node count, not the local API's P2P state
+ * (which may be 0 even if the network is healthy).
  */
 router.get('/network', async (req, res) => {
   try {
-    const Epoch = require('../models/Epoch');
-    const latestEpoch = await Epoch.findOne({}, null, { sort: { epoch_number: -1 } });
-    const p2p = require('../p2p/network');
+    const fs = require('fs');
+    const path = require('path');
+    const Node = require('../models/Node');
+
+    // Read latest block from disk (source of truth for chain state)
+    const blocksDir = path.join(process.cwd(), 'data', 'blocks');
+    let latestEpoch = 0;
+    let latestMtimeMs = 0;
+    try {
+      const files = fs.readdirSync(blocksDir).filter(f => f.startsWith('block-') && f.endsWith('.bin'));
+      if (files.length > 0) {
+        files.sort();
+        const last = files[files.length - 1];
+        latestEpoch = parseInt(last.replace('block-', '').replace('.bin', ''), 10);
+        const stat = fs.statSync(path.join(blocksDir, last));
+        latestMtimeMs = stat.mtimeMs;
+      }
+    } catch (_) {}
+
+    // Count active mining nodes
+    let activeNodes = 0;
+    try { activeNodes = await Node.countDocuments({ status: 'active' }); } catch (_) {}
+
+    // Network is "alive" if the latest block file was written in the last 30 minutes
+    const epochAgeMs = latestMtimeMs > 0 ? Date.now() - latestMtimeMs : Infinity;
+    const alive = epochAgeMs < 30 * 60 * 1000;
+
     res.json({
-      epoch: latestEpoch?.epoch_number || 0,
-      epoch_status: latestEpoch?.status || 'unknown',
-      peer_count: typeof p2p.peerCount === 'function' ? p2p.peerCount() : 0,
+      epoch: latestEpoch,
+      peer_count: activeNodes,
+      alive,
+      epoch_age_seconds: Math.round(epochAgeMs / 1000),
       timestamp: Date.now(),
     });
   } catch (err) {
