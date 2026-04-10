@@ -160,33 +160,33 @@
   <div class="install-grid">
 
     <!-- Native Desktop App -->
-    <a href="#desktop" class="install-card recommended" id="card-desktop" onclick="downloadDesktop(event)">
-      <span class="recommended-badge">EASIEST</span>
+    <a href="https://github.com/shindevlin/btcpc-desktop/releases" class="install-card recommended" id="card-desktop" target="_blank">
+      <span class="recommended-badge">BUILDING NOW</span>
       <span class="card-icon">🖥️</span>
       <div class="card-title">Desktop App</div>
       <div class="card-subtitle">macOS · Windows · Linux</div>
-      <p class="card-description">One-click install. Zero terminal. GUI for everything. The native app downloads everything you need and starts mining with a single button.</p>
+      <p class="card-description">One-click install. Zero terminal. GUI for everything. v0.1.0 binaries are building right now in CI — check back in ~30 min for .dmg / .msi / .AppImage downloads.</p>
       <ul class="card-features">
         <li>System tray icon, auto-start on boot</li>
         <li>GUI dashboard: balance, stats, settings</li>
         <li>Auto-updates to latest version</li>
         <li>~40MB download</li>
       </ul>
-      <span class="card-action">Download for <span id="os-name">Your OS</span></span>
+      <span class="card-action">View Releases →</span>
     </a>
 
     <!-- Docker -->
-    <a href="#docker" class="install-card">
+    <a href="/docker-compose.yml" class="install-card" target="_blank">
       <span class="card-icon">🐳</span>
       <div class="card-title">Docker</div>
       <div class="card-subtitle">Mac · Linux · Windows (Docker Desktop)</div>
-      <p class="card-description">If you have Docker Desktop installed, this is the fastest path. One command brings up the entire stack: MongoDB, Ollama, and the BTCPC node.</p>
+      <p class="card-description">Pre-built image on GHCR. Three commands and you're mining. The image bundles BTCPC; mongo and ollama come from official images.</p>
       <ul class="card-features">
+        <li>No clone needed — pulls from ghcr.io</li>
         <li>Fully isolated, easy to remove</li>
-        <li>No system pollution</li>
         <li>Auto-restart on crash</li>
       </ul>
-      <div class="card-code">docker compose up -d</div>
+      <div class="card-code">curl -O https://btcpc.net/docker-compose.yml<br>docker compose up -d</div>
     </a>
 
     <!-- Terminal -->

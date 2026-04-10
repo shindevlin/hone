@@ -1,0 +1,55 @@
+# BTCPC Docker Compose — Standalone (no clone required)
+# Usage:
+#   curl -O https://btcpc.net/docker-compose.yml
+#   docker compose up -d
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: btcpc-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    volumes:
+      - mongo_data:/data/db
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: btcpc-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  btcpc:
+    image: ghcr.io/shindevlin/btcpc:latest
+    container_name: btcpc-node
+    restart: unless-stopped
+    pull_policy: always
+    depends_on:
+      - mongo
+      - ollama
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://root:example@mongo:27017/btcpc?authSource=admin
+      OLLAMA_URL: http://ollama:11434
+      JWT_SECRET: ${JWT_SECRET:-please_set_BTCPC_JWT_SECRET_in_env_or_dotenv_file}
+      JWT_EXPIRES_IN: 7d
+      BTCPC_MINER: ${BTCPC_MINER:-}
+      BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
+    ports:
+      - "3000:3000"
+      - "4242:4242"
+      - "6942:6942"
+    volumes:
+      - btcpc_data:/app/data
+      - btcpc_blocks:/app/blocks
+
+volumes:
+  mongo_data:
+  ollama_models:
+  btcpc_data:
+  btcpc_blocks:
