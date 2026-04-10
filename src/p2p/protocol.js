@@ -962,9 +962,26 @@ function handleVerifyRequest(peer, msg, ctx) {
 
   // Check if this node should verify — deterministic selection
   var verifier = require("../inference/verifier");
-  var nodeRegistry = require("../chain/nodeRegistry");
-  var allNodes = nodeRegistry.getRegisteredNodes ? nodeRegistry.getRegisteredNodes() : [];
-  var myAccount = process.env.BTCPC_MINER || null;
+
+  // Eligible verifier pool: any node currently active as a clock or
+  // any node we've seen broadcast work in recent epochs. This means
+  // clock-only nodes (like josh on Termux) participate in verification
+  // alongside miners. Verification is text analysis — no Ollama needed.
+  var eligibleSet = new Set();
+  var currentEpoch = _currentEpochCache;
+  for (var i = 0; i <= 3; i++) {
+    var clocks = clockUptimeByEpoch.get(currentEpoch - i);
+    if (clocks) for (var c of clocks) eligibleSet.add(c);
+    var workMap = minerWorkByEpoch.get(currentEpoch - i);
+    if (workMap) for (var m of workMap.keys()) eligibleSet.add(m);
+  }
+  // Filter to valid account names
+  var allNodes = Array.from(eligibleSet).filter(function (a) {
+    return /^[a-z0-9][a-z0-9-]{2,19}$/.test(a);
+  }).sort();
+
+  // This node's identity — could be a miner OR a clock-only node
+  var myAccount = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || null;
 
   if (!myAccount || myAccount === data.miner) {
     // Miner doesn't verify own work; nodes without accounts can't verify
@@ -972,13 +989,19 @@ function handleVerifyRequest(peer, msg, ctx) {
     return;
   }
 
-  var totalNodes = allNodes.length > 0 ? allNodes.length : 2;
+  if (allNodes.length === 0) {
+    // No eligible verifiers known — just rebroadcast
+    ctx.broadcast(msg, peer.address);
+    return;
+  }
+
+  var totalNodes = allNodes.length;
   var vCount = verifier.getVerifierCount(totalNodes);
   var blockHash = data.block_hash || "0".repeat(64);
   var selected = verifier.selectVerifiers(blockHash, data.job_id, data.miner, allNodes, vCount);
 
   if (selected.indexOf(myAccount) === -1) {
-    // Not selected — just rebroadcast
+    // Not selected for this job — just rebroadcast
     ctx.broadcast(msg, peer.address);
     return;
   }

@@ -248,6 +248,7 @@ function handleMessage(msg, from) {
       break;
 
     case "EPOCH_FINALIZED":
+    case "BLOCK_PROPOSAL":
       var ep = (msg.data || {}).epoch_number;
       var rw = ((msg.data || {}).block_reward || 0).toFixed(2);
       console.log("[CLOCK] Block " + ep + " | " + rw + " BTCPC");
@@ -255,9 +256,71 @@ function handleMessage(msg, from) {
       broadcast(msg, from);
       break;
 
+    case "VERIFY_REQUEST":
+      handleVerifyRequest(msg);
+      broadcast(msg, from);
+      break;
+
     default:
       broadcast(msg, from);
   }
+}
+
+// ── Lightweight inline verifier ──
+// Pure text analysis — no Ollama needed. This lets clock-only nodes
+// (like phones running Termux) participate in the verifier panel.
+function lightVerify(work) {
+  var response = work.response || "";
+  var tokenCount = work.token_count || 0;
+  var elapsedMs = work.elapsed_ms || 0;
+  var reasons = [];
+  var score = 100;
+
+  if (tokenCount < 1) { reasons.push("zero tokens"); score -= 50; }
+  if (response.length < 10) { reasons.push("response too short"); score -= 30; }
+
+  if (elapsedMs > 0 && tokenCount > 0) {
+    var tps = tokenCount / (elapsedMs / 1000);
+    if (tps > 5000) { reasons.push("unrealistic speed: " + tps.toFixed(0) + " tok/s"); score -= 50; }
+  }
+
+  // Garbage check
+  var printable = (response.match(/[\x20-\x7E\n\r\t]/g) || []).length;
+  if (printable / Math.max(response.length, 1) < 0.8) { reasons.push("low printable ratio"); score -= 30; }
+
+  // Repetition
+  var words = response.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length > 20 && new Set(words).size < 5) { reasons.push("excessive repetition"); score -= 30; }
+
+  return { valid: score >= 50, score: Math.max(0, score), reasons: reasons };
+}
+
+function handleVerifyRequest(msg) {
+  var data = msg.data || {};
+  if (!data.job_id || !data.miner) return;
+  if (data.miner === ACCOUNT) return; // don't verify own work
+
+  // Simple deterministic selection: hash(job_id + ACCOUNT) mod K
+  // We accept any verification we can perform — the network's selectVerifiers
+  // will pick canonical winners but accepting from anyone strengthens it.
+  var verdict = lightVerify({
+    response: data.result || "",
+    model: data.model || "",
+    token_count: data.token_count || 0,
+    elapsed_ms: data.timing_ms || 0,
+  });
+
+  console.log("[CLOCK] Verified " + data.job_id.slice(0, 12) + " for " + data.miner + " — " + (verdict.valid ? "VALID" : "INVALID") + " (" + verdict.score + ")");
+
+  var resp = makeMsg("VERIFY_RESPONSE", {
+    job_id: data.job_id,
+    verifier: ACCOUNT,
+    verdict: verdict.valid ? "valid" : "invalid",
+    score: verdict.score,
+    reasons: verdict.reasons,
+    epoch: data.epoch || currentEpoch,
+  });
+  broadcast(resp);
 }
 
 // ── Start ────────────────────────────────────────────────────
