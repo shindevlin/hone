@@ -20,6 +20,10 @@ if (!process.env.MONGODB_URI) { console.error('FATAL: MONGODB_URI not set'); pro
 
 const app = express();
 
+// Trust loopback proxies only (website static server runs on 127.0.0.1)
+// This is permissive enough for express-rate-limit's strict validation
+app.set('trust proxy', 'loopback');
+
 // Middleware — security first
 app.use(cors({
   origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net', 'http://localhost:4242', 'http://localhost:3100'],

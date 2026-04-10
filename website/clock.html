@@ -140,6 +140,34 @@
       color: #cbd5e1;
       margin-top: 12px;
     }
+    .tab-btn {
+      flex: 1;
+      background: #0a0e17;
+      border: 1px solid #2a3550;
+      color: #94a3b8;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      background: #f7931a;
+      color: #0a0e17;
+      border-color: #f7931a;
+      font-weight: 700;
+    }
+    .verified-badge {
+      display: inline-block;
+      background: #10b981;
+      color: #0a0e17;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -174,11 +202,27 @@
     </div>
 
     <div class="input-card" id="setup">
-      <label>Your BTCPC Username</label>
-      <input type="text" id="account" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
-      <button class="btn" id="start" onclick="start()">Start Clock</button>
-      <div class="reward-info">
-        Earns 5% of every block reward, split among all active clock nodes. Browser tab must stay open. Don't have an account? <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram.
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button id="tab-anon" class="tab-btn active" onclick="setMode('anon')">Anonymous</button>
+        <button id="tab-signin" class="tab-btn" onclick="setMode('signin')">Sign In</button>
+      </div>
+      <div id="anon-form">
+        <label>Your BTCPC Username</label>
+        <input type="text" id="account" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
+        <button class="btn" id="start" onclick="start()">Start Clock</button>
+        <div class="reward-info">
+          Anonymous mode — anyone can clock for any account. Rewards go to the named account regardless. Casual participation, zero proof.
+        </div>
+      </div>
+      <div id="signin-form" style="display:none;">
+        <label>Username</label>
+        <input type="text" id="signin-account" placeholder="username" maxlength="20" autocomplete="username">
+        <label style="margin-top:8px;">Password</label>
+        <input type="password" id="signin-password" placeholder="password" autocomplete="current-password">
+        <button class="btn" id="signin-btn" onclick="signIn()">Sign In &amp; Start</button>
+        <div class="reward-info">
+          Signed-in mode — proves you control the account. Verified clock counts more authoritatively. Don't have an account? <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram.
+        </div>
       </div>
     </div>
 
@@ -202,7 +246,60 @@
       timer: null,
       networkTimer: null,
       count: 0,
+      jwt: null,
+      verified: false,
     };
+
+    // Restore JWT from localStorage if present
+    try {
+      var savedJwt = localStorage.getItem('btcpc_jwt');
+      var savedUser = localStorage.getItem('btcpc_jwt_user');
+      if (savedJwt && savedUser) {
+        state.jwt = savedJwt;
+        state.account = savedUser;
+        state.verified = true;
+      }
+    } catch (e) {}
+
+    function setMode(mode) {
+      document.getElementById('tab-anon').classList.toggle('active', mode === 'anon');
+      document.getElementById('tab-signin').classList.toggle('active', mode === 'signin');
+      document.getElementById('anon-form').style.display = mode === 'anon' ? 'block' : 'none';
+      document.getElementById('signin-form').style.display = mode === 'signin' ? 'block' : 'none';
+    }
+
+    async function signIn() {
+      var account = document.getElementById('signin-account').value.trim().toLowerCase();
+      var password = document.getElementById('signin-password').value;
+      if (!account || !password) {
+        alert('Username and password required.');
+        return;
+      }
+      try {
+        var res = await fetch('/api/user/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: account, password: password }),
+        });
+        var data = await res.json();
+        if (!res.ok || !data.token) {
+          alert('Sign-in failed: ' + (data.error || 'unknown error'));
+          return;
+        }
+        state.jwt = data.token;
+        state.account = account;
+        state.verified = true;
+        try {
+          localStorage.setItem('btcpc_jwt', data.token);
+          localStorage.setItem('btcpc_jwt_user', account);
+        } catch (e) {}
+        // Auto-start the clock
+        document.getElementById('account').value = account;
+        start();
+      } catch (e) {
+        alert('Sign-in error: ' + e.message);
+      }
+    }
 
     function logMsg(msg) {
       var line = document.createElement('div');
@@ -237,19 +334,38 @@
       }
     }
 
+    function getClientId() {
+      var id = null;
+      try { id = localStorage.getItem('btcpc_clock_client_id'); } catch (e) {}
+      if (!id) {
+        // Generate a 32-char hex client ID locally
+        var bytes = new Uint8Array(16);
+        (window.crypto || window.msCrypto).getRandomValues(bytes);
+        id = Array.from(bytes).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        try { localStorage.setItem('btcpc_clock_client_id', id); } catch (e) {}
+      }
+      return id;
+    }
+
     async function sendHeartbeat() {
       try {
+        var headers = { 'Content-Type': 'application/json' };
+        if (state.jwt) headers['Authorization'] = 'Bearer ' + state.jwt;
         var res = await fetch(API + '/clock-heartbeat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account: state.account }),
+          headers: headers,
+          body: JSON.stringify({
+            account: state.account,
+            client_id: getClientId(),
+            verified: state.verified || false,
+          }),
         });
         var data = await res.json();
         if (res.ok) {
           state.count++;
           document.getElementById('count').textContent = state.count;
           document.getElementById('pulse').classList.add('active');
-          logMsg('Heartbeat sent for epoch #' + data.epoch);
+          logMsg('Heartbeat sent for epoch #' + data.epoch + ' (' + data.active_browser_clocks + ' browser clocks)');
           setTimeout(function () { document.getElementById('pulse').classList.remove('active'); }, 1000);
         } else {
           logMsg('Error: ' + (data.error || 'unknown'));
@@ -260,7 +376,7 @@
     }
 
     function start() {
-      var account = document.getElementById('account').value.trim().toLowerCase();
+      var account = (document.getElementById('account').value.trim().toLowerCase()) || state.account;
       if (!/^[a-z0-9][a-z0-9-]{2,19}$/.test(account)) {
         alert('Username must be 3-20 chars, lowercase letters, numbers, hyphens only.');
         return;
@@ -268,11 +384,12 @@
       state.account = account;
       state.running = true;
       state.count = 0;
-      document.getElementById('account-display').textContent = account;
+      var badge = state.verified ? ' <span class="verified-badge">VERIFIED</span>' : '';
+      document.getElementById('account-display').innerHTML = account + badge;
       document.getElementById('setup').style.display = 'none';
       document.getElementById('running').style.display = 'block';
       setStatus('Active', 'online');
-      logMsg('Starting clock for ' + account);
+      logMsg('Starting clock for ' + account + (state.verified ? ' (verified)' : ' (anonymous)'));
       sendHeartbeat();
       state.timer = setInterval(sendHeartbeat, 35000);
       state.networkTimer = setInterval(fetchNetwork, 15000);

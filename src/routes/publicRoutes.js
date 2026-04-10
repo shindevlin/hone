@@ -8,12 +8,33 @@
  * other than the ephemeral activity tracker.
  */
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
 const {
   rejectObjectInputs, sanitizeString, validAccountName,
 } = require('../middlewares/validate');
+
+// In-memory tracker of active browser-clock heartbeats.
+// Map<clientId, { account, lastHeartbeat, ip }>
+// Active = heartbeat within the last 2 minutes.
+const activeBrowserClocks = new Map();
+const CLOCK_ACTIVE_WINDOW_MS = 2 * 60 * 1000;
+
+function pruneActiveClocks() {
+  const now = Date.now();
+  for (const [id, entry] of activeBrowserClocks) {
+    if (now - entry.lastHeartbeat > CLOCK_ACTIVE_WINDOW_MS) {
+      activeBrowserClocks.delete(id);
+    }
+  }
+}
+
+function getActiveBrowserClocks() {
+  pruneActiveClocks();
+  return Array.from(activeBrowserClocks.values());
+}
 
 // Heavy rate limit on public clock endpoints — once every 30s per IP
 const clockLimiter = rateLimit({
@@ -45,7 +66,7 @@ router.get('/network', async (req, res) => {
   try {
     const fs = require('fs');
     const path = require('path');
-    const Node = require('../models/Node');
+    const nodeRegistry = require('../chain/nodeRegistry');
 
     // Read latest block from disk (source of truth for chain state)
     const blocksDir = path.join(process.cwd(), 'data', 'blocks');
@@ -62,9 +83,23 @@ router.get('/network', async (req, res) => {
       }
     } catch (_) {}
 
-    // Count active mining nodes
-    let activeNodes = 0;
-    try { activeNodes = await Node.countDocuments({ status: 'active' }); } catch (_) {}
+    // Registered nodes from the P2P-synchronized registry (source of truth)
+    let registered = [];
+    let miners = 0;
+    let registeredClocks = 0;
+    try {
+      // Lazy-load registry from blocks if empty (API server may not have loaded yet)
+      if (nodeRegistry.getNodeCount() === 0 && typeof nodeRegistry.loadFromBlocks === 'function') {
+        try { nodeRegistry.loadFromBlocks(); } catch (_) {}
+      }
+      registered = nodeRegistry.getRegisteredNodes();
+      miners = registered.filter(n => n.type === 'miner').length;
+      registeredClocks = registered.filter(n => n.type === 'clock').length;
+    } catch (_) {}
+
+    // Active browser clocks (heartbeated within the last 2 min)
+    const browserClocks = getActiveBrowserClocks();
+    const activeClockAccounts = new Set(browserClocks.map(c => c.account));
 
     // Network is "alive" if the latest block file was written in the last 30 minutes
     const epochAgeMs = latestMtimeMs > 0 ? Date.now() - latestMtimeMs : Infinity;
@@ -72,7 +107,11 @@ router.get('/network', async (req, res) => {
 
     res.json({
       epoch: latestEpoch,
-      peer_count: activeNodes,
+      peer_count: registered.length + browserClocks.length,
+      miners,
+      clocks: registeredClocks + browserClocks.length,
+      browser_clocks: browserClocks.length,
+      active_clock_accounts: Array.from(activeClockAccounts),
       alive,
       epoch_age_seconds: Math.round(epochAgeMs / 1000),
       timestamp: Date.now(),
@@ -92,7 +131,7 @@ router.get('/network', async (req, res) => {
  */
 router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
   try {
-    const objErr = rejectObjectInputs(req.body, ['account']);
+    const objErr = rejectObjectInputs(req.body, ['account', 'client_id', 'verified']);
     if (objErr) return res.status(400).json({ error: objErr });
 
     const account = sanitizeString(req.body.account, 20);
@@ -105,28 +144,74 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
     const user = await User.findOne({ username: account });
     if (!user) return res.status(404).json({ error: 'Account not found' });
 
-    // Get current epoch and broadcast heartbeat
-    const Epoch = require('../models/Epoch');
-    const latestEpoch = await Epoch.findOne({}, null, { sort: { epoch_number: -1 } });
-    const epochNumber = latestEpoch?.epoch_number || 0;
-
-    const p2p = require('../p2p/network');
-    const { createMessage } = require('../p2p/protocol');
-    const heartbeat = createMessage('CLOCK_HEARTBEAT', {
-      account,
-      epoch_number: epochNumber,
-      source: 'browser',
-    }, p2p.NODE_ID);
-
-    if (typeof p2p.broadcast === 'function') {
-      p2p.broadcast(heartbeat);
+    // Optional JWT verification: if present, mark this heartbeat as verified
+    // and confirm the JWT subject matches the claimed account.
+    let verified = false;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const token = authHeader.slice(7);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded && (decoded.username === account || decoded.id === user._id.toString())) {
+          verified = true;
+        }
+      } catch (_) {
+        // Invalid JWT — just don't mark verified, don't reject the heartbeat
+      }
     }
+
+    // Client uniqueness: caller provides a stable client_id (stored in localStorage),
+    // or we generate one and return it. Same client_id within the active window =
+    // same node, no double-counting. Different client_id = different participant.
+    let clientId = sanitizeString(req.body.client_id, 64);
+    if (!clientId || !/^[a-f0-9]{32,64}$/.test(clientId)) {
+      clientId = crypto.randomBytes(16).toString('hex');
+    }
+
+    // Read latest epoch from blocks
+    const fs = require('fs');
+    const path = require('path');
+    let epochNumber = 0;
+    try {
+      const blocksDir = path.join(process.cwd(), 'data', 'blocks');
+      const files = fs.readdirSync(blocksDir).filter(f => f.startsWith('block-') && f.endsWith('.bin'));
+      if (files.length > 0) {
+        files.sort();
+        epochNumber = parseInt(files[files.length - 1].replace('block-', '').replace('.bin', ''), 10);
+      }
+    } catch (_) {}
+
+    // Track this client as an active browser clock
+    activeBrowserClocks.set(clientId, {
+      account,
+      lastHeartbeat: Date.now(),
+      ip: req.ip,
+      verified,
+    });
+    pruneActiveClocks();
+
+    // Broadcast P2P heartbeat
+    try {
+      const p2p = require('../p2p/network');
+      const { createMessage } = require('../p2p/protocol');
+      const heartbeat = createMessage('CLOCK_HEARTBEAT', {
+        account,
+        epoch_number: epochNumber,
+        source: 'browser',
+        client_id: clientId,
+      }, p2p.NODE_ID || 'browser-relay');
+      if (typeof p2p.broadcast === 'function') p2p.broadcast(heartbeat);
+    } catch (_) {}
 
     res.json({
       success: true,
       account,
       epoch: epochNumber,
-      next_heartbeat_in: 30,
+      client_id: clientId,
+      verified,
+      active_browser_clocks: activeBrowserClocks.size,
+      next_heartbeat_in: 35,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
