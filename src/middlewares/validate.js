@@ -1,5 +1,18 @@
 "use strict";
 
+var RESERVED_SYSTEM_ACCOUNT_NAMES = new Set([
+  'wallet',
+  'api',
+  'admin',
+  'root',
+  'system',
+  'support',
+  'explorer',
+  'btcpc',
+  'telegram',
+  'bot'
+]);
+
 function isPlainString(val) {
   return typeof val === 'string';
 }
@@ -17,6 +30,15 @@ function rejectObjectInputs(obj, fields) {
 function validAccountName(name) {
   if (!isPlainString(name)) return false;
   return /^[a-z0-9][a-z0-9._-]{2,19}$/.test(name);
+}
+
+function blockedAccountNameReason(name) {
+  if (!isPlainString(name)) return null;
+  var normalized = name.toLowerCase();
+  if (RESERVED_SYSTEM_ACCOUNT_NAMES.has(normalized)) {
+    return 'That username is reserved for system use';
+  }
+  return null;
 }
 
 function validAmount(val) {
@@ -112,6 +134,7 @@ module.exports = {
   isPlainString,
   rejectObjectInputs,
   validAccountName,
+  blockedAccountNameReason,
   validAmount,
   sanitizeAmount,
   validPositiveInt,

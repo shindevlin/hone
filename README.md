@@ -175,6 +175,33 @@ Bigger models = higher weight = more BTCPC per epoch. See [Mining Guide](docs/in
 
 [@btcpcbot](https://t.me/btcpcbot) — claim tokens, check balance, browse models, submit inference, mining stats
 
+## Easiest Install
+
+For a normal user on Ubuntu or Debian, use one command:
+
+```bash
+curl -fsSL https://btcpc.net/install.sh | bash -s -- <your-username>
+```
+
+What it does:
+- installs Node.js and Docker if needed
+- starts MongoDB automatically in Docker
+- clones BTCPC
+- installs dependencies
+- starts BTCPC in wallet/explorer/clock mode
+
+After it finishes, open:
+
+```text
+http://localhost:4242
+```
+
+If you want mining later, run:
+
+```bash
+cd ~/btcpc && BTCPC_MINER=<your-username> node bin/btcpc-setup
+```
+
 ## Community & Contact
 
 - Telegram Group: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)

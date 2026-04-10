@@ -25,6 +25,7 @@ const { startLink, verifySignedChallenge } = require('../services/telegramVerify
 const {
   rejectObjectInputs, validAccountName, sanitizeAmount, sanitizeString,
   sanitizeTelegramId, validModel, validChain, validAddress, validEndpoint,
+  blockedAccountNameReason,
   validMinerMode
 } = require('../middlewares/validate');
 
@@ -78,6 +79,10 @@ router.post('/create', async (req, res) => {
     }
     if (!validAccountName(username)) {
       return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
+    }
+    const blockedReason = blockedAccountNameReason(username);
+    if (blockedReason) {
+      return res.status(400).json({ error: blockedReason });
     }
 
     const existing = await User.findOne({ username });
@@ -162,6 +167,10 @@ router.post('/onboard', async (req, res) => {
     }
     if (!/^[a-z0-9][a-z0-9-]{2,19}$/.test(username)) {
       return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/hyphens only' });
+    }
+    const blockedReason = blockedAccountNameReason(username);
+    if (blockedReason) {
+      return res.status(400).json({ error: blockedReason });
     }
 
     const existingUser = await User.findOne({ username });

@@ -21,11 +21,30 @@ var crypto = require("crypto");
 var readline = require("readline");
 
 var REPO_DIR = path.resolve(__dirname, "..");
+var argv = process.argv.slice(2);
+var SETUP_OPTIONS = {
+  assumeYes: argv.indexOf("--yes") !== -1,
+  skipOllama: argv.indexOf("--skip-ollama") !== -1,
+  noStart: argv.indexOf("--no-start") !== -1,
+  username: null
+};
+
+for (var argIndex = 0; argIndex < argv.length; argIndex++) {
+  if (argv[argIndex] === "--username" && argv[argIndex + 1]) {
+    SETUP_OPTIONS.username = String(argv[argIndex + 1]).trim().toLowerCase();
+    argIndex++;
+  }
+}
 
 function log(msg) { console.log("[setup] " + msg); }
 function warn(msg) { console.log("[setup] WARNING: " + msg); }
 
-function ask(question) {
+function ask(question, defaultAnswer) {
+  if (SETUP_OPTIONS.assumeYes) {
+    var answer = defaultAnswer === undefined || defaultAnswer === null ? "" : String(defaultAnswer);
+    log(question + " " + (answer ? "[" + answer + "]" : "[auto]"));
+    return Promise.resolve(answer);
+  }
   return new Promise(function (resolve) {
     var rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question("[setup] " + question + " ", function (answer) {
@@ -328,7 +347,7 @@ async function pickModels(hw) {
   console.log("");
   log("Earning = relative reward multiplier. 1x base, 6.75x = ~7x more BTCPC per inference.");
 
-  var answer = await ask("Which models to install? (1-" + models.length + ", A for all, S to skip):");
+  var answer = await ask("Which models to install? (1-" + models.length + ", A for all, S to skip):", "1");
 
   if (answer === "s" || answer === "skip") return [];
   if (answer === "a" || answer === "all") return models.map(function (m) { return m.name; });
@@ -509,14 +528,17 @@ async function main() {
   // ── Ollama setup (interactive) ──
   if (!hw.ollama.running) {
     var ollamaCheck = canRunOllama(hw);
-    if (ollamaCheck.can) {
+    if (SETUP_OPTIONS.skipOllama) {
+      log("Skipping Ollama install by request.");
+      log("This machine will run as a clock node only.");
+    } else if (ollamaCheck.can) {
       console.log("");
       log("Ollama is not installed or not running.");
       log("Ollama is required for mining (earning 98% of block rewards).");
       log("Without it, this machine runs as a clock node only (2% rewards).");
       console.log("");
 
-      var answer = await ask("Install Ollama to enable mining? (y/n)");
+      var answer = await ask("Install Ollama to enable mining? (y/n)", SETUP_OPTIONS.assumeYes ? "y" : null);
       if (answer === "y" || answer === "yes") {
         var installed = await installOllama();
         if (installed) {
@@ -551,7 +573,7 @@ async function main() {
   console.log("");
   var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
   if (!accountName) {
-    accountName = await ask("Choose a username for this node (3-20 chars, lowercase):");
+    accountName = SETUP_OPTIONS.username || await ask("Choose a username for this node (3-20 chars, lowercase):");
     if (!accountName || accountName.length < 3) {
       accountName = "miner-" + crypto.randomBytes(4).toString("hex");
       log("Using auto-generated name: " + accountName);
@@ -590,7 +612,7 @@ async function main() {
       console.log("");
 
       log("Write down your mnemonic. If you lose it, your account is gone forever.");
-      await ask("Press Enter when you've saved your mnemonic...");
+      await ask("Press Enter when you've saved your mnemonic...", "");
 
       // Record on ledger
       var ledger = require(path.join(REPO_DIR, "src/services/ledger"));
@@ -637,6 +659,15 @@ async function main() {
   require("dotenv").config({ path: configPath, override: true });
 
   // Start nodes
+  if (SETUP_OPTIONS.noStart) {
+    console.log("");
+    log("Setup complete. Node startup skipped (--no-start).");
+    console.log("  Config: " + configPath);
+    console.log("  Username: " + accountName);
+    console.log("");
+    return;
+  }
+
   console.log("");
   log("Starting " + decision.nodes.length + " node(s)...");
   var pids = startNodes(decision);

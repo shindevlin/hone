@@ -58,6 +58,17 @@ describe('authController', () => {
     }));
   });
 
+  test('registerUser rejects reserved system usernames', async () => {
+    const req = { body: { username: 'wallet', password: 'pw-123456' } };
+    const res = createRes();
+
+    await registerUser(req, res);
+
+    expect(createAccount).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'That username is reserved for system use' });
+  });
+
   test('loginUser authenticates with a username against a bcrypt password', async () => {
     const hashedPassword = bcrypt.hashSync('pw-123456', 10);
     User.findOne.mockResolvedValue({

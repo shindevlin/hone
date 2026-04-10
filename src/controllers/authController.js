@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createAccount } = require('../wallet/accountManager');
-const { rejectObjectInputs, validAccountName, sanitizeString, sanitizeTelegramId } = require('../middlewares/validate');
+const { rejectObjectInputs, validAccountName, blockedAccountNameReason, sanitizeString, sanitizeTelegramId } = require('../middlewares/validate');
 
 function isBcryptHash(value) {
   return typeof value === 'string' && value.startsWith('$2');
@@ -45,6 +45,8 @@ async function registerUser(req, res) {
     const password = req.body.password;
     if (!username || !password) return res.status(400).json({ error: 'username and password required' });
     if (!validAccountName(username)) return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
+    const blockedReason = blockedAccountNameReason(username);
+    if (blockedReason) return res.status(400).json({ error: blockedReason });
     if (typeof password !== 'string' || password.length < 8 || password.length > 200) {
       return res.status(400).json({ error: 'password must be 8-200 characters' });
     }

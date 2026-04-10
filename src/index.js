@@ -4,12 +4,15 @@
  */
 
 require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
+const { version } = require('../package.json');
 
 // Fail-closed: require critical env vars at startup
 if (!process.env.JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
@@ -56,9 +59,10 @@ app.get('/health', (_req, res) => {
 app.get('/', (_req, res) => {
   res.json({
     name: 'BTCPC API',
-    version: '1.0.0',
+    version,
     endpoints: [
       '/health',
+      '/install.sh',
       '/api/user',
       '/api/wallet',
       '/api/staking',
@@ -81,6 +85,16 @@ app.get('/', (_req, res) => {
       '/v1/models'
     ]
   });
+});
+
+app.get('/install.sh', (_req, res) => {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'install-user.sh');
+  if (!fs.existsSync(scriptPath)) {
+    return res.status(404).type('text/plain').send('install script not found\n');
+  }
+  res.type('text/plain');
+  res.setHeader('Content-Disposition', 'inline; filename="install.sh"');
+  return res.sendFile(scriptPath);
 });
 // Import routes
 const userRoutes = require("./routes/userRoutes");
