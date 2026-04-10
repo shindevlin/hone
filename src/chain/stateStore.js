@@ -67,6 +67,11 @@ var reputation = new Map();
 // Reputation votes (dedupe + recall): "voter|target_type|target_id" → { vote: +1|-1, weight, epoch, memo }
 var reputationVotes = new Map();
 
+// BTCPC-FS blobs (v2.11+): cid → { size, uploader, hosts[], committed_epoch, expires_epoch, payment_btcpc }
+// Tracks which CIDs have been committed on chain. The actual bytes live in
+// src/services/blobStore.js — this Map is the chain-level metadata only.
+var blobs = new Map();
+
 // Mining proofs indexed by epoch
 var miningProofsByEpoch = new Map();
 
@@ -144,6 +149,8 @@ function _entryKey(entry) {
     domainId = "v:" + entry.vote_data.target_type + ":" + entry.vote_data.target_id;
   } else if (entry.store_data && entry.store_data.action) {
     domainId = "s:" + entry.store_data.action;
+  } else if (entry.blob_data && entry.blob_data.cid) {
+    domainId = "b:" + entry.blob_data.cid;
   }
   return [
     entry.type || "",
@@ -617,6 +624,37 @@ function applyEntry(entry) {
       }
       break;
 
+    // ── BTCPC-FS blob commits (v2.11+) ─────────────────────────────
+    case "BLOB_STORE_COMMIT":
+      if (entry.blob_data && entry.blob_data.cid && from) {
+        var bd = entry.blob_data;
+        if (!/^[a-f0-9]{64}$/.test(bd.cid)) break;
+        var existingBlob = blobs.get(bd.cid) || {
+          cid: bd.cid,
+          size: bd.size || 0,
+          uploader: from,
+          hosts: [],
+          committed_epoch: entry.epoch,
+          expires_epoch: entry.epoch + (bd.duration_epochs || 0),
+          payment_btcpc: 0,
+          bytes_served_total: 0,
+        };
+        var hostSet = {};
+        existingBlob.hosts.forEach(function (h) { hostSet[h] = true; });
+        (bd.hosts || []).forEach(function (h) {
+          if (typeof h === "string" && h.length > 0) hostSet[h] = true;
+        });
+        existingBlob.hosts = Object.keys(hostSet);
+        var newExpiry = entry.epoch + (bd.duration_epochs || 0);
+        if (newExpiry > existingBlob.expires_epoch) {
+          existingBlob.expires_epoch = newExpiry;
+        }
+        existingBlob.payment_btcpc = _round(existingBlob.payment_btcpc + (bd.payment_btcpc || 0));
+        if (bd.size && !existingBlob.size) existingBlob.size = bd.size;
+        blobs.set(bd.cid, existingBlob);
+      }
+      break;
+
     case "REPUTATION_VOTE":
       // entry.vote_data: { target_type: "store"|"miner"|"product", target_id, vote: +1|-1, weight, memo }
       if (entry.vote_data && entry.vote_data.target_type && entry.vote_data.target_id && from) {
@@ -1060,6 +1098,35 @@ function getReputationVote(voter, targetType, targetId) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Blob getters (BTCPC-FS, v2.11+)
+// ─────────────────────────────────────────────────────────────────
+
+function getBlobCommit(cid) {
+  return blobs.get(cid) || null;
+}
+
+function getAllBlobCommits(filter) {
+  var result = [];
+  for (var entry of blobs) {
+    var b = entry[1];
+    if (filter) {
+      if (filter.uploader && b.uploader !== filter.uploader) continue;
+      if (filter.host && b.hosts.indexOf(filter.host) === -1) continue;
+    }
+    result.push(b);
+  }
+  return result;
+}
+
+function getBlobCommitsByHost(host) {
+  return getAllBlobCommits({ host: host });
+}
+
+function getBlobCommitsByUploader(uploader) {
+  return getAllBlobCommits({ uploader: uploader });
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Slashing getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -1087,6 +1154,7 @@ function snapshot() {
     orders: Array.from(orders.entries()),
     reputation: Array.from(reputation.entries()),
     reputation_votes: Array.from(reputationVotes.entries()),
+    blobs: Array.from(blobs.entries()),
   };
 }
 
@@ -1106,6 +1174,7 @@ function stats() {
     orders: orders.size,
     reputation: reputation.size,
     reputation_votes: reputationVotes.size,
+    blobs: blobs.size,
     epochs: epochs.size,
     mining_proof_epochs: miningProofsByEpoch.size,
     seen_entries: seenEntries.size,
@@ -1188,6 +1257,11 @@ function hydrateFromFinality(snapshot) {
         reputationVotes.set(k, ext.reputation_votes[k]);
       });
     }
+    if (ext.blobs) {
+      Object.keys(ext.blobs).forEach(function (cid) {
+        blobs.set(cid, ext.blobs[cid]);
+      });
+    }
     if (ext.delegations) {
       Object.keys(ext.delegations).forEach(function (k) {
         delegations.set(k, ext.delegations[k]);
@@ -1225,6 +1299,7 @@ function resetAll() {
   orders.clear();
   reputation.clear();
   reputationVotes.clear();
+  blobs.clear();
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
   slashRecords.clear();
@@ -1292,6 +1367,11 @@ module.exports = {
   getOrdersBySeller: getOrdersBySeller,
   getReputation: getReputation,
   getReputationVote: getReputationVote,
+  // BTCPC-FS blobs (v2.11+)
+  getBlobCommit: getBlobCommit,
+  getAllBlobCommits: getAllBlobCommits,
+  getBlobCommitsByHost: getBlobCommitsByHost,
+  getBlobCommitsByUploader: getBlobCommitsByUploader,
   // Slashing
   getSlashRecords: getSlashRecords,
   // Introspection

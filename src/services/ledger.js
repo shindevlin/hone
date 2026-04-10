@@ -871,6 +871,32 @@ async function recordReputationVote(voter, targetType, targetId, vote, weight, m
   return _persist(entry);
 }
 
+/**
+ * Record a BTCPC-FS blob storage commitment on chain. v2.11.0 records
+ * the metadata only; escrow payment + multi-host replication land in
+ * v2.11.1. See docs/PLAN_v2.10.1_to_v2.14.md.
+ */
+async function recordBlobStoreCommit(uploader, cid, size, hosts, durationEpochs, paymentBtcpc, epoch) {
+  if (!uploader) throw new Error('uploader required');
+  if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
+  if (!Number.isFinite(size) || size <= 0) throw new Error('size must be a positive number');
+  if (!Array.isArray(hosts)) throw new Error('hosts must be an array');
+
+  const entry = _entry({
+    type: 'BLOB_STORE_COMMIT',
+    from: uploader,
+    epoch,
+    blob_data: {
+      cid: cid,
+      size: size,
+      hosts: hosts,
+      duration_epochs: durationEpochs || 0,
+      payment_btcpc: paymentBtcpc || 0,
+    },
+  });
+  return _persist(entry);
+}
+
 // Expose bonding curve helpers at the ledger module for callers/tests
 const commerce = {
   costForCapacity: bondingCurve.costForCapacity,
@@ -1001,4 +1027,6 @@ module.exports = {
   recordOrderDispute,
   recordReputationVote,
   commerce,
+  // BTCPC-FS (v2.11+)
+  recordBlobStoreCommit,
 };
