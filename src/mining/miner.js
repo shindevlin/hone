@@ -270,15 +270,20 @@ async function computeFinalization(epochNumber) {
   const rewards = [];
 
   const { getActiveClockNodes } = require('../p2p/protocol');
+  // Clock nodes: any account that heartbeat this epoch.
+  // Filter out raw nodeIds (hex strings) and nodes prefixed clock- (anonymous).
+  // Do NOT require nodeRegistry — clock nodes are open participation, no stake.
   const activeClocks = getActiveClockNodes(epochNumber).filter(a =>
-    a && !a.startsWith('clock-') && nodeRegistry.isRegistered(a)
+    a && !a.startsWith('clock-') && !/^[a-f0-9]{32,}$/i.test(a) && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
 
   // Get active verifiers for this epoch (nodes that actually verified inference)
   const verifier = require('../inference/verifier');
   const { getActiveVerifiers } = require('../p2p/protocol');
+  // Verifiers: any account that submitted a VERIFY_RESPONSE this epoch.
+  // Same open-participation filter as clocks.
   const activeVerifiers = getActiveVerifiers(epochNumber).filter(a =>
-    a && nodeRegistry.isRegistered(a)
+    a && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
   // Use real verifiers if any responded, otherwise fall back to clock nodes
   const verifierPool = activeVerifiers.length > 0 ? activeVerifiers : activeClocks;
