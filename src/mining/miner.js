@@ -1318,11 +1318,12 @@ async function startMiner() {
 
     try {
       const reward = getBlockReward(targetEpoch);
+      const protocolModule = require('../p2p/protocol');
       const proposal = blockProposal.buildProposal({
         epochNumber: targetEpoch,
         blockReward: reward,
         proposerAccount: MINER_ACCOUNT,
-        protocol: p2p,
+        protocol: protocolModule,
       });
 
       const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
