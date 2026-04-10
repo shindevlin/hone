@@ -333,19 +333,62 @@ async function recordEscrowRefund(payer, requestId, amount, epoch) {
 
 /**
  * Register a node on the permanent ledger.
+ *
+ * v2.10.2: nodeType can be a single string (legacy) or an array of
+ * strings (multi-capability). Additional optional fields allow nodes
+ * to advertise storage/service/LoRa capacity for their respective
+ * capabilities. A single account can declare multiple roles.
+ *
+ * @param {string} username
+ * @param {string|string[]} nodeType — single role or array of roles:
+ *        "miner", "verifier", "clock", "storage_host", "service_host",
+ *        "gateway_op", "sensor_bridge"
+ * @param {string} p2pAddress
+ * @param {boolean} permissioned
+ * @param {number} epoch
+ * @param {object} [extra] — optional { storage_capacity_gb, service_capacity, lora_region }
  */
-async function recordNodeRegister(username, nodeType, p2pAddress, permissioned, epoch) {
+async function recordNodeRegister(username, nodeType, p2pAddress, permissioned, epoch, extra) {
+  var types;
+  if (Array.isArray(nodeType)) {
+    types = nodeType;
+  } else {
+    types = [nodeType || 'clock'];
+  }
+  // Normalize to lowercase + dedupe
+  var normalized = {};
+  for (var i = 0; i < types.length; i++) {
+    var t = String(types[i] || '').trim().toLowerCase();
+    if (t) normalized[t] = true;
+  }
+  types = Object.keys(normalized);
+
+  var accountData = {
+    username: username,
+    node_types: types,
+    node_type: types[0] || 'clock', // legacy field for backward compat
+    p2p_address: p2pAddress || null,
+    permissioned: !!permissioned,
+  };
+
+  if (extra && typeof extra === 'object') {
+    if (extra.storage_capacity_gb !== undefined) {
+      accountData.storage_capacity_gb = extra.storage_capacity_gb;
+    }
+    if (extra.service_capacity) {
+      accountData.service_capacity = extra.service_capacity;
+    }
+    if (extra.lora_region) {
+      accountData.lora_region = extra.lora_region;
+    }
+  }
+
   const entry = _entry({
     type: 'NODE_REGISTER',
     from: username,
     epoch: epoch || 0,
-    memo: nodeType || 'clock',
-    account_data: {
-      username,
-      node_type: nodeType || 'clock',
-      p2p_address: p2pAddress || null,
-      permissioned: !!permissioned,
-    },
+    memo: types.join(','),
+    account_data: accountData,
   });
   return _persist(entry);
 }

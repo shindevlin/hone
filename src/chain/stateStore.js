@@ -311,8 +311,47 @@ function applyEntry(entry) {
       break;
 
     case "NODE_REGISTER":
-      // nodeRegistry handles its own state, but we track existence here too
+      // nodeRegistry handles its own state, but we track existence here too.
+      // v2.10.2: accept both legacy account_data.node_type (string) and the
+      // new account_data.node_types (array) for multi-capability nodes.
+      // A single account can declare multiple roles: miner + verifier +
+      // storage_host + gateway_op + sensor_bridge, etc. Capability-specific
+      // reward pools pay each role independently.
       _ensureAccount(from || to);
+      if (from && accounts.has(from) && entry.account_data) {
+        var acct = accounts.get(from);
+        var declaredTypes = entry.account_data.node_types;
+        if (!Array.isArray(declaredTypes) && entry.account_data.node_type) {
+          declaredTypes = [entry.account_data.node_type];
+        }
+        if (Array.isArray(declaredTypes) && declaredTypes.length > 0) {
+          // Normalize + dedupe
+          var unique = {};
+          for (var ni = 0; ni < declaredTypes.length; ni++) {
+            var t = String(declaredTypes[ni] || "").trim().toLowerCase();
+            if (t) unique[t] = true;
+          }
+          acct.node_types = Object.keys(unique);
+        }
+        // Optional capacity fields (advertised by the node for specific roles)
+        if (entry.account_data.storage_capacity_gb !== undefined) {
+          acct.storage_capacity_gb = Number(entry.account_data.storage_capacity_gb) || 0;
+        }
+        if (entry.account_data.service_capacity) {
+          acct.service_capacity = entry.account_data.service_capacity;
+        }
+        if (entry.account_data.lora_region) {
+          acct.lora_region = String(entry.account_data.lora_region).toUpperCase();
+        }
+        if (entry.account_data.p2p_address) {
+          acct.p2p_address = entry.account_data.p2p_address;
+        }
+        if (entry.account_data.permissioned !== undefined) {
+          acct.permissioned = !!entry.account_data.permissioned;
+        }
+        acct.last_registered_epoch = entry.epoch;
+        accounts.set(from, acct);
+      }
       break;
 
     case "HEARTBEAT":
@@ -743,6 +782,14 @@ function getAccount(username) {
     heartbeat_epoch: acc.heartbeat_epoch || 0,
     balance: getBalance(username, "BTCPC"),
     staked: (stakes.get(username) || { total_staked: 0 }).total_staked,
+    // v2.10.2: multi-capability node registration fields
+    node_types: acc.node_types || undefined,
+    storage_capacity_gb: acc.storage_capacity_gb,
+    service_capacity: acc.service_capacity,
+    lora_region: acc.lora_region,
+    p2p_address: acc.p2p_address,
+    permissioned: acc.permissioned,
+    last_registered_epoch: acc.last_registered_epoch,
   };
 }
 

@@ -188,6 +188,19 @@ connectDB().then(async () => {
     console.log(`BTCPC server running on port ${PORT}`);
   });
 
+  // v2.10.2: optional gateway server for human-viewable commerce pages.
+  // Off by default to avoid port-binding surprises; enable via env var.
+  if (process.env.BTCPC_GATEWAY_ENABLED === 'true') {
+    try {
+      const { startGateway } = require('./gateway/server');
+      startGateway().catch((err) => {
+        console.error('[BTCPC Gateway] failed to start:', err.message);
+      });
+    } catch (err) {
+      console.error('[BTCPC Gateway] module load error:', err.message);
+    }
+  }
+
   // Start auto-updater
   const { startAutoUpdater } = require('./services/autoUpdater');
   startAutoUpdater();
