@@ -182,7 +182,7 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
       }
     } catch (_) {}
 
-    // Track this client as an active browser clock
+    // Track this client as an active browser clock (for the dashboard)
     activeBrowserClocks.set(clientId, {
       account,
       lastHeartbeat: Date.now(),
@@ -190,6 +190,13 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
       verified,
     });
     pruneActiveClocks();
+
+    // ALSO record into the P2P clock tracker so the miner sees this clock
+    // when computing rewards. Without this, browser/HTTP clocks don't earn.
+    try {
+      const { recordNodeActivity } = require('../p2p/protocol');
+      recordNodeActivity(clientId, account, epochNumber);
+    } catch (_) {}
 
     // Broadcast P2P heartbeat
     try {
