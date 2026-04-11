@@ -6,6 +6,24 @@ const bcrypt = require('bcryptjs');
 const { createAccount } = require('../wallet/accountManager');
 const { rejectObjectInputs, validAccountName, blockedAccountNameReason, sanitizeString, sanitizeTelegramId } = require('../middlewares/validate');
 
+// D.5-gamma: secretStore is the local-first auth source. Mongo is a
+// fallback for legacy installs and for accounts created before D.5.
+// On a successful Mongo fallback login we lazily migrate the user into
+// secretStore so the next login is zero-Mongo.
+let _secretStoreLoaded = false;
+async function getSecretStore() {
+  const secretStore = require('../services/secretStore');
+  if (!_secretStoreLoaded) {
+    try {
+      await secretStore.load();
+      _secretStoreLoaded = true;
+    } catch (err) {
+      console.warn('[auth] secretStore load failed: ' + err.message);
+    }
+  }
+  return secretStore;
+}
+
 function isBcryptHash(value) {
   return typeof value === 'string' && value.startsWith('$2');
 }
@@ -30,6 +48,69 @@ async function verifyAndUpgradePassword(user, password) {
   user.password = bcrypt.hashSync(password, 10);
   await user.save();
   return true;
+}
+
+// Try secretStore first. Returns a user-like object with .username,
+// .id, .password_hash, .is_active, .email, or null.
+async function lookupUserSecretStore(username) {
+  try {
+    const ss = await getSecretStore();
+    if (!ss || typeof ss.getUser !== 'function') return null;
+    const rec = ss.getUser(username);
+    if (!rec) return null;
+    return {
+      source: 'secretStore',
+      id: rec.user_id,
+      username: rec.username || username,
+      email: rec.email,
+      password_hash: rec.password_hash,
+      is_active: rec.is_active !== false,
+      two_factor_enabled: !!rec.two_factor_enabled,
+      totp_enabled: !!rec.totp_enabled,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+// Verify against a secretStore record. Returns true/false.
+async function verifySecretStorePassword(username, plaintext) {
+  try {
+    const ss = await getSecretStore();
+    if (!ss || typeof ss.verifyPassword !== 'function') return false;
+    return await ss.verifyPassword(username, plaintext);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Lazily copy a Mongo user into secretStore so subsequent logins are
+// zero-Mongo. Called after a successful Mongo fallback login.
+async function migrateUserToSecretStore(mongoUser) {
+  try {
+    const ss = await getSecretStore();
+    if (!ss || typeof ss.createUser !== 'function') return;
+    if (ss.hasUser && ss.hasUser(mongoUser.username)) return; // already migrated
+    await ss.createUser(mongoUser.username, {
+      password_hash: mongoUser.password, // already bcrypt after verifyAndUpgradePassword
+      email: mongoUser.email,
+      telegram_id: mongoUser.telegramId,
+      telegram_username: mongoUser.telegramUsername,
+      two_factor_enabled: mongoUser.twoFactorEnabled,
+      totp_secret: mongoUser.totpSecret,
+      totp_enabled: mongoUser.totpEnabled,
+      totp_backup_codes: mongoUser.totpBackupCodes,
+      auth_profile: mongoUser.authProfile,
+      owner_public_key: mongoUser.ownerPublicKey,
+      active_public_key: mongoUser.activePublicKey,
+      posting_public_key: mongoUser.postingPublicKey,
+      memo_public_key: mongoUser.memoPublicKey,
+      two_factor_public_key: mongoUser.twoFactorPublicKey,
+    });
+    console.log('[auth] migrated ' + mongoUser.username + ' → secretStore');
+  } catch (err) {
+    console.warn('[auth] secretStore migration failed for ' + mongoUser.username + ': ' + err.message);
+  }
 }
 
 /**
@@ -66,7 +147,11 @@ async function registerUser(req, res) {
 }
 
 /**
- * Login User
+ * Login User — D.5-gamma: secretStore-first, Mongo fallback with
+ * lazy migration. On a fresh machine (no Mongo) the secretStore
+ * path works on its own. On existing installs the Mongo fallback
+ * handles legacy users and migrates them into secretStore so the
+ * next login skips Mongo entirely.
  */
 async function loginUser(req, res) {
   try {
@@ -75,7 +160,7 @@ async function loginUser(req, res) {
     const email = sanitizeString(req.body.email, 100);
     const username = sanitizeString(req.body.username, 20);
     const password = req.body.password;
-    const identifier = email || username;
+    const identifier = (email || username || '').trim().toLowerCase();
 
     if (!identifier || !password) {
       return res.status(400).json({ error: 'username/email and password are required' });
@@ -84,20 +169,53 @@ async function loginUser(req, res) {
       return res.status(400).json({ error: 'invalid password' });
     }
 
-    const user = await User.findOne({
-      $or: [{ email: identifier }, { username: identifier }]
-    });
-    if (!user || !user.isActive) {
+    // ── Try secretStore first ──
+    const ssUser = await lookupUserSecretStore(identifier);
+    if (ssUser && ssUser.is_active && ssUser.password_hash) {
+      const ok = await verifySecretStorePassword(identifier, password);
+      if (ok) {
+        const token = jwt.sign(
+          { id: ssUser.id, username: ssUser.username, src: 'ss' },
+          process.env.JWT_SECRET,
+          { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+        );
+        return res.json({
+          success: true,
+          token,
+          user: { id: ssUser.id, username: ssUser.username, email: ssUser.email },
+        });
+      }
+      // secretStore has the user but password mismatch — DON'T fall
+      // through to Mongo (would be a credential-oracle). Return fail.
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = await verifyAndUpgradePassword(user, password);
+    // ── Mongo fallback (legacy installs) ──
+    let mongoUser = null;
+    try {
+      mongoUser = await User.findOne({
+        $or: [{ email: identifier }, { username: identifier }],
+      });
+    } catch (err) {
+      // Mongo unavailable — if we got here, secretStore also didn't
+      // know the user, so this is a real "invalid credentials".
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!mongoUser || !mongoUser.isActive) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const isMatch = await verifyAndUpgradePassword(mongoUser, password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Lazy migration into secretStore for next login
+    await migrateUserToSecretStore(mongoUser);
+
     const token = jwt.sign(
-      { id: user._id, username: user.username },
+      { id: mongoUser._id, username: mongoUser.username, src: 'mongo' },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -105,7 +223,7 @@ async function loginUser(req, res) {
     res.json({
       success: true,
       token,
-      user: { id: user._id, username: user.username, email: user.email }
+      user: { id: mongoUser._id, username: mongoUser.username, email: mongoUser.email },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
