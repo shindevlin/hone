@@ -67,6 +67,9 @@ const MESSAGE_TYPES = {
   // Inference verification — verifiers validate miner output
   VERIFY_REQUEST: "VERIFY_REQUEST",
   VERIFY_RESPONSE: "VERIFY_RESPONSE",
+  // Mempool gossip — ledger entries broadcast across machines so any
+  // broadcaster can include them in its next block (v2.13.3)
+  MEMPOOL_ENTRY: "MEMPOOL_ENTRY",
 };
 
 // Track seen message IDs to prevent rebroadcast loops
@@ -235,6 +238,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.ACCOUNT_ANNOUNCE:
       handleAccountAnnounce(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.MEMPOOL_ENTRY:
+      handleMempoolEntry(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.FINALIZATION_PROPOSAL:
       handleFinalizationProposal(peer, msg, ctx);
@@ -671,6 +677,51 @@ async function handleAccountAnnounce(peer, msg, ctx) {
     console.error("[BTCPC P2P] Failed to process account announcement:", err.message);
   }
 
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Mempool gossip — ledger entries propagated across machines (v2.13.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * MEMPOOL_ENTRY — A node broadcasts a single ledger entry to all peers.
+ *
+ * Flow:
+ *   1. Origin node calls _persist(entry) → _gossipEntry(entry) broadcasts this.
+ *   2. Receiving nodes call appendForeignEntry(entry) which:
+ *      - applies to their local stateStore (so read paths stay consistent)
+ *      - appends to their local pending-entries.jsonl queue (so the next
+ *        broadcaster, whoever it is, drains and includes it in a block)
+ *   3. The receiver rebroadcasts to its own peers (skip the sender),
+ *      completing the gossip flood.
+ *
+ * Cycle prevention: seenMessages Set in protocol.js dedupes by msg.id.
+ * Re-origination prevention: gossipedHashes in ledger.js dedupes by entry
+ * content so appendForeignEntry never triggers a second broadcast.
+ */
+async function handleMempoolEntry(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.entry || !data.entry.type) {
+    console.log("[BTCPC P2P] MEMPOOL_ENTRY dropped: missing entry or type");
+    return;
+  }
+
+  var entry = data.entry;
+  console.log("[BTCPC P2P] MEMPOOL_ENTRY: " + entry.type +
+    " from=" + (entry.from || "-") +
+    " to=" + (entry.to || "-") +
+    " epoch=" + (entry.epoch || 0));
+
+  try {
+    // appendForeignEntry applies to stateStore + disk queue without re-gossiping
+    var ledger = require("../services/ledger");
+    ledger.appendForeignEntry(entry);
+  } catch (err) {
+    console.error("[BTCPC P2P] MEMPOOL_ENTRY apply failed: " + err.message);
+  }
+
+  // Forward to all other peers (gossip flood)
   ctx.broadcast(msg, peer.address);
 }
 
@@ -1141,5 +1192,6 @@ module.exports = {
   recordMinerWork,
   getMinerWorkForEpoch,
   setCurrentEpoch,
-  getCurrentEpochCache
+  getCurrentEpochCache,
+  handleMempoolEntry
 };

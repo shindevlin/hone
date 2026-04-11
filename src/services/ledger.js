@@ -54,6 +54,47 @@ function _ensurePendingDir() {
   } catch (_) {}
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Mempool gossip — broadcast ledger entries to peers (v2.13.3)
+// ─────────────────────────────────────────────────────────────────
+
+// Track entries we've already gossiped so we don't double-broadcast.
+// Populated by _gossipEntry (originator path) and appendForeignEntry
+// (receiver path) — the latter prevents re-gossiping entries that
+// arrived from a peer.
+var gossipedHashes = new Set();
+var GOSSIP_HASH_CAP = 50000;
+
+/**
+ * Broadcast a freshly-persisted ledger entry to all P2P peers.
+ * Uses a lazy require to break the ledger ↔ p2p circular dependency.
+ * All errors are swallowed — the entry is already in the local queue.
+ */
+function _gossipEntry(entry) {
+  try {
+    var key = JSON.stringify(entry);
+    if (gossipedHashes.has(key)) return;
+    gossipedHashes.add(key);
+    // Bounded cache: evict oldest 1000 entries when cap is reached
+    if (gossipedHashes.size > GOSSIP_HASH_CAP) {
+      var iter = gossipedHashes.values();
+      for (var i = 0; i < 1000; i++) gossipedHashes.delete(iter.next().value);
+    }
+    var p2p = require('../p2p/network');
+    var protocol = require('../p2p/protocol');
+    var msg = protocol.createMessage(
+      'MEMPOOL_ENTRY',
+      { entry: entry },
+      p2p.NODE_ID || 'ledger'
+    );
+    if (typeof p2p.broadcast === 'function') {
+      p2p.broadcast(msg);
+    }
+  } catch (_) {
+    // silent: entry is still in the local queue, gossip is best-effort
+  }
+}
+
 function _appendPendingToDisk(entry) {
   try {
     _ensurePendingDir();
@@ -127,13 +168,15 @@ function _entry(data) {
 
 // Persist a ledger entry without touching Mongo.
 // Applies to stateStore (updates balances/accounts/tokens/stakes/escrows/etc.),
-// pushes into the in-process pendingEntries array, AND appends to the shared
+// pushes into the in-process pendingEntries array, appends to the shared
 // on-disk queue so entries originating in the API server eventually land in
-// blocks written by the miner process.
+// blocks written by the miner process, AND gossips to P2P peers so that the
+// current network broadcaster (which may be on another machine) sees the entry.
 function _persist(entry) {
   stateStore.applyEntry(entry);
   pendingEntries.push(entry);
   _appendPendingToDisk(entry);
+  _gossipEntry(entry);
   return entry;
 }
 
@@ -1329,6 +1372,33 @@ async function applyRemoteEntries(entries) {
   return applied;
 }
 
+/**
+ * Apply a ledger entry received from a P2P peer's MEMPOOL_ENTRY gossip
+ * message WITHOUT triggering re-gossip (to prevent infinite loops).
+ *
+ * The entry is:
+ *   1. Applied to stateStore so read paths (balances, accounts, etc.) are
+ *      immediately up-to-date on this node.
+ *   2. Appended to the shared on-disk pending-entries.jsonl queue so that
+ *      whenever THIS node becomes the broadcaster, it will include the entry
+ *      in its block payload.
+ *   3. Recorded in gossipedHashes so _gossipEntry silently skips it —
+ *      preventing re-broadcast of a peer-originated entry back into the mesh.
+ *
+ * Called exclusively by src/p2p/protocol.js:handleMempoolEntry.
+ */
+function appendForeignEntry(entry) {
+  if (!entry || !entry.type) return;
+  // Apply to stateStore (idempotent — seenEntries dedupes)
+  stateStore.applyEntry(entry);
+  // Append to disk queue for the next local flush
+  _appendPendingToDisk(entry);
+  // Prevent this entry from being re-gossiped by _gossipEntry
+  try {
+    gossipedHashes.add(JSON.stringify(entry));
+  } catch (_) {}
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -1369,6 +1439,7 @@ module.exports = {
   getAllAccounts,
   flushPendingEntries,
   applyRemoteEntries,
+  appendForeignEntry,
   // Commerce (v2.10)
   recordStoreOpen,
   recordStoreUpdate,
