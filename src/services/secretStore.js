@@ -64,7 +64,8 @@ function _empty() {
     users: {},
     projects: {},
     api_key_index: {},
-    user_id_index: {}, // userId → username
+    user_id_index: {},      // userId → username
+    telegram_id_index: {},  // telegramId → username
   };
 }
 
@@ -91,6 +92,14 @@ async function load() {
       if (!state.projects) state.projects = {};
       if (!state.api_key_index) state.api_key_index = {};
       if (!state.user_id_index) state.user_id_index = {};
+      if (!state.telegram_id_index) state.telegram_id_index = {};
+      // Rebuild telegram_id_index from user records if missing (forward-compat)
+      for (var username of Object.keys(state.users)) {
+        var u = state.users[username];
+        if (u.telegram_id && !state.telegram_id_index[u.telegram_id]) {
+          state.telegram_id_index[u.telegram_id] = username;
+        }
+      }
       return state;
     } catch (e) {
       throw new Error("Corrupted secrets.json at " + SECRETS_PATH + ": " + e.message);
@@ -140,24 +149,40 @@ async function createUser(username, fields) {
   _ensureLoaded();
   if (!username) throw new Error("username required");
   if (state.users[username]) throw new Error("user exists");
+  fields = fields || {};
+
+  // Accept either plaintext 'password' (hashed here) OR a pre-hashed
+  // 'password_hash' (for migration from Mongo or restoring backups).
+  var passwordHash = fields.password_hash || null;
+  if (fields.password) {
+    passwordHash = await bcrypt.hash(fields.password, 10);
+  }
 
   var userId = fields.user_id || crypto.randomUUID();
   state.users[username] = {
     user_id: userId,
     email: fields.email || null,
-    password_hash: fields.password_hash || null,
+    password_hash: passwordHash,
     totp_secret: fields.totp_secret || null,
     totp_backup_codes: fields.totp_backup_codes || [],
     totp_enabled: fields.totp_enabled || false,
     two_factor_enabled: fields.two_factor_enabled || false,
-    auth_profile: fields.auth_profile || "local",
+    auth_profile: fields.auth_profile || (passwordHash ? "password" : "none"),
     telegram_id: fields.telegram_id || null,
     telegram_username: fields.telegram_username || null,
+    owner_public_key: fields.owner_public_key || null,
+    active_public_key: fields.active_public_key || null,
+    posting_public_key: fields.posting_public_key || null,
+    memo_public_key: fields.memo_public_key || null,
+    two_factor_public_key: fields.two_factor_public_key || null,
     mcp_servers: fields.mcp_servers || [],
     last_login: null,
     created_at: Date.now(),
   };
   state.user_id_index[userId] = username;
+  if (fields.telegram_id) {
+    state.telegram_id_index[fields.telegram_id] = username;
+  }
   await save();
   return state.users[username];
 }
@@ -166,6 +191,27 @@ async function updateUser(username, patch) {
   _ensureLoaded();
   var user = state.users[username];
   if (!user) throw new Error("user not found");
+  patch = patch || {};
+
+  // Hash plaintext password if supplied
+  if (patch.password) {
+    patch.password_hash = await bcrypt.hash(patch.password, 10);
+    delete patch.password;
+    if (!user.auth_profile || user.auth_profile === "none") {
+      user.auth_profile = "password";
+    }
+  }
+
+  // Telegram id re-indexing
+  if (Object.prototype.hasOwnProperty.call(patch, "telegram_id")) {
+    if (user.telegram_id && state.telegram_id_index[user.telegram_id] === username) {
+      delete state.telegram_id_index[user.telegram_id];
+    }
+    if (patch.telegram_id) {
+      state.telegram_id_index[patch.telegram_id] = username;
+    }
+  }
+
   Object.assign(user, patch);
   await save();
   return user;
@@ -176,9 +222,45 @@ async function deleteUser(username) {
   var user = state.users[username];
   if (!user) return false;
   delete state.user_id_index[user.user_id];
+  if (user.telegram_id && state.telegram_id_index[user.telegram_id] === username) {
+    delete state.telegram_id_index[user.telegram_id];
+  }
   delete state.users[username];
   await save();
   return true;
+}
+
+function hasUser(username) {
+  _ensureLoaded();
+  if (!username) return false;
+  return !!state.users[username];
+}
+
+function getUserByTelegramId(telegramId) {
+  _ensureLoaded();
+  if (!telegramId) return null;
+  var username = state.telegram_id_index[String(telegramId)];
+  return username ? state.users[username] : null;
+}
+
+function stats() {
+  _ensureLoaded();
+  return {
+    users: Object.keys(state.users).length,
+    projects: Object.keys(state.projects).length,
+    telegram_linked: Object.keys(state.telegram_id_index).length,
+    installation_id: state.installation_id,
+    created_at: state.created_at,
+    file: SECRETS_PATH,
+  };
+}
+
+// Tests-only: wipe in-memory state and on-disk file
+function resetForTests() {
+  state = null;
+  try {
+    if (fs.existsSync(SECRETS_PATH)) fs.unlinkSync(SECRETS_PATH);
+  } catch (_) {}
 }
 
 async function verifyPassword(username, plaintext) {
@@ -305,6 +387,8 @@ module.exports = {
   // Users
   getUser: getUser,
   getUserById: getUserById,
+  getUserByTelegramId: getUserByTelegramId,
+  hasUser: hasUser,
   createUser: createUser,
   updateUser: updateUser,
   deleteUser: deleteUser,
@@ -318,4 +402,7 @@ module.exports = {
   rotateProjectKey: rotateProjectKey,
   deleteProject: deleteProject,
   getAllProjects: getAllProjects,
+  // Introspection
+  stats: stats,
+  resetForTests: resetForTests,
 };
