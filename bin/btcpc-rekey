@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-rekey — Rebroadcast on-chain public keys for an existing account
+ * Shin Devlin
+ *
+ * Why this exists:
+ *   Accounts created BEFORE v2.13.1 (commit e234234) had their
+ *   ACCOUNT_CREATE ledger entries trapped in the API server's private
+ *   pendingEntries array. The miner process never saw them, so they
+ *   never landed in any block payload. Replaying the chain finds the
+ *   account (because of FAUCET / MINING_REWARD side-effects that auto-
+ *   create empty account records) but the public_keys map is empty.
+ *
+ *   That breaks downstream features that need on-chain key proof:
+ *     - Telegram /link verification (needs posting_public_key on chain)
+ *     - Recovery via mnemonic — recoverAccount() can derive the keys
+ *       but can't match them back to the username without on-chain data
+ *     - Dispute escrow + ownership proofs
+ *
+ *   This tool fixes legacy accounts. You provide the mnemonic; it
+ *   derives all the keys via the same code path createAccount uses,
+ *   then writes a fresh ACCOUNT_CREATE through the cross-process queue
+ *   (data/pending-entries.jsonl) so the next block written by the
+ *   miner picks it up. After ~5 minutes (one epoch) the keys are
+ *   permanently on chain.
+ *
+ * Usage:
+ *   node bin/btcpc-rekey <username>
+ *   node bin/btcpc-rekey josh
+ *
+ * The username argument is required and must already exist on chain.
+ * The mnemonic is read from stdin (12 BIP-39 words, space-separated).
+ */
+
+var path = require("path");
+var readline = require("readline");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+var keyManager = require("../src/wallet/keyManager");
+var stateStore = require("../src/chain/stateStore");
+var replay = require("../src/chain/replay");
+var ledger = require("../src/services/ledger");
+
+function prompt(question) {
+  return new Promise(function (resolve) {
+    var rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, function (answer) {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+async function main() {
+  var username = process.argv[2];
+  if (!username) {
+    console.error("usage: node bin/btcpc-rekey <username>");
+    process.exit(1);
+  }
+  username = username.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9.\-]{2,19}$/.test(username)) {
+    console.error("invalid username: must be 3-20 lowercase letters/numbers/hyphens/dots");
+    process.exit(1);
+  }
+
+  console.log("[btcpc-rekey] " + username);
+  console.log("[btcpc-rekey] Replaying chain to check current state...");
+
+  try {
+    await replay.replayFromDisk({ verbose: false });
+  } catch (err) {
+    console.error("[btcpc-rekey] Replay error: " + err.message);
+    process.exit(1);
+  }
+
+  var account = stateStore.getAccount(username);
+  if (!account) {
+    console.error("[btcpc-rekey] Account '" + username + "' not found on chain.");
+    console.error("[btcpc-rekey] This tool only re-keys EXISTING accounts.");
+    console.error("[btcpc-rekey] To create a new account, use bin/btcpc-cli wallet create.");
+    process.exit(1);
+  }
+
+  var hasOwner = account.public_keys && account.public_keys.owner;
+  console.log("[btcpc-rekey] Found '" + username + "' on chain:");
+  console.log("[btcpc-rekey]   balance: " + account.balance + " BTCPC");
+  console.log("[btcpc-rekey]   staked:  " + account.staked);
+  console.log("[btcpc-rekey]   owner_pk: " + (hasOwner ? account.public_keys.owner.slice(0, 16) + "..." : "(empty)"));
+
+  if (hasOwner) {
+    console.log("");
+    console.log("[btcpc-rekey] WARNING: " + username + " already has an owner public key on chain.");
+    console.log("[btcpc-rekey] Re-keying will OVERWRITE the existing keys with new ones derived");
+    console.log("[btcpc-rekey] from the mnemonic you supply. If the mnemonic is different from the");
+    console.log("[btcpc-rekey] one originally used to create this account, you will lose access to");
+    console.log("[btcpc-rekey] the original keys forever.");
+    var confirm = await prompt("[btcpc-rekey] Type 'overwrite' to continue: ");
+    if (confirm.trim() !== "overwrite") {
+      console.log("[btcpc-rekey] Aborted.");
+      process.exit(0);
+    }
+  }
+
+  console.log("");
+  console.log("[btcpc-rekey] Enter the 12-word BIP-39 mnemonic for '" + username + "'.");
+  console.log("[btcpc-rekey] Words must be space-separated. They will not be echoed.");
+
+  // Read mnemonic from stdin (echoed for now — TTY hide is OS-specific)
+  var mnemonic = await prompt("[btcpc-rekey] Mnemonic: ");
+  mnemonic = mnemonic.trim();
+
+  if (!keyManager.validateMnemonic(mnemonic)) {
+    console.error("[btcpc-rekey] Invalid BIP-39 mnemonic.");
+    process.exit(1);
+  }
+
+  var words = mnemonic.split(/\s+/);
+  if (words.length !== 12) {
+    console.error("[btcpc-rekey] Mnemonic must be exactly 12 words (got " + words.length + ").");
+    process.exit(1);
+  }
+
+  console.log("[btcpc-rekey] Deriving keys...");
+  var keys = await keyManager.mnemonicToKeys(mnemonic);
+  var chainWallets = await keyManager.deriveChainWallets(mnemonic);
+
+  var publicKeys = {
+    owner: keys.owner.publicKey,
+    active: keys.active.publicKey,
+    posting: keys.posting.publicKey,
+    memo: keys.memo.publicKey,
+  };
+
+  console.log("[btcpc-rekey] Derived public keys:");
+  console.log("[btcpc-rekey]   owner:   " + publicKeys.owner.slice(0, 32) + "...");
+  console.log("[btcpc-rekey]   active:  " + publicKeys.active.slice(0, 32) + "...");
+  console.log("[btcpc-rekey]   posting: " + publicKeys.posting.slice(0, 32) + "...");
+  console.log("[btcpc-rekey]   memo:    " + publicKeys.memo.slice(0, 32) + "...");
+
+  if (hasOwner && account.public_keys.owner !== publicKeys.owner) {
+    console.log("");
+    console.log("[btcpc-rekey] WARNING: derived owner key does NOT match the existing on-chain key.");
+    console.log("[btcpc-rekey] Existing: " + account.public_keys.owner.slice(0, 32) + "...");
+    console.log("[btcpc-rekey] Derived:  " + publicKeys.owner.slice(0, 32) + "...");
+    var confirm2 = await prompt("[btcpc-rekey] Mnemonic does not match prior keys. Type 'continue' to proceed: ");
+    if (confirm2.trim() !== "continue") {
+      console.log("[btcpc-rekey] Aborted.");
+      process.exit(0);
+    }
+  }
+
+  // Get current epoch from chain
+  var epoch = stateStore.getChainHeight() || 0;
+  console.log("");
+  console.log("[btcpc-rekey] Writing ACCOUNT_CREATE for '" + username + "' at epoch " + epoch + "...");
+
+  var chainAddresses = {
+    btcpc: chainWallets.btcpc ? chainWallets.btcpc.address : null,
+    evm: chainWallets.evm ? chainWallets.evm.address : null,
+    solana: chainWallets.solana ? chainWallets.solana.address : null,
+    bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
+    ton: chainWallets.ton ? chainWallets.ton.address : null,
+    hive: username,
+  };
+
+  // recordAccountCreate goes through _persist which:
+  //   1. applies to local stateStore immediately
+  //   2. pushes to in-memory pendingEntries (for this process, ignored on exit)
+  //   3. appends to data/pending-entries.jsonl (the cross-process queue)
+  // The miner process drains the queue at its next flush (every epoch).
+  await ledger.recordAccountCreate(username, publicKeys, chainAddresses, epoch);
+
+  console.log("[btcpc-rekey] Wrote ACCOUNT_CREATE entry to data/pending-entries.jsonl");
+  console.log("[btcpc-rekey] The miner will pick it up at the next epoch finalization.");
+  console.log("");
+  console.log("[btcpc-rekey] Verify in ~5 minutes by replaying the chain:");
+  console.log("[btcpc-rekey]   node -e \"const ss=require('./src/chain/stateStore');const r=require('./src/chain/replay');(async()=>{await r.replayFromDisk({});console.log(ss.getAccount('" + username + "').public_keys)})()\"");
+  console.log("");
+  console.log("[btcpc-rekey] Done. Mnemonic NOT stored anywhere.");
+
+  process.exit(0);
+}
+
+main().catch(function (err) {
+  console.error("[btcpc-rekey] Fatal: " + err.message);
+  if (err.stack) console.error(err.stack);
+  process.exit(1);
+});
