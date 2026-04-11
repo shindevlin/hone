@@ -5,7 +5,7 @@ const axios = require('axios');
 const router = express.Router();
 const { authenticateToken } = require('../middlewares/auth');
 const Project = require('../models/Project');
-const Transaction = require('../models/Transaction');
+// Transaction model removed in Phase E — ledger entries are canonical
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validUrl, validAccountName, validAddress } = require('../middlewares/validate');
@@ -303,16 +303,11 @@ router.post('/fund', authenticateToken, async (req, res) => {
     const project = await Project.findOne({ walletAddress });
     if (!project) return res.status(404).json({ error: 'Project wallet not found' });
 
-    // Find sender's wallet (still needed for the write-side cache update
-    // below; balance check uses stateStore).
-    const Wallet = require('../models/Wallet');
-    const senderWallet = await Wallet.findOne({ userId: req.user.id, chain: 'btcpc' });
-    if (!senderWallet) return res.status(404).json({ error: 'Your BTCPC wallet not found' });
-
     // Resolve username for ledger + balance lookup
     const User = require('../models/User');
     const senderUser = await User.findById(req.user.id);
-    const senderName = senderUser?.username || senderWallet.address;
+    if (!senderUser) return res.status(404).json({ error: 'User not found' });
+    const senderName = senderUser.username;
 
     const senderBalance = stateStore.getBalance(senderName, 'BTCPC');
     if (senderBalance < amount) return res.status(400).json({ error: 'Insufficient balance' });
@@ -321,22 +316,8 @@ router.post('/fund', authenticateToken, async (req, res) => {
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordTransfer(senderName, 'project:' + project.name, amount, 'BTCPC', null, epoch, `Fund project: ${project.name}`);
 
-    // Update wallet cache
-    senderWallet.balance.set('BTCPC', senderBalance - amount);
-    await senderWallet.save();
-
     project.balance += amount;
     await project.save();
-
-    // Record transaction (legacy index)
-    const tx = new Transaction({
-      from: senderWallet.address,
-      to: walletAddress,
-      amount,
-      type: 'transfer',
-      memo: `Fund project: ${project.name}`
-    });
-    await tx.save();
 
     res.json({
       success: true,
@@ -420,15 +401,14 @@ router.post('/transfer', authenticateToken, async (req, res) => {
       await mongoProject.save();
     }
 
-    // Record transfer on-chain as a transaction
-    const tx = new Transaction({
-      from: currentUser.username,
-      to: buyer.username,
-      amount: projectBalance,
-      type: 'transfer',
-      memo: `Project transfer: ${projectName} (${previousOwner} → ${buyer.username})`
-    });
-    await tx.save();
+    // Record transfer on permanent ledger (Transaction model removed in Phase E)
+    try {
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordTransfer(
+        currentUser.username, buyer.username, 0, 'BTCPC', null, epoch,
+        `Project transfer: ${projectName} (${previousOwner} → ${buyer.username})`
+      );
+    } catch (_) {}
 
     res.json({
       success: true,

@@ -16,16 +16,10 @@ const express = require("express");
 const mongoose = require("mongoose");
 const path = require("path");
 
-// Models
-const Epoch = require("../models/Epoch");
-const Node = require("../models/Node");
+// Models (Phase E: chain-state models removed — use stateStore/ledger/nodeRegistry)
 const User = require("../models/User");
-const StakingPool = require("../models/StakingPool");
-const LedgerEntry = require("../models/LedgerEntry");
-const GenesisDream = require("../models/GenesisDream");
-const PeerRegistry = require("../models/PeerRegistry");
-const Wallet = require("../models/Wallet");
-const Transaction = require("../models/Transaction");
+const nodeRegistry = require("../chain/nodeRegistry");
+const { getDreams: getDreamsForAccount } = require("../controllers/dreamController");
 
 // Chain
 const blockStore = require("../chain/blockStore");
@@ -142,15 +136,14 @@ app.get("/api/bot/balance", async (req, res) => {
     const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
 
-    // Balance from chain state (stateStore). Wallet doc only provides the address.
     const balance = stateStore.getBalance(user.username, "BTCPC");
-    const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
-    const node = await Node.findOne({ account: user._id });
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
+    const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
     res.json({
       username: user.username,
       balance,
-      staked: node?.stake_amount || 0,
-      address: wallet?.address || null
+      staked: stakePool?.staked_amount || 0,
+      address: accountState?.chain_addresses?.btcpc || null
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -163,23 +156,7 @@ app.get("/api/bot/history", async (req, res) => {
     if (!tid) return res.status(400).json({ error: "valid telegramId required" });
     const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
-    const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
-    if (!wallet) return res.json({ transactions: [] });
-
-    const txs = await Transaction.find({
-      $or: [{ from: wallet.address }, { to: wallet.address }, { from: user.username }, { to: user.username }]
-    }).sort({ timestamp: -1 }).limit(10).lean();
-
-    res.json({
-      transactions: txs.map(tx => ({
-        type: tx.type,
-        amount: tx.amount,
-        from: tx.from,
-        to: tx.to,
-        direction: (tx.to === wallet.address || tx.to === user.username) ? "in" : "out",
-        timestamp: tx.timestamp
-      }))
-    });
+    res.json({ transactions: [], note: "Full history available via block explorer" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -245,21 +222,21 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     if (!tid) return res.status(400).json({ error: "valid telegramId required" });
     const user = await resolveTelegramUser(tid);
     if (!user) return res.status(404).json({ error: "Not linked" });
-    const fromWallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
-    if (!fromWallet) return res.status(404).json({ error: "Wallet not found" });
-
     const toAddress = sanitizeString(req.body.toAddress, 200);
     const amount = sanitizeAmount(req.body.amount);
     if (!toAddress || !amount) return res.status(400).json({ error: "toAddress and positive amount required" });
     if (!validAddress(toAddress)) return res.status(400).json({ error: "invalid address format" });
-    if (fromWallet.address === toAddress) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
 
-    // TODO Phase D: add address→username index in stateStore to drop this
-    // Wallet lookup. stateStore only keys balances by username today.
-    const toWallet = await Wallet.findOne({ address: toAddress, chain: "btcpc" });
-    if (!toWallet) return res.status(404).json({ error: "Recipient wallet not found" });
-    const recipient = await User.findById(toWallet.userId);
-    if (!recipient) return res.status(404).json({ error: "Recipient user not found" });
+    // Resolve recipient by username or address via stateStore
+    const recipient = await User.findOne({ username: toAddress }) ||
+      (stateStore.getAllAccounts ? (() => {
+        for (const [uname, acc] of Object.entries(stateStore.getAllAccounts())) {
+          if (acc.chain_addresses?.btcpc === toAddress) return { username: uname };
+        }
+        return null;
+      })() : null);
+    if (!recipient) return res.status(404).json({ error: "Recipient wallet not found" });
+    if (user.username === recipient.username) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
 
     // Balance check via stateStore (chain state)
     const balance = stateStore.getBalance(user.username, "BTCPC");
@@ -285,35 +262,28 @@ app.get("/", async (req, res) => {
     const chainHeight = stateStore.getChainHeight();
     const epochCount = chainHeight >= 0 ? chainHeight + 1 : 0;
 
-    const [
-      totalMiners,
-      recentLedgerEntries,
-      totalLedgerEntries,
-      stakingAgg,
-      activeClocks,
-      peerCount,
-      recentDreams
-    ] = await Promise.all([
-      Node.countDocuments(),
-      LedgerEntry.find().sort({ timestamp: -1 }).limit(10).lean(),
-      LedgerEntry.countDocuments(),
-      StakingPool.aggregate([
-        { $match: { status: "active" } },
-        { $group: { _id: null, total: { $sum: "$staked_amount" } } }
-      ]),
-      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "clock" }),
-      PeerRegistry.countDocuments({ last_seen: { $gte: new Date(Date.now() - 15 * 60 * 1000) } }),
-      GenesisDream.find().sort({ block_number: -1 }).limit(6).lean()
-    ]);
-
-    // Compute total mined from ledger (source of truth)
-    const minedAgg = await LedgerEntry.aggregate([
-      { $match: { type: "MINING_REWARD", token: "BTCPC" } },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
-    ]);
-
-    const totalMined = minedAgg.length ? minedAgg[0].total : 0;
-    const totalStaked = stakingAgg.length ? stakingAgg[0].total : 0;
+    const totalMiners = nodeRegistry.getRegisteredNodes().length;
+    // Read recent ledger entries from pending-entries.jsonl via ledger service
+    const recentLedgerEntries = (await ledger.getRecentEntries ? await ledger.getRecentEntries(10) : []);
+    const totalLedgerEntries = 0; // Phase E: count not available without Mongo
+    // Sum staking from stateStore
+    let totalStaked = 0;
+    if (stateStore.getAllStakePools) {
+      for (const pool of Object.values(stateStore.getAllStakePools())) {
+        if (pool && pool.status !== 'unstaked') totalStaked += pool.staked_amount || 0;
+      }
+    }
+    const activeClocks = nodeRegistry.getRegisteredNodes().filter(n => n.type === 'clock').length;
+    const peerCount = nodeRegistry.getRegisteredNodes().length;
+    const allDreamsMap = stateStore.getAllDreams ? stateStore.getAllDreams() : {};
+    const recentDreams = Object.values(allDreamsMap).sort((a, b) => b.block_number - a.block_number).slice(0, 6);
+    // Compute total mined from stateStore epochs
+    let totalMined = 0;
+    const chainHeightForMined = stateStore.getChainHeight();
+    for (let mi = 0; mi <= chainHeightForMined; mi++) {
+      const ep = stateStore.getEpoch ? stateStore.getEpoch(mi) : null;
+      if (ep) totalMined += ep.block_reward || 0;
+    }
     const currentEpoch = epochCount > 0 ? latestEpochs[0].epoch_number : 0;
     const currentPeriod = getCurrentPeriod(currentEpoch);
 
@@ -355,9 +325,8 @@ app.get("/block/:epoch", async (req, res) => {
     // Read from block file (source of truth) if available
     const blockData = blockStore.readBlock(epochNum);
 
-    // Epoch metadata from stateStore, fall back to Mongo for legacy epochs
+    // Epoch metadata from stateStore
     let epoch = stateStore.getEpoch(epochNum);
-    if (!epoch) epoch = await Epoch.findOne({ epoch_number: epochNum }).lean();
     const period = getCurrentPeriod(epochNum);
 
     res.send(blockView(epoch, period, blockData));
@@ -380,16 +349,10 @@ app.get("/account/:username", async (req, res) => {
       return res.send(accountView({ user: null }));
     }
 
-    const [node, stake, ledgerEntries, miningRewards] = await Promise.all([
-      Node.findOne({ account: user._id }).lean(),
-      StakingPool.findOne({ account: user._id, status: { $in: ["active", "unstaking"] } }).lean(),
-      LedgerEntry.find({
-        $or: [{ from: username }, { to: username }]
-      }).sort({ timestamp: -1 }).limit(50).lean(),
-      LedgerEntry.find({ to: username, type: "MINING_REWARD" }).lean()
-    ]);
-
-    // Compute balance from ledger (source of truth)
+    const node = nodeRegistry.getNode(username) || null;
+    const stake = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+    const ledgerEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(50, username) : [];
+    const miningRewards = [];
     const balance = await ledger.getBalance(username, "BTCPC");
     const pendingDebit = mempool.getPendingDebit(username);
 
@@ -422,10 +385,9 @@ app.get("/tx", async (req, res) => {
     const perPage = 25;
     const skip = (page - 1) * perPage;
 
-    const [entries, total] = await Promise.all([
-      LedgerEntry.find().sort({ timestamp: -1 }).skip(skip).limit(perPage).lean(),
-      LedgerEntry.countDocuments()
-    ]);
+    const allEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(skip + perPage) : [];
+    const entries = allEntries.slice(skip, skip + perPage);
+    const total = allEntries.length;
 
     const transactions = entries.map(formatLedgerEntry);
 
@@ -469,7 +431,7 @@ app.get("/tx/:txHash", async (req, res) => {
 
     // Search ledger entries by computing hashes (limited scan for recent entries)
     if (!txData) {
-      var recentEntries = await LedgerEntry.find().sort({ timestamp: -1 }).limit(500).lean();
+      const recentEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(500) : [];
       for (var i = 0; i < recentEntries.length; i++) {
         var entryHash = blockStore.hashLedgerEntry(recentEntries[i]);
         if (entryHash === txHash) {
@@ -500,13 +462,17 @@ app.get("/tx/:txHash", async (req, res) => {
  */
 app.get("/miners", async (req, res) => {
   try {
-    const miners = await Node.find().sort({ reputation: -1 }).populate("account", "username").lean();
-
-    const mappedMiners = miners.map(m => ({
-      ...m,
-      _account: m.account && typeof m.account === "object" ? m.account : null
-    }));
-
+    const allNodes = nodeRegistry.getRegisteredNodes();
+    const mappedMiners = allNodes.map(n => ({
+      username: n.username,
+      status: n.status || "active",
+      models: n.models || [],
+      endpoint: n.p2p_address || n.endpoint || null,
+      stake_amount: n.stake || 0,
+      reputation: n.reputation || 0,
+      _account: { username: n.username }
+    })).sort((a, b) => b.reputation - a.reputation);
+    const miners = mappedMiners;
     const activeCount = miners.filter(m => m.status === "active").length;
     const totalStaked = miners.reduce((sum, m) => sum + (m.stake_amount || 0), 0);
 
@@ -564,25 +530,21 @@ app.get("/api/stats", async (req, res) => {
       ? Object.assign({ epoch_number: chainHeight }, latestEpochMeta)
       : null;
 
-    const [
-      totalMiners,
-      activeMiners,
-      totalLedgerEntries,
-      stakingAgg,
-      minedAgg
-    ] = await Promise.all([
-      Node.countDocuments(),
-      Node.countDocuments({ status: "active" }),
-      LedgerEntry.countDocuments(),
-      StakingPool.aggregate([
-        { $match: { status: "active" } },
-        { $group: { _id: null, total: { $sum: "$staked_amount" } } }
-      ]),
-      LedgerEntry.aggregate([
-        { $match: { type: "MINING_REWARD", token: "BTCPC" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ])
-    ]);
+    const registeredNodes = nodeRegistry.getRegisteredNodes();
+    const totalMiners = registeredNodes.length;
+    const activeMiners = registeredNodes.filter(n => n.status !== 'inactive').length;
+    let statsTotalStaked = 0;
+    if (stateStore.getAllStakePools) {
+      for (const pool of Object.values(stateStore.getAllStakePools())) {
+        if (pool && pool.status !== 'unstaked') statsTotalStaked += pool.staked_amount || 0;
+      }
+    }
+    let statsTotalMined = 0;
+    const statsChainHeight = chainHeight >= 0 ? chainHeight : 0;
+    for (let si = 0; si <= statsChainHeight; si++) {
+      const ep = stateStore.getEpoch ? stateStore.getEpoch(si) : null;
+      if (ep) statsTotalMined += ep.block_reward || 0;
+    }
 
     const currentEpoch = latestEpoch ? latestEpoch.epoch_number : 0;
     const currentPeriod = getCurrentPeriod(currentEpoch);
@@ -592,7 +554,7 @@ app.get("/api/stats", async (req, res) => {
       chain: "BTCPC",
       name: "Bitcoin Proof of Compute",
       total_supply: TOTAL_SUPPLY,
-      total_mined: minedAgg.length ? minedAgg[0].total : 0,
+      total_mined: statsTotalMined,
       current_epoch: currentEpoch,
       current_period: currentPeriod ? {
         period: currentPeriod.period,
@@ -602,8 +564,8 @@ app.get("/api/stats", async (req, res) => {
       } : null,
       total_miners: totalMiners,
       active_miners: activeMiners,
-      total_ledger_entries: totalLedgerEntries,
-      total_staked: stakingAgg.length ? stakingAgg[0].total : 0,
+      total_ledger_entries: 0,
+      total_staked: statsTotalStaked,
       mempool_size: mempool.size(),
       blocks_on_disk: blockStore.getLatestBlockNumber() + 1,
       latest_finality: blockStore.getLatestFinalityNumber(),
@@ -729,31 +691,28 @@ app.get("/tokenomics", async (req, res) => {
       ? Object.assign({ epoch_number: tokChainHeight }, latestEpochMeta)
       : null;
 
-    const [
-      stakingAgg,
-      minedAgg,
-      activeMiners,
-      activeClocks,
-      totalVerifiers
-    ] = await Promise.all([
-      StakingPool.aggregate([
-        { $match: { status: "active" } },
-        { $group: { _id: null, total: { $sum: "$staked_amount" } } }
-      ]),
-      LedgerEntry.aggregate([
-        { $match: { type: "MINING_REWARD", token: "BTCPC" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ]),
-      Node.countDocuments(),
-      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "clock" }),
-      LedgerEntry.countDocuments({ type: "NODE_REGISTER", "account_data.node_type": "verifier" })
-    ]);
+    const tokNodes = nodeRegistry.getRegisteredNodes();
+    const activeMiners = tokNodes.length;
+    const activeClocks = tokNodes.filter(n => n.type === 'clock').length;
+    const totalVerifiers = tokNodes.filter(n => n.type === 'verifier').length;
+    let tokTotalStaked = 0;
+    if (stateStore.getAllStakePools) {
+      for (const pool of Object.values(stateStore.getAllStakePools())) {
+        if (pool && pool.status !== 'unstaked') tokTotalStaked += pool.staked_amount || 0;
+      }
+    }
+    let tokTotalMined = 0;
+    const tokChainHeightNum = tokChainHeight >= 0 ? tokChainHeight : 0;
+    for (let ti = 0; ti <= tokChainHeightNum; ti++) {
+      const ep = stateStore.getEpoch ? stateStore.getEpoch(ti) : null;
+      if (ep) tokTotalMined += ep.block_reward || 0;
+    }
 
     var currentEpoch = latestEpoch ? latestEpoch.epoch_number : 0;
     var currentPeriod = getCurrentPeriod(currentEpoch);
     var periodTable = getPeriodTable();
-    var totalMined = minedAgg.length ? minedAgg[0].total : 0;
-    var totalStaked = stakingAgg.length ? stakingAgg[0].total : 0;
+    var totalMined = tokTotalMined;
+    var totalStaked = tokTotalStaked;
 
     var deployments = {};
     try { deployments = require("../../contracts/deployments.json"); } catch (_) {}
@@ -820,14 +779,10 @@ app.get("/dashboard", async (req, res) => {
       return res.send(userDashboardView({ user: null }));
     }
 
-    var [node, stake, ledgerEntries, miningRewards] = await Promise.all([
-      Node.findOne({ account: user._id }).lean(),
-      StakingPool.findOne({ account: user._id, status: { $in: ["active", "unstaking"] } }).lean(),
-      LedgerEntry.find({
-        $or: [{ from: accountName }, { to: accountName }]
-      }).sort({ timestamp: -1 }).limit(20).lean(),
-      LedgerEntry.find({ to: accountName, type: "MINING_REWARD" }).lean()
-    ]);
+    var node = nodeRegistry.getNode(accountName) || null;
+    var stake = stateStore.getStakePool ? stateStore.getStakePool(accountName) : null;
+    var ledgerEntries = await ledger.getRecentEntries ? await ledger.getRecentEntries(20, accountName) : [];
+    var miningRewards = [];
 
     var balance = await ledger.getBalance(accountName, "BTCPC");
     var pendingDebit = mempool.getPendingDebit(accountName);
@@ -840,40 +795,20 @@ app.get("/dashboard", async (req, res) => {
       linkedAddresses = await chainLink.getLinkedAddresses(accountName);
     } catch (_) {}
 
-    // Try to get pending claims
     var pendingClaims = [];
-    try {
-      pendingClaims = await LedgerEntry.find({
-        to: accountName,
-        type: "CROSS_CHAIN_CLAIM",
-        status: "pending"
-      }).lean();
-    } catch (_) {}
+    var clockNode = node && node.type === 'clock' ? node : null;
 
-    // Check for clock node registration
-    var clockNode = null;
-    try {
-      var clockEntry = await LedgerEntry.findOne({
-        to: accountName,
-        type: "NODE_REGISTER",
-        "account_data.node_type": "clock"
-      }).lean();
-      if (clockEntry) clockNode = clockEntry.account_data || clockEntry;
-    } catch (_) {}
-
-    // Check for delegation
+    // Check for delegation from stateStore
     var delegation = null;
     try {
-      var delegationEntry = await LedgerEntry.findOne({
-        from: accountName,
-        type: "DELEGATION"
-      }).sort({ timestamp: -1 }).lean();
-      if (delegationEntry) {
-        delegation = {
-          delegatee: delegationEntry.to,
-          amount: delegationEntry.amount,
-          status: "active"
-        };
+      if (stateStore.getAllDelegations) {
+        const allDels = stateStore.getAllDelegations();
+        for (const [key, del] of Object.entries(allDels)) {
+          if (key.startsWith(accountName + '|') && (del.amount || 0) > 0) {
+            delegation = { delegatee: key.split('|')[1], amount: del.amount, status: 'active' };
+            break;
+          }
+        }
       }
     } catch (_) {}
 

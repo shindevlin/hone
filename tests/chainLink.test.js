@@ -1,20 +1,11 @@
 const secp256k1 = require('secp256k1');
 const { keccak256 } = require('js-sha3');
 
-const savedLedgerEntries = [];
-const MockLedgerEntry = jest.fn(function LedgerEntry(data) {
-  return {
-    ...data,
-    save: jest.fn(async () => {
-      savedLedgerEntries.push(data);
-    })
-  };
-});
-MockLedgerEntry.find = jest.fn();
-
-jest.mock('../src/models/LedgerEntry', () => MockLedgerEntry);
+// Phase E: LedgerEntry model removed — chainLink uses ledger service directly
+const mockRecordAccountCreate = jest.fn().mockResolvedValue(undefined);
 jest.mock('../src/services/ledger', () => ({
-  getCurrentEpoch: jest.fn().mockResolvedValue(42)
+  getCurrentEpoch: jest.fn().mockResolvedValue(42),
+  recordAccountCreate: mockRecordAccountCreate
 }));
 jest.mock('../src/models/User', () => ({
   findOne: jest.fn().mockResolvedValue(null)
@@ -42,8 +33,7 @@ function signEVM(message, privateKey) {
 describe('chainLink', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    savedLedgerEntries.length = 0;
-    MockLedgerEntry.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+    mockRecordAccountCreate.mockClear();
   });
 
   test('generateChallenge creates an EVM challenge with a stable signed message', () => {
@@ -80,13 +70,13 @@ describe('chainLink', () => {
       chain: 'evm',
       address
     }));
-    expect(savedLedgerEntries[0]).toEqual(expect.objectContaining({
-      type: 'ACCOUNT_CREATE',
-      from: 'alice',
-      to: 'alice',
-      memo: 'chain-link:evm:' + address,
-      epoch: 42
-    }));
+    expect(mockRecordAccountCreate).toHaveBeenCalledWith(
+      'alice',
+      {},
+      { evm: address },
+      42,
+      'chain-link:evm:' + address
+    );
   });
 
   test('verifyAndLink rejects signatures for a different EVM address', async () => {

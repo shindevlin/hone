@@ -2,8 +2,8 @@
 
 const crypto = require('crypto');
 const User = require('../models/User');
-const Transaction = require('../models/Transaction');
 const { verifySignature, txHash } = require('../wallet/keyManager');
+const ledger = require('./ledger');
 
 const CHALLENGE_EXPIRY_MS = 600000; // 10 minutes
 
@@ -80,27 +80,23 @@ async function verifySignedChallenge(username, telegramId, signature, recovery) 
     throw new Error('Invalid signature. Must be signed with the posting key for this account.');
   }
 
-  // Signature valid — record on-chain and link. Pull the BTCPC address from
-  // stateStore so we avoid a Mongo read for chain state.
+  // Signature valid — record on-chain via ledger and link.
   const stateStore = require('../chain/stateStore');
   const acct = stateStore.getAccount(user.username);
   const btcpcAddress = acct && acct.chain_addresses && acct.chain_addresses.btcpc;
 
-  const tx = new Transaction({
-    from: btcpcAddress || user.username,
-    to: 'btcpc_system',
-    amount: 0,
-    type: 'verification',
-    memo: JSON.stringify({
+  const epoch = await ledger.getCurrentEpoch();
+  // Record telegram verification as a ledger transfer with zero amount
+  const entry = await ledger.recordTransfer(
+    btcpcAddress || user.username, 'btcpc_system', 0, 'BTCPC', null, epoch,
+    JSON.stringify({
       action: 'verify-telegram',
       challenge: challenge,
       telegram_id: pending.telegramId,
       telegram_username: pending.telegramUsername,
-      signature: signature,
-      timestamp: new Date().toISOString()
+      signature: signature
     })
-  });
-  await tx.save();
+  );
 
   // Link confirmed
   user.telegramId = pending.telegramId;
@@ -111,7 +107,7 @@ async function verifySignedChallenge(username, telegramId, signature, recovery) 
   return {
     success: true,
     username: user.username,
-    tx_id: tx._id.toString(),
+    tx_id: entry && entry._id ? entry._id.toString() : null,
     message: 'Telegram linked. Posting key signature verified and recorded on-chain.'
   };
 }

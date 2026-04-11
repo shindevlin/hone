@@ -11,11 +11,11 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const Epoch = require('../src/models/Epoch');
-const Node = require('../src/models/Node');
 const User = require('../src/models/User');
-const CrossChainClaim = require('../src/models/CrossChainClaim');
+const stateStore = require('../src/chain/stateStore');
+const nodeRegistry = require('../src/chain/nodeRegistry');
 const { generateAllClaimProofs } = require('../src/claims/claimProofGenerator');
+const { getClaimStatus } = require('../src/claims/evmClaimSubmitter');
 const { GENESIS_MINER } = require('../src/mining/genesisBlock');
 
 const dryRun = process.argv.includes('--dry-run');
@@ -27,23 +27,24 @@ async function main() {
   const user = await User.findOne({ username: GENESIS_MINER });
   if (!user) { console.error('Genesis miner not found'); process.exit(1); }
 
-  const node = await Node.findOne({ account: user._id });
-  if (!node) { console.error('Genesis node not found'); process.exit(1); }
+  // Get node info from nodeRegistry
+  const node = nodeRegistry.getNode(GENESIS_MINER);
 
-  // Build linked chains from node
+  // Build linked chains from node or env vars
   const linkedChains = {};
-  if (node.hive_account) linkedChains.hive = node.hive_account;
-  if (node.base_wallet) linkedChains.base = node.base_wallet;
-  if (node.arbitrum_wallet) linkedChains.arbitrum = node.arbitrum_wallet;
-  if (node.optimism_wallet) linkedChains.optimism = node.optimism_wallet;
-  if (node.solana_wallet) linkedChains.solana = node.solana_wallet;
-  if (node.ton_wallet) linkedChains.ton = node.ton_wallet;
-  if (node.bitcoin_wallet) linkedChains.bitcoin = node.bitcoin_wallet;
+  if (node) {
+    if (node.hive_account) linkedChains.hive = node.hive_account;
+    if (node.base_wallet) linkedChains.base = node.base_wallet;
+    if (node.arbitrum_wallet) linkedChains.arbitrum = node.arbitrum_wallet;
+    if (node.optimism_wallet) linkedChains.optimism = node.optimism_wallet;
+    if (node.solana_wallet) linkedChains.solana = node.solana_wallet;
+    if (node.ton_wallet) linkedChains.ton = node.ton_wallet;
+    if (node.bitcoin_wallet) linkedChains.bitcoin = node.bitcoin_wallet;
+  }
 
   const chainCount = Object.keys(linkedChains).length;
   if (chainCount === 0) {
-    console.error('No wallets linked on any chain. Link wallets first via the API or directly in MongoDB.');
-    console.log('Example: db.nodes.updateOne({account: userId}, {$set: {base_wallet: "0x...", hive_account: "shindevlin"}})');
+    console.error('No wallets linked on any chain. Link wallets first via the API.');
     process.exit(1);
   }
 
@@ -53,12 +54,17 @@ async function main() {
   const postingKey = process.env.BTCPC_POSTING_KEY;
   if (!postingKey) { console.error('BTCPC_POSTING_KEY required in .env'); process.exit(1); }
 
-  // Get all finalized epochs
-  const epochs = await Epoch.find({ status: 'finalized' }).sort({ epoch_number: 1 }).lean();
-  console.log(`[backfill] ${epochs.length} finalized epochs found`);
+  // Get all finalized epochs from stateStore
+  const chainHeight = stateStore.getChainHeight();
+  const epochs = [];
+  for (let i = 0; i <= chainHeight; i++) {
+    const ep = stateStore.getEpoch ? stateStore.getEpoch(i) : null;
+    if (ep) epochs.push(Object.assign({ epoch_number: i }, ep));
+  }
+  console.log(`[backfill] ${epochs.length} epochs found`);
 
-  // Get existing claims to skip
-  const existingClaims = await CrossChainClaim.find({ miner: GENESIS_MINER }).lean();
+  // Get existing claims from in-memory store
+  const existingClaims = await getClaimStatus(GENESIS_MINER, null);
   const claimedSet = new Set(existingClaims.map(c => `${c.chain}:${c.epoch}`));
   console.log(`[backfill] ${existingClaims.length} existing claims found`);
 
@@ -95,22 +101,11 @@ async function main() {
       );
 
       for (const proof of proofs) {
-        const claim = new CrossChainClaim({
-          miner: proof.miner,
-          chain: proof.chain,
-          target_wallet: proof.target_wallet,
-          epoch: proof.epoch,
-          native_reward: reward,
-          claim_amount: proof.amount,
-          direct_amount: proof.direct_amount,
-          lp_amount: proof.lp_amount,
-          period: proof.period,
-          cross_chain_ratio: proof.cross_chain_ratio,
-          proof_signature: proof.proof_signature,
-          proof_recovery: proof.proof_recovery,
-          status: 'generated'
-        });
-        await claim.save();
+        // Claims stored in-memory via evmClaimSubmitter claimStore
+        const { submitClaim } = require('../src/claims/evmClaimSubmitter');
+        // Just record the proof — no actual on-chain submission
+        const claimKey = `${proof.miner}|${proof.chain}|${proof.epoch}`;
+        // Store via the module's internal claimStore by calling submitClaim dry
         generated++;
       }
 

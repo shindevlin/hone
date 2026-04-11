@@ -1,21 +1,14 @@
 "use strict";
 
-const Epoch = require('../models/Epoch');
-const Node = require('../models/Node');
 const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const WorkProof = require('../models/WorkProof');
 const { getBlockReward } = require('../services/emissionSchedule');
 const { finalizeEpoch, EPOCH_DURATION_MS } = require('../services/epochManager');
 const { generateWork, getEpochMetadata } = require('./workGenerator');
 const { computeStateHash } = require('./stateHash');
 const { createGenesisBlock, GENESIS_MINER } = require('./genesisBlock');
 const MINER_ACCOUNT = process.env.BTCPC_MINER || GENESIS_MINER;
-const GenesisDream = require('../models/GenesisDream');
-const MiningProof = require('../models/MiningProof');
 const { filterInscription } = require('../services/contentFilter');
 const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
-const CrossChainClaim = require('../models/CrossChainClaim');
 const axios = require('axios');
 const p2p = require('../p2p/network');
 const { createBlockMessage, createMessage } = require('../p2p/protocol');
@@ -153,7 +146,6 @@ async function waitForFinalization(epochNumber) {
  */
 async function computeFinalization(epochNumber) {
   const { getRegistryModelHash } = require('../services/modelVerifier');
-  const InferenceJob = require('../models/InferenceJob');
   const finConsensus = require('../chain/finalizationConsensus');
   const nodeRegistry = require('../chain/nodeRegistry');
 
@@ -167,71 +159,43 @@ async function computeFinalization(epochNumber) {
   const blockReward = getBlockReward(rewardNumber);
   const epochsDeferred = epochNumber - rewardNumber;
 
-  // Sweep: settle verified jobs
-  const candidateJobs = await InferenceJob.find({
-    status: { $in: ['completed', 'verifying'] },
-    settlement_epoch: null
-  });
-
-  let sweptCount = 0;
-  for (const job of candidateJobs) {
-    const required = job.required_verifications || 1;
-    const verified = (job.verifications || []).length;
-    const effectiveVerified = verified > 0 ? verified : (job.node_name ? 1 : 0);
-    if (effectiveVerified >= required) {
-      job.settlement_epoch = epochNumber;
-      job.settled_at = new Date();
-      if (job.status !== 'settled') job.status = 'settled';
-      await job.save();
-      sweptCount++;
-    }
-  }
-
-  if (sweptCount > 0) {
-    console.log(`[BTCPC] Epoch ${epochNumber}: ${sweptCount} job(s) settled`);
-  }
-
-  // Release escrows for settled jobs — pay the miner, refund overpayment
+  // Phase E: InferenceJob model deleted. Settlement is based entirely on
+  // compute proofs stored in stateStore. Escrow sweep still runs.
   const escrow = require('../services/escrow');
-  const settledJobs = await InferenceJob.find({ settlement_epoch: epochNumber });
-  for (const job of settledJobs) {
-    const miner = job.node_name || (job.verifications && job.verifications[0] && job.verifications[0].miner);
-    if (miner && job.cost > 0) {
-      try {
-        await escrow.releaseForJob(job.job_id, miner, job.cost);
-      } catch (_) {} // non-fatal — escrow may not exist for pre-escrow jobs
-    }
+  await escrow.sweepEscrows(600000).catch(() => {});
+
+  // Phase E: settled jobs count comes from compute proofs (each proof = 1 settled job)
+  const settledJobsCount = stateStore.getComputeProofs(epochNumber).length;
+  if (settledJobsCount > 0) {
+    console.log(`[BTCPC] Epoch ${epochNumber}: ${settledJobsCount} compute proof(s) will be rewarded`);
   }
 
-  // Sweep any stale escrows (safety net — auto-refund after 10 min)
-  await escrow.sweepEscrows(600000).catch(() => {});
   // Phase D: synthetic mining proofs live exclusively in stateStore
   // (addMiningProof during mining, setMiningProofs on replay).
   const syntheticProofs = stateStore.getMiningProofs(epochNumber).slice();
 
-  // Build per-miner work values
+  // Build per-miner work values from stateStore compute proofs (Phase E)
   const minerWork = {};
   const { verifyModelParams } = require('./workGenerator');
+  const computeProofs = stateStore.getComputeProofs(epochNumber);
 
-  for (const job of settledJobs) {
-    if (job.verifications && job.verifications.length > 0) {
-      for (const v of job.verifications) {
-        if (!v.miner || !v.result_hash) continue;
-        if (v.model_hash) {
-          const registryHash = await getRegistryModelHash(job.model);
-          if (registryHash && v.model_hash !== registryHash) continue;
-        }
-        if (!minerWork[v.miner]) minerWork[v.miner] = { work_value: 0, models: new Set() };
-        minerWork[v.miner].work_value += (v.work_value || 0);
-        minerWork[v.miner].models.add(job.model);
-      }
-    } else if (job.node_name) {
-      const params = await verifyModelParams(job.model || 'qwen3:4b');
-      const wv = (job.tokens_generated || 0) * params;
-      if (!minerWork[job.node_name]) minerWork[job.node_name] = { work_value: 0, models: new Set() };
-      minerWork[job.node_name].work_value += wv;
-      minerWork[job.node_name].models.add(job.model);
+  for (const proof of computeProofs) {
+    const miner = proof.node_id;
+    if (!miner) continue;
+    if (proof.model_hash) {
+      const registryHash = await getRegistryModelHash(proof.model);
+      if (registryHash && proof.model_hash !== registryHash) continue;
     }
+    if (!minerWork[miner]) minerWork[miner] = { work_value: 0, models: new Set() };
+    minerWork[miner].work_value += (proof.work_value || 0);
+    if (proof.model) minerWork[miner].models.add(proof.model);
+  }
+
+  // Placeholder for settledJobs (used below for logging/consensus hash)
+  const settledJobs = computeProofs.map(p => ({ job_id: p.prompt_hash, model: p.model, node_name: p.node_id }));
+
+  for (const _job of settledJobs) {
+    // work already counted above — this loop kept for structure compatibility
   }
 
   for (const proof of syntheticProofs) {
@@ -628,22 +592,24 @@ async function mineEpoch(epochNumber) {
     return;
   }
 
-  const node = await Node.findOne({ account: user._id });
-  if (!node) {
-    console.error(`[BTCPC] Mining node for '${MINER_ACCOUNT}' not found.`);
-    return;
-  }
+  // Phase E: Node/Wallet models deleted — use nodeRegistry and stateStore
+  const nodeEntry = nodeRegistry.getNode(MINER_ACCOUNT);
+  const node = {
+    _id: MINER_ACCOUNT,
+    account: user ? user._id : MINER_ACCOUNT,
+    hive_account: process.env.BTCPC_HIVE_ACCOUNT,
+    base_wallet: process.env.BTCPC_BASE_WALLET,
+    arbitrum_wallet: process.env.BTCPC_ARBITRUM_WALLET,
+    optimism_wallet: process.env.BTCPC_OPTIMISM_WALLET,
+    solana_wallet: process.env.BTCPC_SOLANA_WALLET,
+    ton_wallet: process.env.BTCPC_TON_WALLET,
+    bitcoin_wallet: process.env.BTCPC_BITCOIN_WALLET,
+    last_epoch_commitment: nodeEntry ? nodeEntry.registeredEpoch : 0,
+  };
 
-  // Account existence check via stateStore. The Wallet document is still
-  // fetched so we can display the balance at the end of the cycle (below),
-  // but callers can rely on chain state to know the account is live.
+  // Account existence check via stateStore.
   if (!stateStore.hasAccount(MINER_ACCOUNT)) {
     console.warn('[BTCPC] Miner account not yet in chain state (pre-genesis replay is normal)');
-  }
-  const wallet = await Wallet.findOne({ userId: user._id });
-  if (!wallet) {
-    console.error('[BTCPC] Genesis wallet not found. Run genesis first.');
-    return;
   }
 
   // Phase D: epoch metadata lives in stateStore + block payload, not Mongo.
@@ -675,21 +641,8 @@ async function mineEpoch(epochNumber) {
   // Genesis epoch gets a special first prompt
   const GENESIS_PROMPT = "What is the meaning of computation? If a machine dreams an answer into existence through pure mathematical reasoning, is that dream less real than a human thought? Describe a future where every unit of energy spent computing produces something useful — where proof of work means proof of value created, not value destroyed. The answer, as always, is 42.";
 
-  // Only skip synthetic work if THIS miner has RECENT active inference jobs
-  // Stale claims (>10 min) are expired back to pending so other miners can take them
-  const InferenceJob = require('../models/InferenceJob');
-  const STALE_CLAIM_MS = 600000; // 10 min
-  const staleThreshold = new Date(Date.now() - STALE_CLAIM_MS);
-
-  // Expire stale claims from this miner
-  const staleJobs = await InferenceJob.updateMany(
-    { claimed_by: MINER_ACCOUNT, status: { $in: ['claimed', 'processing'] }, claimed_at: { $lt: staleThreshold } },
-    { $set: { status: 'pending', claimed_by: null, claimed_at: null } }
-  );
-  if (staleJobs.modifiedCount > 0) {
-    console.log(`[BTCPC]   Expired ${staleJobs.modifiedCount} stale claim(s) back to pending`);
-  }
-
+  // Phase E: InferenceJob model deleted. Stale claim expiry handled by handler.js
+  // which tracks claimedJobs in memory. No Mongo sweep needed here.
   // No synthetic work — miners only earn from real inference jobs
   const syntheticCount = 0;
 
@@ -742,33 +695,18 @@ async function mineEpoch(epochNumber) {
 
   // If no synthetic work, check if we completed any inference jobs this epoch
   if (workProofs.length === 0) {
-    // Check for inference jobs completed since the previous epoch
-    // (jobs completed in the last EPOCH_DURATION window belong to this epoch)
-    const lookback = new Date(Date.now() - EPOCH_DURATION_MS);
-    const recentJobs = await InferenceJob.find({
-      node_name: MINER_ACCOUNT,
-      status: 'completed',
-      settlement_epoch: null, // not yet assigned to an epoch
-      completed_at: { $gte: lookback }
-    });
+    // Phase E: InferenceJob model deleted. Completed inference jobs are now
+    // tracked as compute proofs in stateStore (added by handler.js via
+    // stateStore.addComputeProof). Read them from stateStore.
+    const recentProofs = stateStore.getComputeProofs(epochNumber);
+    const myProofs = recentProofs.filter(p => p.node_id === MINER_ACCOUNT);
 
-    if (recentJobs.length > 0) {
-      // Calculate work value from inference jobs processed
-      const { verifyModelParams } = require('./workGenerator');
-      for (const job of recentJobs) {
-        const params = await verifyModelParams(job.model || MODEL);
-        const tokens = job.tokens_generated || 0;
-        totalTokens += tokens;
-        totalWorkValue += tokens * params;
-
-        // Tag job with settlement epoch
-        if (!job.settlement_epoch) {
-          job.settlement_epoch = epochNumber;
-          job.settled_at = new Date();
-          await job.save();
-        }
+    if (myProofs.length > 0) {
+      for (const proof of myProofs) {
+        totalTokens += proof.tokens_generated || 0;
+        totalWorkValue += proof.work_value || 0;
       }
-      console.log(`[BTCPC]   ${recentJobs.length} inference job(s) completed this epoch: ${totalTokens} tokens, work_value=${totalWorkValue}`);
+      console.log(`[BTCPC]   ${myProofs.length} inference proof(s) this epoch: ${totalTokens} tokens, work_value=${totalWorkValue}`);
     }
 
     if (totalWorkValue === 0) {
@@ -801,11 +739,11 @@ async function mineEpoch(epochNumber) {
 
   // Step 4: Create genesis dream for this block (mandatory)
   const metadata = getEpochMetadata(epochNumber);
-  const existingDream = await GenesisDream.findOne({ block_number: epochNumber });
-  if (!existingDream) {
+  // Phase E: GenesisDream model deleted — dreams recorded as ledger entries
+  // in the block payload. The dream metadata is inscribed in the EPOCH_FINALIZED
+  // block and readable via block file replay.
+  {
     const workHash = workProofs.length > 0 ? workProofs[0].result_hash : '0'.repeat(64);
-
-    // Apply content filter to inscription text
     const tagResult = filterInscription(metadata.tag);
     const projectResult = filterInscription(metadata.project);
     const filteredTag = tagResult.filtered_text;
@@ -813,25 +751,8 @@ async function mineEpoch(epochNumber) {
     if (tagResult.was_redacted || projectResult.was_redacted) {
       console.log(`[BTCPC]   Content filter: inscription text redacted`);
     }
-
-    const dream = new GenesisDream({
-      block_number: epochNumber,
-      original_miner: MINER_ACCOUNT,
-      current_owner: MINER_ACCOUNT,
-      inscription: {
-        project: filteredProject,
-        tag: filteredTag,
-        custom_data: { epoch: epochNumber, model: MODEL, work_items: workProofs.length }
-      },
-      proof: {
-        state_hash: stateHash,
-        work_hash: workHash,
-        tokens_computed: totalTokens,
-        model: MODEL
-      }
-    });
-    await dream.save();
-    console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}]`);
+    // Dream metadata is stored on the block payload (not in Mongo)
+    console.log(`[BTCPC]   Dream #${epochNumber}: "${filteredTag}" [${filteredProject}] work_hash=${workHash.slice(0, 16)}...`);
   }
 
   // Step 4b: Record this miner's proof for the epoch.
@@ -1030,27 +951,21 @@ async function startMiner() {
     if (sik.software_only) {
       console.log('[BTCPC] WARNING: Software-only fingerprint. Compile CUDA probe for silicon-bound identity.');
     }
-    // Register SIK hash on Node document
-    const sikUser = await User.findOne({ username: MINER_ACCOUNT });
-    if (sikUser) {
-      const sikNode = await Node.findOne({ account: sikUser._id });
-      if (sikNode && sikNode.sik_hash !== sik.sik_hash) {
-        sikNode.sik_hash = sik.sik_hash;
-        sikNode.sik_type = sik.software_only ? 'software' : 'silicon';
-        await sikNode.save();
-        console.log(`[BTCPC] SIK registered on node: ${sik.sik_hash.slice(0, 16)}... (${sikNode.sik_type})`);
-      }
+    // Phase E: Node model deleted — SIK hash stored in nodeRegistry in-memory
+    const sikEntry = nodeRegistry.getNode(MINER_ACCOUNT);
+    if (sikEntry && sikEntry.sik_hash !== sik.sik_hash) {
+      sikEntry.sik_hash = sik.sik_hash;
+      sikEntry.sik_type = sik.software_only ? 'software' : 'silicon';
+      console.log(`[BTCPC] SIK registered: ${sik.sik_hash.slice(0, 16)}... (${sikEntry.sik_type})`);
     }
   } catch (err) {
     console.warn('[BTCPC] SIK probe skipped:', err.message);
   }
 
-  // Sync local Ollama models to node record
+  // Sync local Ollama models (Phase E: Node model deleted, pass null nodeId)
   try {
     const { syncLocalModels } = require('../services/modelRegistry');
-    const user = await User.findOne({ username: MINER_ACCOUNT });
-    const node = user ? await Node.findOne({ account: user._id }) : null;
-    const models = await syncLocalModels(node?._id);
+    const models = await syncLocalModels(null);
     console.log(`[BTCPC] Models synced: ${models.join(', ') || 'none'}`);
 
     // Verify all models against Ollama registry
@@ -1098,47 +1013,17 @@ async function startMiner() {
       p2p.broadcast(announceMsg);
       console.log(`[BTCPC] Account broadcast to P2P network`);
 
-      // Check for unclaimed tokens sent to this username before it existed
-      const crypto = require('crypto');
-      const unclaimedAddr = 'BTCPC' + crypto.createHash('sha256').update('btcpc-username:' + MINER_ACCOUNT).digest('hex').slice(0, 40);
-      const unclaimedWallet = await Wallet.findOne({ address: unclaimedAddr, userId: null, chain: 'btcpc' });
-      if (unclaimedWallet) {
-        const unclaimedBalance = unclaimedWallet.balance.get('BTCPC') || 0;
-        if (unclaimedBalance > 0) {
-          // Transfer unclaimed tokens to the new account
-          const myWallet = await Wallet.findOne({ userId: minerUser._id, chain: 'btcpc' });
-          if (myWallet) {
-            const myBal = myWallet.balance.get('BTCPC') || 0;
-            myWallet.balance.set('BTCPC', myBal + unclaimedBalance);
-            await myWallet.save();
-            unclaimedWallet.balance.set('BTCPC', 0);
-            unclaimedWallet.userId = minerUser._id; // link to real account
-            await unclaimedWallet.save();
-            console.log(`[BTCPC] Claimed ${unclaimedBalance.toFixed(4)} BTCPC from unclaimed address`);
-          }
-        }
-      }
+      // Phase E: Wallet model deleted — unclaimed token check skipped.
+      // Chain state is source of truth; balances are in stateStore.
     } catch (err) {
       console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
     }
   }
 
-  // Ensure mining node exists
-  if (minerUser) {
-    let minerNode = await Node.findOne({ account: minerUser._id });
-    if (!minerNode) {
-      minerNode = new Node({
-        account: minerUser._id,
-        endpoint: process.env.OLLAMA_URL || 'http://localhost:11434',
-        models: [MODEL],
-        stake_amount: 1000,
-        status: 'active',
-        inference_engine: 'ollama',
-        reputation: 100
-      });
-      await minerNode.save();
-      console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT}`);
-    }
+  // Phase E: Node model deleted — register in nodeRegistry in-memory
+  if (!nodeRegistry.isRegistered(MINER_ACCOUNT)) {
+    nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, process.env.OLLAMA_URL || 'http://localhost:11434', 0, MINER_ACCOUNT === GENESIS_MINER);
+    console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
   running = true;
@@ -1240,9 +1125,7 @@ async function startMiner() {
       setImmediate(async () => {
         try {
           const { syncLocalModels } = require('../services/modelRegistry');
-          const _user = await User.findOne({ username: MINER_ACCOUNT });
-          const _node = _user ? await Node.findOne({ account: _user._id }) : null;
-          syncLocalModels(_node?._id).catch(() => {});
+          syncLocalModels(null).catch(() => {});
 
           await mineEpoch(epochToMine);
         } catch (err) {

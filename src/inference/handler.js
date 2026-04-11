@@ -17,9 +17,8 @@ const { createMessage } = require("../p2p/protocol");
 const { GENESIS_MINER } = require("../mining/genesisBlock");
 const MINER_NAME = process.env.BTCPC_MINER || GENESIS_MINER;
 const { getModelWeight } = require("../mining/workGenerator");
-const WorkProof = require("../models/WorkProof");
-const Node = require("../models/Node");
-const User = require("../models/User");
+const stateStore = require("../chain/stateStore");
+const nodeRegistry = require("../chain/nodeRegistry");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://100.122.145.60:11434";
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_INFERENCE) || 1;
@@ -429,9 +428,8 @@ async function handleInferenceRequest(msg) {
     return;
   }
 
-  // Get our node info for the claim
-  const user = await User.findOne({ username: MINER_NAME });
-  const node = user ? await Node.findOne({ account: user._id }) : null;
+  // Get our node info from nodeRegistry (no Mongo)
+  const nodeEntry = nodeRegistry.getNode(MINER_NAME);
 
   // Mark as in-flight BEFORE broadcasting so race conditions don't double-claim
   jobInFlight = {
@@ -442,8 +440,8 @@ async function handleInferenceRequest(msg) {
 
   const claim = createMessage("INFERENCE_CLAIM", {
     request_id: reqId,
-    node_id: node?._id?.toString() || p2p.NODE_ID,
-    sik_hash: node?.sik_hash || "none",
+    node_id: p2p.NODE_ID,
+    sik_hash: "none",
     price: Math.min(data.max_fee || 10, 5),
     model: model,
     node_name: MINER_NAME,
@@ -538,46 +536,23 @@ async function handlePayload(msg) {
     const resultHash = crypto.createHash("sha256").update(resultText).digest("hex");
     const promptHash = crypto.createHash("sha256").update(prompt).digest("hex");
 
-    // Store InferenceJob locally (authority needs this for settlement sweep)
-    const InferenceJob = require("../models/InferenceJob");
-    const existingJob = await InferenceJob.findOne({ job_id: requestId });
-    if (!existingJob) {
-      await InferenceJob.create({
-        job_id: requestId,
-        status: "completed",
-        model,
-        messages: [],
-        result_text: resultText,
-        result_hash: resultHash,
-        tokens_generated: tokensGenerated,
-        elapsed_ms: elapsed,
-        node_name: MINER_NAME,
-        completed_at: new Date()
-      });
-    } else {
-      existingJob.status = "completed";
-      existingJob.result_text = resultText;
-      existingJob.result_hash = resultHash;
-      existingJob.tokens_generated = tokensGenerated;
-      existingJob.elapsed_ms = elapsed;
-      existingJob.node_name = MINER_NAME;
-      existingJob.completed_at = new Date();
-      await existingJob.save();
-    }
-
-    // Store work proof
+    // Store work proof in stateStore (no Mongo)
     const weightFactor = getModelWeight(model);
-    const proof = new WorkProof({
-      epoch_number: 0, // will be set by epoch manager
-      node_id: MINER_NAME,
-      prompt_hash: promptHash,
-      result_hash: resultHash,
-      model,
-      tokens_generated: tokensGenerated,
-      model_weight_factor: weightFactor,
-      work_value: tokensGenerated * weightFactor,
-    });
-    await proof.save();
+    const workValue = tokensGenerated * weightFactor;
+    const currentEpochForProof = p2p.getCurrentEpoch ? p2p.getCurrentEpoch() : 0;
+    if (stateStore.addComputeProof) {
+      stateStore.addComputeProof(currentEpochForProof, {
+        node_id: MINER_NAME,
+        prompt_hash: promptHash,
+        result_hash: resultHash,
+        model,
+        tokens_generated: tokensGenerated,
+        model_weight_factor: weightFactor,
+        work_value: workValue,
+        job_id: requestId,
+        completed_at: new Date().toISOString()
+      });
+    }
 
     // Commit result hash
     const commit = createMessage("INFERENCE_COMMIT", {
@@ -589,10 +564,8 @@ async function handlePayload(msg) {
     }, p2p.NODE_ID);
     p2p.broadcast(commit);
 
-    // Compute work_value and current epoch for the gossiped attestation.
-    // Other nodes will use this to credit our work without needing our DB.
-    const workValue = tokensGenerated * weightFactor;
-    const currentEpoch = p2p.getCurrentEpoch ? p2p.getCurrentEpoch() : 0;
+    // currentEpoch already captured above as currentEpochForProof
+    const currentEpoch = currentEpochForProof;
 
     // Immediately reveal (single-node mode; multi-node waits for all commits)
     const reveal = createMessage("INFERENCE_REVEAL", {
@@ -628,9 +601,8 @@ async function handlePayload(msg) {
 
     // Broadcast VERIFY_REQUEST — verifiers see full response but NOT the prompt
     try {
-      const Epoch = require("../models/Epoch");
-      const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
-      const currentEpoch = latestEpoch ? latestEpoch.epoch_number : 0;
+      const latestEpoch = stateStore.getLatestEpoch ? stateStore.getLatestEpoch() : null;
+      const epochForVerify = latestEpoch ? (latestEpoch.epoch_number || 0) : 0;
       const verifyReq = createMessage("VERIFY_REQUEST", {
         job_id: requestId,
         result: resultText,
@@ -638,7 +610,7 @@ async function handlePayload(msg) {
         token_count: tokensGenerated,
         timing_ms: elapsed,
         miner: MINER_NAME,
-        epoch: currentEpoch,
+        epoch: epochForVerify,
         block_hash: latestEpoch ? (latestEpoch.consensus_hash || "0".repeat(64)) : "0".repeat(64)
       }, p2p.NODE_ID);
       p2p.broadcast(verifyReq);

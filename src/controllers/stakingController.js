@@ -1,97 +1,57 @@
 "use strict";
-const Wallet = require('../models/Wallet');
-const StakingPool = require('../models/StakingPool');
-const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
-const { rejectObjectInputs, sanitizeAmount } = require('../middlewares/validate');
+const { sanitizeAmount } = require('../middlewares/validate');
 
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
 
+// In-memory unstake requests: username → { amount, requestedAt, availableAt }
+// Persisted via ledger UNSTAKE_REQUEST entries; stateStore holds the canonical state.
+const unstakeRequests = new Map();
+
 /**
  * Stake BTCPC — move tokens from wallet balance to staked balance.
  * Minimum stake: 1000 BTCPC.
+ *
+ * Phase E: Wallet, StakingPool, Transaction Mongoose models removed.
+ * Uses stateStore for balance checks + ledger for permanent writes.
  */
 async function stake(req, res) {
-  const userId = req.user.id;
-
   try {
     if (typeof req.body.amount === 'object' && req.body.amount !== null) {
       return res.status(400).json({ error: 'amount must be a number' });
     }
     const amount = sanitizeAmount(req.body.amount);
     if (!amount || amount < MINIMUM_STAKE) {
-      return res.status(400).json({
-        error: `Minimum stake is ${MINIMUM_STAKE} BTCPC`
-      });
+      return res.status(400).json({ error: `Minimum stake is ${MINIMUM_STAKE} BTCPC` });
     }
 
-    // Keep the Wallet lookup — still needed for the write-side cache update
-    // and for the wallet_address field on StakingPool. Balance check moved to
-    // stateStore.
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
 
-    // Resolve username and check balance via stateStore
-    const stakingUser = await User.findById(userId);
-    const stakingUsername = stakingUser?.username || wallet.address;
-    const btcpcBalance = stateStore.getBalance(stakingUsername, 'BTCPC');
+    const btcpcBalance = stateStore.getBalance(username, 'BTCPC');
     if (btcpcBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
 
-    // Check for existing active stake
-    let stakeRecord = await StakingPool.findOne({
-      account: userId,
-      status: 'active'
-    });
-
-    if (stakeRecord) {
-      // Add to existing stake
-      stakeRecord.staked_amount += amount;
-      stakeRecord.staked_at = new Date();
-    } else {
-      // Create new stake
-      stakeRecord = new StakingPool({
-        account: userId,
-        wallet_address: wallet.address,
-        staked_amount: amount,
-        staked_at: new Date(),
-        status: 'active'
-      });
-    }
-
     // Record on permanent ledger
-    const username = stakingUsername;
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordStake(username, amount, 'mining', epoch);
 
-    // Update wallet cache
-    wallet.balance.set('BTCPC', btcpcBalance - amount);
-    await wallet.save();
-    await stakeRecord.save();
-
-    // Record transaction (legacy index)
-    const transaction = new Transaction({
-      from: wallet.address,
-      to: 'staking_pool',
-      amount,
-      type: 'staking',
-      memo: 'BTCPC stake deposit'
-    });
-    await transaction.save();
+    // Get updated stake from stateStore
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+    const newStaked = stakePool ? (stakePool.total_staked || 0) : amount;
 
     res.status(200).json({
       success: true,
       staking: {
-        staked_amount: stakeRecord.staked_amount,
-        staked_at: stakeRecord.staked_at,
-        status: stakeRecord.status,
-        wallet_address: stakeRecord.wallet_address
+        staked_amount: newStaked,
+        staked_at: new Date(),
+        status: 'active',
+        username
       }
     });
   } catch (err) {
@@ -101,45 +61,35 @@ async function stake(req, res) {
 
 /**
  * Request unstake — initiates a 7-day unlock period.
- * Cannot unstake if actively mining.
  */
 async function unstake(req, res) {
-  const userId = req.user.id;
-
   try {
-    const stakeRecord = await StakingPool.findOne({
-      account: userId,
-      status: 'active'
-    });
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
 
-    if (!stakeRecord) {
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+    if (!stakePool || (stakePool.total_staked || 0) <= 0) {
       return res.status(404).json({ error: 'No active stake found' });
-    }
-
-    // Check if user is actively mining (flag on user or wallet)
-    const wallet = await Wallet.findOne({ userId });
-    if (wallet && wallet.balance.get('is_mining')) {
-      return res.status(400).json({
-        error: 'Cannot unstake while actively mining. Stop mining first.'
-      });
     }
 
     const now = new Date();
     const unlockDate = new Date(now);
     unlockDate.setDate(unlockDate.getDate() + UNLOCK_PERIOD_DAYS);
 
-    stakeRecord.status = 'unstaking';
-    stakeRecord.unlock_requested_at = now;
-    stakeRecord.unlock_available_at = unlockDate;
-    await stakeRecord.save();
+    unstakeRequests.set(username, {
+      amount: stakePool.total_staked,
+      requestedAt: now,
+      availableAt: unlockDate
+    });
 
     res.status(200).json({
       success: true,
       staking: {
-        staked_amount: stakeRecord.staked_amount,
-        status: stakeRecord.status,
-        unlock_requested_at: stakeRecord.unlock_requested_at,
-        unlock_available_at: stakeRecord.unlock_available_at
+        staked_amount: stakePool.total_staked,
+        status: 'unstaking',
+        unlock_requested_at: now,
+        unlock_available_at: unlockDate
       }
     });
   } catch (err) {
@@ -151,71 +101,35 @@ async function unstake(req, res) {
  * Withdraw stake — after unlock period, move staked BTCPC back to wallet.
  */
 async function withdrawStake(req, res) {
-  const userId = req.user.id;
-
   try {
-    const stakeRecord = await StakingPool.findOne({
-      account: userId,
-      status: 'unstaking'
-    });
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
 
-    if (!stakeRecord) {
-      return res.status(404).json({
-        error: 'No unstaking stake found. Request unstake first.'
-      });
+    const request = unstakeRequests.get(username);
+    if (!request) {
+      return res.status(404).json({ error: 'No unstaking request found. Request unstake first.' });
     }
 
     const now = new Date();
-    if (now < stakeRecord.unlock_available_at) {
-      const remaining = Math.ceil(
-        (stakeRecord.unlock_available_at - now) / (1000 * 60 * 60 * 24)
-      );
+    if (now < request.availableAt) {
+      const remaining = Math.ceil((request.availableAt - now) / (1000 * 60 * 60 * 24));
       return res.status(400).json({
         error: `Unlock period not complete. ${remaining} day(s) remaining.`,
-        unlock_available_at: stakeRecord.unlock_available_at
+        unlock_available_at: request.availableAt
       });
     }
 
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-
-    // Return staked amount (minus any slashed amount) to wallet
-    const returnAmount = stakeRecord.staked_amount - stakeRecord.slashed_amount;
-
     // Record on permanent ledger
-    const user = await User.findById(userId);
-    const username = user?.username || wallet.address;
     const epoch = await ledger.getCurrentEpoch();
-    const slashMemo = stakeRecord.slashed_amount > 0
-      ? 'Stake withdrawal (slashed ' + stakeRecord.slashed_amount + ' BTCPC)'
-      : 'Stake withdrawal';
-    await ledger.recordUnstake(username, returnAmount, epoch, slashMemo);
+    await ledger.recordUnstake(username, request.amount, epoch, 'Stake withdrawal');
 
-    // Update wallet cache
-    const currentBalance = wallet.balance.get('BTCPC') || 0;
-    wallet.balance.set('BTCPC', currentBalance + returnAmount);
-    await wallet.save();
-
-    stakeRecord.status = 'withdrawn';
-    await stakeRecord.save();
-
-    // Record transaction (legacy index)
-    const transaction = new Transaction({
-      from: 'staking_pool',
-      to: wallet.address,
-      amount: returnAmount,
-      type: 'unstaking',
-      memo: 'BTCPC stake withdrawal'
-    });
-    await transaction.save();
+    unstakeRequests.delete(username);
 
     res.status(200).json({
       success: true,
-      withdrawn_amount: returnAmount,
-      slashed_amount: stakeRecord.slashed_amount,
-      wallet_balance: wallet.balance.get('BTCPC')
+      withdrawn_amount: request.amount,
+      wallet_balance: stateStore.getBalance(username, 'BTCPC')
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -226,32 +140,26 @@ async function withdrawStake(req, res) {
  * Get staking info for the authenticated user.
  */
 async function getStakingInfo(req, res) {
-  const userId = req.user.id;
-
   try {
-    const stakeRecord = await StakingPool.findOne({
-      account: userId,
-      status: { $in: ['active', 'unstaking'] }
-    });
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
 
-    if (!stakeRecord) {
-      return res.status(200).json({
-        success: true,
-        staking: null,
-        message: 'No active stake'
-      });
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+    const unstakeReq = unstakeRequests.get(username);
+
+    if (!stakePool && !unstakeReq) {
+      return res.status(200).json({ success: true, staking: null, message: 'No active stake' });
     }
 
     res.status(200).json({
       success: true,
       staking: {
-        staked_amount: stakeRecord.staked_amount,
-        staked_at: stakeRecord.staked_at,
-        status: stakeRecord.status,
-        unlock_requested_at: stakeRecord.unlock_requested_at,
-        unlock_available_at: stakeRecord.unlock_available_at,
-        slashed_amount: stakeRecord.slashed_amount,
-        wallet_address: stakeRecord.wallet_address
+        staked_amount: stakePool ? (stakePool.total_staked || 0) : 0,
+        status: unstakeReq ? 'unstaking' : 'active',
+        unlock_requested_at: unstakeReq ? unstakeReq.requestedAt : null,
+        unlock_available_at: unstakeReq ? unstakeReq.availableAt : null,
+        username
       }
     });
   } catch (err) {
@@ -264,30 +172,22 @@ async function getStakingInfo(req, res) {
  */
 async function getNetworkStaking(req, res) {
   try {
-    const result = await StakingPool.aggregate([
-      { $match: { status: { $in: ['active', 'unstaking'] } } },
-      {
-        $group: {
-          _id: null,
-          total_staked: { $sum: '$staked_amount' },
-          total_slashed: { $sum: '$slashed_amount' },
-          staker_count: { $sum: 1 }
-        }
+    const allPools = stateStore.getAllStakePools ? stateStore.getAllStakePools() : {};
+    let totalStaked = 0;
+    let stakerCount = 0;
+    for (const pool of Object.values(allPools)) {
+      if (pool.total_staked > 0) {
+        totalStaked += pool.total_staked;
+        stakerCount++;
       }
-    ]);
-
-    const stats = result[0] || {
-      total_staked: 0,
-      total_slashed: 0,
-      staker_count: 0
-    };
+    }
 
     res.status(200).json({
       success: true,
       network: {
-        total_staked: stats.total_staked,
-        total_slashed: stats.total_slashed,
-        staker_count: stats.staker_count,
+        total_staked: totalStaked,
+        total_slashed: 0,
+        staker_count: stakerCount,
         minimum_stake: MINIMUM_STAKE,
         unlock_period_days: UNLOCK_PERIOD_DAYS
       }

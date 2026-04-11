@@ -23,7 +23,9 @@ var http = require("http");
 var { keccak256 } = require("js-sha3");
 var secp256k1 = require("secp256k1");
 
-var CrossChainClaim = require("../models/CrossChainClaim");
+// Phase E: CrossChainClaim Mongoose model removed.
+// In-memory claim store: "miner|chain|epoch" → claim object
+const claimStore = new Map();
 
 // EVM chain configurations
 var CHAINS = {
@@ -171,13 +173,11 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
   if (!config.contract) throw new Error("No wBTCPC contract deployed on " + chain);
 
   // Check if already claimed
-  var existing = await CrossChainClaim.findOne({
-    miner: proof.miner,
-    chain: chain,
-    epoch: proof.epoch,
-    status: { $in: ["submitted", "confirmed"] }
-  });
-  if (existing) return { txHash: existing.tx_hash, status: "already_claimed" };
+  var claimKey = proof.miner + '|' + chain + '|' + proof.epoch;
+  var existing = claimStore.get(claimKey);
+  if (existing && (existing.status === 'submitted' || existing.status === 'confirmed')) {
+    return { txHash: existing.tx_hash, status: "already_claimed" };
+  }
 
   // Sign the proof for this chain
   var amountRaw = Math.round(parseFloat(proof.direct_amount) * 1e10).toString();
@@ -206,8 +206,8 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
     // Signature data (padded to 32-byte boundary)
     signed.signature.replace("0x", "").padEnd(192, "0");
 
-  // Record the claim attempt
-  var claim = new CrossChainClaim({
+  // Record the claim attempt in-memory
+  var claim = {
     miner: proof.miner,
     chain: chain,
     target_wallet: proof.target_wallet,
@@ -219,9 +219,10 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
     period: proof.period,
     cross_chain_ratio: proof.cross_chain_ratio,
     proof_signature: signed.signature,
-    status: "generated"
-  });
-  await claim.save();
+    status: "generated",
+    created_at: new Date().toISOString()
+  };
+  claimStore.set(claimKey, claim);
 
   console.log("[BTCPC Claims] " + config.name + ": epoch " + proof.epoch +
     " | " + proof.direct_amount + " wBTCPC → " + proof.target_wallet.slice(0, 10) + "...");
@@ -240,7 +241,7 @@ async function submitClaim(chain, proof, signingKey, submitterKey) {
     contract: config.contract,
     callData: callData,
     amount: proof.direct_amount + " wBTCPC",
-    claim_id: claim._id
+    claim_id: claimKey
   };
 }
 
@@ -274,7 +275,15 @@ async function submitAllClaims(miner, epoch, amount, linkedChains, signingKey) {
  * Get claim status for a miner on all chains.
  */
 async function getClaimStatus(miner, epoch) {
-  return CrossChainClaim.find({ miner: miner, epoch: epoch }).lean();
+  const results = [];
+  for (const [key, claim] of claimStore) {
+    const matchMiner = miner === null || claim.miner === miner;
+    const matchEpoch = epoch === null || claim.epoch === epoch;
+    if (matchMiner && matchEpoch) {
+      results.push(claim);
+    }
+  }
+  return results;
 }
 
 module.exports = {

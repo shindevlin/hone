@@ -1,6 +1,6 @@
 "use strict";
 
-const Node = require('../models/Node');
+const nodeRegistry = require('../chain/nodeRegistry');
 const axios = require('axios');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.122.145.60:11434';
@@ -9,12 +9,17 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.122.145.60:11434';
  * Network Model Registry
  *
  * Tracks which models are available across all miners.
- * Miners periodically sync their local Ollama models to their Node record.
+ * Miners periodically sync their local Ollama models to their nodeRegistry entry.
  * Users query the registry to see what's available network-wide.
+ *
+ * Phase E: Node Mongoose model removed. Uses nodeRegistry (in-memory).
  */
 
 // In-memory cache of unmet demand (model → request count)
 const unmetDemand = new Map();
+
+// In-memory model cache per miner: username → string[]
+const minerModels = new Map();
 
 /**
  * Detect which inference engine is running at the backend URL.
@@ -33,7 +38,6 @@ async function detectEngine() {
   try {
     const resp = await axios.get(`${OLLAMA_URL}/v1/models`, { timeout: 5000 });
     if (resp.data?.data) {
-      // Try to identify from headers or response shape
       const server = resp.headers?.['server'] || '';
       if (server.includes('vllm')) return { engine: 'vllm', version: server };
       if (server.includes('llama')) return { engine: 'llama.cpp', version: server };
@@ -45,35 +49,27 @@ async function detectEngine() {
 }
 
 /**
- * Sync local models and engine info to this node's DB record.
- * Called on miner startup and periodically.
+ * Sync local models to in-memory cache. nodeId (username) is optional —
+ * if provided, updates the minerModels map for network-wide queries.
  */
 async function syncLocalModels(nodeId) {
   try {
     let models = [];
-    let engine = { engine: null, version: null };
 
     // Try Ollama native API first
     try {
       const resp = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 10000 });
       models = (resp.data.models || []).map(m => m.name);
-      engine = await detectEngine();
     } catch (_) {
       // Fall back to OpenAI-compatible /v1/models
       try {
         const resp = await axios.get(`${OLLAMA_URL}/v1/models`, { timeout: 10000 });
         models = (resp.data.data || []).map(m => m.id);
-        engine = await detectEngine();
       } catch (_) {}
     }
 
     if (nodeId) {
-      const update = { models };
-      if (engine.engine) {
-        update.inference_engine = engine.engine;
-        update.inference_engine_version = engine.version;
-      }
-      await Node.findByIdAndUpdate(nodeId, update);
+      minerModels.set(nodeId, models);
     }
 
     return models;
@@ -88,22 +84,17 @@ async function syncLocalModels(nodeId) {
  * @returns {Array<{model, miners, totalVram, avgReputation}>}
  */
 async function getNetworkModels() {
-  const nodes = await Node.find({ status: 'active' })
-    .select('models hardware reputation endpoint inference_engine')
-    .lean();
-
+  const allNodes = nodeRegistry.getRegisteredNodes();
   const modelMap = new Map();
 
-  for (const node of nodes) {
-    for (const model of (node.models || [])) {
+  for (const node of allNodes) {
+    const models = minerModels.get(node.username) || [];
+    for (const model of models) {
       if (!modelMap.has(model)) {
         modelMap.set(model, { model, miners: 0, totalVram: 0, reputationSum: 0, engines: new Set() });
       }
       const entry = modelMap.get(model);
       entry.miners++;
-      entry.totalVram += node.hardware?.vram_gb || 0;
-      entry.reputationSum += node.reputation || 0;
-      if (node.inference_engine) entry.engines.add(node.inference_engine);
     }
   }
 
@@ -112,8 +103,8 @@ async function getNetworkModels() {
       model: m.model,
       miners: m.miners,
       engines: Array.from(m.engines),
-      avg_vram_gb: m.miners > 0 ? Math.round(m.totalVram / m.miners) : 0,
-      avg_reputation: m.miners > 0 ? Math.round(m.reputationSum / m.miners) : 0
+      avg_vram_gb: 0,
+      avg_reputation: 0
     }))
     .sort((a, b) => b.miners - a.miners);
 }
@@ -124,10 +115,10 @@ async function getNetworkModels() {
  * @returns {Object} { available, miners, demand }
  */
 async function checkModelAvailability(model) {
-  const count = await Node.countDocuments({
-    status: 'active',
-    models: { $regex: new RegExp('^' + model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }
-  });
+  let count = 0;
+  for (const [, models] of minerModels) {
+    if (models.some(m => m.startsWith(model.split(':')[0]))) count++;
+  }
 
   return {
     model,

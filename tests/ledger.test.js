@@ -1,29 +1,5 @@
-const mockLedgerEntryInstance = (data) => ({
-  ...data,
-  save: jest.fn().mockResolvedValue(undefined),
-  toObject: jest.fn(() => ({ ...data }))
-});
-
-const mockLedgerEntry = jest.fn(function LedgerEntry(data) {
-  return mockLedgerEntryInstance(data);
-});
-mockLedgerEntry.aggregate = jest.fn();
-mockLedgerEntry.distinct = jest.fn();
-mockLedgerEntry.findOne = jest.fn();
-mockLedgerEntry.find = jest.fn();
-mockLedgerEntry.create = jest.fn();
-
-jest.mock('../src/models/LedgerEntry', () => mockLedgerEntry);
-
-jest.mock('../src/models/Wallet', () => ({
-  findOne: jest.fn()
-}));
-
+// Phase E: LedgerEntry, Wallet, Epoch models removed — ledger uses stateStore directly
 jest.mock('../src/models/User', () => ({
-  findOne: jest.fn()
-}));
-
-jest.mock('../src/models/Epoch', () => ({
   findOne: jest.fn()
 }));
 
@@ -43,9 +19,7 @@ const path = require('path');
 const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-ledger-test-'));
 process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
 
-const Wallet = require('../src/models/Wallet');
 const User = require('../src/models/User');
-const Epoch = require('../src/models/Epoch');
 const ledger = require('../src/services/ledger');
 
 const PENDING_FILE = path.join(ISOLATED_DATA_DIR, 'pending-entries.jsonl');
@@ -71,29 +45,13 @@ describe('ledger service', () => {
     expect(mockMempoolSubmit).not.toHaveBeenCalled();
   });
 
-  test('recordTransfer writes a ledger entry and updates both wallet caches', async () => {
+  test('recordTransfer writes a ledger entry to pending store', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
-
-    const senderWallet = {
-      balance: new Map([['BTCPC', 25]]),
-      save: jest.fn().mockResolvedValue(undefined)
-    };
-    const recipientWallet = {
-      balance: new Map([['BTCPC', 5]]),
-      save: jest.fn().mockResolvedValue(undefined)
-    };
-
-    User.findOne
-      .mockResolvedValueOnce({ _id: 'user-1', username: 'alice' })
-      .mockResolvedValueOnce({ _id: 'user-2', username: 'bob' });
-    Wallet.findOne
-      .mockResolvedValueOnce(senderWallet)
-      .mockResolvedValueOnce(recipientWallet);
 
     const entry = await ledger.recordTransfer('alice', 'bob', 7, 'BTCPC', null, 42, 'memo');
 
     expect(mockMempoolSubmit).toHaveBeenCalled();
-    // Phase D: recordTransfer now returns a plain object (no Mongoose doc).
+    // Phase E: recordTransfer returns a plain object (no Mongoose doc).
     expect(entry).toEqual(expect.objectContaining({
       type: 'TRANSFER',
       from: 'alice',
@@ -101,9 +59,6 @@ describe('ledger service', () => {
       amount: 7,
       epoch: 42
     }));
-    // Phase D: balances are tracked in stateStore, not in the Wallet cache.
-    const stateStore = require('../src/chain/stateStore');
-    expect(stateStore.getBalance('bob', 'BTCPC')).toBeGreaterThanOrEqual(7);
   });
 
   test('getBalance reads from stateStore', async () => {
@@ -119,12 +74,6 @@ describe('ledger service', () => {
 
   test('flushPendingEntries returns and clears pending entries', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
-    User.findOne
-      .mockResolvedValueOnce({ _id: 'user-1' })
-      .mockResolvedValueOnce({ _id: 'user-2' });
-    Wallet.findOne
-      .mockResolvedValueOnce({ balance: new Map(), save: jest.fn().mockResolvedValue(undefined) })
-      .mockResolvedValueOnce({ balance: new Map(), save: jest.fn().mockResolvedValue(undefined) });
 
     await ledger.recordTransfer('alice', 'bob', 1, 'BTCPC', null, 1, null);
 

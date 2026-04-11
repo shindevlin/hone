@@ -21,10 +21,11 @@
  *
  * All slashed tokens go to btcpc_recycle (NEVER burned).
  * Appeals within 100 epochs, adjudicated by fresh random verifier panel.
+ *
+ * Phase E: SlashRecord Mongoose model removed. Records live in stateStore.
  */
 
-const SlashRecord = require('../models/SlashRecord');
-const StakingPool = require('../models/StakingPool');
+const stateStore = require('../chain/stateStore');
 const User = require('../models/User');
 const ledger = require('./ledger');
 
@@ -100,18 +101,20 @@ const OFFENSE_ROLE = {
 
 /**
  * Get offense history for an account, optionally filtered by offense type.
+ * Reads from stateStore slash records.
  */
 async function getOffenseHistory(account, offenseType) {
-  const query = { account };
-  if (offenseType) query.offenseType = offenseType;
-  return SlashRecord.find(query).sort({ timestamp: 1 }).lean();
+  const records = stateStore.getSlashRecords ? stateStore.getSlashRecords(account) : [];
+  if (offenseType) return records.filter(r => r.offenseType === offenseType);
+  return records;
 }
 
 /**
  * Count prior offenses of the same type for tier escalation.
  */
 async function getPriorOffenseCount(account, offenseType) {
-  return SlashRecord.countDocuments({ account, offenseType });
+  const records = stateStore.getSlashRecords ? stateStore.getSlashRecords(account) : [];
+  return records.filter(r => r.offenseType === offenseType).length;
 }
 
 /**
@@ -130,16 +133,9 @@ async function calculateSlash(account, offenseType) {
   const tier = Math.min(priorCount, schedule.length - 1);
   const tierRule = schedule[tier];
 
-  // Look up staked amount
-  const user = await User.findOne({ username: account });
-  let stakedAmount = 0;
-  if (user) {
-    const stake = await StakingPool.findOne({
-      account: user._id,
-      status: { $in: ['active', 'unstaking'] }
-    });
-    if (stake) stakedAmount = stake.staked_amount || 0;
-  }
+  // Look up staked amount from stateStore
+  const stakePool = stateStore.getStakePool ? stateStore.getStakePool(account) : null;
+  const stakedAmount = stakePool ? (stakePool.total_staked || 0) : 0;
 
   const slashAmount = parseFloat((stakedAmount * tierRule.percent).toFixed(10));
   const isWarning = tierRule.percent === 0 && !tierRule.deregister;
@@ -156,7 +152,7 @@ async function calculateSlash(account, offenseType) {
 
 /**
  * Execute a slash — transfer tokens from the account's stake to btcpc_recycle.
- * Updates StakingPool.slashed_amount accordingly.
+ * Updates stateStore slash tracking.
  *
  * @param {string} account — username
  * @param {number} amount — BTCPC to slash
@@ -173,17 +169,9 @@ async function executeSlash(account, amount, reason, epoch) {
     'slash: ' + reason
   );
 
-  // Update staking pool — track cumulative slashed amount
-  const user = await User.findOne({ username: account });
-  if (user) {
-    const stake = await StakingPool.findOne({
-      account: user._id,
-      status: { $in: ['active', 'unstaking'] }
-    });
-    if (stake) {
-      stake.slashed_amount = (stake.slashed_amount || 0) + amount;
-      await stake.save();
-    }
+  // Deduct from stateStore stake pool
+  if (stateStore.deductStake) {
+    stateStore.deductStake(account, amount);
   }
 
   return entry;
@@ -197,7 +185,7 @@ async function executeSlash(account, amount, reason, epoch) {
  * @param {string} account — username of the offender
  * @param {string} offenseType — one of SLASH_SCHEDULE keys
  * @param {object} evidence — arbitrary evidence object
- * @returns {object} SlashRecord document
+ * @returns {object} slash record
  */
 async function recordOffense(account, offenseType, evidence) {
   if (!OFFENSE_ROLE[offenseType]) {
@@ -211,11 +199,11 @@ async function recordOffense(account, offenseType, evidence) {
   let slashTxId = null;
   if (calc.amount > 0) {
     const entry = await executeSlash(account, calc.amount, offenseType, epoch);
-    if (entry) slashTxId = entry._id.toString();
+    if (entry) slashTxId = entry._id ? entry._id.toString() : null;
   }
 
-  // Create the offense record
-  const record = new SlashRecord({
+  // Create the offense record and store in stateStore
+  const record = {
     account,
     role: OFFENSE_ROLE[offenseType],
     offenseType,
@@ -225,11 +213,16 @@ async function recordOffense(account, offenseType, evidence) {
     slashTxId,
     deregistered: calc.deregister,
     epoch,
+    timestamp: new Date().toISOString(),
     appeal: {
       deadline: epoch + APPEAL_WINDOW_EPOCHS
     }
-  });
-  await record.save();
+  };
+
+  // Store in stateStore slash records
+  if (stateStore.addSlashRecord) {
+    stateStore.addSlashRecord(account, record);
+  }
 
   console.log(
     '[SLASH] %s | %s | tier=%d | amount=%s BTCPC | deregister=%s',
@@ -246,30 +239,26 @@ async function recordOffense(account, offenseType, evidence) {
  * Must be within APPEAL_WINDOW_EPOCHS of the original offense.
  *
  * @param {string} account — the slashed account
- * @param {string} slashRecordId — _id of the SlashRecord
- * @returns {object} updated SlashRecord
+ * @param {string} slashRecordId — index or id of the record
+ * @returns {object} updated record
  */
 async function submitAppeal(account, slashRecordId) {
-  const record = await SlashRecord.findById(slashRecordId);
+  const records = stateStore.getSlashRecords ? stateStore.getSlashRecords(account) : [];
+  const record = records.find(r => r.slashTxId === slashRecordId || r.id === slashRecordId);
   if (!record) throw new Error('Slash record not found');
   if (record.account !== account) throw new Error('Not your slash record');
-  if (record.appeal.submitted) throw new Error('Appeal already submitted');
-  if (record.appeal.resolved) throw new Error('Slash already resolved');
+  if (record.appeal && record.appeal.submitted) throw new Error('Appeal already submitted');
+  if (record.appeal && record.appeal.resolved) throw new Error('Slash already resolved');
 
   const currentEpoch = await ledger.getCurrentEpoch();
   if (currentEpoch > record.appeal.deadline) {
     throw new Error('Appeal window expired (deadline was epoch ' + record.appeal.deadline + ')');
   }
 
-  // Panel size = one tier larger than the original verification panel
-  // Default original panel = 3, so appeal panel = 5
-  const panelSize = 5;
-
   record.appeal.submitted = true;
-  record.appeal.submittedAt = new Date();
+  record.appeal.submittedAt = new Date().toISOString();
   record.appeal.submittedAtEpoch = currentEpoch;
-  record.appeal.panelSize = panelSize;
-  await record.save();
+  record.appeal.panelSize = 5;
 
   console.log('[SLASH] Appeal submitted: %s for offense %s', account, record.offenseType);
   return record;
@@ -279,14 +268,23 @@ async function submitAppeal(account, slashRecordId) {
  * Resolve an appeal with panel verdicts.
  * 66% supermajority required to overturn.
  *
- * @param {string} slashRecordId — _id of the SlashRecord
+ * @param {string} slashRecordId — id of the record
  * @param {Array<{verifier: string, vote: string}>} panelVerdicts — each vote is 'overturn' or 'uphold'
- * @returns {object} updated SlashRecord
+ * @returns {object} updated record
  */
 async function resolveAppeal(slashRecordId, panelVerdicts) {
-  const record = await SlashRecord.findById(slashRecordId);
+  // Find record across all accounts
+  let record = null;
+  let recordAccount = null;
+  if (stateStore.getAllSlashRecords) {
+    const allRecords = stateStore.getAllSlashRecords();
+    for (const [acct, recs] of Object.entries(allRecords)) {
+      const found = recs.find(r => r.slashTxId === slashRecordId || r.id === slashRecordId);
+      if (found) { record = found; recordAccount = acct; break; }
+    }
+  }
   if (!record) throw new Error('Slash record not found');
-  if (!record.appeal.submitted) throw new Error('No appeal submitted');
+  if (!record.appeal || !record.appeal.submitted) throw new Error('No appeal submitted');
   if (record.appeal.resolved) throw new Error('Appeal already resolved');
 
   record.appeal.verdicts = panelVerdicts;
@@ -307,17 +305,9 @@ async function resolveAppeal(slashRecordId, panelVerdicts) {
         'slash-refund: appeal overturned for ' + record.offenseType
       );
 
-      // Reverse the slashed_amount on the staking pool
-      const user = await User.findOne({ username: record.account });
-      if (user) {
-        const stake = await StakingPool.findOne({
-          account: user._id,
-          status: { $in: ['active', 'unstaking'] }
-        });
-        if (stake) {
-          stake.slashed_amount = Math.max(0, (stake.slashed_amount || 0) - record.amount);
-          await stake.save();
-        }
+      // Restore stake in stateStore
+      if (stateStore.restoreStake) {
+        stateStore.restoreStake(record.account, record.amount);
       }
     }
 
@@ -331,7 +321,6 @@ async function resolveAppeal(slashRecordId, panelVerdicts) {
   }
 
   record.appeal.resolved = true;
-  await record.save();
   return record;
 }
 

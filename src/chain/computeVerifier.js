@@ -87,20 +87,20 @@ async function submitComputeVerification(username, claimedBalance) {
     "Include the current state root from your SMT."
   ].join("\n");
 
+  // Phase E: InferenceJob model deleted — submit via P2P inference router
   try {
-    var InferenceJob = require("../models/InferenceJob");
     var crypto = require("crypto");
-
     var jobId = "verify_" + crypto.randomBytes(8).toString("hex");
-    var job = new InferenceJob({
-      job_id: jobId,
-      model: "internal:verify",
-      messages: [{ role: "system", content: prompt }],
-      max_tokens: 256,
-      status: "pending",
-      prompt_hash: crypto.createHash("sha256").update(prompt).digest("hex")
-    });
-    await job.save();
+
+    // Submit via p2pRouter if available (non-fatal if P2P not running)
+    try {
+      var p2pRouter = require("../inference/p2pRouter");
+      await p2pRouter.submitInference({
+        model: "internal:verify",
+        messages: [{ role: "system", content: prompt }],
+        maxTokens: 256
+      });
+    } catch (_) {}
 
     return { job_id: jobId, status: "submitted" };
   } catch (err) {

@@ -1,37 +1,71 @@
 "use strict";
-const GenesisDream = require("../models/GenesisDream");
+
+/**
+ * Dream Controller
+ * Shin Devlin
+ *
+ * Genesis Dreams are NFT-like inscriptions stored on blocks.
+ * Each block produces one Genesis Dream — owned by the miner, transferable.
+ *
+ * Phase E: GenesisDream Mongoose model removed. Dreams read from stateStore
+ * (which is populated by block replay). In-memory dream store for mutations.
+ */
+
 const User = require("../models/User");
+const stateStore = require("../chain/stateStore");
 const { filterInscription } = require("../services/contentFilter");
 const { rejectObjectInputs, sanitizeString, validAccountName } = require("../middlewares/validate");
 
-const INSCRIPTION_CHAR_LIMIT = GenesisDream.INSCRIPTION_CHAR_LIMIT || 4200;
+const INSCRIPTION_CHAR_LIMIT = 4200;
+
+// In-memory dream store: blockNumber → dreamObject
+// Populated from stateStore (GENESIS_DREAM ledger entries) on first access.
+const dreamCache = new Map();
+
+function _getDreamFromStore(blockNumber) {
+  // Try dreamCache first
+  if (dreamCache.has(blockNumber)) return dreamCache.get(blockNumber);
+
+  // Try stateStore dreams (if stateStore has a getDream method)
+  if (stateStore.getDream) {
+    const d = stateStore.getDream(blockNumber);
+    if (d) { dreamCache.set(blockNumber, d); return d; }
+  }
+
+  return null;
+}
+
+function _getDreamsByOwner(account) {
+  const results = [];
+  for (const [, dream] of dreamCache) {
+    if (dream.current_owner === account) results.push(dream);
+  }
+  // Also check stateStore
+  if (stateStore.getAllDreams) {
+    const all = stateStore.getAllDreams();
+    for (const dream of Object.values(all)) {
+      if (dream.current_owner === account && !dreamCache.has(dream.block_number)) {
+        results.push(dream);
+      }
+    }
+  }
+  return results.sort((a, b) => a.block_number - b.block_number);
+}
 
 // -------------------------------------------------------------------------
-// Core functions (used by both CLI and API)
+// Core functions
 // -------------------------------------------------------------------------
 
-/**
- * Get all genesis dreams owned by an account.
- */
 async function getDreams(account) {
-  const dreams = await GenesisDream.find({ current_owner: account })
-    .sort({ block_number: 1 });
-  return dreams;
+  return _getDreamsByOwner(account);
 }
 
-/**
- * Get a single genesis dream by block number.
- */
 async function getDream(blockNumber) {
-  const dream = await GenesisDream.findOne({ block_number: blockNumber });
-  return dream;
+  return _getDreamFromStore(blockNumber);
 }
 
-/**
- * Inscribe a genesis dream. Once inscribed, it cannot be re-inscribed.
- */
 async function inscribeDream(blockNumber, account, inscription) {
-  const dream = await GenesisDream.findOne({ block_number: blockNumber });
+  const dream = _getDreamFromStore(blockNumber);
   if (!dream) {
     throw new Error("Genesis Dream #" + blockNumber + " not found");
   }
@@ -41,16 +75,10 @@ async function inscribeDream(blockNumber, account, inscription) {
       " (owned by '" + dream.current_owner + "')"
     );
   }
-  // Check if already inscribed (has non-default inscription data)
-  if (dream.inscription && dream.inscription.project &&
-      dream.inscription.project !== "" &&
-      dream.inscription.tag !== "") {
-    throw new Error(
-      "Genesis Dream #" + blockNumber + " is already inscribed"
-    );
+  if (dream.inscription && dream.inscription.project && dream.inscription.project !== "") {
+    throw new Error("Genesis Dream #" + blockNumber + " is already inscribed");
   }
 
-  // Validate character limit (block 0 is unlimited)
   if (blockNumber > 0 && inscription.custom_data) {
     const dataStr = JSON.stringify(inscription.custom_data);
     if (dataStr.length > INSCRIPTION_CHAR_LIMIT) {
@@ -61,7 +89,6 @@ async function inscribeDream(blockNumber, account, inscription) {
     }
   }
 
-  // Apply content filter to public inscription text
   const filteredProject = filterInscription(inscription.project);
   const filteredTag = filterInscription(inscription.tag);
   let filteredCustomData = inscription.custom_data || null;
@@ -75,18 +102,14 @@ async function inscribeDream(blockNumber, account, inscription) {
     tag: filteredTag.filtered_text,
     custom_data: filteredCustomData
   };
-  dream.inscribed_at = new Date();
+  dream.inscribed_at = new Date().toISOString();
+  dreamCache.set(blockNumber, dream);
 
-  await dream.save();
   return dream;
 }
 
-/**
- * Transfer a genesis dream to another account.
- * The original_miner field NEVER changes.
- */
 async function transferDream(blockNumber, fromAccount, toAccount) {
-  const dream = await GenesisDream.findOne({ block_number: blockNumber });
+  const dream = _getDreamFromStore(blockNumber);
   if (!dream) {
     throw new Error("Genesis Dream #" + blockNumber + " not found");
   }
@@ -97,7 +120,6 @@ async function transferDream(blockNumber, fromAccount, toAccount) {
     );
   }
 
-  // Verify the recipient exists
   const recipient = await User.findOne({ username: toAccount });
   if (!recipient) {
     throw new Error("Recipient account '" + toAccount + "' not found");
@@ -109,37 +131,28 @@ async function transferDream(blockNumber, fromAccount, toAccount) {
 
   dream.current_owner = toAccount;
   dream.transferred = true;
-  dream.transfer_history.push({
-    from: fromAccount,
-    to: toAccount,
-    timestamp: new Date()
-  });
+  if (!dream.transfer_history) dream.transfer_history = [];
+  dream.transfer_history.push({ from: fromAccount, to: toAccount, timestamp: new Date().toISOString() });
+  dreamCache.set(blockNumber, dream);
 
-  await dream.save();
   return dream;
 }
 
 // -------------------------------------------------------------------------
-// Express route handlers (for API)
+// Express route handlers
 // -------------------------------------------------------------------------
 
-/**
- * GET /api/dreams/:account
- */
 async function getDreamsRoute(req, res) {
   try {
     const account = sanitizeString(req.params.account, 20);
     if (!account || !validAccountName(account)) return res.status(400).json({ error: "invalid account name" });
     const dreams = await getDreams(account);
-    res.json({ account: account, count: dreams.length, dreams: dreams });
+    res.json({ account, count: dreams.length, dreams });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
-/**
- * GET /api/dream/:blockNumber
- */
 async function getDreamRoute(req, res) {
   try {
     const blockNumber = parseInt(req.params.blockNumber);
@@ -156,10 +169,6 @@ async function getDreamRoute(req, res) {
   }
 }
 
-/**
- * POST /api/dream/:blockNumber/inscribe (auth required)
- * Body: { project, tag, custom_data? }
- */
 async function inscribeDreamRoute(req, res) {
   try {
     const blockNumber = parseInt(req.params.blockNumber);
@@ -175,12 +184,8 @@ async function inscribeDreamRoute(req, res) {
       return res.status(400).json({ error: "project and tag are required" });
     }
     const account = req.user.username;
-    const dream = await inscribeDream(blockNumber, account, {
-      project: project,
-      tag: tag,
-      custom_data: custom_data || null
-    });
-    res.json({ message: "Genesis Dream #" + blockNumber + " inscribed", dream: dream });
+    const dream = await inscribeDream(blockNumber, account, { project, tag, custom_data: custom_data || null });
+    res.json({ message: "Genesis Dream #" + blockNumber + " inscribed", dream });
   } catch (err) {
     const status = err.message.includes("not found") ? 404
       : err.message.includes("does not own") ? 403
@@ -190,10 +195,6 @@ async function inscribeDreamRoute(req, res) {
   }
 }
 
-/**
- * POST /api/dream/:blockNumber/transfer (auth required)
- * Body: { to }
- */
 async function transferDreamRoute(req, res) {
   try {
     const blockNumber = parseInt(req.params.blockNumber);
@@ -202,16 +203,14 @@ async function transferDreamRoute(req, res) {
     }
     if (typeof req.body.to === 'object') return res.status(400).json({ error: "to must be a string" });
     const to = sanitizeString(req.body.to, 20);
-    if (!to) {
-      return res.status(400).json({ error: "to (recipient account) is required" });
-    }
+    if (!to) return res.status(400).json({ error: "to (recipient account) is required" });
     if (!validAccountName(to)) return res.status(400).json({ error: "invalid recipient account name" });
     const fromAccount = req.user.username;
     const dream = await transferDream(blockNumber, fromAccount, to);
     res.json({
       message: "Genesis Dream #" + blockNumber + " transferred to " + to,
       original_miner: dream.original_miner,
-      dream: dream
+      dream
     });
   } catch (err) {
     const status = err.message.includes("not found") ? 404
@@ -222,12 +221,10 @@ async function transferDreamRoute(req, res) {
 }
 
 module.exports = {
-  // Core functions
   getDreams,
   getDream,
   inscribeDream,
   transferDream,
-  // Express route handlers
   getDreamsRoute,
   getDreamRoute,
   inscribeDreamRoute,

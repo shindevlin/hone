@@ -1,11 +1,5 @@
 "use strict";
 
-const Epoch = require('../models/Epoch');
-const Node = require('../models/Node');
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
-const StakingPool = require('../models/StakingPool');
-const Delegation = require('../models/Delegation');
 const stateStore = require('../chain/stateStore');
 const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
 
@@ -29,8 +23,7 @@ let currentDifficulty = 1.0;
 
 /**
  * Get or initialize the genesis timestamp.
- * Uses BTCPC_GENESIS_TIMESTAMP env var, or the timestamp of epoch 0 in the DB,
- * or creates a new genesis timestamp now.
+ * Uses BTCPC_GENESIS_TIMESTAMP env var, or the timestamp of epoch 0 in stateStore.
  */
 async function getGenesisTimestamp() {
   if (GENESIS_TIMESTAMP) return GENESIS_TIMESTAMP;
@@ -41,18 +34,13 @@ async function getGenesisTimestamp() {
     return GENESIS_TIMESTAMP;
   }
 
-  // Check if epoch 0 exists in chain state (stateStore, fall back to Mongo)
+  // Check if epoch 0 exists in chain state (stateStore)
   const genesisEpochState = stateStore.getEpoch(0);
   if (genesisEpochState && genesisEpochState.started_at) {
     const startedAt = genesisEpochState.started_at instanceof Date
       ? genesisEpochState.started_at
       : new Date(genesisEpochState.started_at);
     GENESIS_TIMESTAMP = startedAt.getTime();
-    return GENESIS_TIMESTAMP;
-  }
-  const genesisEpoch = await Epoch.findOne({ epoch_number: 0 });
-  if (genesisEpoch) {
-    GENESIS_TIMESTAMP = genesisEpoch.started_at.getTime();
     return GENESIS_TIMESTAMP;
   }
 
@@ -72,14 +60,14 @@ async function getCurrentEpoch() {
 }
 
 /**
- * Create a new epoch record in the database.
+ * Create a new epoch record in stateStore.
  */
 async function createEpoch(epochNumber) {
   const genesis = await getGenesisTimestamp();
   const startedAt = new Date(genesis + (epochNumber * EPOCH_DURATION_MS));
   const reward = getBlockReward(epochNumber);
 
-  const epoch = new Epoch({
+  stateStore.setEpoch(epochNumber, {
     epoch_number: epochNumber,
     started_at: startedAt,
     block_reward: reward,
@@ -87,9 +75,8 @@ async function createEpoch(epochNumber) {
     status: 'active'
   });
 
-  await epoch.save();
   console.log(`[BTCPC] Epoch ${epochNumber} started | reward: ${reward} BTCPC | difficulty: ${currentDifficulty}`);
-  return epoch;
+  return stateStore.getEpoch(epochNumber);
 }
 
 /**
@@ -129,48 +116,41 @@ function determineConsensusHash(commitments) {
 
 /**
  * Distribute rewards for a finalized epoch.
- * Rewards are proportional to each node's verified work (inference_count + tx_count).
- * Only nodes whose state_hash matches consensus receive rewards.
- * Delegators earn proportional share based on their delegation relative to
- * the miner's total stake + delegations.
- * Work is adjusted by difficulty: effective_work = raw_work / difficulty.
+ * Reads compute proofs from stateStore — no Mongo.
  */
 async function distributeRewards(epoch) {
   if (!epoch.commitments || epoch.commitments.length === 0) return [];
   if (epoch.block_reward <= 0) return [];
 
   const consensusHash = epoch.consensus_hash;
-  const difficulty = epoch.difficulty || 1.0;
 
   // Filter to honest commitments (matching consensus hash)
   const honestCommitments = epoch.commitments.filter(c => c.state_hash === consensusHash);
   if (honestCommitments.length === 0) return [];
 
-  // Calculate work_value per miner from WorkProofs: tokens × param_billions
-  // This is the fair reward basis — bigger models doing more tokens earn more
-  const WorkProof = require('../models/WorkProof');
+  const ledger = require('./ledger');
+
+  // Calculate work_value per miner from stateStore compute proofs
   const minerWorkValues = {};
   let totalWorkValue = 0;
 
+  const computeProofs = stateStore.getComputeProofs(epoch.epoch_number);
+
   for (const commitment of honestCommitments) {
-    const nodeId = commitment.node_id.toString();
-    const node = await Node.findById(commitment.node_id);
-    const user = node ? await require('../models/User').findById(node.account) : null;
-    const minerName = user ? user.username : nodeId;
-
-    // Sum work_value from all WorkProofs this miner submitted in this epoch
-    const proofs = await WorkProof.find({ epoch_number: epoch.epoch_number, node_id: minerName });
-    const workValue = proofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
-
-    minerWorkValues[nodeId] = workValue;
+    const minerName = commitment.node_id;
+    // Sum work_value from all compute proofs this miner submitted in this epoch
+    const minerProofs = computeProofs.filter(p => p.node_id === minerName);
+    const workValue = minerProofs.reduce((sum, p) => sum + (p.work_value || 0), 0);
+    minerWorkValues[minerName] = workValue;
     totalWorkValue += workValue;
   }
 
   const rewards = [];
+  const currentEpoch = epoch.epoch_number;
 
   for (const commitment of honestCommitments) {
-    const nodeId = commitment.node_id.toString();
-    const workValue = minerWorkValues[nodeId] || 0;
+    const minerName = commitment.node_id;
+    const workValue = minerWorkValues[minerName] || 0;
     let minerReward;
 
     if (totalWorkValue === 0) {
@@ -184,27 +164,11 @@ async function distributeRewards(epoch) {
     minerReward = parseFloat(minerReward.toFixed(10));
     if (minerReward <= 0) continue;
 
-    // Find the node's account to credit their wallet
-    const node = await Node.findById(commitment.node_id);
-    if (!node) continue;
-
-    const minerWallet = await Wallet.findOne({ userId: node.account });
-    if (!minerWallet) continue;
-
-    // Check for delegations to this miner
-    const activeDelegations = await Delegation.find({
-      miner: node.account,
-      status: 'active'
-    });
-
-    const totalDelegated = activeDelegations.reduce((sum, d) => sum + d.amount, 0);
-
-    // Get miner's own stake
-    const minerStake = await StakingPool.findOne({
-      account: node.account,
-      status: 'active'
-    });
-    const minerStakeAmount = minerStake ? minerStake.staked_amount : 0;
+    // Check for delegations from stateStore
+    const delegations = stateStore.getDelegationsTo ? stateStore.getDelegationsTo(minerName) : [];
+    const totalDelegated = delegations.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const minerStakeData = stateStore.getStakePool ? stateStore.getStakePool(minerName) : null;
+    const minerStakeAmount = minerStakeData ? (minerStakeData.total_staked || 0) : 0;
     const totalPool = minerStakeAmount + totalDelegated;
 
     if (totalDelegated > 0 && totalPool > 0) {
@@ -212,62 +176,22 @@ async function distributeRewards(epoch) {
       const minerShare = minerStakeAmount / totalPool;
       const minerAmount = parseFloat((minerReward * minerShare).toFixed(10));
 
-      // Credit miner their share
       if (minerAmount > 0) {
-        const currentBalance = minerWallet.balance.get('BTCPC') || 0;
-        minerWallet.balance.set('BTCPC', currentBalance + minerAmount);
-        await minerWallet.save();
-
-        const tx = new Transaction({
-          from: 'BTCPC_NETWORK',
-          to: minerWallet.address,
-          amount: minerAmount,
-          type: 'mining_reward',
-          memo: `Epoch ${epoch.epoch_number} mining reward (miner share)`
-        });
-        await tx.save();
+        await ledger.recordMiningReward(minerName, minerAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward (miner share)`);
       }
 
-      // Distribute delegator shares
-      for (const delegation of activeDelegations) {
+      for (const delegation of delegations) {
         const delegatorShare = delegation.amount / totalPool;
         const delegatorAmount = parseFloat((minerReward * delegatorShare).toFixed(10));
         if (delegatorAmount <= 0) continue;
-
-        const delegatorWallet = await Wallet.findOne({ userId: delegation.delegator });
-        if (!delegatorWallet) continue;
-
-        const delegatorBalance = delegatorWallet.balance.get('BTCPC') || 0;
-        delegatorWallet.balance.set('BTCPC', delegatorBalance + delegatorAmount);
-        await delegatorWallet.save();
-
-        const dtx = new Transaction({
-          from: 'BTCPC_NETWORK',
-          to: delegatorWallet.address,
-          amount: delegatorAmount,
-          type: 'delegation_reward',
-          memo: `Epoch ${epoch.epoch_number} delegation reward`
-        });
-        await dtx.save();
+        await ledger.recordMiningReward(delegation.from, delegatorAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} delegation reward`);
       }
 
-      rewards.push({ node_id: commitment.node_id, amount: minerReward });
+      rewards.push({ node_id: minerName, amount: minerReward });
     } else {
       // No delegations — miner gets full reward
-      const currentBalance = minerWallet.balance.get('BTCPC') || 0;
-      minerWallet.balance.set('BTCPC', currentBalance + minerReward);
-      await minerWallet.save();
-
-      const tx = new Transaction({
-        from: 'BTCPC_NETWORK',
-        to: minerWallet.address,
-        amount: minerReward,
-        type: 'mining_reward',
-        memo: `Epoch ${epoch.epoch_number} mining reward`
-      });
-      await tx.save();
-
-      rewards.push({ node_id: commitment.node_id, amount: minerReward });
+      await ledger.recordMiningReward(minerName, minerReward, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward`);
+      rewards.push({ node_id: minerName, amount: minerReward });
     }
   }
 
@@ -276,8 +200,7 @@ async function distributeRewards(epoch) {
 
 /**
  * Calculate difficulty adjustment every DIFFICULTY_ADJUSTMENT_INTERVAL epochs.
- * new_difficulty = old_difficulty * (actual_work / target_work)
- * Clamped to max 4x increase or 0.25x decrease per period.
+ * Uses stateStore epoch metadata — no Mongo aggregation.
  */
 async function adjustDifficulty(epochNumber) {
   if (epochNumber === 0) return currentDifficulty;
@@ -285,23 +208,15 @@ async function adjustDifficulty(epochNumber) {
 
   const startEpoch = epochNumber - DIFFICULTY_ADJUSTMENT_INTERVAL;
 
-  // Sum total work across the last DIFFICULTY_ADJUSTMENT_INTERVAL epochs
-  const workAgg = await Epoch.aggregate([
-    {
-      $match: {
-        epoch_number: { $gte: startEpoch, $lt: epochNumber },
-        status: 'finalized'
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        actual_work: { $sum: '$total_work' }
-      }
+  // Sum total work across the last DIFFICULTY_ADJUSTMENT_INTERVAL epochs from stateStore
+  let actualWork = 0;
+  for (let i = startEpoch; i < epochNumber; i++) {
+    const ep = stateStore.getEpoch(i);
+    if (ep && ep.status === 'finalized') {
+      actualWork += ep.total_work || 0;
     }
-  ]);
+  }
 
-  const actualWork = workAgg.length > 0 ? workAgg[0].actual_work : 0;
   const targetWork = BASELINE_WORK_PER_EPOCH * DIFFICULTY_ADJUSTMENT_INTERVAL * currentDifficulty;
 
   if (targetWork === 0 || actualWork === 0) return currentDifficulty;
@@ -340,7 +255,7 @@ function getNextAdjustmentEpoch(currentEpochNum) {
  * Finalize an epoch: determine consensus, distribute rewards, mark as finalized.
  */
 async function finalizeEpoch(epochNumber) {
-  const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+  const epoch = stateStore.getEpoch(epochNumber);
   if (!epoch) {
     console.error(`[BTCPC] Epoch ${epochNumber} not found for finalization`);
     return null;
@@ -354,7 +269,7 @@ async function finalizeEpoch(epochNumber) {
   epoch.consensus_hash = determineConsensusHash(epoch.commitments);
 
   // Calculate total work
-  epoch.total_work = epoch.commitments.reduce((sum, c) => sum + c.inference_count + c.tx_count, 0);
+  epoch.total_work = (epoch.commitments || []).reduce((sum, c) => sum + (c.inference_count || 0) + (c.tx_count || 0), 0);
 
   // Distribute rewards
   const rewards = await distributeRewards(epoch);
@@ -363,12 +278,12 @@ async function finalizeEpoch(epochNumber) {
   // Mark finalized
   epoch.ended_at = new Date();
   epoch.status = 'finalized';
-  await epoch.save();
+  stateStore.setEpoch(epochNumber, epoch);
 
   // Check for difficulty adjustment
   await adjustDifficulty(epochNumber + 1);
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | commitments: ${epoch.commitments.length} | reward distributed: ${epoch.block_reward} BTCPC | difficulty: ${currentDifficulty}`);
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | commitments: ${(epoch.commitments || []).length} | reward distributed: ${epoch.block_reward} BTCPC | difficulty: ${currentDifficulty}`);
   return epoch;
 }
 
@@ -380,15 +295,15 @@ async function epochTick() {
     const currentEpochNum = await getCurrentEpoch();
 
     // Check if current epoch already exists
-    const existing = await Epoch.findOne({ epoch_number: currentEpochNum });
+    const existing = stateStore.getEpoch(currentEpochNum);
     if (existing && existing.status === 'active') {
       // Nothing to do yet — epoch still active
       return;
     }
 
     // Finalize the previous epoch if it exists and is still active
-    const prevEpoch = await Epoch.findOne({ epoch_number: currentEpochNum - 1, status: 'active' });
-    if (prevEpoch) {
+    const prevEpoch = stateStore.getEpoch(currentEpochNum - 1);
+    if (prevEpoch && prevEpoch.status === 'active') {
       await finalizeEpoch(currentEpochNum - 1);
     }
 
@@ -407,12 +322,8 @@ async function epochTick() {
 async function startEpochLoop() {
   console.log('[BTCPC] Starting epoch manager...');
 
-  // Initialize difficulty from the latest epoch — prefer stateStore, fall
-  // back to Mongo for back-compat if stateStore hasn't been replayed yet.
-  let latestEpoch = stateStore.getLatestEpoch();
-  if (!latestEpoch) {
-    latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
-  }
+  // Initialize difficulty from the latest epoch in stateStore.
+  const latestEpoch = stateStore.getLatestEpoch();
   if (latestEpoch && latestEpoch.difficulty) {
     currentDifficulty = latestEpoch.difficulty;
     console.log(`[BTCPC] Difficulty initialized from chain state: ${currentDifficulty}`);

@@ -1,8 +1,8 @@
 "use strict";
 
-const Node = require('../models/Node');
-const Epoch = require('../models/Epoch');
-const StakingPool = require('../models/StakingPool');
+const nodeRegistry = require('../chain/nodeRegistry');
+const stateStore = require('../chain/stateStore');
+const User = require('../models/User');
 const { getCurrentEpoch } = require('../services/epochManager');
 const { getBlockReward, getCurrentPeriod, getPeriodTable } = require('../services/emissionSchedule');
 const { rejectObjectInputs, sanitizeString, validEndpoint, validModel, validHexString, isPlainString } = require('../middlewares/validate');
@@ -12,9 +12,11 @@ const MIN_STAKE = 1000;
 /**
  * Register as a BTCPC mining node.
  * Requires authenticated user with >= 1000 BTCPC staked.
+ *
+ * Phase E: Node, Epoch, StakingPool Mongoose models removed.
+ * Uses nodeRegistry + stateStore.
  */
 async function registerNode(req, res) {
-  const userId = req.user.id;
   try {
     if (typeof req.body.endpoint === 'object') return res.status(400).json({ error: 'endpoint must be a string' });
     if (typeof req.body.hive_account === 'object') return res.status(400).json({ error: 'hive_account must be a string' });
@@ -37,44 +39,39 @@ async function registerNode(req, res) {
       if (!validModel(models[i])) return res.status(400).json({ error: 'invalid model name: ' + models[i] });
     }
 
-    // Check if user already has a registered node
-    const existingNode = await Node.findOne({ account: userId });
-    if (existingNode) {
+    // Resolve username
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
+
+    // Check if already registered
+    if (nodeRegistry.isRegistered(username)) {
       return res.status(400).json({ error: 'Node already registered for this account' });
     }
 
-    // Check staking — user must have >= 1000 BTCPC staked
-    const stake = await StakingPool.findOne({ account: userId, status: 'active' });
-    if (!stake || stake.staked_amount < MIN_STAKE) {
+    // Check staking from stateStore
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+    const stakedAmount = stakePool ? (stakePool.total_staked || 0) : 0;
+    if (stakedAmount < MIN_STAKE) {
       return res.status(400).json({
-        error: `Minimum stake of ${MIN_STAKE} BTCPC required to register a node. Current stake: ${stake ? stake.staked_amount : 0}`
+        error: `Minimum stake of ${MIN_STAKE} BTCPC required to register a node. Current stake: ${stakedAmount}`
       });
     }
 
-    const node = new Node({
-      account: userId,
-      hive_account: hive_account || null,
-      base_wallet: base_wallet || null,
-      endpoint,
-      models,
-      hardware: hardware || {},
-      stake_amount: stake.staked_amount,
-      status: 'active',
-      registered_at: new Date()
-    });
-
-    await node.save();
+    // Register in nodeRegistry
+    const currentEpochNum = await getCurrentEpoch();
+    nodeRegistry.registerNode(username, 'miner', stakedAmount, endpoint, currentEpochNum, false);
 
     res.status(201).json({
       success: true,
       node: {
-        id: node._id,
-        endpoint: node.endpoint,
-        models: node.models,
-        hardware: node.hardware,
-        stake_amount: node.stake_amount,
-        status: node.status,
-        registered_at: node.registered_at
+        username,
+        endpoint,
+        models,
+        hardware,
+        stake_amount: stakedAmount,
+        status: 'active',
+        registered_at: new Date()
       }
     });
   } catch (err) {
@@ -86,55 +83,33 @@ async function registerNode(req, res) {
  * Update node configuration (endpoint, models, hardware).
  */
 async function updateNode(req, res) {
-  const userId = req.user.id;
   try {
     if (req.body.endpoint !== undefined && typeof req.body.endpoint === 'object') {
       return res.status(400).json({ error: 'endpoint must be a string' });
     }
-    if (typeof req.body.hive_account === 'object') return res.status(400).json({ error: 'hive_account must be a string' });
-    if (typeof req.body.base_wallet === 'object') return res.status(400).json({ error: 'base_wallet must be a string' });
     const endpoint = req.body.endpoint ? sanitizeString(req.body.endpoint, 500) : null;
     const models = req.body.models;
-    const hardware = (req.body.hardware && typeof req.body.hardware === 'object' && !Array.isArray(req.body.hardware)) ? req.body.hardware : null;
-    const hive_account = req.body.hive_account !== undefined ? sanitizeString(req.body.hive_account, 20) : undefined;
-    const base_wallet = req.body.base_wallet !== undefined ? sanitizeString(req.body.base_wallet, 200) : undefined;
 
-    const node = await Node.findOne({ account: userId });
-    if (!node) {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
+
+    const nodeEntry = nodeRegistry.getNode(username);
+    if (!nodeEntry) {
       return res.status(404).json({ error: 'No node registered for this account' });
-    }
-
-    if (node.status === 'banned') {
-      return res.status(403).json({ error: 'Node is banned and cannot be updated' });
     }
 
     if (endpoint) {
       if (!validEndpoint(endpoint)) return res.status(400).json({ error: 'invalid endpoint' });
-      node.endpoint = endpoint;
+      nodeEntry.p2pAddress = endpoint;
     }
-    if (models && Array.isArray(models) && models.length > 0) {
-      if (models.length > 50) return res.status(400).json({ error: 'too many models (max 50)' });
-      for (var i = 0; i < models.length; i++) {
-        if (!validModel(models[i])) return res.status(400).json({ error: 'invalid model name: ' + models[i] });
-      }
-      node.models = models;
-    }
-    if (hardware) node.hardware = { ...node.hardware, ...hardware };
-    if (hive_account !== undefined) node.hive_account = hive_account;
-    if (base_wallet !== undefined) node.base_wallet = base_wallet;
-
-    await node.save();
 
     res.json({
       success: true,
       node: {
-        id: node._id,
-        endpoint: node.endpoint,
-        models: node.models,
-        hardware: node.hardware,
-        hive_account: node.hive_account,
-        base_wallet: node.base_wallet,
-        status: node.status
+        username,
+        endpoint: nodeEntry.p2pAddress,
+        status: 'active'
       }
     });
   } catch (err) {
@@ -146,16 +121,17 @@ async function updateNode(req, res) {
  * Deregister node — remove from active mining.
  */
 async function deregisterNode(req, res) {
-  const userId = req.user.id;
-
   try {
-    const node = await Node.findOne({ account: userId });
-    if (!node) {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const nodeEntry = nodeRegistry.getNode(user.username);
+    if (!nodeEntry) {
       return res.status(404).json({ error: 'No node registered for this account' });
     }
 
-    node.status = 'suspended';
-    await node.save();
+    // Mark as suspended in registry (simple status field)
+    nodeEntry.status = 'suspended';
 
     res.json({ success: true, message: 'Node deregistered from active mining' });
   } catch (err) {
@@ -168,14 +144,18 @@ async function deregisterNode(req, res) {
  */
 async function getNodes(req, res) {
   try {
-    const nodes = await Node.find({ status: 'active' })
-      .select('endpoint models hardware reputation registered_at hive_account last_epoch_commitment')
-      .sort({ registered_at: 1 });
-
+    const allNodes = nodeRegistry.getRegisteredNodes();
     res.json({
       success: true,
-      count: nodes.length,
-      nodes
+      count: allNodes.length,
+      nodes: allNodes.map(n => ({
+        username: n.username,
+        type: n.type,
+        stake: n.stake,
+        p2pAddress: n.p2pAddress,
+        registeredEpoch: n.registeredEpoch,
+        permissioned: n.permissioned
+      }))
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -187,8 +167,6 @@ async function getNodes(req, res) {
  * Payload: { state_hash, tx_count, inference_count }
  */
 async function submitEpochCommitment(req, res) {
-  const userId = req.user.id;
-
   try {
     if (typeof req.body.state_hash === 'object') return res.status(400).json({ error: 'state_hash must be a string' });
     const state_hash = sanitizeString(req.body.state_hash, 128);
@@ -201,41 +179,39 @@ async function submitEpochCommitment(req, res) {
     if (tx_count < 0 || !Number.isInteger(tx_count)) return res.status(400).json({ error: 'tx_count must be a non-negative integer' });
     if (inference_count < 0 || !Number.isInteger(inference_count)) return res.status(400).json({ error: 'inference_count must be a non-negative integer' });
 
-    // Find the caller's node
-    const node = await Node.findOne({ account: userId, status: 'active' });
-    if (!node) {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Check node is registered
+    const nodeEntry = nodeRegistry.getNode(user.username);
+    if (!nodeEntry) {
       return res.status(403).json({ error: 'No active node for this account' });
     }
 
-    // Get current epoch
+    // Get current epoch from stateStore
     const currentEpochNum = await getCurrentEpoch();
-    const epoch = await Epoch.findOne({ epoch_number: currentEpochNum, status: 'active' });
-    if (!epoch) {
+    const epoch = stateStore.getEpoch(currentEpochNum);
+    if (!epoch || epoch.status !== 'active') {
       return res.status(404).json({ error: 'No active epoch found' });
     }
 
-    // Check if this node already submitted for this epoch
-    const alreadySubmitted = epoch.commitments.some(
-      c => c.node_id.toString() === node._id.toString()
-    );
+    // Check if already submitted
+    const commitments = epoch.commitments || [];
+    const alreadySubmitted = commitments.some(c => c.node_id === user.username);
     if (alreadySubmitted) {
       return res.status(400).json({ error: 'Commitment already submitted for this epoch' });
     }
 
     // Add commitment
-    epoch.commitments.push({
-      node_id: node._id,
+    commitments.push({
+      node_id: user.username,
       state_hash,
       tx_count: tx_count || 0,
       inference_count: inference_count || 0,
       submitted_at: new Date()
     });
-
-    await epoch.save();
-
-    // Update node's last epoch commitment
-    node.last_epoch_commitment = currentEpochNum;
-    await node.save();
+    epoch.commitments = commitments;
+    stateStore.setEpoch(currentEpochNum, epoch);
 
     res.json({
       success: true,
@@ -257,7 +233,7 @@ async function submitEpochCommitment(req, res) {
 async function getEpochInfo(req, res) {
   try {
     const currentEpochNum = await getCurrentEpoch();
-    const epoch = await Epoch.findOne({ epoch_number: currentEpochNum });
+    const epoch = stateStore.getEpoch(currentEpochNum);
     const period = getCurrentPeriod(currentEpochNum);
 
     res.json({
@@ -268,7 +244,7 @@ async function getEpochInfo(req, res) {
         period: period ? period.period : null,
         period_duration_months: period ? period.duration_months : null,
         status: epoch ? epoch.status : 'pending',
-        commitments_count: epoch ? epoch.commitments.length : 0,
+        commitments_count: epoch ? (epoch.commitments || []).length : 0,
         started_at: epoch ? epoch.started_at : null
       }
     });
@@ -287,7 +263,7 @@ async function getEpochByNumber(req, res) {
       return res.status(400).json({ error: 'Invalid epoch number' });
     }
 
-    const epoch = await Epoch.findOne({ epoch_number: epochNumber });
+    const epoch = stateStore.getEpoch(epochNumber);
     if (!epoch) {
       return res.status(404).json({ error: 'Epoch not found' });
     }
@@ -302,7 +278,7 @@ async function getEpochByNumber(req, res) {
         ended_at: epoch.ended_at,
         block_reward: epoch.block_reward,
         total_work: epoch.total_work,
-        commitments_count: epoch.commitments.length,
+        commitments_count: (epoch.commitments || []).length,
         consensus_hash: epoch.consensus_hash,
         rewards_distributed: epoch.rewards_distributed,
         status: epoch.status,

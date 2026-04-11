@@ -12,14 +12,11 @@ require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 const { program } = require("commander");
 const mongoose = require("mongoose");
 
-const Epoch = require("../src/models/Epoch");
-const Node = require("../src/models/Node");
-const Transaction = require("../src/models/Transaction");
-const Wallet = require("../src/models/Wallet");
+// Phase E: chain-state models removed — use stateStore/nodeRegistry/ledger
 const User = require("../src/models/User");
-const StakingPool = require("../src/models/StakingPool");
-const Delegation = require("../src/models/Delegation");
-const MiningProof = require("../src/models/MiningProof");
+const stateStore = require("../src/chain/stateStore");
+const nodeRegistry = require("../src/chain/nodeRegistry");
+const ledger = require("../src/services/ledger");
 const {
   getBlockReward,
   getCurrentPeriod,
@@ -101,15 +98,19 @@ async function disconnect() {
 }
 
 async function getLatestEpoch() {
-  return Epoch.findOne().sort({ epoch_number: -1 });
+  const chainHeight = stateStore.getChainHeight();
+  if (chainHeight < 0) return null;
+  const ep = stateStore.getEpoch(chainHeight);
+  if (ep) return Object.assign({ epoch_number: chainHeight }, ep);
+  return null;
 }
 
 async function getGenesisTimestamp() {
   if (process.env.BTCPC_GENESIS_TIMESTAMP) {
     return parseInt(process.env.BTCPC_GENESIS_TIMESTAMP);
   }
-  const genesis = await Epoch.findOne({ epoch_number: 0 });
-  if (genesis) return genesis.started_at.getTime();
+  const genesis = stateStore.getEpoch ? stateStore.getEpoch(0) : null;
+  if (genesis && genesis.started_at) return new Date(genesis.started_at).getTime();
   return null;
 }
 
@@ -150,25 +151,25 @@ program
         timeToNext = msLeft > 0 ? durationStr(msLeft) : "imminent";
       }
 
-      // Total mined
-      const miningTxs = await Transaction.aggregate([
-        { $match: { type: "mining_reward" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ]);
-      const totalMined = miningTxs.length > 0 ? miningTxs[0].total : 0;
+      // Total mined from stateStore epochs
+      let totalMined = 0;
+      for (let mi = 0; mi <= currentEpochNum; mi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(mi) : null;
+        if (ep) totalMined += ep.block_reward || 0;
+      }
 
       // Active miners
-      const activeMiners = await Node.countDocuments({ status: "active" });
+      const activeMiners = nodeRegistry.getRegisteredNodes().length;
 
-      // Network work (total work across all finalized epochs)
-      const workAgg = await Epoch.aggregate([
-        { $match: { status: "finalized" } },
-        { $group: { _id: null, total: { $sum: "$total_work" } } }
-      ]);
-      const totalWork = workAgg.length > 0 ? workAgg[0].total : 0;
+      // Network work from stateStore
+      let totalWork = 0;
+      for (let wi = 0; wi <= currentEpochNum; wi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(wi) : null;
+        if (ep) totalWork += ep.total_work || 0;
+      }
 
       // Current difficulty from latest epoch
-      const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 });
+      const latestEpoch = await getLatestEpoch();
       const difficulty = latestEpoch && latestEpoch.difficulty ? latestEpoch.difficulty : 1.0;
       const nextAdjustmentEpoch = Math.ceil((currentEpochNum + 1) / DIFFICULTY_ADJUSTMENT_INTERVAL) * DIFFICULTY_ADJUSTMENT_INTERVAL;
       const epochsUntilAdjustment = nextAdjustmentEpoch - currentEpochNum;
@@ -212,25 +213,20 @@ program
         process.exit(1);
       }
 
-      const wallet = await Wallet.findOne({ userId: user._id });
-      const balance = wallet ? (wallet.balance.get("BTCPC") || 0) : 0;
-
-      // Staked amount
-      const stakes = await StakingPool.find({ account: user._id, status: "active" });
-      const stakedTotal = stakes.reduce((sum, s) => sum + s.staked_amount, 0);
-
-      // Total earned from mining
-      const walletAddr = wallet ? wallet.address : null;
+      const balance = stateStore.getBalance(username, "BTCPC");
+      const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
+      const stakedTotal = stakePool ? (stakePool.staked_amount || 0) : 0;
       let totalEarned = 0;
       let epochsMined = 0;
-      if (walletAddr) {
-        const miningAgg = await Transaction.aggregate([
-          { $match: { to: walletAddr, type: "mining_reward" } },
-          { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-        ]);
-        if (miningAgg.length > 0) {
-          totalEarned = miningAgg[0].total;
-          epochsMined = miningAgg[0].count;
+      // Compute proofs from stateStore
+      if (stateStore.getAllComputeProofs) {
+        for (const proofs of Object.values(stateStore.getAllComputeProofs())) {
+          for (const p of (proofs || [])) {
+            if (p && p.node_id === username) {
+              epochsMined++;
+              totalEarned += p.reward || 0;
+            }
+          }
         }
       }
 
@@ -244,14 +240,20 @@ program
       console.log("  Epochs mined:        " + formatNumber(epochsMined));
       console.log("");
 
-      // Mining proofs (soulbound)
-      const proofs = await MiningProof.find({ miner: username }).sort({ block_number: 1 });
-      if (proofs.length > 0) {
-        console.log("  Mining Proofs (soulbound): " + proofs.length);
-        for (const p of proofs) {
-          const date = new Date(p.timestamp).toISOString().split("T")[0];
-          const rewardStr = p.reward_earned.toFixed(2);
-          console.log("    Block " + pad(String(p.block_number), 6) + pad(rewardStr, 12, true) + " BTCPC    " + pad(p.model, 18) + date);
+      // Mining proofs from stateStore compute proofs
+      const allProofsForBalance = stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {};
+      const userProofsForBalance = [];
+      for (const [epochNum, proofs] of Object.entries(allProofsForBalance)) {
+        for (const p of (proofs || [])) {
+          if (p && p.node_id === username) userProofsForBalance.push({ ...p, epoch: epochNum });
+        }
+      }
+      if (userProofsForBalance.length > 0) {
+        console.log("  Mining Proofs (soulbound): " + userProofsForBalance.length);
+        for (const p of userProofsForBalance) {
+          const date = p.timestamp ? new Date(p.timestamp).toISOString().split("T")[0] : "-";
+          const rewardStr = (p.reward || 0).toFixed(2);
+          console.log("    Epoch " + pad(String(p.epoch), 6) + pad(rewardStr, 12, true) + " BTCPC    " + pad(p.model || "-", 18) + date);
         }
         console.log("");
       }
@@ -274,7 +276,9 @@ program
 
       let epoch;
       if (number !== undefined) {
-        epoch = await Epoch.findOne({ epoch_number: parseInt(number) });
+        const epochNum = parseInt(number);
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(epochNum) : null;
+        epoch = ep ? Object.assign({ epoch_number: epochNum }, ep) : null;
       } else {
         epoch = await getLatestEpoch();
       }
@@ -333,7 +337,12 @@ program
       await connect();
 
       const n = parseInt(count) || 10;
-      const epochs = await Epoch.find().sort({ epoch_number: -1 }).limit(n);
+      const chainHeight = stateStore.getChainHeight();
+      const epochs = [];
+      for (let bi = chainHeight; bi >= 0 && epochs.length < n; bi--) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(bi) : null;
+        if (ep) epochs.push(Object.assign({ epoch_number: bi }, ep));
+      }
 
       if (epochs.length === 0) {
         console.log("\n  No epochs found.\n");
@@ -384,12 +393,12 @@ program
       const currentEpochNum = await calcCurrentEpochNumber();
       const period = getCurrentPeriod(currentEpochNum);
 
-      // Total mined
-      const miningAgg = await Transaction.aggregate([
-        { $match: { type: "mining_reward" } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
-      ]);
-      const totalMined = miningAgg.length > 0 ? miningAgg[0].total : 0;
+      // Total mined from stateStore
+      let totalMined = 0;
+      for (let mi = 0; mi <= currentEpochNum; mi++) {
+        const ep = stateStore.getEpoch ? stateStore.getEpoch(mi) : null;
+        if (ep) totalMined += ep.block_reward || 0;
+      }
       const remaining = TOTAL_SUPPLY - totalMined;
 
       // Next halving estimate
@@ -458,34 +467,32 @@ program
 
       const n = parseInt(count) || 10;
 
-      // Get finalized epochs with commitments, most recent first
-      const epochs = await Epoch.find({
-        "commitments.0": { $exists: true }
-      }).sort({ epoch_number: -1 }).limit(n);
+      // Collect work proofs from stateStore compute proofs
+      const allComputeProofs = stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {};
+      const rows = [];
+      const epochNums = Object.keys(allComputeProofs).map(Number).sort((a, b) => b - a);
+      for (const epochNum of epochNums) {
+        if (rows.length >= n) break;
+        for (const p of (allComputeProofs[epochNum] || [])) {
+          if (!p) continue;
+          const nodeInfo = nodeRegistry.getNode(p.node_id);
+          const models = nodeInfo && nodeInfo.models && nodeInfo.models.length > 0
+            ? nodeInfo.models.join(", ")
+            : (p.model || "-");
+          rows.push({
+            epoch: epochNum,
+            model: models,
+            tokens: p.tokens_generated || 0,
+            work: p.tokens_generated || 0,
+            timestamp: p.timestamp
+          });
+        }
+      }
 
-      if (epochs.length === 0) {
+      if (rows.length === 0) {
         console.log("\n  No work proofs found.\n");
         await disconnect();
         return;
-      }
-
-      // Collect individual work entries from commitments
-      const rows = [];
-      for (const e of epochs) {
-        for (const c of e.commitments) {
-          // Try to get node info for model data
-          const node = await Node.findById(c.node_id);
-          const models = node && node.models && node.models.length > 0
-            ? node.models.join(", ")
-            : "-";
-          rows.push({
-            epoch: e.epoch_number,
-            model: models,
-            tokens: c.inference_count,
-            work: c.inference_count + c.tx_count,
-            timestamp: c.submitted_at
-          });
-        }
       }
 
       // Trim to requested count
@@ -695,14 +702,15 @@ walletCmd
         process.exit(1);
       }
 
-      const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+      const accountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      const walletAddress = accountState?.chain_addresses?.btcpc || null;
 
       console.log("");
       console.log("BTCPC Keys: " + username);
       console.log("=".repeat(16 + username.length));
       console.log("");
-      if (wallet) {
-        console.log("  Address:          " + wallet.address);
+      if (walletAddress) {
+        console.log("  Address:          " + walletAddress);
       }
       console.log("  Owner (public):   " + (user.ownerPublicKey || "not set"));
       console.log("  Active (public):  " + (user.activePublicKey || "not set"));
@@ -737,7 +745,8 @@ walletCmd
         process.exit(1);
       }
 
-      const wallet = await Wallet.findOne({ userId: user._id, chain: "btcpc" });
+      const exportAccountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      const exportAddress = exportAccountState?.chain_addresses?.btcpc || null;
 
       console.log("");
       const password = await prompt("  Enter encryption password: ", true);
@@ -752,7 +761,7 @@ walletCmd
         version: 1,
         chain: "btcpc",
         username: username,
-        address: wallet ? wallet.address : null,
+        address: exportAddress,
         publicKeys: {
           owner: user.ownerPublicKey,
           active: user.activePublicKey,
@@ -833,55 +842,19 @@ walletCmd
         process.exit(1);
       }
 
-      // Find sender wallet
-      const Wallet = require("../src/models/Wallet");
-      const senderWallet = await Wallet.findOne({ userId: sender._id, chain: "btcpc" });
-      if (!senderWallet) {
-        console.error("error: no BTCPC wallet found for " + senderName);
-        await disconnect();
-        process.exit(1);
-      }
-
-      const balance = senderWallet.balance.get("BTCPC") || 0;
+      // Balance from stateStore
+      const balance = stateStore.getBalance(senderName, "BTCPC");
       if (balance < amount) {
         console.error("error: insufficient balance. Have " + balance.toFixed(10) + ", need " + amount.toFixed(10));
         await disconnect();
         process.exit(1);
       }
 
-      // Find recipient — or send to unclaimed username
-      // Tokens sit at the username. When someone registers that name, they own them.
-      const recipient = await User().findOne({ username: to });
-      let recipientWallet;
-
-      if (recipient) {
-        recipientWallet = await Wallet.findOne({ userId: recipient._id, chain: "btcpc" });
-        if (!recipientWallet) {
-          console.error("error: no BTCPC wallet found for " + to);
-          await disconnect();
-          process.exit(1);
-        }
-      } else {
-        // Username doesn't exist yet — create a placeholder wallet
-        // Tokens sit here until someone registers this username and claims them
+      // Find recipient — tokens sent to username directly
+      const recipient = await User.findOne({ username: to });
+      if (!recipient) {
         console.log("  '" + to + "' is not registered. Tokens will be held at this username.");
         console.log("  When '" + to + "' registers, they will own these tokens.");
-
-        // Use a deterministic address from the username
-        const addrHash = require("crypto").createHash("sha256").update("btcpc-username:" + to).digest("hex");
-        const address = "BTCPC" + addrHash.slice(0, 40);
-
-        // Check if we already have an unclaimed wallet for this username
-        recipientWallet = await Wallet.findOne({ address: address, chain: "btcpc" });
-        if (!recipientWallet) {
-          recipientWallet = new Wallet({
-            userId: null, // unclaimed — no user yet
-            chain: "btcpc",
-            address: address,
-            publicKey: null,
-            balance: new Map([["BTCPC", 0]])
-          });
-        }
       }
 
       // Sign the transaction with active key
@@ -923,13 +896,7 @@ walletCmd
       // Record on permanent ledger — source of truth
       await ledger.recordTransfer(senderName, to, amount, "BTCPC", sig.signature, epoch, null);
 
-      // Update wallet caches
-      senderWallet.balance.set("BTCPC", balance - amount);
-      await senderWallet.save();
-
-      const recipBalance = recipientWallet.balance.get("BTCPC") || 0;
-      recipientWallet.balance.set("BTCPC", recipBalance + amount);
-      await recipientWallet.save();
+      // Phase E: wallet cache updates removed — ledger is source of truth
 
       // Broadcast to P2P if network is available
       try {
@@ -955,7 +922,6 @@ walletCmd
       console.log("  Epoch:   " + epoch);
       console.log("");
       console.log("  " + senderName + " balance: " + (balance - amount).toFixed(10) + " BTCPC");
-      console.log("  " + to + " balance: " + (recipBalance + amount).toFixed(10) + " BTCPC");
       console.log("");
 
       await disconnect();
@@ -987,17 +953,17 @@ walletCmd
         process.exit(1);
       }
 
-      const Wallet = require("../src/models/Wallet");
-      const wallets = await Wallet.find({ userId: user._id });
+      const walletAccountState = stateStore.getAccount ? stateStore.getAccount(name) : null;
+      const chainAddresses = walletAccountState?.chain_addresses || {};
+      const btcpcBal = stateStore.getBalance(name, "BTCPC");
 
       console.log("");
       console.log("  " + name + " wallets:");
       console.log("");
-      for (const w of wallets) {
-        const bal = w.balance.get("BTCPC") || 0;
-        console.log("  " + w.chain.padEnd(10) + " " + w.address);
-        if (bal > 0) console.log("             " + bal.toFixed(10) + " BTCPC");
+      for (const [chain, addr] of Object.entries(chainAddresses)) {
+        console.log("  " + chain.padEnd(10) + " " + addr);
       }
+      if (btcpcBal > 0) console.log("             " + btcpcBal.toFixed(10) + " BTCPC");
       console.log("");
 
       await disconnect();
@@ -1042,7 +1008,6 @@ program
 
 // --- dreams ----------------------------------------------------------------
 
-const GenesisDream = require("../src/models/GenesisDream");
 const {
   getDreams: fetchDreams,
   getDream: fetchDream,
@@ -1336,13 +1301,11 @@ program
 
       const currentEpochNum = await calcCurrentEpochNumber();
 
-      // Count finalized epochs
-      const finalizedCount = await Epoch.countDocuments({ status: "finalized" });
-      const activeCount = await Epoch.countDocuments({ status: "active" });
-
-      // Latest finalized epoch
-      const latestFinalized = await Epoch.findOne({ status: "finalized" }).sort({ epoch_number: -1 });
-      const latestFinalizedNum = latestFinalized ? latestFinalized.epoch_number : -1;
+      // Chain height from stateStore
+      const chainHeight = stateStore.getChainHeight();
+      const finalizedCount = chainHeight >= 0 ? chainHeight + 1 : 0;
+      const activeCount = 1; // current epoch is always "active"
+      const latestFinalizedNum = chainHeight;
 
       // P2P config
       const p2pPort = process.env.P2P_PORT || 6942;
@@ -1434,12 +1397,11 @@ program
         .update(parsed.content)
         .digest("hex");
 
-      // -- Log WorkProof on-chain (best-effort) -----------------------------
+      // -- Log WorkProof on-chain (best-effort) via stateStore -------------
       let proofId = null;
       let onChain = false;
       try {
         await connect();
-        const WorkProof = require("../src/models/WorkProof");
         const { getCurrentEpoch } = require("../src/services/epochManager");
         const { getModelWeight } = require("../src/mining/workGenerator");
 
@@ -1447,24 +1409,21 @@ program
         const weightFactor = getModelWeight(parsed.model);
         const workValue = parsed.completion_tokens * weightFactor;
 
-        const proof = new WorkProof({
-          epoch_number: epochNumber,
-          node_id: isExternal
-            ? "external-" + providerName
-            : "inference-cli",
+        const proof = {
+          node_id: isExternal ? "external-" + providerName : "inference-cli",
           prompt_hash: promptHash,
           result_hash: resultHash,
           model: parsed.model,
           tokens_generated: parsed.completion_tokens,
           model_weight_factor: weightFactor,
-          work_value: workValue
-        });
-        const saved = await proof.save();
-        proofId = saved._id.toString();
+          work_value: workValue,
+          timestamp: new Date().toISOString()
+        };
+        stateStore.addComputeProof(epochNumber, proof);
+        proofId = crypto.createHash("sha256").update(promptHash + resultHash + Date.now().toString()).digest("hex");
         onChain = true;
         await disconnect();
       } catch (_dbErr) {
-        // Chain may not be running -- still show the result
         proofId = crypto
           .createHash("sha256")
           .update(promptHash + resultHash + Date.now().toString())
@@ -1555,11 +1514,7 @@ program
       }
 
       // Verify miner has a registered node
-      const minerNode = await Node.findOne({
-        account: minerUser._id,
-        status: { $in: ["registered", "active"] }
-      });
-      if (!minerNode) {
+      if (!nodeRegistry.isRegistered(minerUsername)) {
         console.error("error: '" + minerUsername + "' is not a registered miner");
         await disconnect();
         process.exit(1);
@@ -1573,58 +1528,24 @@ program
         process.exit(1);
       }
 
-      if (String(defaultUser._id) === String(minerUser._id)) {
+      if (defaultUser.username === minerUsername) {
         console.error("error: cannot delegate to yourself");
         await disconnect();
         process.exit(1);
       }
 
-      const wallet = await Wallet.findOne({ userId: defaultUser._id });
-      if (!wallet) {
-        console.error("error: wallet not found");
-        await disconnect();
-        process.exit(1);
-      }
-
-      const btcpcBalance = wallet.balance.get("BTCPC") || 0;
+      const btcpcBalance = stateStore.getBalance(defaultUser.username, "BTCPC");
       if (btcpcBalance < delegateAmount) {
         console.error("error: insufficient BTCPC balance (" + formatBTCPC(btcpcBalance) + " available)");
         await disconnect();
         process.exit(1);
       }
 
-      // Check for existing active delegation
-      let delegation = await Delegation.findOne({
-        delegator: defaultUser._id,
-        miner: minerUser._id,
-        status: "active"
-      });
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordDelegate(defaultUser.username, minerUsername, delegateAmount, "mining", epoch);
 
-      if (delegation) {
-        delegation.amount += delegateAmount;
-        delegation.delegated_at = new Date();
-      } else {
-        delegation = new Delegation({
-          delegator: defaultUser._id,
-          miner: minerUser._id,
-          amount: delegateAmount,
-          delegated_at: new Date(),
-          status: "active"
-        });
-      }
-
-      wallet.balance.set("BTCPC", btcpcBalance - delegateAmount);
-      await wallet.save();
-      await delegation.save();
-
-      const tx = new Transaction({
-        from: wallet.address,
-        to: "delegation_pool",
-        amount: delegateAmount,
-        type: "delegation",
-        memo: "BTCPC delegation to miner " + minerUsername
-      });
-      await tx.save();
+      const existingDel = stateStore.getDelegation ? stateStore.getDelegation(defaultUser.username + '|' + minerUsername) : null;
+      const totalDelegated = existingDel ? (existingDel.amount || 0) + delegateAmount : delegateAmount;
 
       console.log("");
       console.log("Delegation Successful");
@@ -1632,8 +1553,8 @@ program
       console.log("");
       console.log("  Delegated:           " + formatBTCPC(delegateAmount) + " BTCPC");
       console.log("  To miner:            " + minerUsername);
-      console.log("  Total delegated:     " + formatBTCPC(delegation.amount) + " BTCPC");
-      console.log("  Wallet balance:      " + formatBTCPC(wallet.balance.get("BTCPC")) + " BTCPC");
+      console.log("  Total delegated:     " + formatBTCPC(totalDelegated) + " BTCPC");
+      console.log("  Wallet balance:      " + formatBTCPC(btcpcBalance - delegateAmount) + " BTCPC");
       console.log("");
 
       await disconnect();
@@ -1675,13 +1596,10 @@ program
         process.exit(1);
       }
 
-      const delegation = await Delegation.findOne({
-        delegator: defaultUser._id,
-        miner: minerUser._id,
-        status: "active"
-      });
+      const delegKey = defaultUser.username + '|' + minerUsername;
+      const delegation = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
 
-      if (!delegation) {
+      if (!delegation || (delegation.amount || 0) <= 0) {
         console.error("error: no active delegation to '" + minerUsername + "'");
         await disconnect();
         process.exit(1);
@@ -1697,28 +1615,8 @@ program
       const unlockDate = new Date(now);
       unlockDate.setDate(unlockDate.getDate() + 7);
 
-      if (undelegateAmount < delegation.amount) {
-        // Partial undelegation
-        const remaining = delegation.amount - undelegateAmount;
-        delegation.amount = remaining;
-        await delegation.save();
-
-        const undelegation = new Delegation({
-          delegator: defaultUser._id,
-          miner: minerUser._id,
-          amount: undelegateAmount,
-          delegated_at: delegation.delegated_at,
-          status: "undelegating",
-          undelegate_requested_at: now,
-          undelegate_available_at: unlockDate
-        });
-        await undelegation.save();
-      } else {
-        delegation.status = "undelegating";
-        delegation.undelegate_requested_at = now;
-        delegation.undelegate_available_at = unlockDate;
-        await delegation.save();
-      }
+      const undelegateEpoch = await ledger.getCurrentEpoch();
+      await ledger.recordUndelegate(minerUsername, defaultUser.username, undelegateAmount, undelegateEpoch, 'CLI undelegate');
 
       console.log("");
       console.log("Undelegation Started");
@@ -1755,21 +1653,20 @@ program
         process.exit(1);
       }
 
-      // Delegations made by this account
-      const outgoing = await Delegation.find({
-        delegator: user._id,
-        status: { $in: ["active", "undelegating"] }
-      }).populate("miner", "username");
-
-      // Delegations received by this account (if they are a miner)
-      const incoming = await Delegation.find({
-        miner: user._id,
-        status: "active"
-      }).populate("delegator", "username");
-
-      const totalOutgoing = outgoing
-        .filter(function (d) { return d.status === "active"; })
-        .reduce(function (sum, d) { return sum + d.amount; }, 0);
+      // Delegations from stateStore
+      const allDels = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
+      const outgoing = [];
+      const incoming = [];
+      for (const [key, del] of Object.entries(allDels)) {
+        const [delegatorName, minerName] = key.split('|');
+        if (delegatorName === username && (del.amount || 0) > 0) {
+          outgoing.push({ miner: { username: minerName }, amount: del.amount, status: 'active', delegated_at: del.epoch });
+        }
+        if (minerName === username && (del.amount || 0) > 0) {
+          incoming.push({ delegator: { username: delegatorName }, amount: del.amount, delegated_at: del.epoch });
+        }
+      }
+      const totalOutgoing = outgoing.reduce(function (sum, d) { return sum + d.amount; }, 0);
       const totalIncoming = incoming.reduce(function (sum, d) { return sum + d.amount; }, 0);
 
       console.log("");
@@ -1833,8 +1730,8 @@ program
 
 // --- claims ----------------------------------------------------------------
 
-const CrossChainClaim = require("../src/models/CrossChainClaim");
 const { generateClaimProof, getCrossChainRatio } = require("../src/claims/claimProofGenerator");
+const { getClaimStatus: _getClaimStatus } = require("../src/claims/evmClaimSubmitter");
 
 program
   .command("claims [account]")
@@ -1844,7 +1741,8 @@ program
       await connect();
 
       const username = account || "shindevlin";
-      const claims = await CrossChainClaim.find({ miner: username }).sort({ epoch: -1 });
+      const latestClaimEpoch = await ledger.getCurrentEpoch();
+      const claims = await _getClaimStatus(username, latestClaimEpoch);
 
       if (claims.length === 0) {
         console.log("\n  No cross-chain claims found for " + username + ".\n");
@@ -1957,19 +1855,15 @@ program
         process.exit(1);
       }
 
-      // Find the claim proof
-      var claim = await CrossChainClaim.findOne({
-        epoch: epochNum,
-        chain: chain
-      });
+      // Find the claim proof from in-memory claim store
+      var allClaims = await _getClaimStatus(null, epochNum);
+      var claim = allClaims.find(function (c) { return c.chain === chain && c.epoch === epochNum; });
 
       if (!claim) {
         // Check if the epoch exists and was finalized
-        var epoch = await Epoch.findOne({ epoch_number: epochNum });
-        if (!epoch) {
+        var epochData = stateStore.getEpoch ? stateStore.getEpoch(epochNum) : null;
+        if (!epochData) {
           console.error("error: epoch " + epochNum + " not found");
-        } else if (epoch.status !== "finalized") {
-          console.error("error: epoch " + epochNum + " not yet finalized (status: " + epoch.status + ")");
         } else {
           console.error("error: no cross-chain claim proof found for epoch " + epochNum + " on " + chain);
           console.error("       ensure a wallet is linked for this chain on the mining node");
@@ -2032,7 +1926,7 @@ program
           claim.status = "submitted";
           claim.tx_hash = result.tx_id;
           claim.submitted_at = new Date();
-          await claim.save();
+          // Phase E: claim saved in-memory only (no Mongoose save)
           console.log("  Hive TX: " + result.tx_id);
           console.log("  Status: submitted");
         } else {

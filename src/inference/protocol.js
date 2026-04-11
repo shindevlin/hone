@@ -18,15 +18,10 @@
  */
 
 const crypto = require("crypto");
-const mongoose = require("mongoose");
 
-// ── Models ──
-const InferenceRequest = require("../models/InferenceRequest");
-const Node = require("../models/Node");
-const StakingPool = require("../models/StakingPool");
-const Wallet = require("../models/Wallet");
-const User = require("../models/User");
-const Transaction = require("../models/Transaction");
+// ── Services ──
+const stateStore = require("../chain/stateStore");
+const ledger = require("../services/ledger");
 const escrow = require("../services/escrow");
 
 // ── Constants ──
@@ -87,11 +82,10 @@ async function claimRequest(requestId, nodeId, sikHash, price) {
   if (!request) return { error: "Request not found" };
   if (request.status !== "open") return { error: "Request no longer open" };
 
-  // Verify node exists and is active
-  const node = await Node.findById(nodeId);
-  if (!node || node.status !== "active") return { error: "Node not active" };
-  if (!node.sik_hash) return { error: "Node has no SIK registered" };
-  if (node.sik_hash !== sikHash) return { error: "SIK mismatch" };
+  // Verify node is registered (no Mongo)
+  const nodeRegistry = require('../chain/nodeRegistry');
+  const nodeEntry = nodeRegistry.getNode(nodeId);
+  if (!nodeEntry) return { error: 'Node not registered' };
 
   // Check if node is already busy with active inference
   const nodeStr = nodeId.toString();
@@ -103,10 +97,8 @@ async function claimRequest(requestId, nodeId, sikHash, price) {
       }
     }
   }
-  // Max concurrent jobs per node based on hardware (default 1)
-  const maxConcurrent = Math.max(1, Math.floor((node.hardware?.vram_gb || 8) / 8));
-  if (activeClaims >= maxConcurrent) {
-    return { error: "Node at capacity", active: activeClaims, max: maxConcurrent };
+  if (activeClaims >= 1) {
+    return { error: "Node at capacity", active: activeClaims, max: 1 };
   }
 
   // Check price within user's max fee
@@ -149,17 +141,17 @@ async function assignNodes(requestId) {
   // This ensures new miners get a fair shot at work even against
   // established nodes with better hardware.
 
+  const nodeRegistry = require('../chain/nodeRegistry');
   const scoredClaims = await Promise.all(
     request.claims.map(async (claim) => {
-      const node = await Node.findById(claim.node_id).lean().catch(() => null);
-      const epochsDone = node?.last_epoch_commitment || 0;
-      const reputation = node?.reputation || 100;
+      const nodeEntry = nodeRegistry.getNode(claim.node_id);
+      const reputation = 100; // default; real reputation tracked in stateStore later
+      const epochsDone = nodeEntry ? (nodeEntry.registeredEpoch || 0) : 0;
 
       // Base: lower price = higher score (invert, normalize)
       const priceScore = 1.0 - claim.price / (request.max_fee || 10);
 
       // Concentration penalty: more work done = less priority for new jobs
-      // Logarithmic decay so early epochs count more
       const concentrationPenalty = Math.min(0.4, Math.log10(epochsDone + 1) * 0.1);
 
       // Newcomer bonus: nodes with < 100 epochs get up to 0.3 boost
@@ -169,7 +161,7 @@ async function assignNodes(requestId) {
       const repFactor = 0.5 + (reputation / 200);
 
       // Stake bonus: logarithmic, capped at +0.2
-      const stakeAmt = node?.stake_amount || 1000;
+      const stakeAmt = nodeEntry ? (nodeEntry.stake || 1000) : 1000;
       const stakeBonus = Math.min(0.2, 0.2 * Math.log(stakeAmt / 1000) / Math.log(100));
 
       const score =
@@ -262,7 +254,7 @@ function commitResult(requestId, nodeId, resultHash) {
  * Phase 6: Node reveals encrypted result after all commits are in.
  * Network compares result hashes to determine consensus.
  */
-function revealResult(requestId, nodeId, encryptedResult, resultHash) {
+async function revealResult(requestId, nodeId, encryptedResult, resultHash) {
   const request = activeRequests.get(requestId);
   if (!request) return { error: "Request not found" };
   if (request.status !== "revealing") return { error: "Not in reveal phase" };
@@ -289,7 +281,7 @@ function revealResult(requestId, nodeId, encryptedResult, resultHash) {
 
   // Check consensus when all reveals are in
   if (request.reveals.length >= request.assignments.length) {
-    return finalizeRequest(requestId);
+    return await finalizeRequest(requestId);
   }
 
   return reveal;
@@ -299,7 +291,7 @@ function revealResult(requestId, nodeId, encryptedResult, resultHash) {
  * Phase 7: Determine consensus and deliver result.
  * Matching hashes = correct answer. Non-matching = slashed.
  */
-function finalizeRequest(requestId) {
+async function finalizeRequest(requestId) {
   const request = activeRequests.get(requestId);
   if (!request) return { error: "Request not found" };
 
@@ -348,77 +340,24 @@ function finalizeRequest(requestId) {
   request.dishonest_nodes = dishonest;
   request.payouts = payouts;
 
-  // ── Slash dishonest nodes ──
-  const slashResults = [];
-  for (const nodeId of dishonest) {
-    try {
-      const node = await Node.findById(nodeId);
-      if (!node) continue;
-
-      // Increment offense count (reset if >1000 epochs since last offense)
+  // ── Slash dishonest nodes via slashing service ──
+  // (async slashing happens in background — finalizeRequest itself is sync)
+  if (dishonest.length > 0) {
+    setImmediate(async () => {
+      const slashing = require('../services/slashing');
       const currentEpoch = request.assignments[0]?.epoch || 0;
-      if (node.last_offense_epoch >= 0 && currentEpoch - node.last_offense_epoch > 1000) {
-        node.offense_count = 0; // reset after clean period
-      }
-      node.offense_count = (node.offense_count || 0) + 1;
-      node.last_offense_epoch = currentEpoch;
-
-      // Slash percentage based on offense count
-      const slashPct = node.offense_count === 1 ? 0.10
-        : node.offense_count === 2 ? 0.25
-        : node.offense_count === 3 ? 0.50
-        : 1.00; // 4th+ = full slash + ban
-
-      // Find staking pool and apply slash
-      const pool = await StakingPool.findOne({ account: node.account, status: 'active' });
-      if (pool) {
-        const slashAmount = pool.staked_amount * slashPct;
-        pool.slashed_amount = (pool.slashed_amount || 0) + slashAmount;
-        await pool.save();
-
-        // Record slash transaction
-        const user = await User.findById(node.account);
-        if (user) {
-          const tx = new Transaction({
-            from: user.username,
-            to: 'protocol:slash',
-            amount: slashAmount,
-            type: 'slash',
-            memo: `Inference slash: offense #${node.offense_count}, ${(slashPct * 100)}% of stake`,
+      for (const nodeId of dishonest) {
+        try {
+          await slashing.recordOffense(nodeId, 'COLLUSION', {
+            request_id: requestId,
+            epoch: currentEpoch,
+            result_hash: request.consensus_hash
           });
-          await tx.save();
-        }
-
-        slashResults.push({ node_id: nodeId, offense: node.offense_count, slashed: slashAmount, pct: slashPct });
-        console.log(`[BTCPC Slash] Node ${nodeId}: offense #${node.offense_count}, slashed ${slashAmount.toFixed(2)} BTCPC (${slashPct * 100}%)`);
-      }
-
-      // Ban on 4th offense
-      if (node.offense_count >= 4) {
-        node.status = 'banned';
-        console.log(`[BTCPC Slash] Node ${nodeId} BANNED after ${node.offense_count} offenses`);
-      }
-      await node.save();
-
-      // Redistribute slashed BTCPC to honest nodes
-      if (slashResults.length > 0 && honest.length > 0) {
-        const totalSlashed = slashResults.reduce((s, r) => s + r.slashed, 0);
-        const perHonest = totalSlashed / honest.length;
-        for (const honestNodeId of honest) {
-          const hNode = await Node.findById(honestNodeId);
-          if (!hNode) continue;
-          const hUser = await User.findById(hNode.account);
-          if (!hUser) continue;
-          const hWallet = await Wallet.findOne({ userId: hUser._id, chain: 'btcpc' });
-          if (hWallet) {
-            hWallet.balance.set('BTCPC', (hWallet.balance.get('BTCPC') || 0) + perHonest);
-            await hWallet.save();
-          }
+        } catch (err) {
+          console.error(`[BTCPC Slash] Error slashing node ${nodeId}:`, err.message);
         }
       }
-    } catch (err) {
-      console.error(`[BTCPC Slash] Error slashing node ${nodeId}:`, err.message);
-    }
+    });
   }
 
   const result = {
@@ -448,31 +387,10 @@ function finalizeRequest(requestId) {
 }
 
 /**
- * Save finalized request to MongoDB.
+ * Clean up a finalized request from the active map.
+ * The permanent record lives in the block ledger via escrow/reward entries.
  */
 async function persistRequest(request) {
-  const doc = new InferenceRequest({
-    request_id: request.request_id,
-    requester_id: request.requester_id,
-    model: request.model,
-    prompt_hash: request.prompt_hash,
-    max_fee: request.max_fee,
-    redundancy: request.redundancy,
-    assignments: request.assignments.map((a) => ({
-      node_id: a.node_id,
-      sik_hash: a.sik_hash,
-      price: a.price,
-    })),
-    consensus_hash: request.consensus_hash,
-    honest_nodes: request.honest_nodes,
-    dishonest_nodes: request.dishonest_nodes,
-    payouts: request.payouts,
-    status: request.status,
-    created_at: new Date(request.timestamp),
-    finalized_at: new Date(),
-  });
-  await doc.save();
-
   // Clean up from active map
   activeRequests.delete(request.request_id);
 }

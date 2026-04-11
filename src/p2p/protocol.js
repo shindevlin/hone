@@ -959,51 +959,46 @@ function handleVerifyResponse(peer, msg, ctx) {
     recordVerifier(data.verifier, epoch);
   }
 
-  // Store verification on the InferenceJob if we have it locally
+  // Phase E: InferenceJob model deleted.
+  // Verification results are tracked in memory via the P2P gossip layer
+  // (minerWorkByEpoch). Slashing for majority rejection still happens via
+  // the slashing service, keyed by job_id recorded in compute proofs.
+  // If we need to check majority rejection, do it via stateStore compute proofs.
   (async function () {
     try {
-      var InferenceJob = require("../models/InferenceJob");
-      var job = await InferenceJob.findOne({ job_id: data.job_id });
-      if (job) {
-        if (!job.verifications) job.verifications = [];
-        // Don't duplicate
-        var existing = job.verifications.find(function (v) { return v.miner === data.verifier; });
+      if (!data.job_id || !data.verifier) return;
+      // Find the compute proof for this job in stateStore
+      var stateStore = require("../chain/stateStore");
+      var epoch = data.epoch || 0;
+      var proofs = stateStore.getComputeProofs(epoch);
+      var proof = proofs.find(function (p) { return p.job_id === data.job_id || p.prompt_hash === data.prompt_hash; });
+      if (proof) {
+        // Track verification inline on the proof (in-memory only)
+        if (!proof.verifications) proof.verifications = [];
+        var existing = proof.verifications.find(function (v) { return v.miner === data.verifier; });
         if (!existing) {
-          job.verifications.push({
+          proof.verifications.push({
             miner: data.verifier,
-            result_hash: job.result_hash || "",
-            work_value: data.verdict === "valid" ? (data.score || 0) : 0,
-            completed_at: new Date()
+            work_value: data.verdict === "valid" ? (data.score || 0) : 0
           });
-          if (job.status === "completed") job.status = "verifying";
-          await job.save();
-
-          // Check for majority rejection → slash the miner
-          var required = job.required_verifications || 1;
-          if (job.verifications.length >= required) {
-            var invalidCount = job.verifications.filter(function (v) {
-              return v.work_value === 0;
-            }).length;
-            if (invalidCount > job.verifications.length / 2) {
+          // Check majority rejection
+          var required = proof.required_verifications || 1;
+          if (proof.verifications.length >= required) {
+            var invalidCount = proof.verifications.filter(function (v) { return v.work_value === 0; }).length;
+            if (invalidCount > proof.verifications.length / 2 && proof.node_id) {
               var slashing = require("../services/slashing");
-              var minerAccount = job.node_name || (job.verifications[0] && job.verifications[0].miner);
-              if (minerAccount) {
-                var verdictSummary = job.verifications.map(function (v) {
-                  return { verifier: v.miner, valid: v.work_value > 0 };
-                });
-                slashing.recordOffense(minerAccount, "EMPTY_GARBAGE_INFERENCE", {
-                  job_id: job.job_id,
-                  verdicts: verdictSummary
-                }).catch(function (err) {
-                  console.error("[BTCPC P2P] Failed to slash miner:", err.message);
-                });
-              }
+              slashing.recordOffense(proof.node_id, "EMPTY_GARBAGE_INFERENCE", {
+                job_id: data.job_id,
+                verdicts: proof.verifications.map(function (v) { return { verifier: v.miner, valid: v.work_value > 0 }; })
+              }).catch(function (err) {
+                console.error("[BTCPC P2P] Failed to slash miner:", err.message);
+              });
             }
           }
         }
       }
     } catch (err) {
-      console.error("[BTCPC P2P] Failed to store verification:", err.message);
+      console.error("[BTCPC P2P] Failed to process verification:", err.message);
     }
   })();
 

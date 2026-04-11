@@ -11,16 +11,11 @@ const bcrypt = require("bcryptjs");
 const keyManager = require("./keyManager");
 
 // Lazy-loaded models (avoids circular require issues at import time)
-let _User, _Wallet;
+let _User;
 
 function User() {
   if (!_User) _User = require("../models/User");
   return _User;
-}
-
-function Wallet() {
-  if (!_Wallet) _Wallet = require("../models/Wallet");
-  return _Wallet;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,65 +113,9 @@ async function createAccount(username, mnemonic, password) {
     twoFactorPublicKey: twoFactorPublicKey
   });
 
-  // Store BTCPC wallet
-  await Wallet().create({
-    userId: user._id,
-    chain: "btcpc",
-    address: address,
-    publicKey: keys.owner.publicKey,
-    balance: new Map([["BTCPC", 0]])
-  });
-
-  // Derive and store wallets for all external chains
+  // Phase E: Wallet documents removed — chain addresses live in the ledger/stateStore.
+  // Derive chain wallets (needed for return value and ledger recording)
   const chainWallets = await keyManager.deriveChainWallets(mnemonic);
-
-  // EVM address is shared across Base, Arbitrum, Optimism
-  const evmChains = ["base", "arbitrum", "optimism"];
-  for (const chain of evmChains) {
-    await Wallet().create({
-      userId: user._id,
-      chain: chain,
-      address: chainWallets.evm.address,
-      publicKey: chainWallets.evm.publicKey,
-      balance: new Map()
-    });
-  }
-
-  // Solana wallet
-  await Wallet().create({
-    userId: user._id,
-    chain: "solana",
-    address: chainWallets.solana.address,
-    publicKey: chainWallets.solana.publicKey,
-    balance: new Map()
-  });
-
-  // TON wallet (raw address — real address computed on wallet contract deploy)
-  await Wallet().create({
-    userId: user._id,
-    chain: "ton",
-    address: chainWallets.ton.address,
-    publicKey: chainWallets.ton.publicKey,
-    balance: new Map()
-  });
-
-  // Bitcoin wallet (native segwit bc1q)
-  await Wallet().create({
-    userId: user._id,
-    chain: "bitcoin",
-    address: chainWallets.bitcoin.address,
-    publicKey: chainWallets.bitcoin.publicKey,
-    balance: new Map()
-  });
-
-  // Hive wallet (username-based — account must be purchased separately on Hive)
-  await Wallet().create({
-    userId: user._id,
-    chain: "hive",
-    address: username, // Hive account name = username
-    publicKey: keys.posting.publicKey, // posting key for Hive operations
-    balance: new Map()
-  });
 
   return {
     username: username,

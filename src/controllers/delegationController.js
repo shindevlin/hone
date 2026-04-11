@@ -1,21 +1,23 @@
 "use strict";
-const Wallet = require('../models/Wallet');
-const Delegation = require('../models/Delegation');
-const Transaction = require('../models/Transaction');
-const Node = require('../models/Node');
 const User = require('../models/User');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
-const { rejectObjectInputs, sanitizeAmount, sanitizeString, validAccountName } = require('../middlewares/validate');
+const nodeRegistry = require('../chain/nodeRegistry');
+const { rejectObjectInputs, sanitizeAmount, sanitizeString } = require('../middlewares/validate');
 
 const UNLOCK_PERIOD_DAYS = 7;
 
+// In-memory undelegation requests (bridging gap until full block replay):
+// "delegator|miner" → { amount, requestedAt, availableAt }
+const undelegateRequests = new Map();
+
 /**
  * Delegate BTCPC to a miner. Moves tokens from wallet balance to delegation.
+ *
+ * Phase E: Wallet, Delegation, Transaction, Node Mongoose models removed.
+ * Uses stateStore for balance + nodeRegistry for miner verification.
  */
 async function delegate(req, res) {
-  const userId = req.user.id;
-
   try {
     const objErr = rejectObjectInputs(req.body, ['amount', 'miner']);
     if (objErr) return res.status(400).json({ error: objErr });
@@ -24,101 +26,52 @@ async function delegate(req, res) {
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
-
     if (!miner) {
       return res.status(400).json({ error: 'Miner account is required' });
     }
 
-    let minerUser;
-    if (miner.match(/^[0-9a-fA-F]{24}$/)) {
-      minerUser = await User.findById(miner);
-    } else {
-      minerUser = await User.findOne({ username: miner });
-    }
+    const delegatorUser = await User.findById(req.user.id);
+    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
 
-    if (!minerUser) {
-      return res.status(404).json({ error: 'Miner account not found' });
-    }
+    // Resolve miner user
+    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
+      ? await User.findById(miner)
+      : await User.findOne({ username: miner });
+    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
 
     // Verify miner has a registered node
-    const minerNode = await Node.findOne({
-      account: minerUser._id,
-      status: { $in: ['registered', 'active'] }
-    });
-
-    if (!minerNode) {
-      return res.status(400).json({
-        error: 'Target account is not a registered miner'
-      });
+    if (!nodeRegistry.isRegistered(minerUser.username)) {
+      return res.status(400).json({ error: 'Target account is not a registered miner' });
     }
 
     // Cannot delegate to self
-    if (String(minerUser._id) === String(userId)) {
+    if (delegatorUser.username === minerUser.username) {
       return res.status(400).json({ error: 'Cannot delegate to yourself' });
     }
 
-    // Keep the Wallet.findOne — still needed for the write-side cache update
-    // below. Balance check uses stateStore.
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-
-    const delegatorUserForBalance = await User.findById(userId);
-    const delegatorNameForBalance = delegatorUserForBalance?.username || wallet.address;
-    const btcpcBalance = stateStore.getBalance(delegatorNameForBalance, 'BTCPC');
+    const delegatorName = delegatorUser.username;
+    const btcpcBalance = stateStore.getBalance(delegatorName, 'BTCPC');
     if (btcpcBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
 
-    // Check for existing active delegation to this miner
-    let delegation = await Delegation.findOne({
-      delegator: userId,
-      miner: minerUser._id,
-      status: 'active'
-    });
-
-    if (delegation) {
-      delegation.amount += amount;
-      delegation.delegated_at = new Date();
-    } else {
-      delegation = new Delegation({
-        delegator: userId,
-        miner: minerUser._id,
-        amount,
-        delegated_at: new Date(),
-        status: 'active'
-      });
-    }
-
     // Record on permanent ledger
-    const delegatorName = delegatorNameForBalance;
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordDelegate(delegatorName, minerUser.username, amount, 'mining', epoch);
 
-    // Update wallet cache
-    wallet.balance.set('BTCPC', btcpcBalance - amount);
-    await wallet.save();
-    await delegation.save();
-
-    // Record transaction (legacy index)
-    const tx = new Transaction({
-      from: wallet.address,
-      to: 'delegation_pool',
-      amount,
-      type: 'delegation',
-      memo: 'BTCPC delegation to miner ' + minerUser.username
-    });
-    await tx.save();
+    // Get updated delegation from stateStore
+    const delegKey = delegatorName + '|' + minerUser.username;
+    const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
+    const newAmount = existingDel ? (existingDel.amount || 0) + amount : amount;
 
     res.status(200).json({
       success: true,
       delegation: {
-        id: delegation._id,
+        delegator: delegatorName,
         miner: minerUser.username,
-        amount: delegation.amount,
-        delegated_at: delegation.delegated_at,
-        status: delegation.status
+        amount: newAmount,
+        delegated_at: new Date(),
+        status: 'active'
       }
     });
   } catch (err) {
@@ -130,47 +83,31 @@ async function delegate(req, res) {
  * Undelegate BTCPC — starts 7-day unlock period.
  */
 async function undelegate(req, res) {
-  const userId = req.user.id;
-
   try {
     const objErr = rejectObjectInputs(req.body, ['amount', 'miner']);
     if (objErr) return res.status(400).json({ error: objErr });
     const amount = sanitizeAmount(req.body.amount);
     const miner = sanitizeString(req.body.miner, 24);
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
+    if (!miner) return res.status(400).json({ error: 'Miner account is required' });
+
+    const delegatorUser = await User.findById(req.user.id);
+    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
+
+    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
+      ? await User.findById(miner)
+      : await User.findOne({ username: miner });
+    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
+
+    const delegKey = delegatorUser.username + '|' + minerUser.username;
+    const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
+    if (!existingDel || (existingDel.amount || 0) <= 0) {
+      return res.status(404).json({ error: 'No active delegation to this miner' });
     }
 
-    if (!miner) {
-      return res.status(400).json({ error: 'Miner account is required' });
-    }
-
-    let minerUser;
-    if (miner.match(/^[0-9a-fA-F]{24}$/)) {
-      minerUser = await User.findById(miner);
-    } else {
-      minerUser = await User.findOne({ username: miner });
-    }
-
-    if (!minerUser) {
-      return res.status(404).json({ error: 'Miner account not found' });
-    }
-
-    const delegation = await Delegation.findOne({
-      delegator: userId,
-      miner: minerUser._id,
-      status: 'active'
-    });
-
-    if (!delegation) {
-      return res.status(404).json({
-        error: 'No active delegation to this miner'
-      });
-    }
-
-    if (amount > delegation.amount) {
+    if (amount > existingDel.amount) {
       return res.status(400).json({
-        error: 'Amount exceeds delegated balance (' + delegation.amount + ' BTCPC)'
+        error: `Amount exceeds delegated balance (${existingDel.amount} BTCPC)`
       });
     }
 
@@ -178,55 +115,18 @@ async function undelegate(req, res) {
     const unlockDate = new Date(now);
     unlockDate.setDate(unlockDate.getDate() + UNLOCK_PERIOD_DAYS);
 
-    if (amount < delegation.amount) {
-      // Partial undelegation — split into two records
-      const remainingAmount = delegation.amount - amount;
-      delegation.amount = remainingAmount;
-      await delegation.save();
+    undelegateRequests.set(delegKey, { amount, requestedAt: now, availableAt: unlockDate });
 
-      // Create undelegating record for the portion being withdrawn
-      const undelegation = new Delegation({
-        delegator: userId,
-        miner: minerUser._id,
+    res.status(200).json({
+      success: true,
+      undelegation: {
+        delegator: delegatorUser.username,
+        miner: minerUser.username,
         amount,
-        delegated_at: delegation.delegated_at,
-        status: 'undelegating',
         undelegate_requested_at: now,
         undelegate_available_at: unlockDate
-      });
-      await undelegation.save();
-
-      res.status(200).json({
-        success: true,
-        undelegation: {
-          id: undelegation._id,
-          amount,
-          undelegate_requested_at: now,
-          undelegate_available_at: unlockDate
-        },
-        remaining_delegation: {
-          id: delegation._id,
-          amount: remainingAmount,
-          status: 'active'
-        }
-      });
-    } else {
-      // Full undelegation
-      delegation.status = 'undelegating';
-      delegation.undelegate_requested_at = now;
-      delegation.undelegate_available_at = unlockDate;
-      await delegation.save();
-
-      res.status(200).json({
-        success: true,
-        undelegation: {
-          id: delegation._id,
-          amount: delegation.amount,
-          undelegate_requested_at: now,
-          undelegate_available_at: unlockDate
-        }
-      });
-    }
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -236,86 +136,35 @@ async function undelegate(req, res) {
  * Withdraw delegation — after unlock period, return BTCPC to wallet.
  */
 async function withdrawDelegation(req, res) {
-  const userId = req.user.id;
-
   try {
-    if (typeof req.body.delegation_id === 'object' && req.body.delegation_id !== null) {
-      return res.status(400).json({ error: 'delegation_id must be a string' });
-    }
-    const delegation_id = sanitizeString(req.body.delegation_id, 24);
-    let query = {
-      delegator: userId,
-      status: 'undelegating'
-    };
-    if (delegation_id) {
-      if (!/^[0-9a-fA-F]{24}$/.test(delegation_id)) return res.status(400).json({ error: 'invalid delegation_id' });
-      query._id = delegation_id;
-    }
-
-    const delegations = await Delegation.find(query);
-    if (delegations.length === 0) {
-      return res.status(404).json({
-        error: 'No undelegating delegations found. Request undelegate first.'
-      });
-    }
+    const delegatorUser = await User.findById(req.user.id);
+    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
+    const delegatorName = delegatorUser.username;
 
     const now = new Date();
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-
-    const delegatorUser = await User.findById(userId);
-    const delegatorName = delegatorUser?.username || wallet.address;
-    const epoch = await ledger.getCurrentEpoch();
-
     let totalWithdrawn = 0;
     const withdrawn = [];
     const pending = [];
 
-    for (const d of delegations) {
-      if (now >= d.undelegate_available_at) {
-        const returnAmount = d.amount;
-        totalWithdrawn += returnAmount;
+    // Check all undelegation requests for this user
+    for (const [key, request] of undelegateRequests) {
+      if (!key.startsWith(delegatorName + '|')) continue;
+      const minerName = key.split('|')[1];
 
-        // Resolve miner name for ledger
-        const minerUser = await User.findById(d.miner);
-        const minerName = minerUser?.username || String(d.miner);
-
-        // Record on permanent ledger
-        await ledger.recordUndelegate(minerName, delegatorName, returnAmount, epoch, 'Delegation withdrawal');
-
-        d.status = 'withdrawn';
-        await d.save();
-
-        const tx = new Transaction({
-          from: 'delegation_pool',
-          to: wallet.address,
-          amount: returnAmount,
-          type: 'delegation_withdrawal',
-          memo: 'BTCPC delegation withdrawal'
-        });
-        await tx.save();
-
-        withdrawn.push({ id: d._id, amount: returnAmount });
+      if (now >= request.availableAt) {
+        totalWithdrawn += request.amount;
+        const epoch = await ledger.getCurrentEpoch();
+        await ledger.recordUndelegate(minerName, delegatorName, request.amount, epoch, 'Delegation withdrawal');
+        undelegateRequests.delete(key);
+        withdrawn.push({ miner: minerName, amount: request.amount });
       } else {
-        const remaining = Math.ceil(
-          (d.undelegate_available_at - now) / (1000 * 60 * 60 * 24)
-        );
-        pending.push({
-          id: d._id,
-          amount: d.amount,
-          days_remaining: remaining,
-          undelegate_available_at: d.undelegate_available_at
-        });
+        const remaining = Math.ceil((request.availableAt - now) / (1000 * 60 * 60 * 24));
+        pending.push({ miner: minerName, amount: request.amount, days_remaining: remaining });
       }
     }
 
-    if (totalWithdrawn > 0) {
-      // Update wallet cache
-      const currentBalance = wallet.balance.get('BTCPC') || 0;
-      wallet.balance.set('BTCPC', currentBalance + totalWithdrawn);
-      await wallet.save();
+    if (withdrawn.length === 0 && pending.length === 0) {
+      return res.status(404).json({ error: 'No undelegating delegations found.' });
     }
 
     res.status(200).json({
@@ -323,7 +172,7 @@ async function withdrawDelegation(req, res) {
       total_withdrawn: totalWithdrawn,
       withdrawn,
       pending,
-      wallet_balance: wallet.balance.get('BTCPC')
+      wallet_balance: stateStore.getBalance(delegatorName, 'BTCPC')
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -334,32 +183,30 @@ async function withdrawDelegation(req, res) {
  * Get delegations for the authenticated user (as delegator).
  */
 async function getDelegations(req, res) {
-  const userId = req.user.id;
-
   try {
-    const delegations = await Delegation.find({
-      delegator: userId,
-      status: { $in: ['active', 'undelegating'] }
-    }).populate('miner', 'username');
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const username = user.username;
 
-    const result = delegations.map(function (d) {
-      return {
-        id: d._id,
-        miner: d.miner ? d.miner.username : String(d.miner),
-        amount: d.amount,
-        delegated_at: d.delegated_at,
-        status: d.status,
-        undelegate_requested_at: d.undelegate_requested_at,
-        undelegate_available_at: d.undelegate_available_at
-      };
-    });
+    // Read delegations from stateStore
+    const allDelegations = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
+    const myDelegations = [];
+
+    for (const [key, del] of Object.entries(allDelegations)) {
+      if (key.startsWith(username + '|')) {
+        myDelegations.push({
+          miner: key.split('|')[1],
+          amount: del.amount || 0,
+          delegated_at: del.epoch,
+          status: 'active'
+        });
+      }
+    }
 
     res.status(200).json({
       success: true,
-      delegations: result,
-      total_delegated: result
-        .filter(function (d) { return d.status === 'active'; })
-        .reduce(function (sum, d) { return sum + d.amount; }, 0)
+      delegations: myDelegations,
+      total_delegated: myDelegations.reduce((sum, d) => sum + d.amount, 0)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -373,40 +220,33 @@ async function getMinerDelegations(req, res) {
   try {
     if (typeof req.params.miner !== 'string') return res.status(400).json({ error: 'invalid miner' });
     const miner = req.params.miner.slice(0, 24);
-    let minerUser;
-    if (miner.match(/^[0-9a-fA-F]{24}$/)) {
-      minerUser = await User.findById(miner);
-    } else {
-      minerUser = await User.findOne({ username: miner });
+
+    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
+      ? await User.findById(miner)
+      : await User.findOne({ username: miner });
+    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
+
+    const allDelegations = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
+    const minerDelegations = [];
+
+    for (const [key, del] of Object.entries(allDelegations)) {
+      if (key.endsWith('|' + minerUser.username)) {
+        minerDelegations.push({
+          delegator: key.split('|')[0],
+          amount: del.amount || 0,
+          delegated_at: del.epoch
+        });
+      }
     }
 
-    if (!minerUser) {
-      return res.status(404).json({ error: 'Miner account not found' });
-    }
-
-    const delegations = await Delegation.find({
-      miner: minerUser._id,
-      status: 'active'
-    }).populate('delegator', 'username');
-
-    const totalDelegated = delegations.reduce(function (sum, d) {
-      return sum + d.amount;
-    }, 0);
-
-    const result = delegations.map(function (d) {
-      return {
-        delegator: d.delegator ? d.delegator.username : String(d.delegator),
-        amount: d.amount,
-        delegated_at: d.delegated_at
-      };
-    });
+    const totalDelegated = minerDelegations.reduce((sum, d) => sum + d.amount, 0);
 
     res.status(200).json({
       success: true,
       miner: minerUser.username,
       total_delegated: totalDelegated,
-      delegator_count: delegations.length,
-      delegations: result
+      delegator_count: minerDelegations.length,
+      delegations: minerDelegations
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

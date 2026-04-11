@@ -17,7 +17,7 @@ const express = require("express");
 const crypto = require("crypto");
 const axios = require("axios");
 const session = require("./session");
-const WorkProof = require("../models/WorkProof");
+const stateStore = require("../chain/stateStore");
 const { getCurrentEpoch } = require("../services/epochManager");
 const { getModelWeight, OLLAMA_URL } = require("../mining/workGenerator");
 
@@ -145,17 +145,18 @@ router.post("/v1/inference/encrypted", async (req, res) => {
     const epoch = await getCurrentEpoch();
     const modelWeight = getModelWeight(model || "qwen3.5:27b");
 
-    const proof = new WorkProof({
-      epoch_number: epoch?.epoch_number || 0,
-      node_id: "inference-api",
-      prompt_hash: promptHash,
-      result_hash: resultHash,
-      model: model || "qwen3.5:27b",
-      tokens_generated: tokensGenerated,
-      model_weight_factor: modelWeight,
-      work_value: tokensGenerated * modelWeight,
-    });
-    await proof.save();
+    // Store work proof in stateStore (no Mongo)
+    if (stateStore.addComputeProof) {
+      stateStore.addComputeProof(epoch?.epoch_number || 0, {
+        node_id: "inference-api",
+        prompt_hash: promptHash,
+        result_hash: resultHash,
+        model: model || "qwen3.5:27b",
+        tokens_generated: tokensGenerated,
+        model_weight_factor: modelWeight,
+        work_value: tokensGenerated * modelWeight,
+      });
+    }
 
     // ── Step 5: Encrypt response ──
     // Tokenize response (simple word-level for now, matches client SDK)

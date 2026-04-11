@@ -27,13 +27,8 @@ jest.mock('../src/p2p/mempool', () => ({
   addTransaction: jest.fn().mockReturnValue(true),
 }));
 
-// Mock Mongoose models — ledger still has legacy Mongo call sites
-jest.mock('../src/models/LedgerEntry', () => jest.fn(function () {
-  return { save: jest.fn().mockResolvedValue(undefined) };
-}));
-jest.mock('../src/models/Wallet', () => ({ findOne: jest.fn() }));
+// Phase E: LedgerEntry, Wallet, Epoch models removed — only User mock remains
 jest.mock('../src/models/User', () => ({ findOne: jest.fn() }));
-jest.mock('../src/models/Epoch', () => ({ findOne: jest.fn() }));
 
 const ledger = require('../src/services/ledger');
 const stateStore = require('../src/chain/stateStore');

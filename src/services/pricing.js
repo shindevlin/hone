@@ -1,7 +1,7 @@
 "use strict";
 
-const Epoch = require('../models/Epoch');
-const WorkProof = require('../models/WorkProof');
+const stateStore = require('../chain/stateStore');
+const nodeRegistry = require('../chain/nodeRegistry');
 const { getModelWeight } = require('../mining/workGenerator');
 
 /**
@@ -13,6 +13,9 @@ const { getModelWeight } = require('../mining/workGenerator');
  *
  * Base rate: 1 BTCPC = BASE_TOKENS_PER_BTCPC tokens (for a 1.0x weight model)
  * A 4.0x model costs 4x more per token than a 1.0x model.
+ *
+ * Phase E: Epoch, WorkProof, Node Mongoose models removed.
+ * Uses stateStore for epoch data and nodeRegistry for miner counts.
  */
 
 // Base: 1 BTCPC buys this many tokens at normal load (1.0x weight model)
@@ -31,21 +34,23 @@ let cacheExpiry = 0;
 
 /**
  * Calculate current network load factor (0.0 = idle, 1.0+ = busy).
+ * Uses stateStore compute proofs from recent epochs.
  */
 async function getNetworkLoad() {
-  const recentEpochs = await Epoch.find({ status: 'finalized' })
-    .sort({ epoch_number: -1 })
-    .limit(LOAD_WINDOW)
-    .lean();
+  const latestEpoch = stateStore.getLatestEpoch();
+  if (!latestEpoch) return 0;
 
-  if (recentEpochs.length === 0) return 0;
+  const latestEpochNum = latestEpoch.epoch_number || 0;
+  const fromEpoch = Math.max(0, latestEpochNum - LOAD_WINDOW);
 
-  const epochNumbers = recentEpochs.map(e => e.epoch_number);
+  let totalProofs = 0;
+  let externalProofs = 0;
 
-  const [totalProofs, externalProofs] = await Promise.all([
-    WorkProof.countDocuments({ epoch_number: { $in: epochNumbers } }),
-    WorkProof.countDocuments({ epoch_number: { $in: epochNumbers }, node_id: 'inference-api' })
-  ]);
+  for (let i = fromEpoch; i <= latestEpochNum; i++) {
+    const proofs = stateStore.getComputeProofs ? stateStore.getComputeProofs(i) : [];
+    totalProofs += proofs.length;
+    externalProofs += proofs.filter(p => p.node_id === 'inference-api').length;
+  }
 
   if (totalProofs === 0) return 0;
   return externalProofs / totalProofs;
@@ -139,16 +144,15 @@ async function getAutoBid(model, estimatedTokens) {
 
   const pricing = await getCurrentPricing(model);
   const { getBlockReward } = require('../mining/workGenerator');
-  const Node = require('../models/Node');
 
-  // Current block reward
-  const Epoch = require('../models/Epoch');
-  const latestEpoch = await Epoch.findOne().sort({ epoch_number: -1 }).lean();
-  const epochNumber = latestEpoch ? latestEpoch.epoch_number : 0;
+  // Current block reward from stateStore
+  const latestEpoch = stateStore.getLatestEpoch();
+  const epochNumber = latestEpoch ? (latestEpoch.epoch_number || 0) : 0;
   const blockReward = getBlockReward ? getBlockReward(epochNumber) : 243;
 
-  // Active miners on the network
-  const minerCount = Math.max(1, await Node.countDocuments({ status: 'active' }));
+  // Active miners from nodeRegistry
+  const registeredNodes = nodeRegistry.getRegisteredNodes();
+  const minerCount = Math.max(1, registeredNodes.filter(n => n.type === 'miner').length);
 
   // What each miner earns per epoch from block reward alone
   const rewardPerMiner = blockReward / minerCount;
@@ -157,12 +161,9 @@ async function getAutoBid(model, estimatedTokens) {
   const fairCost = estimatedTokens * pricing.costPerToken * 3;
 
   // How much of the fair cost is already covered by block reward?
-  // If reward per miner is high relative to fair cost, bid can be low
   const blockRewardCoverage = Math.min(1.0, rewardPerMiner / (fairCost * 10));
 
   // Auto-bid: fair cost scaled down by how much block reward covers
-  // Early: blockRewardCoverage ≈ 1.0 → bid ≈ fairCost × 0.05 (minimum)
-  // Late: blockRewardCoverage ≈ 0.0 → bid ≈ fairCost × 1.0 (full price)
   const bidMultiplier = Math.max(0.05, 1.0 - (blockRewardCoverage * 0.95));
   const bid = parseFloat((fairCost * bidMultiplier).toFixed(10));
 

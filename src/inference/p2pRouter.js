@@ -3,20 +3,27 @@
 /**
  * P2P Inference Router — Async Model
  *
- * Requests are submitted to the blockchain, stored in DB, and
+ * Requests are submitted to the blockchain, stored in stateStore, and
  * broadcast via P2P. Miners claim and process them. Results come
- * back via INFERENCE_RESULT and update the job in DB.
+ * back via INFERENCE_RESULT and update the job in stateStore.
  *
  * No timeouts. No long-polling. Submit and check back.
+ *
+ * Phase E: InferenceJob Mongoose model removed. Jobs tracked in stateStore.
  */
 
 const crypto = require("crypto");
 const p2p = require("../p2p/network");
 const { createMessage } = require("../p2p/protocol");
-const InferenceJob = require("../models/InferenceJob");
+const stateStore = require("../chain/stateStore");
 
 // Track request IDs we originated to avoid re-processing our own echoes
 const originatedRequests = new Set();
+
+// In-memory job store (stateStore doesn't have a jobs map yet; this bridges the gap)
+// key: job_id → { job_id, status, model, messages, result_text, tokens_generated,
+//                 elapsed_ms, node_name, claimed_by, cost, project_id, completed_at, ... }
+const jobStore = new Map();
 
 /**
  * Initialize the P2P result listener.
@@ -29,102 +36,90 @@ function initP2PRouter() {
     const reqId = data.request_id;
 
     if (msg.type === 'INFERENCE_CLAIM' && reqId) {
-      // Miner claimed our job — update status
-      try {
-        await InferenceJob.findOneAndUpdate(
-          { job_id: reqId, status: 'pending' },
-          { status: 'claimed', claimed_by: data.node_name || data.node_id, claimed_at: new Date() }
-        );
-      } catch (_) {}
+      const job = jobStore.get(reqId);
+      if (job && job.status === 'pending') {
+        job.status = 'claimed';
+        job.claimed_by = data.node_name || data.node_id;
+        job.claimed_at = new Date().toISOString();
+      }
     }
 
     if (msg.type === 'INFERENCE_RESULT' && reqId) {
       if (data.error) {
-        // Only accept failure from the miner who claimed the job.
-        // Other miners failing (e.g. wrong model) should not kill the job.
-        const job = await InferenceJob.findOne({ job_id: reqId });
+        const job = jobStore.get(reqId);
         if (!job) return;
 
         // If the job is claimed by a specific miner, only that miner can fail it
         if (job.claimed_by && data.node_name && job.claimed_by !== data.node_name) {
-          // Different miner failed — ignore, the real miner is still working
-          return;
+          return; // Different miner failed — ignore
         }
 
-        // If job is still pending (no one claimed), revert to pending so another miner can try
         if (job.status === 'pending') {
           return; // don't fail unclaimed jobs
         }
 
-        const failedJob = await InferenceJob.findOneAndUpdate(
-          { job_id: reqId, claimed_by: data.node_name, status: { $in: ['claimed', 'processing'] } },
-          { status: 'failed', result_text: data.error, completed_at: new Date() },
-          { new: true }
-        );
-        if (!failedJob) return; // not our claim to fail
+        if (job.claimed_by === data.node_name && ['claimed', 'processing'].includes(job.status)) {
+          job.status = 'failed';
+          job.result_text = data.error;
+          job.completed_at = new Date().toISOString();
 
-        // Refund pre-deducted cost on failure
-        if (failedJob.project_id && failedJob.cost > 0) {
-          const Project = require('../models/Project');
-          await Project.findByIdAndUpdate(failedJob.project_id, { $inc: { balance: failedJob.cost } });
-          console.log(`[BTCPC P2P Router] Refunded ${failedJob.cost} BTCPC to project`);
+          // Refund pre-deducted cost on failure
+          if (job.project_id && job.cost > 0) {
+            try {
+              const Project = require('../models/Project');
+              await Project.findByIdAndUpdate(job.project_id, { $inc: { balance: job.cost } });
+              console.log(`[BTCPC P2P Router] Refunded ${job.cost} BTCPC to project`);
+            } catch (_) {}
+          }
+          console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed by ${data.node_name}: ${data.error}`);
         }
-        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} failed by ${data.node_name}: ${data.error}`);
         return;
       }
 
-      // Update existing job OR create it (authority may not have the job locally)
-      let updated = await InferenceJob.findOneAndUpdate(
-        { job_id: reqId, status: { $in: ['pending', 'claimed', 'processing'] } },
-        {
-          status: 'completed',
-          result_text: data.result_text || '',
-          result_hash: data.result_hash || null,
-          tokens_generated: data.tokens_generated || 0,
-          elapsed_ms: data.elapsed_ms || 0,
-          node_name: data.node_name || 'unknown',
-          completed_at: new Date()
-        },
-        { new: true }
-      );
+      // Complete the job
+      let job = jobStore.get(reqId);
 
-      // If job doesn't exist locally (e.g. authority received result from miner),
-      // create it so the settlement sweep can find it
-      if (!updated) {
-        const existing = await InferenceJob.findOne({ job_id: reqId });
-        if (!existing) {
-          updated = await InferenceJob.create({
-            job_id: reqId,
-            status: 'completed',
-            model: data.model || 'unknown',
-            messages: [],
-            result_text: data.result_text || '',
-            result_hash: data.result_hash || null,
-            tokens_generated: data.tokens_generated || 0,
-            elapsed_ms: data.elapsed_ms || 0,
-            node_name: data.node_name || 'unknown',
-            completed_at: new Date()
-          });
-          console.log(`[BTCPC P2P Router] Created job ${reqId.slice(0, 12)} from P2P result (authority sync)`);
-        }
+      if (!job) {
+        // Create it (authority may not have the job locally)
+        job = {
+          job_id: reqId,
+          status: 'pending',
+          model: data.model || 'unknown',
+          messages: [],
+          cost: 0,
+          project_id: null
+        };
+        jobStore.set(reqId, job);
+        console.log(`[BTCPC P2P Router] Created job ${reqId.slice(0, 12)} from P2P result (authority sync)`);
       }
 
-      if (updated) {
-        // Reconcile billing — refund difference between estimated and actual cost
-        if (updated.project_id && updated.cost > 0) {
-          const Project = require('../models/Project');
-          const { calculateCost } = require('../services/pricing');
-          const actual = await calculateCost(updated.tokens_generated, updated.model);
-          const actualCost = actual.cost;
-          const diff = updated.cost - actualCost;
+      if (['pending', 'claimed', 'processing'].includes(job.status)) {
+        job.status = 'completed';
+        job.result_text = data.result_text || '';
+        job.result_hash = data.result_hash || null;
+        job.tokens_generated = data.tokens_generated || 0;
+        job.elapsed_ms = data.elapsed_ms || 0;
+        job.node_name = data.node_name || 'unknown';
+        job.completed_at = new Date().toISOString();
 
-          if (diff > 0) {
-            await Project.findByIdAndUpdate(updated.project_id, { $inc: { balance: diff } });
-          }
-          await Project.findByIdAndUpdate(updated.project_id, { $inc: { totalSpent: actualCost } });
-          await InferenceJob.findByIdAndUpdate(updated._id, { cost: actualCost });
+        // Reconcile billing — refund difference between estimated and actual cost
+        if (job.project_id && job.cost > 0) {
+          try {
+            const Project = require('../models/Project');
+            const { calculateCost } = require('../services/pricing');
+            const actual = await calculateCost(job.tokens_generated, job.model);
+            const actualCost = actual.cost;
+            const diff = job.cost - actualCost;
+
+            if (diff > 0) {
+              await Project.findByIdAndUpdate(job.project_id, { $inc: { balance: diff } });
+            }
+            await Project.findByIdAndUpdate(job.project_id, { $inc: { totalSpent: actualCost } });
+            job.cost = actualCost;
+          } catch (_) {}
         }
-        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} completed: ${updated.tokens_generated} tokens, ${updated.elapsed_ms}ms`);
+
+        console.log(`[BTCPC P2P Router] Job ${reqId.slice(0, 12)} completed: ${job.tokens_generated} tokens, ${job.elapsed_ms}ms`);
       }
     }
   });
@@ -154,30 +149,34 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
   // Lock funds in escrow — deducts from the permanent ledger
   let estimatedCost = 0;
   if (projectId) {
-    const Project = require('../models/Project');
-    const { calculateCost } = require('../services/pricing');
-    const escrow = require('../services/escrow');
-    const estimated = await calculateCost(maxTokens || 1024, model);
-    estimatedCost = estimated.cost;
+    try {
+      const Project = require('../models/Project');
+      const { calculateCost } = require('../services/pricing');
+      const escrow = require('../services/escrow');
+      const estimated = await calculateCost(maxTokens || 1024, model);
+      estimatedCost = estimated.cost;
 
-    const project = await Project.findById(projectId);
-    if (project) {
-      // Lock funds via escrow — deducts from the project's funded account
-      // project.repo is the account name that holds the BTCPC (e.g. "bullship")
-      const payerAccount = project.repo || project.owner;
-      try {
-        await escrow.lockFunds(jobId, payerAccount, estimatedCost);
-      } catch (err) {
-        throw new Error(`Escrow lock failed for ${payerAccount}: ${err.message}`);
+      const project = await Project.findById(projectId);
+      if (project) {
+        // Lock funds via escrow
+        const payerAccount = project.repo || project.owner;
+        try {
+          await escrow.lockFunds(jobId, payerAccount, estimatedCost);
+        } catch (err) {
+          throw new Error(`Escrow lock failed for ${payerAccount}: ${err.message}`);
+        }
+
+        project.totalRequests += 1;
+        await project.save();
       }
-
-      project.totalRequests += 1;
-      await project.save();
+    } catch (err) {
+      if (err.message.includes('Escrow lock failed')) throw err;
+      // Non-fatal billing errors — proceed anyway
     }
   }
 
-  // Store job in DB
-  const job = new InferenceJob({
+  // Store job in memory
+  const job = {
     job_id: jobId,
     status: 'pending',
     model: model || 'qwen3.5:27b',
@@ -188,9 +187,9 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
     prompt_hash: promptHash,
     project_id: projectId || null,
     cost: estimatedCost,
-    expires_at: new Date(Date.now() + 600000) // 10 min expiry
-  });
-  await job.save();
+    expires_at: new Date(Date.now() + 600000).toISOString()
+  };
+  jobStore.set(jobId, job);
 
   originatedRequests.add(jobId);
 
@@ -224,10 +223,10 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
 }
 
 /**
- * Get job status and result.
+ * Get job status and result (from in-memory store).
  */
 async function getJob(jobId) {
-  return InferenceJob.findOne({ job_id: jobId }).lean();
+  return jobStore.get(jobId) || null;
 }
 
 /**

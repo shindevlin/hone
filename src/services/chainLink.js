@@ -21,7 +21,12 @@ var { keccak256 } = require("js-sha3");
 var bs58 = require("bs58");
 var { bech32 } = require("bech32");
 
-var LedgerEntry = require("../models/LedgerEntry");
+// Phase E: LedgerEntry model deleted — chain link entries go via ledger service
+// and in-memory linked-address cache (stateStore account_data.chain_addresses).
+
+// In-memory linked-address cache: username → { chain → [addresses] }
+// Populated from stateStore on read, updated on write.
+var linkedAddressCache = new Map();
 
 // Active challenges: Map<challengeId, { username, chain, address, challenge, expiresAt }>
 var pendingChallenges = new Map();
@@ -277,24 +282,29 @@ async function verifyAndLink(challengeId, signature) {
     };
   }
 
-  // Record the link on the permanent ledger
+  // Record the link on the permanent ledger via the ledger service
   var ledger = require("./ledger");
   var epoch = await ledger.getCurrentEpoch();
 
-  var entry = new LedgerEntry({
-    type: "ACCOUNT_CREATE", // Reuse ACCOUNT_CREATE to update chain_addresses
-    from: challenge.username,
-    to: challenge.username,
-    epoch: epoch,
-    memo: "chain-link:" + challenge.chain + ":" + recoveredAddress,
-    account_data: {
-      username: challenge.username,
-      chain_addresses: {
-        [challenge.chain]: recoveredAddress
-      }
-    }
-  });
-  await entry.save();
+  try {
+    await ledger.recordAccountCreate(
+      challenge.username,
+      {}, // no new public keys
+      { [challenge.chain]: recoveredAddress },
+      epoch,
+      "chain-link:" + challenge.chain + ":" + recoveredAddress
+    );
+  } catch (_) {
+    // Non-fatal: link is still cached in-memory and on User doc
+  }
+
+  // Update in-memory cache
+  var cached = linkedAddressCache.get(challenge.username) || {};
+  if (!cached[challenge.chain]) cached[challenge.chain] = [];
+  if (cached[challenge.chain].indexOf(recoveredAddress) === -1) {
+    cached[challenge.chain].push(recoveredAddress);
+  }
+  linkedAddressCache.set(challenge.username, cached);
 
   // Also update the User model if it exists
   try {
@@ -324,25 +334,41 @@ async function verifyAndLink(challengeId, signature) {
 
 /**
  * Get all linked addresses for a user.
+ * Phase E: reads from in-memory cache (populated from stateStore account_data).
+ * Falls back to User.linkedAddresses if cache is empty.
  */
 async function getLinkedAddresses(username) {
-  var entries = await LedgerEntry.find({
-    from: username,
-    memo: { $regex: /^chain-link:/ }
-  }).lean();
+  // Check in-memory cache first
+  var cached = linkedAddressCache.get(username);
+  if (cached) return cached;
 
-  var linked = {};
-  for (var i = 0; i < entries.length; i++) {
-    var parts = (entries[i].memo || "").split(":");
-    if (parts.length >= 3) {
-      var chain = parts[1];
-      var addr = parts[2];
-      if (!linked[chain]) linked[chain] = [];
-      if (linked[chain].indexOf(addr) === -1) linked[chain].push(addr);
+  // Try stateStore account chain_addresses
+  try {
+    var stateStore = require("../chain/stateStore");
+    var acct = stateStore.getAccount(username);
+    if (acct && acct.chain_addresses) {
+      // Build linked map from chain_addresses (chain → [address])
+      var linked = {};
+      for (var chain of Object.keys(acct.chain_addresses)) {
+        var addr = acct.chain_addresses[chain];
+        if (addr) linked[chain] = Array.isArray(addr) ? addr : [addr];
+      }
+      linkedAddressCache.set(username, linked);
+      return linked;
     }
-  }
+  } catch (_) {}
 
-  return linked;
+  // Fall back to User.linkedAddresses
+  try {
+    var User = require("../models/User");
+    var user = await User.findOne({ username: username });
+    if (user && user.linkedAddresses) {
+      linkedAddressCache.set(username, user.linkedAddresses);
+      return user.linkedAddresses;
+    }
+  } catch (_) {}
+
+  return {};
 }
 
 module.exports = {

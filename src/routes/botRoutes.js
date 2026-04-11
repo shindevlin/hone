@@ -9,19 +9,17 @@ const crypto = require('crypto');
 const router = express.Router();
 
 const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
-const Node = require('../models/Node');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
-const Epoch = require('../models/Epoch');
-const WorkProof = require('../models/WorkProof');
-const MiningProof = require('../models/MiningProof');
-const GenesisDream = require('../models/GenesisDream');
-const PeerRegistry = require('../models/PeerRegistry');
+const nodeRegistry = require('../chain/nodeRegistry');
 const Project = require('../models/Project');
-const InferenceJob = require('../models/InferenceJob');
+const { getDreams: getDreamsForAccount } = require('../controllers/dreamController');
+const { getJob: getInferenceJob } = require('../inference/p2pRouter');
 const { getBlockReward } = require('../services/emissionSchedule');
+
+// In-memory peer registry (Phase E bridge — PeerRegistry model removed)
+// username → { address, gpu, last_seen, node_id }
+const peerStore = new Map();
 const { startLink, verifySignedChallenge } = require('../services/telegramVerify');
 const {
   rejectObjectInputs, validAccountName, sanitizeAmount, sanitizeString,
@@ -203,14 +201,6 @@ router.post('/onboard', async (req, res) => {
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordTransfer('btcpc_treasury', username, 1, 'BTCPC', null, epoch, 'OpenClaw onboarding bonus');
 
-    await new Transaction({
-      from: 'btcpc_treasury',
-      to: account.address,
-      amount: 1,
-      type: 'faucet',
-      memo: 'OpenClaw onboarding bonus'
-    }).save();
-
     res.status(201).json({
       username,
       api_key: apiKey,
@@ -284,17 +274,22 @@ router.get('/balance', async (req, res) => {
 
     // Balance from stateStore (O(1), no Mongo round-trip)
     const balance = stateStore.getBalance(user.username, 'BTCPC');
-    // Still need the Wallet document for the address field
-    const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    const node = await Node.findOne({ account: user._id });
-    const staked = node?.stake_amount || 0;
-    const proofCount = await MiningProof.countDocuments({ miner: user.username });
-    const dreamCount = await GenesisDream.countDocuments({ current_owner: user.username });
+    const nodeInfo = nodeRegistry.getNode(user.username);
+    const staked = nodeInfo?.stake || 0;
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
+    const stakedAmount = stakePool?.staked_amount || staked;
+    const userProofs = stateStore.getComputeProofs ? Object.values(stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {}).flat().filter(p => p && p.node_id === user.username) : [];
+    const proofCount = userProofs.length;
+    const dreams = await getDreamsForAccount(user.username);
+    const dreamCount = dreams.length;
+    // Derive BTCPC address from stateStore account
+    const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
+    const address = accountState?.chain_addresses?.btcpc || null;
 
     res.json({
       username: user.username,
-      balance, staked,
-      address: wallet?.address || null,
+      balance, staked: stakedAmount,
+      address,
       proofCount, dreamCount
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -308,20 +303,8 @@ router.get('/history', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    if (!wallet) return res.json({ transactions: [] });
-
-    const txs = await Transaction.find({
-      $or: [{ from: wallet.address }, { to: wallet.address }, { from: user.username }, { to: user.username }]
-    }).sort({ timestamp: -1 }).limit(10).lean();
-
-    res.json({
-      transactions: txs.map(tx => ({
-        type: tx.type, amount: tx.amount, from: tx.from, to: tx.to,
-        direction: (tx.to === wallet.address || tx.to === user.username) ? 'in' : 'out',
-        timestamp: tx.timestamp
-      }))
-    });
+    // Transaction history from block replay — return empty for now (Phase E bridge)
+    res.json({ transactions: [], note: 'Full history available via block explorer' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -333,23 +316,16 @@ router.post('/claim', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    let wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
-    if (!wallet) {
-      wallet = new Wallet({
-        userId: user._id, chain: 'btcpc',
-        address: 'btcpc_' + crypto.randomBytes(20).toString('hex'),
-        balance: new Map([['BTCPC', 0]])
-      });
-    }
-
-    const balance = wallet.balance.get('BTCPC') || 0;
+    const balance = stateStore.getBalance(user.username, 'BTCPC');
     if (balance > 0) return res.status(400).json({ error: `Still have ${balance} BTCPC. Use tokens before claiming.` });
 
-    const faucetClaims = await Transaction.countDocuments({ to: wallet.address, type: 'faucet' });
-    if (faucetClaims > 0) {
+    // Check if this is a first-time claim (no account state yet)
+    const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
+    const isFirstClaim = !accountState;
+
+    if (!isFirstClaim) {
       const hasProject = await Project.findOne({ owner: user.username, verified: true });
-      const hasSpent = await Transaction.findOne({ from: wallet.address });
-      if (!hasProject && !hasSpent) {
+      if (!hasProject) {
         return res.status(400).json({ error: 'Faucet requires contribution. Register a project or spend tokens first.' });
       }
     }
@@ -358,17 +334,7 @@ router.post('/claim', async (req, res) => {
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordFaucet(user.username, 1, epoch);
 
-    // Update wallet cache
-    wallet.balance.set('BTCPC', balance + 1);
-    await wallet.save();
-
-    // Record transaction (legacy index)
-    await new Transaction({
-      from: 'btcpc_faucet', to: wallet.address, amount: 1, type: 'faucet',
-      memo: faucetClaims === 0 ? 'Welcome to BTCPC' : 'Faucet refill'
-    }).save();
-
-    res.json({ success: true, balance: balance + 1, firstClaim: faucetClaims === 0 });
+    res.json({ success: true, balance: balance + 1, firstClaim: isFirstClaim });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -384,17 +350,24 @@ router.get('/mining', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    // Chain height from stateStore. We still rely on WorkProof docs for
-    // per-user aggregates (those live in their own legacy index; Phase D.5).
     const totalEpochs = Math.max(0, stateStore.getChainHeight() + 1);
-    const totalWork = await WorkProof.countDocuments({ node_id: user.username });
-    const totalTokens = await WorkProof.aggregate([
-      { $match: { node_id: user.username } },
-      { $group: { _id: null, total: { $sum: '$tokens_generated' } } },
-    ]);
-    const tokens = totalTokens[0]?.total || 0;
+    // Aggregate compute proofs from stateStore for this user
+    let totalWork = 0;
+    let totalTokens = 0;
+    if (stateStore.getAllComputeProofs) {
+      const allProofs = stateStore.getAllComputeProofs();
+      for (const proofs of Object.values(allProofs)) {
+        for (const p of (proofs || [])) {
+          if (p && p.node_id === user.username) {
+            totalWork++;
+            totalTokens += p.tokens_generated || 0;
+          }
+        }
+      }
+    }
+    const tokens = totalTokens;
 
-    const recentEpochs = stateStore.getRecentEpochs(5);
+    const recentEpochs = stateStore.getRecentEpochs ? stateStore.getRecentEpochs(5) : [];
 
     res.json({
       username: user.username,
@@ -415,13 +388,23 @@ router.get('/proofs', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const proofs = await MiningProof.find({ miner: user.username })
-      .sort({ block_number: -1 }).limit(10).lean();
+    // Gather mining proofs from stateStore compute proofs
+    const allProofsMap = stateStore.getAllComputeProofs ? stateStore.getAllComputeProofs() : {};
+    const userProofsList = [];
+    for (const [epochNum, proofs] of Object.entries(allProofsMap)) {
+      for (const p of (proofs || [])) {
+        if (p && p.node_id === user.username) {
+          userProofsList.push({ ...p, epoch: Number(epochNum) });
+        }
+      }
+    }
+    userProofsList.sort((a, b) => b.epoch - a.epoch);
+    const recentProofs = userProofsList.slice(0, 10);
 
     res.json({
-      proofs: proofs.map(p => ({
-        block: p.block_number, reward: p.reward_earned,
-        tokens: p.tokens_computed, model: p.model
+      proofs: recentProofs.map(p => ({
+        block: p.epoch, reward: p.reward || 0,
+        tokens: p.tokens_generated || 0, model: p.model || null
       }))
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -435,8 +418,8 @@ router.get('/dreams', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const dreams = await GenesisDream.find({ current_owner: user.username })
-      .sort({ block_number: -1 }).limit(10).lean();
+    const allDreams = await getDreamsForAccount(user.username);
+    const dreams = allDreams.slice(-10).reverse();
 
     res.json({
       dreams: dreams.map(d => ({
@@ -456,13 +439,13 @@ router.get('/node', async (req, res) => {
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const node = await Node.findOne({ account: user._id }).lean();
+    const node = nodeRegistry.getNode(user.username);
     if (!node) return res.status(404).json({ error: 'No mining node registered' });
 
     res.json({
-      status: node.status, models: node.models,
-      endpoint: node.endpoint, stake: node.stake_amount,
-      reputation: node.reputation, lastEpoch: node.last_epoch_commitment,
+      status: node.status || 'active', models: node.models || [],
+      endpoint: node.p2p_address || node.endpoint || null, stake: node.stake || 0,
+      reputation: node.reputation || 0, lastEpoch: node.last_epoch || null,
       hardware: node.hardware || {}
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -478,14 +461,21 @@ router.get('/network', async (_req, res) => {
     // Chain height + epoch counts come from stateStore
     const totalEpochs = Math.max(0, stateStore.getChainHeight() + 1);
     const finalizedEpochs = totalEpochs; // every replayed epoch is finalized
-    const activeNodes = await Node.countDocuments({ status: 'active' });
+    const activeNodes = nodeRegistry.getRegisteredNodes().length;
     const totalUsers = await User.countDocuments();
-    const totalProofs = await WorkProof.countDocuments();
-    const totalMined = await Epoch.aggregate([
-      { $match: { status: 'finalized' } },
-      { $group: { _id: null, total: { $sum: '$block_reward' } } },
-    ]);
-    const mined = totalMined[0]?.total || 0;
+    // Count all compute proofs across all epochs
+    let totalProofs = 0;
+    if (stateStore.getAllComputeProofs) {
+      for (const proofs of Object.values(stateStore.getAllComputeProofs())) {
+        totalProofs += (proofs || []).length;
+      }
+    }
+    // Sum mined from stateStore epochs
+    let mined = 0;
+    for (let i = 0; i < totalEpochs; i++) {
+      const ep = stateStore.getEpoch ? stateStore.getEpoch(i) : null;
+      if (ep) mined += ep.block_reward || 0;
+    }
     const currentReward = getBlockReward(totalEpochs);
 
     res.json({ totalEpochs, finalizedEpochs, activeNodes, totalUsers, totalProofs, mined, currentReward });
@@ -547,7 +537,9 @@ router.get('/models', async (_req, res) => {
 // GET /api/bot/peers
 router.get('/peers', async (_req, res) => {
   try {
-    const peers = await PeerRegistry.find().sort({ last_seen: -1 }).limit(50).lean();
+    const peers = Array.from(peerStore.values())
+      .sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen))
+      .slice(0, 50);
     res.json({ peers: peers.map(p => ({ address: p.address, username: p.username, gpu: p.gpu, last_seen: p.last_seen })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -564,15 +556,14 @@ router.post('/peers/register', async (req, res) => {
     const user = await resolveUser(telegramId);
     if (!user) return res.status(404).json({ error: 'Not linked' });
 
-    const node = await Node.findOne({ account: user._id }).lean();
-    const gpu = node?.hardware?.gpu || null;
+    const nodeInfo = nodeRegistry.getNode(user.username);
+    const gpu = nodeInfo?.hardware?.gpu || null;
 
-    await PeerRegistry.findOneAndUpdate(
-      { username: user.username },
-      { address, username: user.username, gpu, last_seen: new Date(), node_id: node?._id?.toString() || user._id.toString() },
-      { upsert: true }
-    );
-    const count = await PeerRegistry.countDocuments();
+    peerStore.set(user.username, {
+      address, username: user.username, gpu, last_seen: new Date(),
+      node_id: user._id.toString()
+    });
+    const count = peerStore.size;
     res.json({ ok: true, peers: count });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -584,8 +575,12 @@ router.post('/peers/heartbeat', async (req, res) => {
     if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
     const user = await resolveUser(tid);
     if (!user) return res.status(404).json({ error: 'Not linked' });
-    const result = await PeerRegistry.findOneAndUpdate({ username: user.username }, { last_seen: new Date() });
-    res.json({ ok: !!result });
+    const existing = peerStore.get(user.username);
+    if (existing) {
+      existing.last_seen = new Date();
+      peerStore.set(user.username, existing);
+    }
+    res.json({ ok: !!existing });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -632,9 +627,8 @@ router.post('/inference', async (req, res) => {
     // Balance from stateStore (no Mongo round-trip for the balance check)
     const balance = stateStore.getBalance(user.username, 'BTCPC');
 
-    const StakingPool = require('../models/StakingPool');
-    const stake = await StakingPool.findOne({ account: user._id, status: 'active' });
-    if (!stake || stake.staked_amount < 1) {
+    const stakePool = stateStore.getStakePool ? stateStore.getStakePool(user.username) : null;
+    if (!stakePool || (stakePool.staked_amount || 0) < 1) {
       return res.status(400).json({ error: 'Need at least 1 BTCPC staked for inference' });
     }
     if (balance < 0.01) {
@@ -664,7 +658,7 @@ router.get('/inference/:jobId', async (req, res) => {
   try {
     const jobId = sanitizeString(req.params.jobId, 100);
     if (!jobId || !/^[a-zA-Z0-9_-]+$/.test(jobId)) return res.status(400).json({ error: 'invalid job ID' });
-    const job = await InferenceJob.findOne({ job_id: jobId }).lean();
+    const job = getInferenceJob(jobId);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
     const result = {
@@ -915,18 +909,22 @@ router.get('/reddit-account', async (req, res) => {
     if (!redditUser) return res.status(400).json({ error: 'redditUsername required' });
 
     const chainLink = require('../services/chainLink');
-    const LedgerEntry = require('../models/LedgerEntry');
 
-    // Search ledger for reddit link entries (escape regex metacharacters)
-    const escaped = redditUser.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const linkEntry = await LedgerEntry.findOne({
-      type: 'ACCOUNT_CREATE',
-      memo: { $regex: ':reddit:' + escaped }
-    });
+    // Search stateStore accounts for a reddit link entry
+    let username = null;
+    if (stateStore.getAllAccounts) {
+      const allAccounts = stateStore.getAllAccounts();
+      for (const [uname, account] of Object.entries(allAccounts)) {
+        const chainAddresses = account.chain_addresses || {};
+        if (chainAddresses.reddit && chainAddresses.reddit.toLowerCase() === redditUser.toLowerCase()) {
+          username = uname;
+          break;
+        }
+      }
+    }
 
-    if (!linkEntry) return res.status(404).json({ error: 'No BTCPC account linked to u/' + redditUser });
+    if (!username) return res.status(404).json({ error: 'No BTCPC account linked to u/' + redditUser });
 
-    const username = linkEntry.from;
     const linked = await chainLink.getLinkedAddresses(username);
 
     // Get balance

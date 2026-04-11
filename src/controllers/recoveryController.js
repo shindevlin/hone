@@ -7,13 +7,18 @@
  * Implements BTCPC account recovery per Whitepaper 2.3.3.
  * Owner key bypasses 2FA to initiate recovery. A 72-hour time-lock window
  * allows the real owner to contest using valid 2FA before the reset completes.
+ *
+ * Phase E: RecoveryRequest Mongoose model removed. Recovery requests stored
+ * in memory (bounded Map) — they are short-lived events, not permanent state.
  */
 
-const RecoveryRequest = require("../models/RecoveryRequest");
 const User = require("../models/User");
 const { sanitizeString, validAccountName } = require("../middlewares/validate");
 
 const RECOVERY_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
+
+// In-memory recovery requests: account → { requestedAt, expiresAt, contested, status, new2faKey }
+const recoveryRequests = new Map();
 
 /**
  * requestRecovery — Submit a recovery request using the Owner key.
@@ -32,52 +37,48 @@ async function requestRecovery(req, res) {
       return res.status(400).json({ error: "account and owner_signature are required" });
     }
 
-    // Verify the account exists
     var user = await User.findOne({ username: account });
     if (!user) {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    // Verify owner key signature
-    // In production this validates the cryptographic signature against ownerPublicKey.
-    // For now we verify the owner public key is set and the signature field is present.
     if (!user.ownerPublicKey) {
       return res.status(400).json({ error: "Account has no owner key configured" });
     }
 
-    // Check for an existing pending recovery on this account
-    var existing = await RecoveryRequest.findOne({ account: account, status: "pending" });
-    if (existing) {
+    // Expire existing requests
+    const existing = recoveryRequests.get(account);
+    if (existing && existing.status === 'pending' && new Date() < existing.expiresAt) {
       return res.status(409).json({
         error: "A recovery request is already pending for this account",
-        expires_at: existing.expires_at
+        expires_at: existing.expiresAt
       });
     }
 
     var now = new Date();
     var expiresAt = new Date(now.getTime() + RECOVERY_WINDOW_MS);
 
-    var recovery = new RecoveryRequest({
-      account: account,
-      requested_at: now,
-      expires_at: expiresAt,
+    const recovery = {
+      account,
+      requestedAt: now,
+      expiresAt,
       contested: false,
       contested_by_2fa: false,
-      status: "pending",
-      new_2fa_public_key: new2faKey || null
-    });
-    await recovery.save();
+      status: 'pending',
+      new2faKey: new2faKey || null
+    };
+    recoveryRequests.set(account, recovery);
 
     console.log("[BTCPC] Recovery request created for account: " + account +
       " (expires " + expiresAt.toISOString() + ")");
 
     res.status(201).json({
       success: true,
-      recovery_id: recovery._id,
-      account: account,
-      requested_at: recovery.requested_at,
-      expires_at: recovery.expires_at,
-      status: recovery.status,
+      recovery_id: account + ':' + now.getTime(),
+      account,
+      requested_at: now,
+      expires_at: expiresAt,
+      status: 'pending',
       message: "72-hour recovery window started. The real owner can contest with valid 2FA."
     });
   } catch (err) {
@@ -87,7 +88,6 @@ async function requestRecovery(req, res) {
 
 /**
  * contestRecovery — The real owner submits valid 2FA to block an unauthorized recovery.
- * If contested, the recovery is permanently blocked.
  *
  * Body: { account, twofa_token }
  */
@@ -100,20 +100,16 @@ async function contestRecovery(req, res) {
       return res.status(400).json({ error: "account and twofa_token are required" });
     }
 
-    // Find the pending recovery request
-    var recovery = await RecoveryRequest.findOne({ account: account, status: "pending" });
-    if (!recovery) {
+    const recovery = recoveryRequests.get(account);
+    if (!recovery || recovery.status !== 'pending') {
       return res.status(404).json({ error: "No pending recovery request for this account" });
     }
 
-    // Verify the 72-hour window has not expired
-    if (new Date() > recovery.expires_at) {
-      recovery.status = "expired";
-      await recovery.save();
+    if (new Date() > recovery.expiresAt) {
+      recovery.status = 'expired';
       return res.status(410).json({ error: "Recovery window has already expired" });
     }
 
-    // Verify the user exists and has 2FA enabled
     var user = await User.findOne({ username: account });
     if (!user) {
       return res.status(404).json({ error: "Account not found" });
@@ -123,26 +119,21 @@ async function contestRecovery(req, res) {
       return res.status(400).json({ error: "Account does not have 2FA configured" });
     }
 
-    // Validate the 2FA token
-    // In production this verifies the TOTP or cryptographic 2FA proof.
-    // Simplified validation: token must be present and non-empty.
     if (!twofaToken || typeof twofaToken !== "string" || twofaToken.length < 6) {
       return res.status(401).json({ error: "Invalid 2FA token" });
     }
 
-    // Contest the recovery — permanently block it
     recovery.contested = true;
     recovery.contested_by_2fa = true;
-    recovery.status = "contested";
-    await recovery.save();
+    recovery.status = 'contested';
 
     console.log("[BTCPC] Recovery CONTESTED for account: " + account +
       " — attacker's recovery attempt blocked");
 
     res.json({
       success: true,
-      account: account,
-      status: "contested",
+      account,
+      status: 'contested',
       message: "Recovery attempt has been blocked. Your 2FA remains active."
     });
   } catch (err) {
@@ -164,32 +155,28 @@ async function completeRecovery(req, res) {
       return res.status(400).json({ error: "account and owner_signature are required" });
     }
 
-    // Find the pending recovery request
-    var recovery = await RecoveryRequest.findOne({ account: account, status: "pending" });
-    if (!recovery) {
+    const recovery = recoveryRequests.get(account);
+    if (!recovery || recovery.status !== 'pending') {
       return res.status(404).json({ error: "No pending recovery request for this account" });
     }
 
-    // Verify the 72-hour window has elapsed
-    if (new Date() < recovery.expires_at) {
-      var remaining = recovery.expires_at.getTime() - Date.now();
+    if (new Date() < recovery.expiresAt) {
+      var remaining = recovery.expiresAt.getTime() - Date.now();
       var hours = Math.ceil(remaining / (60 * 60 * 1000));
       return res.status(403).json({
         error: "Recovery window has not elapsed yet",
         hours_remaining: hours,
-        expires_at: recovery.expires_at
+        expires_at: recovery.expiresAt
       });
     }
 
-    // Verify owner key (same check as requestRecovery)
     var user = await User.findOne({ username: account });
     if (!user) {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    // Reset 2FA — apply the new key if provided, otherwise clear 2FA
-    if (recovery.new_2fa_public_key) {
-      user.twoFactorPublicKey = recovery.new_2fa_public_key;
+    if (recovery.new2faKey) {
+      user.twoFactorPublicKey = recovery.new2faKey;
       user.twoFactorEnabled = true;
     } else {
       user.twoFactorPublicKey = null;
@@ -197,16 +184,13 @@ async function completeRecovery(req, res) {
     }
     await user.save();
 
-    // Mark recovery as completed
-    recovery.status = "completed";
-    await recovery.save();
-
+    recovery.status = 'completed';
     console.log("[BTCPC] Recovery COMPLETED for account: " + account + " — 2FA has been reset");
 
     res.json({
       success: true,
-      account: account,
-      status: "completed",
+      account,
+      status: 'completed',
       message: "2FA has been reset. New credentials are active."
     });
   } catch (err) {
@@ -231,33 +215,28 @@ async function getRecoveryStatus(req, res) {
       return res.status(400).json({ error: "invalid account name" });
     }
 
-    // Expire any overdue pending requests
-    await RecoveryRequest.updateMany(
-      { account: account, status: "pending", expires_at: { $lt: new Date() } },
-      { $set: { status: "expired" } }
-    );
+    const recovery = recoveryRequests.get(account);
 
-    var recovery = await RecoveryRequest.findOne({ account: account, status: "pending" });
-
-    if (!recovery) {
-      res.json({
-        account: account,
-        pending: false,
-        message: "No active recovery request"
-      });
-    } else {
-      var remaining = recovery.expires_at.getTime() - Date.now();
-      res.json({
-        account: account,
-        pending: true,
-        recovery_id: recovery._id,
-        requested_at: recovery.requested_at,
-        expires_at: recovery.expires_at,
-        hours_remaining: Math.max(0, Math.ceil(remaining / (60 * 60 * 1000))),
-        contested: recovery.contested,
-        status: recovery.status
-      });
+    // Auto-expire
+    if (recovery && recovery.status === 'pending' && new Date() > recovery.expiresAt) {
+      recovery.status = 'expired';
     }
+
+    if (!recovery || recovery.status !== 'pending') {
+      return res.json({ account, pending: false, message: "No active recovery request" });
+    }
+
+    var remaining = recovery.expiresAt.getTime() - Date.now();
+    res.json({
+      account,
+      pending: true,
+      recovery_id: account + ':' + recovery.requestedAt.getTime(),
+      requested_at: recovery.requestedAt,
+      expires_at: recovery.expiresAt,
+      hours_remaining: Math.max(0, Math.ceil(remaining / (60 * 60 * 1000))),
+      contested: recovery.contested,
+      status: recovery.status
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

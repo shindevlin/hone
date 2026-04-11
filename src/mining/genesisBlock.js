@@ -2,18 +2,16 @@
 
 const crypto = require('crypto');
 const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const Node = require('../models/Node');
-const Epoch = require('../models/Epoch');
 const { getBlockReward } = require('../services/emissionSchedule');
 
 const path = require('path');
 const fs = require('fs');
-const GenesisDream = require('../models/GenesisDream');
 
 const Block = require('../chain/block');
 const blockStore = require('../chain/blockStore');
 const stateManager = require('../chain/stateManager');
+const stateStore = require('../chain/stateStore');
+const nodeRegistry = require('../chain/nodeRegistry');
 
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
@@ -26,53 +24,24 @@ const WHITEPAPER_PATH = path.resolve(__dirname, '../../docs/BTCPC_WHITEPAPER.md'
  * Returns the genesis block data if created, or existing data if already present.
  */
 async function createGenesisBlock() {
-  // Check if genesis epoch already exists
-  const existingEpoch = await Epoch.findOne({ epoch_number: 0 });
-  if (existingEpoch) {
+  // Phase E: Epoch/Wallet/Node models deleted — check block files + stateStore
+  const stateStore = require('../chain/stateStore');
+  const existingEpoch = stateStore.getEpoch(0);
+
+  if (existingEpoch || blockStore.hasBlock(0)) {
     console.log('[BTCPC] Genesis block already exists');
-
-    // Ensure genesis block file exists on disk (migration path)
-    if (!blockStore.hasBlock(0)) {
-      try {
-        blockStore.ensureBlockDir();
-        const LedgerEntry = require('../models/LedgerEntry');
-        const entries = await LedgerEntry.find({ epoch: 0 }).lean();
-        const cleanEntries = entries.map(e => ({
-          type: e.type, from: e.from, to: e.to, token: e.token,
-          amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
-          memo: e.memo, timestamp: e.timestamp,
-          account_data: e.account_data, token_data: e.token_data,
-          delegation_data: e.delegation_data
-        }));
-        stateManager.applyLedgerEntries(cleanEntries);
-        const txHashes = cleanEntries.map(e => blockStore.hashLedgerEntry(e));
-        const block = new Block({
-          version: 1, epoch_number: 0,
-          previous_block_hash: '0'.repeat(64),
-          merkle_root_transactions: Block.computeMerkleRoot(txHashes),
-          merkle_root_compute_proofs: '0'.repeat(64),
-          state_root: stateManager.getStateRoot(),
-          timestamp: existingEpoch.started_at.getTime(),
-          difficulty: 1, miner_id: GENESIS_MINER
-        });
-        blockStore.writeBlock(block, {
-          ledger_entries: cleanEntries, rewards: [],
-          compute_proofs: [], mining_proofs: []
-        });
-        console.log('[BTCPC] Genesis block migrated to disk: ' + block.computeHash().slice(0, 16) + '...');
-      } catch (err) {
-        console.error('[BTCPC] Genesis migration to disk failed: ' + err.message);
-      }
-    }
-
     const user = await User.findOne({ username: GENESIS_MINER });
-    const wallet = user ? await Wallet.findOne({ userId: user._id }) : null;
-    const node = user ? await Node.findOne({ account: user._id }) : null;
+    const epochData = existingEpoch || {
+      epoch_number: 0,
+      started_at: new Date(0),
+      block_reward: getBlockReward(0),
+      status: 'finalized'
+    };
     return {
-      epoch: existingEpoch,
+      epoch: epochData,
       user,
-      wallet,
-      node,
+      wallet: null,
+      node: null,
       alreadyExisted: true
     };
   }
@@ -82,14 +51,12 @@ async function createGenesisBlock() {
 
   // Create the genesis miner account using saved mnemonic if available
   let user = await User.findOne({ username: GENESIS_MINER });
-  let wallet;
   if (!user) {
     const { createAccount } = require('../wallet/accountManager');
     const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
     try {
       const account = await createAccount(GENESIS_MINER, savedMnemonic, `${GENESIS_MINER}-genesis`);
       user = await User.findOne({ username: GENESIS_MINER });
-      wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
       console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
       if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC`);
       console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
@@ -100,64 +67,45 @@ async function createGenesisBlock() {
       console.log(`[BTCPC] Genesis miner announced to permanent ledger`);
     } catch (err) {
       console.error(`[BTCPC] Failed to create genesis account: ${err.message}`);
-      // Fallback to simple account
+      // Fallback: create minimal User doc only
       const passwordHash = crypto.createHash('sha256').update(`${GENESIS_MINER}-genesis-${Date.now()}`).digest('hex');
       user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@btcpc.network`, password: passwordHash, isActive: true });
       await user.save();
-      wallet = new Wallet({ userId: user._id, chain: 'btcpc', address: GENESIS_MINER, balance: new Map([['BTCPC', 0]]) });
-      await wallet.save();
     }
-  } else {
-    wallet = await Wallet.findOne({ userId: user._id, chain: 'btcpc' });
   }
 
-  // Create the genesis mining node (exempt from stake minimum for genesis)
-  let node = await Node.findOne({ account: user._id });
-  if (!node) {
-    node = new Node({
-      account: user._id,
-      endpoint: process.env.OLLAMA_URL || 'http://100.122.145.60:11434',
-      models: ['qwen3.5:27b'],
-      hardware: {
-        gpu: 'Genesis Miner',
-        vram_gb: 0,
-        cpu_cores: 0,
-        ram_gb: 0
-      },
-      stake_amount: 1000,
-      status: 'active',
-      inference_engine: 'ollama',
-      // Cross-chain wallets (env override or defaults)
-      hive_account: process.env.BTCPC_HIVE_ACCOUNT || 'shindevlin',
-      base_wallet: process.env.BTCPC_BASE_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
-      arbitrum_wallet: process.env.BTCPC_ARBITRUM_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
-      optimism_wallet: process.env.BTCPC_OPTIMISM_WALLET || '0xD3675710dADF62a7a7bd321b17cA79A1Cd7CF699',
-      solana_wallet: process.env.BTCPC_SOLANA_WALLET || '7B7pqWCYTgSSysmyMk2iwhCECB8SFphDSrVQJvn9M2bB',
-      ton_wallet: process.env.BTCPC_TON_WALLET || 'UQCx_w46JZwxw8_VUoahnnwHWeOZY8_3sW1fmPtBYCPvA7cJ',
-      bitcoin_wallet: process.env.BTCPC_BITCOIN_WALLET || 'bc1p2yeza4mezdjmphwqkgcshfmnzjmnthnpr6medmvzcldna0encyjs4x8fep'
-    });
-    await node.save();
-    console.log('[BTCPC] Genesis mining node registered');
+  // Register the genesis mining node in nodeRegistry (in-memory, no Mongo)
+  if (!nodeRegistry.isRegistered(GENESIS_MINER)) {
+    nodeRegistry.registerNode(
+      GENESIS_MINER,
+      'miner',
+      1000,
+      process.env.OLLAMA_URL || 'http://100.122.145.60:11434',
+      0,
+      true  // permissioned genesis node
+    );
+    console.log('[BTCPC] Genesis mining node registered in nodeRegistry');
   }
 
-  // Create epoch 0 -- the genesis epoch
+  // Create epoch 0 in stateStore — no Mongo
   const genesisReward = getBlockReward(0);
-  const genesisEpoch = new Epoch({
+  const genesisStartedAt = new Date();
+  stateStore.setEpoch(0, {
     epoch_number: 0,
-    started_at: new Date(),
+    started_at: genesisStartedAt,
     block_reward: genesisReward,
     status: 'active',
     consensus_hash: GENESIS_STATE_HASH
   });
-  await genesisEpoch.save();
 
-  // Create Genesis Dream #0 — inscribed with the complete whitepaper
+  // Genesis Dream #0 — inscribed with the complete whitepaper
+  // Stored as a ledger entry in the genesis block payload (no GenesisDream Mongo model)
+  let genesisDreamData = null;
   try {
     const whitepaper = fs.readFileSync(WHITEPAPER_PATH, 'utf8');
-    const genesisDream = new GenesisDream({
+    genesisDreamData = {
       block_number: 0,
       original_miner: GENESIS_MINER,
-      current_owner: GENESIS_MINER,
       inscription: {
         project: 'btcpc',
         tag: 'Genesis — The chain dreamed itself into existence',
@@ -175,12 +123,11 @@ async function createGenesisBlock() {
         tokens_computed: 0,
         model: 'genesis'
       }
-    });
-    await genesisDream.save();
+    };
     console.log(`[BTCPC] Genesis Dream #0 inscribed — ${whitepaper.length} chars of whitepaper`);
     console.log(`[BTCPC]   "The chain dreamed itself into existence"`);
   } catch (err) {
-    console.error(`[BTCPC] Failed to create genesis dream: ${err.message}`);
+    console.error(`[BTCPC] Failed to read whitepaper for genesis dream: ${err.message}`);
   }
 
   // Reserve top names — owned by shindevlin, sellable later
@@ -209,16 +156,26 @@ async function createGenesisBlock() {
   try {
     blockStore.ensureBlockDir();
 
-    // Collect genesis ledger entries for the block payload
-    const LedgerEntry = require('../models/LedgerEntry');
-    const genesisLedgerEntries = await LedgerEntry.find({ epoch: 0 }).lean();
-    const cleanEntries = genesisLedgerEntries.map(e => ({
-      type: e.type, from: e.from, to: e.to, token: e.token,
-      amount: e.amount, epoch: e.epoch, signed_by: e.signed_by,
-      memo: e.memo, timestamp: e.timestamp,
-      account_data: e.account_data, token_data: e.token_data,
-      delegation_data: e.delegation_data
-    }));
+    // Flush pending ledger entries (from recordAccountCreate above) as genesis block payload
+    const ledger = require('../services/ledger');
+    const pendingEntries = ledger.flushPendingEntries ? ledger.flushPendingEntries() : [];
+    const cleanEntries = pendingEntries.filter(e => (e.epoch === 0 || e.epoch === undefined));
+
+    // If genesis dream was created, add it as a special entry
+    if (genesisDreamData) {
+      cleanEntries.push({
+        type: 'GENESIS_DREAM',
+        from: GENESIS_MINER,
+        to: GENESIS_MINER,
+        token: 'BTCPC',
+        amount: 0,
+        epoch: 0,
+        signed_by: GENESIS_MINER,
+        memo: 'Genesis Dream #0',
+        timestamp: genesisStartedAt.toISOString(),
+        account_data: genesisDreamData
+      });
+    }
 
     // Apply genesis entries to SMT
     stateManager.applyLedgerEntries(cleanEntries);
@@ -235,7 +192,7 @@ async function createGenesisBlock() {
       merkle_root_transactions: txMerkleRoot,
       merkle_root_compute_proofs: '0'.repeat(64),
       state_root: stateRoot,
-      timestamp: genesisEpoch.started_at.getTime(),
+      timestamp: genesisStartedAt.getTime(),
       difficulty: 1,
       miner_id: GENESIS_MINER
     });
@@ -267,11 +224,19 @@ async function createGenesisBlock() {
   console.log(`[BTCPC] Block Reward: ${genesisReward} BTCPC`);
   console.log('[BTCPC] ================================================');
 
+  const genesisEpochData = stateStore.getEpoch(0) || {
+    epoch_number: 0,
+    started_at: genesisStartedAt,
+    block_reward: genesisReward,
+    status: 'active',
+    consensus_hash: GENESIS_STATE_HASH
+  };
+
   return {
-    epoch: genesisEpoch,
+    epoch: genesisEpochData,
     user,
-    wallet,
-    node,
+    wallet: null,
+    node: null,
     alreadyExisted: false
   };
 }
