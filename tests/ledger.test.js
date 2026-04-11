@@ -32,15 +32,38 @@ jest.mock('../src/p2p/mempool', () => ({
   submit: (...args) => mockMempoolSubmit(...args)
 }));
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// v2.13.1: _persist also appends to <BTCPC_DATA_DIR>/pending-entries.jsonl
+// so that entries created in the API server process are picked up by the
+// miner process on flush. Tests use an isolated data dir per worker so
+// parallel jest runs don't race.
+const ISOLATED_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-ledger-test-'));
+process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
+
 const Wallet = require('../src/models/Wallet');
 const User = require('../src/models/User');
 const Epoch = require('../src/models/Epoch');
 const ledger = require('../src/services/ledger');
 
+const PENDING_FILE = path.join(ISOLATED_DATA_DIR, 'pending-entries.jsonl');
+function wipePendingFile() {
+  try { if (fs.existsSync(PENDING_FILE)) fs.unlinkSync(PENDING_FILE); } catch (_) {}
+}
+
 describe('ledger service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    wipePendingFile();
     ledger.flushPendingEntries();
+    wipePendingFile();
+  });
+
+  afterAll(() => {
+    wipePendingFile();
+    try { fs.rmSync(ISOLATED_DATA_DIR, { recursive: true, force: true }); } catch (_) {}
   });
 
   test('recordTransfer rejects self-transfers before touching the mempool', async () => {

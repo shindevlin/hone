@@ -15,9 +15,97 @@
  */
 
 const stateStore = require('../chain/stateStore');
+const fs = require('fs');
+const path = require('path');
 
-// Pending entries — collected during an epoch, written into the next block
+// Pending entries — collected during an epoch, written into the next block.
+//
+// IMPORTANT: Entries originate in MULTIPLE processes on the same machine —
+// the API server (src/index.js) creates most of them (account creation,
+// transfers, stakes, escrow, commerce, etc.) and the miner (bin/btcpc-mine)
+// creates MINING_REWARD entries during epoch finalization.
+//
+// Each process has its own in-memory `pendingEntries` array. To get entries
+// from the API server into the miner's block payloads, we ALSO append every
+// entry to a shared on-disk queue at data/pending-entries.jsonl. When the
+// miner flushes, it reads and clears the shared file, unioning those entries
+// with its own in-memory pending list.
+//
+// This replaces the broken pre-v2.13.1 behavior where API server entries
+// accumulated forever in a private array and never reached any block.
 const pendingEntries = [];
+
+// Data directory is overridable via BTCPC_DATA_DIR (used in tests to isolate
+// the shared pending-entries file between parallel jest workers, and in Docker
+// to point at /app/data inside the container).
+function _dataDir() {
+  return process.env.BTCPC_DATA_DIR
+    ? path.resolve(process.env.BTCPC_DATA_DIR)
+    : path.resolve(__dirname, '..', '..', 'data');
+}
+function _pendingFile() {
+  return path.join(_dataDir(), 'pending-entries.jsonl');
+}
+
+function _ensurePendingDir() {
+  try {
+    const d = _dataDir();
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  } catch (_) {}
+}
+
+function _appendPendingToDisk(entry) {
+  try {
+    _ensurePendingDir();
+    // O_APPEND on POSIX makes writes up to PIPE_BUF (4096 bytes) atomic
+    // across processes. Ledger entries are well under that.
+    fs.appendFileSync(_pendingFile(), JSON.stringify(entry) + '\n');
+  } catch (err) {
+    // Non-fatal: entry is still in stateStore + in-memory pendingEntries.
+    // The miner will just miss it in the next block. Log once per minute to
+    // avoid flooding.
+    if (!_appendPendingToDisk._lastWarn || Date.now() - _appendPendingToDisk._lastWarn > 60000) {
+      console.error('[BTCPC ledger] pending-entries.jsonl append failed: ' + err.message);
+      _appendPendingToDisk._lastWarn = Date.now();
+    }
+  }
+}
+
+function _readAndClearPendingFile() {
+  var entries = [];
+  try {
+    var pendingFile = _pendingFile();
+    if (!fs.existsSync(pendingFile)) return entries;
+
+    // Rename-then-read pattern: any concurrent _appendPendingToDisk will
+    // create a fresh file while we drain the old one. No writes lost.
+    var draining = pendingFile + '.draining-' + process.pid + '-' + Date.now();
+    try {
+      fs.renameSync(pendingFile, draining);
+    } catch (err) {
+      // File may have vanished between exists and rename (another miner?).
+      if (err.code === 'ENOENT') return entries;
+      throw err;
+    }
+
+    var raw = fs.readFileSync(draining, 'utf8');
+    fs.unlinkSync(draining);
+
+    var lines = raw.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+      try {
+        entries.push(JSON.parse(line));
+      } catch (_) {
+        // Skip corrupt lines silently — don't let one bad entry block a block.
+      }
+    }
+  } catch (err) {
+    console.error('[BTCPC ledger] pending-entries.jsonl drain failed: ' + err.message);
+  }
+  return entries;
+}
 
 // Build a plain ledger entry object with default timestamp.
 // Replaces `new LedgerEntry({...})` — no Mongoose, no save, no _id.
@@ -38,11 +126,14 @@ function _entry(data) {
 }
 
 // Persist a ledger entry without touching Mongo.
-// Applies to stateStore (updates balances/accounts/tokens/stakes/escrows/etc.)
-// and pushes into pendingEntries for inclusion in the next block.
+// Applies to stateStore (updates balances/accounts/tokens/stakes/escrows/etc.),
+// pushes into the in-process pendingEntries array, AND appends to the shared
+// on-disk queue so entries originating in the API server eventually land in
+// blocks written by the miner process.
 function _persist(entry) {
   stateStore.applyEntry(entry);
   pendingEntries.push(entry);
+  _appendPendingToDisk(entry);
   return entry;
 }
 
@@ -1185,11 +1276,40 @@ async function getAllAccounts() {
 
 /**
  * Flush pending entries — returns them for inclusion in the next block.
+ * Drains BOTH the in-process pendingEntries array AND the shared on-disk
+ * queue at data/pending-entries.jsonl, so entries created by the API server
+ * process end up in the miner's block payloads.
+ *
+ * Dedupe note: if the same entry somehow appears in both the in-memory
+ * array and the on-disk queue (e.g. the miner creates one and also writes
+ * it to the file via _persist), stateStore.applyEntry already auto-dedupes
+ * via its internal seenEntries Set, so the block payload can carry a
+ * duplicate safely — replay will ignore the second copy.
  */
 function flushPendingEntries() {
-  const entries = [...pendingEntries];
-  pendingEntries.length = 0;
-  return entries;
+  const memoryEntries = pendingEntries.splice(0, pendingEntries.length);
+  const diskEntries = _readAndClearPendingFile();
+
+  // Dedupe by canonical JSON — if the same _persist() call produced an
+  // in-memory entry AND a disk entry (normal for single-process dev
+  // setups) we only emit one copy. Cross-process scenarios (API server
+  // appends, miner drains) have no overlap so this is a no-op.
+  const seen = new Set();
+  const out = [];
+  const all = memoryEntries.concat(diskEntries);
+  for (const e of all) {
+    var key;
+    try {
+      key = JSON.stringify(e);
+    } catch (_) {
+      out.push(e);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out;
 }
 
 /**
