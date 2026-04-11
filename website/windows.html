@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC on Windows — One Command Install</title>
+  <meta name="description" content="Install BTCPC on Windows in one command. No git, no WSL, no bash required.">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; min-height: 100vh; }
+    .wrap { max-width: 800px; margin: 0 auto; padding: 40px 24px 80px; }
+    h1 { font-size: 40px; margin: 0 0 8px; color: #e2e8f0; }
+    h1 span { color: #f7931a; }
+    .sub { font-size: 16px; color: #94a3b8; margin: 0 0 32px; }
+    .step {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .step-num {
+      display: inline-block;
+      background: #f7931a;
+      color: #0a0e17;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: 800;
+      font-size: 15px;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    .step-title { font-size: 20px; font-weight: 700; display: inline-block; vertical-align: middle; }
+    .step-body { color: #cbd5e1; margin: 12px 0 0 0; line-height: 1.6; font-size: 15px; }
+    .step-body a { color: #f7931a; }
+    .step-body code { background: #0a0e17; padding: 2px 6px; border-radius: 3px; color: #f7931a; font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }
+
+    .command-box {
+      background: #0a0e17;
+      border: 2px solid #f7931a;
+      border-radius: 10px;
+      padding: 20px;
+      margin: 16px 0;
+      position: relative;
+      box-shadow: 0 0 24px rgba(247, 147, 26, 0.2);
+    }
+    .command-text {
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 18px;
+      color: #f7931a;
+      word-break: break-all;
+      margin: 0;
+      padding-right: 92px;
+      white-space: pre-wrap;
+      user-select: text;
+      -webkit-user-select: text;
+      line-height: 1.4;
+    }
+    .big-copy-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: #f7931a;
+      color: #0a0e17;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+      user-select: none;
+    }
+    .big-copy-btn:hover { background: #ffa635; }
+    .big-copy-btn.copied { background: #22c55e; color: #0a0e17; }
+
+    .warn {
+      background: rgba(247, 147, 26, 0.08);
+      border: 1px solid rgba(247, 147, 26, 0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #e2e8f0;
+      font-size: 14px;
+      margin: 12px 0;
+    }
+    .warn strong { color: #f7931a; }
+    .warn code { background: #0a0e17; padding: 1px 5px; border-radius: 3px; color: #f7931a; }
+    .ok {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #e2e8f0;
+      font-size: 14px;
+      margin: 12px 0;
+    }
+    .ok strong { color: #22c55e; }
+    .back { display: inline-block; color: #94a3b8; text-decoration: none; margin-bottom: 24px; font-size: 14px; }
+    .back:hover { color: #f7931a; }
+    .footer { margin-top: 40px; text-align: center; color: #64748b; font-size: 13px; }
+    .footer a { color: #f7931a; text-decoration: none; margin: 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a href="/install" class="back">← All install options</a>
+    <h1>BTCPC on <span>Windows</span></h1>
+    <p class="sub">One PowerShell command. No git clone, no WSL, no bash, no curl alias tricks.</p>
+
+    <div class="step">
+      <div><span class="step-num">1</span><span class="step-title">Install Docker Desktop</span></div>
+      <p class="step-body">
+        Download from <a href="https://www.docker.com/products/docker-desktop/" target="_blank">docker.com/products/docker-desktop</a>, run the installer, and <strong>reboot</strong> when prompted. After reboot, launch <strong>Docker Desktop</strong> from the Start menu and wait for the whale icon 🐳 in your system tray to stop animating (takes 2-3 minutes on first launch).
+      </p>
+      <div class="warn">
+        <strong>Already installed?</strong> Just make sure the whale icon is in your system tray and not animating. If it's not there, launch "Docker Desktop" from the Start menu.
+      </div>
+    </div>
+
+    <div class="step">
+      <div><span class="step-num">2</span><span class="step-title">Open PowerShell</span></div>
+      <p class="step-body">
+        Press the <strong>Windows key</strong>, type <code>PowerShell</code>, and press Enter. A blue (or black) window will open.
+      </p>
+      <div class="warn">
+        <strong>Important:</strong> Use <strong>PowerShell</strong>, not <strong>cmd.exe</strong>, not <strong>WSL</strong>, not <strong>Git Bash</strong>. This matters because curl in PowerShell is an alias that trips on the commands — the script below uses PowerShell-native commands that work correctly.
+      </div>
+    </div>
+
+    <div class="step">
+      <div><span class="step-num">3</span><span class="step-title">Paste this command and press Enter</span></div>
+      <p class="step-body">Click the orange button to copy, then right-click in PowerShell to paste, then press Enter.</p>
+      <div class="command-box">
+        <button type="button" class="big-copy-btn" id="copy-btn" data-copy="irm https://btcpc.net/btcpc-start.ps1 | iex">COPY</button>
+        <pre class="command-text">irm https://btcpc.net/btcpc-start.ps1 | iex</pre>
+      </div>
+      <p class="step-body">
+        That downloads the BTCPC starter script and runs it. The script will:
+      </p>
+      <ul class="step-body" style="padding-left:20px;">
+        <li>Verify Docker is installed and running</li>
+        <li>Create <code>C:\Users\you\btcpc</code> as the working folder</li>
+        <li>Download <code>docker-compose.yml</code> and the ~200 MB BTCPC image tarball</li>
+        <li>Load the image into Docker</li>
+        <li>Ask for your BTCPC username (create one via <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a> on Telegram if you don't have one)</li>
+        <li>Start mining</li>
+      </ul>
+      <div class="ok">
+        <strong>Success looks like:</strong> green <code>[OK]</code> lines for each step, then <code>BTCPC is running as yourname</code> at the end with a list of running containers. Check your balance in Telegram with <code>@btcpcbot /balance</code> after a few minutes.
+      </div>
+    </div>
+
+    <div class="step">
+      <div><span class="step-num">4</span><span class="step-title">Troubleshooting</span></div>
+      <p class="step-body"><strong>"cannot be loaded because running scripts is disabled"</strong> — your execution policy blocks .ps1 files. The <code>irm | iex</code> pattern normally bypasses this, but if it doesn't work, first run:</p>
+      <div class="command-box">
+        <button type="button" class="big-copy-btn" data-copy="Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force">COPY</button>
+        <pre class="command-text">Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force</pre>
+      </div>
+      <p class="step-body" style="margin-top:16px;"><strong>"The term 'docker' is not recognized"</strong> — Docker Desktop isn't installed, or Windows hasn't picked up the new PATH since the install. Reboot and try again.</p>
+      <p class="step-body"><strong>"Cannot connect to the Docker daemon"</strong> — Docker Desktop is installed but not running. Launch Docker Desktop from the Start menu, wait for the whale icon to stop animating, then re-run the command.</p>
+      <p class="step-body"><strong>Stuck at "no such image"</strong> — your previous attempt left a broken cache. Run these lines one at a time to reset and retry:</p>
+      <div class="command-box">
+        <button type="button" class="big-copy-btn" data-copy="cd $HOME\btcpc; Remove-Item btcpc-image.tar.gz -ErrorAction SilentlyContinue; docker image rm btcpc:latest -f 2>$null; irm https://btcpc.net/btcpc-start.ps1 | iex">COPY</button>
+        <pre class="command-text">cd $HOME\btcpc; Remove-Item btcpc-image.tar.gz -ErrorAction SilentlyContinue; docker image rm btcpc:latest -f 2>$null; irm https://btcpc.net/btcpc-start.ps1 | iex</pre>
+      </div>
+      <p class="step-body"><strong>Still stuck?</strong> Open a new PowerShell window and run these diagnostic commands one by one, then share the output with Shin:</p>
+      <div class="command-box">
+        <button type="button" class="big-copy-btn" data-copy="docker --version; docker info; docker images btcpc; Get-Content $HOME\btcpc\docker-compose.yml">COPY</button>
+        <pre class="command-text">docker --version; docker info; docker images btcpc; Get-Content $HOME\btcpc\docker-compose.yml</pre>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="/install">All install options</a> · <a href="/">btcpc.net</a> · <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a>
+    </div>
+  </div>
+
+  <script>
+    function fallbackCopy(text) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "absolute";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+    document.querySelectorAll(".big-copy-btn").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var text = btn.getAttribute("data-copy") || "";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () { flashCopied(btn); },
+            function () { fallbackCopy(text); flashCopied(btn); }
+          );
+        } else {
+          fallbackCopy(text);
+          flashCopied(btn);
+        }
+      });
+    });
+    function flashCopied(btn) {
+      var prev = btn.textContent;
+      btn.textContent = "COPIED!";
+      btn.classList.add("copied");
+      setTimeout(function () {
+        btn.textContent = prev;
+        btn.classList.remove("copied");
+      }, 1500);
+    }
+  </script>
+</body>
+</html>
