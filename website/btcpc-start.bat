@@ -70,15 +70,55 @@ if not exist docker-compose.yml (
 )
 echo.
 
-REM ── Step 4: ask for username ──
-echo Enter your BTCPC username (from @btcpcbot on Telegram).
+REM ── Step 4: existing user or new user? ──
+echo.
+echo ─────────────────────────────────────────────────────────────
+echo  Do you already have a BTCPC username?
+echo ─────────────────────────────────────────────────────────────
+echo.
+echo   [1] Yes, I already have one (from @btcpcbot on Telegram)
+echo   [2] No, I need to create one
+echo.
+set /p USER_CHOICE="Enter 1 or 2: "
+
+if "!USER_CHOICE!"=="2" (
+    echo.
+    echo ─────────────────────────────────────────────────────────────
+    echo  Let's get you a username via Telegram
+    echo ─────────────────────────────────────────────────────────────
+    echo.
+    echo  Opening Telegram bot @btcpcbot in your browser now.
+    echo  In Telegram:
+    echo    1. Click 'Start' to begin the chat
+    echo    2. Type:  /create your_name_here
+    echo       (lowercase, 3-20 chars, letters/numbers/hyphens)
+    echo    3. The bot will give you a 12-word backup phrase.
+    echo       WRITE IT DOWN on paper. We cannot recover it if lost.
+    echo    4. Come back here and enter the username you chose.
+    echo.
+    start https://t.me/btcpcbot
+    echo.
+    pause
+    echo.
+)
+
+echo Enter your BTCPC username:
 echo Use lowercase, 3-20 characters, letters/numbers/hyphens only.
-echo If you don't have one yet, open Telegram and message @btcpcbot /create your_name first.
 echo.
 set /p BTCPC_MINER="Your username: "
 
 if "!BTCPC_MINER!"=="" (
     echo [ERROR] Username cannot be empty.
+    pause
+    exit /b 1
+)
+
+REM Basic sanity check — lowercase letters, digits, hyphens only
+echo !BTCPC_MINER!| findstr /r "^[a-z0-9][a-z0-9-]*$" >nul
+if errorlevel 1 (
+    echo [ERROR] Invalid username format.
+    echo Use only lowercase letters, digits, and hyphens.
+    echo Start with a letter or digit. No spaces or special characters.
     pause
     exit /b 1
 )
