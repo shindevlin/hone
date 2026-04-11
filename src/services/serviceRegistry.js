@@ -317,6 +317,23 @@ function getActiveSessions(slug) {
 }
 
 /**
+ * Get all heartbeat records whose last_heartbeat_epoch matches `epoch`.
+ * Used by the block-emission reward distributor (v2.13.4+) to identify
+ * which service hosts are eligible for the service pool this epoch.
+ *
+ * Returns an array of heartbeat record objects (one per slug+host pair).
+ */
+function _getHeartbeatsForEpoch(epoch) {
+  var result = [];
+  for (var entry of heartbeats) {
+    if (entry[1].last_heartbeat_epoch === epoch) {
+      result.push(entry[1]);
+    }
+  }
+  return result;
+}
+
+/**
  * Reset all state. For tests only.
  */
 function resetForTests() {
@@ -344,6 +361,7 @@ module.exports = {
   getActiveSessions: getActiveSessions,
   // Helpers
   parseSlug: parseSlug,
+  _getHeartbeatsForEpoch: _getHeartbeatsForEpoch,
   resetForTests: resetForTests,
   SLUG_PATTERN: SLUG_PATTERN,
   CID_PATTERN: CID_PATTERN,

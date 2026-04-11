@@ -1487,6 +1487,32 @@ function getActiveStorageHosts(currentEpoch, recentEpochs) {
   return result;
 }
 
+/**
+ * Get unique host account names that sent a STORAGE_HEARTBEAT in exactly
+ * `epoch`. Used by the block-emission reward distributor (v2.13.4+) to
+ * identify which storage hosts deserve a share of the storage pool for
+ * this epoch.
+ *
+ * Returns an array of account name strings (deduped). Empty array if no
+ * hosts heartbeated this epoch.
+ */
+function getStorageHostsForEpoch(epoch) {
+  var seen = new Set();
+  for (var entry of storageHeartbeats) {
+    var record = entry[1];
+    // Check if any heartbeat in the rolling window matches this epoch
+    if (record.heartbeats) {
+      for (var i = 0; i < record.heartbeats.length; i++) {
+        if (record.heartbeats[i].epoch === epoch) {
+          seen.add(record.host);
+          break;
+        }
+      }
+    }
+  }
+  return Array.from(seen);
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Blob challenge-response getters (v2.11.2+)
 // No slashing — these are for payout weighting + reputation only.
@@ -1800,6 +1826,7 @@ module.exports = {
   getAllStorageHosts: getAllStorageHosts,
   getStorageUptimeFactor: getStorageUptimeFactor,
   getActiveStorageHosts: getActiveStorageHosts,
+  getStorageHostsForEpoch: getStorageHostsForEpoch,
   // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery not slashing)
   getBlobChallenge: getBlobChallenge,
   getBlobChallengeStats: getBlobChallengeStats,

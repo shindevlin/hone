@@ -234,118 +234,124 @@ async function computeFinalization(epochNumber) {
   const miners = Object.keys(minerWork);
   const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 
-  // ── Reward split ──
-  // WITH WORK:  85% miners | 10% verifiers | 5% clocks
-  // NO WORK:    0% miners  |  1% verifiers  | 1% clocks | 98% unminted
-  const MINER_PCT = 0.85;
-  const VERIFIER_PCT = 0.10;
-  const CLOCK_PCT = 0.05;
-  const IDLE_VERIFIER_PCT = 0.01;
-  const IDLE_CLOCK_PCT = 0.01;
+  // ── Reward split (v2.13.4) ──
+  // Five-pool model. Each pool has eligible recipients; empty pools flow to
+  // btcpc_recycle (never burnt — see feedback_no_burn_all_recycle.md).
+  //
+  //   Miner pool    60%  — proportional to work_value; only real inference jobs
+  //   Verifier pool 10%  — equal split among active verifiers this epoch
+  //   Clock pool     5%  — equal split among active clocks this epoch (ALWAYS paid)
+  //   Storage pool  15%  — equal split among hosts with STORAGE_HEARTBEAT this epoch
+  //   Service pool  10%  — equal split among service hosts with SERVICE_HEARTBEAT
+  //                ----
+  //                100%  — leftover per-pool goes to btcpc_recycle
+  //
+  // Worst case (only clocks active): 5% to clocks, 95% to recycle.
+  // Busy chain (miners + clocks): 65% claimed, 35% to recycle.
+  // All active: 100% claimed, 0% recycled.
+  const MINER_POOL_PCT    = 0.60;
+  const VERIFIER_POOL_PCT = 0.10;
+  const CLOCK_POOL_PCT    = 0.05;
+  const STORAGE_POOL_PCT  = 0.15;
+  const SERVICE_POOL_PCT  = 0.10;
 
   const rewards = [];
+  let recycledAmount = 0;
 
-  const { getActiveClockNodes } = require('../p2p/protocol');
-  // Clock nodes: any account that heartbeat this epoch.
-  // Filter out raw nodeIds (hex strings) and nodes prefixed clock- (anonymous).
-  // Do NOT require nodeRegistry — clock nodes are open participation, no stake.
+  const { getActiveClockNodes, getActiveVerifiers } = require('../p2p/protocol');
+  // Clock nodes: any account that heartbeated this epoch.
+  // Filter out raw nodeIds (hex strings) and anonymous clock- prefixed nodes.
+  // Open participation — no stake required.
   const activeClocks = getActiveClockNodes(epochNumber).filter(a =>
     a && !a.startsWith('clock-') && !/^[a-f0-9]{32,}$/i.test(a) && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
 
-  // Get active verifiers for this epoch (nodes that actually verified inference)
-  const verifier = require('../inference/verifier');
-  const { getActiveVerifiers } = require('../p2p/protocol');
   // Verifiers: any account that submitted a VERIFY_RESPONSE this epoch.
-  // Same open-participation filter as clocks.
   const activeVerifiers = getActiveVerifiers(epochNumber).filter(a =>
     a && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
-  // Use real verifiers if any responded, otherwise fall back to clock nodes
-  const verifierPool = activeVerifiers.length > 0 ? activeVerifiers : activeClocks;
 
+  // Storage hosts: any host that sent STORAGE_HEARTBEAT for exactly this epoch.
+  const storageHostsThisEpoch = stateStore.getStorageHostsForEpoch(epochNumber);
+
+  // Service hosts: any host that sent SERVICE_HEARTBEAT for exactly this epoch.
+  // Uses serviceRegistry in-memory heartbeats (v2.13-alpha).
+  let serviceHostsThisEpoch = [];
+  try {
+    const serviceRegistry = require('../services/serviceRegistry');
+    const allHeartbeats = serviceRegistry._getHeartbeatsForEpoch
+      ? serviceRegistry._getHeartbeatsForEpoch(epochNumber)
+      : [];
+    const serviceHostSet = new Set(allHeartbeats.map(h => h.host).filter(Boolean));
+    serviceHostsThisEpoch = Array.from(serviceHostSet).filter(
+      h => /^[a-z0-9][a-z0-9-]{2,19}$/.test(h)
+    );
+  } catch (_) {
+    // serviceRegistry not available — service pool goes to recycle
+  }
+
+  // ── Miner pool: 60%, proportional to work_value ──
+  const minerPool = blockReward * MINER_POOL_PCT;
   if (miners.length === 0 || totalWorkValue === 0) {
-    // Empty epoch — minimal rewards to keep nodes online
-    // 98% NOT MINTED (emission slot preserved)
-    const idleReward = blockReward; // full reward available but mostly unspent
-
-    if (verifierPool.length > 0) {
-      const vShare = parseFloat((idleReward * IDLE_VERIFIER_PCT / verifierPool.length).toFixed(10));
-      for (const v of verifierPool) {
-        rewards.push({ miner: v, amount: vShare, type: 'verifier' });
-      }
-    }
-
-    if (activeClocks.length > 0) {
-      const cShare = parseFloat((idleReward * IDLE_CLOCK_PCT / activeClocks.length).toFixed(10));
-      for (const c of activeClocks) {
-        // Don't double-pay if already got verifier reward
-        const existing = rewards.find(r => r.miner === c);
-        if (existing) {
-          existing.amount = parseFloat((existing.amount + cShare).toFixed(10));
-        } else {
-          rewards.push({ miner: c, amount: cShare, type: 'clock' });
-        }
-      }
-    }
+    recycledAmount += minerPool;
   } else {
-    // Active epoch — full reward distribution
-    const minerPool = parseFloat((blockReward * MINER_PCT).toFixed(10));
-    const verifierRewardPool = parseFloat((blockReward * VERIFIER_PCT).toFixed(10));
-    const clockRewardPool = parseFloat((blockReward * CLOCK_PCT).toFixed(10));
-
-    // Miners: 85% by work_value
     for (const miner of miners) {
       const share = parseFloat((minerPool * (minerWork[miner].work_value / totalWorkValue)).toFixed(10));
       rewards.push({ miner, amount: share, type: 'mining' });
     }
+  }
 
-    // Verifiers: 10% split among active verifiers (capped per job, not per network)
-    if (verifierPool.length > 0) {
-      const vCount = Math.min(verifierPool.length, verifier.getVerifierCount(verifierPool.length + miners.length));
-      const vShare = parseFloat((verifierRewardPool / vCount).toFixed(10));
-      // Select the verifiers for this epoch deterministically
-      const selectedVerifiers = verifier.selectVerifiers(
-        '0'.repeat(64), String(epochNumber), '', verifierPool, vCount
-      );
-      for (const v of selectedVerifiers) {
-        rewards.push({ miner: v, amount: vShare, type: 'verifier' });
-      }
-      // Unselected verifier reward goes back to miners
-      if (selectedVerifiers.length < verifierPool.length) {
-        const unused = verifierRewardPool - (vShare * selectedVerifiers.length);
-        if (unused > 0 && miners.length > 0) {
-          const extra = parseFloat((unused / miners.length).toFixed(10));
-          for (const r of rewards) {
-            if (r.type === 'mining') r.amount = parseFloat((r.amount + extra).toFixed(10));
-          }
-        }
-      }
-    } else {
-      // No verifiers — redistribute to miners
-      const extra = parseFloat((verifierRewardPool / miners.length).toFixed(10));
-      for (const r of rewards) {
-        if (r.type === 'mining') r.amount = parseFloat((r.amount + extra).toFixed(10));
-      }
+  // ── Verifier pool: 10%, equal split ──
+  const verifierRewardPool = blockReward * VERIFIER_POOL_PCT;
+  if (activeVerifiers.length === 0) {
+    recycledAmount += verifierRewardPool;
+  } else {
+    const vShare = parseFloat((verifierRewardPool / activeVerifiers.length).toFixed(10));
+    for (const v of activeVerifiers) {
+      rewards.push({ miner: v, amount: vShare, type: 'verifier' });
     }
+  }
 
-    // Clocks: 5% split among ALL active clocks
-    if (activeClocks.length > 0) {
-      const cShare = parseFloat((clockRewardPool / activeClocks.length).toFixed(10));
-      for (const c of activeClocks) {
-        const existing = rewards.find(r => r.miner === c);
-        if (existing) {
-          existing.amount = parseFloat((existing.amount + cShare).toFixed(10));
-        } else {
-          rewards.push({ miner: c, amount: cShare, type: 'clock' });
-        }
-      }
-    } else if (miners.length > 0) {
-      const extra = parseFloat((clockRewardPool / miners.length).toFixed(10));
-      for (const r of rewards) {
-        if (r.type === 'mining') r.amount = parseFloat((r.amount + extra).toFixed(10));
-      }
+  // ── Clock pool: 5%, equal split, ALWAYS paid if any clocks active ──
+  const clockRewardPool = blockReward * CLOCK_POOL_PCT;
+  if (activeClocks.length === 0) {
+    recycledAmount += clockRewardPool;
+  } else {
+    const cShare = parseFloat((clockRewardPool / activeClocks.length).toFixed(10));
+    for (const c of activeClocks) {
+      rewards.push({ miner: c, amount: cShare, type: 'clock' });
     }
+  }
+
+  // ── Storage pool: 15%, equal split among hosts that heartbeated this epoch ──
+  const storageRewardPool = blockReward * STORAGE_POOL_PCT;
+  if (storageHostsThisEpoch.length === 0) {
+    recycledAmount += storageRewardPool;
+  } else {
+    const sShare = parseFloat((storageRewardPool / storageHostsThisEpoch.length).toFixed(10));
+    for (const h of storageHostsThisEpoch) {
+      rewards.push({ miner: h, amount: sShare, type: 'storage' });
+    }
+  }
+
+  // ── Service pool: 10%, equal split among service hosts that heartbeated ──
+  const serviceRewardPool = blockReward * SERVICE_POOL_PCT;
+  if (serviceHostsThisEpoch.length === 0) {
+    recycledAmount += serviceRewardPool;
+  } else {
+    const svShare = parseFloat((serviceRewardPool / serviceHostsThisEpoch.length).toFixed(10));
+    for (const h of serviceHostsThisEpoch) {
+      rewards.push({ miner: h, amount: svShare, type: 'service' });
+    }
+  }
+
+  // ── Recycle unclaimed pools — never burnt ──
+  if (recycledAmount > 0) {
+    rewards.push({
+      miner: 'btcpc_recycle',
+      amount: parseFloat(recycledAmount.toFixed(10)),
+      type: 'recycle',
+    });
   }
 
   // ── Clock slashing: detect drift and offline clocks ──
