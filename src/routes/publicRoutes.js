@@ -139,10 +139,23 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
       return res.status(400).json({ error: 'valid account name required' });
     }
 
-    // Verify account exists
-    const User = require('../models/User');
-    const user = await User.findOne({ username: account });
-    if (!user) return res.status(404).json({ error: 'Account not found' });
+    // Verify account exists on-chain (stateStore is the canonical source
+    // of truth). Previously this checked Mongo User.findOne which meant
+    // fresh machines or post-mongo-incident state would 404 a valid
+    // on-chain account. See feedback_blockchain_source_of_truth.md.
+    const stateStore = require('../chain/stateStore');
+    const onChainAccount = stateStore.getAccount(account);
+    if (!onChainAccount) {
+      // Fall back to Mongo only if stateStore hasn't been hydrated yet
+      // (e.g., during early replay before the account's block was processed).
+      try {
+        const User = require('../models/User');
+        const mongoUser = await User.findOne({ username: account });
+        if (!mongoUser) return res.status(404).json({ error: 'Account not found' });
+      } catch (_) {
+        return res.status(404).json({ error: 'Account not found' });
+      }
+    }
 
     // Optional JWT verification: if present, mark this heartbeat as verified
     // and confirm the JWT subject matches the claimed account.
@@ -153,7 +166,7 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
         const jwt = require('jsonwebtoken');
         const token = authHeader.slice(7);
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (decoded && (decoded.username === account || decoded.id === user._id.toString())) {
+        if (decoded && decoded.username === account) {
           verified = true;
         }
       } catch (_) {
