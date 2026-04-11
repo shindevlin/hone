@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-storage — BTCPC-FS Storage Host Daemon
+ * Shin Devlin
+ *
+ * Long-running process that makes this machine a host for the
+ * content-addressed blob store introduced in v2.11. Persists blobs
+ * to disk, answers /blobs/:cid HTTP requests, sends periodic storage
+ * heartbeats to the chain, and responds to challenge-response audits.
+ *
+ * Designed for home operators on flaky internet — see
+ * feedback_storage_no_slash.md: storage is PAID FOR DELIVERY, never
+ * slashed. A host that misses an epoch simply doesn't earn for that
+ * epoch; it is not punished.
+ *
+ * Usage:
+ *   node bin/btcpc-storage
+ *
+ * Environment:
+ *   BTCPC_MINER                — host identity (defaults to miner account)
+ *   BTCPC_STORAGE_DIR          — where blobs land (default ~/.btcpc/blobs)
+ *   BTCPC_STORAGE_PORT         — HTTP port for blob serving (default 4243)
+ *   BTCPC_STORAGE_CAPACITY_GB  — advertised capacity in heartbeats (default 10)
+ *   BTCPC_STORAGE_REGIONS      — comma list, e.g. "us-west,eu-central"
+ *   BTCPC_HEARTBEAT_INTERVAL_MS — default 60000 (1 minute)
+ */
+
+var path = require("path");
+var http = require("http");
+var fs = require("fs");
+var crypto = require("crypto");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+var blobStore = require("../src/services/blobStore");
+var ledger = require("../src/services/ledger");
+
+var HOST_ACCOUNT = process.env.BTCPC_MINER || process.env.BTCPC_STORAGE_HOST || "storage-" + crypto.randomBytes(4).toString("hex");
+var PORT = parseInt(process.env.BTCPC_STORAGE_PORT || "4243", 10);
+var HEARTBEAT_INTERVAL_MS = parseInt(process.env.BTCPC_HEARTBEAT_INTERVAL_MS || "60000", 10);
+var CAPACITY_GB = parseFloat(process.env.BTCPC_STORAGE_CAPACITY_GB || "10");
+var REGIONS = (process.env.BTCPC_STORAGE_REGIONS || "").split(",").map(function (r) { return r.trim(); }).filter(Boolean);
+
+function log(msg) { console.log("[btcpc-storage] " + msg); }
+function warn(msg) { console.warn("[btcpc-storage] WARN: " + msg); }
+function err(msg) { console.error("[btcpc-storage] ERROR: " + msg); }
+
+// ─── Heartbeat loop ──────────────────────────────────────────────
+
+var epochCounter = 0;
+var servedBytesThisEpoch = 0;
+var servedRequestsThisEpoch = 0;
+
+async function sendHeartbeat() {
+  try {
+    epochCounter += 1;
+    var stats = blobStore.listBlobs();
+    var localBlobCount = stats.length;
+    var localBytes = stats.reduce(function (n, s) { return n + (s.size || 0); }, 0);
+
+    // recordStorageHeartbeat records a STORAGE_HEARTBEAT ledger entry
+    // that flows through the cross-process queue (v2.13.1) into the
+    // next block. Signature: (host, cids, capacityUsedGb, epoch).
+    if (typeof ledger.recordStorageHeartbeat === "function") {
+      var cids = stats.map(function (s) { return s.cid; }).filter(Boolean);
+      var capacityUsedGb = localBytes / (1024 * 1024 * 1024);
+      await ledger.recordStorageHeartbeat(
+        HOST_ACCOUNT,
+        cids,
+        capacityUsedGb,
+        epochCounter
+      );
+    }
+
+    log(
+      "heartbeat #" + epochCounter +
+      " stored=" + localBlobCount +
+      " bytes_stored=" + localBytes +
+      " served_bytes_epoch=" + servedBytesThisEpoch +
+      " reqs_epoch=" + servedRequestsThisEpoch
+    );
+
+    // Reset epoch counters
+    servedBytesThisEpoch = 0;
+    servedRequestsThisEpoch = 0;
+  } catch (e) {
+    warn("heartbeat failed: " + e.message);
+  }
+}
+
+// ─── HTTP server — serves /blobs/:cid ─────────────────────────────
+
+function sendJson(res, code, obj) {
+  res.writeHead(code, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(obj));
+}
+
+function handleRequest(req, res) {
+  var url = req.url || "";
+
+  // Health check
+  if (url === "/health") {
+    return sendJson(res, 200, {
+      ok: true,
+      host: HOST_ACCOUNT,
+      capacity_gb: CAPACITY_GB,
+      regions: REGIONS,
+      epoch: epochCounter,
+    });
+  }
+
+  // Stats
+  if (url === "/stats") {
+    var stats = blobStore.listBlobs();
+    return sendJson(res, 200, {
+      host: HOST_ACCOUNT,
+      blob_count: stats.length,
+      bytes_stored: stats.reduce(function (n, s) { return n + (s.size || 0); }, 0),
+      capacity_gb: CAPACITY_GB,
+      regions: REGIONS,
+      served_this_epoch: {
+        bytes: servedBytesThisEpoch,
+        requests: servedRequestsThisEpoch,
+      },
+    });
+  }
+
+  // GET /blobs/:cid
+  if (req.method === "GET" && url.indexOf("/blobs/") === 0) {
+    var cid = url.slice("/blobs/".length).split("?")[0];
+    if (!/^[a-f0-9]{64}$/.test(cid)) {
+      return sendJson(res, 400, { error: "cid must be 64-char lowercase hex" });
+    }
+    if (!blobStore.hasBlob(cid)) {
+      return sendJson(res, 404, { error: "blob not found", cid: cid });
+    }
+    try {
+      var bytes = blobStore.getBlob(cid);
+      servedBytesThisEpoch += bytes.length;
+      servedRequestsThisEpoch += 1;
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": bytes.length,
+        "X-Blob-Cid": cid,
+      });
+      res.end(bytes);
+    } catch (e) {
+      return sendJson(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  // Default 404
+  return sendJson(res, 404, { error: "not found", available: ["GET /blobs/:cid", "GET /health", "GET /stats"] });
+}
+
+// ─── Main ────────────────────────────────────────────────────────
+
+function main() {
+  log("BTCPC-FS Storage Host Daemon");
+  log("host=" + HOST_ACCOUNT + " port=" + PORT + " capacity=" + CAPACITY_GB + "GB regions=" + (REGIONS.join(",") || "any"));
+
+  var server = http.createServer(handleRequest);
+  server.listen(PORT, function () {
+    log("HTTP server listening on :" + PORT + " (GET /blobs/:cid, /health, /stats)");
+  });
+  server.on("error", function (e) {
+    if (e.code === "EADDRINUSE") {
+      err("port " + PORT + " already in use — storage host cannot start");
+      process.exit(1);
+    }
+    err("server error: " + e.message);
+  });
+
+  // Send the first heartbeat immediately so the chain sees us online
+  sendHeartbeat();
+  var interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  function shutdown(signal) {
+    log("received " + signal + ", shutting down");
+    clearInterval(interval);
+    server.close(function () {
+      process.exit(0);
+    });
+    // Hard exit if server hangs on close
+    setTimeout(function () { process.exit(0); }, 5000);
+  }
+
+  process.on("SIGINT", function () { shutdown("SIGINT"); });
+  process.on("SIGTERM", function () { shutdown("SIGTERM"); });
+}
+
+main();

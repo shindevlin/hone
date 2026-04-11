@@ -19,8 +19,11 @@ COPY docs ./docs
 # Create runtime dirs
 RUN mkdir -p /app/data /app/blocks /app/.btcpc-inference
 
-# Expose ports: API, explorer, P2P
-EXPOSE 3000 4242 6942
+# Expose ports: API (3000), explorer (4242), storage HTTP (4243), P2P (6942), clock P2P (6943)
+EXPOSE 3000 4242 4243 6942 6943
 
-# Default command runs the miner; override with `command:` in compose to run a clock node
-CMD ["node", "bin/btcpc-mine"]
+# Multi-role supervisor. Override which roles run via BTCPC_ROLES env var:
+#   BTCPC_ROLES=all  (default) — api + miner + clock + storage
+#   BTCPC_ROLES=miner,clock     — just the earning roles
+#   BTCPC_ROLES=api             — HTTP API only
+CMD ["node", "bin/btcpc-all"]

@@ -42,25 +42,39 @@ services:
       PORT: 3000
       MONGODB_URI: mongodb://root:example@mongo:27017/btcpc?authSource=admin
       OLLAMA_URL: http://ollama:11434
-      JWT_SECRET: ${JWT_SECRET:-please_set_BTCPC_JWT_SECRET_in_env_or_dotenv_file}
+      # JWT_SECRET must be set or the api role will crash-loop.
+      # For a personal node you can leave this default. For a public
+      # node, generate a fresh secret and set BTCPC_JWT_SECRET in your
+      # shell before running docker compose up.
+      JWT_SECRET: ${BTCPC_JWT_SECRET:-btcpc-dev-secret-please-override-in-production-ba7c3d}
       JWT_EXPIRES_IN: 7d
       BTCPC_MINER: ${BTCPC_MINER:-}
       BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
+      # Multi-role supervisor: defaults to running every role the node
+      # supports (api, miner, clock, storage). Override to a subset
+      # like "miner,clock" to save resources, or "api" for an API-only
+      # node that doesn't mine.
+      BTCPC_ROLES: ${BTCPC_ROLES:-all}
+      BTCPC_STORAGE_CAPACITY_GB: ${BTCPC_STORAGE_CAPACITY_GB:-10}
       # Bootstrap peers so a fresh container joins the real BTCPC chain
       # instead of starting a solo fork. The Cloudflare relay is a
       # public, always-on P2P gateway into the live network.
       BTCPC_SEED_PEERS: ${BTCPC_SEED_PEERS:-wss://btcpc-relay.shindevlin.workers.dev/ws}
       BTCPC_RELAY_URL: ${BTCPC_RELAY_URL:-wss://btcpc-relay.shindevlin.workers.dev/ws}
     ports:
-      - "3000:3000"
-      - "4242:4242"
-      - "6942:6942"
+      - "3000:3000"    # HTTP API (routes, wallet, commerce, services)
+      - "4242:4242"    # Explorer
+      - "4243:4243"    # BTCPC-FS storage host HTTP
+      - "6942:6942"    # P2P miner
+      - "6943:6943"    # P2P clock
     volumes:
       - btcpc_data:/app/data
       - btcpc_blocks:/app/blocks
+      - btcpc_blobs:/root/.btcpc/blobs
 
 volumes:
   mongo_data:
   ollama_models:
   btcpc_data:
   btcpc_blocks:
+  btcpc_blobs:

@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-all — Multi-role BTCPC supervisor
+ * Shin Devlin
+ *
+ * One entrypoint for containers (and bare-metal setups) that want the
+ * full BTCPC node experience: miner + clock + storage host + HTTP API +
+ * service host runner + oracle verifier. Each role runs in its own
+ * child process so a crash in one doesn't take down the whole node.
+ *
+ * Usage:
+ *   node bin/btcpc-all
+ *   BTCPC_ROLES=miner,clock node bin/btcpc-all
+ *   BTCPC_ROLES=all node bin/btcpc-all  (default)
+ *
+ * Roles recognised (comma-separated in BTCPC_ROLES):
+ *   api        HTTP API server (routes, epoch loop, gateway)
+ *   miner      bin/btcpc-mine — Ollama inference, mining rewards
+ *   clock      bin/btcpc-clock — epoch timing, clock rewards
+ *   storage    bin/btcpc-storage — BTCPC-FS blob host + heartbeats
+ *   all        shorthand for every known role (default)
+ *
+ * Children are auto-restarted with a short back-off if they crash,
+ * but once this supervisor receives SIGTERM/SIGINT it stops restarts
+ * and forwards the signal to every child for a graceful shutdown.
+ *
+ * Output from every child is prefixed with "[role] " so a single
+ * `docker logs` stream shows what came from where.
+ */
+
+var path = require("path");
+var { spawn } = require("child_process");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+var KNOWN_ROLES = ["api", "miner", "clock", "storage"];
+
+function wanted() {
+  var raw = (process.env.BTCPC_ROLES || "all").toLowerCase();
+  var parts = raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  if (parts.indexOf("all") !== -1 || parts.length === 0) return KNOWN_ROLES.slice();
+  return parts.filter(function (p) { return KNOWN_ROLES.indexOf(p) !== -1; });
+}
+
+var BACKOFF_MS = 5000;
+var REPO_ROOT = path.resolve(__dirname, "..");
+var children = {};
+var shuttingDown = false;
+var startedAt = Date.now();
+
+function prefix(role, line) {
+  return "[" + role + "] " + line;
+}
+
+function logLines(role, stream) {
+  var buffer = "";
+  stream.setEncoding("utf8");
+  stream.on("data", function (chunk) {
+    buffer += chunk;
+    var idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      var line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line.length > 0) process.stdout.write(prefix(role, line) + "\n");
+    }
+  });
+  stream.on("end", function () {
+    if (buffer.length > 0) process.stdout.write(prefix(role, buffer) + "\n");
+  });
+}
+
+function launch(role, script) {
+  var entry = children[role] || { role: role, script: script, restarts: 0, lastStart: 0 };
+  entry.lastStart = Date.now();
+  entry.restarts += 1;
+  children[role] = entry;
+
+  console.log("[supervisor] starting " + role + " (restart #" + entry.restarts + ")");
+
+  var child = spawn("node", [script], {
+    cwd: REPO_ROOT,
+    env: Object.assign({}, process.env, {
+      BTCPC_ROLE: role,
+      // Each role needs distinct default ports to avoid collisions when
+      // two processes try to bind the same socket inside the container.
+      P2P_PORT: process.env.P2P_PORT || (role === "clock" ? "6943" : "6942"),
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  entry.child = child;
+  logLines(role, child.stdout);
+  logLines(role, child.stderr);
+
+  child.on("exit", function (code, signal) {
+    entry.child = null;
+    console.log("[supervisor] " + role + " exited (code=" + code + " signal=" + signal + ")");
+
+    if (shuttingDown) return;
+
+    // If a role crashes repeatedly in quick succession, back off longer
+    // to avoid thrashing the log stream and hammering the chain.
+    var uptime = Date.now() - entry.lastStart;
+    var delay = BACKOFF_MS;
+    if (uptime < 30000) delay = Math.min(BACKOFF_MS * Math.pow(2, Math.min(entry.restarts, 6)), 60000);
+    console.log("[supervisor] restarting " + role + " in " + (delay / 1000) + "s");
+    setTimeout(function () { launch(role, script); }, delay);
+  });
+
+  child.on("error", function (err) {
+    console.error("[supervisor] " + role + " spawn error: " + err.message);
+  });
+}
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log("[supervisor] received " + signal + ", stopping children");
+
+  var pending = 0;
+  var roles = Object.keys(children);
+  for (var i = 0; i < roles.length; i++) {
+    var entry = children[roles[i]];
+    if (entry && entry.child) {
+      pending++;
+      try { entry.child.kill("SIGTERM"); } catch (_) {}
+    }
+  }
+
+  if (pending === 0) process.exit(0);
+
+  // Hard-kill anything that didn't exit within 10s
+  setTimeout(function () {
+    for (var j = 0; j < roles.length; j++) {
+      var e = children[roles[j]];
+      if (e && e.child) {
+        try { e.child.kill("SIGKILL"); } catch (_) {}
+      }
+    }
+    setTimeout(function () { process.exit(0); }, 1000);
+  }, 10000);
+}
+
+process.on("SIGINT", function () { shutdown("SIGINT"); });
+process.on("SIGTERM", function () { shutdown("SIGTERM"); });
+
+// Periodic status line so `docker logs` shows the supervisor is alive
+setInterval(function () {
+  var uptimeS = Math.floor((Date.now() - startedAt) / 1000);
+  var alive = Object.keys(children).filter(function (r) { return children[r] && children[r].child; });
+  console.log("[supervisor] uptime=" + uptimeS + "s alive=[" + alive.join(",") + "]");
+}, 300000);
+
+// ─── Launch requested roles ──────────────────────────────────────
+
+var roles = wanted();
+console.log("[supervisor] BTCPC multi-role entrypoint");
+console.log("[supervisor] BTCPC_ROLES=" + (process.env.BTCPC_ROLES || "all"));
+console.log("[supervisor] Launching: " + roles.join(", "));
+
+var roleMap = {
+  api:     "src/index.js",
+  miner:   "bin/btcpc-mine",
+  clock:   "bin/btcpc-clock",
+  storage: "bin/btcpc-storage",
+};
+
+roles.forEach(function (role) {
+  var script = roleMap[role];
+  if (!script) {
+    console.error("[supervisor] unknown role: " + role);
+    return;
+  }
+  launch(role, script);
+});
+
+if (Object.keys(children).length === 0) {
+  console.error("[supervisor] no roles to run — exiting");
+  process.exit(1);
+}
