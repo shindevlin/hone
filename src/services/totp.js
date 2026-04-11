@@ -7,14 +7,70 @@ const User = require('../models/User');
 const ISSUER = 'BTCPC';
 const BACKUP_CODE_COUNT = 8;
 
+// D.5-delta: secretStore-first, Mongo fallback (same pattern as authController).
+let _secretStoreLoaded = false;
+async function getSecretStore() {
+  const secretStore = require('./secretStore');
+  if (!_secretStoreLoaded) {
+    try {
+      await secretStore.load();
+      _secretStoreLoaded = true;
+    } catch (err) {
+      console.warn('[totp] secretStore load failed: ' + err.message);
+    }
+  }
+  return secretStore;
+}
+
+// Resolve a user record from secretStore first, then Mongo.
+// Returns { source: 'secretStore'|'mongo', record } or throws.
+async function _findUser(account) {
+  const ss = await getSecretStore();
+  if (ss && typeof ss.getUser === 'function') {
+    const rec = ss.getUser(account);
+    if (rec) return { source: 'secretStore', record: rec };
+  }
+  // Mongo fallback
+  const user = await User.findOne({ username: account });
+  if (!user) throw new Error('Account not found');
+  return { source: 'mongo', record: user };
+}
+
+// Write TOTP fields to both stores for backwards compat.
+// secretStore fields are snake_case; Mongo fields are camelCase.
+async function _saveTotpFields(account, fields, mongoUser) {
+  const ss = await getSecretStore();
+  if (ss && typeof ss.updateUser === 'function') {
+    try {
+      const patch = {};
+      if (Object.prototype.hasOwnProperty.call(fields, 'totp_secret')) patch.totp_secret = fields.totp_secret;
+      if (Object.prototype.hasOwnProperty.call(fields, 'totp_enabled')) patch.totp_enabled = fields.totp_enabled;
+      if (Object.prototype.hasOwnProperty.call(fields, 'totp_backup_codes')) patch.totp_backup_codes = fields.totp_backup_codes;
+      if (Object.keys(patch).length > 0) await ss.updateUser(account, patch);
+    } catch (err) {
+      console.warn('[totp] secretStore update failed for ' + account + ': ' + err.message);
+    }
+  }
+  // Mirror to Mongo if we have the user object
+  if (mongoUser) {
+    if (Object.prototype.hasOwnProperty.call(fields, 'totp_secret')) mongoUser.totpSecret = fields.totp_secret;
+    if (Object.prototype.hasOwnProperty.call(fields, 'totp_enabled')) mongoUser.totpEnabled = fields.totp_enabled;
+    if (Object.prototype.hasOwnProperty.call(fields, 'totp_backup_codes')) mongoUser.totpBackupCodes = fields.totp_backup_codes;
+    try {
+      await mongoUser.save();
+    } catch (_) {}
+  }
+}
+
 /**
  * Generate a TOTP secret for a user.
  * Returns { secret (base32), otpauthUrl, qrDataUrl }.
  */
 async function generateSecret(account) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (user.totpEnabled) throw new Error('TOTP already enabled');
+  const { source, record } = await _findUser(account);
+
+  const totpEnabled = source === 'secretStore' ? record.totp_enabled : record.totpEnabled;
+  if (totpEnabled) throw new Error('TOTP already enabled');
 
   const secret = speakeasy.generateSecret({
     name: `${ISSUER}:${account}`,
@@ -22,12 +78,12 @@ async function generateSecret(account) {
     length: 20
   });
 
-  // Store secret (not yet enabled — user must verify first)
-  user.totpSecret = secret.base32;
-  await user.save();
+  const mongoUser = source === 'mongo' ? record : null;
+  await _saveTotpFields(account, { totp_secret: secret.base32 }, mongoUser);
 
   const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
 
+  // TOTP secret is sensitive — never logged, returned ONLY on initial setup
   return {
     secret: secret.base32,
     otpauthUrl: secret.otpauth_url,
@@ -39,12 +95,12 @@ async function generateSecret(account) {
  * Verify a 6-digit TOTP token against the user's stored secret.
  */
 async function verifyToken(account, token) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (!user.totpSecret) throw new Error('TOTP not set up');
+  const { source, record } = await _findUser(account);
+  const totpSecret = source === 'secretStore' ? record.totp_secret : record.totpSecret;
+  if (!totpSecret) throw new Error('TOTP not set up');
 
   return speakeasy.totp.verify({
-    secret: user.totpSecret,
+    secret: totpSecret,
     encoding: 'base32',
     token: String(token),
     window: 1 // +-1 step (30s) tolerance
@@ -56,13 +112,15 @@ async function verifyToken(account, token) {
  * Also generates backup codes.
  */
 async function enableTOTP(account, token) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (user.totpEnabled) throw new Error('TOTP already enabled');
-  if (!user.totpSecret) throw new Error('Call /api/totp/setup first');
+  const { source, record } = await _findUser(account);
+  const totpEnabled = source === 'secretStore' ? record.totp_enabled : record.totpEnabled;
+  const totpSecret = source === 'secretStore' ? record.totp_secret : record.totpSecret;
+
+  if (totpEnabled) throw new Error('TOTP already enabled');
+  if (!totpSecret) throw new Error('Call /api/totp/setup first');
 
   const valid = speakeasy.totp.verify({
-    secret: user.totpSecret,
+    secret: totpSecret,
     encoding: 'base32',
     token: String(token),
     window: 1
@@ -71,10 +129,8 @@ async function enableTOTP(account, token) {
   if (!valid) throw new Error('Invalid TOTP code');
 
   const backupCodes = _generateBackupCodes();
-
-  user.totpEnabled = true;
-  user.totpBackupCodes = backupCodes;
-  await user.save();
+  const mongoUser = source === 'mongo' ? record : null;
+  await _saveTotpFields(account, { totp_enabled: true, totp_backup_codes: backupCodes }, mongoUser);
 
   return { enabled: true, backupCodes };
 }
@@ -83,12 +139,14 @@ async function enableTOTP(account, token) {
  * Disable TOTP. Requires a valid token to prevent unauthorized disable.
  */
 async function disableTOTP(account, token) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (!user.totpEnabled) throw new Error('TOTP not enabled');
+  const { source, record } = await _findUser(account);
+  const totpEnabled = source === 'secretStore' ? record.totp_enabled : record.totpEnabled;
+  const totpSecret = source === 'secretStore' ? record.totp_secret : record.totpSecret;
+
+  if (!totpEnabled) throw new Error('TOTP not enabled');
 
   const valid = speakeasy.totp.verify({
-    secret: user.totpSecret,
+    secret: totpSecret,
     encoding: 'base32',
     token: String(token),
     window: 1
@@ -96,10 +154,8 @@ async function disableTOTP(account, token) {
 
   if (!valid) throw new Error('Invalid TOTP code');
 
-  user.totpEnabled = false;
-  user.totpSecret = null;
-  user.totpBackupCodes = [];
-  await user.save();
+  const mongoUser = source === 'mongo' ? record : null;
+  await _saveTotpFields(account, { totp_enabled: false, totp_secret: null, totp_backup_codes: [] }, mongoUser);
 
   return { disabled: true };
 }
@@ -108,12 +164,14 @@ async function disableTOTP(account, token) {
  * Regenerate backup codes (requires valid TOTP token).
  */
 async function generateBackupCodes(account, token) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (!user.totpEnabled) throw new Error('TOTP not enabled');
+  const { source, record } = await _findUser(account);
+  const totpEnabled = source === 'secretStore' ? record.totp_enabled : record.totpEnabled;
+  const totpSecret = source === 'secretStore' ? record.totp_secret : record.totpSecret;
+
+  if (!totpEnabled) throw new Error('TOTP not enabled');
 
   const valid = speakeasy.totp.verify({
-    secret: user.totpSecret,
+    secret: totpSecret,
     encoding: 'base32',
     token: String(token),
     window: 1
@@ -122,8 +180,8 @@ async function generateBackupCodes(account, token) {
   if (!valid) throw new Error('Invalid TOTP code');
 
   const backupCodes = _generateBackupCodes();
-  user.totpBackupCodes = backupCodes;
-  await user.save();
+  const mongoUser = source === 'mongo' ? record : null;
+  await _saveTotpFields(account, { totp_backup_codes: backupCodes }, mongoUser);
 
   return { backupCodes };
 }
@@ -132,17 +190,19 @@ async function generateBackupCodes(account, token) {
  * Verify and consume a backup code. Returns true if valid.
  */
 async function verifyBackupCode(account, code) {
-  const user = await User.findOne({ username: account });
-  if (!user) throw new Error('Account not found');
-  if (!user.totpEnabled) throw new Error('TOTP not enabled');
+  const { source, record } = await _findUser(account);
+  const totpEnabled = source === 'secretStore' ? record.totp_enabled : record.totpEnabled;
+  if (!totpEnabled) throw new Error('TOTP not enabled');
 
+  const backupCodes = source === 'secretStore' ? record.totp_backup_codes : record.totpBackupCodes;
   const normalized = String(code).trim().toLowerCase();
-  const idx = user.totpBackupCodes.indexOf(normalized);
+  const idx = (backupCodes || []).indexOf(normalized);
   if (idx === -1) return false;
 
-  // Consume the code — single use
-  user.totpBackupCodes.splice(idx, 1);
-  await user.save();
+  const newCodes = [...backupCodes];
+  newCodes.splice(idx, 1);
+  const mongoUser = source === 'mongo' ? record : null;
+  await _saveTotpFields(account, { totp_backup_codes: newCodes }, mongoUser);
   return true;
 }
 

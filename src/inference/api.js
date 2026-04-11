@@ -6,6 +6,75 @@ const axios = require('axios');
 const WorkProof = require('../models/WorkProof');
 const Project = require('../models/Project');
 const { getCurrentEpoch } = require('../services/epochManager');
+
+// D.5-delta: secretStore-first project lookup, Mongo fallback.
+let _secretStoreLoaded = false;
+async function getSecretStore() {
+  const secretStore = require('../services/secretStore');
+  if (!_secretStoreLoaded) {
+    try {
+      await secretStore.load();
+      _secretStoreLoaded = true;
+    } catch (err) {
+      console.warn('[inference-api] secretStore load failed: ' + err.message);
+    }
+  }
+  return secretStore;
+}
+
+// Look up a project by plaintext API key: secretStore first, Mongo fallback.
+// Returns a project-like object or null.
+async function _findProjectByApiKey(plaintextKey) {
+  try {
+    const ss = await getSecretStore();
+    if (ss && typeof ss.getProjectByApiKey === 'function') {
+      const ssProject = ss.getProjectByApiKey(plaintextKey);
+      if (ssProject) {
+        return {
+          _source: 'secretStore',
+          name: _findProjectName(ss, ssProject),
+          owner: ssProject.owner,
+          repo: ssProject.repo,
+          repo_url: ssProject.repo_url,
+          wallet_address: ssProject.wallet_address,
+          balance: ssProject.balance || 0,
+          verified: ssProject.verified !== false,
+          isActive: ssProject.isActive !== false,
+          totalSpent: ssProject.totalSpent || 0,
+          totalRequests: ssProject.totalRequests || 0,
+          save: async function () {
+            try {
+              const ss2 = await getSecretStore();
+              await ss2.updateProject(this.name, {
+                balance: this.balance,
+                totalSpent: this.totalSpent,
+                totalRequests: this.totalRequests,
+              });
+            } catch (_) {}
+          }
+        };
+      }
+    }
+  } catch (_) {}
+
+  // Mongo fallback
+  const project = await Project.findOne({ apiKey: plaintextKey, isActive: true });
+  return project || null;
+}
+
+// Helper: find name key for a secretStore project record.
+function _findProjectName(ss, projectRecord) {
+  try {
+    const all = ss.getAllProjects ? ss.getAllProjects() : [];
+    const entry = all.find(p =>
+      p.wallet_address === projectRecord.wallet_address ||
+      p.owner === projectRecord.owner
+    );
+    return entry ? entry.name : (projectRecord.owner + '/' + (projectRecord.repo || ''));
+  } catch (_) {
+    return projectRecord.owner + '/' + (projectRecord.repo || '');
+  }
+}
 const { getModelWeight } = require('../mining/workGenerator');
 const { calculateCost, getCurrentPricing, getAutoBid } = require('../services/pricing');
 const { submitInference, getJob, hasMiners, peerCount } = require('./p2pRouter');
@@ -293,9 +362,9 @@ async function authenticateBearer(req, res, next) {
     return next();
   }
 
-  // Resolve btcpc_ project keys
+  // Resolve btcpc_ project keys — secretStore first, Mongo fallback
   if (token.startsWith('btcpc_')) {
-    const project = await Project.findOne({ apiKey: token, isActive: true });
+    const project = await _findProjectByApiKey(token);
     if (!project) {
       return res.status(401).json({
         error: { message: 'Invalid or deactivated API key.', type: 'authentication_error', code: 'invalid_api_key' }

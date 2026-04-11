@@ -10,6 +10,105 @@ const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validUrl, validAccountName, validAddress } = require('../middlewares/validate');
 
+// D.5-delta: secretStore-first project lookups, Mongo fallback.
+// secretStore has: getProject(name), getProjectByApiKey(plaintext),
+//   createProject(fields) → { project, apiKey }, rotateProjectKey(name),
+//   getAllProjects() → [{ name, owner, repo_url, repo, wallet_address, created_at }]
+// There is no updateProject — writes still go to Mongo (dropped in Phase E).
+let _secretStoreLoaded = false;
+async function getSecretStore() {
+  const secretStore = require('../services/secretStore');
+  if (!_secretStoreLoaded) {
+    try {
+      await secretStore.load();
+      _secretStoreLoaded = true;
+    } catch (err) {
+      console.warn('[projectRoutes] secretStore load failed: ' + err.message);
+    }
+  }
+  return secretStore;
+}
+
+// Look up project by name: secretStore first, Mongo fallback.
+async function _findProjectByName(name) {
+  try {
+    const ss = await getSecretStore();
+    if (ss && typeof ss.getProject === 'function') {
+      const ssProject = ss.getProject(name);
+      if (ssProject) return { _source: 'secretStore', name, ...ssProject };
+    }
+  } catch (_) {}
+  return Project.findOne({ name });
+}
+
+// Look up project by plaintext API key: secretStore first, Mongo fallback.
+// Returns a normalised project object or null.
+async function _findProjectByApiKey(plaintextKey) {
+  try {
+    const ss = await getSecretStore();
+    if (ss && typeof ss.getProjectByApiKey === 'function') {
+      const ssProject = ss.getProjectByApiKey(plaintextKey);
+      if (ssProject) {
+        // Resolve the name via getAllProjects (wallet_address is unique)
+        const name = _resolveProjectName(ss, ssProject);
+        return { _source: 'secretStore', name, ...ssProject };
+      }
+    }
+  } catch (_) {}
+  return Project.findOne({ apiKey: plaintextKey });
+}
+
+// Resolve the project name from a secretStore project record.
+// getAllProjects() strips api_key_hash but keeps all other fields including name.
+function _resolveProjectName(ss, projectRecord) {
+  try {
+    const all = ss.getAllProjects ? ss.getAllProjects() : [];
+    const entry = all.find(p => p.wallet_address === projectRecord.wallet_address);
+    return entry ? entry.name : (projectRecord.owner + '/' + (projectRecord.repo || ''));
+  } catch (_) {
+    return projectRecord.owner + '/' + (projectRecord.repo || '');
+  }
+}
+
+// Create project in secretStore (gets plaintext key) AND mirror to Mongo.
+// secretStore is written first so the plaintext key is generated there.
+async function _createProjectBothStores({ name, owner, repo, repoUrl, walletAddress }) {
+  let plaintextKey = null;
+  let ss;
+
+  try {
+    ss = await getSecretStore();
+    if (ss && typeof ss.createProject === 'function') {
+      const result = await ss.createProject({
+        name,
+        owner,
+        repo,
+        repo_url: repoUrl,
+        wallet_address: walletAddress,
+      });
+      plaintextKey = result.apiKey; // shown once, never stored in plaintext
+    }
+  } catch (err) {
+    if (err && !err.message.includes('project exists')) throw err;
+    // Already exists in secretStore — fall through
+  }
+
+  // Mirror to Mongo for backwards compat (Phase E will drop this write).
+  // Use the secretStore-generated key if available, otherwise generate a new one.
+  const mongoApiKey = plaintextKey || ('btcpc_' + crypto.randomBytes(32).toString('hex'));
+  const project = new Project({
+    name,
+    repoUrl,
+    owner,
+    repo,
+    apiKey: mongoApiKey,
+    walletAddress
+  });
+  await project.save();
+
+  return { project, apiKey: plaintextKey || mongoApiKey };
+}
+
 /**
  * POST /api/projects/register
  * Register a GitHub repository to use BTCPC inference.
@@ -27,6 +126,7 @@ router.post('/register', authenticateToken, async (req, res) => {
 
   const owner = match[1];
   const repo = match[2];
+  const projectName = `${owner}/${repo}`;
 
   try {
     // Check repo exists on GitHub
@@ -38,25 +138,21 @@ router.post('/register', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Repository not found on GitHub' });
     }
 
-    // Check not already registered
-    const existing = await Project.findOne({ owner, repo });
+    // Check not already registered — secretStore first, Mongo fallback
+    const existing = await _findProjectByName(projectName);
     if (existing) {
-      return res.status(400).json({ error: 'Repository already registered', apiKey: existing.apiKey });
+      const existingKey = existing._source === 'secretStore' ? '[rotate key to retrieve]' : existing.apiKey;
+      return res.status(400).json({ error: 'Repository already registered', apiKey: existingKey });
     }
 
-    // Generate API key and wallet
-    const apiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
     const walletAddress = 'btcpc_proj_' + crypto.randomBytes(16).toString('hex');
-
-    const project = new Project({
-      name: `${owner}/${repo}`,
-      repoUrl: `https://github.com/${owner}/${repo}`,
+    const { project, apiKey } = await _createProjectBothStores({
+      name: projectName,
       owner,
       repo,
-      apiKey,
+      repoUrl: `https://github.com/${owner}/${repo}`,
       walletAddress
     });
-    await project.save();
 
     res.status(201).json({
       success: true,
@@ -91,39 +187,54 @@ router.post('/verify', async (req, res) => {
   const apiKey = authHeader.replace('Bearer ', '').trim();
 
   try {
-    const project = await Project.findOne({ apiKey });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (project.verified) return res.json({ success: true, message: 'Already verified' });
+    // secretStore-first lookup
+    const found = await _findProjectByApiKey(apiKey);
+    if (!found) return res.status(404).json({ error: 'Project not found' });
+
+    const isSecretStore = found._source === 'secretStore';
+    const pOwner = found.owner;
+    const pRepo = isSecretStore ? found.repo : found.repo;
+    const walletAddress = isSecretStore ? found.wallet_address : found.walletAddress;
+    const verified = found.verified !== undefined ? found.verified : (isSecretStore ? false : found.verified);
+
+    if (verified) return res.json({ success: true, message: 'Already verified' });
 
     // Fetch .btcpc file from repo default branch
-    const rawUrl = `https://raw.githubusercontent.com/${project.owner}/${project.repo}/HEAD/.btcpc`;
+    const rawUrl = `https://raw.githubusercontent.com/${pOwner}/${pRepo}/HEAD/.btcpc`;
     const fileRes = await axios.get(rawUrl, { timeout: 10000, validateStatus: s => s < 500 });
 
     if (fileRes.status === 404) {
       return res.status(400).json({
         error: 'No .btcpc file found in repository root',
-        expected_content: project.walletAddress,
+        expected_content: walletAddress,
         help: 'Create a file named .btcpc in your repo root containing your wallet address, then push to your default branch.'
       });
     }
 
     const content = (fileRes.data || '').toString().trim();
-    if (content !== project.walletAddress) {
+    if (content !== walletAddress) {
       return res.status(400).json({
         error: '.btcpc file content does not match wallet address',
-        expected: project.walletAddress,
+        expected: walletAddress,
         found: content.slice(0, 80)
       });
     }
 
-    project.verified = true;
-    project.verifiedAt = new Date();
-    await project.save();
+    // Write verification to Mongo (secretStore has no updateProject yet)
+    let mongoProject = isSecretStore ? await Project.findOne({ walletAddress }) : found;
+    if (mongoProject && typeof mongoProject.save === 'function') {
+      mongoProject.verified = true;
+      mongoProject.verifiedAt = new Date();
+      await mongoProject.save();
+    }
+
+    const projectName = isSecretStore ? found.name : found.name;
+    const balance = isSecretStore ? (found.balance || 0) : found.balance;
 
     res.json({
       success: true,
       message: 'Repository verified. You can now use BTCPC inference with your API key.',
-      project: { name: project.name, verified: true, balance: project.balance }
+      project: { name: projectName, verified: true, balance }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -140,18 +251,33 @@ router.get('/me', async (req, res) => {
   const apiKey = authHeader.replace('Bearer ', '').trim();
 
   try {
-    const project = await Project.findOne({ apiKey }).select('-apiKey');
-    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const found = await _findProjectByApiKey(apiKey);
 
+    if (!found) return res.status(404).json({ error: 'Project not found' });
+
+    if (found._source === 'secretStore') {
+      return res.json({
+        name: found.name,
+        repoUrl: found.repo_url,
+        walletAddress: found.wallet_address,
+        balance: found.balance || 0,
+        verified: found.verified !== false,
+        totalSpent: found.totalSpent || 0,
+        totalRequests: found.totalRequests || 0,
+        createdAt: found.created_at
+      });
+    }
+
+    // Mongo result
     res.json({
-      name: project.name,
-      repoUrl: project.repoUrl,
-      walletAddress: project.walletAddress,
-      balance: project.balance,
-      verified: project.verified,
-      totalSpent: project.totalSpent,
-      totalRequests: project.totalRequests,
-      createdAt: project.createdAt
+      name: found.name,
+      repoUrl: found.repoUrl,
+      walletAddress: found.walletAddress,
+      balance: found.balance,
+      verified: found.verified,
+      totalSpent: found.totalSpent,
+      totalRequests: found.totalRequests,
+      createdAt: found.createdAt
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -227,10 +353,9 @@ router.post('/fund', authenticateToken, async (req, res) => {
  * POST /api/projects/transfer
  * Transfer project ownership to another BTCPC user.
  * Rotates API key (old owner loses access immediately).
- * Transfers project wallet, balance, billing history, and all future revenue.
  *
- * Auth: Bearer btcpc_... (current project API key)
- * Body: { newOwner: "buyerusername" }
+ * Auth: JWT (current owner must be authenticated)
+ * Body: { projectName, newOwner }
  */
 router.post('/transfer', authenticateToken, async (req, res) => {
   const objErr = rejectObjectInputs(req.body, ['projectName', 'newOwner']);
@@ -245,8 +370,8 @@ router.post('/transfer', authenticateToken, async (req, res) => {
   try {
     const User = require('../models/User');
 
-    // Find the project — must be owned by the authenticated user
-    const project = await Project.findOne({ name: projectName });
+    // Find the project — secretStore first, then Mongo
+    const project = await _findProjectByName(projectName);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     // Verify current owner is the authenticated user
@@ -266,33 +391,52 @@ router.post('/transfer', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Cannot transfer to yourself' });
     }
 
-    // Rotate API key — old owner loses access immediately
-    const oldApiKey = project.apiKey;
-    const newApiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
-
-    // Transfer ownership
     const previousOwner = project.owner;
-    project.owner = buyer.username;
-    project.apiKey = newApiKey;
-    await project.save();
+    let newApiKey;
+
+    // Rotate key in secretStore if available
+    if (project._source === 'secretStore') {
+      try {
+        const ss = await getSecretStore();
+        if (ss && typeof ss.rotateProjectKey === 'function') {
+          const rotated = await ss.rotateProjectKey(projectName);
+          newApiKey = rotated.apiKey;
+        }
+      } catch (err) {
+        console.warn('[projectRoutes] secretStore rotateProjectKey failed: ' + err.message);
+      }
+    }
+
+    if (!newApiKey) {
+      newApiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
+    }
+
+    // Mirror transfer to Mongo
+    const mongoProject = await Project.findOne({ name: projectName });
+    const projectBalance = mongoProject ? mongoProject.balance : (project.balance || 0);
+    if (mongoProject) {
+      mongoProject.owner = buyer.username;
+      mongoProject.apiKey = newApiKey;
+      await mongoProject.save();
+    }
 
     // Record transfer on-chain as a transaction
     const tx = new Transaction({
       from: currentUser.username,
       to: buyer.username,
-      amount: project.balance,
+      amount: projectBalance,
       type: 'transfer',
-      memo: `Project transfer: ${project.name} (${previousOwner} → ${buyer.username})`
+      memo: `Project transfer: ${projectName} (${previousOwner} → ${buyer.username})`
     });
     await tx.save();
 
     res.json({
       success: true,
-      project: project.name,
-      previousOwner: previousOwner,
+      project: projectName,
+      previousOwner,
       newOwner: buyer.username,
-      newApiKey: newApiKey,
-      balance: project.balance,
+      newApiKey,
+      balance: projectBalance,
       warning: 'Old API key has been revoked. New owner must use the new API key.'
     });
   } catch (err) {
