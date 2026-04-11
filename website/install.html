@@ -240,10 +240,14 @@
       </ul>
       <p class="card-description" style="margin-top:16px;margin-bottom:8px;"><strong style="color:#f7931a;">Already have a Telegram username?</strong> Use it as your miner name. Rewards earned on this node will credit to your on-chain account.</p>
       <p class="card-description" style="margin-bottom:8px;"><strong>Step 1 — Install Docker Desktop</strong><br>Download from <a href="https://www.docker.com/products/docker-desktop/" target="_blank" style="color:#f7931a;">docker.com</a>, install, reboot, and launch it. The little whale icon in your tray means it's running.</p>
-      <p class="card-description" style="margin-bottom:8px;"><strong>Step 2 — Grab the compose file</strong></p>
+      <p class="card-description" style="margin-bottom:8px;"><strong>Step 2 — Grab the compose file.</strong> The easiest way on any OS: just click this link and save the file into a new folder:</p>
+      <p class="card-description" style="margin:0 0 12px 0;"><a href="/docker-compose.yml" download="docker-compose.yml" style="display:inline-block;background:#f7931a;color:#0a0e17;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;">⬇ Download docker-compose.yml</a></p>
+      <p class="card-description" style="margin-bottom:4px;font-size:12px;"><em>Or from Mac / Linux / WSL terminal:</em></p>
       <div class="card-code"><button type="button" class="copy-btn" data-copy="curl -O https://btcpc.net/docker-compose.yml">copy</button><pre>curl -O https://btcpc.net/docker-compose.yml</pre></div>
-      <p class="card-description" style="margin-bottom:8px;"><em>Windows PowerShell alternative if <code>curl</code> isn't available:</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy='iwr https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml'>copy</button><pre>iwr https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml</pre></div>
+      <p class="card-description" style="margin:8px 0 4px 0;font-size:12px;"><em>Or from Windows PowerShell (do NOT use plain <code>curl -O</code> — that's an alias to Invoke-WebRequest with different flag semantics and will error "the input object cannot be bound" or ask for a URI):</em></p>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy='Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml'>copy</button><pre>Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml</pre></div>
+      <p class="card-description" style="margin:8px 0 4px 0;font-size:12px;"><em>Or from Windows Command Prompt (<code>cmd.exe</code>, NOT PowerShell — Windows 10/11 ships with real curl.exe):</em></p>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl.exe -O https://btcpc.net/docker-compose.yml">copy</button><pre>curl.exe -O https://btcpc.net/docker-compose.yml</pre></div>
       <p class="card-description" style="margin-bottom:8px;"><strong>Step 3 — Start mining</strong> (replace <code>YOUR_USERNAME</code> with your Telegram BTCPC username, lowercase)</p>
       <p class="card-description" style="margin-bottom:4px;font-size:12px;"><em>Mac / Linux / WSL:</em></p>
       <div class="card-code"><button type="button" class="copy-btn" data-copy="BTCPC_MINER=YOUR_USERNAME docker compose up -d">copy</button><pre>BTCPC_MINER=YOUR_USERNAME docker compose up -d</pre></div>
