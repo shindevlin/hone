@@ -1,7 +1,10 @@
 # BTCPC Docker Compose — Standalone (no clone required)
 # Usage:
-#   curl -O https://btcpc.net/docker-compose.yml
-#   docker compose up -d
+#   1. Download this file to an empty folder
+#   2. Download btcpc-image.tar.gz from btcpc.net to the same folder
+#   3. docker load -i btcpc-image.tar.gz
+#   4. BTCPC_MINER=yourname docker compose up -d
+# Or run btcpc-start.bat from btcpc.net/install which does all of this.
 
 services:
   mongo:
@@ -24,10 +27,13 @@ services:
       - "11434:11434"
 
   btcpc:
-    image: ghcr.io/shindevlin/btcpc:latest
+    # Load this image locally first:
+    #   docker load -i btcpc-image.tar.gz
+    # btcpc-start.bat handles this for you automatically.
+    image: btcpc:latest
     container_name: btcpc-node
     restart: unless-stopped
-    pull_policy: always
+    pull_policy: never
     depends_on:
       - mongo
       - ollama

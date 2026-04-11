@@ -3,6 +3,11 @@ node_modules/
 telegram-bot/.env
 coverage/
 data/blocks/
+data/pending-entries.jsonl
+
+# Docker image tarball (hosted at btcpc.net, too large for git)
+website/btcpc-image.tar.gz
+website/btcpc-image.tar
 
 # Forge build artifacts
 out/

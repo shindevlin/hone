@@ -70,6 +70,35 @@ if not exist docker-compose.yml (
 )
 echo.
 
+REM ── Step 3b: download + load the BTCPC image if not present ──
+docker image inspect btcpc:latest >nul 2>&1
+if errorlevel 1 (
+    echo BTCPC image not found locally. Downloading from btcpc.net ...
+    echo This is a one-time ~200 MB download. First run may take 2-5 minutes.
+    echo.
+    curl.exe -fL -o btcpc-image.tar.gz --progress-bar https://btcpc.net/btcpc-image.tar.gz
+    if errorlevel 1 (
+        echo [ERROR] Could not download btcpc-image.tar.gz
+        echo Check your internet connection and try again.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo Loading BTCPC image into Docker ^(this extracts ~800 MB, takes a minute^)...
+    docker load -i btcpc-image.tar.gz
+    if errorlevel 1 (
+        echo [ERROR] docker load failed. The tarball may be corrupt.
+        echo Delete btcpc-image.tar.gz and try again.
+        pause
+        exit /b 1
+    )
+    echo [OK] BTCPC image loaded.
+    REM Keep the tarball around so subsequent re-loads are offline
+) else (
+    echo [OK] BTCPC image already present locally
+)
+echo.
+
 REM ── Step 4: existing user or new user? ──
 echo.
 echo ─────────────────────────────────────────────────────────────
