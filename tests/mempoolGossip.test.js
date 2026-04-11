@@ -37,13 +37,9 @@ jest.mock('../src/p2p/mempool', () => ({
   addTransaction: jest.fn().mockReturnValue(true),
 }));
 
-// Mongoose model stubs
-jest.mock('../src/models/LedgerEntry', () => jest.fn(function () {
-  return { save: jest.fn().mockResolvedValue(undefined) };
-}));
-jest.mock('../src/models/Wallet', () => ({ findOne: jest.fn() }));
+// Phase E removed LedgerEntry, Wallet, and Epoch Mongoose models. Only
+// User survives in the auth path.
 jest.mock('../src/models/User', () => ({ findOne: jest.fn() }));
-jest.mock('../src/models/Epoch', () => ({ findOne: jest.fn() }));
 
 // ─── module under test ───────────────────────────────────────────────────────
 
