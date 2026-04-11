@@ -120,15 +120,55 @@
     .card-code {
       background: #0a0e17;
       border: 1px solid #2a3550;
-      padding: 10px 12px;
+      padding: 10px 36px 10px 12px;
       border-radius: 6px;
       font-family: 'SF Mono', Monaco, monospace;
       font-size: 12px;
       color: #f7931a;
-      margin-top: 12px;
+      margin: 12px 24px 24px;
       overflow-x: auto;
-      white-space: nowrap;
+      white-space: pre;
+      user-select: text;
+      -webkit-user-select: text;
+      position: relative;
+      cursor: text;
     }
+    .card-code pre {
+      margin: 0;
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+      white-space: pre;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: #2a3550;
+      color: #e2e8f0;
+      border: 1px solid #3d4a6b;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      user-select: none;
+    }
+    .copy-btn:hover { background: #3d4a6b; }
+    .copy-btn.copied { background: #22c55e; color: #0a0e17; border-color: #22c55e; }
+    .windows-warning {
+      max-width: 900px;
+      margin: 0 auto 24px;
+      padding: 16px 24px;
+      background: rgba(247, 147, 26, 0.08);
+      border: 1px solid rgba(247, 147, 26, 0.3);
+      border-radius: 10px;
+      color: #e2e8f0;
+      font-size: 14px;
+      display: none;
+    }
+    .windows-warning strong { color: #f7931a; }
+    .windows-warning a { color: #f7931a; }
     .footer {
       text-align: center;
       padding: 40px 24px;
@@ -157,6 +197,17 @@
     <div id="os-detected" class="os-detected" style="display:none;"></div>
   </section>
 
+  <div id="windows-warning" class="windows-warning">
+    <strong>Heads-up for Windows:</strong> native Windows doesn't have <code>bash</code> or <code>curl</code> in a default shell, so the Terminal path below will not work as-is. Best options right now:
+    <ol style="margin: 8px 0 0 20px; padding: 0;">
+      <li><strong>Browser Clock</strong> (bottom-right card) — zero install, works today.</li>
+      <li><strong>Telegram Wallet</strong> — no install, just a bot.</li>
+      <li><strong>Docker Desktop</strong> — if you have it, use the Docker card. If not, install it first from <a href="https://www.docker.com/products/docker-desktop/" target="_blank">docker.com</a>.</li>
+      <li><strong>WSL (Ubuntu in Windows)</strong> — open PowerShell as admin, run <code>wsl --install</code>, reboot, then use the Terminal card inside the Ubuntu shell.</li>
+    </ol>
+    A native Windows <code>.msi</code> installer is in progress — check back on the Desktop App card.
+  </div>
+
   <div class="install-grid">
 
     <!-- Native Desktop App -->
@@ -176,7 +227,7 @@
     </a>
 
     <!-- Docker -->
-    <a href="/docker-compose.yml" class="install-card" target="_blank">
+    <div class="install-card">
       <span class="card-icon">🐳</span>
       <div class="card-title">Docker</div>
       <div class="card-subtitle">Mac · Linux · Windows (Docker Desktop)</div>
@@ -186,11 +237,12 @@
         <li>Fully isolated, easy to remove</li>
         <li>Auto-restart on crash</li>
       </ul>
-      <div class="card-code">curl -O https://btcpc.net/docker-compose.yml<br>docker compose up -d</div>
-    </a>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl -O https://btcpc.net/docker-compose.yml&#10;docker compose up -d">copy</button><pre>curl -O https://btcpc.net/docker-compose.yml
+docker compose up -d</pre></div>
+    </div>
 
     <!-- Terminal -->
-    <a href="#terminal" class="install-card">
+    <div class="install-card">
       <span class="card-icon">⌨️</span>
       <div class="card-title">Terminal</div>
       <div class="card-subtitle">macOS · Linux · WSL</div>
@@ -200,8 +252,8 @@
         <li>Configures systemd service</li>
         <li>No GUI dependencies</li>
       </ul>
-      <div class="card-code">curl https://btcpc.net/install.sh | bash</div>
-    </a>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl https://btcpc.net/install.sh | bash">copy</button><pre>curl https://btcpc.net/install.sh | bash</pre></div>
+    </div>
 
     <!-- Android (Termux) -->
     <a href="/android-install" class="install-card">
@@ -263,31 +315,71 @@
     else if (ua.indexOf("Android") !== -1) { os = "Android"; osShort = "Android"; }
     else if (ua.indexOf("iPhone") !== -1 || ua.indexOf("iPad") !== -1) { os = "iOS"; osShort = "iOS"; }
 
-    document.getElementById("os-name").textContent = osShort;
-
     var osBanner = document.getElementById("os-detected");
     if (os !== "Unknown") {
       osBanner.textContent = "Detected: " + os;
       osBanner.style.display = "inline-block";
     }
 
+    // Show a Windows-specific warning banner if we're on native Windows
+    if (os === "Windows") {
+      document.getElementById("windows-warning").style.display = "block";
+    }
+
     // For mobile, recommend browser clock instead of desktop app
     if (os === "Android" || os === "iOS") {
       var desktopCard = document.getElementById("card-desktop");
-      desktopCard.classList.remove("recommended");
-      var browserCard = document.querySelectorAll(".install-card")[3];
-      browserCard.classList.add("recommended");
-      browserCard.querySelector(".card-icon").insertAdjacentHTML(
-        "beforebegin",
-        '<span class="recommended-badge">RECOMMENDED FOR ' + osShort.toUpperCase() + '</span>'
-      );
+      if (desktopCard) desktopCard.classList.remove("recommended");
+      var cards = document.querySelectorAll(".install-card");
+      var browserCard = cards[cards.length - 2]; // Browser Clock is second-to-last
+      if (browserCard) {
+        browserCard.classList.add("recommended");
+        var icon = browserCard.querySelector(".card-icon");
+        if (icon) {
+          icon.insertAdjacentHTML(
+            "beforebegin",
+            '<span class="recommended-badge">RECOMMENDED FOR ' + osShort.toUpperCase() + '</span>'
+          );
+        }
+      }
     }
 
-    function downloadDesktop(e) {
-      e.preventDefault();
-      var url = "https://github.com/shindevlin/btcpc-desktop/releases/latest";
-      // Future: detect OS and link to specific .dmg/.msi/.AppImage
-      window.location.href = url;
+    // Copy-to-clipboard for .copy-btn buttons
+    function fallbackCopy(text) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "absolute";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+    document.querySelectorAll(".copy-btn").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var text = btn.getAttribute("data-copy") || "";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () { flashCopied(btn); },
+            function () { fallbackCopy(text); flashCopied(btn); }
+          );
+        } else {
+          fallbackCopy(text);
+          flashCopied(btn);
+        }
+      });
+    });
+    function flashCopied(btn) {
+      var prev = btn.textContent;
+      btn.textContent = "copied!";
+      btn.classList.add("copied");
+      setTimeout(function () {
+        btn.textContent = prev;
+        btn.classList.remove("copied");
+      }, 1500);
     }
   </script>
 
