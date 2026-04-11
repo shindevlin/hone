@@ -9,6 +9,10 @@ data/pending-entries.jsonl
 website/btcpc-image.tar.gz
 website/btcpc-image.tar
 
+# Obsidian vault config — open docs/ as a vault, exclude its workspace
+.obsidian/
+docs/.obsidian/
+
 # Forge build artifacts
 out/
 cache/
