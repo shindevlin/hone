@@ -44,10 +44,8 @@ MockProject.prototype.save = jest.fn(async function () {
 });
 jest.mock('../src/models/Project', () => MockProject);
 
-// Mock Transaction model
-function MockTransaction(fields) { Object.assign(this, fields); }
-MockTransaction.prototype.save = jest.fn(async function () { return this; });
-jest.mock('../src/models/Transaction', () => MockTransaction);
+// Phase E removed the Transaction Mongoose model. projectRoutes now
+// records transfers via ledger.recordTransfer() which is mocked below.
 
 // Mock other dependencies that projectRoutes imports
 jest.mock('../src/services/ledger', () => ({
@@ -114,7 +112,6 @@ describe('projectRoutes — secretStore-first (D.5-delta)', () => {
     savedProjects = [];
     MockProject.findOne.mockClear();
     MockProject.prototype.save.mockClear();
-    MockTransaction.prototype.save.mockClear();
   });
 
   describe('getProject(name) — secretStore hit', () => {
