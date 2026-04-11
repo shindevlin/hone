@@ -27,7 +27,7 @@ echo.
 
 REM --- Check 2: docker engine running ---
 echo Checking docker engine...
-docker info >/dev/null 2>&1
+docker info >nul 2>&1
 if errorlevel 1 goto NO_ENGINE
 echo [OK] docker engine running
 echo.
@@ -45,7 +45,7 @@ echo [OK] docker-compose.yml already present
 echo.
 
 REM --- Download + load image ---
-docker image inspect btcpc:latest >/dev/null 2>&1
+docker image inspect btcpc:latest >nul 2>&1
 if not errorlevel 1 goto HAVE_IMAGE
 echo BTCPC image not present. Downloading ~200 MB tarball...
 curl.exe -fL -o btcpc-image.tar.gz https://btcpc.net/btcpc-image.tar.gz
