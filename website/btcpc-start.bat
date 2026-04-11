@@ -1,9 +1,6 @@
 @echo off
-REM ===============================================================
-REM BTCPC One-Click Starter for Windows
-REM Usage: double-click this file.
-REM Requires: Docker Desktop installed from https://docker.com
-REM ===============================================================
+REM BTCPC Windows Starter
+REM Diagnostic version - pauses at every step so errors are visible
 setlocal enabledelayedexpansion
 title BTCPC Starter
 
@@ -17,147 +14,138 @@ echo.
 echo   Bitcoin Proof of Compute - Windows Starter
 echo.
 
-REM --- Step 1: is docker on PATH? ---
-where docker >/dev/null 2>&1
-if errorlevel 1 (
-    echo [ERROR] The "docker" command is not recognized.
-    echo.
-    echo This means one of:
-    echo   1. Docker Desktop is not installed yet.
-    echo      Get it from https://www.docker.com/products/docker-desktop/
-    echo   2. Docker Desktop was just installed and this shell is stale.
-    echo      Close this window and open a fresh one after Docker Desktop launches.
-    echo   3. Docker Desktop is installed but not running.
-    echo      Launch "Docker Desktop" from the Start menu and wait for the whale.
-    echo.
-    pause
-    exit /b 1
-)
+echo [DEBUG] Starting checks...
+echo [DEBUG] PATH = %PATH%
+echo.
 
-REM --- Step 2: is the docker engine actually running? ---
+REM --- Check 1: docker on PATH ---
+echo Checking for docker command...
+where docker
+if errorlevel 1 goto NO_DOCKER
+echo [OK] docker command found
+echo.
+
+REM --- Check 2: docker engine running ---
+echo Checking docker engine...
 docker info >/dev/null 2>&1
-if errorlevel 1 (
-    echo [ERROR] Docker is installed but the engine is not running.
-    echo.
-    echo Launch "Docker Desktop" from the Start menu. Wait until the
-    echo whale icon in your system tray stops animating, then double-click
-    echo this file again.
-    echo.
-    pause
-    exit /b 1
-)
-
-echo [OK] Docker is running.
+if errorlevel 1 goto NO_ENGINE
+echo [OK] docker engine running
 echo.
 
-REM --- Step 3: grab docker-compose.yml if missing ---
-if not exist docker-compose.yml (
-    echo Downloading docker-compose.yml from btcpc.net ...
-    curl.exe -fsSL -o docker-compose.yml https://btcpc.net/docker-compose.yml
-    if errorlevel 1 (
-        echo [ERROR] Could not download docker-compose.yml
-        echo Check your internet connection.
-        pause
-        exit /b 1
-    )
-    echo [OK] Downloaded docker-compose.yml
-) else (
-    echo [OK] docker-compose.yml already exists
-)
+REM --- Download compose file ---
+if exist docker-compose.yml goto HAVE_COMPOSE
+echo Downloading docker-compose.yml ...
+curl.exe -fsSL -o docker-compose.yml https://btcpc.net/docker-compose.yml
+if errorlevel 1 goto NO_COMPOSE
+echo [OK] Downloaded docker-compose.yml
+goto COMPOSE_DONE
+:HAVE_COMPOSE
+echo [OK] docker-compose.yml already present
+:COMPOSE_DONE
 echo.
 
-REM --- Step 3b: download + load BTCPC image if not present ---
+REM --- Download + load image ---
 docker image inspect btcpc:latest >/dev/null 2>&1
-if errorlevel 1 (
-    echo BTCPC image not found locally.
-    echo Downloading ~200 MB image tarball from btcpc.net ...
-    echo ^(first run only - subsequent launches are instant^)
-    echo.
-    curl.exe -fL -o btcpc-image.tar.gz https://btcpc.net/btcpc-image.tar.gz
-    if errorlevel 1 (
-        echo [ERROR] Could not download btcpc-image.tar.gz
-        echo Check your internet connection and try again.
-        pause
-        exit /b 1
-    )
-    echo.
-    echo Loading image into Docker ^(takes about a minute^)...
-    docker load -i btcpc-image.tar.gz
-    if errorlevel 1 (
-        echo [ERROR] docker load failed. Tarball may be corrupt.
-        echo Delete btcpc-image.tar.gz and try again.
-        pause
-        exit /b 1
-    )
-    echo [OK] BTCPC image loaded.
-) else (
-    echo [OK] BTCPC image already present
-)
+if not errorlevel 1 goto HAVE_IMAGE
+echo BTCPC image not present. Downloading ~200 MB tarball...
+curl.exe -fL -o btcpc-image.tar.gz https://btcpc.net/btcpc-image.tar.gz
+if errorlevel 1 goto NO_DOWNLOAD
+echo Loading image into docker...
+docker load -i btcpc-image.tar.gz
+if errorlevel 1 goto NO_LOAD
+echo [OK] BTCPC image loaded
+goto IMAGE_DONE
+:HAVE_IMAGE
+echo [OK] BTCPC image already present
+:IMAGE_DONE
 echo.
 
-REM --- Step 4: existing user or new user? ---
+REM --- Ask for username ---
 echo.
-echo ===============================================================
-echo  Do you already have a BTCPC username?
-echo ===============================================================
+echo Do you already have a BTCPC username?
+echo   [1] Yes, I already have one
+echo   [2] No, I need to create one via Telegram @btcpcbot
 echo.
-echo   [1] Yes, I already have one (from @btcpcbot on Telegram)
-echo   [2] No, I need to create one
-echo.
-set /p USER_CHOICE="Enter 1 or 2: "
-
-if "!USER_CHOICE!"=="2" (
-    echo.
-    echo Opening @btcpcbot in your default browser.
-    echo In the bot, type:  /create your_name_here
-    echo Save the 12-word phrase it gives you - we cannot recover it.
-    echo Then come back here and enter the username you chose.
-    echo.
+set /p CHOICE="Enter 1 or 2: "
+if "!CHOICE!"=="2" (
+    echo Opening @btcpcbot in your browser...
     start https://t.me/btcpcbot
-    echo.
+    echo After creating your username in Telegram, come back here.
     pause
-    echo.
 )
 
-echo Enter your BTCPC username:
-echo ^(lowercase, 3-20 chars, letters/numbers/hyphens only^)
 echo.
-set /p BTCPC_MINER="Your username: "
+set /p MINER="Your BTCPC username: "
+if "!MINER!"=="" goto BAD_NAME
 
-if "!BTCPC_MINER!"=="" (
-    echo [ERROR] Username cannot be empty.
-    pause
-    exit /b 1
-)
-
-REM --- Step 5: start the stack ---
+REM --- Start ---
 echo.
-echo Starting BTCPC node as miner !BTCPC_MINER! ...
-echo.
-
+echo Starting BTCPC node as miner !MINER! ...
+set BTCPC_MINER=!MINER!
 docker compose up -d
-if errorlevel 1 (
-    echo.
-    echo [ERROR] docker compose up failed. Check the output above.
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto NO_START
 
 echo.
 echo ===============================================================
-echo  BTCPC is running in the background as !BTCPC_MINER!
-echo.
-echo  Check balance in Telegram via @btcpcbot /balance
-echo  View logs:   docker compose logs -f btcpc
-echo  Stop node:   docker compose stop
-echo  Remove all:  docker compose down
+echo  BTCPC is running in the background as !MINER!
 echo ===============================================================
 echo.
+docker ps --filter name=btcpc
+echo.
+echo  View logs:  docker compose logs -f btcpc
+echo  Stop node:  docker compose stop
+echo.
+set /p LOGS="Show live logs now? (y/n): "
+if /i "!LOGS!"=="y" docker compose logs -f btcpc
+goto END
 
-set /p SHOWLOG="Show live logs now? (y/n): "
-if /i "!SHOWLOG!"=="y" (
-    docker compose logs -f btcpc
-)
+:NO_DOCKER
+echo.
+echo [ERROR] The docker command is not on your PATH.
+echo.
+echo Common causes:
+echo  1. Docker Desktop is not installed. Get it from docker.com
+echo  2. Docker Desktop is installed but you need to sign out and
+echo     sign back in (or reboot) so Windows picks up the new PATH.
+echo  3. Docker Desktop is installed but not launched.
+echo     Start it from your Start menu and wait for the whale icon.
+echo.
+echo Your current PATH is shown above this error message.
+echo If it does not contain a Docker folder, cause 2 is likely.
+goto END
 
-pause
+:NO_ENGINE
+echo.
+echo [ERROR] Docker command exists but the engine is not running.
+echo Launch Docker Desktop from the Start menu. Wait for the whale.
+goto END
+
+:NO_COMPOSE
+echo [ERROR] Could not download docker-compose.yml
+echo Check your internet connection.
+goto END
+
+:NO_DOWNLOAD
+echo [ERROR] Could not download btcpc-image.tar.gz
+echo Check your internet connection and try again.
+goto END
+
+:NO_LOAD
+echo [ERROR] docker load failed. Tarball may be corrupt.
+echo Delete btcpc-image.tar.gz and try again.
+goto END
+
+:BAD_NAME
+echo [ERROR] Username cannot be empty.
+goto END
+
+:NO_START
+echo [ERROR] docker compose up failed. See output above.
+goto END
+
+:END
+echo.
+echo ---------------------------------------------------------------
+echo Press any key to close this window.
+pause >nul
 endlocal
