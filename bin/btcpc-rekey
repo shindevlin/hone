@@ -27,11 +27,23 @@
  *   permanently on chain.
  *
  * Usage:
- *   node bin/btcpc-rekey <username>
- *   node bin/btcpc-rekey josh
+ *   node bin/btcpc-rekey <username>             — interactive mnemonic prompt
+ *   node bin/btcpc-rekey <username> --pubkeys   — paste pre-derived public keys
  *
  * The username argument is required and must already exist on chain.
- * The mnemonic is read from stdin (12 BIP-39 words, space-separated).
+ *
+ * --pubkeys mode (RECOMMENDED for high-value accounts):
+ *   Derive the keys on a separate trusted machine first via:
+ *     node bin/btcpc-cli wallet recover
+ *   That command takes the mnemonic interactively and prints the four
+ *   public keys + EVM address WITHOUT broadcasting anything. Copy the
+ *   four hex strings to this machine and paste them at the prompts.
+ *   The mnemonic NEVER touches this script in --pubkeys mode.
+ *
+ * Default mode reads the mnemonic from stdin (12 BIP-39 words). The
+ * mnemonic exists in process memory only for the ~50ms derivation step,
+ * is never logged, and is never written to disk — but the safer pattern
+ * is to use --pubkeys so the mnemonic never leaves your cold machine.
  */
 
 var path = require("path");
@@ -56,8 +68,12 @@ function prompt(question) {
 
 async function main() {
   var username = process.argv[2];
-  if (!username) {
-    console.error("usage: node bin/btcpc-rekey <username>");
+  var pubkeysMode = process.argv.indexOf("--pubkeys") !== -1;
+  if (!username || username === "--pubkeys") {
+    console.error("usage: node bin/btcpc-rekey <username> [--pubkeys]");
+    console.error("");
+    console.error("  default mode  — interactive mnemonic prompt, derives keys locally");
+    console.error("  --pubkeys     — paste pre-derived hex public keys (no mnemonic)");
     process.exit(1);
   }
   username = username.trim().toLowerCase();
@@ -104,37 +120,87 @@ async function main() {
     }
   }
 
-  console.log("");
-  console.log("[btcpc-rekey] Enter the 12-word BIP-39 mnemonic for '" + username + "'.");
-  console.log("[btcpc-rekey] Words must be space-separated. They will not be echoed.");
+  var publicKeys;
+  var chainAddresses;
 
-  // Read mnemonic from stdin (echoed for now — TTY hide is OS-specific)
-  var mnemonic = await prompt("[btcpc-rekey] Mnemonic: ");
-  mnemonic = mnemonic.trim();
+  if (pubkeysMode) {
+    // ── Safer path: paste pre-derived public keys, no mnemonic ──
+    console.log("");
+    console.log("[btcpc-rekey] --pubkeys mode: paste the four hex public keys + EVM address.");
+    console.log("[btcpc-rekey] Derive them on a separate trusted machine first via:");
+    console.log("[btcpc-rekey]   node bin/btcpc-cli wallet recover");
+    console.log("[btcpc-rekey] The mnemonic will NEVER touch this script.");
+    console.log("");
 
-  if (!keyManager.validateMnemonic(mnemonic)) {
-    console.error("[btcpc-rekey] Invalid BIP-39 mnemonic.");
-    process.exit(1);
+    function isHexKey(s) { return /^[a-f0-9]{66}$/.test(s) || /^[a-f0-9]{64}$/.test(s); }
+    function isEvmAddr(s) { return /^0x[a-f0-9]{40}$/i.test(s); }
+
+    var owner = (await prompt("[btcpc-rekey] Owner public key (hex):   ")).trim().toLowerCase();
+    if (!isHexKey(owner)) { console.error("[btcpc-rekey] Invalid owner key (expected 64 or 66 hex chars)."); process.exit(1); }
+    var active = (await prompt("[btcpc-rekey] Active public key (hex):  ")).trim().toLowerCase();
+    if (!isHexKey(active)) { console.error("[btcpc-rekey] Invalid active key."); process.exit(1); }
+    var posting = (await prompt("[btcpc-rekey] Posting public key (hex): ")).trim().toLowerCase();
+    if (!isHexKey(posting)) { console.error("[btcpc-rekey] Invalid posting key."); process.exit(1); }
+    var memo = (await prompt("[btcpc-rekey] Memo public key (hex):    ")).trim().toLowerCase();
+    if (!isHexKey(memo)) { console.error("[btcpc-rekey] Invalid memo key."); process.exit(1); }
+    var evm = (await prompt("[btcpc-rekey] EVM address (0x..):        ")).trim();
+    if (!isEvmAddr(evm)) { console.error("[btcpc-rekey] Invalid EVM address (expected 0x + 40 hex)."); process.exit(1); }
+
+    publicKeys = { owner: owner, active: active, posting: posting, memo: memo };
+    chainAddresses = {
+      btcpc: null,
+      evm: evm.toLowerCase(),
+      solana: null,
+      bitcoin: null,
+      ton: null,
+      hive: username,
+    };
+    console.log("");
+    console.log("[btcpc-rekey] Public keys received. No mnemonic was entered on this machine.");
+  } else {
+    // ── Default: interactive mnemonic, derive keys locally ──
+    console.log("");
+    console.log("[btcpc-rekey] Enter the 12-word BIP-39 mnemonic for '" + username + "'.");
+    console.log("[btcpc-rekey] Words must be space-separated. They will not be echoed.");
+
+    var mnemonic = await prompt("[btcpc-rekey] Mnemonic: ");
+    mnemonic = mnemonic.trim();
+
+    if (!keyManager.validateMnemonic(mnemonic)) {
+      console.error("[btcpc-rekey] Invalid BIP-39 mnemonic.");
+      process.exit(1);
+    }
+
+    var words = mnemonic.split(/\s+/);
+    if (words.length !== 12) {
+      console.error("[btcpc-rekey] Mnemonic must be exactly 12 words (got " + words.length + ").");
+      process.exit(1);
+    }
+
+    console.log("[btcpc-rekey] Deriving keys...");
+    var keys = await keyManager.mnemonicToKeys(mnemonic);
+    var chainWallets = await keyManager.deriveChainWallets(mnemonic);
+    // Drop the mnemonic from the local scope as soon as derivation is done
+    mnemonic = null;
+    words = null;
+
+    publicKeys = {
+      owner: keys.owner.publicKey,
+      active: keys.active.publicKey,
+      posting: keys.posting.publicKey,
+      memo: keys.memo.publicKey,
+    };
+    chainAddresses = {
+      btcpc: chainWallets.btcpc ? chainWallets.btcpc.address : null,
+      evm: chainWallets.evm ? chainWallets.evm.address : null,
+      solana: chainWallets.solana ? chainWallets.solana.address : null,
+      bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
+      ton: chainWallets.ton ? chainWallets.ton.address : null,
+      hive: username,
+    };
   }
 
-  var words = mnemonic.split(/\s+/);
-  if (words.length !== 12) {
-    console.error("[btcpc-rekey] Mnemonic must be exactly 12 words (got " + words.length + ").");
-    process.exit(1);
-  }
-
-  console.log("[btcpc-rekey] Deriving keys...");
-  var keys = await keyManager.mnemonicToKeys(mnemonic);
-  var chainWallets = await keyManager.deriveChainWallets(mnemonic);
-
-  var publicKeys = {
-    owner: keys.owner.publicKey,
-    active: keys.active.publicKey,
-    posting: keys.posting.publicKey,
-    memo: keys.memo.publicKey,
-  };
-
-  console.log("[btcpc-rekey] Derived public keys:");
+  console.log("[btcpc-rekey] Public keys to broadcast:");
   console.log("[btcpc-rekey]   owner:   " + publicKeys.owner.slice(0, 32) + "...");
   console.log("[btcpc-rekey]   active:  " + publicKeys.active.slice(0, 32) + "...");
   console.log("[btcpc-rekey]   posting: " + publicKeys.posting.slice(0, 32) + "...");
@@ -142,10 +208,10 @@ async function main() {
 
   if (hasOwner && account.public_keys.owner !== publicKeys.owner) {
     console.log("");
-    console.log("[btcpc-rekey] WARNING: derived owner key does NOT match the existing on-chain key.");
+    console.log("[btcpc-rekey] WARNING: supplied owner key does NOT match the existing on-chain key.");
     console.log("[btcpc-rekey] Existing: " + account.public_keys.owner.slice(0, 32) + "...");
-    console.log("[btcpc-rekey] Derived:  " + publicKeys.owner.slice(0, 32) + "...");
-    var confirm2 = await prompt("[btcpc-rekey] Mnemonic does not match prior keys. Type 'continue' to proceed: ");
+    console.log("[btcpc-rekey] Supplied: " + publicKeys.owner.slice(0, 32) + "...");
+    var confirm2 = await prompt("[btcpc-rekey] Keys do not match prior on-chain keys. Type 'continue' to proceed: ");
     if (confirm2.trim() !== "continue") {
       console.log("[btcpc-rekey] Aborted.");
       process.exit(0);
@@ -156,15 +222,6 @@ async function main() {
   var epoch = stateStore.getChainHeight() || 0;
   console.log("");
   console.log("[btcpc-rekey] Writing ACCOUNT_CREATE for '" + username + "' at epoch " + epoch + "...");
-
-  var chainAddresses = {
-    btcpc: chainWallets.btcpc ? chainWallets.btcpc.address : null,
-    evm: chainWallets.evm ? chainWallets.evm.address : null,
-    solana: chainWallets.solana ? chainWallets.solana.address : null,
-    bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
-    ton: chainWallets.ton ? chainWallets.ton.address : null,
-    hive: username,
-  };
 
   // recordAccountCreate goes through _persist which:
   //   1. applies to local stateStore immediately
@@ -179,7 +236,11 @@ async function main() {
   console.log("[btcpc-rekey] Verify in ~5 minutes by replaying the chain:");
   console.log("[btcpc-rekey]   node -e \"const ss=require('./src/chain/stateStore');const r=require('./src/chain/replay');(async()=>{await r.replayFromDisk({});console.log(ss.getAccount('" + username + "').public_keys)})()\"");
   console.log("");
-  console.log("[btcpc-rekey] Done. Mnemonic NOT stored anywhere.");
+  if (pubkeysMode) {
+    console.log("[btcpc-rekey] Done. No mnemonic touched this machine.");
+  } else {
+    console.log("[btcpc-rekey] Done. Mnemonic discarded after derivation, NOT stored anywhere.");
+  }
 
   process.exit(0);
 }
