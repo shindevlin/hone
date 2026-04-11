@@ -43,3 +43,10 @@ See [docs/bots.md](docs/bots.md) for full bot documentation.
 ## Session Notes
 - Detailed handoff notes for the 2026-04-08 cleanup/test pass live in `docs/CLAUDE_HANDOFF_2026-04-08.md`
 - Use that handoff before touching auth, tests, tracker docs, or CI added in that pass
+
+## Autopilot
+- A Ralph-loop driver lives at `~/.btcpc-autopilot/` (operator config, NOT in this repo)
+- Cron-driven; reads `docs/SELF_HEAL_PRD.md`, picks the next unticked item, dispatches one agent in a worktree, cherry-picks, tests, commits, pushes, ticks the box
+- Setup walkthrough: `~/.btcpc-autopilot/README.md` (claude setup-token → env file → manual test → crontab line)
+- `docs/SELF_HEAL_PRD.md` IS the autopilot's spec — every fix lives there as a checkbox
+- Hard rule for ALL fail paths: `feedback_self_heal_no_asks.md` in memory — never ask the user to do something technical, always auto-repair
