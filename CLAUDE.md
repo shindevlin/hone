@@ -25,7 +25,7 @@ node bin/btcpc-mine --miner shindevlin  # manual mine
 ## Key Specs
 - Supply: 42,000,000 BTCPC (1 BTCPC = 100M dreams)
 - Genesis reward: 243.06 BTCPC/epoch (5 min epochs)
-- MongoDB: mongodb://root:example@localhost:27017/btcpc?authSource=admin
+- MongoDB: optional (post-Phase F). Default: disabled. Set BTCPC_MONGO_MODE=enabled and MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin to re-enable for legacy migration.
 - Explorer: port 4242, P2P: port 6942
 
 ## Telegram Bots

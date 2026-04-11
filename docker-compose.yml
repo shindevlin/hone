@@ -1,8 +1,17 @@
+# Phase F: MongoDB is optional. By default the btcpc node starts without it.
+# Chain state lives on-disk in stateStore + blockStore. Auth uses secretStore.
+#
+# To use MongoDB for legacy migration, start with the legacy profile:
+#   docker compose --profile legacy up -d
+#
+# And set BTCPC_MONGO_MODE=enabled in your environment.
+
 services:
   mongo:
     image: mongo:7
     container_name: btcpc-mongo
     restart: unless-stopped
+    profiles: [legacy]
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
@@ -38,14 +47,15 @@ services:
     container_name: btcpc-node
     restart: unless-stopped
     depends_on:
-      mongo:
-        condition: service_healthy
       ollama:
         condition: service_started
     environment:
       NODE_ENV: production
       PORT: 3000
-      MONGODB_URI: mongodb://root:example@mongo:27017/btcpc?authSource=admin
+      # Phase F: MongoDB disabled by default. Set BTCPC_MONGO_MODE=enabled and
+      # provide MONGODB_URI to opt back in (e.g. for legacy migration).
+      BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
+      MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
       JWT_SECRET: ${JWT_SECRET:-change_me_in_env_file_please_seriously}
       JWT_EXPIRES_IN: 7d

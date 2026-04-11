@@ -5,12 +5,23 @@
 #   3. docker load -i btcpc-image.tar.gz
 #   4. BTCPC_MINER=yourname docker compose up -d
 # Or run btcpc-start.bat from btcpc.net/install which does all of this.
+#
+# Phase F: MongoDB is optional. By default the btcpc node starts without it
+# (BTCPC_MONGO_MODE defaults to "disabled"). Chain state lives on-disk in
+# stateStore + blockStore. Auth uses secretStore (file-based).
+#
+# To re-enable MongoDB for legacy migration:
+#   BTCPC_MONGO_MODE=enabled MONGODB_URI=... docker compose --profile legacy up -d
+#
+# The mongo service only starts when the "legacy" profile is requested:
+#   docker compose --profile legacy up -d
 
 services:
   mongo:
     image: mongo:7
     container_name: btcpc-mongo
     restart: unless-stopped
+    profiles: [legacy]
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
@@ -35,12 +46,14 @@ services:
     restart: unless-stopped
     pull_policy: never
     depends_on:
-      - mongo
       - ollama
     environment:
       NODE_ENV: production
       PORT: 3000
-      MONGODB_URI: mongodb://root:example@mongo:27017/btcpc?authSource=admin
+      # Phase F: MongoDB is disabled by default. Chain state lives in stateStore.
+      # Set BTCPC_MONGO_MODE=enabled and provide MONGODB_URI to opt back in.
+      BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
+      MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
       # JWT_SECRET must be set or the api role will crash-loop.
       # For a personal node you can leave this default. For a public

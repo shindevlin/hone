@@ -16,7 +16,9 @@ const { version } = require('../package.json');
 
 // Fail-closed: require critical env vars at startup
 if (!process.env.JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
-if (!process.env.MONGODB_URI) { console.error('FATAL: MONGODB_URI not set'); process.exit(1); }
+
+// Phase F: MongoDB is optional. BTCPC_MONGO_MODE=disabled skips connection entirely.
+let mongoEnabled = false;
 
 const app = express();
 
@@ -148,14 +150,23 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Database connection
+// Database connection — Phase F: non-fatal, optional
 async function connectDB() {
+  const mongoMode = (process.env.BTCPC_MONGO_MODE || '').toLowerCase();
+  if (mongoMode === 'disabled') {
+    console.log('[BTCPC] MongoDB: DISABLED via BTCPC_MONGO_MODE=disabled');
+    return;
+  }
+  if (!process.env.MONGODB_URI) {
+    console.warn('[BTCPC] MongoDB: enabled but unreachable — MONGODB_URI not set, falling back to secretStore + stateStore');
+    return;
+  }
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('MongoDB connected successfully');
+    await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 });
+    mongoEnabled = true;
+    console.log('[BTCPC] MongoDB: enabled and connected');
   } catch (err) {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
+    console.warn('[BTCPC] MongoDB: enabled but unreachable — falling back to secretStore + stateStore (' + err.message + ')');
   }
 }
 
