@@ -1,5 +1,15 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// Isolate secretStore per worker BEFORE requiring authController.
+// Without this, the test reads the real ~/.btcpc/secrets.json and any
+// users from previous runs make D.5-gamma's secretStore-first lookup
+// short-circuit before reaching the Mongo mock.
+const ISOLATED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'btcpc-authctrl-test-'));
+process.env.BTCPC_SECRETS_PATH = path.join(ISOLATED_DIR, 'secrets.json');
 
 jest.mock('../src/models/User', () => ({
   findOne: jest.fn(),
@@ -30,10 +40,20 @@ function createRes() {
   };
 }
 
+const secretStore = require('../src/services/secretStore');
+
 describe('authController', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     process.env.JWT_SECRET = 'test-secret';
+    // Wipe secretStore between cases so the secretStore-first path
+    // doesn't accidentally short-circuit a Mongo-fallback assertion.
+    secretStore.resetForTests();
+    await secretStore.load();
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(ISOLATED_DIR, { recursive: true, force: true }); } catch (_) {}
   });
 
   test('registerUser creates an account and returns the one-time mnemonic payload', async () => {
