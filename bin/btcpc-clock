@@ -40,7 +40,7 @@ var P2P_PORT = parseInt(process.env.P2P_PORT) || 6943;
 var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
 var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
-var EPOCH_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+var EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
 
 // ─── State ───────────────────────────────────────────────────────
 

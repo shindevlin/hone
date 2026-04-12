@@ -3,16 +3,18 @@
 /**
  * BTCPC Emission Schedule
  *
- * Doubling-halving interval model:
- *   Period 1: 1 month  (8640 epochs), allotment 2,100,000 BTCPC, reward ~243.06/epoch
- *   Period 2: 2 months (17280 epochs), allotment 2,381,400 BTCPC, reward ~137.85/epoch
- *   Period 3: 4 months (34560 epochs), allotment 2,700,508 BTCPC, reward ~78.19/epoch
+ * Doubling-halving interval model (v3.0: 30-second epochs):
+ *   Period 1: 1 month  (86400 epochs), allotment 2,100,000 BTCPC, reward ~24.306/epoch
+ *   Period 2: 2 months (172800 epochs), allotment 2,381,400 BTCPC, reward ~13.785/epoch
+ *   Period 3: 4 months (345600 epochs), allotment 2,700,508 BTCPC, reward ~7.819/epoch
  *   ...each period: duration doubles, allotment *= 1.134, reward = allotment / epochs_in_period
  *
  * Total supply: 42,000,000 BTCPC
+ * Same annual emission and halving schedule as the 5-min epoch model.
+ * 10× more epochs per year → reward per epoch is 1/10 of the original.
  */
 
-const EPOCHS_PER_MONTH = 8640; // 30 days * 24 hours * 12 epochs/hour
+const EPOCHS_PER_MONTH = 86400; // 30 days * 24 hours * 120 epochs/hour (30-second epochs)
 const GROWTH_RATIO = 1.134;
 const GENESIS_ALLOTMENT = 2100000;
 const TOTAL_SUPPLY = 42000000;

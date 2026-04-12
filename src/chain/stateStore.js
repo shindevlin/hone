@@ -127,6 +127,10 @@ var slashRecords = new Map();
 // Chain height: highest known finalized epoch
 var chainHeight = -1;
 
+// Current dynamic block cap (v3.0). Updated each epoch via setCurrentBlockCap.
+// Initialized to DEFAULT_BLOCK_CAP (1 MB). Stored here so all nodes agree.
+var currentBlockCap = 1 * 1024 * 1024; // 1 MB default
+
 // Dedupe: entries we've already applied (by hash of canonical fields)
 var seenEntries = new Set();
 var SEEN_ENTRIES_CAP = 100000;
@@ -1167,6 +1171,20 @@ function setChainHeight(n) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Dynamic block cap (v3.0)
+// ─────────────────────────────────────────────────────────────────
+
+function getCurrentBlockCap() {
+  return currentBlockCap;
+}
+
+function setCurrentBlockCap(cap) {
+  if (typeof cap === "number" && cap > 0) {
+    currentBlockCap = cap;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Account getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -1870,6 +1888,7 @@ function resetAll() {
   snapshots.clear();
   seenEntries.clear();
   chainHeight = -1;
+  currentBlockCap = 1 * 1024 * 1024;
 }
 
 module.exports = {
@@ -1882,6 +1901,8 @@ module.exports = {
   setComputeProofs: setComputeProofs,
   addComputeProof: addComputeProof,
   setChainHeight: setChainHeight,
+  getCurrentBlockCap: getCurrentBlockCap,
+  setCurrentBlockCap: setCurrentBlockCap,
   hydrateFromFinality: hydrateFromFinality,
   resetAll: resetAll,
   // Account

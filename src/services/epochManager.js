@@ -10,7 +10,7 @@ const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
  * consensus determination, and reward distribution.
  */
 
-const EPOCH_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
 const DIFFICULTY_ADJUSTMENT_INTERVAL = 1000; // every 1000 epochs (~3.5 days)
 const MAX_DIFFICULTY_INCREASE = 4.0;
 const MAX_DIFFICULTY_DECREASE = 0.25;

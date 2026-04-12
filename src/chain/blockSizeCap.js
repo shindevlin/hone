@@ -1,17 +1,20 @@
 "use strict";
 
 /**
- * BTCPC Block Size Cap — v2.12-alpha
+ * BTCPC Block Size Cap — v3.0
  * Shin Devlin
  *
- * Hard limit on the JSON payload size of any single block. 1 MB matches
- * Bitcoin's classic block-size policy and keeps replay times bounded as
- * the chain grows. Configurable via env var for downstream chains that
- * want different economics.
+ * Dynamic block cap: starts at 1 MB, adapts based on how full recent
+ * blocks have been. Grows up to 32 MB when congested, shrinks back to
+ * 1 MB when quiet.
  *
- * At 1 MB per block × 288 blocks/day × 365 days = ~105 GB/year of chain
- * growth, which is trivially storable on a $50 HDD. Even 10x that
- * wouldn't strain a single full node.
+ * Adjustment rules (applied per epoch):
+ *   Block was >50% full  → next cap = min(current × 1.25, 32 MB)
+ *   Block was <25% full  → next cap = max(current × 0.75,  1 MB)
+ *   Block was 25–50% full → cap unchanged
+ *
+ * At 32 MB × 2880 blocks/day × 365 days = ~33 TB/year max chain growth.
+ * Default 1 MB × 2880 blocks/day = ~1 GB/day, trivially storable.
  *
  * Sibling module to blockStore.js — exports the cap + helpers without
  * touching the underlying disk-write logic. Callers (the miner, the
@@ -21,8 +24,37 @@
  * v2.11 file format stays unchanged.
  */
 
+// ─── Dynamic cap constants ────────────────────────────────────────
+
+var DEFAULT_BLOCK_CAP = 1 * 1024 * 1024;  // 1 MB starting point
+var MAX_BLOCK_CAP = 32 * 1024 * 1024;     // 32 MB ceiling
+var MIN_BLOCK_CAP = 1 * 1024 * 1024;      // 1 MB floor
+
+/**
+ * Compute the cap for the NEXT block given the current cap and the
+ * actual size of the block just produced.
+ *
+ *   >50% full → grow 25%  (capped at MAX_BLOCK_CAP)
+ *   <25% full → shrink 25% (floored at MIN_BLOCK_CAP)
+ *   25–50%   → unchanged
+ */
+function computeNextBlockCap(currentCap, currentBlockSize) {
+  if (currentBlockSize > currentCap * 0.5) {
+    return Math.min(Math.floor(currentCap * 1.25), MAX_BLOCK_CAP);
+  }
+  if (currentBlockSize < currentCap * 0.25) {
+    return Math.max(Math.floor(currentCap * 0.75), MIN_BLOCK_CAP);
+  }
+  return currentCap;
+}
+
+// Legacy single-value export: the "current" cap. Callers that just want
+// a number to check against can use this. The epoch manager updates
+// currentBlockCap in stateStore; the miner reads it from there.
+// For backward compat, this module also exports MAX_BLOCK_PAYLOAD_BYTES
+// (initialized to DEFAULT_BLOCK_CAP) so old call sites don't break.
 var MAX_BLOCK_PAYLOAD_BYTES = parseInt(
-  process.env.BTCPC_MAX_BLOCK_PAYLOAD_BYTES || String(1 * 1024 * 1024),
+  process.env.BTCPC_MAX_BLOCK_PAYLOAD_BYTES || String(DEFAULT_BLOCK_CAP),
   10
 );
 
@@ -133,6 +165,10 @@ function assertFitsUnderCap(payload) {
 
 module.exports = {
   MAX_BLOCK_PAYLOAD_BYTES: MAX_BLOCK_PAYLOAD_BYTES,
+  DEFAULT_BLOCK_CAP: DEFAULT_BLOCK_CAP,
+  MAX_BLOCK_CAP: MAX_BLOCK_CAP,
+  MIN_BLOCK_CAP: MIN_BLOCK_CAP,
+  computeNextBlockCap: computeNextBlockCap,
   estimateBlockPayloadSize: estimateBlockPayloadSize,
   getBlockSpaceRemaining: getBlockSpaceRemaining,
   fitsUnderCap: fitsUnderCap,
