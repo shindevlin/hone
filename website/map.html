@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTCPC Network Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #111827;
+      border-bottom: 1px solid #1f2937;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #f59e0b;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .logo span { color: #e2e8f0; }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+
+    .refresh-badge {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    .refresh-badge.active { color: #34d399; border-color: #065f46; }
+
+    #stats-bar {
+      background: #111827;
+      border-bottom: 1px solid #1f2937;
+      padding: 8px 20px;
+      display: flex;
+      gap: 24px;
+      font-size: 0.82rem;
+      flex-shrink: 0;
+    }
+
+    .stat { color: #9ca3af; }
+    .stat strong { color: #e2e8f0; font-weight: 600; }
+
+    #map {
+      flex: 1;
+      z-index: 0;
+    }
+
+    .legend {
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.8rem;
+      line-height: 1.8;
+      min-width: 160px;
+    }
+
+    .legend h4 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #d1d5db;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.3);
+      flex-shrink: 0;
+    }
+
+    /* Leaflet dark popup override */
+    .leaflet-popup-content-wrapper {
+      background: #111827 !important;
+      color: #e2e8f0 !important;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    .leaflet-popup-tip { background: #111827 !important; }
+    .leaflet-popup-close-button { color: #9ca3af !important; }
+
+    .popup-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 6px;
+      color: #f3f4f6;
+    }
+
+    .popup-row {
+      font-size: 0.82rem;
+      color: #9ca3af;
+      margin: 2px 0;
+    }
+
+    .popup-row strong { color: #d1d5db; }
+
+    .popup-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .badge-gateway   { background: #1d4ed8; color: #bfdbfe; }
+    .badge-temperature { background: #991b1b; color: #fecaca; }
+    .badge-humidity  { background: #065f46; color: #a7f3d0; }
+    .badge-air_quality { background: #92400e; color: #fde68a; }
+    .badge-gps       { background: #4c1d95; color: #ddd6fe; }
+    .badge-custom    { background: #374151; color: #d1d5db; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo">BTCPC <span>Network Map</span></a>
+  <div class="header-right">
+    <span id="refresh-badge" class="refresh-badge">Loading...</span>
+    <a href="/" style="color:#9ca3af;text-decoration:none;font-size:0.82rem;">← btcpc.net</a>
+  </div>
+</header>
+
+<div id="stats-bar">
+  <div class="stat">Gateways: <strong id="stat-gateways">—</strong></div>
+  <div class="stat">Sensors: <strong id="stat-sensors">—</strong></div>
+  <div class="stat">Active: <strong id="stat-active">—</strong></div>
+  <div class="stat">Last refresh: <strong id="stat-refresh">—</strong></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ── Config ──────────────────────────────────────────────────────
+  var API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:4242'
+    : 'https://btcpc.net';
+  var REFRESH_INTERVAL_MS = 60000; // 60 seconds
+
+  // ── Map init ────────────────────────────────────────────────────
+  var map = L.map('map', {
+    center: [20, 0],
+    zoom: 2,
+    zoomControl: true,
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // ── Legend ──────────────────────────────────────────────────────
+  var legend = L.control({ position: 'bottomright' });
+  legend.onAdd = function () {
+    var div = L.DomUtil.create('div', 'legend');
+    div.innerHTML =
+      '<h4>Devices</h4>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div>Gateway</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#ef4444;"></div>Temperature</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#22c55e;"></div>Humidity</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#f97316;"></div>Air Quality</div>' +
+      '<div class="legend-item"><div class="legend-dot" style="background:#a855f7;"></div>GPS / Other</div>';
+    return div;
+  };
+  legend.addTo(map);
+
+  // ── Marker helpers ───────────────────────────────────────────────
+  function typeColor(type) {
+    var colors = {
+      gateway: '#3b82f6',
+      temperature: '#ef4444',
+      humidity: '#22c55e',
+      air_quality: '#f97316',
+      gps: '#a855f7',
+      custom: '#94a3b8',
+    };
+    return colors[type] || '#94a3b8';
+  }
+
+  function makeCircleMarker(lat, lon, type, radius) {
+    radius = radius || 8;
+    return L.circleMarker([lat, lon], {
+      radius: radius,
+      fillColor: typeColor(type),
+      color: '#fff',
+      weight: 1.5,
+      opacity: 0.9,
+      fillOpacity: 0.85,
+    });
+  }
+
+  function fmtTime(epochMs) {
+    if (!epochMs) return 'unknown';
+    var d = new Date(epochMs);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function gatewayPopup(gw) {
+    return '<div class="popup-badge badge-gateway">Gateway</div>' +
+           '<div class="popup-title">' + escHtml(gw.gateway_id || '—') + '</div>' +
+           '<div class="popup-row">Owner: <strong>' + escHtml(gw.owner || '—') + '</strong></div>' +
+           '<div class="popup-row">Region: <strong>' + escHtml(gw.region || '—') + '</strong></div>' +
+           '<div class="popup-row">Status: <strong>' + escHtml(gw.status || '—') + '</strong></div>' +
+           '<div class="popup-row">Heartbeats: <strong>' + (gw.total_heartbeats || 0) + '</strong></div>' +
+           (gw.hardware_model ? '<div class="popup-row">Hardware: <strong>' + escHtml(gw.hardware_model) + '</strong></div>' : '') +
+           '<div class="popup-row" style="margin-top:6px;color:#6b7280;font-size:0.76rem;">' +
+             escHtml((gw.latitude || 0).toFixed(4)) + ', ' + escHtml((gw.longitude || 0).toFixed(4)) +
+           '</div>';
+  }
+
+  function sensorPopup(s, stats) {
+    var badgeClass = 'badge-' + (s.type || 'custom');
+    var lastReading = stats && stats.last_reading_epoch != null
+      ? 'Epoch ' + stats.last_reading_epoch
+      : '—';
+    return '<div class="popup-badge ' + badgeClass + '">' + escHtml(s.type || 'custom') + '</div>' +
+           '<div class="popup-title">' + escHtml(s.sensor_id || '—') + '</div>' +
+           '<div class="popup-row">Owner: <strong>' + escHtml(s.owner || '—') + '</strong></div>' +
+           '<div class="popup-row">Region: <strong>' + escHtml(s.region || '—') + '</strong></div>' +
+           '<div class="popup-row">Unit: <strong>' + escHtml(s.unit || '—') + '</strong></div>' +
+           '<div class="popup-row">Status: <strong>' + escHtml(s.status || '—') + '</strong></div>' +
+           '<div class="popup-row">Last reading: <strong>' + lastReading + '</strong></div>' +
+           (stats ? '<div class="popup-row">Readings: <strong>' + (stats.total_readings || 0) + '</strong></div>' : '') +
+           (stats ? '<div class="popup-row">Uptime: <strong>' + ((stats.uptime_pct || 0) * 100).toFixed(1) + '%</strong></div>' : '') +
+           (s.lora_gateway ? '<div class="popup-row">Via gateway: <strong>' + escHtml(s.lora_gateway) + '</strong></div>' : '');
+  }
+
+  function escHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Layer groups ─────────────────────────────────────────────────
+  var gatewayLayer = L.layerGroup().addTo(map);
+  var sensorLayer  = L.layerGroup().addTo(map);
+
+  var overlays = {
+    'Gateways': gatewayLayer,
+    'Sensors':  sensorLayer,
+  };
+  L.control.layers(null, overlays, { position: 'topright', collapsed: false }).addTo(map);
+
+  // ── Data fetching ────────────────────────────────────────────────
+  function fetchJSON(url) {
+    return fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+  }
+
+  var totalGateways = 0;
+  var totalSensors  = 0;
+  var activeCount   = 0;
+
+  function loadGateways() {
+    return fetchJSON(API_BASE + '/api/gateways?limit=200')
+      .then(function (data) {
+        gatewayLayer.clearLayers();
+        var list = data.gateways || [];
+        totalGateways = list.length;
+        var active = 0;
+
+        list.forEach(function (gw) {
+          var lat = parseFloat(gw.latitude);
+          var lon = parseFloat(gw.longitude);
+          if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) return;
+
+          var m = makeCircleMarker(lat, lon, 'gateway', 10);
+          m.bindPopup(gatewayPopup(gw), { maxWidth: 260 });
+          m.addTo(gatewayLayer);
+          if (gw.status === 'active') active++;
+        });
+        return active;
+      })
+      .catch(function (err) {
+        console.warn('[btcpc-map] gateways fetch failed:', err.message);
+        return 0;
+      });
+  }
+
+  function loadSensors() {
+    return fetchJSON(API_BASE + '/api/sensors?limit=200')
+      .then(function (data) {
+        sensorLayer.clearLayers();
+        var list = data.sensors || [];
+        totalSensors = list.length;
+        var active = 0;
+
+        list.forEach(function (s) {
+          // Sensors may not have lat/lon on the sensor record itself —
+          // fall back to 0,0 offset by index so they don't stack.
+          // Real sensors should report lat/lon in reading metadata.
+          var lat = parseFloat(s.latitude || 0);
+          var lon = parseFloat(s.longitude || 0);
+          if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) return;
+
+          var m = makeCircleMarker(lat, lon, s.type || 'custom', 7);
+          // Lazy-load stats on popup open
+          m.on('click', function () {
+            fetchJSON(API_BASE + '/api/sensors/' + encodeURIComponent(s.sensor_id))
+              .then(function (detail) {
+                m.setPopupContent(sensorPopup(detail.sensor || s, detail.stats));
+              })
+              .catch(function () {});
+          });
+          m.bindPopup(sensorPopup(s, null), { maxWidth: 260 });
+          m.addTo(sensorLayer);
+          if (s.status === 'active') active++;
+        });
+        return active;
+      })
+      .catch(function (err) {
+        console.warn('[btcpc-map] sensors fetch failed:', err.message);
+        return 0;
+      });
+  }
+
+  function updateStats() {
+    document.getElementById('stat-gateways').textContent = totalGateways;
+    document.getElementById('stat-sensors').textContent  = totalSensors;
+    document.getElementById('stat-active').textContent   = activeCount;
+    var now = new Date();
+    document.getElementById('stat-refresh').textContent  =
+      now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function refresh() {
+    var badge = document.getElementById('refresh-badge');
+    badge.textContent = 'Refreshing…';
+    badge.className = 'refresh-badge';
+
+    Promise.all([loadGateways(), loadSensors()])
+      .then(function (actives) {
+        activeCount = actives[0] + actives[1];
+        updateStats();
+        badge.textContent = 'Live — refreshes every 60s';
+        badge.className = 'refresh-badge active';
+      })
+      .catch(function (err) {
+        console.error('[btcpc-map] refresh error:', err);
+        badge.textContent = 'Refresh failed';
+        badge.className = 'refresh-badge';
+      });
+  }
+
+  // Initial load + auto-refresh
+  refresh();
+  setInterval(refresh, REFRESH_INTERVAL_MS);
+
+})();
+</script>
+</body>
+</html>

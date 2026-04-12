@@ -236,26 +236,28 @@ async function computeFinalization(epochNumber) {
   const miners = Object.keys(minerWork);
   const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 
-  // ── Reward split (v2.13.4) ──
-  // Five-pool model. Each pool has eligible recipients; empty pools flow to
+  // ── Reward split (v3.0-pre) ──
+  // Six-pool model. Each pool has eligible recipients; empty pools flow to
   // btcpc_recycle (never burnt — see feedback_no_burn_all_recycle.md).
   //
-  //   Miner pool    60%  — proportional to work_value; only real inference jobs
+  //   Miner pool    55%  — proportional to work_value; only real inference jobs
   //   Verifier pool 10%  — equal split among active verifiers this epoch
   //   Clock pool     5%  — equal split among active clocks this epoch (ALWAYS paid)
-  //   Storage pool  15%  — equal split among hosts with STORAGE_HEARTBEAT this epoch
-  //   Service pool  10%  — equal split among service hosts with SERVICE_HEARTBEAT
+  //   Storage pool  12%  — equal split among hosts with STORAGE_HEARTBEAT this epoch
+  //   Service pool   8%  — equal split among service hosts with SERVICE_HEARTBEAT
+  //   IoT pool      10%  — 60/40 split between sensors and gateways via nanoRewards
   //                ----
   //                100%  — leftover per-pool goes to btcpc_recycle
   //
   // Worst case (only clocks active): 5% to clocks, 95% to recycle.
-  // Busy chain (miners + clocks): 65% claimed, 35% to recycle.
+  // Genesis (miners + clocks + IoT): 70% claimed, 30% to recycle.
   // All active: 100% claimed, 0% recycled.
-  const MINER_POOL_PCT    = 0.60;
+  const MINER_POOL_PCT    = 0.55;
   const VERIFIER_POOL_PCT = 0.10;
   const CLOCK_POOL_PCT    = 0.05;
-  const STORAGE_POOL_PCT  = 0.15;
-  const SERVICE_POOL_PCT  = 0.10;
+  const STORAGE_POOL_PCT  = 0.12;
+  const SERVICE_POOL_PCT  = 0.08;
+  const IOT_POOL_PCT      = 0.10;
 
   const rewards = [];
   let recycledAmount = 0;
@@ -345,6 +347,38 @@ async function computeFinalization(epochNumber) {
     for (const h of serviceHostsThisEpoch) {
       rewards.push({ miner: h, amount: svShare, type: 'service' });
     }
+  }
+
+  // ── IoT pool: 10%, split 60/40 sensors/gateways via nanoRewards ──
+  const iotRewardPool = blockReward * IOT_POOL_PCT;
+  try {
+    const nanoRewards = require('../services/nanoRewards');
+    const activeGatewaysForEpoch = stateStore.getGatewaysForEpoch(epochNumber);
+    const activeSensorsForEpoch = stateStore.getSensorsForEpoch(epochNumber);
+
+    if (activeGatewaysForEpoch.length === 0 && activeSensorsForEpoch.length === 0) {
+      recycledAmount += iotRewardPool;
+    } else {
+      const iotRewards = nanoRewards.computeIoTRewards(
+        epochNumber,
+        iotRewardPool,
+        activeGatewaysForEpoch,
+        activeSensorsForEpoch
+      );
+      for (const r of iotRewards) {
+        rewards.push({ miner: r.account, amount: parseFloat(r.amount.toFixed(10)), type: r.type });
+      }
+      // Any leftover (rounding) goes to recycle
+      const totalIoTPaid = iotRewards.reduce((sum, r) => sum + r.amount, 0);
+      const iotRemainder = iotRewardPool - totalIoTPaid;
+      if (iotRemainder > 0.000000001) {
+        recycledAmount += iotRemainder;
+      }
+    }
+  } catch (iotErr) {
+    // nanoRewards not available — IoT pool to recycle
+    recycledAmount += iotRewardPool;
+    console.error('[BTCPC] IoT reward computation failed:', iotErr.message);
   }
 
   // ── Recycle unclaimed pools — never burnt ──

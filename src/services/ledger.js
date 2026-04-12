@@ -1269,6 +1269,281 @@ async function recordBlobServeProof(host, cid, bytesServed, requestCount, access
 }
 
 // ─────────────────────────────────────────────────────────────────
+// IoT sensor + gateway ledger entries (v2.15-beta)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Record a sensor registration on chain.
+ * Entry type: SENSOR_REGISTER
+ *
+ * @param {string} owner    — BTCPC account name
+ * @param {string} sensorId — "<owner>/<device-name>"
+ * @param {object} spec     — { type, unit, decimals, region, lora_gateway?, hardware_model?, firmware_version? }
+ * @param {number} epoch
+ */
+function recordSensorRegister(owner, sensorId, spec, epoch) {
+  if (!owner) throw new Error('owner required');
+  if (!sensorId) throw new Error('sensorId required');
+  if (!spec || typeof spec !== 'object') throw new Error('spec required');
+
+  const entry = _entry({
+    type: 'SENSOR_REGISTER',
+    from: owner,
+    epoch: epoch || 0,
+    sensor_data: {
+      sensor_id: sensorId,
+      owner: owner,
+      type: spec.type || null,
+      unit: spec.unit || null,
+      decimals: spec.decimals !== undefined ? spec.decimals : 2,
+      region: spec.region || null,
+      lora_gateway: spec.lora_gateway || null,
+      hardware_model: spec.hardware_model || null,
+      firmware_version: spec.firmware_version || null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a sensor reading on chain.
+ * Entry type: SENSOR_READING
+ *
+ * @param {string} sensorId — "<owner>/<device-name>"
+ * @param {number} value    — the measurement
+ * @param {object} metadata — { latitude?, longitude?, altitude?, battery_pct?, signal_strength_dbm?, gateway_id? }
+ * @param {number} epoch
+ */
+function recordSensorReading(sensorId, value, metadata, epoch) {
+  if (!sensorId) throw new Error('sensorId required');
+  if (!Number.isFinite(Number(value))) throw new Error('value must be a finite number');
+
+  const entry = _entry({
+    type: 'SENSOR_READING',
+    from: sensorId,
+    epoch: epoch || 0,
+    sensor_data: {
+      sensor_id: sensorId,
+      value: Number(value),
+      metadata: metadata || {},
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a sensor data commit — finalized epoch readings persisted as a blob.
+ * Entry type: SENSOR_DATA_COMMIT
+ *
+ * @param {string} sensorId     — "<owner>/<device-name>"
+ * @param {string} cid          — 64-char hex sha256 of the serialized readings blob
+ * @param {number} epoch
+ * @param {number} readingCount — number of readings in this epoch
+ * @param {number} medianValue  — finalized median for this epoch
+ */
+function recordSensorDataCommit(sensorId, cid, epoch, readingCount, medianValue) {
+  if (!sensorId) throw new Error('sensorId required');
+  if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
+
+  const entry = _entry({
+    type: 'SENSOR_DATA_COMMIT',
+    from: sensorId,
+    epoch: epoch || 0,
+    sensor_data: {
+      sensor_id: sensorId,
+      cid: cid,
+      reading_count: readingCount || 0,
+      median_value: medianValue !== undefined ? medianValue : null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a gateway registration on chain.
+ * Entry type: GATEWAY_REGISTER
+ *
+ * @param {string} owner     — BTCPC account name
+ * @param {string} gatewayId — "<owner>/<gateway-name>"
+ * @param {object} spec      — { region, latitude, longitude, antenna_gain_dbi?, hardware_model?, firmware_version?, max_sensors? }
+ * @param {number} epoch
+ */
+function recordGatewayRegister(owner, gatewayId, spec, epoch) {
+  if (!owner) throw new Error('owner required');
+  if (!gatewayId) throw new Error('gatewayId required');
+  if (!spec || typeof spec !== 'object') throw new Error('spec required');
+
+  const entry = _entry({
+    type: 'GATEWAY_REGISTER',
+    from: owner,
+    epoch: epoch || 0,
+    gateway_data: {
+      gateway_id: gatewayId,
+      owner: owner,
+      region: spec.region || null,
+      latitude: spec.latitude !== undefined ? Number(spec.latitude) : null,
+      longitude: spec.longitude !== undefined ? Number(spec.longitude) : null,
+      antenna_gain_dbi: spec.antenna_gain_dbi !== undefined ? Number(spec.antenna_gain_dbi) : null,
+      hardware_model: spec.hardware_model || null,
+      firmware_version: spec.firmware_version || null,
+      max_sensors: spec.max_sensors !== undefined ? parseInt(spec.max_sensors, 10) : 50,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a gateway heartbeat on chain.
+ * Entry type: GATEWAY_HEARTBEAT
+ *
+ * @param {string} gatewayId — "<owner>/<gateway-name>"
+ * @param {object} stats     — { sensors_connected, packets_relayed_this_epoch, uptime_seconds?, battery_pct? }
+ * @param {number} epoch
+ */
+function recordGatewayHeartbeat(gatewayId, stats, epoch) {
+  if (!gatewayId) throw new Error('gatewayId required');
+
+  const entry = _entry({
+    type: 'GATEWAY_HEARTBEAT',
+    from: gatewayId,
+    epoch: epoch || 0,
+    gateway_data: {
+      gateway_id: gatewayId,
+      stats: stats || {},
+    },
+  });
+  return _persist(entry);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Bridge ledger entries (v2.16-alpha)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Record a bridge wrap: user locks BTCPC native, wBTCPC released on dest chain.
+ * Entry type: BRIDGE_WRAP
+ *
+ * @param {string} user    — BTCPC account name
+ * @param {string} chainId — destination chain id (e.g., "base", "ethereum")
+ * @param {number} amount  — BTCPC to wrap
+ * @param {number} fee     — wrap fee in BTCPC (routed to btcpc_recycle)
+ * @param {number} epoch
+ */
+async function recordBridgeWrap(user, chainId, amount, fee, epoch) {
+  if (!user) throw new Error('user required');
+  if (!chainId) throw new Error('chainId required');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+  const netAmount = amount;
+  const feeAmount = fee || 0;
+
+  // Debit user BTCPC
+  const entry = _entry({
+    type: 'BRIDGE_WRAP',
+    from: user,
+    to: 'btcpc_recycle',
+    token: 'BTCPC',
+    amount: netAmount,
+    epoch: epoch || 0,
+    bridge_data: {
+      chain_id: chainId,
+      amount: netAmount,
+      fee: feeAmount,
+      direction: 'wrap',
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a bridge unwrap: user returns wBTCPC, BTCPC native released.
+ * Entry type: BRIDGE_UNWRAP
+ *
+ * @param {string} user    — BTCPC account name
+ * @param {string} chainId — source chain id
+ * @param {number} amount  — BTCPC to release to user
+ * @param {number} fee     — unwrap fee routed to btcpc_recycle
+ * @param {number} epoch
+ */
+async function recordBridgeUnwrap(user, chainId, amount, fee, epoch) {
+  if (!user) throw new Error('user required');
+  if (!chainId) throw new Error('chainId required');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+  const entry = _entry({
+    type: 'BRIDGE_UNWRAP',
+    from: 'btcpc_recycle',
+    to: user,
+    token: 'BTCPC',
+    amount: amount,
+    epoch: epoch || 0,
+    bridge_data: {
+      chain_id: chainId,
+      amount: amount,
+      fee: fee || 0,
+      direction: 'unwrap',
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a bridge LP fund: funder deposits BTCPC liquidity with a lock period.
+ * Entry type: BRIDGE_FUND
+ *
+ * @param {string} funder   — BTCPC account name
+ * @param {string} chainId  — destination chain being funded
+ * @param {number} amount   — BTCPC deposited
+ * @param {number} lockDays — lock duration in days (30-1460)
+ * @param {number} epoch
+ */
+async function recordBridgeFund(funder, chainId, amount, lockDays, epoch) {
+  if (!funder) throw new Error('funder required');
+  if (!chainId) throw new Error('chainId required');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+  const entry = _entry({
+    type: 'BRIDGE_FUND',
+    from: funder,
+    to: 'btcpc_recycle',
+    token: 'BTCPC',
+    amount: amount,
+    epoch: epoch || 0,
+    bridge_data: {
+      chain_id: chainId,
+      amount: amount,
+      lock_days: lockDays || 30,
+      direction: 'fund',
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a bridge LP unlock: funder's lock period expired, queued for withdrawal.
+ * Entry type: BRIDGE_UNLOCK
+ *
+ * @param {string} funder  — BTCPC account name
+ * @param {string} chainId — chain where the LP was locked
+ * @param {number} epoch
+ */
+async function recordBridgeUnlock(funder, chainId, epoch) {
+  if (!funder) throw new Error('funder required');
+  if (!chainId) throw new Error('chainId required');
+
+  const entry = _entry({
+    type: 'BRIDGE_UNLOCK',
+    from: funder,
+    epoch: epoch || 0,
+    bridge_data: {
+      chain_id: chainId,
+      direction: 'unlock',
+    },
+  });
+  return _persist(entry);
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Stateful compute ledger entries (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
 
@@ -1556,4 +1831,15 @@ module.exports = {
   recordStatefulServiceDeploy,
   recordSnapshotCommit,
   recordSnapshotRestore,
+  // IoT sensor + gateway (v2.15-beta)
+  recordSensorRegister,
+  recordSensorReading,
+  recordSensorDataCommit,
+  recordGatewayRegister,
+  recordGatewayHeartbeat,
+  // Bridge (v2.16-alpha)
+  recordBridgeWrap,
+  recordBridgeUnwrap,
+  recordBridgeFund,
+  recordBridgeUnlock,
 };

@@ -35,6 +35,8 @@ const express = require('express');
 const { authenticateToken } = require('../middlewares/auth');
 const sensorRegistry = require('../services/sensorRegistry');
 const gatewayRegistry = require('../services/loraGatewayRegistry');
+const blobStore = require('../services/blobStore');
+const ledger = require('../services/ledger');
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
@@ -192,6 +194,66 @@ sensorsRouter.post('/:id/retire', authenticateToken, async (req, res) => {
     } catch (err) {
       if (/not found/i.test(err.message)) return res.status(404).json({ error: err.message });
       if (/only the owner/i.test(err.message)) return res.status(403).json({ error: err.message });
+      return res.status(422).json({ error: err.message });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/sensors/:id/finalize
+ * Finalize epoch readings for a sensor: compute median, persist readings
+ * as a blob in BTCPC-FS, and record SENSOR_DATA_COMMIT on chain.
+ * Auth: owner only (or internal).
+ */
+sensorsRouter.post('/:id/finalize', authenticateToken, async (req, res) => {
+  try {
+    const owner = req.user && req.user.username;
+    if (!owner) return res.status(401).json({ error: 'unauthenticated' });
+
+    const sensorId = decodeId(req.params.id);
+    if (!sensorId) return res.status(400).json({ error: 'invalid sensor id encoding' });
+
+    const sensor = sensorRegistry.getSensor(sensorId);
+    if (!sensor) return res.status(404).json({ error: 'sensor not found' });
+    if (sensor.owner !== owner) return res.status(403).json({ error: 'only the sensor owner can finalize readings' });
+
+    const body = req.body || {};
+    const epoch = body.epoch !== undefined ? parseInt(body.epoch, 10) : await getCurrentEpoch();
+
+    try {
+      // 1. Compute median via sensorRegistry finalization
+      const finalization = sensorRegistry.finalizeEpochReadings(sensorId, epoch);
+
+      // 2. Serialize finalized readings to JSON and persist as blob
+      const serialized = Buffer.from(JSON.stringify(finalization), 'utf8');
+      const blobResult = blobStore.putBlob(serialized);
+
+      // 3. Record SENSOR_DATA_COMMIT on chain (non-blocking — swallow errors)
+      try {
+        await ledger.recordSensorDataCommit(
+          sensorId,
+          blobResult.cid,
+          epoch,
+          finalization.reading_count,
+          finalization.median
+        );
+      } catch (commitErr) {
+        // Blob persisted; chain entry failed — log but don't fail the HTTP response
+        console.error('[btcpc] SENSOR_DATA_COMMIT ledger error:', commitErr.message);
+      }
+
+      return res.json({
+        success: true,
+        finalization: finalization,
+        cid: blobResult.cid,
+        size: blobResult.size,
+        epoch,
+      });
+    } catch (err) {
+      if (/not found/i.test(err.message)) return res.status(404).json({ error: err.message });
+      if (/no readings/i.test(err.message)) return res.status(422).json({ error: err.message });
       return res.status(422).json({ error: err.message });
     }
   } catch (err) {

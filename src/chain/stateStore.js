@@ -108,6 +108,32 @@ var blobChallenges = new Map();
 var blobChallengeStats = new Map();
 
 // ─────────────────────────────────────────────────────────────────
+// IoT sensor + gateway state (v2.15-beta)
+// ─────────────────────────────────────────────────────────────────
+// sensors: sensor_id → { sensor_id, owner, type, unit, decimals, region, status, created_epoch, ... }
+var sensors = new Map();
+
+// sensorReadings: "<sensor_id>|<epoch>" → array of { value, metadata, submitted_at }
+// Buffered for median consensus at finalization.
+var sensorReadings = new Map();
+
+// gateways: gateway_id → { gateway_id, owner, region, latitude, longitude, status, last_heartbeat_epoch, ... }
+var gateways = new Map();
+
+// gatewayHeartbeats: gateway_id → { epochs: Set<number>, last_heartbeat_epoch, total_heartbeats }
+var gatewayHeartbeats = new Map();
+
+// ─────────────────────────────────────────────────────────────────
+// Bridge state (v2.16-alpha)
+// ─────────────────────────────────────────────────────────────────
+// bridgeWraps: "user|chainId|epoch" → { user, chainId, amount, fee }
+// bridgeUnwraps: "user|chainId|epoch" → { user, chainId, amount, fee }
+// bridgeFunders: "funder|chainId" → { funder, chainId, amount, lock_days, locked_epoch, status: 'locked'|'queued' }
+var bridgeWraps = new Map();
+var bridgeUnwraps = new Map();
+var bridgeFunders = new Map();
+
+// ─────────────────────────────────────────────────────────────────
 // Stateful compute state (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
 // services: slug → deployment record (stateful services tracked here)
@@ -217,6 +243,22 @@ function _entryKey(entry) {
   } else if (entry.type === "STORAGE_HEARTBEAT") {
     // Heartbeats are per-host-per-epoch; dedupe on that key.
     domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "SENSOR_REGISTER") {
+    domainId = "sr:" + (entry.sensor_data && entry.sensor_data.sensor_id || "");
+  } else if (entry.type === "SENSOR_READING") {
+    domainId = "srd:" + (entry.sensor_data && entry.sensor_data.sensor_id || "") + ":" + (entry.epoch || 0) + ":" + (entry.sensor_data && entry.sensor_data.value !== undefined ? entry.sensor_data.value : "") + ":" + (entry.timestamp || 0);
+  } else if (entry.type === "SENSOR_DATA_COMMIT") {
+    domainId = "sdc:" + (entry.sensor_data && entry.sensor_data.cid || "");
+  } else if (entry.type === "GATEWAY_REGISTER") {
+    domainId = "gr:" + (entry.gateway_data && entry.gateway_data.gateway_id || "");
+  } else if (entry.type === "GATEWAY_HEARTBEAT") {
+    domainId = "gh:" + (entry.gateway_data && entry.gateway_data.gateway_id || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "BRIDGE_WRAP" || entry.type === "BRIDGE_UNWRAP") {
+    domainId = "bw:" + entry.type + ":" + (entry.from || "") + ":" + (entry.bridge_data && entry.bridge_data.chain_id || "") + ":" + (entry.epoch || 0) + ":" + (entry.timestamp || 0);
+  } else if (entry.type === "BRIDGE_FUND") {
+    domainId = "bf:" + (entry.from || "") + ":" + (entry.bridge_data && entry.bridge_data.chain_id || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "BRIDGE_UNLOCK") {
+    domainId = "bu:" + (entry.from || "") + ":" + (entry.bridge_data && entry.bridge_data.chain_id || "") + ":" + (entry.epoch || 0);
   } else if (
     entry.challenge_data &&
     entry.challenge_data.challenge_id &&
@@ -1115,6 +1157,203 @@ function applyEntry(entry) {
       }
       break;
 
+    // ─────────────────────────────────────────────────────────────────
+    // IoT sensor + gateway entries (v2.15-beta)
+    // ─────────────────────────────────────────────────────────────────
+
+    case "SENSOR_REGISTER":
+      if (entry.sensor_data && entry.sensor_data.sensor_id) {
+        var ssd = entry.sensor_data;
+        var existingSensor = sensors.get(ssd.sensor_id) || {};
+        sensors.set(ssd.sensor_id, Object.assign(existingSensor, {
+          sensor_id: ssd.sensor_id,
+          owner: ssd.owner || from,
+          type: ssd.type || null,
+          unit: ssd.unit || null,
+          decimals: ssd.decimals !== undefined ? ssd.decimals : 2,
+          region: ssd.region || null,
+          lora_gateway: ssd.lora_gateway || null,
+          hardware_model: ssd.hardware_model || null,
+          firmware_version: ssd.firmware_version || null,
+          status: existingSensor.status === "retired" ? "retired" : "active",
+          created_epoch: existingSensor.created_epoch || entry.epoch || 0,
+          last_updated_epoch: entry.epoch || 0,
+          last_reading_epoch: existingSensor.last_reading_epoch || null,
+          total_readings: existingSensor.total_readings || 0,
+        }));
+      }
+      break;
+
+    case "SENSOR_READING":
+      // Buffer reading for median consensus at finalization.
+      if (entry.sensor_data && entry.sensor_data.sensor_id) {
+        var srdData = entry.sensor_data;
+        var srdKey = srdData.sensor_id + "|" + (entry.epoch || 0);
+        var srdList = sensorReadings.get(srdKey) || [];
+        srdList.push({
+          value: srdData.value,
+          metadata: srdData.metadata || {},
+          submitted_at: entry.timestamp || Date.now(),
+        });
+        sensorReadings.set(srdKey, srdList);
+        // Update sensor's last_reading_epoch
+        var srdSensor = sensors.get(srdData.sensor_id);
+        if (srdSensor) {
+          srdSensor.last_reading_epoch = entry.epoch || 0;
+          srdSensor.total_readings = (srdSensor.total_readings || 0) + 1;
+          sensors.set(srdData.sensor_id, srdSensor);
+        }
+      }
+      break;
+
+    case "SENSOR_DATA_COMMIT":
+      // Record the blob CID for persisted sensor data for this epoch.
+      if (entry.sensor_data && entry.sensor_data.sensor_id && entry.sensor_data.cid) {
+        var sdcData = entry.sensor_data;
+        var sdcSensor = sensors.get(sdcData.sensor_id);
+        if (sdcSensor) {
+          if (!sdcSensor.data_commits) sdcSensor.data_commits = [];
+          sdcSensor.data_commits.push({
+            cid: sdcData.cid,
+            epoch: entry.epoch || 0,
+            reading_count: sdcData.reading_count || 0,
+            median_value: sdcData.median_value !== undefined ? sdcData.median_value : null,
+          });
+          // Keep last 1000 commits to bound memory
+          if (sdcSensor.data_commits.length > 1000) {
+            sdcSensor.data_commits = sdcSensor.data_commits.slice(-1000);
+          }
+          sdcSensor.last_commit_cid = sdcData.cid;
+          sdcSensor.last_commit_epoch = entry.epoch || 0;
+          sensors.set(sdcData.sensor_id, sdcSensor);
+        }
+      }
+      break;
+
+    case "GATEWAY_REGISTER":
+      if (entry.gateway_data && entry.gateway_data.gateway_id) {
+        var sgd = entry.gateway_data;
+        var existingGateway = gateways.get(sgd.gateway_id) || {};
+        gateways.set(sgd.gateway_id, Object.assign(existingGateway, {
+          gateway_id: sgd.gateway_id,
+          owner: sgd.owner || from,
+          region: sgd.region || null,
+          latitude: sgd.latitude !== undefined ? sgd.latitude : null,
+          longitude: sgd.longitude !== undefined ? sgd.longitude : null,
+          antenna_gain_dbi: sgd.antenna_gain_dbi !== undefined ? sgd.antenna_gain_dbi : null,
+          hardware_model: sgd.hardware_model || null,
+          firmware_version: sgd.firmware_version || null,
+          max_sensors: sgd.max_sensors !== undefined ? sgd.max_sensors : 50,
+          status: existingGateway.status === "retired" ? "retired" : "active",
+          created_epoch: existingGateway.created_epoch || entry.epoch || 0,
+          last_updated_epoch: entry.epoch || 0,
+          last_heartbeat_epoch: existingGateway.last_heartbeat_epoch || null,
+          total_heartbeats: existingGateway.total_heartbeats || 0,
+        }));
+        if (!gatewayHeartbeats.has(sgd.gateway_id)) {
+          gatewayHeartbeats.set(sgd.gateway_id, { epochs: new Set(), last_heartbeat_epoch: null, total_heartbeats: 0 });
+        }
+      }
+      break;
+
+    case "GATEWAY_HEARTBEAT":
+      // Update gateway stats, track last_heartbeat_epoch.
+      if (entry.gateway_data && entry.gateway_data.gateway_id) {
+        var ghd = entry.gateway_data;
+        var ghGateway = gateways.get(ghd.gateway_id);
+        if (ghGateway) {
+          ghGateway.last_heartbeat_epoch = entry.epoch || 0;
+          ghGateway.total_heartbeats = (ghGateway.total_heartbeats || 0) + 1;
+          ghGateway.status = "active";
+          if (ghd.stats) {
+            ghGateway.last_stats = Object.assign({}, ghd.stats, { reported_epoch: entry.epoch || 0 });
+          }
+          gateways.set(ghd.gateway_id, ghGateway);
+        }
+        var ghStats = gatewayHeartbeats.get(ghd.gateway_id) || { epochs: new Set(), last_heartbeat_epoch: null, total_heartbeats: 0 };
+        ghStats.epochs.add(entry.epoch || 0);
+        ghStats.last_heartbeat_epoch = entry.epoch || 0;
+        ghStats.total_heartbeats = (ghStats.total_heartbeats || 0) + 1;
+        gatewayHeartbeats.set(ghd.gateway_id, ghStats);
+      }
+      break;
+
+    // ─────────────────────────────────────────────────────────────────
+    // Bridge entries (v2.16-alpha)
+    // Pay-for-delivery: no slashing, fees always to btcpc_recycle.
+    // ─────────────────────────────────────────────────────────────────
+
+    case "BRIDGE_WRAP":
+      // Debit user BTCPC; record wrap event.
+      if (from && amount > 0) {
+        _debit(from, "BTCPC", amount);
+        // Fee portion already included in amount, route fee to recycle
+        if (entry.bridge_data && entry.bridge_data.fee > 0) {
+          _credit("btcpc_recycle", "BTCPC", entry.bridge_data.fee);
+        }
+        var wrapKey = from + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "") + "|" + (entry.epoch || 0) + "|" + (entry.timestamp || 0);
+        bridgeWraps.set(wrapKey, {
+          user: from,
+          chain_id: entry.bridge_data && entry.bridge_data.chain_id || null,
+          amount: amount,
+          fee: entry.bridge_data && entry.bridge_data.fee || 0,
+          epoch: entry.epoch || 0,
+        });
+      }
+      break;
+
+    case "BRIDGE_UNWRAP":
+      // Credit user BTCPC; record unwrap event.
+      if (to && amount > 0) {
+        _credit(to, "BTCPC", amount);
+        if (entry.bridge_data && entry.bridge_data.fee > 0) {
+          _credit("btcpc_recycle", "BTCPC", entry.bridge_data.fee);
+        }
+        var unwrapKey = to + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "") + "|" + (entry.epoch || 0) + "|" + (entry.timestamp || 0);
+        bridgeUnwraps.set(unwrapKey, {
+          user: to,
+          chain_id: entry.bridge_data && entry.bridge_data.chain_id || null,
+          amount: amount,
+          fee: entry.bridge_data && entry.bridge_data.fee || 0,
+          epoch: entry.epoch || 0,
+        });
+      }
+      break;
+
+    case "BRIDGE_FUND":
+      // Debit funder; record LP position.
+      if (from && amount > 0) {
+        _debit(from, "BTCPC", amount);
+        var bfKey = from + "|" + (entry.bridge_data && entry.bridge_data.chain_id || "");
+        var bfExisting = bridgeFunders.get(bfKey) || {
+          funder: from,
+          chain_id: entry.bridge_data && entry.bridge_data.chain_id || null,
+          amount: 0,
+          lock_days: 0,
+          locked_epoch: entry.epoch || 0,
+          status: "locked",
+        };
+        bfExisting.amount = _round(bfExisting.amount + amount);
+        bfExisting.lock_days = entry.bridge_data && entry.bridge_data.lock_days || 30;
+        bfExisting.locked_epoch = entry.epoch || 0;
+        bfExisting.status = "locked";
+        bridgeFunders.set(bfKey, bfExisting);
+      }
+      break;
+
+    case "BRIDGE_UNLOCK":
+      // Queue LP for withdrawal (status: locked → queued).
+      if (from && entry.bridge_data && entry.bridge_data.chain_id) {
+        var buKey = from + "|" + entry.bridge_data.chain_id;
+        var buRecord = bridgeFunders.get(buKey);
+        if (buRecord) {
+          buRecord.status = "queued";
+          buRecord.queued_epoch = entry.epoch || 0;
+          bridgeFunders.set(buKey, buRecord);
+        }
+      }
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -1675,6 +1914,117 @@ function getChallengesForCid(cid) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// IoT sensor + gateway getters (v2.15-beta)
+// ─────────────────────────────────────────────────────────────────
+
+function getSensor(sensorId) {
+  return sensors.get(sensorId) || null;
+}
+
+function getAllSensors(filter) {
+  var result = [];
+  for (var entry of sensors) {
+    var s = entry[1];
+    if (filter) {
+      if (filter.region && s.region !== filter.region) continue;
+      if (filter.type && s.type !== filter.type) continue;
+      if (filter.owner && s.owner !== filter.owner) continue;
+      if (filter.status && s.status !== filter.status) continue;
+    }
+    result.push(s);
+  }
+  return result;
+}
+
+/**
+ * Get sensors that had at least one reading in `epoch`.
+ * Used by computeFinalization to find active sensors for the IoT pool.
+ */
+function getSensorsForEpoch(epoch) {
+  var activeSensorIds = new Set();
+  var prefix = "|" + (epoch || 0);
+  for (var key of sensorReadings.keys()) {
+    if (key.slice(key.lastIndexOf("|")) === prefix) {
+      activeSensorIds.add(key.slice(0, key.lastIndexOf("|")));
+    }
+  }
+  var result = [];
+  for (var sid of activeSensorIds) {
+    var s = sensors.get(sid);
+    if (s) {
+      var readings = sensorReadings.get(sid + "|" + epoch) || [];
+      result.push({
+        sensor_id: s.sensor_id,
+        owner: s.owner,
+        readings: readings.length,
+        // Approximate uptime: fraction of epochs with readings since creation
+        uptime_pct: 1.0, // real uptime computed at query time via sensorRegistry
+      });
+    }
+  }
+  return result;
+}
+
+function getGateway(gatewayId) {
+  return gateways.get(gatewayId) || null;
+}
+
+function getAllGateways(filter) {
+  var result = [];
+  for (var entry of gateways) {
+    var g = entry[1];
+    if (filter) {
+      if (filter.region && g.region !== filter.region) continue;
+      if (filter.owner && g.owner !== filter.owner) continue;
+      if (filter.status && g.status !== filter.status) continue;
+    }
+    result.push(g);
+  }
+  return result;
+}
+
+/**
+ * Get gateways that sent a GATEWAY_HEARTBEAT in exactly `epoch`.
+ * Used by computeFinalization to find active gateways for the IoT pool.
+ */
+function getGatewaysForEpoch(epoch) {
+  var result = [];
+  for (var entry of gatewayHeartbeats) {
+    var ghStats = entry[1];
+    if (ghStats.epochs && ghStats.epochs.has(epoch)) {
+      var gwRecord = gateways.get(entry[0]);
+      if (gwRecord) {
+        var hbCount = ghStats.epochs.size;
+        var epochSpan = Math.max(1, (gwRecord.last_heartbeat_epoch || 0) - (gwRecord.created_epoch || 0) + 1);
+        result.push({
+          gateway_id: gwRecord.gateway_id,
+          owner: gwRecord.owner,
+          packets_relayed: (gwRecord.last_stats && gwRecord.last_stats.packets_relayed_this_epoch) || 1,
+          uptime_pct: Math.min(1.0, hbCount / epochSpan),
+        });
+      }
+    }
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Bridge getters (v2.16-alpha)
+// ─────────────────────────────────────────────────────────────────
+
+function getBridgeFunder(funder, chainId) {
+  return bridgeFunders.get(funder + "|" + chainId) || null;
+}
+
+function getAllBridgeFunders(chainId) {
+  var result = [];
+  for (var entry of bridgeFunders) {
+    if (!chainId || entry[1].chain_id === chainId) result.push(entry[1]);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Slashing getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -1886,6 +2236,13 @@ function resetAll() {
   slashRecords.clear();
   services.clear();
   snapshots.clear();
+  sensors.clear();
+  sensorReadings.clear();
+  gateways.clear();
+  gatewayHeartbeats.clear();
+  bridgeWraps.clear();
+  bridgeUnwraps.clear();
+  bridgeFunders.clear();
   seenEntries.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
@@ -1976,6 +2333,16 @@ module.exports = {
   getSnapshots: getSnapshots,
   getLatestSnapshot: getLatestSnapshot,
   getStatefulServiceRecord: getStatefulServiceRecord,
+  // IoT sensor + gateway (v2.15-beta)
+  getSensor: getSensor,
+  getAllSensors: getAllSensors,
+  getSensorsForEpoch: getSensorsForEpoch,
+  getGateway: getGateway,
+  getAllGateways: getAllGateways,
+  getGatewaysForEpoch: getGatewaysForEpoch,
+  // Bridge (v2.16-alpha)
+  getBridgeFunder: getBridgeFunder,
+  getAllBridgeFunders: getAllBridgeFunders,
   // Introspection
   snapshot: snapshot,
   stats: stats,
