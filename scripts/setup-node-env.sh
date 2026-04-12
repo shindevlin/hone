@@ -1,7 +1,8 @@
 #!/bin/bash
 # BTCPC Node Environment Setup
 # Usage: bash scripts/setup-node-env.sh <username>
-# Writes the correct .env for the given miner account
+# Writes the correct .env with username + password only.
+# The mnemonic stays with the USER — never on the machine.
 
 set -euo pipefail
 USERNAME="${1:-}"
@@ -14,19 +15,23 @@ fi
 
 ENV_FILE=".env"
 
-# Check if mnemonic is provided via env or we need to ask
-MNEMONIC="${BTCPC_MNEMONIC:-}"
-if [ -z "$MNEMONIC" ]; then
-  echo "Enter the 12-word mnemonic for '$USERNAME':"
-  read -r MNEMONIC
+# Get password (hidden input)
+echo "Enter the password for '$USERNAME':"
+read -rs PASSWORD
+echo "Confirm password:"
+read -rs PASSWORD_CONFIRM
+
+if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
+  echo "❌ Passwords don't match. Try again."
+  exit 1
 fi
 
-if [ -z "$MNEMONIC" ]; then
-  echo "No mnemonic provided. The account will be created without keys."
-  echo "(You can add BTCPC_MNEMONIC= to .env later and restart)"
+if [ -z "$PASSWORD" ]; then
+  echo "❌ Password cannot be empty."
+  exit 1
 fi
 
-# Generate JWT secret if not already in .env
+# Generate JWT secret
 JWT_SECRET=$(openssl rand -hex 32)
 
 cat > "$ENV_FILE" << ENVFILE
@@ -34,9 +39,9 @@ cat > "$ENV_FILE" << ENVFILE
 NODE_ENV=production
 PORT=3000
 
-# Miner identity
+# Miner identity (username only — mnemonic stays with the user, not on disk)
 BTCPC_MINER=$USERNAME
-BTCPC_MNEMONIC=$MNEMONIC
+BTCPC_PASSWORD=$PASSWORD
 
 # Roles (all = miner + clock + storage + api)
 BTCPC_ROLES=all
@@ -60,9 +65,18 @@ BTCPC_MONGO_MODE=disabled
 BTCPC_STORAGE_CAPACITY_GB=10
 ENVFILE
 
+# Secure the file
+chmod 600 "$ENV_FILE"
+
+echo ""
 echo "✅ .env written for '$USERNAME'"
-echo "   Mnemonic: ${MNEMONIC:0:20}..."
+echo "   Password: set (not displayed)"
 echo "   JWT Secret: ${JWT_SECRET:0:16}..."
 echo "   Roles: all"
+echo "   File permissions: 600 (owner only)"
+echo ""
+echo "   ⚠️  No mnemonic on this machine."
+echo "   The mnemonic stays with the user (paper/Signal/Saved Messages)."
+echo "   This node authenticates via username + password."
 echo ""
 echo "Next: node bin/btcpc-all"
