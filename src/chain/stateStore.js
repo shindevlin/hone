@@ -1395,6 +1395,19 @@ function applyEntry(entry) {
       }
       break;
 
+    case "KEY_ROTATE":
+      if (to && accounts.has(to) && entry.key_rotate_data && entry.key_rotate_data.new_public_keys) {
+        var krAcct = accounts.get(to);
+        var np = entry.key_rotate_data.new_public_keys;
+        if (!krAcct.public_keys) krAcct.public_keys = {};
+        if (np.active)  krAcct.public_keys.active  = np.active;
+        if (np.posting) krAcct.public_keys.posting = np.posting;
+        if (np.memo)    krAcct.public_keys.memo    = np.memo;
+        if (np.owner)   krAcct.public_keys.owner   = np.owner;
+        accounts.set(to, krAcct);
+      }
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;

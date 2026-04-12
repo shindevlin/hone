@@ -1268,6 +1268,143 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════════
+// KEY ROTATION
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/rotate-keys
+// Rotate active, posting, and memo keys — authenticated by password.
+// Generates 3 new random secp256k1 keypairs server-side.
+// New PRIVATE keys are returned ONCE in the response; the bot must show them
+// to the user immediately.
+// Body:    { username, password }
+// Response:{ success, new_keys: { active:{pub,priv}, posting:{pub,priv}, memo:{pub,priv} } }
+router.post('/rotate-keys', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['username', 'password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const username = sanitizeString(req.body.username, 20);
+    const password = req.body.password;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password required' });
+    }
+    if (typeof password !== 'string') {
+      return res.status(400).json({ error: 'invalid password' });
+    }
+
+    await ensureSecretStore();
+
+    // Verify password
+    const valid = await secretStore.verifyPassword(username, password);
+    if (!valid) {
+      return res.status(401).json({ error: 'invalid password' });
+    }
+
+    // Verify account exists on chain
+    const account = stateStore.getAccount(username);
+    if (!account) {
+      return res.status(404).json({ error: 'account not found on chain' });
+    }
+
+    // Generate 3 new random secp256k1 keypairs (independent of mnemonic)
+    function generateRandomKeypair() {
+      const secp256k1 = require('secp256k1');
+      let privKey;
+      do { privKey = crypto.randomBytes(32); } while (!secp256k1.privateKeyVerify(privKey));
+      const pubKey = Buffer.from(secp256k1.publicKeyCreate(privKey, true));
+      return { privateKey: privKey.toString('hex'), publicKey: pubKey.toString('hex') };
+    }
+
+    const activeKp  = generateRandomKeypair();
+    const postingKp = generateRandomKeypair();
+    const memoKp    = generateRandomKeypair();
+
+    const newPublicKeys = {
+      active:  activeKp.publicKey,
+      posting: postingKp.publicKey,
+      memo:    memoKp.publicKey,
+    };
+
+    // Record on chain
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordKeyRotate(username, newPublicKeys, 'password', epoch);
+
+    // Return new private keys (shown to user ONCE — bot must prompt for save)
+    res.json({
+      success: true,
+      message: 'Keys rotated. Save the private keys shown below — they will not be shown again.',
+      new_keys: {
+        active:  { pub: activeKp.publicKey,  priv: activeKp.privateKey  },
+        posting: { pub: postingKp.publicKey, priv: postingKp.privateKey },
+        memo:    { pub: memoKp.publicKey,    priv: memoKp.privateKey    },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/rotate-owner
+// Rotate the owner key — the private key NEVER touches the server.
+// The client (CLI or btcpc.net/rotate) signs a challenge with the CURRENT
+// owner private key locally, then sends only the new public key + signature.
+// Body:    { username, new_owner_public_key, challenge, signature }
+//   challenge = sha256(username + new_owner_public_key + timestamp)
+//   signature = ecdsaSign(sha256(challenge), CURRENT_owner_private_key)
+// Response:{ success }
+router.post('/rotate-owner', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['username', 'new_owner_public_key', 'challenge', 'signature']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const username       = sanitizeString(req.body.username, 20);
+    const newOwnerPubKey = sanitizeString(req.body.new_owner_public_key, 128);
+    const challenge      = sanitizeString(req.body.challenge, 256);
+    const signature      = sanitizeString(req.body.signature, 512);
+
+    if (!username || !newOwnerPubKey || !challenge || !signature) {
+      return res.status(400).json({ error: 'username, new_owner_public_key, challenge, and signature required' });
+    }
+
+    // Verify the account exists and has an owner key on chain
+    const account = stateStore.getAccount(username);
+    if (!account || !account.public_keys || !account.public_keys.owner) {
+      return res.status(404).json({ error: 'account not found or has no owner key on chain' });
+    }
+
+    // Verify the signature — must be signed by the CURRENT owner private key.
+    // The client signs: ecdsaSign(sha256(challenge), ownerPrivKey)
+    // where challenge itself is sha256(username + newOwnerPubKey + timestamp).
+    // We verify against: sha256(challenge) as a 32-byte message.
+    let valid = false;
+    try {
+      const secp256k1 = require('secp256k1');
+      const msgBuf  = crypto.createHash('sha256').update(challenge).digest();
+      const sigBuf  = Buffer.from(signature, 'hex');
+      const pubBuf  = Buffer.from(account.public_keys.owner, 'hex');
+      valid = secp256k1.ecdsaVerify(sigBuf, msgBuf, pubBuf);
+    } catch (_) {
+      valid = false;
+    }
+    if (!valid) {
+      return res.status(401).json({ error: 'signature does not match on-chain owner key' });
+    }
+
+    // Record the owner key rotation on chain
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordKeyRotate(username, { owner: newOwnerPubKey }, 'owner_signature', epoch);
+
+    res.json({
+      success: true,
+      message: 'Owner key rotated. The old owner key is now invalid.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/bot/set-password
 // Set password for an account that doesn't have one yet.
 // Body: { username, password, telegramId? }

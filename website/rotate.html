@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTCPC — Owner Key Rotation</title>
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --card: #161a22;
+      --border: #2a2f3d;
+      --accent: #f7931a;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --error: #e53e3e;
+      --success: #48bb78;
+      --warn: #ed8936;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', Courier, monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.6rem; color: var(--accent); }
+    header p  { color: var(--muted); margin-top: 0.5rem; font-size: 0.9rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 560px;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1.5rem; color: var(--text); }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+      margin-top: 1rem;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      padding: 0.6rem 0.8rem;
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    button {
+      display: block;
+      width: 100%;
+      margin-top: 1.5rem;
+      padding: 0.75rem;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.88; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .notice {
+      background: #1a1200;
+      border: 1px solid var(--warn);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: var(--warn);
+      margin-top: 1rem;
+      line-height: 1.5;
+    }
+    .notice.info { border-color: var(--muted); color: var(--muted); background: #111419; }
+    #result {
+      margin-top: 1.5rem;
+      display: none;
+    }
+    #result.ok {
+      background: #0d1a10;
+      border: 1px solid var(--success);
+      border-radius: 4px;
+      padding: 1rem;
+      color: var(--success);
+      font-size: 0.85rem;
+    }
+    #result.err {
+      background: #1a0d0d;
+      border: 1px solid var(--error);
+      border-radius: 4px;
+      padding: 1rem;
+      color: var(--error);
+      font-size: 0.85rem;
+    }
+    .key-box {
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem;
+      margin-top: 0.75rem;
+      word-break: break-all;
+      font-size: 0.8rem;
+      color: var(--accent);
+    }
+    .key-label { color: var(--muted); font-size: 0.75rem; margin-bottom: 0.2rem; }
+    footer {
+      margin-top: 2rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>BTCPC Owner Key Rotation</h1>
+  <p>Runs entirely in your browser &mdash; your private key never leaves this device.</p>
+</header>
+
+<div class="card">
+  <h2>Rotate Owner Key</h2>
+
+  <div class="notice">
+    This is the nuclear option. Only do this if your owner key was compromised
+    or you are migrating to a new key. Active / posting / memo key rotation
+    can be done through the Telegram bot with your password.
+  </div>
+
+  <label for="username">BTCPC Username</label>
+  <input type="text" id="username" placeholder="shindevlin" autocomplete="off" />
+
+  <label for="ownerKey">Current Owner Private Key (hex)</label>
+  <input type="password" id="ownerKey" placeholder="64-character hex" autocomplete="off" />
+
+  <div class="notice info">
+    The private key is used locally to sign the rotation payload.
+    Only your new public key and a cryptographic signature are sent to the server.
+    The server never sees your private key.
+  </div>
+
+  <button id="rotateBtn" onclick="rotateOwner()">Rotate Owner Key</button>
+
+  <div id="result"></div>
+</div>
+
+<footer>BTCPC Network &mdash; btcpc.net</footer>
+
+<script>
+// ─── Minimal secp256k1 (via noble-secp256k1 CDN) ───────────────────────────
+// We load the ESM-compatible UMD build so no bundler is needed.
+// The noble library is audited, MIT-licensed, and pure JS.
+(function () {
+  var script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/@noble/secp256k1@1.7.1/dist/secp256k1.min.js';
+  script.crossOrigin = 'anonymous';
+  document.head.appendChild(script);
+})();
+
+// ─── SHA-256 via WebCrypto ──────────────────────────────────────────────────
+async function sha256hex(str) {
+  var enc = new TextEncoder().encode(str);
+  var buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ─── Uint8 / hex helpers ────────────────────────────────────────────────────
+function hexToBytes(hex) {
+  if (hex.length % 2 !== 0) throw new Error('hex length must be even');
+  var bytes = new Uint8Array(hex.length / 2);
+  for (var i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ─── Generate random 32-byte private key ────────────────────────────────────
+function randomPrivKey() {
+  var bytes;
+  do {
+    bytes = crypto.getRandomValues(new Uint8Array(32));
+  } while (!nobleSecp256k1.privateKeyVerify(bytes));
+  return bytes;
+}
+
+// ─── Global ref to the noble lib ────────────────────────────────────────────
+function getNoble() {
+  // noble-secp256k1 1.x UMD exposes itself as window.secp256k1
+  // noble-secp256k1 2.x exposes as window.nobleSecp256k1 — try both
+  return window.secp256k1 || window.nobleSecp256k1 || null;
+}
+
+async function rotateOwner() {
+  var resultEl = document.getElementById('result');
+  var btn = document.getElementById('rotateBtn');
+  resultEl.className = '';
+  resultEl.style.display = 'none';
+  resultEl.innerHTML = '';
+
+  var username    = document.getElementById('username').value.trim();
+  var ownerKeyHex = document.getElementById('ownerKey').value.trim();
+
+  if (!username) return showError('Username is required.');
+  if (!ownerKeyHex || ownerKeyHex.length !== 64) return showError('Owner private key must be 64 hex characters.');
+
+  var noble = getNoble();
+  if (!noble) return showError('Crypto library not loaded yet — please wait a moment and try again.');
+
+  btn.disabled = true;
+  btn.textContent = 'Rotating...';
+
+  try {
+    // 1. Derive public key from entered private key
+    var currentPrivBytes;
+    try {
+      currentPrivBytes = hexToBytes(ownerKeyHex);
+      if (!noble.privateKeyVerify(currentPrivBytes)) throw new Error('not a valid secp256k1 private key');
+    } catch (e) {
+      showError('Invalid private key: ' + e.message);
+      return;
+    }
+    var currentPubBytes  = noble.getPublicKey(currentPrivBytes, true);
+    var currentPubHex    = bytesToHex(currentPubBytes);
+
+    // 2. Fetch on-chain owner public key
+    var accountRes = await fetch('/public/account/' + encodeURIComponent(username));
+    if (!accountRes.ok) {
+      showError('Account not found: ' + username);
+      return;
+    }
+    var accountData = await accountRes.json();
+    var onChainOwnerPub = accountData && accountData.public_keys && accountData.public_keys.owner;
+    if (!onChainOwnerPub) {
+      showError('No owner key found on chain for ' + username + '.');
+      return;
+    }
+
+    // 3. Verify entered key matches on-chain key
+    if (currentPubHex.toLowerCase() !== onChainOwnerPub.toLowerCase()) {
+      showError('The private key you entered does NOT match the on-chain owner key for ' + username + '.\n\nOn-chain: ' + onChainOwnerPub.slice(0, 20) + '...\nDerived:  ' + currentPubHex.slice(0, 20) + '...');
+      return;
+    }
+
+    // 4. Generate new owner keypair client-side
+    var newOwnerPrivBytes = randomPrivKey();
+    var newOwnerPubBytes  = noble.getPublicKey(newOwnerPrivBytes, true);
+    var newOwnerPubHex    = bytesToHex(newOwnerPubBytes);
+    var newOwnerPrivHex   = bytesToHex(newOwnerPrivBytes);
+
+    // 5. Build challenge and sign with CURRENT owner key
+    var timestamp       = Date.now().toString();
+    var challengeInput  = username + newOwnerPubHex + timestamp;
+    var challenge       = await sha256hex(challengeInput);
+
+    // Sign sha256(challenge)
+    var innerHashHex    = await sha256hex(challenge);
+    var innerHashBytes  = hexToBytes(innerHashHex);
+    var sigResult       = await noble.sign(innerHashBytes, currentPrivBytes);
+    var sigHex          = bytesToHex(typeof sigResult === 'object' && sigResult.toDERHex ? hexToBytes(sigResult.toDERHex()) : sigResult);
+
+    // 6. POST to server — only new public key + signature (NEVER the private key)
+    var payload = {
+      username:             username,
+      new_owner_public_key: newOwnerPubHex,
+      challenge:            challenge,
+      signature:            sigHex,
+    };
+
+    var postRes = await fetch('/api/bot/rotate-owner', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    var postBody = await postRes.json();
+    if (!postRes.ok) {
+      showError('Server error: ' + (postBody.error || postRes.status));
+      return;
+    }
+
+    // 7. Show new owner private key — client-side only, never sent to server
+    showSuccess(newOwnerPrivHex, newOwnerPubHex);
+
+    // 8. Clear the input field
+    document.getElementById('ownerKey').value = '';
+
+    // Zero out old private key bytes
+    currentPrivBytes.fill(0);
+
+  } catch (err) {
+    showError('Unexpected error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Rotate Owner Key';
+  }
+}
+
+function showError(msg) {
+  var el = document.getElementById('result');
+  el.className = 'err';
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
+function showSuccess(newPrivHex, newPubHex) {
+  var el = document.getElementById('result');
+  el.className = 'ok';
+  el.style.display = 'block';
+  el.innerHTML =
+    '<strong>Owner key rotated successfully.</strong>' +
+    '<div class="key-label" style="margin-top:1rem;">New Owner PRIVATE Key (save this now — shown only once):</div>' +
+    '<div class="key-box">' + escapeHtml(newPrivHex) + '</div>' +
+    '<div class="key-label" style="margin-top:0.75rem;">New Owner Public Key (recorded on chain):</div>' +
+    '<div class="key-box">' + escapeHtml(newPubHex) + '</div>' +
+    '<p style="margin-top:1rem;color:var(--warn);font-size:0.8rem;">' +
+      'SAVE THE PRIVATE KEY ABOVE IMMEDIATELY. It will not be shown again. ' +
+      'Store it offline in a secure location.' +
+    '</p>';
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Alias for noble 1.x UMD which may set window.secp256k1
+var nobleSecp256k1 = null;
+window.addEventListener('load', function() {
+  // Try both known global names the noble UMD might use
+  nobleSecp256k1 = window.secp256k1 || window.nobleSecp256k1 || null;
+});
+</script>
+</body>
+</html>

@@ -1788,6 +1788,32 @@ function appendForeignEntry(entry) {
   } catch (_) {}
 }
 
+/**
+ * Record a key rotation on the ledger.
+ *
+ * @param {string} username         — account whose keys are being rotated
+ * @param {object} newPublicKeys    — { active?, posting?, memo?, owner? } — only
+ *                                    the keys being replaced need to be present
+ * @param {string} authorizedBy     — 'password' | 'owner_signature'
+ * @param {number} epoch
+ */
+async function recordKeyRotate(username, newPublicKeys, authorizedBy, epoch) {
+  if (!username) throw new Error('username required');
+  if (!newPublicKeys || typeof newPublicKeys !== 'object') throw new Error('newPublicKeys required');
+  if (!authorizedBy) throw new Error('authorizedBy required');
+
+  return _persist(_entry({
+    type: 'KEY_ROTATE',
+    to: username,
+    epoch: epoch || 0,
+    key_rotate_data: {
+      new_public_keys: newPublicKeys,
+      authorized_by: authorizedBy,
+      timestamp: Date.now(),
+    },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -1870,4 +1896,6 @@ module.exports = {
   recordBridgeUnlock,
   // Cross-chain monitor (v2.17)
   recordCrossChainActivity,
+  // Key rotation (security)
+  recordKeyRotate,
 };

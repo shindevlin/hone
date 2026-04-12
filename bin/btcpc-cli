@@ -888,6 +888,198 @@ walletCmd
     }
   });
 
+// --- wallet rotate-keys ----------------------------------------------------
+
+walletCmd
+  .command("rotate-keys <username>")
+  .description("Rotate active, posting, and memo keys — authenticated by password")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Key Rotation for '" + username + "'");
+      console.log("=".repeat(20 + username.length));
+      console.log("");
+      console.log("  This will replace your active, posting, and memo keys with newly");
+      console.log("  generated random keys. Your owner key is NOT touched.");
+      console.log("  You must save the new private keys shown below — they are shown ONCE.");
+      console.log("");
+
+      const password = await prompt("  Enter password: ", true);
+      if (!password) {
+        console.error("  error: password required");
+        process.exit(1);
+      }
+
+      const secretStoreLocal = require("../src/services/secretStore");
+      await secretStoreLocal.load();
+
+      // Verify password locally
+      const valid = await secretStoreLocal.verifyPassword(username, password);
+      if (!valid) {
+        console.error("  error: invalid password");
+        process.exit(1);
+      }
+
+      // Verify account exists on chain
+      const onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!onChainAccount) {
+        console.error("  error: account '" + username + "' not found on chain");
+        process.exit(1);
+      }
+
+      console.log("");
+      console.log("  Generating new active, posting, and memo keys...");
+      console.log("");
+
+      // Generate 3 new random secp256k1 keypairs
+      const secp256k1 = require("secp256k1");
+      function generateRandomKeypair() {
+        let privKey;
+        do { privKey = crypto.randomBytes(32); } while (!secp256k1.privateKeyVerify(privKey));
+        const pubKey = Buffer.from(secp256k1.publicKeyCreate(privKey, true));
+        return { privateKey: privKey.toString("hex"), publicKey: pubKey.toString("hex") };
+      }
+
+      const activeKp  = generateRandomKeypair();
+      const postingKp = generateRandomKeypair();
+      const memoKp    = generateRandomKeypair();
+
+      const newPublicKeys = {
+        active:  activeKp.publicKey,
+        posting: postingKp.publicKey,
+        memo:    memoKp.publicKey,
+      };
+
+      // Record on chain
+      const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+      await ledger.recordKeyRotate(username, newPublicKeys, "password", epoch);
+
+      console.log("  New Private Keys (SAVE THESE NOW — shown only once):");
+      console.log("");
+      console.log("    Active:  " + activeKp.privateKey);
+      console.log("    Posting: " + postingKp.privateKey);
+      console.log("    Memo:    " + memoKp.privateKey);
+      console.log("");
+      console.log("  New Public Keys (recorded on chain):");
+      console.log("");
+      console.log("    Active:  " + activeKp.publicKey);
+      console.log("    Posting: " + postingKp.publicKey);
+      console.log("    Memo:    " + memoKp.publicKey);
+      console.log("");
+      console.log("  Rotation recorded on chain. Old keys are now invalid.");
+      console.log("");
+
+      const keep = await prompt("  Keep old keys in Telegram chat history? (yes to keep, no to warn): ");
+      if (!keep || keep.trim().toLowerCase().startsWith("n")) {
+        console.log("");
+        console.log("  WARNING: If you stored old keys in Telegram or any cloud chat,");
+        console.log("  those messages still exist on Telegram's servers even if deleted");
+        console.log("  from your view. Consider this when assessing risk.");
+        console.log("");
+      }
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet rotate-owner ---------------------------------------------------
+
+walletCmd
+  .command("rotate-owner <username>")
+  .description("Rotate the owner key — requires current owner private key (signs locally)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("OWNER KEY ROTATION for '" + username + "'");
+      console.log("=".repeat(24 + username.length));
+      console.log("");
+      console.log("  WARNING: This is the nuclear option. The owner key controls");
+      console.log("  everything. If you lose the new owner key, account recovery");
+      console.log("  is extremely difficult.");
+      console.log("");
+      console.log("  Your current owner PRIVATE key is used to sign the rotation");
+      console.log("  locally. It never leaves this machine.");
+      console.log("");
+
+      const ownerPrivHex = await prompt("  Enter your CURRENT owner private key (hex): ", true);
+      if (!ownerPrivHex || ownerPrivHex.trim().length < 64) {
+        console.error("  error: owner private key required (64+ hex chars)");
+        process.exit(1);
+      }
+
+      // Derive the public key from the entered private key
+      const secp256k1 = require("secp256k1");
+      let currentOwnerPrivBuf;
+      try {
+        currentOwnerPrivBuf = Buffer.from(ownerPrivHex.trim(), "hex");
+        if (!secp256k1.privateKeyVerify(currentOwnerPrivBuf)) {
+          throw new Error("invalid secp256k1 private key");
+        }
+      } catch (e) {
+        console.error("  error: " + e.message);
+        process.exit(1);
+      }
+      const derivedOwnerPub = Buffer.from(secp256k1.publicKeyCreate(currentOwnerPrivBuf, true)).toString("hex");
+
+      // Compare against on-chain owner key
+      const onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!onChainAccount || !onChainAccount.public_keys || !onChainAccount.public_keys.owner) {
+        console.error("  error: account '" + username + "' not found or has no owner key on chain");
+        process.exit(1);
+      }
+
+      if (onChainAccount.public_keys.owner !== derivedOwnerPub) {
+        console.error("  error: entered private key does NOT match on-chain owner key");
+        console.error("  On-chain:  " + onChainAccount.public_keys.owner.slice(0, 20) + "...");
+        console.error("  Derived:   " + derivedOwnerPub.slice(0, 20) + "...");
+        process.exit(1);
+      }
+      console.log("");
+      console.log("  Current owner key verified against on-chain key.");
+      console.log("");
+      console.log("  Generating new owner keypair...");
+      console.log("");
+
+      // Generate new owner keypair
+      let newOwnerPrivBuf;
+      do { newOwnerPrivBuf = crypto.randomBytes(32); } while (!secp256k1.privateKeyVerify(newOwnerPrivBuf));
+      const newOwnerPubHex  = Buffer.from(secp256k1.publicKeyCreate(newOwnerPrivBuf, true)).toString("hex");
+      const newOwnerPrivHex = newOwnerPrivBuf.toString("hex");
+
+      // Build challenge and sign with CURRENT owner key
+      const timestamp = Date.now().toString();
+      const challengeInput = username + newOwnerPubHex + timestamp;
+      const challenge = crypto.createHash("sha256").update(challengeInput).digest("hex");
+      const challengeHashBuf = crypto.createHash("sha256").update(challenge).digest();
+
+      const sigObj = secp256k1.ecdsaSign(challengeHashBuf, currentOwnerPrivBuf);
+      const signature = Buffer.from(sigObj.signature).toString("hex");
+
+      // Record on chain
+      const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+      await ledger.recordKeyRotate(username, { owner: newOwnerPubHex }, "owner_signature", epoch);
+
+      console.log("  New Owner Private Key (SAVE THIS NOW — shown only once):");
+      console.log("");
+      console.log("    " + newOwnerPrivHex);
+      console.log("");
+      console.log("  New Owner Public Key (recorded on chain):");
+      console.log("");
+      console.log("    " + newOwnerPubHex);
+      console.log("");
+      console.log("  DONE. Old owner key is now invalid.");
+      console.log("  SAVE YOUR NEW OWNER KEY IMMEDIATELY.");
+      console.log("");
+
+      // Wipe old private key from memory
+      currentOwnerPrivBuf.fill(0);
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
 // --- wallet export ---------------------------------------------------------
 
 walletCmd
