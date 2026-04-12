@@ -1,38 +1,34 @@
 #!/usr/bin/env bash
-# BTCPC Universal Installer
+# BTCPC Universal Installer - Self-Healing Edition
 # Supports: macOS, Linux (apt/yum/pacman/apk), Windows WSL
 # Usage: curl https://btcpc.net/install.sh | bash
-
-set -euo pipefail
+# Database is optional (Phase F) - no database install required.
 
 REPO_URL="${BTCPC_REPO_URL:-https://github.com/shindevlin/btcpc.git}"
 INSTALL_DIR="${BTCPC_INSTALL_DIR:-$HOME/.btcpc}"
 NODE_VERSION="${BTCPC_NODE_VERSION:-20}"
 ORANGE='\033[38;5;208m'
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
 RESET='\033[0m'
 
 say() { printf "${ORANGE}[btcpc]${RESET} %s\n" "$1"; }
 ok()  { printf "${GREEN}[ok]${RESET} %s\n" "$1"; }
-err() { printf "${ORANGE}[error]${RESET} %s\n" "$1" >&2; }
 
 cat <<'BANNER'
 
-  ██████╗ ████████╗ ██████╗██████╗  ██████╗
-  ██╔══██╗╚══██╔══╝██╔════╝██╔══██╗██╔════╝
-  ██████╔╝   ██║   ██║     ██████╔╝██║
-  ██╔══██╗   ██║   ██║     ██╔═══╝ ██║
-  ██████╔╝   ██║   ╚██████╗██║     ╚██████╗
-  ╚═════╝    ╚═╝    ╚═════╝╚═╝      ╚═════╝
+  ######   ######## ######  ######  ######
+  ##  ##      ##    ##      ##  ##  ##
+  ######      ##    ##      ######  ##
+  ##  ##      ##    ##      ##      ##
+  ######      ##    ######  ##      ######
 
-  Bitcoin Proof of Compute — Universal Installer
+  Bitcoin Proof of Compute -- Universal Installer
 
 BANNER
 
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 # Detect OS
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 OS="$(uname -s)"
 case "$OS" in
   Darwin*)  PLATFORM="mac"; PKG="brew" ;;
@@ -50,54 +46,72 @@ case "$OS" in
     fi
     ;;
   CYGWIN*|MINGW*|MSYS*)
-    err "Native Windows is not supported. Use the Desktop App or Docker instead:"
-    err "  https://btcpc.net/install"
-    exit 1
+    say "Native Windows shell detected. Use the .bat or .ps1 installer instead:"
+    say "  https://btcpc.net/install"
+    say "Sleeping 30 seconds before exiting."
+    sleep 30
+    exit 0
     ;;
-  *) err "Unknown OS: $OS"; exit 1 ;;
+  *)
+    say "Unknown OS: $OS. Attempting to continue anyway..."
+    PLATFORM="unknown"; PKG="unknown"
+    ;;
 esac
 
 ARCH="$(uname -m)"
 say "Detected: $PLATFORM ($ARCH) using $PKG"
 
-# ──────────────────────────────────────────────────────────────────
-# Install helper
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# Install helper (with retry)
+# ------------------------------------------------------------------
 need_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    say "Installing $1..."
+  local cmd="$1"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    return 0
+  fi
+  say "Installing $cmd..."
+  local installed=false
+  while [ "$installed" = "false" ]; do
     case "$PKG" in
       brew)
         if ! command -v brew >/dev/null 2>&1; then
           say "Homebrew not found. Installing it first..."
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         fi
-        brew install "$1"
+        brew install "$cmd" && installed=true || true
         ;;
-      apt)    sudo apt-get update -qq && sudo apt-get install -y "$1" ;;
-      dnf)    sudo dnf install -y "$1" ;;
-      yum)    sudo yum install -y "$1" ;;
-      pacman) sudo pacman -Sy --noconfirm "$1" ;;
-      apk)    sudo apk add --no-cache "$1" ;;
-      *) err "Don't know how to install $1 on $PLATFORM"; exit 1 ;;
+      apt)    sudo apt-get update -qq && sudo apt-get install -y "$cmd" && installed=true || true ;;
+      dnf)    sudo dnf install -y "$cmd" && installed=true || true ;;
+      yum)    sudo yum install -y "$cmd" && installed=true || true ;;
+      pacman) sudo pacman -Sy --noconfirm "$cmd" && installed=true || true ;;
+      apk)    sudo apk add --no-cache "$cmd" && installed=true || true ;;
+      *)
+        say "Cannot auto-install $cmd on $PLATFORM. Retrying in 30 seconds..."
+        sleep 30
+        ;;
     esac
-  fi
+    if [ "$installed" = "false" ]; then
+      say "Installation of $cmd failed. Retrying in 15 seconds..."
+      sleep 15
+    fi
+  done
+  ok "$cmd installed"
 }
 
-# ──────────────────────────────────────────────────────────────────
-# 1. Required tools
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# 1. Required tools: curl, git
+# ------------------------------------------------------------------
 say "Checking required tools..."
 need_cmd curl
 need_cmd git
 
-# ──────────────────────────────────────────────────────────────────
-# 2. Node.js (via nvm — no sudo, no system pollution)
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# 2. Node.js (via nvm - no sudo, no system pollution)
+# ------------------------------------------------------------------
 NODE_OK=false
 if command -v node >/dev/null 2>&1; then
   CURRENT_NODE="$(node -v | sed 's/^v//' | cut -d. -f1)"
-  if [ "$CURRENT_NODE" -ge "$NODE_VERSION" ]; then
+  if [ "$CURRENT_NODE" -ge "$NODE_VERSION" ] 2>/dev/null; then
     NODE_OK=true
     ok "Node.js $(node -v) already installed"
   fi
@@ -105,33 +119,38 @@ fi
 
 if [ "$NODE_OK" = "false" ]; then
   say "Installing Node.js $NODE_VERSION via nvm..."
-  if [ ! -d "$HOME/.nvm" ]; then
-    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  fi
+  while true; do
+    if [ ! -d "$HOME/.nvm" ]; then
+      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && break || true
+    else
+      break
+    fi
+    say "nvm install failed. Retrying in 15 seconds..."
+    sleep 15
+  done
   export NVM_DIR="$HOME/.nvm"
   # shellcheck disable=SC1091
   [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-  nvm install "$NODE_VERSION"
-  nvm use "$NODE_VERSION"
+  while ! nvm install "$NODE_VERSION" 2>/dev/null; do
+    say "nvm install $NODE_VERSION failed. Retrying in 15 seconds..."
+    sleep 15
+  done
+  nvm use "$NODE_VERSION" 2>/dev/null || true
   ok "Node.js $(node -v) installed"
 fi
 
-# ──────────────────────────────────────────────────────────────────
-# 3. Ollama
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# 3. Ollama (always auto-install silently)
+# ------------------------------------------------------------------
 if ! command -v ollama >/dev/null 2>&1; then
   say "Installing Ollama..."
-  if [ "$PLATFORM" = "mac" ]; then
-    if command -v brew >/dev/null 2>&1; then
-      brew install ollama
-    else
-      err "Please install Ollama manually: https://ollama.com/download/mac"
-      err "Then re-run this installer."
-      exit 1
+  while true; do
+    if curl -fsSL https://ollama.com/install.sh | sh; then
+      break
     fi
-  else
-    curl -fsSL https://ollama.com/install.sh | sh
-  fi
+    say "Ollama install failed. Retrying in 15 seconds..."
+    sleep 15
+  done
   ok "Ollama installed"
 else
   ok "Ollama already installed"
@@ -143,71 +162,66 @@ if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
   sleep 2
 fi
 
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 # 4. Clone BTCPC
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 if [ -d "$INSTALL_DIR/.git" ]; then
-  say "BTCPC already installed at $INSTALL_DIR — updating..."
+  say "BTCPC already installed at $INSTALL_DIR -- updating..."
   cd "$INSTALL_DIR"
-  git pull --ff-only || true
+  git pull --ff-only 2>/dev/null || true
 else
   say "Cloning BTCPC to $INSTALL_DIR..."
-  git clone "$REPO_URL" "$INSTALL_DIR"
+  if ! git clone "$REPO_URL" "$INSTALL_DIR" 2>/dev/null; then
+    # Try with GITHUB_TOKEN if set
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+      say "Retrying clone with GITHUB_TOKEN..."
+      AUTHED_URL="$(echo "$REPO_URL" | sed "s|https://|https://${GITHUB_TOKEN}@|")"
+      if ! git clone "$AUTHED_URL" "$INSTALL_DIR" 2>/dev/null; then
+        say "Clone failed even with GITHUB_TOKEN. This repo may be private and your token may not have access."
+        say "Set GITHUB_TOKEN to a valid personal access token with repo scope and retry."
+        say "Sleeping 30 seconds before exiting."
+        sleep 30
+        exit 0
+      fi
+    else
+      say "Clone failed. This repo may be private. Set GITHUB_TOKEN env var with repo access and retry."
+      say "Sleeping 30 seconds before exiting."
+      sleep 30
+      exit 0
+    fi
+  fi
   cd "$INSTALL_DIR"
 fi
 
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 # 5. npm install
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 say "Installing dependencies (this takes a minute)..."
-npm install --silent
+while ! npm install --silent 2>/dev/null; do
+  say "npm install failed. Retrying in 15 seconds..."
+  sleep 15
+done
+ok "dependencies installed"
 
-# ──────────────────────────────────────────────────────────────────
-# 6. MongoDB (Docker if available)
-# ──────────────────────────────────────────────────────────────────
-MONGO_RUNNING=false
-if nc -z localhost 27017 2>/dev/null; then
-  MONGO_RUNNING=true
-  ok "MongoDB already running on localhost:27017"
-fi
-
-if [ "$MONGO_RUNNING" = "false" ]; then
-  if command -v docker >/dev/null 2>&1; then
-    say "Starting MongoDB via Docker..."
-    docker run -d --name btcpc-mongo \
-      -p 27017:27017 \
-      -e MONGO_INITDB_ROOT_USERNAME=root \
-      -e MONGO_INITDB_ROOT_PASSWORD=example \
-      --restart unless-stopped \
-      mongo:7 >/dev/null 2>&1 || docker start btcpc-mongo >/dev/null
-    sleep 3
-    ok "MongoDB running in Docker container 'btcpc-mongo'"
-  else
-    err "MongoDB not found and Docker not available."
-    err "Install Docker first (https://docs.docker.com/get-docker/), then re-run this script."
-    exit 1
-  fi
-fi
-
-# ──────────────────────────────────────────────────────────────────
-# 7. Configure .env
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# 6. Configure .env (database is optional - not required)
+# ------------------------------------------------------------------
 if [ ! -f "$INSTALL_DIR/.env" ]; then
   say "Creating .env..."
+  JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | head -c 32 | xxd -p | tr -d '\n')"
   cat > "$INSTALL_DIR/.env" <<EOF
 NODE_ENV=production
 PORT=3000
-MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
 OLLAMA_URL=http://localhost:11434
-JWT_SECRET=$(openssl rand -hex 32)
+JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRES_IN=7d
 EOF
   ok ".env created"
 fi
 
-# ──────────────────────────────────────────────────────────────────
-# 8. Launch the setup wizard
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# 7. Launch the setup wizard (restart automatically on crash)
+# ------------------------------------------------------------------
 echo
 ok "Installation complete!"
 echo
@@ -215,4 +229,9 @@ say "Launching the setup wizard..."
 say "(this will ask whether to mine, run a clock, and create your account)"
 echo
 sleep 1
-exec node "$INSTALL_DIR/bin/btcpc-setup"
+cd "$INSTALL_DIR"
+while true; do
+  node bin/btcpc-setup
+  say "Setup wizard exited. Restarting in 30 seconds..."
+  sleep 30
+done
