@@ -134,6 +134,15 @@ var bridgeUnwraps = new Map();
 var bridgeFunders = new Map();
 
 // ─────────────────────────────────────────────────────────────────
+// Cross-chain activity state (v2.17)
+// ─────────────────────────────────────────────────────────────────
+// crossChainActivity: username → [{ chain, address, activity_type, epoch, timestamp, ...data }]
+// Populated by CROSS_CHAIN_ACTIVITY entries from the chain-monitor daemon.
+// Bounded per-user to 1000 entries to prevent unbounded growth.
+var crossChainActivity = new Map();
+var CROSS_CHAIN_ACTIVITY_RETENTION = 1000;
+
+// ─────────────────────────────────────────────────────────────────
 // Stateful compute state (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
 // services: slug → deployment record (stateful services tracked here)
@@ -253,6 +262,13 @@ function _entryKey(entry) {
     domainId = "gr:" + (entry.gateway_data && entry.gateway_data.gateway_id || "");
   } else if (entry.type === "GATEWAY_HEARTBEAT") {
     domainId = "gh:" + (entry.gateway_data && entry.gateway_data.gateway_id || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "CROSS_CHAIN_ACTIVITY" && entry.cross_chain_data) {
+    // Each external chain observation is unique per (user, chain, address, timestamp)
+    domainId = "cca:" +
+      (entry.to || "") + ":" +
+      (entry.cross_chain_data.chain || "") + ":" +
+      (entry.cross_chain_data.address || "") + ":" +
+      (entry.timestamp || 0);
   } else if (entry.type === "BRIDGE_WRAP" || entry.type === "BRIDGE_UNWRAP") {
     domainId = "bw:" + entry.type + ":" + (entry.from || "") + ":" + (entry.bridge_data && entry.bridge_data.chain_id || "") + ":" + (entry.epoch || 0) + ":" + (entry.timestamp || 0);
   } else if (entry.type === "BRIDGE_FUND") {
@@ -1354,6 +1370,31 @@ function applyEntry(entry) {
       }
       break;
 
+    // ─────────────────────────────────────────────────────────────────
+    // Cross-chain monitor activity (v2.17)
+    // ─────────────────────────────────────────────────────────────────
+    case "CROSS_CHAIN_ACTIVITY":
+      // Store external chain activity observed by the chain-monitor daemon.
+      // No balance mutation — this is purely an observation record.
+      if (to && entry.cross_chain_data) {
+        var ccData = entry.cross_chain_data;
+        var ccList = crossChainActivity.get(to) || [];
+        ccList.push({
+          chain: ccData.chain || null,
+          address: ccData.address || null,
+          activity_type: ccData.activity_type || "balance_change",
+          epoch: entry.epoch || 0,
+          timestamp: entry.timestamp || Date.now(),
+          data: Object.assign({}, ccData),
+        });
+        // Bound memory: keep only the most recent N entries per user
+        if (ccList.length > CROSS_CHAIN_ACTIVITY_RETENTION) {
+          ccList = ccList.slice(ccList.length - CROSS_CHAIN_ACTIVITY_RETENTION);
+        }
+        crossChainActivity.set(to, ccList);
+      }
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -2061,6 +2102,43 @@ function getStatefulServiceRecord(slug) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Cross-chain activity getters (v2.17)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get all recorded cross-chain activities for a user.
+ * Optionally filter by chain name.
+ *
+ * @param {string} username
+ * @param {string} [chain]  - optional filter (base|arbitrum|ethereum|solana|bitcoin)
+ * @returns {Array}
+ */
+function getCrossChainActivity(username, chain) {
+  var list = crossChainActivity.get(username) || [];
+  if (chain) {
+    return list.filter(function (a) { return a.chain === chain; });
+  }
+  return list.slice();
+}
+
+/**
+ * Get the most recent N cross-chain activities across all users.
+ * Used by the explorer to show a live feed.
+ */
+function getRecentCrossChainActivity(n) {
+  var result = [];
+  for (var entry of crossChainActivity) {
+    var username = entry[0];
+    var list = entry[1];
+    for (var i = 0; i < list.length; i++) {
+      result.push(Object.assign({ username: username }, list[i]));
+    }
+  }
+  result.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+  return result.slice(0, n || 50);
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Bulk / introspection
 // ─────────────────────────────────────────────────────────────────
 
@@ -2243,6 +2321,7 @@ function resetAll() {
   bridgeWraps.clear();
   bridgeUnwraps.clear();
   bridgeFunders.clear();
+  crossChainActivity.clear();
   seenEntries.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
@@ -2343,6 +2422,9 @@ module.exports = {
   // Bridge (v2.16-alpha)
   getBridgeFunder: getBridgeFunder,
   getAllBridgeFunders: getAllBridgeFunders,
+  // Cross-chain monitor (v2.17)
+  getCrossChainActivity: getCrossChainActivity,
+  getRecentCrossChainActivity: getRecentCrossChainActivity,
   // Introspection
   snapshot: snapshot,
   stats: stats,

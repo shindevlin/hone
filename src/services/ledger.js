@@ -1736,6 +1736,32 @@ async function applyRemoteEntries(entries) {
 }
 
 /**
+ * Record cross-chain activity observed by the chain monitor daemon.
+ * Creates a CROSS_CHAIN_ACTIVITY ledger entry that flows into the next block
+ * and is stored in stateStore for read paths.
+ *
+ * @param {string} username     - BTCPC account that owns the external address
+ * @param {string} chain        - external chain name (base|arbitrum|ethereum|solana|bitcoin)
+ * @param {string} address      - external chain address that was monitored
+ * @param {string} activityType - activity descriptor (balance_change|transaction)
+ * @param {object} data         - chain-specific activity data (old/new balance, etc.)
+ * @param {number} epoch        - current BTCPC epoch
+ */
+async function recordCrossChainActivity(username, chain, address, activityType, data, epoch) {
+  const entry = _entry({
+    type: 'CROSS_CHAIN_ACTIVITY',
+    to: username,
+    epoch: epoch || 0,
+    cross_chain_data: Object.assign({
+      chain: chain,
+      address: address,
+      activity_type: activityType || 'balance_change',
+    }, data || {}),
+  });
+  return _persist(entry);
+}
+
+/**
  * Apply a ledger entry received from a P2P peer's MEMPOOL_ENTRY gossip
  * message WITHOUT triggering re-gossip (to prevent infinite loops).
  *
@@ -1842,4 +1868,6 @@ module.exports = {
   recordBridgeUnwrap,
   recordBridgeFund,
   recordBridgeUnlock,
+  // Cross-chain monitor (v2.17)
+  recordCrossChainActivity,
 };
