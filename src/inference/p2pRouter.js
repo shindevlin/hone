@@ -101,6 +101,10 @@ function initP2PRouter() {
         job.elapsed_ms = data.elapsed_ms || 0;
         job.node_name = data.node_name || 'unknown';
         job.completed_at = new Date().toISOString();
+        // Preserve encrypted result for encrypted inference jobs
+        if (data.encrypted && data.result_encrypted) {
+          job.result_encrypted = data.result_encrypted;
+        }
 
         // Reconcile billing — refund difference between estimated and actual cost
         if (job.project_id && job.cost > 0) {

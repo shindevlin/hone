@@ -19,6 +19,7 @@ const MINER_NAME = process.env.BTCPC_MINER || GENESIS_MINER;
 const { getModelWeight } = require("../mining/workGenerator");
 const stateStore = require("../chain/stateStore");
 const nodeRegistry = require("../chain/nodeRegistry");
+const inferenceCrypto = require("./crypto");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://100.122.145.60:11434";
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_INFERENCE) || 1;
@@ -485,10 +486,39 @@ async function handlePayload(msg) {
   // Check if this payload is for us
   const targetNode = data.node_id || data.target_node;
   if (targetNode && targetNode !== p2p.NODE_ID && targetNode !== MINER_NAME) return;
-  const prompt = data.prompt; // plaintext for now; encrypted later
+  let prompt = data.prompt; // plaintext for now; may be overwritten by decryption below
   const model = data.model || "qwen3.5:27b";
   const maxTokens = data.max_tokens || 1024;
   const temperature = data.temperature || 0.7;
+
+  // ── Encrypted inference: ECDH decrypt prompt, will re-encrypt result ──
+  let sharedSecret = null;
+  if (data.encrypted === true && data.prompt_encrypted && data.user_memo_pubkey) {
+    // Only handle encrypted jobs that target this miner account (or are broadcast to all)
+    if (data.miner_account && data.miner_account !== MINER_NAME) return;
+
+    try {
+      const mnemonic = process.env.BTCPC_MNEMONIC;
+      if (!mnemonic) {
+        console.error("[BTCPC Inference] Encrypted job received but BTCPC_MNEMONIC not set — cannot decrypt");
+        return;
+      }
+      const keyManager = require("../wallet/keyManager");
+      const keys = await keyManager.mnemonicToKeys(mnemonic);
+      const minerMemoPriv = keys.memo.privateKey;
+
+      sharedSecret = inferenceCrypto.computeSharedSecret(minerMemoPriv, data.user_memo_pubkey);
+      prompt = inferenceCrypto.decrypt(data.prompt_encrypted, sharedSecret);
+      console.log(`[BTCPC Inference] Decrypted encrypted prompt for ${requestId?.slice(0, 8)} (${prompt.length} chars)`);
+    } catch (decryptErr) {
+      console.error(`[BTCPC Inference] Failed to decrypt prompt for ${requestId?.slice(0, 8)}: ${decryptErr.message}`);
+      activeJobs = Math.max(0, activeJobs - 1);
+      if (jobInFlight && jobInFlight.request_id === requestId) {
+        clearJobInFlight('decrypt failed');
+      }
+      return;
+    }
+  }
 
   if (!prompt) {
     console.log(`[BTCPC Inference] No prompt in payload for ${requestId?.slice(0, 8)}`);
@@ -584,10 +614,25 @@ async function handlePayload(msg) {
     }, p2p.NODE_ID);
     p2p.broadcast(reveal);
 
+    // For encrypted jobs: encrypt the result before broadcasting.
+    // Plaintext result_text is withheld from the P2P message.
+    let resultEncrypted = null;
+    if (sharedSecret) {
+      try {
+        resultEncrypted = inferenceCrypto.encrypt(resultText, sharedSecret);
+        console.log(`[BTCPC Inference] Result encrypted for ${requestId?.slice(0, 8)}`);
+      } catch (encErr) {
+        console.error(`[BTCPC Inference] Failed to encrypt result for ${requestId?.slice(0, 8)}: ${encErr.message}`);
+      }
+    }
+
     // Also broadcast as INFERENCE_RESULT for the requester
     const result = createMessage("INFERENCE_RESULT", {
       request_id: requestId,
-      result_text: resultText,
+      // Only include plaintext for non-encrypted jobs
+      result_text: sharedSecret ? undefined : resultText,
+      result_encrypted: resultEncrypted || undefined,
+      encrypted: sharedSecret ? true : undefined,
       result_hash: resultHash,
       tokens_generated: tokensGenerated,
       model,

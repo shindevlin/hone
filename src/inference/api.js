@@ -1046,4 +1046,162 @@ router.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
+/**
+ * POST /v1/inference/encrypted
+ * End-to-end encrypted inference: prompt encrypted by user, result encrypted by miner.
+ * Neither the API node nor any P2P relay ever sees plaintext.
+ *
+ * Body: {
+ *   prompt_encrypted: { ciphertext, iv, tag },  — AES-256-GCM, base64 fields
+ *   user_memo_pubkey: string,                    — hex compressed secp256k1 pubkey
+ *   miner_account:    string,                    — target miner's BTCPC account name
+ *   model:            string (optional),
+ *   max_tokens:       number (optional),
+ *   temperature:      number (optional)
+ * }
+ *
+ * Response: { result_encrypted: { ciphertext, iv, tag }, job_id, status }
+ */
+router.post('/v1/inference/encrypted', async (req, res) => {
+  const {
+    prompt_encrypted,
+    user_memo_pubkey,
+    miner_account,
+    model,
+    max_tokens,
+    temperature,
+  } = req.body;
+
+  // Validate required fields
+  if (!prompt_encrypted || !prompt_encrypted.ciphertext || !prompt_encrypted.iv || !prompt_encrypted.tag) {
+    return res.status(400).json({
+      error: {
+        message: 'prompt_encrypted is required and must have ciphertext, iv, tag',
+        type: 'invalid_request_error',
+        code: 'missing_encrypted_prompt'
+      }
+    });
+  }
+  if (!user_memo_pubkey) {
+    return res.status(400).json({
+      error: {
+        message: 'user_memo_pubkey is required so the miner can derive the shared secret',
+        type: 'invalid_request_error',
+        code: 'missing_user_memo_pubkey'
+      }
+    });
+  }
+  if (!miner_account) {
+    return res.status(400).json({
+      error: {
+        message: 'miner_account is required to route the encrypted job',
+        type: 'invalid_request_error',
+        code: 'missing_miner_account'
+      }
+    });
+  }
+
+  // Verify miner account exists and has a memo public key
+  const stateStore = require('../chain/stateStore');
+  const minerInfo = stateStore.getAccount(miner_account);
+  if (!minerInfo) {
+    return res.status(404).json({
+      error: {
+        message: `Miner account "${miner_account}" not found on chain`,
+        type: 'not_found',
+        code: 'miner_not_found'
+      }
+    });
+  }
+  if (!minerInfo.public_keys || !minerInfo.public_keys.memo) {
+    return res.status(422).json({
+      error: {
+        message: `Miner account "${miner_account}" has no memo public key registered`,
+        type: 'invalid_request_error',
+        code: 'missing_miner_memo_key'
+      }
+    });
+  }
+
+  if (!hasMiners()) {
+    return res.status(503).json({
+      error: {
+        message: 'No miners connected to the P2P network',
+        type: 'network_error',
+        code: 'no_miners',
+        peers: peerCount()
+      }
+    });
+  }
+
+  try {
+    const jobId = 'enc_' + crypto.randomBytes(16).toString('hex');
+
+    // Broadcast encrypted job via P2P — miners see only opaque ciphertext
+    const { createMessage } = require('../p2p/protocol');
+    const p2p = require('../p2p/network');
+    const reqMsg = createMessage('INFERENCE_REQUEST', {
+      request_id: jobId,
+      model: model || 'auto',
+      encrypted: true,
+      max_fee: 0,
+      max_tokens: max_tokens || 1024,
+      temperature: temperature || 0.7,
+      redundancy: 1
+    }, p2p.NODE_ID);
+    p2p.broadcast(reqMsg);
+
+    // Send encrypted payload — miner_account tells the target miner it's theirs
+    const payloadMsg = createMessage('INFERENCE_PAYLOAD', {
+      request_id: jobId,
+      encrypted: true,
+      prompt_encrypted,
+      user_memo_pubkey,
+      miner_account,
+      model: model || 'auto',
+      max_tokens: max_tokens || 1024,
+      temperature: temperature || 0.7,
+    }, p2p.NODE_ID);
+    setTimeout(() => p2p.broadcast(payloadMsg), 500);
+
+    // Poll for the encrypted result
+    const job = await pollInferenceJob(jobId, 300000, 2000);
+
+    if (!job || job.status !== 'completed') {
+      const status = job && job.status ? job.status : 'unknown';
+      return res.status(504).json({
+        error: {
+          message: `Encrypted inference not completed. Job status: ${status}`,
+          type: 'timeout',
+          code: 'inference_pending',
+          job_id: jobId
+        }
+      });
+    }
+
+    // result_encrypted is set by the miner in handlePayload for encrypted jobs
+    if (!job.result_encrypted) {
+      return res.status(502).json({
+        error: {
+          message: 'Miner completed job but did not return encrypted result',
+          type: 'server_error',
+          code: 'missing_encrypted_result',
+          job_id: jobId
+        }
+      });
+    }
+
+    return res.json({
+      job_id: jobId,
+      status: 'completed',
+      result_encrypted: job.result_encrypted,
+    });
+  } catch (err) {
+    console.error('[BTCPC Inference] Encrypted inference error:', err.message);
+    return res.status(500).json({
+      error: { message: err.message, type: 'server_error', code: 'internal_error' }
+    });
+  }
+});
+
 module.exports = router;
