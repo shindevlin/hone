@@ -470,4 +470,124 @@ router.get('/:slug', async (req, res) => {
   res.json({ service, hosts, sessions, current_epoch: currentEpoch });
 });
 
+// ─────────────────────────────────────────────────────────────────
+// Stateful compute: snapshot management (v2.14-beta)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/services/:slug/snapshots
+ * Trigger a snapshot commit for a stateful service.
+ * Auth: deployer or host (the caller must be the deployer or an active host).
+ * Body: { cid, replica_hosts? }
+ */
+router.post('/:slug/snapshots', authenticateToken, async (req, res) => {
+  try {
+    const caller = req.user && req.user.username;
+    if (!caller) return res.status(401).json({ error: 'unauthenticated' });
+
+    const slug = decodeSlug(req.params.slug);
+    if (!slug) return res.status(400).json({ error: 'invalid slug encoding' });
+
+    // Validate CID
+    const cid = sanitizeString(req.body && req.body.cid || '', 128);
+    if (!/^[a-f0-9]{64}$/.test(cid)) {
+      return res.status(400).json({ error: 'cid must be 64-char lowercase hex sha256' });
+    }
+
+    // Check service exists in registry
+    const service = serviceRegistry.getService(slug);
+    if (!service) return res.status(404).json({ error: 'service not found' });
+
+    // Auth: must be deployer or an active host
+    const hosts = service.active_hosts || [];
+    if (service.deployer !== caller && hosts.indexOf(caller) === -1) {
+      return res.status(403).json({ error: 'only the deployer or an active host may commit a snapshot' });
+    }
+
+    const replicaHosts = Array.isArray(req.body && req.body.replica_hosts)
+      ? req.body.replica_hosts.filter(h => typeof h === 'string').slice(0, 32)
+      : [];
+
+    const epoch = await getCurrentEpoch();
+    const ledger = require('../services/ledger');
+    const entry = await ledger.recordSnapshotCommit(slug, cid, replicaHosts, epoch);
+
+    res.json({ success: true, entry });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/services/:slug/restore/:cid
+ * Restore a service from a specific snapshot. Auth: deployer only.
+ * Body: { host? }
+ */
+router.post('/:slug/restore/:cid', authenticateToken, async (req, res) => {
+  try {
+    const caller = req.user && req.user.username;
+    if (!caller) return res.status(401).json({ error: 'unauthenticated' });
+
+    const slug = decodeSlug(req.params.slug);
+    if (!slug) return res.status(400).json({ error: 'invalid slug encoding' });
+
+    const cid = sanitizeString(req.params.cid || '', 128);
+    if (!/^[a-f0-9]{64}$/.test(cid)) {
+      return res.status(400).json({ error: 'cid must be 64-char lowercase hex sha256' });
+    }
+
+    const service = serviceRegistry.getService(slug);
+    if (!service) return res.status(404).json({ error: 'service not found' });
+
+    // Auth: deployer only
+    if (service.deployer !== caller) {
+      return res.status(403).json({ error: 'only the deployer may restore a snapshot' });
+    }
+
+    const host = sanitizeString(req.body && req.body.host || '', 64) || caller;
+    const epoch = await getCurrentEpoch();
+    const ledger = require('../services/ledger');
+    const entry = await ledger.recordSnapshotRestore(slug, cid, host, epoch);
+
+    res.json({ success: true, entry });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/services/:slug/snapshots
+ * List all snapshot records for a service. Public.
+ */
+router.get('/:slug/snapshots', (req, res) => {
+  const slug = decodeSlug(req.params.slug);
+  if (!slug) return res.status(400).json({ error: 'invalid slug encoding' });
+
+  if (!serviceRegistry.getService(slug)) {
+    return res.status(404).json({ error: 'service not found' });
+  }
+
+  const stateStore = require('../chain/stateStore');
+  const snaps = stateStore.getSnapshots(slug);
+  res.json({ snapshots: snaps, count: snaps.length });
+});
+
+/**
+ * GET /api/services/:slug/snapshots/latest
+ * Get the most recent snapshot for a service. Public.
+ */
+router.get('/:slug/snapshots/latest', (req, res) => {
+  const slug = decodeSlug(req.params.slug);
+  if (!slug) return res.status(400).json({ error: 'invalid slug encoding' });
+
+  if (!serviceRegistry.getService(slug)) {
+    return res.status(404).json({ error: 'service not found' });
+  }
+
+  const stateStore = require('../chain/stateStore');
+  const snap = stateStore.getLatestSnapshot(slug);
+  if (!snap) return res.status(404).json({ error: 'no snapshots found' });
+  res.json({ snapshot: snap });
+});
+
 module.exports = router;

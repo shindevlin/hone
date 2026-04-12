@@ -107,6 +107,14 @@ var blobChallenges = new Map();
 // host down the auto-selector ranking but don't slash anything.
 var blobChallengeStats = new Map();
 
+// ─────────────────────────────────────────────────────────────────
+// Stateful compute state (v2.14-beta)
+// ─────────────────────────────────────────────────────────────────
+// services: slug → deployment record (stateful services tracked here)
+// snapshots: slug → [{cid, epoch, replicas, timestamp}]  ordered oldest→newest
+var services = new Map();
+var snapshots = new Map();
+
 // Mining proofs indexed by epoch
 var miningProofsByEpoch = new Map();
 
@@ -1025,6 +1033,79 @@ function applyEntry(entry) {
       } catch (_) { /* malformed memo — skip NFT update */ }
       break;
 
+    // ─────────────────────────────────────────────────────────────────
+    // Stateful compute entries (v2.14-beta)
+    // ─────────────────────────────────────────────────────────────────
+
+    case "SERVICE_DEPLOY_STATEFUL":
+      // Deploy a service with stateful: true + snapshot config.
+      // service_data: { slug, deployer, runtime_spec, stateful: true,
+      //   snapshot_interval_epochs, replication_factor }
+      if (entry.service_data && entry.service_data.slug) {
+        var sd = entry.service_data;
+        var existingSvc = services.get(sd.slug) || {};
+        services.set(sd.slug, Object.assign(existingSvc, {
+          slug: sd.slug,
+          deployer: sd.deployer || from,
+          runtime_spec: sd.runtime_spec || null,
+          stateful: true,
+          snapshot_interval_epochs: sd.snapshot_interval_epochs || null,
+          replication_factor: typeof sd.replication_factor === "number"
+            ? sd.replication_factor : 3,
+          last_snapshot_cid: existingSvc.last_snapshot_cid || null,
+          last_snapshot_epoch: existingSvc.last_snapshot_epoch || null,
+          deployed_epoch: existingSvc.deployed_epoch || entry.epoch || 0,
+          last_updated_epoch: entry.epoch || 0,
+          status: "active",
+        }));
+      }
+      break;
+
+    case "SNAPSHOT_COMMIT":
+      // Record a new snapshot for a service.
+      // snapshot_data: { slug, cid, replica_hosts: [] }
+      if (entry.snapshot_data && entry.snapshot_data.slug && entry.snapshot_data.cid) {
+        var sc = entry.snapshot_data;
+        var snapshotList = snapshots.get(sc.slug) || [];
+        snapshotList.push({
+          cid: sc.cid,
+          epoch: entry.epoch || 0,
+          replicas: Array.isArray(sc.replica_hosts) ? sc.replica_hosts.slice() : [],
+          timestamp: entry.timestamp || Date.now(),
+        });
+        snapshots.set(sc.slug, snapshotList);
+
+        // Update last_snapshot_cid on the service record if present
+        var svcForCommit = services.get(sc.slug);
+        if (svcForCommit) {
+          svcForCommit.last_snapshot_cid = sc.cid;
+          svcForCommit.last_snapshot_epoch = entry.epoch || 0;
+          services.set(sc.slug, svcForCommit);
+        }
+      }
+      break;
+
+    case "SNAPSHOT_RESTORE":
+      // Log a restore event on the service record.
+      // snapshot_data: { slug, cid, host }
+      if (entry.snapshot_data && entry.snapshot_data.slug) {
+        var sr = entry.snapshot_data;
+        var svcForRestore = services.get(sr.slug);
+        if (svcForRestore) {
+          if (!svcForRestore.restore_history) svcForRestore.restore_history = [];
+          svcForRestore.restore_history.push({
+            cid: sr.cid || null,
+            host: sr.host || from || null,
+            epoch: entry.epoch || 0,
+            timestamp: entry.timestamp || Date.now(),
+          });
+          svcForRestore.last_restore_cid = sr.cid || null;
+          svcForRestore.last_restore_epoch = entry.epoch || 0;
+          services.set(sr.slug, svcForRestore);
+        }
+      }
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -1579,6 +1660,34 @@ function getSlashRecords(username) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Stateful compute getters (v2.14-beta)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get all snapshot records for a service, ordered oldest → newest.
+ * Returns an empty array if no snapshots recorded.
+ */
+function getSnapshots(slug) {
+  return (snapshots.get(slug) || []).slice();
+}
+
+/**
+ * Get the most recent snapshot record for a service, or null.
+ */
+function getLatestSnapshot(slug) {
+  var list = snapshots.get(slug);
+  if (!list || list.length === 0) return null;
+  return list[list.length - 1];
+}
+
+/**
+ * Get the stateful service deployment record, or null if not found.
+ */
+function getStatefulServiceRecord(slug) {
+  return services.get(slug) || null;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Bulk / introspection
 // ─────────────────────────────────────────────────────────────────
 
@@ -1752,6 +1861,8 @@ function resetAll() {
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
   slashRecords.clear();
+  services.clear();
+  snapshots.clear();
   seenEntries.clear();
   chainHeight = -1;
 }
@@ -1835,6 +1946,10 @@ module.exports = {
   getChallengesForCid: getChallengesForCid,
   // Slashing
   getSlashRecords: getSlashRecords,
+  // Stateful compute (v2.14-beta)
+  getSnapshots: getSnapshots,
+  getLatestSnapshot: getLatestSnapshot,
+  getStatefulServiceRecord: getStatefulServiceRecord,
   // Introspection
   snapshot: snapshot,
   stats: stats,

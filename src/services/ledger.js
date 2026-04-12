@@ -1268,6 +1268,94 @@ async function recordBlobServeProof(host, cid, bytesServed, requestCount, access
   return _persist(entry);
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Stateful compute ledger entries (v2.14-beta)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Record a stateful service deployment on the ledger.
+ * Entry type: SERVICE_DEPLOY_STATEFUL
+ *
+ * @param {string} deployer        — BTCPC account name
+ * @param {string} slug            — "<deployer>/<name>"
+ * @param {object} runtimeSpec     — runtime config object
+ * @param {object} snapshotConfig  — { snapshot_interval_epochs, replication_factor }
+ * @param {number} epoch
+ */
+async function recordStatefulServiceDeploy(deployer, slug, runtimeSpec, snapshotConfig, epoch) {
+  if (!deployer) throw new Error('deployer required');
+  if (!slug) throw new Error('slug required');
+  if (!runtimeSpec || typeof runtimeSpec !== 'object') throw new Error('runtimeSpec required');
+  snapshotConfig = snapshotConfig || {};
+
+  const entry = _entry({
+    type: 'SERVICE_DEPLOY_STATEFUL',
+    from: deployer,
+    epoch: epoch || 0,
+    service_data: {
+      slug,
+      deployer,
+      runtime_spec: runtimeSpec,
+      stateful: true,
+      snapshot_interval_epochs: snapshotConfig.snapshot_interval_epochs || null,
+      replication_factor: typeof snapshotConfig.replication_factor === 'number'
+        ? snapshotConfig.replication_factor : 3,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a snapshot commit on the ledger.
+ * Entry type: SNAPSHOT_COMMIT
+ *
+ * @param {string}   slug          — service slug
+ * @param {string}   cid           — 64-char hex sha256 of the snapshot blob
+ * @param {string[]} replicaHosts  — hosts that hold the replica
+ * @param {number}   epoch
+ */
+async function recordSnapshotCommit(slug, cid, replicaHosts, epoch) {
+  if (!slug) throw new Error('slug required');
+  if (!cid || !/^[a-f0-9]{64}$/.test(cid)) throw new Error('cid must be 64-char hex sha256');
+
+  const entry = _entry({
+    type: 'SNAPSHOT_COMMIT',
+    from: slug,
+    epoch: epoch || 0,
+    snapshot_data: {
+      slug,
+      cid,
+      replica_hosts: Array.isArray(replicaHosts) ? replicaHosts.slice() : [],
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a snapshot restore on the ledger.
+ * Entry type: SNAPSHOT_RESTORE
+ *
+ * @param {string} slug   — service slug
+ * @param {string} cid    — snapshot CID being restored
+ * @param {string} host   — host performing the restore
+ * @param {number} epoch
+ */
+async function recordSnapshotRestore(slug, cid, host, epoch) {
+  if (!slug) throw new Error('slug required');
+
+  const entry = _entry({
+    type: 'SNAPSHOT_RESTORE',
+    from: host || slug,
+    epoch: epoch || 0,
+    snapshot_data: {
+      slug,
+      cid: cid || null,
+      host: host || null,
+    },
+  });
+  return _persist(entry);
+}
+
 // Expose bonding curve helpers at the ledger module for callers/tests
 const commerce = {
   costForCapacity: bondingCurve.costForCapacity,
@@ -1464,4 +1552,8 @@ module.exports = {
   recordBlobChallengeResponse,
   recordBlobChallengeResult,
   recordBlobChallengeTimeout,
+  // Stateful compute (v2.14-beta)
+  recordStatefulServiceDeploy,
+  recordSnapshotCommit,
+  recordSnapshotRestore,
 };
