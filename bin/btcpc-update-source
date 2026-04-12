@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-update-source — Auto-update for source-based installations
+ * Shin Devlin
+ *
+ * For devices running BTCPC from git clone (not Docker), this daemon
+ * periodically checks for new commits on origin/main and updates
+ * automatically. Signals the btcpc-all supervisor to restart children
+ * after a successful update.
+ *
+ * Runs as a child of btcpc-all (role: "updater") or standalone via cron.
+ */
+
+var { execSync } = require("child_process");
+var fs = require("fs");
+var path = require("path");
+
+var REPO_DIR = process.env.BTCPC_REPO_DIR || path.resolve(__dirname, "..");
+var CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS) || 30 * 60 * 1000; // 30 min
+var PENDING_FILE = path.join(REPO_DIR, ".btcpc-update-pending");
+
+function log(msg) { console.log("[auto-update] " + msg); }
+
+function run(cmd) {
+  return execSync(cmd, { cwd: REPO_DIR, timeout: 120000, encoding: "utf8" }).trim();
+}
+
+function checkAndUpdate() {
+  try {
+    // Get current commit
+    var localHead = run("git rev-parse HEAD");
+    
+    // Fetch latest from origin (quiet, no merge)
+    try {
+      run("git fetch origin main --quiet");
+    } catch (e) {
+      log("fetch failed (network?): " + e.message);
+      return;
+    }
+    
+    // Compare
+    var remoteHead = run("git rev-parse origin/main");
+    
+    if (localHead === remoteHead) {
+      log("up to date (" + localHead.slice(0, 8) + ")");
+      return;
+    }
+    
+    log("update available: " + localHead.slice(0, 8) + " → " + remoteHead.slice(0, 8));
+    
+    // Pull
+    try {
+      var pullOutput = run("git pull origin main --ff-only");
+      log("pulled: " + pullOutput.split("\n")[0]);
+    } catch (e) {
+      log("pull failed (dirty tree?): " + e.message);
+      // Try harder — reset to origin/main
+      try {
+        run("git reset --hard origin/main");
+        log("hard reset to origin/main");
+      } catch (e2) {
+        log("reset also failed: " + e2.message);
+        return;
+      }
+    }
+    
+    // Install any new dependencies
+    try {
+      run("npm install --omit=dev --no-audit --no-fund");
+      log("npm install complete");
+    } catch (e) {
+      log("npm install failed: " + e.message);
+      // Continue anyway — most updates don't add deps
+    }
+    
+    // Signal btcpc-all to restart children
+    try {
+      fs.writeFileSync(PENDING_FILE, new Date().toISOString());
+      log("restart signal written — supervisor will restart children");
+    } catch (e) {
+      log("could not write restart signal: " + e.message);
+    }
+    
+    log("update complete: now at " + run("git rev-parse HEAD").slice(0, 8));
+  } catch (e) {
+    log("error: " + e.message);
+  }
+}
+
+// Run immediately on start
+log("BTCPC source auto-updater started");
+log("repo: " + REPO_DIR);
+log("check interval: " + (CHECK_INTERVAL_MS / 60000) + " min");
+checkAndUpdate();
+
+// Then on interval
+setInterval(checkAndUpdate, CHECK_INTERVAL_MS);
