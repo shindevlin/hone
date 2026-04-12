@@ -14,8 +14,21 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const { version } = require('../package.json');
 
-// Fail-closed: require critical env vars at startup
-if (!process.env.JWT_SECRET) { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
+// Auto-generate JWT_SECRET if not set (self-heal: never ask user to configure)
+if (!process.env.JWT_SECRET) {
+  const crypto = require('crypto');
+  process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
+  console.log('[BTCPC] JWT_SECRET auto-generated (will change on restart — set BTCPC_JWT_SECRET in .env for persistence)');
+  // Try to persist to .env so subsequent restarts keep the same secret
+  try {
+    const envPath = path.resolve(__dirname, '..', '.env');
+    const envLine = '\nBTCPC_JWT_SECRET=' + process.env.JWT_SECRET + '\n';
+    fs.appendFileSync(envPath, envLine);
+    console.log('[BTCPC] JWT_SECRET saved to .env');
+  } catch (_) {
+    // Container filesystem may be read-only — that's fine, just volatile
+  }
+}
 
 // Phase F: MongoDB is optional. BTCPC_MONGO_MODE=disabled skips connection entirely.
 let mongoEnabled = false;

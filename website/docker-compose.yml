@@ -23,8 +23,8 @@ services:
     restart: unless-stopped
     profiles: [legacy]
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in your environment}
     volumes:
       - mongo_data:/data/db
 
@@ -55,11 +55,10 @@ services:
       BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
       MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
-      # JWT_SECRET must be set or the api role will crash-loop.
-      # For a personal node you can leave this default. For a public
-      # node, generate a fresh secret and set BTCPC_JWT_SECRET in your
-      # shell before running docker compose up.
-      JWT_SECRET: ${BTCPC_JWT_SECRET:-btcpc-dev-secret-please-override-in-production-ba7c3d}
+      # JWT_SECRET is auto-generated on first run if not set. The btcpc-start
+      # scripts generate a random 64-char hex secret and write it to .env in
+      # the compose directory. For manual setups, set BTCPC_JWT_SECRET yourself.
+      JWT_SECRET: ${BTCPC_JWT_SECRET:?Set BTCPC_JWT_SECRET in your environment}
       JWT_EXPIRES_IN: 7d
       BTCPC_MINER: ${BTCPC_MINER:-}
       BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
