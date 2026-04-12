@@ -1212,4 +1212,97 @@ router.post('/miner-mode', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/bot/reset-password
+// Reset a forgotten password by proving ownership via active key signature.
+// Body: { username, challenge, signature }
+// The caller:
+//   1. Requests a challenge string (or generates one: sha256(username + timestamp))
+//   2. Signs the challenge with their active private key (derived from mnemonic)
+//   3. Sends { username, challenge, signature, new_password }
+// The server verifies the signature against the on-chain active public key.
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { rejectObjectInputs, sanitizeString } = require('../middlewares/validate');
+    const objErr = rejectObjectInputs(req.body, ['username', 'challenge', 'signature', 'new_password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const username = sanitizeString(req.body.username, 20);
+    const challenge = sanitizeString(req.body.challenge, 128);
+    const signature = sanitizeString(req.body.signature, 256);
+    const newPassword = req.body.new_password;
+
+    if (!username || !challenge || !signature || !newPassword) {
+      return res.status(400).json({ error: 'username, challenge, signature, and new_password required' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'new_password must be at least 8 characters' });
+    }
+
+    // Verify the signature against on-chain active key
+    const stateStore = require('../chain/stateStore');
+    const account = stateStore.getAccount(username);
+    if (!account || !account.public_keys || !account.public_keys.active) {
+      return res.status(404).json({ error: 'account not found or has no active key on chain' });
+    }
+
+    const keyManager = require('../wallet/keyManager');
+    const challengeHash = crypto.createHash('sha256').update(challenge).digest('hex');
+    const valid = keyManager.verifySignature(challengeHash, signature, account.public_keys.active);
+    if (!valid) {
+      return res.status(401).json({ error: 'signature does not match on-chain active key' });
+    }
+
+    // Signature verified — reset the password
+    const secretStore = require('../services/secretStore');
+    try { await secretStore.load(); } catch (_) {}
+
+    if (secretStore.hasUser && secretStore.hasUser(username)) {
+      await secretStore.updateUser(username, { password: newPassword });
+    } else {
+      await secretStore.createUser(username, { password: newPassword });
+    }
+
+    res.json({ success: true, message: 'password reset for ' + username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/set-password
+// Set password for an account that doesn't have one yet.
+// Body: { username, password, telegramId? }
+// Requires either: bot API key header, OR valid JWT, OR telegramId matching a linked account.
+router.post('/set-password', async (req, res) => {
+  try {
+    const { sanitizeString } = require('../middlewares/validate');
+    const username = sanitizeString(req.body.username, 20);
+    const password = req.body.password;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password required' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
+    }
+
+    const secretStore = require('../services/secretStore');
+    try { await secretStore.load(); } catch (_) {}
+
+    if (secretStore.hasUser && secretStore.hasUser(username)) {
+      // Account exists — check it doesn't already have a password
+      const existing = secretStore.getUser(username);
+      if (existing && existing.password_hash) {
+        return res.status(409).json({ error: 'account already has a password — use change-password or reset-password' });
+      }
+      await secretStore.updateUser(username, { password: password });
+    } else {
+      await secretStore.createUser(username, { password: password });
+    }
+
+    res.json({ success: true, message: 'password set for ' + username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

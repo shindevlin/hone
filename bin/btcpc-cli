@@ -686,6 +686,165 @@ walletCmd
     }
   });
 
+// --- wallet set-password ---------------------------------------------------
+
+walletCmd
+  .command("set-password <username>")
+  .description("Set or change the password for a BTCPC account (stored in secretStore)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Set Password for '" + username + "'");
+      console.log("=".repeat(40));
+
+      // Check if the account has an existing password
+      var secretStore;
+      try {
+        secretStore = require("../src/services/secretStore");
+        await secretStore.load();
+      } catch (e) {
+        console.error("error: secretStore unavailable: " + e.message);
+        process.exit(1);
+      }
+
+      var existingUser = secretStore.getUser(username);
+      var hasExistingPassword = existingUser && existingUser.password_hash;
+
+      if (hasExistingPassword) {
+        // Verify old password first
+        console.log("  This account already has a password.");
+        var oldPass = await prompt("  Enter current password: ", true);
+        var verified = await secretStore.verifyPassword(username, oldPass);
+        if (!verified) {
+          console.error("  error: incorrect current password");
+          process.exit(1);
+        }
+        console.log("  Current password verified ✓");
+      } else {
+        console.log("  No password set yet for this account.");
+      }
+
+      // Set new password
+      console.log("");
+      var newPass = await prompt("  New password (min 8 chars): ", true);
+      if (!newPass || newPass.length < 8) {
+        console.error("  error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      var confirmPass = await prompt("  Confirm new password:       ", true);
+      if (newPass !== confirmPass) {
+        console.error("  error: passwords don't match");
+        process.exit(1);
+      }
+
+      if (existingUser) {
+        await secretStore.updateUser(username, { password: newPass });
+      } else {
+        await secretStore.createUser(username, { password: newPass });
+      }
+
+      console.log("");
+      console.log("  ✅ Password set for '" + username + "'");
+      console.log("  This password works for:");
+      console.log("    - Telegram bot login (/start → Username + Password)");
+      console.log("    - API authentication");
+      console.log("    - Node .env (BTCPC_PASSWORD=)");
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
+// --- wallet reset-password (via active key) --------------------------------
+
+walletCmd
+  .command("reset-password <username>")
+  .description("Reset a forgotten password by proving ownership with the active key (from mnemonic)")
+  .action(async (username) => {
+    try {
+      console.log("");
+      console.log("Reset Password for '" + username + "'");
+      console.log("=".repeat(40));
+      console.log("");
+      console.log("  This requires your 12-word mnemonic to prove you own the account.");
+      console.log("  The mnemonic will NOT be stored — only used to derive the active key,");
+      console.log("  verify it matches the on-chain key, and then forgotten.");
+      console.log("");
+
+      var mnemonic = await prompt("  Enter 12-word mnemonic: ");
+      if (!mnemonic) {
+        console.error("  error: mnemonic required");
+        process.exit(1);
+      }
+      mnemonic = mnemonic.trim();
+
+      if (!keyManager.validateMnemonic(mnemonic)) {
+        console.error("  error: invalid BIP-39 mnemonic");
+        process.exit(1);
+      }
+
+      // Derive the active key from the mnemonic
+      var keys = await keyManager.mnemonicToKeys(mnemonic);
+      var derivedActivePub = keys.active.publicKey;
+
+      // Check against on-chain active key
+      var onChainAccount = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (onChainAccount && onChainAccount.public_keys && onChainAccount.public_keys.active) {
+        if (onChainAccount.public_keys.active !== derivedActivePub) {
+          console.error("  error: mnemonic does not match on-chain active key for '" + username + "'");
+          console.error("  On-chain:  " + onChainAccount.public_keys.active.slice(0, 20) + "...");
+          console.error("  Derived:   " + derivedActivePub.slice(0, 20) + "...");
+          process.exit(1);
+        }
+        console.log("  Active key verified against on-chain key ✓");
+      } else {
+        console.log("  ⚠️  No active key on chain for '" + username + "' — proceeding on mnemonic validity alone");
+      }
+
+      // Wipe mnemonic from memory
+      mnemonic = null;
+
+      // Set new password
+      console.log("");
+      var newPass = await prompt("  New password (min 8 chars): ", true);
+      if (!newPass || newPass.length < 8) {
+        console.error("  error: password must be at least 8 characters");
+        process.exit(1);
+      }
+      var confirmPass = await prompt("  Confirm new password:       ", true);
+      if (newPass !== confirmPass) {
+        console.error("  error: passwords don't match");
+        process.exit(1);
+      }
+
+      var secretStore;
+      try {
+        secretStore = require("../src/services/secretStore");
+        await secretStore.load();
+      } catch (e) {
+        console.error("error: secretStore unavailable: " + e.message);
+        process.exit(1);
+      }
+
+      var existingUser = secretStore.getUser(username);
+      if (existingUser) {
+        await secretStore.updateUser(username, { password: newPass });
+      } else {
+        await secretStore.createUser(username, { password: newPass });
+      }
+
+      console.log("");
+      console.log("  ✅ Password reset for '" + username + "'");
+      console.log("  The old password no longer works.");
+      console.log("  Mnemonic discarded — not stored anywhere.");
+      console.log("");
+    } catch (err) {
+      console.error("error: " + err.message);
+      process.exit(1);
+    }
+  });
+
 // --- wallet keys -----------------------------------------------------------
 
 walletCmd
