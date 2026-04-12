@@ -6,6 +6,7 @@
  */
 const express = require('express');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 
 const User = require('../models/User');
@@ -16,6 +17,8 @@ const Project = require('../models/Project');
 const { getDreams: getDreamsForAccount } = require('../controllers/dreamController');
 const { getJob: getInferenceJob } = require('../inference/p2pRouter');
 const { getBlockReward } = require('../services/emissionSchedule');
+const secretStore = require('../services/secretStore');
+const { authenticateToken } = require('../middlewares/auth');
 
 // In-memory peer registry (Phase E bridge — PeerRegistry model removed)
 // username → { address, gpu, last_seen, node_id }
@@ -43,6 +46,26 @@ function requireBotKey(req, res, next) {
 
 router.use(requireBotKey);
 
+// ── Helper: ensure secretStore is loaded ──
+let _secretStoreLoaded = false;
+async function ensureSecretStore() {
+  if (!_secretStoreLoaded) {
+    await secretStore.load();
+    _secretStoreLoaded = true;
+  }
+}
+
+// ── Helper: compute quiz_words from mnemonic array ──
+function buildQuizWords(wordArray) {
+  const pos1 = Math.floor(Math.random() * 12) + 1;
+  let pos2 = Math.floor(Math.random() * 12) + 1;
+  while (pos2 === pos1) pos2 = Math.floor(Math.random() * 12) + 1;
+  const w1 = wordArray[pos1 - 1];
+  const w2 = wordArray[pos2 - 1];
+  const answersHash = crypto.createHash('sha256').update(w1 + '|' + w2).digest('hex');
+  return { positions: [pos1, pos2], answers_hash: answersHash };
+}
+
 // ── Helper: resolve telegram ID to user ──
 async function resolveUser(telegramId) {
   if (!telegramId) return null;
@@ -64,17 +87,20 @@ router.get('/user', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/bot/create { username, telegramId, telegramUsername }
+// POST /api/bot/create { username, telegramId?, telegramUsername?, password? }
 // Creates a new BTCPC account from Telegram. Shows mnemonic ONCE. We don't save it.
+// telegramId and password are both optional — backward compatible with old bot code.
 router.post('/create', async (req, res) => {
   try {
-    const objErr = rejectObjectInputs(req.body, ['username', 'telegramId', 'telegramUsername']);
+    const objErr = rejectObjectInputs(req.body, ['username', 'telegramId', 'telegramUsername', 'password']);
     if (objErr) return res.status(400).json({ error: objErr });
     const username = sanitizeString(req.body.username, 20);
-    const telegramId = sanitizeTelegramId(req.body.telegramId);
+    const telegramId = req.body.telegramId ? sanitizeTelegramId(req.body.telegramId) : null;
     const telegramUsername = sanitizeString(req.body.telegramUsername, 40) || null;
-    if (!username || !telegramId) {
-      return res.status(400).json({ error: 'username and telegramId required' });
+    const password = typeof req.body.password === 'string' ? req.body.password.slice(0, 200) : null;
+
+    if (!username) {
+      return res.status(400).json({ error: 'username required' });
     }
     if (!validAccountName(username)) {
       return res.status(400).json({ error: 'Username must be 3-20 chars, lowercase letters/numbers/.-_ only' });
@@ -87,25 +113,50 @@ router.post('/create', async (req, res) => {
     const existing = await User.findOne({ username });
     if (existing) return res.status(400).json({ error: `Username "${username}" is already taken` });
 
-    const linked = await User.findOne({ telegramId: String(telegramId) });
-    if (linked) return res.status(400).json({ error: `Telegram already linked to ${linked.username}` });
+    if (telegramId) {
+      const linked = await User.findOne({ telegramId: String(telegramId) });
+      if (linked) return res.status(400).json({ error: `Telegram already linked to ${linked.username}` });
+    }
 
     // Create the account
     const { createAccount } = require('../wallet/accountManager');
     const keyManager = require('../wallet/keyManager');
-    const randomPassword = require('crypto').randomBytes(32).toString('hex');
-    const account = await createAccount(username, null, randomPassword);
+    const accountPassword = password || crypto.randomBytes(32).toString('hex');
+    const account = await createAccount(username, null, accountPassword);
 
-    // Derive full keys from mnemonic (createAccount doesn't return private keys)
+    // Derive full keys from mnemonic
     const keys = await keyManager.mnemonicToKeys(account.mnemonic);
     const chainWallets = await keyManager.deriveChainWallets(account.mnemonic);
 
-    // Link telegram immediately
-    const user = await User.findOne({ username });
-    if (user) {
-      user.telegramId = String(telegramId);
-      user.telegramUsername = telegramUsername || null;
-      await user.save();
+    // Link telegram if provided
+    if (telegramId) {
+      const user = await User.findOne({ username });
+      if (user) {
+        user.telegramId = String(telegramId);
+        user.telegramUsername = telegramUsername || null;
+        await user.save();
+      }
+    }
+
+    // Store password in secretStore if provided
+    let passwordSet = false;
+    if (password) {
+      try {
+        await ensureSecretStore();
+        if (!secretStore.hasUser(username)) {
+          await secretStore.createUser(username, {
+            password,
+            telegram_id: telegramId ? String(telegramId) : null,
+            owner_public_key: account.publicKeys.owner,
+            active_public_key: account.publicKeys.active,
+            posting_public_key: account.publicKeys.posting,
+            memo_public_key: account.publicKeys.memo,
+          });
+        } else {
+          await secretStore.updateUser(username, { password });
+        }
+        passwordSet = true;
+      } catch (_) {}
     }
 
     // Record on permanent ledger
@@ -125,26 +176,186 @@ router.post('/create', async (req, res) => {
       p2p.broadcast(announceMsg);
     } catch (_) {}
 
-    // Auto-stake 0 for inference (just create the record so bot doesn't block)
-    // User will need to receive tokens and stake manually for full access
+    // Build quiz words for mnemonic verification
+    const mnemonicWords = account.mnemonic.split(' ');
+    const quizWords = buildQuizWords(mnemonicWords);
 
-    // SECURITY: Only return the mnemonic. All keys are derivable from it.
-    // Never send private keys over HTTP — the mnemonic is the master secret.
-    // Users derive keys locally using: node bin/btcpc-cli wallet keys <mnemonic>
+    // Resolve chain wallet addresses
+    const evmAddr = chainWallets.evm ? (chainWallets.evm.address || chainWallets.evm) : null;
+    const solanaAddr = chainWallets.solana ? (chainWallets.solana.address || chainWallets.solana) : null;
+    const bitcoinAddr = chainWallets.bitcoin ? (chainWallets.bitcoin.address || chainWallets.bitcoin) : null;
+    const tonAddr = chainWallets.ton ? (chainWallets.ton.address || chainWallets.ton) : null;
+
     res.json({
       success: true,
-      warning: 'SAVE YOUR MNEMONIC NOW. We do not store it. If you lose it, your account is gone forever.',
-      security_note: 'Your mnemonic derives ALL keys on ALL chains. Use btcpc-cli or the wallet app to view your full key set locally.',
       username,
       mnemonic: account.mnemonic,
+      password_set: passwordSet,
       addresses: {
         btcpc: account.address,
-        evm: chainWallets.evm ? chainWallets.evm.address : null,
-        solana: chainWallets.solana ? chainWallets.solana.address : null,
-        bitcoin: chainWallets.bitcoin ? chainWallets.bitcoin.address : null,
-        ton: chainWallets.ton ? chainWallets.ton.address : null,
-        hive: username
-      }
+        evm: evmAddr,
+        solana: solanaAddr,
+        bitcoin: bitcoinAddr,
+        ton: tonAddr,
+        hive: username,
+      },
+      public_keys: {
+        owner: account.publicKeys.owner,
+        active: account.publicKeys.active,
+        posting: account.publicKeys.posting,
+        memo: account.publicKeys.memo,
+      },
+      quiz_words: quizWords,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── JWT helpers ──
+function signBotJwt(username) {
+  const secret = process.env.JWT_SECRET || 'btcpc-bot-dev-secret';
+  return jwt.sign({ username, src: 'bot' }, secret, { expiresIn: '30d' });
+}
+
+// POST /api/bot/login { username, password, telegramId? }
+// Verify password via secretStore; optionally link Telegram; return JWT.
+router.post('/login', async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['username', 'password', 'telegramId']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const username = sanitizeString(req.body.username, 20);
+    const password = typeof req.body.password === 'string' ? req.body.password.slice(0, 200) : null;
+    const telegramId = req.body.telegramId ? sanitizeTelegramId(req.body.telegramId) : null;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password required' });
+    }
+
+    await ensureSecretStore();
+    const ok = await secretStore.verifyPassword(username, password);
+    if (!ok) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    // Link Telegram if provided
+    let linked = false;
+    if (telegramId) {
+      try {
+        await secretStore.updateUser(username, { telegram_id: String(telegramId) });
+        linked = true;
+      } catch (_) {}
+      // Also link in Mongo User
+      try {
+        const mongoUser = await User.findOne({ username });
+        if (mongoUser && !mongoUser.telegramId) {
+          mongoUser.telegramId = String(telegramId);
+          await mongoUser.save();
+        }
+      } catch (_) {}
+    }
+
+    const token = signBotJwt(username);
+    res.json({ success: true, username, linked, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/change-password  (requires JWT via Authorization: Bearer <token>)
+// { old_password, new_password }
+router.post('/change-password', authenticateToken, async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['old_password', 'new_password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+    const oldPassword = typeof req.body.old_password === 'string' ? req.body.old_password.slice(0, 200) : null;
+    const newPassword = typeof req.body.new_password === 'string' ? req.body.new_password.slice(0, 200) : null;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'old_password and new_password required' });
+    }
+
+    const username = req.user.username;
+    await ensureSecretStore();
+    const ok = await secretStore.verifyPassword(username, oldPassword);
+    if (!ok) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    await secretStore.updateUser(username, { password: newPassword });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bot/addresses?telegramId=xxx
+// Returns all 6 chain addresses + owner public key for a linked account.
+router.get('/addresses', async (req, res) => {
+  try {
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    if (!tid) return res.status(400).json({ error: 'valid telegramId required' });
+
+    // Resolve via secretStore first, then Mongo
+    await ensureSecretStore();
+    let username = null;
+    const ssUser = secretStore.getUserByTelegramId(String(tid));
+    if (ssUser) {
+      username = Object.keys(secretStore.stats ? {} : {}).find(() => false) || null;
+      // Walk the secretStore state to find the username
+      try {
+        // getUserByTelegramId returns the user record; we need to find username by reverse lookup
+        const allUsers = secretStore.getAllUsers ? secretStore.getAllUsers() : [];
+        for (const u of allUsers) {
+          const rec = secretStore.getUser(u.username);
+          if (rec && rec.telegram_id === String(tid)) { username = u.username; break; }
+        }
+      } catch (_) {}
+    }
+
+    // Fallback to Mongo
+    if (!username) {
+      const mongoUser = await User.findOne({ telegramId: String(tid) });
+      if (mongoUser) username = mongoUser.username;
+    }
+
+    if (!username) return res.status(404).json({ error: 'No account linked to this Telegram ID' });
+
+    // Resolve addresses from stateStore / ledger
+    const accountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+    const chainAddresses = accountState && accountState.chain_addresses ? accountState.chain_addresses : {};
+    const publicKeys = accountState && accountState.public_keys ? accountState.public_keys : {};
+
+    // Fallback: owner key from secretStore
+    let ownerKey = publicKeys.owner || null;
+    if (!ownerKey) {
+      const ssRec = secretStore.getUser(username);
+      if (ssRec) ownerKey = ssRec.owner_public_key || null;
+    }
+
+    // Fallback: addresses from Mongo User
+    if (!chainAddresses.evm) {
+      try {
+        const mongoUser = await User.findOne({ username });
+        if (mongoUser) {
+          if (!ownerKey) ownerKey = mongoUser.ownerPublicKey || null;
+        }
+      } catch (_) {}
+    }
+
+    res.json({
+      username,
+      addresses: {
+        btcpc: chainAddresses.btcpc || username,
+        evm: chainAddresses.evm || null,
+        solana: chainAddresses.solana || null,
+        bitcoin: chainAddresses.bitcoin || null,
+        ton: chainAddresses.ton || null,
+        hive: chainAddresses.hive || username,
+      },
+      public_keys: {
+        owner: ownerKey,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
