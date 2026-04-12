@@ -16,3 +16,5 @@ docs/.obsidian/
 # Forge build artifacts
 out/
 cache/
+# Added by code-review-graph
+.code-review-graph/
