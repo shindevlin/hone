@@ -1082,7 +1082,8 @@ async function startMiner() {
   // Genesis miner is always eligible as a fallback.
   const genesisTime = genesis.epoch.started_at.getTime();
   const epochConsensus = require('../chain/authorityRotation');
-  const nodeRegistry = require('../chain/nodeRegistry');
+  // nodeRegistry is already imported at module scope (line 27) — do NOT
+  // re-declare here or it creates a TDZ that crashes line 1030.
 
   // Register this miner in the node registry (permissioned if genesis miner)
   nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, null, 0, MINER_ACCOUNT === GENESIS_MINER);

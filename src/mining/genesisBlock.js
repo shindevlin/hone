@@ -28,7 +28,19 @@ async function createGenesisBlock() {
   const stateStore = require('../chain/stateStore');
   const existingEpoch = stateStore.getEpoch(0);
 
-  if (existingEpoch || blockStore.hasBlock(0)) {
+  // Also check finality snapshots — genesis (block-00000000.bin) may have been
+  // compacted into a finality snapshot, so the individual file is gone.
+  const fs = require('fs');
+  const path = require('path');
+  const blocksDir = path.resolve(process.cwd(), 'data', 'blocks');
+  var hasFinalitySnap = false;
+  try {
+    if (fs.existsSync(blocksDir)) {
+      hasFinalitySnap = fs.readdirSync(blocksDir).some(f => f.startsWith('finality-'));
+    }
+  } catch (_) {}
+
+  if (existingEpoch || blockStore.hasBlock(0) || hasFinalitySnap) {
     console.log('[BTCPC] Genesis block already exists');
     const user = await User.findOne({ username: GENESIS_MINER });
     const epochData = existingEpoch || {
