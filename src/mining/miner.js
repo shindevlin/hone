@@ -31,8 +31,10 @@ const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const resourceManager = require('../services/resourceManager');
 const { notifyUpdate, notifyMining } = require('../services/systemNotify');
-const MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
+// BTCPC_MODEL may be unset — resolveWorkingModel will auto-pick the best local model
+const MODEL = process.env.BTCPC_MODEL || null;
 const http = require('http');
+const { resolveWorkingModel } = require('./modelHealer');
 
 // ── Alertbot heartbeat ──
 function sendAlert(severity, message, details) {
@@ -652,18 +654,21 @@ async function mineEpoch(epochNumber) {
   // No synthetic work — miners only earn from real inference jobs
   const syntheticCount = 0;
 
-  // Verify mining model against Ollama registry before doing any work
-  const modelCheck = await verifyModel(MODEL);
-  if (!modelCheck.verified) {
-    console.error(`[BTCPC] REFUSING TO MINE: model ${MODEL} failed verification — ${modelCheck.reason}`);
+  // Resolve working model — auto-heals via pull + fallback chain; never crashes
+  const workingModel = await resolveWorkingModel(MODEL);
+  if (!workingModel) {
+    console.error(`[BTCPC] No verifiable model available — broadcasting MINER_IDLE, staying alive`);
     const idleMsg = createMessage('MINER_IDLE', {
       block_number: epochNumber,
       miner: MINER_ACCOUNT,
-      reason: 'model_verification_failed'
+      reason: 'no_verifiable_model'
     }, p2p.NODE_ID);
     p2p.broadcast(idleMsg);
+    // Do NOT return early in a way that kills the loop — fall through to no-work path
     return;
   }
+  // Re-verify to get the local hash for proofs (cache hit — no extra HTTP call)
+  const modelCheck = await verifyModel(workingModel);
   const modelHash = modelCheck.localHash; // store on proofs for verification
 
   for (let i = 0; i < syntheticCount; i++) {
@@ -672,9 +677,9 @@ async function mineEpoch(epochNumber) {
       if (isGenesisFirstWork) {
         console.log(`[BTCPC]   GENESIS INFERENCE -- the first dream computed into reality`);
       } else {
-        console.log(`[BTCPC]   Work item ${i + 1}/${syntheticCount} -- sending to Ollama (${MODEL})...`);
+        console.log(`[BTCPC]   Work item ${i + 1}/${syntheticCount} -- sending to Ollama (${workingModel})...`);
       }
-      const work = await generateWork(MODEL, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
+      const work = await generateWork(workingModel, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
 
       // Phase D: WorkProofs live in stateStore + next block payload, not Mongo.
       const proof = {
@@ -769,7 +774,7 @@ async function mineEpoch(epochNumber) {
     block_number: epochNumber,
     miner: MINER_ACCOUNT,
     reward_earned: 0,
-    model: MODEL,
+    model: workingModel,
     model_hash: modelHash,
     tokens_computed: totalTokens,
     work_value: totalWorkValue,
@@ -783,7 +788,7 @@ async function mineEpoch(epochNumber) {
     const proofMsg = createMessage('MINING_PROOF', {
       block_number: epochNumber,
       miner: MINER_ACCOUNT,
-      model: MODEL,
+      model: workingModel,
       model_hash: modelHash,
       tokens_computed: totalTokens,
       work_value: totalWorkValue,
@@ -899,7 +904,7 @@ async function startMiner() {
   console.log('[BTCPC]    BTCPC Mining Daemon Starting');
   console.log('[BTCPC] ================================================');
   console.log(`[BTCPC] Ollama:     ${process.env.OLLAMA_URL || 'http://100.122.145.60:11434'}`);
-  console.log(`[BTCPC] Model:      ${MODEL}`);
+  console.log(`[BTCPC] Model:      ${MODEL || '(auto-select on first epoch)'}`);
   console.log(`[BTCPC] Work/epoch: ${WORK_ITEMS_PER_EPOCH}`);
   console.log(`[BTCPC] Epoch:      ${EPOCH_DURATION_MS / 1000}s`);
   console.log('[BTCPC] ================================================');
