@@ -13,8 +13,13 @@ website/btcpc-image.tar
 .obsidian/
 docs/.obsidian/
 
+# Local tool configs (not project code)
+.claire/
+.mcp.json
+
 # Forge build artifacts
 out/
 cache/
+
 # Added by code-review-graph
 .code-review-graph/
