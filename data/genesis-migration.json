@@ -1,0 +1,513 @@
+{
+  "version": 1,
+  "source_chain_height": 2698,
+  "migration_timestamp": "2026-04-12T19:54:40.093Z",
+  "accounts": [
+    {
+      "username": "natoshisakamoto",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {
+        "owner": "03989f269afc60affb21c7d5692cf3f737b56d57db3c7d12bded8f38960e074d4b",
+        "active": "024e62b8b9956e6edd39df50f3d932d96fde614c52b6fded8692f4b8fc307baaa3",
+        "posting": "02ba0165043b050bbbcc2b2aec75f300f2c7585d16cf819564bde53ecfd9b7241c",
+        "memo": "038d5bdc5d434f4e5b875c5a240d0e6c85497981418dde6d5e53d01e704f260b96"
+      },
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "bullship",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "nsfwotica",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {
+        "owner": "02517b3bf5a98ed44c1a8ead866a92a62bfab7a7d1d5b0ca4a32c37cfe80062680",
+        "active": "02a6e585f635e30266548fc4e6fbbedc1c2b009c8ddd4274ea00126d0113e9285e",
+        "posting": "02ccfee9e764627d342d4fa5d3dd0d989304c7e75fa4693315963bdc003159fb60",
+        "memo": "0282b54c7c1e1ba8f350fe8d194e4356b83ab9e851709490146670ee9cd98586b8"
+      },
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "brutus11",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "ursos",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "realfake",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "redaktly",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "buswingspread",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "betchu-bot",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "counselflow",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "spirit-of-ngu",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "itsurs",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "waitlyfi",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "shindevlin",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {
+        "owner": "03995aa423f62fb1ed8eb3afb7a448146e41f0582db5ed21b66468029fa0100186",
+        "active": "022daa36a765063c2223c258d2b82ef6a8576e35e6cd504846eea16817f1708e47",
+        "posting": "028697b530f33e57eb5e0bdc61abfa9ef38558a64482ca42db40d747bdee6b1b6e",
+        "memo": "032275afd505ab97b0f0ced711ee475402d6f2434653edf011a544bfe0a578e876"
+      },
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "clock-984f1a06",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    },
+    {
+      "username": "josh",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {
+        "owner": "02d3a967fcbdfee9b5f2706b83bd74503077ae3e21e94fc321af048b04296e8a41",
+        "active": "0230f5672659328c7ff6f3fb767cb5967f31db431915aa3f403eae31dc533ef5f6",
+        "posting": "02b2e61bdf04b3f2b0ff00d398e741552da0cb700e225714ea2d87b40d677db81c",
+        "memo": "024cf2928c893f11254ef31e068145524f52f3be88092d85e0930f4fdd03d88e92"
+      },
+      "chain_addresses": {
+        "evm": "0x269525b1b9783b819cdc100c53abd31dc637f364",
+        "solana": "EFyjechTnEmUMZrhk49yS8i8N4VKYkUXSEv9RYejajE6",
+        "bitcoin": "bc1qnesfkazrulxtzpfhxw5af4e7l3fe4k4wed3jxw",
+        "ton": "0:74d6e75564c63edc070147eaf0d274d10c6336e52d4ede4b19efdc665acf7959",
+        "hive": "josh"
+      },
+      "created_epoch": 0
+    },
+    {
+      "username": "bridgeproof",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {},
+      "chain_addresses": {},
+      "created_epoch": 0
+    }
+  ],
+  "system_accounts": [
+    {
+      "username": "btcpc_treasury",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      }
+    }
+  ],
+  "genesis_entries": [
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "natoshisakamoto",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {
+          "owner": "03989f269afc60affb21c7d5692cf3f737b56d57db3c7d12bded8f38960e074d4b",
+          "active": "024e62b8b9956e6edd39df50f3d932d96fde614c52b6fded8692f4b8fc307baaa3",
+          "posting": "02ba0165043b050bbbcc2b2aec75f300f2c7585d16cf819564bde53ecfd9b7241c",
+          "memo": "038d5bdc5d434f4e5b875c5a240d0e6c85497981418dde6d5e53d01e704f260b96"
+        },
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "bullship",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "nsfwotica",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {
+          "owner": "02517b3bf5a98ed44c1a8ead866a92a62bfab7a7d1d5b0ca4a32c37cfe80062680",
+          "active": "02a6e585f635e30266548fc4e6fbbedc1c2b009c8ddd4274ea00126d0113e9285e",
+          "posting": "02ccfee9e764627d342d4fa5d3dd0d989304c7e75fa4693315963bdc003159fb60",
+          "memo": "0282b54c7c1e1ba8f350fe8d194e4356b83ab9e851709490146670ee9cd98586b8"
+        },
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "brutus11",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "ursos",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "realfake",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "redaktly",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "buswingspread",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "betchu-bot",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "counselflow",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "spirit-of-ngu",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "itsurs",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "waitlyfi",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "shindevlin",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {
+          "owner": "03995aa423f62fb1ed8eb3afb7a448146e41f0582db5ed21b66468029fa0100186",
+          "active": "022daa36a765063c2223c258d2b82ef6a8576e35e6cd504846eea16817f1708e47",
+          "posting": "028697b530f33e57eb5e0bdc61abfa9ef38558a64482ca42db40d747bdee6b1b6e",
+          "memo": "032275afd505ab97b0f0ced711ee475402d6f2434653edf011a544bfe0a578e876"
+        },
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "clock-984f1a06",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "josh",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {
+          "owner": "02d3a967fcbdfee9b5f2706b83bd74503077ae3e21e94fc321af048b04296e8a41",
+          "active": "0230f5672659328c7ff6f3fb767cb5967f31db431915aa3f403eae31dc533ef5f6",
+          "posting": "02b2e61bdf04b3f2b0ff00d398e741552da0cb700e225714ea2d87b40d677db81c",
+          "memo": "024cf2928c893f11254ef31e068145524f52f3be88092d85e0930f4fdd03d88e92"
+        },
+        "chain_addresses": {
+          "evm": "0x269525b1b9783b819cdc100c53abd31dc637f364",
+          "solana": "EFyjechTnEmUMZrhk49yS8i8N4VKYkUXSEv9RYejajE6",
+          "bitcoin": "bc1qnesfkazrulxtzpfhxw5af4e7l3fe4k4wed3jxw",
+          "ton": "0:74d6e75564c63edc070147eaf0d274d10c6336e52d4ede4b19efdc665acf7959",
+          "hive": "josh"
+        }
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "bridgeproof",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "btcpc_treasury",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.0 — system account",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    }
+  ],
+  "total_supply_migrated": 0,
+  "whitepaper_path": "docs/BTCPC_WHITEPAPER.md",
+  "whitepaper_size_bytes": 41031
+}
