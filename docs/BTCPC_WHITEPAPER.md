@@ -1,93 +1,208 @@
 # Bitcoin Proof of Compute (BTCPC)
 
-### A Sovereign Blockchain for Verifiable AI Inference, Secured by Useful Work
+### A Sovereign Blockchain Where Every Token Is Earned by a Machine Doing Real Work
 
 **Shin Devlin**
-**Version 0.3 — March 2026**
+**Version 3.0 — April 2026**
 
 ---
 
 ## Abstract
 
-Bitcoin proved that a decentralized network, secured by proof of work, can create and maintain digital scarcity. But Bitcoin's work is purpose-agnostic — SHA-256 puzzles that produce nothing except security. Meanwhile, the world's demand for AI compute grows exponentially, concentrated in the hands of a few corporations.
+Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain where block rewards are earned
+by machines performing verifiable, useful work. Five categories of work produce emissions
+each epoch: AI inference, data storage, service hosting, IoT sensor reporting, and epoch
+timing. Each category has its own reward pool. Every pool with active participants pays
+out pro-rata to those participants. Pools with no claimants are recycled — never burned —
+back into future block rewards via the `btcpc_recycle` system account.
 
-Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain that applies Bitcoin's core insight — that costly, verifiable work can secure a network and back a scarce asset — to a problem that matters: AI inference. BTCPC is a **Proof of Useful Work** system — miners earn BTCPC by providing real AI compute to the network. Unlike Bitcoin's Proof of Work where hash puzzles produce nothing of value, every unit of energy spent on BTCPC produces real, useful AI inference that users actually want to buy. The work that secures the network IS the work that serves the users.
+Total supply is fixed at **42,000,000 BTCPC** with 10 decimal places. Epochs run every
+**30 seconds**, driven by permissionless clock nodes. There is no proof-of-work puzzle,
+no staking barrier to entry, and no synthetic work. If nobody submits an AI inference
+job today, the miner pool recycles. The chain's value is entirely derived from the
+real work it coordinates.
 
-BTCPC introduces two innovations beyond Bitcoin: **Proof of Useful Work (Proof of Compute)** replaces abstract hash puzzles with useful AI inference, and **Cross-Chain Mining Rewards** automatically generate claimable tokens on every blockchain a miner links to their rig — creating multi-chain liquidity from the first block.
-
-Total supply: **42,000,000 BTCPC** — the answer to life, the universe, and everything.
-
----
-
-## 1. The Problem
-
-### 1.1 Centralized AI Compute
-
-Today, AI inference is controlled by a handful of companies: OpenAI, Google, Anthropic, Meta. This creates:
-
-- **Single points of failure** — one API outage affects millions
-- **Censorship risk** — providers decide what can and cannot be computed
-- **Rent extraction** — monopoly pricing on compute that costs fractions of a cent
-- **Privacy violation** — every prompt passes through corporate servers
-
-### 1.2 Wasted Proof of Work
-
-Bitcoin's network consumes approximately 150 TWh of electricity annually — more than many countries. This energy produces nothing except SHA-256 hashes. The security model works, but the computational output serves no secondary purpose.
-
-### 1.3 Siloed Liquidity
-
-Every new blockchain launches with zero liquidity. Projects spend millions bootstrapping trading pairs, market makers, and exchange listings. Cross-chain bridges are complex, expensive, and frequent targets of exploits. There is no mechanism for a new chain to generate liquidity on existing chains organically.
-
-### 1.4 The Opportunity
-
-What if the energy spent securing a network also produced something people want? What if mining on one chain automatically created liquidity on every other chain the miner was connected to? What if the act of doing useful work generated value across the entire crypto ecosystem simultaneously?
+The design principle is simple: **mining should produce output that someone wanted.**
 
 ---
 
-## 2. The BTCPC Blockchain
+## 1. Introduction
 
-### 2.1 Sovereign Chain
+### 1.1 The Problem with Proof of Work
 
-BTCPC is its own blockchain — not a Layer 2, not a sidechain, not a token on another platform. Like Bitcoin, it has:
+Bitcoin's proof-of-work consumes approximately 150 TWh of electricity per year. The
+SHA-256 puzzles that miners solve produce nothing except chain security. The energy
+expenditure is not wasted in the security sense — it is precisely what makes attacks
+expensive — but the *computational output* of every solved puzzle is discarded immediately.
+The hash goes nowhere. The GPU cycles produce no artifact that any user ever requested.
 
-- **Its own genesis block**
-- **Its own P2P network** for transaction and block gossip
-- **Its own consensus mechanism** (Proof of Useful Work / Proof of Compute)
-- **Its own mempool** for pending transactions and inference requests
-- **Its own account-based ledger** tracking balances, stakes, and mining rewards
-- **Its own block format** containing transactions, inference proofs, and epoch commitments
+This was a reasonable trade-off in 2009, when the goal was to build a credibly neutral
+settlement layer with no trusted parties. The work proved the miner's commitment. The
+puzzle was intentionally useless so nobody could capture its output.
 
-### 2.2 Block Structure
+But the world has changed. AI inference is a multi-hundred-billion-dollar industry. Data
+storage is a multi-hundred-billion-dollar industry. IoT telemetry, application hosting,
+and sensor networks are all real economic demand that currently flows through centralized
+clouds at monopoly prices. Millions of GPUs sit inside gaming rigs, mining rigs, and
+cloud servers that are underutilized for large portions of every day.
 
-```
-Block {
-  header: {
-    version,
-    previous_block_hash,
-    merkle_root_transactions,
-    merkle_root_compute_proofs,
-    timestamp,
-    epoch_number,
-    difficulty,
-    miner_id
-  },
-  transactions: [
-    { type: "transfer", from, to, amount, signature },
-    { type: "stake", account, amount, signature },
-    { type: "inference_request", requester, model, prompt_hash, fee },
-    { type: "inference_result", node, request_id, result_hash, tokens_generated },
-    { type: "claim_generate", miner, epoch, chain, amount, proof },
-    ...
-  ],
-  compute_proofs: [
-    { node_id, inference_count, tokens_generated, model, commitment_hash }
-  ]
-}
-```
+The question was never "why another blockchain?" The question is: **why are we still
+paying Amazon for cloud computing when millions of GPUs sit idle mining hashes nobody
+uses?**
 
-### 2.3 Account Model — Hive-Style Key Hierarchy
+### 1.2 The BTCPC Insight
 
-Every BTCPC account has four key pairs, derived from a single master password — identical to the Hive blockchain's proven account model:
+BTCPC applies Bitcoin's core insight — costly, verifiable work can secure a network and
+back a scarce asset — to a domain where the work itself has market value.
+
+Miners on BTCPC earn by completing AI inference jobs that real users submitted through
+the API. The inference result is the proof of work. The job was something the user
+actually wanted. The token earned is payment for a real service, not a reward for solving
+an artificial puzzle.
+
+The same pattern applies to every other work category: storage hosts store files that
+someone committed to the chain. Clock nodes keep timing that the consensus protocol
+depends on. Sensor bridges relay readings from physical devices that subscribers are
+paying for. Service hosts run applications that users are accessing.
+
+Every token in existence represents a verified unit of economic activity.
+
+### 1.3 Positioning
+
+**Bitcoin** is digital gold. Store of value. Proof of Work secures the ledger.
+The computational output is discarded by design.
+
+**Ethereum** is a world computer. Proof of Stake secures a general-purpose VM.
+Smart contracts are the product. The chain is the platform.
+
+**BTCPC** is the digital labor market. Proof of Compute means the mining IS the product.
+Every token represents real work done: an AI prompt answered, a file stored, a sensor
+reading verified, an application served, a clock heartbeat delivered.
+
+---
+
+## 2. Consensus: Proof of Compute
+
+### 2.1 Epochs
+
+BTCPC operates on fixed 30-second epoch intervals. At each epoch boundary:
+
+1. Clock nodes submit a heartbeat transaction with their local timestamp
+2. The median of all heartbeats within a tolerance window establishes the canonical
+   epoch close time
+3. Pending ledger entries (inference results, transfers, storage proofs, etc.) are
+   collected into a block candidate
+4. A consensus hash is computed from the epoch's entries
+5. Miners and verifiers agree on the canonical block
+6. The block is written to disk and broadcast to peers
+
+Epochs are driven by permissionless clock nodes. Any device capable of making an HTTP
+request and sending a signed heartbeat transaction can be a clock node. A laptop, a
+phone, a Raspberry Pi — all qualify. Clock participation earns 5% of every epoch's
+block reward, split equally among active clocks.
+
+There is no fixed "block proposer" or leader. The broadcaster for a given epoch is
+selected deterministically from the participating set based on the epoch number and
+peer availability. This prevents any single node from controlling block production.
+
+### 2.2 Mining: Real Inference Only
+
+Miners earn BTCPC by completing AI inference jobs. There is no make-work puzzle. A
+miner that has no pending jobs to complete earns nothing for that epoch. The entire
+miner reward pool for an epoch with no submitted jobs is recycled to `btcpc_recycle`.
+
+The inference pipeline:
+
+1. A user submits an `InferenceJob` via the API (REST or P2P)
+2. The job enters the pending-entries queue, visible to all nodes
+3. Miners pick up the job, run inference via their local Ollama instance
+4. The miner commits to the result using a hash (commit phase)
+5. After a short reveal window, the miner reveals the full result (reveal phase)
+6. Multiple verifiers independently re-run a sample of the inference or validate the
+   result against a known reference
+7. Median consensus across verifiers determines whether the result is valid
+8. Valid results: miner earns reward proportional to `work_value`
+   (tokens generated × model parameter count in billions)
+9. Invalid or missing results: miner earns nothing for that job; verifiers flag the
+   discrepancy; stake may be slashed on repeated fraud
+
+Ollama is the inference backend. BTCPC is model-agnostic: miners run any model that
+Ollama supports (qwen, llama, mistral, gemma, deepseek, etc.). Work value scales with
+the verified parameter count from Ollama's `/api/show` endpoint, not the model name.
+A miner running a 70B model earns more per job than one running a 7B model, because
+the work is harder and the output quality is proportionally higher.
+
+No model is required or preferred. The protocol rewards verified compute, not brand
+loyalty.
+
+### 2.3 Verification
+
+Verification is a separate role from mining. Verifiers:
+
+- Validate that the inference result hash matches the revealed content
+- Spot-check storage hosts by issuing challenge-response probes against stored blobs
+- Validate sensor readings for statistical plausibility
+- Cross-check service host heartbeats and session proofs
+
+A verifier panel for a given inference job is selected pseudo-randomly from registered
+verifiers. A verifier that consistently votes against the winning consensus has their
+stake reduced. A verifier that is persistently idle earns nothing. A good verifier
+earns 10% of each epoch's block reward, split pro-rata by verification count.
+
+### 2.4 P2P Security
+
+All P2P messages in BTCPC are signed with ECDSA using the sender's Active key. Unsigned
+messages are rejected. Message types that require signatures:
+
+- `BLOCK_PROPOSAL` — signed by the broadcasting node
+- `EPOCH_FINALIZED` — signed by the consensus coordinator
+- `MEMPOOL_ENTRY` — signed by the originating account
+- `ACCOUNT_ANNOUNCE` — signed by the account's Owner key
+- `CLOCK_HEARTBEAT` — signed by the clock node's Posting key
+- `STORAGE_HEARTBEAT` — signed by the storage host's Posting key
+- `SENSOR_READING` — signed by the gateway's Posting key
+
+Peers that relay unsigned or mis-signed messages are deprioritized in peer scoring.
+Peers that relay messages with valid signatures but invalid semantic content (e.g., a
+balance transfer with insufficient funds) are rejected at the entry validation layer.
+
+### 2.5 Block Finalization
+
+When consensus is reached on an epoch:
+
+1. The winning block is written to `data/blocks/block-NNNNNNNN.bin`
+   (the permanent source of truth)
+2. Ledger entries are applied to the in-memory stateStore (fast reads for all nodes)
+3. The stateManager's Sparse Merkle Tree (SMT) is updated with the new state root
+4. Every N epochs, a finality snapshot is written to `data/blocks/finality-NNNNNNNN.bin`
+   to enable fast-forward sync for new nodes
+5. Rewards are distributed: each reward pool is computed and credited in the same block
+
+The blockchain on disk is the canonical source of truth. The in-memory stateStore is a
+performance cache rebuilt from blocks on startup. MongoDB is never required for
+consensus-critical operations.
+
+### 2.6 Dynamic Block Cap
+
+BTCPC uses an adaptive block size cap that responds to demand. The cap starts at 1 MB
+and adjusts each epoch:
+
+- If the current block is more than 50% full: next cap = min(current × 1.25, 32 MB)
+- If the current block is less than 25% full: next cap = max(current × 0.75, 1 MB)
+
+The current block cap is recorded in the block header so all nodes agree on the limit
+for the next epoch. This creates a self-regulating throughput ceiling of approximately
+1,000 TPS at steady state, scaling to 32 MB blocks (~32,000 TPS ceiling) under
+sustained demand.
+
+---
+
+## 3. Account Model
+
+### 3.1 Key Hierarchy
+
+Every BTCPC account is derived from a single BIP-39 mnemonic (12 words). The mnemonic
+derives four secp256k1 key pairs with distinct permission levels:
 
 ```
 12-Word BIP-39 Mnemonic
@@ -96,2261 +211,751 @@ Every BTCPC account has four key pairs, derived from a single master password �
   ├── m/44'/btcpc'/0'/1/0  → Active Key
   ├── m/44'/btcpc'/0'/2/0  → Posting Key
   └── m/44'/btcpc'/0'/3/0  → Memo Key
-
-2FA Password (separate from mnemonic)
-  │
-  └── pbkdf2(password + account, 100000 rounds) → 2FA Key
 ```
 
-**Account creation generates a standard BIP-39 12-word mnemonic.** The mnemonic derives all four role keys via BIP-44 derivation paths. This means any BIP-39 compatible hardware wallet (Ledger, Trezor, etc.) can store and sign with the role keys — no custom firmware required.
+**Owner key** — cold storage, account recovery. Used only for recovery operations and
+for changing other keys. Never exposed online. The 72-hour recovery window is enforced
+by the protocol: any account recovery must wait 72 hours before the new keys are
+accepted, giving the original owner time to cancel a fraudulent recovery.
 
-The 2FA password is set separately and derives its own key. The mnemonic and password together form complete account control. Losing either one alone is not enough to steal funds.
+**Active key** — financial operations. Transfers, staking, escrow, bridge operations,
+store management, and any other operation that moves funds. This key should be kept
+offline when not in active use.
 
-| Key | Permission Level | What It Can Do | Where It Lives |
-|-----|-----------------|----------------|----------------|
-| **Owner** | Highest | Change password, rotate all keys, recover account, update account authority | Cold storage (paper, hardware wallet, safe) |
-| **Active** | Financial | Send BTCPC, stake/unstake, claim cross-chain rewards, set up recurring payments, manage multi-sig | Daily-use device, encrypted with TOTP |
-| **Posting** | Operational | Submit epoch commitments, register/update mining node, serve inference requests, sign compute proofs | Mining rig (can mine but CANNOT move funds) |
-| **Memo** | Communication | Encrypt/decrypt private messages, encrypt inference request/result payloads between nodes | Any device needing private communication |
+**Posting key** — operational identity. Mining submissions, clock heartbeats, storage
+heartbeats, service heartbeats, inference job submissions, reviews, reputation votes,
+and any high-frequency chain interaction. Lower value per action; higher exposure.
 
-**Key properties:**
+**Memo key** — encrypted communication. Used for encrypting inference prompts, private
+messages, and any data that should be readable only by the recipient. The memo key is
+never used for signing transactions; it is used only for ECDH key agreement to produce
+a shared secret for AES-256-GCM encryption.
 
-- **Password changes rotate all derived keys instantly.** If your active key is compromised, change your password with the owner key. All four derived keys rotate. The attacker's stolen key is now worthless.
-- **The posting key lives on your mining rig.** It can do everything mining requires but cannot transfer a single token. This means a compromised mining server cannot steal your funds.
-- **The memo key enables private inference.** Users can encrypt prompts so only the assigned compute node can read them. Results are encrypted back. No one — not even other validators — sees the actual content.
-- **Owner key is used rarely and stored cold.** Like Hive, responsible operators should never need their owner key in normal operations.
+### 3.2 Protocol-Enforced 2FA
 
-### 2.3.1 Protocol-Level Multi-Factor Authentication
+Account creation includes a TOTP secret that becomes part of the account's on-chain
+record. Financial operations (Active key actions) require a valid TOTP code to be
+included in the transaction. This prevents private key theft from being immediately
+exploitable: the attacker needs both the key and access to the TOTP device.
 
-BTCPC is the first blockchain with **protocol-enforced multi-factor authentication.** Every account has a configurable authentication profile that validators enforce on every transaction. This is not wallet-level security — it is consensus-level.
+### 3.3 Account Names
 
-**Two additional authentication factors are available:**
+Account names are 3–20 characters, lowercase letters and numbers only, no leading or
+trailing hyphens. 420 premium names were reserved at genesis for controlled release.
+Name registration costs a flat fee that routes to `btcpc_recycle`. Names are permanent
+once registered — there is no expiry, no renewal fee, and no squatter protection beyond
+first-come-first-served.
 
-**Factor A — Password:**
-- User sets a 2FA password (can differ from the master key-derivation password)
-- `2fa_private_key = pbkdf2(2fa_password, account_name, 100000 rounds)`
-- `2fa_public_key` stored on-chain
-- Transaction includes a signature from the 2FA key
-- Password changeable at any time via Owner key (rotates the 2FA keypair)
-- Validators verify the 2FA signature against the stored public key
-- The password never touches the chain — only signatures
+### 3.4 Cross-Chain Addresses
 
-**Factor B — TOTP (Google Authenticator):**
-- User scans a QR code to set up standard TOTP in any authenticator app
-- `totp_commitment = hash(totp_seed)` stored on-chain
-- Every 30 seconds, the TOTP seed + time window derives a keypair
-- Transaction includes: TOTP signature + time_window
-- Validators derive the expected public key from `totp_commitment + time_window` and verify
-- Accepts ±1 window (90-second tolerance, standard TOTP)
-- The TOTP secret never touches the chain — only the commitment and signatures
-
-**User-configurable authentication profiles:**
-
-| Profile | Factors Required | Use Case |
-|---------|-----------------|----------|
-| **Key only** | Role key signature | Minimum security (not recommended) |
-| **Key + Password** | Role key + password-derived signature | Standard security |
-| **Key + TOTP** | Role key + Google Auth signature | Convenient security |
-| **Key + Password + TOTP** | All three signatures | Maximum security (3FA) |
-
-Users configure their profile via `AccountUpdate` (requires Owner key). Each profile applies to all Active and Owner key operations. Posting key operations (mining, epoch commits) can be configured separately — miners may want posting-key transactions to require fewer factors for automated operation.
-
-**Transaction format:**
-
-```
-Transaction {
-  type: "transfer",
-  from: "satoshinakamoto",
-  to: "alice",
-  amount: "100.00000000 BTCPC",
-
-  primary_signature: <signed with active key>,
-
-  auth_factors: {
-    password_signature: <signed with password-derived key>,  // if enabled
-    totp_signature: <signed with TOTP-derived key>,          // if enabled
-    totp_time_window: 1743120000                             // if TOTP enabled
-  }
-}
-
-Validator checks:
-  1. Is primary_signature valid for the "from" account's active key? ✓
-  2. What auth profile does this account require?
-  3. If password enabled: is password_signature valid? ✓
-  4. If TOTP enabled: is totp_signature valid for this time_window? ✓
-  5. All required factors present → accept transaction
-```
-
-**Why no other chain has this:**
-
-- Bitcoin/Ethereum: single key, no recovery, no 2FA
-- Hive: hierarchical keys but single-signature per transaction
-- BTCPC: hierarchical keys + protocol-enforced 2FA/3FA with user choice
-
-A compromised private key alone is not enough to steal funds. An attacker would also need the user's password and/or TOTP device. This is the security model users expect from banking — applied to a decentralized blockchain for the first time.
-
-### 2.3.2 Hardware Wallet Integration
-
-BTCPC's 2FA design works with **any BIP-39 hardware wallet out of the box** — no custom apps, no firmware modifications, no approval processes.
-
-The role keys (owner/active/posting/memo) are derived from the 12-word mnemonic via standard BIP-44 paths. Any hardware wallet that supports BIP-39 can store and sign with these keys. The 2FA factor is handled separately by the CLI or wallet software:
-
-```
-$ btcpc-cli transfer --to alice --amount 100
-
-  [Hardware wallet requests confirmation — press button, enter PIN]
-  → Signature 1: role key (from hardware wallet)
-
-  Enter password: ********
-  → Signature 2: 2FA key (derived from password, computed by CLI)
-
-  Transaction broadcast with both signatures.
-```
-
-The hardware wallet handles what hardware wallets do best — securely storing keys and requiring physical confirmation. The CLI handles the 2FA password/TOTP separately. Two independent factors, two independent devices, zero custom integration required.
-
-**Supported configurations:**
-
-| Setup | Factor 1 (role key) | Factor 2 (2FA) |
-|-------|-------------------|---------------|
-| Hardware wallet + password | Ledger/Trezor signs | Type password in CLI |
-| Hardware wallet + TOTP | Ledger/Trezor signs | Enter Google Auth code in CLI |
-| Software wallet + password | Local key signs | Type password in CLI |
-| Software wallet + TOTP | Local key signs | Enter Google Auth code in CLI |
-| Hardware wallet + password + TOTP | Ledger/Trezor signs | Password AND Google Auth (3FA) |
-
-### 2.3.3 Account Recovery
-
-If a user loses access to their 2FA (forgotten password, lost TOTP device) but still has their 12-word mnemonic:
-
-1. Submit a **recovery request** using the Owner key (this is the ONE transaction type that bypasses 2FA)
-2. **72-hour time-lock** begins — the recovery request is announced on-chain
-3. During the 72 hours, if the real owner (with valid 2FA) submits a **contest transaction**, the recovery is blocked and the attacker's attempt fails
-4. After 72 hours with no contest — 2FA resets, user sets a new password/TOTP
-
-This mirrors how banks handle lost 2FA credentials: a delay period with the opportunity to intervene. The 72-hour window gives the real owner time to notice and stop unauthorized recovery attempts.
-
-### 2.4 Purpose-Built Contracts
-
-BTCPC does not support arbitrary smart contracts. Like Bitcoin's Script, BTCPC has a limited set of purpose-built contract types hardcoded into the protocol:
-
-| Contract Type | Required Key | Purpose |
-|--------------|-------------|---------|
-| **Transfer** | Active | Move BTCPC between accounts |
-| **Staking** | Active | Lock/unlock BTCPC for mining eligibility |
-| **Escrow** | Active | Hold BTCPC for inference payment until delivery confirmed |
-| **Slashing** | Protocol | Automatically slash stakes for consensus violations |
-| **Claim** | Active | Generate signed proofs for cross-chain reward claiming |
-| **MultiSig** | Active | M-of-N approval requirement on an account |
-| **RecurringPay** | Active (once) | Authorized periodic transfers to a target wallet |
-| **AccountUpdate** | Owner | Change password, rotate keys, update authorities |
-| **NodeRegister** | Posting | Register/update mining node configuration |
-| **EpochCommit** | Posting | Submit epoch work commitment |
-
-No Solidity. No EVM. No arbitrary code execution. This is a deliberate design choice: the BTCPC chain does one thing — verifiable compute — and does it securely. Developers who want full smart contract capability use wrapped BTCPC (wBTCPC) on Base, Ethereum, or any EVM chain.
-
-### 2.4 Epochs
-
-Time in BTCPC is measured in **epochs**. One epoch = 5 minutes (~60 blocks at 5-second intervals).
-
-At each epoch boundary:
-1. Nodes submit their epoch commitment: `{state_hash, tx_count, inference_count, proof_samples[]}`
-2. The network reaches consensus on the canonical state
-3. Block rewards are distributed to honest miners
-4. Cross-chain claim proofs are generated for linked wallets
-5. Difficulty adjusts if threshold reached
-
-### 2.5 The Work Function
-
-Unlike Bitcoin's single work function (SHA-256), BTCPC has a composite work function:
-
-```
-Work = Σ(inference_tokens_generated × model_weight_factor)
-```
-
-Where `model_weight_factor` scales with model size:
-- 1B-7B parameters: 1.0x
-- 7B-13B parameters: 2.0x
-- 13B-30B parameters: 4.0x
-- 30B-70B parameters: 8.0x
-- 70B+ parameters: 16.0x
-
-Running a 70B model earns 16x more than a 7B model per token generated — reflecting the real compute cost difference.
+Each account can register chain addresses for Ethereum, Solana, Bitcoin, and TON (and
+future chains). These addresses are stored on-chain under the account record and are
+used by the bridge relay to verify ownership across chains. Cross-chain address
+registration does not require a fee; it is included in the account creation transaction.
 
 ---
 
-## 3. Verification: Proving Compute Is Real
-
-The core challenge: how do you verify that a node actually performed the inference it claims, without re-running every computation?
-
-### 3.1 The Verification Trilemma
-
-Any verification system must balance:
-- **Security** — cheaters must be caught
-- **Efficiency** — verification must cost less than the work itself
-- **Speed** — verification must not bottleneck the network
-
-BTCPC achieves verification through a **single-pass compute + random verifier panel** model that avoids the waste of redundant computation.
-
-### 3.2 Single-Pass Compute with Verifier Panel
-
-Unlike systems that re-run every computation N times, BTCPC separates the roles of **computing** and **verifying**. One miner performs the inference. A randomly selected panel of verifiers independently checks the output.
-
-**Phase 1 — Compute:**
-1. Network assigns the inference request to a single miner
-2. The miner runs the inference and submits the full result to the network
-3. The result is recorded with timing data, token count, and model metadata
-
-**Phase 2 — Verify:**
-1. A panel of verifiers is selected deterministically from the active node pool using `SHA256(previous_block_hash + epoch_number + job_id)` as a seed
-2. Verifiers receive the **full response** (not the prompt) along with the model name, token count, and timing metadata
-3. Each verifier independently checks:
-   - **Compute plausibility** — did the timing match what the declared hardware can produce?
-   - **Output quality** — is the response coherent, non-repetitive, and substantive?
-   - **Token integrity** — does the token count match the actual output length?
-4. Verifiers submit a binary verdict: valid or invalid
-5. Majority verdict determines the outcome
-
-**Verifier panel size scales with network:**
-
-| Network Size | Verifiers Per Job | Rationale |
-|---|---|---|
-| 1-3 nodes | 1 | Genesis phase — limited pool |
-| 4-10 nodes | 3 | Early network — meaningful consensus |
-| 11-50 nodes | 5 | Growth phase — robust verification |
-| 50+ nodes | 7 | Mature network — high confidence |
-
-**Why single-pass, not redundant:**
-
-- Redundant computation (N=3) wastes 2/3 of the network's GPU capacity re-running the same work
-- LLM inference is inherently non-deterministic — even with fixed seeds, different hardware produces different token sequences, making result-matching unreliable
-- Verifiers run lightweight quality checks, not full re-inference — verification costs a fraction of the original compute
-- The miner earns 85% of the reward for doing the heavy work; verifiers earn 10% for lightweight quality assurance
-
-### 3.3 Physical Plausibility Bounds
-
-Nodes declare their hardware capabilities upon registration:
-- GPU model, VRAM, count
-- CPU cores, RAM
-- Maximum concurrent inferences
-
-The network maintains benchmark data for known hardware configurations. A node claiming to generate 1000 tokens/second on a single RTX 4090 with a 27B parameter model is physically impossible (~15-30 tokens/second is realistic). Claims that violate plausibility bounds trigger automatic verification of all that node's work for the epoch.
-
-### 3.4 Slashing Protocol — Role-Based Penalties
-
-BTCPC's three network roles (miners, verifiers, clocks) each have distinct slashing rules. Slashing is proportional to stake and escalates with repeated offenses. All slashed tokens go to `btcpc_recycle` — never burned.
-
-#### Miner Slashing
-
-| Offense | First | Second | Third |
-|---------|-------|--------|-------|
-| Empty/garbage inference | 10% staked | 25% staked | Deregistered |
-| Timing fraud (claimed faster than hardware allows) | 5% staked | 15% staked | 25% staked |
-| Repeated zero-quality output | Warning | 10% staked | Deregistered |
-
-Detection: verifier panels catch bad work during normal verification (Section 3.2). If a majority of verifiers reject a miner's output, the miner is slashed.
-
-#### Verifier Slashing
-
-| Offense | First | Second | Third |
-|---------|-------|--------|-------|
-| Rubber-stamping (approving obviously bad work) | 5% staked | 15% staked | Deregistered |
-| Griefing (rejecting demonstrably good work) | 5% staked | 10% staked | 15% staked |
-| Collusion (coordinated false verdicts) | 25% staked | Deregistered | — |
-
-Detection: cross-verification. If a job is flagged, a fresh panel of verifiers re-evaluates the work. Verifiers on the original panel whose verdicts contradict the fresh panel are investigated. Patterns of false verdicts across multiple jobs trigger escalating penalties.
-
-#### Clock Slashing
-
-| Offense | First | Second | Third |
-|---------|-------|--------|-------|
-| Time drift > 30 seconds | Warning | 1% staked | 5% staked |
-| Offline > 10 consecutive epochs | 0 rewards | 1% staked | Deregistered |
-
-Detection: other clocks and miners report drift. Clock heartbeats are tracked on-chain.
-
-#### Appeals
-
-A slashed node can submit an on-chain appeal within 100 epochs. Appeals are adjudicated by a **fresh random verifier panel** — none of the original verifiers who triggered the slash participate. The appeal panel size is one tier larger than the original (e.g., if 3 verifiers originally reviewed the work, 5 review the appeal). A 66% supermajority of the appeal panel overturns the slash. Appeal panels are selected using `SHA256(slash_tx_hash + appeal_epoch)` to ensure deterministic randomness.
-
-**Genesis phase:** With fewer than 3 nodes, slashing is deferred. Single-miner mode operates on trust until the network has enough independent nodes for meaningful verification.
-
-### 3.5 Anti-Centralization: Fair Work Distribution
-
-BTCPC prevents powerful nodes from monopolizing inference work through a **weighted assignment algorithm** that balances price, track record, and newcomer opportunity:
-
-```
-assignment_score = price_score × reputation_factor
-                 - concentration_penalty
-                 + newcomer_bonus
-                 + stake_bonus
-```
-
-| Factor | Effect | Purpose |
-|--------|--------|---------|
-| **Price score** | Lower price = higher score | Market competition |
-| **Reputation factor** | 0.5x to 1.0x multiplier | Reward honest nodes |
-| **Concentration penalty** | log₁₀(epochs_done) × 0.1, max -0.4 | Prevent monopolies |
-| **Newcomer bonus** | Up to +0.3 for nodes with < 100 epochs | Bootstrap new miners |
-| **Stake bonus** | Logarithmic, hard cap at +0.2 | Skin in the game, with diminishing returns |
-
-**Stake bonus has diminishing returns and a hard cap:**
-
-| Stake | Bonus |
-|-------|-------|
-| 1,000 (minimum) | +0.00 |
-| 10,000 | +0.10 |
-| 100,000 | +0.20 (cap) |
-| 1,000,000 | +0.20 (same as 100k) |
-
-Staking 10x more than the minimum buys a meaningful edge. Staking 1000x buys the same edge as 100x. Whales cannot buy dominance — and the newcomer bonus (+0.3) still outweighs maximum stake bonus (+0.2) for a new miner's first 100 epochs.
-
-A node that has mined 10,000 epochs gets penalized -0.4. A brand new node gets +0.3 bonus. Combined with stake-scaled slashing (Section 3.4), the system rewards commitment while actively redistributing opportunity to new participants. The bigger you are, the more you earn — but also the more you lose if you cheat.
-
-Nodes are also limited to **one active inference job per 8GB VRAM**. A 24GB GPU can run 3 concurrent jobs. A 48GB GPU can run 6. This caps how much work a single machine can monopolize regardless of score.
-
-### 3.6 Why This Works (Game Theory)
-
-For a rational miner with stake S and epoch earnings E:
-
-```
-Expected value of honest mining = E
-Expected value of cheating = E × savings_from_faking - S × slash_rate × P(caught)
-```
-
-With random verifier panels, P(caught) scales with network size. At 7 verifiers, a miner producing garbage output is caught with near-certainty. Even at 1 verifier (genesis phase), the risk of losing 10% of stake on a single offense makes cheating negative expected value when S >> E.
-
-For verifiers, the incentive structure is equally robust:
-
-```
-Expected value of honest verification = verifier_reward
-Expected value of rubber-stamping = verifier_reward - S × slash_rate × P(cross_verified)
-```
-
-Cross-verification (fresh panels re-checking flagged work) means dishonest verifiers face escalating detection probability over time. A verifier who rubber-stamps will eventually encounter a job that a fresh panel rejects — exposing the pattern.
-
-The three-role separation (miners compute, verifiers check, clocks time) means no single node type can unilaterally compromise the network. Collusion requires coordinating across all three roles simultaneously.
-
----
-
-## 3.7 Block Consensus: Three-Role Network
-
-BTCPC separates network participants into three distinct roles, each running as an independent process:
-
-| Role | Work | Reward Share (Active) | Reward Share (Idle) | Hardware |
-|------|------|-----------------------|---------------------|----------|
-| **Miners** | Run AI inference | 85% | 0% | Any hardware (GPU or CPU) |
-| **Verifiers** | Check inference quality | 10% | 1% | Any hardware |
-| **Clocks** | Drive epoch timing | 5% | 1% | Any hardware |
-
-**Miners** perform inference — running AI models and producing results. A GPU mines faster than a CPU, but both earn proportional to their verified work. Hardware diversity strengthens the network: heterogeneous machines are harder to exploit simultaneously, and different architectures make timing-based collusion between miners and verifiers impractical.
-
-**Verifiers** are lightweight nodes randomly selected to check that miners actually did the work they claim. They receive the full response (not the prompt), validate output quality, timing plausibility, and token integrity. Verifier count scales from 1 to 7 as the network grows. In idle epochs (no inference jobs), verifiers still earn 1% of the block reward for staying online.
-
-**Clocks** drive epoch timing independently from miners. Any device — a phone, a Raspberry Pi, a desktop — can run a clock node. Clocks share 5% of active epoch rewards among all connected clocks. With 5,000 clocks, each gets a tiny share; with 3 clocks, each gets a meaningful one. This incentivizes early clock participation. In idle epochs, clocks earn 1% of the block reward.
-
-**Idle epochs:** When no inference work is submitted, 98% of that epoch's block reward goes unminted. Only 2% is distributed (1% verifiers, 1% clocks). This prevents inflation during quiet periods while keeping infrastructure nodes incentivized to stay online.
-
-#### How blocks form
-
-1. **Clock nodes drive timing.** At each epoch boundary (every 5 minutes), clock nodes broadcast `CLOCK_HEARTBEAT` messages. The network's epoch advances when a majority of clocks agree on the time — miners do not control epoch timing.
-
-2. **During each epoch:** inference requests flow across the P2P network. Each request is assigned to a single miner. The miner processes the request and broadcasts the result. Random verifiers check the output quality.
-
-3. **Blocks are variable size.** A quiet epoch might contain 1 proof. A busy epoch might contain thousands. The block wraps whatever verified work was done in that window.
-
-4. **At epoch boundary:** every miner computes a finalization proposal:
-   ```
-   consensus_hash = SHA256(
-     sorted(rewards) +
-     total_work_value +
-     settled_job_count
-   )
-   ```
-   Because all miners received the same work proofs via P2P gossip and compute rewards deterministically, honest miners produce the same hash.
-
-5. **Miners broadcast `FINALIZATION_PROPOSAL` messages.** The proposal with the most supporters wins. The winning proposal's rewards are written to the ledger.
-
-#### Why this works
-
-- Three independent roles prevent single-point-of-failure
-- Clock nodes prevent miners from manipulating epoch timing
-- Random verifier selection prevents collusion (verifiers don't know which jobs they'll check in advance)
-- Majority finalization prevents any single miner from forging state
-- Separation of concerns: miners optimize for compute speed, verifiers optimize for quality checking, clocks optimize for uptime
-
-#### Comparison to Bitcoin
-
-| | Bitcoin | BTCPC |
-|---|---|---|
-| **Who mines** | Anyone with ASICs | Anyone with a GPU or CPU |
-| **What is mined** | SHA-256 hashes (abstract) | AI inference (useful work) |
-| **Who validates** | Every miner + full node | Random verifier panel |
-| **Who keeps time** | Difficulty adjustment (~10 min) | Decentralized clock nodes (~5 min) |
-| **Block content** | Variable transactions | Variable work proofs |
-| **Consensus rule** | Longest chain (most work) | Majority finalization proposal |
-| **Finality** | Probabilistic (6 blocks) | Deterministic (1 epoch, majority vote) |
-| **Verification** | Re-hash the block header | Random verifier panel (output quality check) |
-
-The key difference: Bitcoin's consensus is competitive (one miner wins per block), BTCPC's is cooperative (all miners who contribute verified work share the reward proportional to their output). Every miner's compute contributes to the network.
-
-#### Scaling
-
-- **1 miner:** Consensus is trivial (genesis phase, solo mining, 1 verifier)
-- **3-10 miners:** Single-miner-per-job, 3 verifiers per job
-- **10-50 miners:** Jobs distributed across miners, 5 verifiers per job
-- **50+ miners:** Full parallel inference capacity, 7 verifiers per job
-
-The network scales horizontally. More miners = more parallel inference throughput. More verifiers = higher confidence in output quality. More clocks = more resilient timing. Verification cost stays lightweight regardless of network size because verifiers check output quality, not re-run inference.
-
----
-
-## 4. Inference Protocol: End-to-End Encrypted Compute
-
-### 4.1 Mandatory Encryption
-
-All inference on the BTCPC chain is end-to-end encrypted. This is not optional. No plaintext prompt or result ever touches the chain or is visible to validators, other nodes, or the public.
-
-```
-On-chain (public):                     Off-chain (private):
-  prompt_hash (sha256)                   actual prompt (plaintext)
-  encrypted_prompt (memo key)            actual result (plaintext)
-  result_hash (sha256)                   decryption keys
-  encrypted_result (memo key)
-  model, tokens_used, fee, timestamp
-```
-
-### 4.2 Encryption Flow
-
-```
-1. User submits inference request:
-   - Encrypts prompt with ASSIGNED NODE's memo public key
-   - Includes prompt_hash = sha256(plaintext_prompt)
-   - Posts: {encrypted_prompt, prompt_hash, model, fee}
-
-2. Network assigns request to a miner:
-   - Miner decrypts the prompt using their memo private key
-   - Runs inference
-   - Computes result_hash = sha256(plaintext_result)
-   - Encrypts result with REQUESTER's memo public key
-   - Submits result to the network
-   - Discards the decrypted prompt from memory
-
-3. Verification phase:
-   - Random verifier panel receives the result (not the prompt)
-   - Verifiers check output quality, timing, and token integrity
-   - Majority verdict determines validity
-   - Verified result delivered to requester
-   - Requester decrypts with their own memo private key
-
-4. What remains on-chain:
-   - prompt_hash, result_hash (for verification audit trail)
-   - encrypted_prompt, encrypted_result (unreadable without keys)
-   - model, tokens, fee, timestamp (operational metadata)
-   - verifier_verdicts (valid/invalid per verifier)
-   - NO plaintext. Ever.
-```
-
-### 4.3 Privacy Guarantees
-
-| Party | Can See Prompt? | Can See Result? |
-|-------|----------------|-----------------|
-| Requester | Yes (they wrote it) | Yes (they decrypt it) |
-| Assigned miner | Temporarily (decrypt to process, then discard) | Temporarily (generate, then discard after hashing) |
-| Verifiers | No (never see the prompt) | Yes (check output quality, then discard) |
-| Other nodes / clocks | No (only see hashes) | No (only see hashes) |
-| Public / block explorer | No | No |
-| Chain operator / foundation | No | No |
-
-### 4.4 Comparison with Centralized AI
-
-| Property | OpenAI / Google / Anthropic | BTCPC |
-|----------|---------------------------|-------|
-| Who reads your prompt | The company, their employees, their training pipeline | Only the compute node, temporarily |
-| Prompt storage | Stored on corporate servers indefinitely | Encrypted on-chain, only readable by requester |
-| Data used for training | Often yes (unless opted out) | Never — nodes discard plaintext after processing |
-| Censorship | Provider decides what you can ask | No censorship — encrypted, no one can read to censor |
-| Subpoena risk | Company can be compelled to hand over logs | No plaintext exists to hand over |
-
-### 4.5 Network Privacy
-
-Beyond encrypted inference content, BTCPC provides three privacy layers at the network level:
-
-**Anonymous Inference Routing:**
-Users can submit inference requests through a **relay mixer**. The request is routed through one or more relay nodes that strip the sender's identity before forwarding to the compute node. The compute node sees only: a valid escrow, an encrypted prompt, and a return path through the relay. It does not know who is asking.
-
-```
-User → Relay A → Relay B → Compute Node
-                              |
-User ← Relay A ← Relay B ← Result
-
-Compute node sees: anonymous request + valid escrow
-User sees: result
-Relays see: encrypted traffic (cannot read prompt or result)
-Nobody can link the request to the user
-```
-
-Relay nodes earn a small fee (1-2% of the inference fee) for providing this service. Anonymous routing is optional — users choose per-request whether to route directly or through relays.
-
-**Node IP Privacy (Tor/I2P Integration):**
-Mining nodes can optionally expose their API endpoint as a Tor hidden service or I2P address instead of a clearnet IP. This means:
-- No one can determine the physical location of a compute node
-- ISPs cannot see that a machine is running a BTCPC node
-- The node operator's identity is protected
-
-```
-Standard node:  https://203.0.113.42:8080  (IP visible)
-Private node:   http://abc123...xyz.onion   (location hidden)
-```
-
-Node-to-node communication (block gossip, peer discovery) can also route through Tor, making the entire P2P network invisible to network-level surveillance.
-
-**Stealth Accounts:**
-For users who need stronger privacy than usernames provide, BTCPC supports **stealth addresses**. A stealth address is a one-time account derived from the recipient's public key that cannot be linked back to their main account:
-
-```
-Alice's main account:     alice
-Alice's stealth address:  s.7f3a9b2c...  (one-time, unlinkable)
-
-Anyone can send BTCPC to s.7f3a9b2c
-Only Alice can spend from it (derived from her keys)
-No one can prove s.7f3a9b2c belongs to alice
-```
-
-Each transaction can generate a new stealth address. An observer watching the blockchain sees transfers between seemingly unrelated one-time accounts — they cannot determine that the same person is behind multiple transactions.
-
-**Privacy Summary:**
-
-| Layer | What It Hides | Default |
-|-------|--------------|---------|
-| Encrypted inference | Prompt + result content | Always on (mandatory) |
-| Anonymous routing | Who submitted the request | Optional per-request |
-| Tor/I2P nodes | Where nodes are physically located | Optional per-node |
-| Stealth accounts | Which transactions belong to the same person | Optional per-transaction |
-
-**Future (Phase 4): Full Confidential Transactions** — hidden amounts, ring signatures, zero-knowledge proofs. Monero-level privacy for users who need it.
-
-### 4.6 Submitting Inference Requests
-
-**Layer 1 — On-chain transaction (raw):**
-```json
-{
-  "type": "inference_request",
-  "requester": "alice",
-  "model": "qwen3.5:27b",
-  "prompt_hash": "sha256(prompt)",
-  "encrypted_prompt": "<encrypted with node memo key>",
-  "max_fee": "10 BTCPC",
-  "primary_signature": "<active key>",
-  "auth_factors": { "password_signature": "<2fa>" }
-}
-```
-BTCPC held in escrow until delivery confirmed.
-
-**Layer 2 — Node API (practical, OpenAI-compatible):**
-```
-POST https://node.btcpc.network/v1/inference
-Authorization: Bearer btcpc_apikey_...
-
-{
-  "model": "qwen3.5:27b",
-  "messages": [{"role": "user", "content": "What is 6 times 7?"}]
-}
-
-→ Node handles encryption, on-chain escrow, verification
-→ Returns decrypted result to the API caller
-→ Feels identical to calling OpenAI
-```
-
-**Layer 3 — SDK:**
-```javascript
-const btcpc = require('btcpc-sdk');
-const client = new btcpc.Client({ apiKey: 'btcpc_...' });
-const res = await client.inference({
-  model: 'qwen3.5:27b',
-  prompt: 'Explain quantum computing'
-});
-// Encrypted end-to-end. Paid in BTCPC. Verified on-chain.
-```
-
-### 4.7 Retrieval-Augmented Generation (RAG)
-
-BTCPC supports RAG natively at the protocol level. Users submit context documents alongside their inference request. The API prepends the context as a system message before routing to the miner network. The miner processes a longer prompt — it never knows or cares that context was injected.
-
-**Why RAG matters for BTCPC:**
-- Users can ground inference in their own data without fine-tuning
-- The context travels with the request through P2P — encrypted end-to-end
-- Miners are stateless: they don't store documents, they process prompts
-- Billing accounts for the full token count (context + generation)
-
-**Request format:**
-
-```json
-POST /v1/inference/submit
-{
-  "model": "qwen3.5:27b",
-  "messages": [{ "role": "user", "content": "Summarize the Q4 results" }],
-  "context": [
-    { "text": "Q4 revenue was $12.3M, up 18% YoY...", "source": "earnings.pdf" },
-    { "text": "Operating margin improved to 22%...", "source": "financials.csv" }
-  ]
-}
-```
-
-The `context` field accepts a string (raw text) or an array of document objects with `text` and optional `source` fields. Documents are numbered and labeled in the system prompt so the model can cite sources.
-
-**How it works internally:**
-
-1. User submits request with `context` field
-2. API constructs a system message: "Use the following context to answer..."
-3. Context documents are numbered and prepended
-4. Augmented messages are sent to the P2P network as a normal inference job
-5. Miner processes the full prompt (context + question)
-6. User is billed for total tokens (context input + generated output)
-
-RAG is transparent to miners — they see a prompt, they compute. The intelligence is in the API layer, not the mining layer. This means any model on the network supports RAG automatically.
-
-### 4.8 Model Context Protocol (MCP)
-
-BTCPC inference supports MCP (Model Context Protocol), allowing users to connect external tool servers — GitHub, databases, APIs, file systems — as context sources for inference requests.
-
-**How MCP works with BTCPC:**
-
-A user configures MCP servers in their project settings. When an inference request is submitted, the API can invoke MCP tools to gather context before routing to a miner. This turns BTCPC inference into an agentic system where the model can:
-
-- Query a GitHub repository for code context
-- Search a database for relevant records
-- Fetch live data from external APIs
-- Read documents from cloud storage
-
-**Architecture:**
-
-```
-User Request → BTCPC API → MCP Tool Server(s) → Context gathered
-                                                      ↓
-                                              Augmented prompt
-                                                      ↓
-                                              P2P → Miner → Result
-```
-
-MCP tool execution happens at the API layer before the request enters the P2P network. The miner receives a fully-formed prompt with all tool results already embedded. This preserves the stateless miner model — miners compute, they don't fetch.
-
-**Open model — no gatekeeping:**
-
-BTCPC does not register, approve, or restrict MCP servers. Users bring their own servers and specify them inline with each request, or save favorites to their profile. This is a permissionless abstraction layer — like Bitcoin doesn't care what you're paying for, BTCPC doesn't care what tools you're using.
-
-**Inline MCP servers (any request):**
-
-```json
-POST /v1/inference/submit
-{
-  "model": "qwen3.5:27b",
-  "messages": [{ "role": "user", "content": "Find the bug in our auth middleware" }],
-  "mcp_servers": [
-    { "url": "http://localhost:3001", "tools": ["search_code", "read_file"] }
-  ],
-  "tools": ["search_code", "read_file"],
-  "tool_context": { "repo": "shindevlin/btcpc", "branch": "main" }
-}
-```
-
-**Saved MCP servers (user profile):**
-
-Users can save frequently-used MCP servers to their profile:
-
-```json
-POST /api/user/mcp-servers
-{ "name": "github", "url": "http://localhost:3001", "tools": ["search_code", "read_file"] }
-```
-
-Then use them in any request with `"use_saved_mcp": true`. Inline servers merge with saved ones — the user controls everything.
-
-**Security:** MCP servers run on the user's infrastructure, not on miners. The miner never connects to external services. User data flows: User → API → MCP Server → API → (encrypted) → Miner. The miner only sees the assembled prompt.
-
-**Status:** RAG and MCP are implemented and live.
-
-### 4.9 Multi-Party Computation (MPC) — Sharded Privacy
-
-For sensitive workloads (medical records, legal documents, financial data), BTCPC offers MPC-sharded inference as a premium tier. The user's prompt is split across multiple miners so that no single miner sees the full input or output.
-
-**How MPC sharding works:**
-
-1. User submits request with `"privacy": "mpc"` flag
-2. API splits the prompt into N shards (minimum 3 miners)
-3. Each miner processes their shard independently
-4. API reassembles the partial results into the final output
-5. No miner ever sees more than 1/N of the prompt or result
-
-**Pricing:** MPC inference costs N× the standard rate (where N = number of shards/miners) because N miners each perform partial work. The premium pays for privacy.
-
-**Trade-offs:**
-
-| Feature | Standard | MPC Sharded |
-|---------|----------|-------------|
-| Privacy | End-to-end encrypted | No single miner sees full data |
-| Cost | 1× | 3-5× |
-| Latency | Single miner round-trip | Slowest shard + reassembly |
-| Quality | Full context to model | Partial context per shard |
-| Min miners | 1 | 3 |
-
-**Quality consideration:** Sharding a prompt means each miner sees partial context, which can reduce output quality. MPC works best for:
-- Structured data processing (each shard handles a subset of records)
-- Classification tasks (each shard votes independently)
-- Summarization (each shard summarizes a section, API merges)
-
-For tasks requiring full context (creative writing, complex reasoning), standard encrypted inference is recommended.
-
-**Status:** MPC is designed but not yet implemented. Requires multi-miner coordination as a prerequisite. The sharding protocol and reassembly logic will be built once sufficient miners are online to support N-way sharding.
-
----
-
-## 4. Token Economics
+## 4. Emission and Reward Distribution
 
 ### 4.1 Supply
 
-**Total supply: 42,000,000 BTCPC**
+Total supply: **42,000,000 BTCPC** — fixed forever. No inflation beyond the emission
+schedule. No governance-adjustable issuance. No pre-mine. No founder allocation. No VC
+allocation. Every token in existence has been (or will be) earned through work on the
+live chain.
 
-42 — the Answer to the Ultimate Question of Life, the Universe, and Everything, as computed by Deep Thought over 7.5 million years in Douglas Adams' *The Hitchhiker's Guide to the Galaxy*. Deep Thought was, arguably, the first proof of compute system: a massive computer that ran for millennia to produce a single, verified answer.
+Denomination: **1 BTCPC = 10,000,000,000 dreams** (10^10 base units). Dreams are the
+base unit for internal calculations. All on-chain amounts are rounded to 10 decimal
+places. The dream denomination future-proofs the chain: even at $100,000 per BTCPC, one
+dream is worth $0.00001 — fine-grained enough for microtransactions in commerce,
+sensor markets, and inference pricing.
 
-BTCPC is the modern incarnation of that idea: a global network of computers performing useful computation, producing verified answers, and earning tokens for their work. The total supply honors the original answer.
+### 4.2 Emission Schedule
 
-### 4.2 Emission Schedule — Doubling Halving Intervals
+| Year | Reward/epoch | Yearly emission | Cumulative |
+|------|-------------|-----------------|------------|
+| 1    | 24.306 BTCPC | ~25,560,000     | 25,560,000 |
+| 2    | 12.153 BTCPC | ~12,780,000     | 38,340,000 |
+| 3    | 6.077 BTCPC  | ~6,390,000      | ~42,000,000 (capped) |
 
-BTCPC introduces a novel emission model: **doubling halving intervals**. Each period, the block reward halves while the period duration doubles. Unlike Bitcoin's fixed 4-year halvings, BTCPC's emission curve adapts: early periods distribute tokens quickly to bootstrap the network, while later periods extend over decades, ensuring long-term miner incentives.
+Emission halts when cumulative reaches 42,000,000 BTCPC. Post-emission, block rewards
+are funded entirely from `btcpc_recycle` (fee flows + recycled unclaimed rewards).
+Since all fees recycle, block rewards remain meaningful indefinitely — the pool is
+continuously replenished.
 
-With a genesis allocation of 5% of total supply (2,100,000 BTCPC) in the first 1-month period, and a growth ratio of ~1.134x per period, each subsequent period's total allotment grows slightly in absolute terms but the per-epoch reward decreases. This means the inflation RATE drops consistently while the network can support an ever-growing number of miners.
+The 30-second epoch produces 2,880 epochs per day and ~1,051,200 epochs per year.
+The genesis reward of 24.306 BTCPC/epoch produces approximately 25.5M BTCPC in year one.
 
-| Period | Duration | Allotment | Reward/Epoch | Cumulative | % Supply | Annual Inflation |
-|--------|----------|-----------|-------------|------------|----------|-----------------|
-| 1 | 1 month | 2,100,000 | 243.06 | 2,100,000 | 5.0% | ∞ (genesis) |
-| 2 | 2 months | 2,381,400 | 137.85 | 4,481,400 | 10.7% | High (early) |
-| 3 | 4 months | 2,700,508 | 78.19 | 7,181,908 | 17.1% | ~87% |
-| 4 | 8 months | 3,062,376 | 38.01 | 10,244,283 | 24.4% | ~29% |
-| 5 | 16 months | 3,472,734 | 25.15 | 13,717,017 | 32.7% | ~11% |
-| 6 | 32 months | 3,938,080 | 14.24 | 17,655,097 | 42.0% | ~4.8% |
-| 7 | 64 months | 4,465,783 | 8.08 | 22,120,881 | 52.7% | ~2.2% |
-| 8 | 128 months | 5,064,198 | 4.58 | 27,185,079 | 64.7% | ~1.0% |
-| 9 | 256 months | 5,742,801 | 2.60 | 32,927,879 | 78.4% | ~0.5% |
-| 10 | 512 months | 6,512,336 | 1.47 | 39,440,215 | 93.9% | ~0.2% |
-| 11 | 345 months* | 2,559,785 | 0.86 | 42,000,000 | 100% | ~0.1% |
+### 4.3 Six Reward Pools
 
-*Period 11 is truncated to align final mining with Bitcoin's projected end date of ~2140.
+Each epoch's block reward is split among six pools. Unclaimed shares of any pool
+(because no eligible participants were active) flow to `btcpc_recycle`.
 
-**Key properties:**
-- **Genesis month (solo mining):** 5% of supply — earned through real compute
-- **By year 5:** inflation drops to ~11%, comparable to Bitcoin's era 2
-- **By year 10:** inflation at ~5%, matching BTC's era 3
-- **All 42M mined by ~2140** — same timeline as Bitcoin's last satoshi
-- **No period dominates:** unlike fixed halvings where era 1 gets 50%, the largest single period (period 10) gets only 15.5%
-- **Growing allotments reward growing networks:** more miners in later periods have more tokens to compete for
+| Pool | Share | What earns it |
+|------|-------|---------------|
+| Miners | 55% | Completing real AI inference jobs via Ollama |
+| Verifiers | 10% | Validating inference results and issuing spot-checks |
+| Clocks | 5% | Delivering epoch heartbeats (any device, always paid if active) |
+| Storage Hosts | 12% | Hosting and serving BTCPC-FS blobs |
+| Service Hosts | 8% | Running compute workloads (stateless or stateful) |
+| IoT / Sensors | 10% | Relaying sensor readings via LoRa gateways |
 
-### 4.3 Reward Distribution Per Epoch
+The IoT pool splits 60% to sensors (per valid reading) and 40% to gateways (per epoch
+uptime). Clocks are always paid first if any clocks are active — clock uptime is the
+foundation the rest of the chain depends on.
 
-Each epoch's block reward is split across the three network roles:
+### 4.4 Within-Pool Distribution
 
-```
-ACTIVE EPOCH (inference work submitted):
-  Miners:    85% — split by work_value (tokens × model_weight_factor)
-  Verifiers: 10% — split among selected verifier panel (1-7 nodes)
-  Clocks:     5% — split equally among ALL active clock nodes
+Each pool distributes among its active participants according to work done:
 
-IDLE EPOCH (no inference work):
-  Miners:     0% — no work, no reward
-  Verifiers:  1% — keeping quality infrastructure online
-  Clocks:     1% — keeping epoch timing alive
-  Unminted:  98% — emission slot preserved, not inflated
-```
+- **Miners**: pro-rata by `work_value` (tokens generated × model parameter count in
+  billions). Only honest commitments (passing verifier consensus) count.
+- **Verifiers**: pro-rata by verification count in the epoch, matching the winning
+  consensus panel.
+- **Clocks**: equal split among clocks with valid heartbeats in the last 3 epochs.
+- **Storage hosts**: pro-rata by `committed_gb × uptime_factor × rep_score +
+  bandwidth_served_gb`.
+- **Service hosts**: pro-rata by `active_session_count × uptime_factor × rep_score`.
+- **Sensors**: pro-rata by valid readings relayed, weighted by registered sensor uptime.
+- **Gateways**: equal split among gateways with valid heartbeats in the epoch.
 
-Miner rewards within the 85% pool are proportional to verified work:
-```
-miner_reward = miner_pool × (miner_work / total_network_work)
-miner_work = Σ(tokens_generated × model_weight_factor)
-```
+A participant below the minimum reputation threshold earns zero for that epoch,
+regardless of work done. This gates out sybil attacks without slashing stake.
 
-Verifier rewards are split only among the verifiers selected for that epoch's jobs — not all verifiers on the network. With 7 verifiers checking 100 jobs, each verifier earns a meaningful share. With 5,000 clock nodes, each clock earns a small share of 5% — but any hardware can run a clock, so the barrier is near zero.
+### 4.5 No Burn, All Recycle
 
-If no verifiers are online, their 10% redistributes to miners. If no clocks are online, their 5% redistributes to miners. During genesis (solo mining), 100% goes to the single miner.
+**BTCPC will never implement a token burn mechanism, under any circumstances.**
 
-### 4.4 Difficulty Adjustment
+Every fee, every slashed stake, every unclaimed pool share, every escrow that expires
+without a valid claim flows to `btcpc_recycle` — a system account that is steadily
+drained back into block rewards over time. This is a hard architectural commitment,
+equivalent in permanence to the 42,000,000 supply cap.
 
-Every 1,000 epochs (~3.5 days), the network adjusts difficulty:
+Why recycle instead of burn?
 
-```
-new_difficulty = old_difficulty × (actual_work / target_work)
-target_work = expected tokens across all nodes at current difficulty
-```
+1. **Velocity.** Tokens that flow into recycle flow back out via block rewards. No idle
+   reserves, no dead capital. The full 42M is always circulating somewhere.
+2. **Honesty.** Fees pay for work. Recycled fees pay for the next round of work.
+3. **Fairness.** Burning transfers wealth invisibly to existing holders at the expense
+   of late participants. Recycling distributes that wealth to future workers.
+4. **Sustainability.** Post-emission rewards come entirely from recycle. Without a robust
+   recycle flow, block rewards approach zero. With it, they remain meaningful forever.
 
-If more GPUs join the network → each unit of compute earns fewer BTCPC → mirrors Bitcoin's difficulty adjustment exactly.
-
-### 4.5 Fee Market
-
-Users pay for inference in BTCPC:
-- **Base fee** = network-determined minimum per 1K tokens (adjusts with demand)
-- **Priority fee** = optional tip for faster processing
-- **Miner revenue** = 85% of block reward + inference fees (minus verifier share)
-- **No burning** — every BTCPC minted stays in circulation forever, like Bitcoin
-
-As block rewards diminish through halvings, fee revenue becomes the primary miner incentive — exactly like Bitcoin's long-term security model.
+The canonical positioning: *"Bitcoin is the digital gold chain. Ethereum is the
+burn-fees-for-scarcity chain. BTCPC is the No Burn, All Recycle chain — 42 million
+tokens, forever, in perpetual circulation, earned by doing real work."*
 
 ---
 
-## 5. Cross-Chain Mining Rewards
+## 5. Storage: BTCPC-FS
 
-### 5.1 The Innovation
+### 5.1 Content-Addressed Blob Store
 
-BTCPC introduces a mechanism never before implemented in cryptocurrency: **cross-chain mining rewards**. When a miner links wallets from other blockchains to their BTCPC mining node, they automatically earn claimable wrapped BTCPC (wBTCPC) tokens on every linked chain — simply by mining on the BTCPC chain.
+BTCPC-FS is a decentralized, content-addressed file system built on the BTCPC chain.
+Files are identified by SHA-256 content identifiers (CIDs). Every CID commitment is
+recorded on-chain as a `BLOB_STORE_COMMIT` entry, creating an immutable provenance
+trail for every piece of data stored on the network.
 
-This is not bridging. This is not wrapping. This is **simultaneous multi-chain value creation from a single act of compute.**
+The actual bytes live in storage hosts' local stores. The chain holds only the
+metadata: CID, size, uploader, committed epoch, expiration epoch, and the list of hosts
+that have committed to serving it.
 
-### 5.2 How It Works
+### 5.2 Two-Tier Host Model
 
-```
-Miner registers linked wallets:
-  BTCPC:   btcpc1abc...        (native, always)
-  Hive:    @satoshinakamoto        (linked)
-  Base:    0x1234...            (linked)
-  Solana:  ABC123...            (linked)
+Storage hosts self-select into two tiers based on their uptime commitment:
 
-Miner performs compute in epoch 1, earns 243 BTCPC:
+**Active hosts** commit to high uptime (typically >95%). They respond to spot-check
+challenges within the required window, maintain rolling storage heartbeats, and serve
+blob requests to paying users. Active hosts earn the majority of the storage pool
+reward, weighted by committed gigabytes, challenge pass rate, and bandwidth served.
 
-  BTCPC chain:  +243.0  BTCPC      ← native reward (always)
-  Hive:         +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  Base:         +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  Arbitrum:     +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  Optimism:     +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  Solana:       +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  TON:          +243.0  wBTCPC     ← cross-chain bonus (claimable)
-  Bitcoin:      +243.0  wBTCPC     ← cross-chain bonus (claimable)
-```
+**Cold hosts** commit to archival storage with lower availability guarantees. They
+respond to challenges but may have response windows measured in hours rather than
+minutes. Cold hosts earn proportionally less, but provide geographic and hardware
+diversity that improves overall durability.
 
-**The cross-chain bonus decays at 10% per step, with 2 steps per native period (one at each half).** This creates a gentler decay than the native reward, keeping cross-chain incentives meaningful for years.
+### 5.3 Replication and Durability
 
-| Period | Duration | Native Reward | CC Ratio (1st half) | CC Ratio (2nd half) | wBTCPC/Chain (avg) |
-|--------|----------|--------------|--------------------|--------------------|-------------------|
-| 1 | 1 month | 243.06 / epoch | 100% | 90% | ~231 / epoch |
-| 2 | 2 months | 137.85 / epoch | 81% | 72.9% | ~106 / epoch |
-| 3 | 4 months | 78.19 / epoch | 65.6% | 59.0% | ~49 / epoch |
-| 4 | 8 months | 38.01 / epoch | 53.1% | 47.8% | ~19 / epoch |
-| 5 | 16 months | 25.15 / epoch | 43.0% | 38.7% | ~10 / epoch |
-| 6 | 32 months | 14.24 / epoch | 34.9% | 31.4% | ~4.7 / epoch |
+The file uploader specifies a replication factor at commit time. The protocol tracks
+which hosts have committed to each CID. When a host drops below its committed uptime,
+the automatic replication engine on active nodes seeks a replacement host and submits
+a new `BLOB_HOST_ADD` entry. This is not slashing — the original host simply stops
+earning for that CID until they return.
 
-Formula: `ratio = 0.9 ^ ccStep` where `ccStep = (period - 1) × 2` for the first half, `+1` for the second half. The ratio never reaches zero — it compounds down 10% at each step, ensuring cross-chain rewards remain non-trivial even in later periods.
+### 5.4 Pay for Delivery, Never Slash for Absence
 
-### 5.3 Key Rules
+Storage hosts are paid for delivery: they earn from storage commitments (per-GB over
+time) and from bandwidth (per-GB served). They do NOT get slashed simply for going
+offline. A host whose home internet goes down stops earning until they return. Their
+stake is untouched.
 
-1. **Wallet must be linked at time of compute.** You cannot retroactively claim rewards for epochs before your wallet was linked. This prevents gaming — you must commit to the ecosystem to benefit.
+Slashing is reserved for active fraud: a host that passes a challenge (claiming to have
+data) but cannot actually serve the data when a user requests it. This is provable
+deception, not absence.
 
-2. **Claiming is the miner's responsibility.** The BTCPC chain generates a signed claim proof each epoch. The miner takes this proof to the target chain and submits it to the wBTCPC claim contract. The miner pays any fees on the target chain (Hive RC, Base gas, etc.). BTCPC pays nothing.
+### 5.5 Challenge-Response Auditing
 
-3. **One claim per epoch per chain.** Each epoch's reward can only be claimed once on each chain. The claim contract tracks claimed epochs.
+Verifiers issue periodic spot-checks against storage hosts. A challenge specifies:
 
-4. **wBTCPC is freely tradeable** on each chain. Once claimed, wBTCPC-Hive trades on Hive DEXs, wBTCPC-Base trades on Base DEXs, etc. Each has its own independent market price.
+- Host to challenge
+- CID to prove
+- Byte range to return
+- Expected hash of that range
 
-5. **No cap on linked chains.** A miner can link as many chains as BTCPC supports. More linked chains = more total value earned per epoch of compute. This incentivizes miners to expand the BTCPC ecosystem.
+The host must respond within a fixed window with the correct hash. A passed challenge
+improves the host's reputation score and increases their reward weight. A failed
+challenge reduces their reward share for that epoch and dips their reputation. Multiple
+failed challenges in a row trigger a reputation gate that blocks new commitments until
+the host recovers.
 
-### 5.4 Cross-Chain Reward Distribution
+### 5.6 Storage Fees
 
-Cross-chain rewards are split at the protocol level:
+Blob storage fees split:
 
-**50% → Miner wallet (direct)**
-The miner receives half of their wBTCPC claim directly. These tokens are liquid and immediately usable — the miner can hold, sell, stake, or deploy to speculative LP pairs. This is the miner's paycheck for running GPU compute.
+- 90% to storage hosts (pro-rata by commitment share)
+- 9% to `btcpc_recycle`
+- 1% to reputation bonus pool (highest challenge pass rate hosts)
 
-**50% → BTCPC/wBTCPC liquidity pool (automatic)**
-The other half is deposited into a BTCPC/wBTCPC bridge pool on each chain (Uniswap V3 on Base, Raydium on Solana, etc.), paired with equivalent native BTCPC. This happens automatically on each claim — no manual action required. The miner owns their LP position and earns trading fees from it. LP tokens are held with a timelock to prevent immediate withdrawal.
+Bandwidth fees split:
 
-This creates a unique economic model: **mining automatically builds cross-chain liquidity.** Every epoch of compute deepens the BTCPC/wBTCPC pool on every linked chain. No other blockchain generates liquidity as a byproduct of mining.
-
-**Why 50/50:**
-- 100% direct → no liquidity, tokens have nowhere to trade
-- 100% LP → miners can't access rewards, no incentive to mine early when volume is zero
-- 50/50 → miners get immediate liquid value AND build long-term LP positions that earn fees as volume grows
-
-**Phase 2: Speculative Pairs**
-As real dollar-denominated value develops through trading, miners can deploy their direct 50% into speculative pairs (wBTCPC/USDC, wBTCPC/ETH, wBTCPC/SOL) on each chain's native DEXs. This creates price discovery. Phase 2 happens organically — the protocol only enforces the 50% bridge pool allocation.
-
-### 5.5 Why This Works
-
-**For miners:** Linking wallets is pure upside. Same compute work, more rewards. Every rational miner links every available chain.
-
-**For the BTCPC ecosystem:** Every linked wallet means wBTCPC tokens appearing on another chain. This creates organic liquidity, market presence, and awareness on chains BTCPC never had to launch on. The miners themselves bootstrap the multi-chain ecosystem.
-
-**For other chains:** They get a new tradeable token (wBTCPC) backed by real compute work, with zero effort. It just appears because miners linked their wallets.
-
-**Economic sustainability:** The 1:1 ratio in period 1 is aggressive but limited — only 1 month of mining at that rate, with only 1-2 miners. By period 4, the ratio is 12.5%. By period 6, it's 3.125%. The cross-chain supply growth naturally decays while the native chain's value proposition strengthens.
-
-### 5.5 Claim Proof Format
-
-```json
-{
-  "chain": "base",
-  "miner": "btcpc1abc...",
-  "target_wallet": "0x1234...",
-  "epoch": 42,
-  "amount": "243.06000000",
-  "period": 1,
-  "cross_chain_ratio": "1.0",
-  "linked_at_epoch": 0,
-  "proof": "0x[SIGNED_BY_BTCPC_CONSENSUS_NODES]"
-}
-```
-
-The claim contract on each chain verifies:
-1. The proof signature is valid (signed by BTCPC consensus)
-2. This epoch has not been claimed on this chain before
-3. The target wallet matches the linked wallet in the proof
-4. The amount matches the cross-chain ratio for the period
-
-### 5.6 Supported Chains (Day 1 and Beyond)
-
-**Day 1:**
-- Hive (wBTCPC as custom_json token)
-- Base (wBTCPC as ERC-20)
-
-**Planned:**
-- Solana (wBTCPC as SPL token)
-- Arbitrum / Optimism
-- TON
-- Any EVM-compatible chain via standardized claim contract
-
-Adding a new chain requires only deploying a wBTCPC claim contract on that chain. No changes to the BTCPC core protocol.
-
-### 5.7 Cross-Chain Wallet Watcher
-
-BTCPC knows every user's wallet addresses on all 7 chains — they're derived deterministically at registration from the same BIP-39 mnemonic. The chain watcher monitors these addresses on each chain for signed transactions.
-
-**What it detects:**
-
-| Signal | Meaning |
-|--------|---------|
-| Wallet has signed transactions | Proof of life — the wallet is real and active |
-| wBTCPC transfer on EVM | Bridge claim detected — verify against BTCPC records |
-| New smart contract deployed from linked address | User building on another chain with their BTCPC identity |
-| Wallet inactive for 90+ days | Dormant — reduce cross-chain reputation weight |
-
-**How it works:**
-
-1. BTCPC maintains a registry of all linked wallet addresses per chain
-2. Chain watcher connects to RPCs on each supported chain (Infura, Alchemy, public RPCs)
-3. Periodically scans for transactions from/to known addresses
-4. Records cross-chain activity on the user's BTCPC profile
-5. Feeds into reputation scoring — active cross-chain users are more trusted
-
-**Cross-chain reputation score:**
-
-```
-cc_reputation = base_reputation
-              + (active_chains × 5)           // +5 per chain with recent activity
-              + (deployed_contracts × 10)     // +10 per smart contract deployed
-              - (dormant_chains × 2)          // -2 per chain inactive >90 days
-```
-
-This score influences:
-- Assignment priority for inference jobs (higher reputation = more work = more rewards)
-- Trust level for new miners (active cross-chain presence = less likely to cheat)
-- Bridge claim verification (active wallet more likely legitimate)
-
-**Privacy:** The watcher only monitors public blockchain data. It does not track private transactions, decrypt anything, or access user keys. All monitored addresses were derived by the user during registration — they chose to link them.
-
-**Status:** Designed, not yet built. Requires RPC connections to each chain. Will ship with Phase 2 (token launch) when cross-chain activity begins.
+- 95% to the serving host
+- 5% to `btcpc_recycle`
 
 ---
 
-## 6. Genesis: The shindevlin Epoch
+## 6. Compute Hosting
 
-### 6.1 Solo Mining Phase
+### 6.1 Stateless Services
 
-BTCPC launches with a single miner: **shindevlin** — running a GPU-equipped machine running Ollama with multiple AI models.
+Service hosts deploy and run applications on the BTCPC network. A stateless service
+is defined by a deployment spec:
 
-This mirrors Bitcoin's genesis:
-- Satoshi Nakamoto mined alone for months before anyone else joined
-- The early blocks were nearly worthless
-- The work was real, the tokens accumulated, and value emerged later
+- Runtime type: HTTP, TCP, WASM, or static
+- Container image or WASM binary CID (from BTCPC-FS)
+- Minimum replicas
+- Price per session-hour
+- Resource requirements (CPU, memory)
 
-Genesis configuration:
-- Models: qwen3.5:27b, deepseek-r1:8b, glm-4.7-flash
-- Epoch interval: 5 minutes
-- Initial block reward: 243 BTCPC per epoch
-- Period 1 output: 2,100,000 BTCPC over 1 month (5% of total supply)
-- Daily mining output: ~69,984 BTCPC (288 epochs × 243 BTCPC)
-- Linked chains: Hive, Base
-- Cross-chain bonus: 1:1 per linked chain
+Service deployers submit a `SERVICE_DEPLOY` entry. Willing hosts pick up the
+deployment and submit a `SERVICE_HOST_REGISTER` entry. Once a minimum quorum of
+hosts is running the service, the service is marked active and users can begin sessions.
 
-### 6.2 Genesis Block
+Hosts submit heartbeats every few epochs to signal liveness. A host that misses
+heartbeats stops earning for active sessions on that service. The session escrow
+continues running, but the missing host's share of the session payment is withheld
+and recycled.
 
-```
-Block 0 — BTCPC Genesis
-Timestamp: [TBD]
-Miner: shindevlin
-Models: qwen3.5:27b
-State Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
-Message: "The Answer to the Ultimate Question of Life, the Universe, and Everything"
-Reward: 243 BTCPC
-Cross-Chain: 243 wBTCPC per linked chain (Hive, Base, Arbitrum, Optimism, Solana, TON, Bitcoin)
-```
+### 6.2 Stateful Services
 
-### 6.3 Opening the Network
+Stateful services add periodic snapshot persistence. The host serializes the running
+service state, uploads it to BTCPC-FS, and records the snapshot CID on-chain via a
+`SERVICE_SNAPSHOT` entry. If the host goes offline, a replacement host can download the
+latest snapshot and resume the service with minimal data loss.
 
-When the first external node operator wants to join:
-1. They install the BTCPC node software
-2. They create a BTCPC account on the native chain
-3. They stake a minimum of 1000 BTCPC (received via transfer from genesis miner or purchased)
-4. They link wallets for any chains they want cross-chain rewards on
-5. They begin serving inference and earning rewards
+Snapshot frequency is configurable by the deployer. Higher snapshot frequency means
+smaller recovery windows but higher BTCPC-FS storage costs. The deployer sets the
+trade-off at deployment time.
 
-The staking requirement creates a bootstrapping challenge: early nodes need BTCPC to stake, but BTCPC only comes from mining. This is solved by:
-- **Genesis grants**: the solo miner distributes initial stakes to early node operators
-- **Faucet**: a small amount available for new nodes to bootstrap
-- **Delegation**: existing stakers can delegate stake to new nodes
+### 6.3 Service Fees
+
+Session fees split:
+
+- 90% to the service host
+- 9% to `btcpc_recycle`
+- 1% to reputation bonus pool
+
+Hosts are not slashed for downtime. They stop earning for the portion of the session
+they missed. Their stake is not reduced unless they are found to have submitted
+fraudulent session proofs (claiming sessions that did not exist).
 
 ---
 
-## 7. The Ledger — Permanent On-Chain State
+## 7. IoT Sensor Mesh
 
-The BTCPC blockchain has two distinct layers:
+### 7.1 LoRa Gateways and Sensor Packets
 
-| Layer | Content | Prunable? | Growth |
-|-------|---------|-----------|--------|
-| **Ledger** | Accounts, balances, transfers, staking | Never | Slow (small txs) |
-| **Compute** | Inference jobs, work proofs, epoch details | Yes (Lucid Pruning) | Fast (large results) |
+The BTCPC IoT layer aggregates sensor data from physical devices via LoRa radio
+gateways. This is designed around the Helium miner hardware fleet (400,000+ devices
+globally) but works with any hardware running a LoRa packet forwarder.
 
-The ledger is sacred. It never compresses, never prunes, never enters dreamstate. Every node stores the full ledger from genesis to present. This is the source of truth for who owns what.
+A gateway running `btcpc-nebra` (the BTCPC gateway daemon) listens for inbound LoRa
+packets from registered sensors, formats them as Cayenne LPP payloads, and submits
+them to the BTCPC chain via `SENSOR_READING` entries signed by the gateway's Posting
+key.
 
-### 7.1 Account Records (Permanent)
+### 7.2 On-Chain Sensor Registration
 
-When an account is created, the following is written to the ledger and broadcast to all nodes:
+Sensors register on-chain via `SENSOR_REGISTER` entries specifying:
 
-```json
-{
-  "type": "ACCOUNT_CREATE",
-  "username": "shindevlin",
-  "public_keys": {
-    "owner": "03abc...",
-    "active": "02def...",
-    "posting": "03ghi...",
-    "memo": "02jkl..."
-  },
-  "chain_addresses": {
-    "btcpc": "BTCPCabc123...",
-    "evm": "0x1234...",
-    "solana": "ABC123...",
-    "bitcoin": "bc1q...",
-    "ton": "0:abc...",
-    "hive": "shindevlin"
-  },
-  "created_at": "2026-04-02T17:30:00Z",
-  "created_in_epoch": 0
-}
-```
+- Sensor type (temperature, humidity, air quality, GPS location, etc.)
+- Region and geographic coordinates
+- Hardware model
+- Reporting interval
+- Attached gateway
 
-The username is permanent and unique. The cross-chain addresses are deterministically derived from the mnemonic and permanently bound to the username. Anyone can look up `shindevlin` and find all their addresses on all chains.
+Registered sensors have a stake of 0.1 BTCPC locked at registration to discourage
+spam. Gateways have a stake of 1 BTCPC per registered gateway. Neither stake is ever
+slashed for simple absence.
 
-**On-chain identity binding:** When someone sends ETH to `0x1234...`, the BTCPC chain knows that's shindevlin's address. The cross-chain wallet watcher (section 5.7) monitors these addresses and records activity. The ledger stores the binding — the watcher tracks the activity.
+### 7.3 Reading Finalization
 
-Sending tokens to a username that doesn't exist yet is allowed. Tokens sit at a deterministic address derived from the username. When the username is registered, the tokens are automatically claimed.
+Per-epoch readings from all sensors go through median consensus:
 
-### 7.2 Transfer Records (Permanent)
+1. Multiple gateways (or the same gateway with multiple samples) submit readings
+   for a given sensor in the epoch window
+2. The finalization process computes the median value across all reports for that
+   sensor and epoch
+3. Readings more than a configurable deviation band from the median are flagged as
+   outliers
+4. The finalized median reading is recorded on-chain via a `SENSOR_FINALIZE` entry
+5. Finalized reading batches are persisted to BTCPC-FS as blobs, with the CID
+   recorded on-chain for subscriber access
 
-Every token transfer is recorded on the ledger:
+### 7.4 IoT Reward Distribution
 
-```json
-{
-  "type": "TRANSFER",
-  "from": "shindevlin",
-  "to": "natoshisakamoto",
-  "amount": 500,
-  "token": "BTCPC",
-  "signature": "...",
-  "signed_by": "active_key",
-  "epoch": 42,
-  "timestamp": "2026-04-02T18:00:00Z"
-}
-```
+The IoT pool (10% of epoch reward) splits:
 
-Transfers require the sender's **active key** signature. The posting key cannot move money — it's for lightweight operations (Telegram linking, content posting). The owner key can do everything including changing other keys.
+- 60% to sensors: pro-rata by valid readings relayed, weighted by uptime and
+  reputation
+- 40% to gateways: equal split among gateways with valid heartbeats in the epoch
 
-**Balance derivation:** A wallet's balance is not stored — it's computed:
+### 7.5 Helium Miner Reuse
 
-```
-balance(account) = sum(incoming transfers) + sum(mining rewards) - sum(outgoing transfers)
-```
+A repurposed Helium Indoor or Outdoor Hotspot running `btcpc-nebra` can simultaneously
+participate as:
 
-Any node can verify any balance by replaying the ledger from genesis. The "balance" field in the database is a cache for performance, not the source of truth.
+1. Clock node (clock pool, 5% of rewards)
+2. Storage host (storage pool, 12% of rewards, plus direct blob fees)
+3. LoRa gateway (IoT pool, 10% of rewards, plus sensor subscription fees)
+4. Verifier (verifier pool, 10% of rewards)
 
-### 7.3 Token Creation Records (Permanent)
-
-Custom tokens can be created on the BTCPC chain:
-
-```json
-{
-  "type": "TOKEN_CREATE",
-  "creator": "shindevlin",
-  "token": {
-    "name": "My Token",
-    "symbol": "MTK",
-    "supply": 1000000,
-    "decimals": 10
-  },
-  "fee": 42,
-  "fee_to": "shindevlin",
-  "epoch": 100,
-  "timestamp": "2026-04-10T12:00:00Z"
-}
-```
-
-Cost: 42 BTCPC to create a token (paid to the genesis operator during genesis phase, to protocol treasury later). Custom tokens use the same transfer mechanism as BTCPC — same ledger, same signatures, same permanence.
-
-### 7.4 Staking and Delegation Records (Permanent)
-
-Staking and delegation changes are ledger entries:
-
-```json
-{
-  "type": "STAKE",
-  "account": "shindevlin",
-  "amount": 10000,
-  "purpose": "mining"
-}
-
-{
-  "type": "DELEGATE",
-  "from": "shindevlin",
-  "to": "natoshisakamoto",
-  "amount": 5000,
-  "purpose": "clock_node"
-}
-```
-
-Delegation lends staking power without transferring ownership. The delegator can revoke at any time (with a cooldown period to prevent gaming). The delegatee can use the staked power for mining or clock node operations but cannot spend the tokens.
-
-### 7.5 Ledger Propagation
-
-Every ledger entry is broadcast via P2P as part of the EPOCH_FINALIZED block:
-
-```
-EPOCH_FINALIZED {
-  epoch: 42,
-  ledger_entries: [
-    { type: "TRANSFER", from: "shin", to: "natoshi", amount: 500, ... },
-    { type: "ACCOUNT_CREATE", username: "newuser", ... },
-    { type: "STAKE", account: "shin", amount: 10000, ... }
-  ],
-  rewards: [
-    { miner: "shin", amount: 231.87 },
-    { miner: "natoshi", amount: 11.19 }
-  ],
-  inference: { ... }  // compressible layer
-}
-```
-
-All nodes process ledger entries and update their local state. The ledger entries are permanent — they exist in every finalized block and are never pruned.
-
-### 7.6 What's On The Ledger vs What's Compressible
-
-| On Ledger (permanent) | On Compute Layer (compressible) |
-|-----------------------|-------------------------------|
-| Account creation + public keys | Inference prompts + results |
-| Cross-chain address bindings | Work proof details |
-| Token transfers + signatures | Epoch commitment data |
-| Token creation | Model verification records |
-| Staking + delegation changes | P2P routing metadata |
-| Mining reward distributions | Genesis dream inscription content |
-| Balance checkpoints | |
-
-The ledger is the chain's memory. It never forgets. The compute layer is the chain's workspace — it dreams itself smaller through Lucid Pruning, but the ledger remains intact.
+Four concurrent income streams on hardware the owner already owns. The `btcpc-nebra`
+installer handles LoRa packet forwarder configuration, gateway registration, and
+systemd service setup with a single command.
 
 ---
 
-## 8. Lucid Pruning
+## 8. Oracle Feeds
 
-Traditional blockchains grow forever. Every node stores every transaction from genesis. Bitcoin's chain is 600GB+. Ethereum's archive node exceeds 15TB. This is unsustainable for a compute chain where inference results can be kilobytes per job.
+### 8.1 Generic Off-Chain Data Ingestion
 
-BTCPC introduces **Lucid Pruning** — a self-compressing chain that uses its own inference network to dream its history into progressively denser forms. The chain is aware of what it's forgetting, and it proves the forgotten data was real by retaining the ability to recall it through recomputation.
+The oracle layer extends the sensor reading pipeline to any off-chain data source,
+not just physical hardware. Price feeds, weather data, sports scores, and any other
+API-sourced data can be submitted as oracle readings.
 
-### 9.1 The Principle
+Oracle reporters are permissionless: any node that registers as an oracle provider
+and maintains the minimum stake can submit readings for any registered feed.
 
-When you dream, your brain replays the day's events and compresses them into long-term memory. Unimportant details are discarded. Important patterns are strengthened. You wake up with less data but more knowledge.
+### 8.2 Median Consensus
 
-Lucid Pruning works the same way. Periodically, the chain enters a **dreamstate** — a special compression epoch where miners summarize historical chain data using the same inference engine they use for regular work. The summary is hashed. The raw data is pruned. The hash proves the data existed.
+Oracle feeds use the same median consensus mechanism as sensor readings:
 
-The chain literally dreams itself smaller. And because it's a compute chain, the dreaming is paid work — miners earn rewards for compression just like any other inference job.
+1. Multiple reporters submit values for a given feed and epoch
+2. The finalization process computes the median across all reporters
+3. Reporters whose values deviate more than `max_bps` from the median get a
+   reputation dip (no slashing — reputation is the enforcement mechanism)
+4. The finalized median is recorded on-chain
 
-### 9.2 How It Works
+### 8.3 Reputation-Based Quality Control
 
-**Three tiers of chain state:**
-
-| Tier | Age | Stored | Size |
-|------|-----|--------|------|
-| **Active** | Last 100 epochs (~8 hours) | Full data: proofs, jobs, results, prompts | ~100MB |
-| **Recalled** | 100–1,000 epochs | Proof hashes + Merkle roots | ~10MB |
-| **Dreamed** | 1,000+ epochs | Dreamstate hash (one per compression cycle) | ~1KB per cycle |
-
-**Compression cycle (every 100 epochs):**
-
-1. A **dreamstate job** is submitted to the network — a standard inference request
-2. Input: serialized proof data from the last 100 epochs
-3. Miners process it like any other job (3 verifications in consensus mode)
-4. Output: compressed summary + Merkle root of the raw data
-5. The dreamstate hash (summary hash + Merkle root) is stored on-chain
-6. Raw data from those epochs is pruned from all nodes
-
-```
-Epoch 100:  Dreamstate #1
-  Input:    Epochs 1-100 (proofs, jobs, rewards)
-  Output:   Compressed summary
-  Stored:   dreamstate_hash + merkle_root (64 bytes)
-  Pruned:   Full data from epochs 1-100
-
-Epoch 200:  Dreamstate #2
-  Input:    Dreamstate #1 hash + Epochs 101-200
-  Output:   Compressed summary (includes proof of Dreamstate #1)
-  Stored:   dreamstate_hash + merkle_root (64 bytes)
-  Pruned:   Full data from epochs 101-200
-
-Epoch 1000: Dreamstate #10
-  Input:    Dreamstate #9 hash + Epochs 901-1000
-  Output:   Compressed summary (proves ALL previous dreamstates)
-  Stored:   64 bytes (proves 1000 epochs of history)
-```
-
-Each dreamstate contains the hash of the previous dreamstate. Dreamstate #10 proves dreamstate #9 proves dreamstate #8 proves... all the way back to genesis. A single 64-byte hash proves the entire chain history.
-
-### 9.3 Verification and Recall
-
-**"Is this historical data real?"**
-
-Three levels of verification, from cheapest to most expensive:
-
-1. **Merkle proof** (instant): Check the data's hash against the Merkle root stored in the dreamstate. If it's in the tree, it existed. Cost: 0 BTCPC.
-
-2. **Summary recall** (fast): Ask the network to decompress the dreamstate summary. The compressed form retains enough structure to answer questions about the historical period. Cost: standard inference rate.
-
-3. **Full recomputation** (expensive): Challenge a specific epoch. The network re-runs the original computations. If the result hashes match, the history is valid. Cost: N × inference rate (one per original job). This is the nuclear option — rarely needed, always available.
-
-**The guarantee:** Any historical claim about the BTCPC chain can be verified, even after the raw data is pruned. The proof is not storage — it's the ability to recompute. The chain doesn't remember everything. It remembers how to remember.
-
-### 9.4 Why This Is Novel
-
-No other blockchain compresses its own state using its own consensus mechanism:
-
-| Chain | Storage Strategy | Self-Compressing? |
-|-------|-----------------|-------------------|
-| Bitcoin | Store everything forever | No |
-| Ethereum | State trie pruning, archive nodes | No |
-| Mina | Recursive zk-SNARKs (constant size) | Yes, but external proof system |
-| Filecoin | Incentivized external storage | No |
-| **BTCPC** | **Lucid Pruning — inference-based self-compression** | **Yes — miners earn rewards for dreaming** |
-
-BTCPC is the first chain where the work that secures the network (inference) is the same work that compresses the chain. Miners don't just mine — they dream. And the dreams are the chain's memory.
-
-### 9.5 Dreamstate Economics
-
-Dreamstate compression jobs are treated as regular inference work:
-
-- Submitted every 100 epochs (~8 hours)
-- Assigned to a miner, verified by the standard verifier panel
-- Miners earn standard block rewards for the compression epoch
-- The compression IS useful work — it maintains the chain
-- No separate "storage fee" or "pruning incentive" needed
-
-The chain pays for its own maintenance through the same mechanism it pays for everything else: Proof of Compute.
-
-### 9.6 What Never Gets Pruned
-
-Some data is permanent, regardless of dreamstate compression:
-
-- **Dreamstate hashes** — the chain of proofs (64 bytes each, grows linearly)
-- **Current wallet balances** — the live state (UTXO-equivalent)
-- **Active mining proofs** — last 1000 epochs
-- **Genesis block** — block 0 is sacred, never pruned
-- **Genesis Dreams** — soulbound NFTs persist forever (inscriptions are small)
-
-Everything else is dreamable. The chain wakes up lighter every cycle.
+Repeated outlier submissions drive down a reporter's reputation score below the
+minimum threshold, after which their submissions are ignored until they recover.
+This creates natural Sybil resistance without slashing: a single reporter cannot
+move the median by flooding the system with fake readings, because median is
+inherently resistant to outliers, and outlier reporters lose their oracle access
+via reputation decay.
 
 ---
 
-## 9. Node Software
+## 9. Cross-Chain Bridge
 
-### 9.1 Reference Implementation
+### 9.1 Lock-and-Recycle, Not Burn-and-Mint
 
-The reference BTCPC node is built in Node.js:
+The BTCPC bridge connects native BTCPC to wrapped wBTCPC on destination chains
+(Base, Arbitrum, Ethereum, Bitcoin) via a **lock-and-recycle** mechanism. There
+is no mint function and no burn function. The bridge contract on each destination
+chain holds a fixed pre-minted reserve of 4,200,000 wBTCPC (10% of native supply).
+All wrap and unwrap operations are plain ERC-20 transfers between user wallets and
+the bridge reserve address.
+
+**Wrap flow (BTCPC → wBTCPC):**
+1. User locks BTCPC in the source-chain bridge contract via `lockForWrap(amount, destChainId)`
+2. Bridge relay detects the lock event
+3. Destination-chain bridge contract transfers wBTCPC from the reserve to the user
+4. No minting occurs
+
+**Unwrap flow (wBTCPC → BTCPC):**
+1. User transfers wBTCPC from their wallet back to the bridge reserve address
+2. Bridge relay detects the transfer
+3. Source-chain bridge contract releases the locked BTCPC back to the user
+4. No burning occurs
+
+### 9.2 Supply Cap per Chain
+
+Each destination chain has a hard cap of **4,200,000 wBTCPC** pre-minted in the
+contract constructor. This is the only mint operation that ever occurs. The contract
+has no `mint()` function, no `burn()` function, no admin key, no upgrade proxy, and
+no pause mechanism. It is immutable from deployment.
+
+The maximum wBTCPC circulating on any destination chain at any given time equals the
+cumulative BTCPC native locked into the source bridge for that destination, capped at
+4,200,000. This maintains a strict 1:1 backing relationship.
+
+### 9.3 Bridge Liquidity: Permissionless LPs
+
+The bridge reserve is funded by permissionless LPs who lock BTCPC native into the
+source-chain contract with a variable time commitment (30 to 1,460 days). Funders
+earn a pro-rata share of all bridge fees proportional to their lock weight:
 
 ```
-btcpc-node start \
-  --ollama-url http://localhost:11434 \
-  --stake 1000 \
-  --link-hive @satoshinakamoto \
-  --link-base 0x1234...
+LP weight = amount × remaining_lock_days
 ```
 
-### 9.2 Node Components
+This is the same veCRV-style commitment weighting used by Curve Finance. Weight
+decreases naturally as the lock approaches expiration, preventing permanent
+concentration. The LP roster rotates organically as locks expire and new LPs enter.
 
-```
-┌──────────────────────────────────────────────────┐
-│                   BTCPC Node                      │
-├───────────────┬───────────────┬──────────────────┤
-│ P2P Layer     │ Inference     │ Epoch            │
-│               │ Server        │ Worker           │
-│ Block gossip, │ (Ollama       │                  │
-│ tx relay,     │  proxy)       │ Computes state   │
-│ peer          │               │ hash, submits    │
-│ discovery     │ Serves        │ commitments,     │
-│               │ requests,     │ generates claim  │
-│               │ logs proofs   │ proofs           │
-├───────────────┴───────────────┴──────────────────┤
-│              State Manager (MongoDB)              │
-│  Accounts, Balances, Stakes, Blocks, Proofs       │
-├──────────────────────────────────────────────────┤
-│              Chain Manager                        │
-│  Block production, mempool, chain sync            │
-├──────────────────────────────────────────────────┤
-│              Claim Proof Generator                │
-│  Signs cross-chain reward proofs for linked       │
-│  wallets per epoch                                │
-└──────────────────────────────────────────────────┘
-```
+### 9.4 Bridge Fees
 
-### 7.3 Minimum Hardware Requirements
+| Direction | Volume | Fee |
+|-----------|--------|-----|
+| Wrap (any size) | All | 0.05% |
+| Unwrap | < 1,000 BTCPC | 0.20% |
+| Unwrap | 1,000–100,000 BTCPC | 0.15% |
+| Unwrap | > 100,000 BTCPC | 0.10% |
 
-**Inference tier (earns full rewards + cross-chain bonuses):**
-- GPU with 8GB+ VRAM (runs 7B+ models)
-- 16GB RAM
-- 4 CPU cores
-- 100GB SSD
-- 50 Mbps internet
+Wrap fees are charged in BTCPC. Unwrap fees are charged in wBTCPC. Fees are
+distributed to active LPs pro-rata by current weight. The asymmetric
+wrap/unwrap fee structure creates a bias toward keeping wBTCPC circulating on
+destination chains rather than constant round-trips.
 
-**Relay tier (earns partial rewards, no inference):**
-- No GPU required
-- 8GB RAM
-- 2 CPU cores
-- 50GB SSD
-- Transaction processing and state validation only
-- Earns ~10% of what inference nodes earn
-- Still earns cross-chain bonuses on linked wallets
+### 9.5 Withdrawal Queue
 
----
+After a lock period expires, an LP requests withdrawal and enters a FIFO queue.
+Position 1 in the queue is funded by:
 
-## 10. Roadmap
+- Incoming unwrap volume (the primary path — organic outflows fund incoming withdrawals)
+- A smoothing buffer funded by 10–20% of bridge fees, capped at ~10% of total
+  locked liquidity
 
-### Phase 0: Genesis (Current)
-- [x] Whitepaper
-- [x] Architecture specification
-- [x] Wallet controller (transfer, balance)
-- [x] Staking controller (stake, unstake, withdraw)
-- [x] Epoch system with emission schedule
-- [x] Node registration
-- [ ] P2P network layer
-- [ ] Block production and chain sync
-- [ ] Genesis mining loop on shindevlin
+LPs in queue continue earning fees until their position is filled. This hybrid
+queue model prevents stalls under normal operation and avoids the ponzi-adjacent
+dynamics of pure auto-redemption schemes.
 
-### Phase 1: Solo Mining
-- [ ] shindevlin mining and accumulating BTCPC
-- [ ] Cross-chain claim proof generation
-- [ ] wBTCPC claim contract on Hive
-- [ ] wBTCPC claim contract on Base (ERC-20)
-- [ ] Mining dashboard (web UI)
-- [ ] btcpc-cli tool
+### 9.6 Destination Chains
 
-### Phase 2: Network Opening
-- [ ] Node registration protocol (live)
-- [ ] Stake requirement enforcement
-- [x] Verifier panel system (random selection, 1-7 verifiers)
-- [ ] Difficulty adjustment
-- [ ] Block explorer
-
-### Phase 3: Inference Market
-- [ ] Public inference API (pay with BTCPC)
-- [ ] Model marketplace (nodes advertise capabilities)
-- [ ] Fee market and priority system
-- [ ] Inference routing (match requests to best nodes)
-
-### Phase 4: Maturity
-- [ ] First halving (period 2 begins)
-- [ ] Additional chain support (Solana, Arbitrum, TON)
-- [ ] Governance (stake-weighted voting)
-- [ ] Mobile relay node support
-- [ ] Formal security audit
+| Chain | wBTCPC Supply | Contract Type |
+|-------|--------------|---------------|
+| Base | 4,200,000 | Immutable ERC-20 |
+| Arbitrum | 4,200,000 | Immutable ERC-20 |
+| Ethereum | 4,200,000 | Immutable ERC-20 |
+| Bitcoin | 4,200,000 | OP_RETURN anchor + off-chain relay |
 
 ---
 
-## 11. Conclusion
+## 10. Four-Tier Finality
 
-Bitcoin proved that decentralized proof of work can create sound money. BTCPC extends this insight in two fundamental ways:
+### 10.1 Architecture
 
-**First**, the work that secures the network is useful. Every BTCPC token is backed by real AI compute — inference that someone wanted, paid for, and received. Every unit of energy produces useful output.
+BTCPC state is anchored to external chains for independent verification. Anchoring
+is additive — BTCPC's consensus continues working even if every external anchor
+chain is offline. Anchors provide verifiability, not dependency.
 
-**Second**, mining on one chain creates value on many. A single act of compute generates native BTCPC and claimable wBTCPC tokens on every linked blockchain. Miners don't just secure one network — they bootstrap liquidity across the entire crypto ecosystem.
+| Tier | Chain | Cadence | Purpose |
+|------|-------|---------|---------|
+| Native | BTCPC | Every epoch (30s) | Working consensus |
+| L2 | Base, Arbitrum | Every 100 epochs (~50 min) | Fast cross-chain verification |
+| Mainnet | Ethereum | Every 1,000 epochs (~8.3 hrs) | Deep DeFi finality |
+| Deep Seal | Bitcoin | Every 10,000 epochs (~3.5 days) | Ultimate permanence |
 
-The result is a network where:
-- **Miners earn by doing useful work** (directing energy toward useful computation)
-- **Users get censorship-resistant AI compute** (not dependent on any corporation)
-- **The token has intrinsic utility** (you need it to buy inference, creating organic demand)
-- **Supply is fixed and predictable** (42M total, doubling halving intervals, no burns)
-- **Multi-chain liquidity emerges organically** (miners create it by linking wallets)
+Each tier is roughly 10x rarer than the one below it. Tier 2 is cheap enough to run
+continuously. Tier 4 (the Bitcoin Deep Seal) is meaningful because it anchors the
+chain's state root into the most censorship-resistant and final ledger in existence.
 
-The answer is 42. The question was always about compute.
+### 10.2 Demand-Driven Submission
+
+Anchor submitters are permissionless. Any node can submit a state root to the finality
+contracts and collect the anchor reward from the accumulated `anchor_reserve`. Bridge
+operations pay a small fee into the reserve; the reserve funds anchor submission.
+
+When the reserve is empty and bridge volume is low, anchors may be skipped. The chain
+continues working. When bridge volume spikes, the reserve fills quickly and anchors
+resume at full cadence.
+
+### 10.3 Merkle Batching
+
+Each anchor write commits a Merkle root over multiple epoch anchors (typically 100).
+Bridges and clients verify specific epochs via off-chain Merkle proofs. This reduces
+gas costs by approximately 98% compared to one-epoch-per-on-chain-write.
+
+Tier 3 (Ethereum) anchors use EIP-4844 blob storage: 1,000 epoch anchors fit into a
+single 128 KB blob, costing approximately $1–3 per anchor batch. Blob data is
+available for 18 days on Ethereum; permanent storage is provided by BTCPC-FS mirror
+nodes that store the full anchor history as on-chain blobs.
+
+### 10.4 Bitcoin Deep Seal
+
+Bitcoin anchoring uses OP_RETURN to inscribe the BTCPC state root hash (~32 bytes)
+into a Bitcoin transaction. The rich anchor blob (account counts, epoch statistics,
+miner records) lives in BTCPC-FS at a CID referenced by the OP_RETURN data —
+dogfooding the chain's own storage layer.
+
+Each Deep Seal mints a Soulbound NFT to the `btcpc_genesis_seals` system account as
+a publicly browsable historical artifact. These are the chain's milestones.
+
+### 10.5 Cost Baseline
+
+Annual anchoring cost at current gas prices with all optimizations:
+
+| Tier | Chain | Annual Cost |
+|------|-------|-------------|
+| L2 | Base + Arbitrum | ~$1 (demand-driven, mostly bridge-funded) |
+| Mainnet | Ethereum (blob) | ~$12 |
+| Deep Seal | Bitcoin (OP_RETURN) | ~$10 |
+| **Total** | | **~$25/year** |
+
+Bridge users pay proportional fees on top of this via the demand-driven path. The
+treasury backstop is minimal by design — the principle is "the cheapest dollar is the
+one you don't spend."
 
 ---
 
-*"I think the problem, to be quite honest with you, is that you've never actually known what the question is."*
-— Deep Thought, *The Hitchhiker's Guide to the Galaxy*
+## 11. State Management
+
+### 11.1 Blockchain as Source of Truth
+
+Block files on disk are the canonical source of truth. The full chain state can always
+be reconstructed by replaying all blocks from genesis. No external database is
+required for chain integrity. MongoDB (if running) is a convenience cache for
+application-layer queries only.
+
+Block file format: `data/blocks/block-NNNNNNNN.bin`
+Finality snapshots: `data/blocks/finality-NNNNNNNN.bin`
+
+File layout:
+```
+[180 bytes header] [4 bytes payload length] [JSON payload]
+```
+
+Header fields (180 bytes binary):
+```
+version                    (uint32)
+previous_block_hash        (32 bytes)
+merkle_root_transactions   (32 bytes)
+merkle_root_compute_proofs (32 bytes)
+state_root                 (32 bytes)
+timestamp                  (uint64)
+epoch_number               (uint32)
+difficulty                 (uint32)
+miner_id                   (32 bytes)
+```
+
+### 11.2 In-Memory stateStore
+
+The stateStore module is an in-memory cache of the current chain state, rebuilt from
+block files on startup via `replayFromDisk()`. All reads by controllers, routes, the
+miner, and the explorer go through stateStore. Balance queries are O(1) Map lookups,
+not O(N) database aggregations.
+
+Mutation is always via `applyEntry(entry)`. Entries are the universal state-change
+event type — the same shape whether they come from replay, from local ledger recording,
+or from P2P gossip sync. Determinism is guaranteed: same sequence of entries produces
+the same state.
+
+### 11.3 Sparse Merkle Tree
+
+The stateManager maintains a Sparse Merkle Tree (SMT) that tracks account state. The
+SMT root is the `state_root` recorded in every block header. Two nodes that have
+processed the same entries will have identical SMT roots. This root is used for:
+
+- Verifying block integrity (expected root vs. computed root)
+- Finality snapshot integrity checks
+- Cross-chain anchor submissions
+
+### 11.4 Finality Snapshots and Fast Sync
+
+Every N epochs, the state is compacted into a finality snapshot: a full serialization
+of all accounts, balances, and essential metadata at that epoch. New nodes can:
+
+1. Connect to any peer
+2. Request the latest finality snapshot
+3. Verify the Merkle root against the block header
+4. Start participating immediately without replaying the full history
+
+Old blocks remain available for historical queries but are not required for consensus
+participation. This design allows the chain to grow indefinitely while keeping join
+time bounded.
+
+### 11.5 Cross-Process Ledger Queue
+
+In multi-process deployments (e.g., API server + miner + P2P node as separate processes),
+ledger entries are shared via `data/pending-entries.jsonl`. Each process appends its
+entries to this file. The miner flushes both in-memory and on-disk pending entries when
+building a block. This queue is wiped after each successful block write.
 
 ---
 
-## Appendix A: Comparison with Bitcoin
-
-| Property | Bitcoin | BTCPC |
-|----------|---------|-------|
-| Type | Sovereign chain | Sovereign chain |
-| Total Supply | 21,000,000 | 42,000,000 |
-| Work Function | SHA-256 (security-only) | AI Inference (useful) |
-| Block Time | ~10 minutes | ~5 minutes (1 epoch) |
-| Halving Interval | Fixed 4 years | Doubling intervals (1mo → 2mo → 4mo → ...) |
-| Verification | Check hash (instant) | Random verifier panel (output quality check) |
-| Mining Hardware | ASICs | GPUs + AI models |
-| Multi-Chain | Bitcoin chain only | Native + claimable wBTCPC on linked chains |
-| Smart Contracts | Script (limited) | Purpose-built (limited) |
-| Fee Model | Transaction fees | Inference fees + transaction fees |
-| Burns | None | None |
-| Final Token Mined | ~2140 | ~2140 |
+## 12. Tokenomics Summary
 
-## Appendix B: Comparison with Compute Networks
+### 12.1 Native Token
 
-| Property | Render | Akash | io.net | BTCPC |
-|----------|--------|-------|--------|-------|
-| Chain Type | Token on Ethereum/Solana | Cosmos chain | Token on Solana | Sovereign chain |
-| Token Model | Utility (inflationary) | Utility (inflationary) | Utility (inflationary) | Fixed supply (42M) |
-| Mining | No mining | No mining | No mining | Yes — earn by providing compute |
-| Consensus | None (marketplace) | Tendermint (PoS) | None (marketplace) | Proof of Useful Work (Proof of Compute) |
-| Verification | Trust-based | Trust-based | Trust-based | Commit-reveal (100%) |
-| Halvings | No | No | No | Yes (doubling intervals) |
-| Multi-Chain Rewards | No | No | No | Yes (1:1 halving cross-chain) |
-| Burns | No | No | No | No |
-| AI-Native | No (general GPU) | No (general compute) | Partial | Yes (inference-first) |
+| Property | Value |
+|----------|-------|
+| Symbol | BTCPC |
+| Total supply | 42,000,000 (fixed forever) |
+| Base unit | Dream (1 BTCPC = 10^10 dreams) |
+| Decimals | 10 |
+| Genesis reward | 24.306 BTCPC/epoch (30-second epochs) |
+| Halving cadence | Every ~4 years |
+| Emission timeline | ~3 years to exhaust 42M cap |
+| Post-emission rewards | From `btcpc_recycle` + fee market |
 
-## Appendix C: Cross-Chain Reward Supply Projections
+### 12.2 User-Created Tokens
 
-Assuming genesis miner links 2 chains (Hive + Base) and the network grows to 100 miners by period 4, each linking an average of 3 chains:
+BTCPC enforces a chain-wide token standard for all user-created tokens:
 
-| Period | Native BTCPC Minted | Cross-Chain Ratio | wBTCPC per Chain (est.) | Total wBTCPC All Chains |
-|--------|--------------------|--------------------|------------------------|------------------------|
-| 1 | 2,100,000 | 100% | 2,100,000 | 4,200,000 (2 chains) |
-| 2 | 2,381,400 | 50% | 1,190,700 | 2,381,400 (2 chains) |
-| 3 | 2,700,508 | 25% | 675,127 | 2,025,381 (3 chains avg) |
-| 4 | 3,062,376 | 12.5% | 382,797 | 1,148,391 (3 chains avg) |
-| 5 | 3,472,734 | 6.25% | 217,046 | 868,183 (4 chains avg) |
+- Fixed supply at creation: 42,000,000 max (matching BTCPC)
+- 10 decimal places (same as BTCPC)
+- No in-protocol mint after creation
+- No in-protocol burn
 
-The cross-chain supply growth naturally decelerates while native BTCPC remains the primary store of value.
+Token creation fees route entirely to `btcpc_recycle`:
 
-## Appendix D: Units and Inscriptions
+| Tier | Max Supply | Fee |
+|------|-----------|-----|
+| Micro | ≤ 1,000,000 | 21 BTCPC |
+| Standard | ≤ 42,000,000 | 42 BTCPC |
+| Mega | ≤ 1,000,000,000 | 84 BTCPC |
+| Custom | Unbounded | 168 BTCPC |
 
-### The Dream
+NFT collection creation fee: 10 BTCPC → `btcpc_recycle`.
 
-The smallest unit of BTCPC is the **dream**.
+### 12.3 Commerce Platform Fees
 
-```
-1 BTCPC = 100,000,000 dreams
-```
+Order platform fee (1% of order total):
 
-Named for Deep Thought's 7.5-million-year computation — a machine dreaming the answer into existence. Every dream on BTCPC represents a unit of verified computation: a machine dreaming an answer for someone who asked.
+- 0.5% → `btcpc_recycle`
+- 0.4% → store stakers (pro-rata by stake)
+- 0.1% → reputation bonus pool
 
-### Genesis Dream Inscriptions
+Store opening (bonding curve, paid in wrapped stables):
 
-The first dream of every block — the **genesis dream** — can carry an inscription: arbitrary content permanently embedded in the chain. One inscription per block, immutable, forever.
+- 50% → `btcpc_recycle`
+- 50% → `btcpc_treasury` (protocol development fund)
 
-Inscriptions are a purpose-built contract type:
+### 12.4 Stake Requirements
 
-```json
-{
-  "type": "inscribe",
-  "block": 42,
-  "creator": "shindevlin",
-  "data": {
-    "type": "build",
-    "name": "My Decentralized AI App",
-    "description": "Built on BTCPC compute",
-    "url": "https://myapp.com",
-    "tags": ["ai", "inference", "privacy"]
-  },
-  "signature": "<active key>"
-}
-```
+| Role | Minimum Stake | Slashable Condition |
+|------|--------------|---------------------|
+| Mining node | 100 BTCPC | Forged inference, failed challenges |
+| Verifier | 100 BTCPC | Voting against consensus |
+| Clock node | 10 BTCPC | Extended missed heartbeats |
+| Store operator | 1 BTCPC/slot | Fraud, non-fulfillment |
+| Storage host | 1 BTCPC/GB | Active deception on challenges |
+| Service host | 10 BTCPC/CPU-epoch | Fraudulent session proofs |
+| LoRa gateway | 1 BTCPC | Fraudulent readings |
 
-**What makes BTCPC inscriptions unique:**
-- Bitcoin Ordinals inscribe data on satoshis — arbitrary, no inherent meaning
-- BTCPC inscriptions sit on **dreams** — units of verified computation
-- Each inscribed dream represents real AI inference that actually happened
-- Builders inscribe what they're creating WITH the compute — the inscription and the work are linked
-- The genesis dream of block 0 carries: *"The Answer to the Ultimate Question of Life, the Universe, and Everything"*
+Stakes are collateral, not consumed. All slashing routes 50% to honest participants
+and 50% to `btcpc_recycle`. No stake is ever burned.
 
-Every token is a dream computed into reality. Every block begins with a dream that can carry the builder's inscription — a permanent record of what was imagined and built on this chain.
+The 14-epoch unbonding period (~7 minutes at 30-second epochs) applies to all
+stake withdrawals.
 
-## Appendix E: Proof of Silicon — GPU-Bound Inference Privacy
+---
 
-### E.1 The Problem
+## 13. Privacy Roadmap
 
-Confidential computing (NVIDIA H100, AMD SEV) provides hardware-guaranteed privacy but requires expensive datacenter hardware. Consumer GPUs — the backbone of decentralized compute — have no memory encryption. A node operator with root access can theoretically read GPU VRAM.
+BTCPC's current architecture is fully transparent: all transactions, balances, and
+account activity are visible on-chain. The following privacy capabilities are planned
+for future releases:
 
-### E.2 Silicon Identity Key (SIK)
+**Encrypted Inference** *(Coming Soon)*
+Inference prompts and responses encrypted at the API layer using memo key ECDH key
+agreement (secp256k1 curve) plus AES-256-GCM. The user's memo public key is on-chain;
+the prompt is encrypted client-side before submission. The miner decrypts using the
+shared secret, runs inference, and returns the encrypted result. No prompt or result
+passes through any node in plaintext.
 
-BTCPC introduces **Proof of Silicon**: a cryptographic identity derived from the physical manufacturing variations of a specific GPU die.
+**Stealth Accounts** *(Planned)*
+One-time payment addresses derived from the recipient's public key, allowing payments
+that cannot be linked to the recipient's main account by external observers.
 
-Every GPU has transistor-level imperfections unique to that chip. These are measurable, reproducible, and unclonable:
+**Anonymous Routing** *(Planned)*
+A relay mixer that allows transactions to be submitted through a chain of relay nodes,
+obscuring the originating IP address from the network.
 
-1. **VRAM Timing Probe** — Measures nanosecond-level read latency variations across thousands of memory cells. Each cell's electrical characteristics differ due to manufacturing variance.
+**Tor/I2P Node Privacy** *(Planned)*
+An opt-in mode for node operators who wish to participate in consensus without
+exposing their IP address.
 
-2. **Floating-Point Divergence Probe** — Runs identical deterministic math on every GPU. Due to ALU transistor variations, the least significant bits of results differ between physical dies. Same code, different silicon, different bits.
+---
 
-Combined, these produce a 256-bit **Silicon Identity Key (SIK)** that is:
-- Unique per physical GPU
-- Reproducible across reboots
-- Not derivable from serial numbers
-- Impossible to replicate without possessing that exact chip
+## 14. Governance
 
-### E.3 SIK-Bound Encryption
+### 14.1 Genesis Phase
 
-Inference session keys are derived from: `HKDF(ECDH_shared_secret + SIK, session_id)`.
+BTCPC is currently in its genesis phase. Founder-operated by Shin Devlin. Protocol
+parameters (epoch duration, block cap bounds, reward pool splits, fee rates) are set
+by the genesis operator. The genesis phase exists to allow fast iteration on the
+technical foundations before the user base grows large enough to make governance
+meaningful.
 
-The SIK component means the decryption key **physically cannot exist** without the registered GPU. Copy the node's disk to another machine → different GPU → different SIK → wrong key → cannot decrypt.
+The genesis operator can change parameters. The genesis operator cannot change the
+42,000,000 supply cap, cannot implement a burn mechanism, and cannot alter the
+fundamental "no pre-mine, no founder allocation" structure — these are architectural
+constants, not governance parameters.
 
-### E.4 Zero-Plaintext Inference Pipeline
+### 14.2 Progressive Decentralization
 
-Plaintext prompts never exist on the inference node — not even for microseconds:
+The path from genesis to full decentralization:
 
-1. User tokenizes the prompt **on their own device**
-2. User generates a per-session random permutation of the token vocabulary
-3. User remaps all token IDs through this permutation
-4. User encrypts the remapped token IDs with the SIK-bound session key
-5. Node decrypts → receives remapped integer arrays
-6. GPU processes remapped tokens — VRAM contains only meaningless integers
-7. Node encrypts output tokens, sends back to user
-8. User de-remaps on their device
+1. **Genesis phase** (now): founder-operated, fast parameter iteration
+2. **Multi-sig phase** (next): protocol changes require N-of-M signatures from
+   recognized chain participants
+3. **Governance phase** (future): on-chain proposals with stake-weighted voting,
+   time-locked execution, and veto windows
 
-The node cannot reverse the remapped tokens to text because:
-- It does not have the remap permutation table
-- The token IDs don't correspond to the model's real vocabulary
-- Even dumping GPU VRAM yields random-looking integers
+Parameter changes will eventually require:
+- On-chain proposal submitted by any account meeting a minimum stake threshold
+- 7-day discussion period
+- Stake-weighted vote (simple majority or supermajority depending on parameter type)
+- 14-epoch time-lock before execution (to allow last-chance vetoes)
 
-### E.5 Remote Verification
+### 14.3 The Design Goal
 
-The network can challenge any node to prove it's using its registered GPU:
+BTCPC was not built to be run. It was built to let go of. Every architectural decision
+— permissionless clocks, demand-driven anchoring, no admin keys on bridge contracts,
+permissionless LP, oracle feeds, sensor registration — follows this principle. The
+chain should be able to operate without its creators.
 
-```
-Network → "Run SIK probe, sign result with posting key"
-Node → derives SIK from physical GPU → signs → returns
-Network → sha256(SIK) matches registered sik_hash?
-  Yes → same GPU, node is legitimate
-  No → GPU swapped or spoofed → slash stake
-```
+*"We didn't build BTCPC to run it. We built it to let go of it."*
 
-### E.6 Node Privacy Tiers
+---
 
-| Tier | Hardware | Privacy Level | Fee Multiplier |
-|------|----------|--------------|----------------|
-| **Silicon** | Consumer GPU with SIK probe | Practical privacy — software isolation + token remapping | 1.0x |
-| **Confidential** | NVIDIA H100/H200 + SIK | Hardware-guaranteed — encrypted GPU memory + SIK | 1.5x |
-| **Software** | CPU-only, no GPU | Transport encryption only — no silicon binding | 0.5x |
+## 15. Conclusion
 
-## Appendix F: Verification Evolution — Future-Proof Protocol
+The blockchain industry spent its first decade asking "what can we put on a chain?"
+The answer was mostly: tokens, speculation, and games.
 
-### Current: Single-Pass Compute with Random Verifier Panel
+BTCPC asks a different question: **what work needs to happen in the world, and how
+do we pay the machines doing it?**
 
-The current verification model assigns each inference request to a single miner. A randomly selected panel of verifiers (1-7 nodes depending on network size) independently checks the output for quality, plausibility, and integrity. This avoids the waste of redundant computation while maintaining strong verification guarantees.
+AI inference needs to happen. Files need to be stored. Sensor data needs to be
+collected and verified. Applications need to be served. Epoch timing needs to be
+maintained. All of these are real economic activities with real market demand. None
+of them require a corporation to intermediate between the person who needs the work
+done and the machine that does it.
 
-Verifiers perform lightweight checks — output coherence, timing plausibility, token count integrity — not full re-inference. This means verification costs a small fraction of the original compute.
+BTCPC removes the corporation. The chain is the intermediary. The miners, storage
+hosts, clock nodes, service hosts, and gateway operators are the workers. The users
+are the customers. The token is the payment.
 
-### Future: Enhanced Verification Methods
+Every token earned. Every machine welcome.
 
-Research in verifiable computation continues to advance. Future verification methods can be hot-swapped via governance vote without disrupting the existing protocol:
+---
 
-- **zkML proofs** — zero-knowledge proofs that a specific model produced a specific output, without revealing the input or re-running the model
-- **Trusted Execution Environments (TEEs)** — hardware attestation (Intel SGX, AMD SEV, NVIDIA Confidential Computing) that cryptographically proves specific code ran on specific hardware
-- **Model fingerprinting** — intermediate layer activations at checkpoint positions that can be verified cheaply without full re-execution
-- **Deterministic attestation** — mathematical properties of transformer attention patterns that prove computation integrity
-
-### Protocol Upgrade Path
-
-The BTCPC protocol is designed so that the verification method is a **replaceable module**, not hardcoded into consensus:
-
-```
-Verification Interface:
-  verify(request, result, proof) → {valid: bool, confidence: float}
-
-Current implementation:
-  VerifierPanelChecker  (random panel, output quality analysis)
-
-Future implementations (hot-swappable via governance vote):
-  ZKMLVerifier          (zero-knowledge proof of inference)
-  TEEVerifier           (hardware attestation)
-  HybridVerifier        (ZK for small models, panel for large)
-  DeterministicVerifier (model-native attestation, when available)
-```
-
-When a superior verification method becomes available:
-1. A governance proposal is submitted with the new verifier implementation
-2. Stake-weighted vote by node operators (66% supermajority required)
-3. If approved, the new verifier is activated at a specified epoch
-4. Old proofs remain valid — verification is forward-compatible
-
-As verification technology improves, the verifier panel can become smaller or the checks can become more rigorous — the reward split (85/10/5) adjusts via governance to reflect the evolving cost and value of verification.
-
-The protocol does not assume any specific verification technology. It assumes only that verified compute exists and is improvable. The chain adapts; the economic model endures.
-
-## Appendix F: Genesis Dreams and Mining Proofs
-
-### Two Artifacts Per Block
-
-Every block on the BTCPC chain produces two distinct non-fungible artifacts:
-
-**1. Genesis Dream (transferable)**
-The first dream of the block. A unique, inscribable, tradeable NFT. The miner who produced the block receives it and can:
-- Inscribe it with a dream inscription (once, permanently)
-- Transfer it to another account (sell, trade, gift)
-- Hold it as a collectible
-
-Genesis dreams are the BTCPC equivalent of rare ordinal sats — but each one represents verified AI compute that actually happened.
-
-**2. Mining Proof (soulbound)**
-A non-transferable badge permanently bound to the miner's account. Proves that this account produced this specific block. Cannot be bought, sold, faked, or transferred. It is soulbound to the miner forever.
-
-```
-Block 42 mined by shindevlin:
-  Reward: 243.05555556 BTCPC
-
-  Artifacts:
-    Genesis Dream #42   → transferable NFT (1 dream, locked from spendable balance)
-    Mining Proof #42    → soulbound badge (non-transferable, proves authorship)
-
-  Spendable: 243.05555555 BTCPC (reward minus 1 dream)
-```
-
-### Genesis Dream Verification
-
-Each genesis dream carries a cryptographic proof of authenticity that anyone can verify without trusting the holder:
-
-```
-Genesis Dream #42:
-  block:          42
-  original_miner: shindevlin
-  timestamp:      2026-03-25T18:55:24.123Z
-  state_hash:     abc123...  (chain state at this block)
-  work_hash:      def456...  (hash of all inference work in this block)
-  model:          qwen3.5:27b
-  tokens_computed: 1536
-  proof_signature: <signed by consensus>
-  inscription:    { ... }  (dream inscription, if inscribed)
-```
-
-**Verification flow:**
-1. Check `proof_signature` against the chain's consensus key for block 42
-2. Verify `state_hash` matches the canonical chain at block 42
-3. Verify `work_hash` matches the recorded work proofs for block 42
-4. Confirm `original_miner` matches the block producer record
-
-Forgery is impossible — the proof signature chain goes back to genesis block 0. A fake genesis dream would fail signature verification instantly.
-
-**Even after transfer**, the `original_miner` field is immutable. If shindevlin transfers Genesis Dream #42 to alice, alice owns the dream but shindevlin is permanently recorded as its creator. Provenance is built into the protocol.
-
-### Wallet Display
-
-```
-$ btcpc-cli balance shindevlin
-
-BTCPC Balance: shindevlin
-==============================
-
-  Spendable:           972.22222220 BTCPC
-  Staked:              0.00000000 BTCPC
-
-  Genesis Dreams (transferable NFTs):
-  ------------------------------------
-  #0    Block 0     "The Answer to the Ultimate Question..."    2026-03-25
-  #1    Block 1     [uninscribed]                                2026-03-25
-  #2    Block 2     [uninscribed]                                2026-03-25
-
-  Mining Proofs (soulbound, non-transferable):
-  ---------------------------------------------
-  Block 0     243.06 BTCPC    qwen3.5:27b    2026-03-25
-  Block 1     243.06 BTCPC    qwen3.5:27b    2026-03-25
-  Block 2     243.06 BTCPC    qwen3.5:27b    2026-03-25
-```
-
-### Transfer
-
-```
-$ btcpc-cli transfer-dream 0 --to alice
-  Enter password: ********
-
-  Transferred Genesis Dream #0 to alice
-  Original miner: shindevlin (permanently recorded)
-  Inscription: "The Answer to the Ultimate Question..."
-  Alice now owns this dream. Shindevlin retains Mining Proof #0.
-```
-
-### Purpose-Built Contract Types (updated)
-
-| Contract Type | Required Key | Purpose |
-|--------------|-------------|---------|
-| **Inscribe** | Active | Add a dream inscription to an owned genesis dream (once, permanent) |
-| **TransferDream** | Active | Transfer a genesis dream to another account |
-## Appendix G: Inscription Policy and Fee Structure
-
-### Inference: Fully Uncensored
-
-BTCPC does not censor, filter, or inspect inference requests. All prompts and results are end-to-end encrypted. No node, validator, or protocol mechanism can read, block, or modify what users compute. This is a fundamental design principle — BTCPC is a compute utility, not a content platform.
-
-**Inference is private. Always. No exceptions.**
-
-### Dream Inscriptions: Public Dream inscription Filtering
-
-Genesis dream inscriptions are different — they are **public, plaintext dream inscriptions** visible on the block explorer and permanently on-chain. Because inscriptions are public-facing, the protocol applies automatic content filtering:
-
-**How it works:**
-- When a requester submits dream inscription, the protocol scans the plaintext for prohibited patterns (CSAM-related terms, known abuse material identifiers)
-- Prohibited content is NOT rejected — it is **redacted in place**: matching text is replaced with `XXXXXXXXX`
-- The inscription is still recorded, the dream is still created, the block is still valid
-- The requester's account is not banned or penalized
-- No human review, no censorship committee — purely automated pattern matching on public inscription text only
-
-```
-Submitted inscription:
-  "Building [prohibited content here] on BTCPC"
-
-Recorded on-chain:
-  "Building XXXXXXXXX on BTCPC"
-
-The dream exists. The block is valid. The bad text is gone.
-```
-
-This approach:
-- **Does not censor inference** (encrypted, untouchable)
-- **Does not reject transactions** (the dream is still created)
-- **Does not punish users** (no bans, no slashing)
-- **Protects the public record** (block explorer stays clean)
-
-### Elevated Fee: External URLs
-
-Inscriptions containing external URLs or links to outside websites incur an elevated fee:
-
-```
-Standard text inscription:       base_fee (e.g., 1 BTCPC)
-Contains external URL/link:      base_fee × 10
-
-Fee destination:
-  Standard:    100% to miner
-  Elevated:    50% to miner, 50% to BTCPC ops wallet
-```
-
-This prevents spam-linking and generates revenue for protocol development.
-
-### Genesis Dream Dream inscription Source
-
-**Dream inscriptions come from the REQUESTER, not the miner.**
-
-When a user submits an inference request, they can optionally include a dream inscription that will be recorded on the genesis dream of whichever block processes their request. The miner cannot modify this inscription — it is signed by the requester.
-
-```
-Inference request with dream inscription:
-{
-  "type": "inference_request",
-  "requester": "alice",
-  "model": "qwen3.5:27b",
-  "encrypted_prompt": "...",
-  "dream_inscription": {
-    "project": "my-ai-app",
-    "tag": "Building decentralized image generation"
-  },
-  "signature": "<signed by requester>"
-}
-
-→ If this request is processed in block 42:
-→ Genesis Dream #42 inscription = alice's dream inscription
-→ Miner cannot alter it
-→ Alice's build is permanently recorded
-```
-
-**Dream inscriptions are mandatory.** Every inference request must include a dream inscription. If the requester does not provide a custom dream inscription, the protocol inserts a default:
-
-```
-Default dream inscription (auto-generated):
-{
-  "project": "btcpc-compute",
-  "tag": "Inference request — [model] — [token count] tokens — epoch [N]"
-}
-```
-
-This ensures every genesis dream has meaningful content. No empty dreams. Every block tells the story of what was computed.
-
-### BTCPC Foundation Wallet
-
-A designated ops wallet receives elevated fee revenue (from URL inscriptions). This wallet is controlled by Shin Devlin and used for:
-- Protocol development funding
-- Security audit funding
-- Community grants
-- Bug bounty program
-
-The ops wallet address will be designated in a future protocol update.
-
-## Appendix H: Multi-Provider CLI and External Compute Rewards
-
-### Universal AI Interface
-
-The btcpc-cli supports multiple inference providers through a single interface. Users can bring their own API keys from any supported provider, or use BTCPC's native decentralized compute:
-
-```
-btcpc-cli inference --provider btcpc      "Explain quantum computing"
-btcpc-cli inference --provider openai     "Explain quantum computing"
-btcpc-cli inference --provider anthropic  "Explain quantum computing"
-btcpc-cli inference --provider grok       "Explain quantum computing"
-btcpc-cli inference --provider ollama     "Explain quantum computing"
-```
-
-One CLI. Any backend. Every request creates a dream inscription on the BTCPC chain.
-
-### External Provider Verification
-
-External provider requests require no on-chain verification. The provider's own API response serves as proof of compute:
-
-```
-Provider response includes:
-  - Request ID (unique, queryable)
-  - Model name (provider-reported, not user-claimed)
-  - Token usage (provider-reported)
-  - Timestamp
-
-This receipt is submitted to the BTCPC chain as proof the compute occurred.
-The user cannot falsify it — the data comes from the provider's response, not the user's input.
-```
-
-### The 42% Rule
-
-External provider compute follows **the 42% rule** — a completely separate reward structure from native compute:
-
-```
-NATIVE BTCPC COMPUTE (single-pass + verifier panel):
-  Miner:                85%    (performed the inference)
-  Verifier panel:       10%    (checked output quality)
-  Clock nodes:           5%    (maintained epoch timing)
-  OPS:                   0%
-  Total:               100%   → all rewards go to network participants
-
-EXTERNAL PROVIDER COMPUTE (receipt-verified):
-  User:                 42%    (brought the job + their API key)
-  OPS:           58%    (protocol development fund)
-  Miners:                0%    (did not perform the compute)
-  Total:               100%   → no miner reward because no miner computed
-```
-
-**Why this split works:**
-
-- **Miners earn nothing on external jobs** — they didn't do the compute. OpenAI did. BTCPC rewards only flow to those who contributed. This keeps mining rewards pure and honest.
-- **Users earn 42%** — the answer. They brought real inference activity to the BTCPC chain using their own API key and their own money. That contribution is worth 42% of the reward.
-- **The OPS wallet earns 58%** — the verification premium. In native compute, 10% goes to verifiers and 5% to clocks. Since external provider jobs need no on-chain verification or timing, this premium flows to the OPS wallet instead.
-- **OPS fees come ONLY from external provider jobs.** Native compute pays zero to the foundation. This creates a clear incentive: mine natively and keep 100% within the miner community, or use external providers and fund protocol development.
-
-The ops wallet, controlled by Shin Devlin, funds:
-- Protocol development
-- Security audits
-- Bug bounty programs
-- Community grants
-- Network infrastructure
-
-The ops wallet address will be designated by Shin Devlin in a future protocol update.
-
-### Dream Types
-
-Dreams created from external compute are marked differently on-chain:
-
-```
-Verified Dream:     backed by BTCPC native compute + verifier panel attestation
-Registered Dream:   backed by external provider receipt
-
-Both are valid dreams. Both carry inscriptions. Both are transferable.
-Verified dreams carry stronger provenance — proof of decentralized compute.
-```
-
-### Supported Providers
-
-| Provider | Key Format | Models |
-|----------|-----------|--------|
-| BTCPC Native | btcpc-cli built-in | Any Ollama model on the network |
-| OpenAI | OPENAI_API_KEY | gpt-4o, gpt-4, gpt-3.5-turbo |
-| Anthropic | ANTHROPIC_API_KEY | claude-sonnet, claude-opus, claude-haiku |
-| xAI (Grok) | XAI_API_KEY | grok-2, grok-3 |
-| Google | GOOGLE_API_KEY | gemini-pro, gemini-ultra |
-| Local Ollama | OLLAMA_URL | Any locally installed model |
-
-### The Funnel
-
-The multi-provider CLI creates a natural conversion funnel:
-
-```
-Stage 1: User installs btcpc-cli to use their existing OpenAI key
-         → Earns 42% rewards, creates dreams, sees the chain
-
-Stage 2: User accumulates BTCPC from external compute rewards
-         → Enough to explore native compute
-
-Stage 3: User tries --provider btcpc, earns 100% rewards
-         → Realizes native compute is cheaper AND earns more
-
-Stage 4: User installs Ollama, stakes 1000 BTCPC, becomes a miner
-         → Full mining rewards + cross-chain bonuses + genesis dreams
-```
-
-Every stage creates token demand. Every stage generates dreams. Every stage grows the network.
-
-### API Key Security
-
-**API keys never leave the user's device.** The btcpc-cli calls external providers directly from the user's machine:
-
-```
-User's device:
-  1. btcpc-cli calls OpenAI directly (key stays local)
-  2. OpenAI returns response + receipt
-  3. btcpc-cli submits receipt + dream inscription to BTCPC chain
-  4. No BTCPC node ever sees the API key
-
-Security: identical to using the OpenAI SDK directly.
-The BTCPC chain only sees: provider name, model, token count, receipt ID, dream inscription.
-Never: API key, prompt content, response content.
-```
-
-## Appendix I: Native L2 — WASM Smart Contract Layer
-
-### Why L2 Not L1
-
-Bitcoin's limitation is that adding smart contracts to L1 is nearly impossible without years of consensus and soft forks. Ethereum's mistake was putting smart contracts directly on L1 — resulting in congestion, high fees, and years spent building L2 rollups to fix it.
-
-BTCPC avoids both problems by designing a **native L2 execution layer** from day 1:
-
-```
-BTCPC L1 (Settlement Layer):
-  ├── Transfers, staking, inference, dreams, mining
-  ├── Purpose-built contracts (hardcoded, fast, secure)
-  ├── Processes L2 state commitments
-  └── Never runs arbitrary user code
-
-BTCPC L2 (Execution Layer):
-  ├── WASM runtime — smart contracts in Rust, Go, JS, AssemblyScript
-  ├── Full programmability — DeFi, NFTs, DAOs, games
-  ├── Posts state roots to L1 every epoch
-  └── Secured by L1 miners (same verifier panel verification)
-```
-
-### How It Works
-
-1. **Developers deploy WASM contracts to L2** — compiled from Rust, Go, JavaScript, or any language that targets WebAssembly
-2. **Users interact with L2 contracts** — send transactions, call functions, query state
-3. **L2 nodes execute contracts** in a sandboxed WASM runtime
-4. **Every epoch, L2 posts a state commitment to L1** — a single hash representing the entire L2 state
-5. **L1 miners verify the state commitment** as part of their epoch work
-6. **If disputed:** any node can challenge by re-executing the L2 transactions and proving a different state root (optimistic rollup model)
-
-### Architecture
-
-```
-User
-  │
-  ├── L1 transactions (transfers, staking, inference)
-  │     → processed directly by L1 miners
-  │
-  └── L2 transactions (contract calls, DeFi, NFTs)
-        → processed by L2 execution nodes
-        → state root posted to L1
-        → L1 provides final settlement and security
-
-L1 sees: one state_root hash per epoch from L2
-L2 does: unlimited contract execution between epochs
-```
-
-### What Miners Earn
-
-BTCPC miners earn from three sources of useful work:
-
-```
-1. AI Inference compute         (proof of compute — GPU work)
-2. L2 contract execution        (WASM execution — CPU work)
-3. Transaction fees             (L1 transfers, staking, claims)
-```
-
-All three are useful work. All three generate BTCPC rewards. The protocol does not distinguish between types of useful computation — a cycle spent on inference and a cycle spent executing a smart contract are both real work that someone paid for.
-
-### Plugin Architecture
-
-The L1 transaction processor uses a plugin interface that makes L2 integration seamless:
-
-```
-Contract Interface (all contract types implement this):
-  validate(tx, state)    → bool       // is this transaction valid?
-  execute(tx, state)     → newState   // apply the transaction
-  fee(tx)                → amount     // what does this cost?
-
-Purpose-built contracts:  pre-installed plugins (JavaScript)
-L2 WASM contracts:        user-deployed plugins (WebAssembly)
-Same interface. Same validation. Same fee model.
-```
-
-New purpose-built contract types can be added to L1 via governance vote — no hard fork required. The plugin system means the protocol is extensible without redesigning the chain.
-
-### Timeline
-
-- **Phase 0-2 (current):** Purpose-built contracts only. Plugin interface designed but WASM runtime dormant.
-- **Phase 3:** WASM runtime activated via governance vote. Developers can deploy contracts to L2.
-- **Phase 4:** L2 ecosystem matures. DEXs, lending, NFT marketplaces — all powered by BTCPC compute.
-
-### Why This Matters
-
-BTCPC will never face Bitcoin's "we can't add features" problem. The L2 is native, designed from genesis, and governed by miners. When the ecosystem needs smart contracts, the runtime is already there — waiting to be activated. No years of debate. No contentious forks. Just a governance vote and the L2 goes live.
-
-## Appendix J: Fee Model — L1 Fixed Fees, L2 Gas
-
-### L1: No Gas. Fixed Fees.
-
-BTCPC L1 runs only purpose-built contracts with predictable execution costs. There is no gas metering, no gas estimation, and no failed transactions from running out of gas.
-
-```
-L1 Fee Schedule:
-  Transfer:                     0.001 BTCPC
-  Stake / Unstake:              0.001 BTCPC
-  Inference request:            model-specific (based on tokens)
-  Dream inscription (text):     0.01 BTCPC
-  Dream inscription (with URL): 0.1 BTCPC (10x — elevated fee to OPS)
-  Account creation:             0.1 BTCPC
-  Account update:               0.01 BTCPC
-  Cross-chain claim:            0.001 BTCPC
-  Dream transfer:               0.01 BTCPC
-  MultiSig update:              0.01 BTCPC
-  RecurringPay setup:           0.01 BTCPC
-```
-
-Users always know exactly what they will pay. No surprises. No gas wars. Bitcoin-simple.
-
-All L1 fees go to the miner who produced the block. Zero to OPS (except elevated URL inscription fees — 50% to miner, 50% to OPS).
-
-### L2: Gas. Mandatory.
-
-WASM smart contracts are arbitrary code — a contract could loop forever, allocate unbounded memory, or perform complex computation. Gas metering is essential.
-
-```
-L2 Gas Model:
-  Unit:           1 gas = 1 WASM instruction
-  Price:          dynamic, adjusts with L2 demand (EIP-1559 style base fee)
-  Payment:        BTCPC (same token as L1 — no separate gas token)
-  Gas limit:      set by user per transaction
-  Out of gas:     transaction reverts, gas consumed (standard model)
-  Minimum gas:    21,000 (matches Ethereum convention for simple operations)
-```
-
-**One token. Two layers. No bridging.**
-
-Unlike Ethereum where you need ETH for gas AND a separate token for the dApp, BTCPC uses one token everywhere. Users hold BTCPC. They spend it on L1 operations (fixed fees) or L2 contracts (gas). No friction.
-
-### Fee Revenue Distribution
-
-```
-L1 fees:          100% to block-producing miner
-L2 gas fees:      100% to WASM-executing miner
-L1 URL fees:      50% miner / 50% OPS wallet
-External provider: 42% user / 58% OPS wallet
-```
-
-### Why No Gas on L1
-
-Bitcoin does not have gas. Its transactions are simple and predictable. BTCPC L1 follows the same philosophy:
-
-- Every L1 operation has a known, fixed cost
-- No gas estimation required — wallets show exact fees before signing
-- No transaction failures from gas miscalculation
-- Simpler node implementation — no gas metering overhead on L1
-- Better UX for non-technical users
-
-Gas exists on L2 because L2 needs it — arbitrary code execution demands resource metering. L1 does not run arbitrary code, so L1 does not need gas.
-
-## Appendix K: L2 Gas Token — The Four-Way Value Engine
-
-### L2 Gas Token
-
-The BTCPC L2 uses a dedicated gas token for WASM contract execution. This token is:
-- **Purchased with stablecoins only** (USDC, USDT, DAI)
-- **Priced at $1 = 1 GAS** (always, no speculation)
-- **Not mineable** — purchase only
-- **Burns on use** — deflationary by design
-
-### The Four-Way Split
-
-Every L2 gas purchase and expenditure creates value in four directions simultaneously:
-
-**On Purchase ($1 USDC → 1 GAS):**
-```
-$0.50 → OPS wallet                 (stablecoin operational revenue)
-$0.50 → BTCPC/USDC liquidity pool  (deepens market depth)
-```
-
-**On Use (1 GAS spent on contract call):**
-```
-0.5 GAS → burned                   (permanently destroyed, deflationary)
-0.5 GAS → buys BTCPC on market     (constant buy pressure → pays miner)
-```
-
-### Complete Flow
-
-```
-                    $1 USDC enters system
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-        $0.50 to OPS              $0.50 to LP
-        (real revenue)            (deeper markets)
-              
-              1 GAS minted to user
-              User calls L2 contract
-              1 GAS spent
-                    │
-         ┌─────────┴─────────┐
-         │                   │
-    0.5 GAS burned      0.5 GAS → market buy BTCPC
-    (deflationary)            │
-                         BTCPC → miner
-                         (compute payment)
-```
-
-### Economic Effects
-
-**OPS:** Receives $0.50 in stablecoins for every $1 of L2 gas purchased. This is sustainable, non-volatile revenue — independent of BTCPC price. At 10,000 L2 transactions per day averaging $0.10 gas each: $500/day to OPS, $182,500/year in stablecoin revenue.
-
-**Liquidity:** $0.50 of every gas purchase deepens the BTCPC/USDC trading pool. More L2 usage = deeper liquidity = tighter spreads = better price discovery = more institutional interest.
-
-**BTCPC price:** Every L2 contract call triggers a market buy of BTCPC (from the 0.5 GAS conversion). This is constant, organic buy pressure that scales with L2 adoption. Not speculative — driven by real usage.
-
-**Miners:** Receive BTCPC purchased at market rate for executing WASM contracts. They are paid in the same token they mine. Their incentive structure is unified across L1 inference and L2 contract execution.
-
-**Gas token supply:** Half of all gas tokens ever minted are eventually burned. Circulating supply stays low. No secondary market speculation — the token is minted at $1 and burned on use. It is a utility, not an investment.
-
-### The Flywheel
-
-```
-More L2 dApp usage
-  → more gas purchased with stablecoins
-    → more USDC in liquidity pools (deeper markets)
-    → more stablecoin revenue to OPS (better development)
-      → more BTCPC bought on market (price appreciation)
-        → more profitable mining (attracts miners)
-          → more compute capacity (better network)
-            → more dApps built on L2 (more usage)
-              → cycle repeats
-```
-
-Every component reinforces every other component. L2 adoption directly drives L1 token value, miner profitability, market liquidity, and operational sustainability — simultaneously.
-
-### Paying L2 Gas with BTCPC (Alternative)
-
-Users who hold BTCPC can pay L2 gas directly in BTCPC at a **15% discount** versus the stablecoin price:
-
-```
-Via stablecoin:  $1.00 USDC → 1 GAS → four-way split
-Via BTCPC:       $0.85 worth of BTCPC → 1 GAS → BTCPC distributed directly to miner
-
-The 15% discount incentivizes holding BTCPC over stablecoins.
-```
-
-When paying with BTCPC directly, there is no stablecoin revenue to OPS and no liquidity pool contribution — the BTCPC goes directly to the executing miner. This is acceptable because BTCPC payment means the user is already part of the BTCPC ecosystem. The stablecoin pathway is for onboarding new users.
-
-## Appendix L: Governance and Decentralization — The Path to Irrelevance
-
-### The Founder's Duty
-
-Satoshi Nakamoto built Bitcoin, mined alone, and walked away. The network thrived precisely because its creator became irrelevant. The protocol was the authority, not the person.
-
-Shin Devlin follows the same path. The goal is not to build a company, a foundation, or an empire. The goal is to build a protocol that does not need its creator — and then to prove it by leaving.
-
-Shin and Satoshi are brothers in philosophy: build something that outlives you, then let it.
-
-### The Five Stages of Decentralization
-
-**Stage 1: Genesis (current)**
-Shin Devlin is the sole miner, sole developer, and sole authority. This is necessary — someone must write the first line of code, mine the first block, and make the first decisions. Every decentralized network begins as a centralized one. Bitcoin did. BTCPC does.
-
-**Stage 2: Delegation (at 10+ miners)**
-Other miners join the network. Shin remains the lead developer but accepts contributions. Protocol discussions happen in public. The codebase has multiple contributors. Shin's authority comes from competence, not from a special key.
-
-**Stage 3: Governance (at 50+ miners)**
-Stake-weighted governance activates. Protocol changes require a miner vote. Shin has a vote proportional to his stake — equal in weight to any other staker. The OPS wallet transitions from Shin's sole control to a multi-signature council.
-
-**Stage 4: Participation (at 1000+ miners)**
-Shin is just another miner. No special permissions, no emergency powers, no veto. The OPS wallet is controlled by an elected council. The codebase is maintained by the community. Protocol evolution is pure stake-weighted democracy.
-
-**Stage 5: Legend**
-Shin steps back. Perhaps gradually, perhaps all at once. The protocol does not need him. The network mines, verifies, and dreams without a founder at the helm. Like Satoshi before him, Shin's greatest contribution is proving that the system works without its creator.
-
-*The best thing a founder can do is make themselves unnecessary.*
-
-### Governance Mechanism
-
-Built into the protocol from genesis, activated at Stage 3:
-
-```
-Proposals:
-  Any account with ≥1000 BTCPC staked can submit a proposal.
-
-Voting:
-  1 staked BTCPC = 1 vote
-  Voting period: 1000 epochs (~3.5 days)
-  Quorum: 20% of total staked BTCPC must participate
-  Approval threshold: 66% to pass
-
-Proposal types:
-  - Protocol parameter changes (epoch length, fees, reward splits)
-  - Add new purpose-built contract type to L1
-  - Activate or upgrade the WASM L2 runtime
-  - Elect or remove OPS council members
-  - Modify the content redaction wordlist
-  - Emergency protocol pause (requires 80% supermajority)
-```
-
-No single account — including shindevlin — has veto power. Governance is stake-weighted, one-token-one-vote, majority rules.
-
-### OPS Wallet Transition
-
-| Stage | Control | Structure |
-|-------|---------|-----------|
-| 1 (Genesis) | Shin Devlin | Single key |
-| 2 (10+ miners) | Shin + 2 early contributors | 2-of-3 multi-sig |
-| 3 (50+ miners) | Elected council | 3-of-5 multi-sig |
-| 4 (1000+ miners) | Elected council | 5-of-9 multi-sig |
-| 5 (Mature) | All stakers | DAO treasury — spending requires governance vote |
-
-At Stage 5, the OPS wallet is no longer controlled by any individual or council. Spending proposals are submitted, voted on by all stakers, and executed automatically by the protocol. No human gatekeeper.
-
-### Power Divestiture Schedule
-
-| Power | When Shin Relinquishes | How |
-|-------|----------------------|-----|
-| Sole mining | Stage 2 (other miners join) | Natural — network opens |
-| Protocol decisions | Stage 3 (governance activates) | Governance vote required for changes |
-| OPS wallet control | Stage 3 → Stage 5 (gradual) | Multi-sig → DAO |
-| Reserved names (420) | Stage 2-4 (sold/granted over time) | Market sales + community grants |
-| Emergency pause | Stage 4 (80% supermajority required) | No single-key pause |
-| All special authority | Stage 5 | Nothing remains. Shin is a miner, nothing more. |
-
-### The Satoshi Standard
-
-Satoshi Nakamoto demonstrated that a pseudonymous creator can build the most valuable network in human history and walk away. The network's value did not depend on Satoshi's continued involvement — it depended on the protocol being sound.
-
-BTCPC adopts this as a design principle: **the protocol is the authority, not the founder.**
-
-Shin Devlin's roadmap mirrors Satoshi's:
-1. Build the protocol
-2. Mine the genesis blocks
-3. Attract other miners
-4. Transfer governance to the community
-5. Step back
-
-The day Shin Devlin walks away from BTCPC — and the network continues mining, verifying, and dreaming without interruption — is the day the project succeeds. Not the day the token reaches a target price. Not the day a certain number of miners join. The day the founder becomes irrelevant.
-
-That is the goal. That has always been the goal.
-
-*"I think the problem, to be quite honest with you, is that you've never actually known what the question is."*
-
-The question was never "who controls the network?"
-
-The answer, as always, is 42.
+*BTCPC v3.0 — April 2026*
+*Shin Devlin — shin@btcpc.network*
+*License: AGPL-3.0*
+*GitHub: https://github.com/shindevlin/btcpc*
+*Website: https://btcpc.net*
