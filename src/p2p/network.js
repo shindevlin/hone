@@ -175,7 +175,10 @@ function setupPeerSocket(ws, address, direction) {
     status: "connected",
     reconnectAttempts: 0,
     reconnectTimer: null,
-    lastSeen: Date.now()
+    lastSeen: Date.now(),
+    // Vuln 5: track the claimed proposer for this connection.
+    // If a connection sends BLOCK_PROPOSAL with two different proposer names it's spoofing.
+    claimed_proposer: null,
   };
 
   // Carry over reconnect attempts from previous entry

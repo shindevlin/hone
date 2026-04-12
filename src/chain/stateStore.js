@@ -152,7 +152,12 @@ function _credit(username, token, amount) {
 function _debit(username, token, amount) {
   if (!username || !amount) return;
   var key = _balanceKey(username, token);
-  balances.set(key, _round((balances.get(key) || 0) - amount));
+  var current = balances.get(key) || 0;
+  // System/issuance accounts may go negative; all others are floor-checked.
+  if (!_isSystemAccount(username) && current < amount) {
+    return; // insufficient balance — reject silently (Vuln 6 fix)
+  }
+  balances.set(key, _round(current - amount));
 }
 
 function _ensureAccount(username, metadata) {

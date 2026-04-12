@@ -14,6 +14,7 @@ const Block = require("../chain/block");
 const blockchain = require("../chain/blockchain");
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
+const messageAuth = require("./messageAuth");
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -578,11 +579,62 @@ function getIdleMiners(epochNumber) {
  * All nodes update their local DB with the reward distribution.
  * This IS the chain — the finalized block is the source of truth.
  */
+// Track the last accepted finalized epoch number for sequential-check (Vuln 4)
+var _lastFinalizedEpoch = -1;
+
 async function handleEpochFinalized(peer, msg, ctx) {
   const data = msg.data || {};
   if (!data.epoch_number) return;
 
   const epochNum = data.epoch_number;
+
+  // Vuln 4a: epoch sequence check — reject if going backwards or jumping > 10.
+  if (_lastFinalizedEpoch >= 0) {
+    var gap = epochNum - _lastFinalizedEpoch;
+    if (gap < 0) {
+      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " goes backwards (last=" + _lastFinalizedEpoch + ")");
+      return;
+    }
+    if (gap > 10) {
+      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " jumps " + gap + " ahead of last=" + _lastFinalizedEpoch + " (max gap 10)");
+      return;
+    }
+  }
+
+  // Vuln 4b: block signature verification.
+  if (data.block_signature && data.proposer) {
+    // Build the header hash payload — the fields the authority signed.
+    var blockHeaderData = {
+      epoch_number: data.epoch_number,
+      consensus_hash: data.consensus_hash || "",
+      state_root: data.state_root || "",
+      proposer: data.proposer,
+      timestamp: data.block_timestamp || data.timestamp || 0,
+    };
+    var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
+    if (!sigOk) {
+      if (messageAuth.REQUIRE_SIGNATURES) {
+        console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
+        return;
+      }
+      console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + (data.proposer || "?") + " has invalid block_signature — will be rejected after v2.17");
+    }
+  } else if (data.proposer || data.block_signature) {
+    // Partial — has one but not both fields; treat as unsigned for compat.
+    if (messageAuth.REQUIRE_SIGNATURES) {
+      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " missing block_signature or proposer (strict mode)");
+      return;
+    }
+    console.log("[BTCPC P2P WARN] Unsigned EPOCH_FINALIZED epoch " + epochNum + " from " + (peer.nodeId || "?").slice(0, 16) + " — will be rejected after v2.17");
+  } else {
+    if (messageAuth.REQUIRE_SIGNATURES) {
+      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " has no block_signature (strict mode)");
+      return;
+    }
+    console.log("[BTCPC P2P WARN] Unsigned EPOCH_FINALIZED epoch " + epochNum + " from " + (peer.nodeId || "?").slice(0, 16) + " — will be rejected after v2.17");
+  }
+
+  _lastFinalizedEpoch = epochNum;
   console.log("[BTCPC P2P] Block finalized: epoch " + epochNum + " | reward: " + (data.block_reward || 0).toFixed(4) + " BTCPC | " + (data.rewards || []).length + " miner(s)");
 
   try {
@@ -655,11 +707,55 @@ async function handleAccountAnnounce(peer, msg, ctx) {
   const data = msg.data || {};
   if (!data.username) return;
 
+  // Vuln 3: verify the proof-of-key-ownership field.
+  // The announcer must sign { username, public_keys, timestamp } with the owner key
+  // they are claiming.
+  var stateStore = require("../chain/stateStore");
+  var existingAccount = stateStore.getAccount(data.username);
+
+  if (data.proof) {
+    // The data that was signed — matches what the sender must have signed.
+    var proofPayload = {
+      username: data.username,
+      public_keys: data.public_keys || {},
+      timestamp: data.timestamp || 0,
+    };
+
+    if (existingAccount && existingAccount.public_keys && existingAccount.public_keys.owner) {
+      // Re-announcement (key update) — must be signed by the EXISTING owner key on chain.
+      var reannounceOk = messageAuth.verifyMessage(proofPayload, data.proof, existingAccount.public_keys.owner);
+      if (!reannounceOk) {
+        if (messageAuth.REQUIRE_SIGNATURES) {
+          console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — re-announcement proof invalid (key theft attempt?)");
+          return;
+        }
+        console.log("[BTCPC P2P WARN] ACCOUNT_ANNOUNCE for " + data.username + " has invalid re-announcement proof — will be rejected after v2.17");
+      }
+    } else {
+      // First announcement — self-certifying: signature must match the claimed owner public key.
+      var claimedOwnerPub = (data.public_keys || {}).owner;
+      if (claimedOwnerPub) {
+        var firstOk = messageAuth.verifyMessage(proofPayload, data.proof, claimedOwnerPub);
+        if (!firstOk) {
+          // The proof doesn't match the claimed key — silently reject, this is clearly forged.
+          console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — first-announcement proof does not match claimed owner key");
+          return;
+        }
+      }
+    }
+  } else {
+    // No proof field at all.
+    if (messageAuth.REQUIRE_SIGNATURES) {
+      console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field (strict mode)");
+      return;
+    }
+    console.log("[BTCPC P2P WARN] Unsigned ACCOUNT_ANNOUNCE for " + data.username + " — will be rejected after v2.17");
+  }
+
   console.log("[BTCPC P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
 
   try {
-    const stateStore = require("../chain/stateStore");
-    if (!stateStore.getAccount(data.username)) {
+    if (!existingAccount) {
       stateStore.applyEntry({
         type: 'ACCOUNT_CREATE',
         to: data.username,
@@ -708,10 +804,54 @@ async function handleMempoolEntry(peer, msg, ctx) {
   }
 
   var entry = data.entry;
+
+  // Vuln 2: reject block-only entry types — these must only arrive inside
+  // EPOCH_FINALIZED block payloads and can never be user-submitted.
+  if (messageAuth.BLOCK_ONLY_TYPES.includes(entry.type)) {
+    console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " is a block-only type (possible money-printing attack) from " + (peer.nodeId || peer.address || "?").slice(0, 16));
+    return;
+  }
+
+  // Reject entries whose type is not on the allowlist at all.
+  if (!messageAuth.MEMPOOL_ALLOWED_TYPES.includes(entry.type)) {
+    console.log("[BTCPC P2P] MEMPOOL_ENTRY dropped: unknown/disallowed type " + entry.type);
+    return;
+  }
+
   console.log("[BTCPC P2P] MEMPOOL_ENTRY: " + entry.type +
     " from=" + (entry.from || "-") +
     " to=" + (entry.to || "-") +
     " epoch=" + (entry.epoch || 0));
+
+  // Vuln 2 (continued): for TRANSFER entries, verify the posting-key signature.
+  if (entry.type === "TRANSFER" && entry.from) {
+    if (entry.signature) {
+      var transferData = {
+        type: entry.type,
+        from: entry.from,
+        to: entry.to,
+        amount: entry.amount,
+        token: entry.token || "BTCPC",
+        memo: entry.memo || "",
+        epoch: entry.epoch || 0,
+        timestamp: entry.timestamp || 0,
+      };
+      var sigOk = messageAuth.verifyAccountSignature(entry.from, transferData, entry.signature, "posting");
+      if (!sigOk) {
+        if (messageAuth.REQUIRE_SIGNATURES) {
+          console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: TRANSFER from " + entry.from + " — invalid posting-key signature");
+          return;
+        }
+        console.log("[BTCPC P2P WARN] TRANSFER from " + entry.from + " has invalid posting-key signature — rejecting after v2.17");
+      }
+    } else {
+      if (messageAuth.REQUIRE_SIGNATURES) {
+        console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: unsigned TRANSFER from " + entry.from + " (strict mode)");
+        return;
+      }
+      console.log("[BTCPC P2P WARN] Unsigned TRANSFER from " + (entry.from || "?") + " — will be rejected after v2.17");
+    }
+  }
 
   try {
     // appendForeignEntry applies to stateStore + disk queue without re-gossiping
@@ -762,6 +902,42 @@ function handleFinalizationProposal(peer, msg, ctx) {
 function handleBlockProposal(peer, msg, ctx) {
   var data = msg.data || {};
   if (!data.epoch_number || !data.proposer || !data.consensus_hash) return;
+
+  // Vuln 5: track the claimed proposer per connection. If the same WebSocket
+  // connection sends proposals with different proposer names, it's spoofing —
+  // drop the connection immediately.
+  if (peer.claimed_proposer && peer.claimed_proposer !== data.proposer) {
+    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: connection " + (peer.address || "?") +
+      " claimed proposer " + peer.claimed_proposer + " then " + data.proposer + " — spoofing detected, dropping connection");
+    if (peer.ws) peer.ws.close();
+    return;
+  }
+  peer.claimed_proposer = data.proposer;
+
+  // Vuln 5: verify proposal_signature against proposer's active key.
+  if (data.proposal_signature) {
+    var proposalData = {
+      epoch_number: data.epoch_number,
+      proposer: data.proposer,
+      consensus_hash: data.consensus_hash,
+      total_work: data.total_work || 0,
+      timestamp: data.timestamp || 0,
+    };
+    var sigOk = messageAuth.verifyAccountSignature(data.proposer, proposalData, data.proposal_signature, "active");
+    if (!sigOk) {
+      if (messageAuth.REQUIRE_SIGNATURES) {
+        console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
+        return;
+      }
+      console.log("[BTCPC P2P WARN] BLOCK_PROPOSAL from " + data.proposer + " epoch " + data.epoch_number + " has invalid proposal_signature — will be rejected after v2.17");
+    }
+  } else {
+    if (messageAuth.REQUIRE_SIGNATURES) {
+      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " (strict mode)");
+      return;
+    }
+    console.log("[BTCPC P2P WARN] Unsigned BLOCK_PROPOSAL from " + data.proposer + " epoch " + data.epoch_number + " — will be rejected after v2.17");
+  }
 
   console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
     " for epoch " + data.epoch_number +
