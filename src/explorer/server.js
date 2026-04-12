@@ -127,9 +127,21 @@ function requireVerifiedTelegram(req, res, next) {
 }
 
 /**
+ * Require a valid x-bot-api-key header for bot endpoints.
+ * Prevents unauthenticated balance enumeration (Telegram IDs are sequential).
+ */
+function requireBotApiKey(req, res, next) {
+  const key = req.headers['x-bot-api-key'];
+  if (!key || key !== process.env.BOT_API_KEY) {
+    return res.status(401).json({ error: 'bot API key required' });
+  }
+  next();
+}
+
+/**
  * Mini App endpoints. Read-only are open, write operations require Telegram verification.
  */
-app.get("/api/bot/balance", async (req, res) => {
+app.get("/api/bot/balance", requireBotApiKey, async (req, res) => {
   try {
     const tid = sanitizeTelegramId(req.query.telegramId);
     if (!tid) return res.status(400).json({ error: "valid telegramId required" });
@@ -150,7 +162,7 @@ app.get("/api/bot/balance", async (req, res) => {
   }
 });
 
-app.get("/api/bot/history", async (req, res) => {
+app.get("/api/bot/history", requireBotApiKey, async (req, res) => {
   try {
     const tid = sanitizeTelegramId(req.query.telegramId);
     if (!tid) return res.status(400).json({ error: "valid telegramId required" });

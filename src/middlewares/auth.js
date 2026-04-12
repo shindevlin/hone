@@ -87,12 +87,12 @@ async function authenticateToken(req, res, next) {
       return next();
     }
   } catch (_) {
-    // Mongo unavailable — use raw JWT claims as last resort
+    // Mongo unavailable — cannot verify user exists
   }
 
-  // Fall back to raw decoded token (no DB lookup available)
-  req.user = decoded;
-  next();
+  // If neither secretStore nor Mongo could verify the user exists,
+  // reject the request. Never proceed with unverified JWT claims.
+  return res.status(401).json({ error: 'authentication service unavailable' });
 }
 
 /**

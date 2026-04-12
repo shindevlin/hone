@@ -29,6 +29,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middlewares/auth');
 const bridgeRegistry = require('../services/bridgeRegistry');
 const bridgeFeeDistributor = require('../services/bridgeFeeDistributor');
+const stateStore = require('../chain/stateStore');
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
@@ -65,6 +66,16 @@ router.post('/wrap', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'amount must be a positive number' });
     }
 
+    const caller = req.user && req.user.username;
+    const userBalance = stateStore.getBalance(caller, 'BTCPC');
+    if (userBalance < amount) {
+      return res.status(402).json({
+        error: 'insufficient BTCPC balance',
+        required: amount,
+        current: userBalance,
+      });
+    }
+
     try {
       const result = bridgeRegistry.wrap(user, chainId, amount);
       return res.status(201).json({ success: true, wrap: result });
@@ -97,6 +108,10 @@ router.post('/unwrap', authenticateToken, async (req, res) => {
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'amount must be a positive number' });
     }
+
+    // TODO v2.16-beta: check wBTCPC balance once per-user wBTCPC balances
+    // are tracked in stateStore. For now, bridgeRegistry enforces the cap
+    // on circulating supply which provides a coarse upper bound.
 
     try {
       const result = bridgeRegistry.unwrap(user, chainId, amount);

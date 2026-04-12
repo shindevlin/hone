@@ -117,14 +117,16 @@ describe('auth middleware — secretStore-first (D.5-delta)', () => {
     expect(mockUserModel.findById).toHaveBeenCalledTimes(1);
   });
 
-  it('uses raw JWT claims when neither secretStore nor Mongo have the user', async () => {
+  it('rejects with 401 when neither secretStore nor Mongo have the user (no raw JWT fallback)', async () => {
     const token = makeToken({ id: 'ghost-id', username: 'ghost' });
     const { req, res, next } = makeReqRes(token);
     await authenticateToken(req, res, next);
 
-    // Should still call next — raw JWT is passed through
-    expect(next).toHaveBeenCalled();
-    expect(req.user.username).toBe('ghost');
+    // Security fix (Vuln 8): must NOT fall back to raw JWT claims.
+    // User is not in any store — request must be rejected.
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+    expect(res.body && res.body.error).toMatch(/authentication service unavailable/i);
   });
 
   it('rejects missing token with 401', async () => {

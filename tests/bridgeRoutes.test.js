@@ -25,8 +25,15 @@ jest.mock('../src/p2p/mempool', () => ({
   addTransaction: jest.fn().mockReturnValue(true),
 }));
 
+// Default: all users have enough balance to pass the balance check.
+// Individual tests that need to simulate insufficient balance can override.
+jest.mock('../src/chain/stateStore', () => ({
+  getBalance: jest.fn().mockReturnValue(1_000_000),
+}));
+
 const bridgeRegistry = require('../src/services/bridgeRegistry');
 const bridgeRoutes = require('../src/routes/bridgeRoutes');
+const stateStore = require('../src/chain/stateStore');
 
 const TEST_CHAIN = {
   chainId: 'base',
@@ -394,5 +401,73 @@ describe('bridge HTTP routes (v2.16-beta)', () => {
       const res = await request(port, 'GET', '/api/bridge/lps/nobody?chainId=base');
       expect(res.status).toBe(404);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vuln 7: Bridge wrap balance check (security regression tests)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Vuln 7 — bridge wrap: BTCPC balance pre-check', () => {
+  let balanceSrv;
+  let balancePort;
+
+  beforeAll(async () => {
+    balanceSrv = await makeTestServer();
+    balancePort = balanceSrv.port;
+  });
+
+  afterAll(async () => {
+    if (balanceSrv) await closeServer(balanceSrv.server);
+  });
+
+  beforeEach(() => {
+    bridgeRegistry.resetForTests();
+    bridgeRegistry.registerChain('base', {
+      name: 'Base',
+      bridge_reserve_address: '0xdeadbeef',
+    });
+    // Reset mock to default (rich user)
+    stateStore.getBalance.mockReturnValue(1_000_000);
+  });
+
+  it('wrap with sufficient balance succeeds (201)', async () => {
+    stateStore.getBalance.mockReturnValue(9_000_000);
+    const res = await request(balancePort, 'POST', '/api/bridge/wrap', {
+      chainId: 'base', amount: 1000,
+    }, 'alice');
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('wrap with zero balance returns 402', async () => {
+    stateStore.getBalance.mockReturnValue(0);
+    const res = await request(balancePort, 'POST', '/api/bridge/wrap', {
+      chainId: 'base', amount: 500,
+    }, 'alice');
+    expect(res.status).toBe(402);
+    expect(res.body.error).toMatch(/insufficient BTCPC balance/i);
+    expect(res.body.required).toBe(500);
+    expect(res.body.current).toBe(0);
+  });
+
+  it('wrap with insufficient balance returns 402', async () => {
+    stateStore.getBalance.mockReturnValue(99);
+    const res = await request(balancePort, 'POST', '/api/bridge/wrap', {
+      chainId: 'base', amount: 100,
+    }, 'alice');
+    expect(res.status).toBe(402);
+    expect(res.body.error).toMatch(/insufficient BTCPC balance/i);
+    expect(res.body.required).toBe(100);
+    expect(res.body.current).toBe(99);
+  });
+
+  it('wrap with balance exactly equal to amount succeeds', async () => {
+    stateStore.getBalance.mockReturnValue(100);
+    const res = await request(balancePort, 'POST', '/api/bridge/wrap', {
+      chainId: 'base', amount: 100,
+    }, 'alice');
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
   });
 });

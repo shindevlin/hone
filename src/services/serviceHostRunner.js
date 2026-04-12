@@ -37,6 +37,16 @@ var os = require("os");
 var path = require("path");
 var crypto = require("crypto");
 
+// Command allowlist — only these runtime executables may be spawned.
+// Any deployment spec with a command outside this list is rejected.
+var ALLOWED_COMMANDS = [
+  'node', 'python3', 'python', 'wasmer', 'wasmtime',
+  'deno', 'bun', 'java', 'dotnet',
+];
+
+// Shell metacharacters that must not appear in service args.
+var SHELL_META = /[;&|`$(){}!><\n\r]/;
+
 // Default spawner: Node's child_process. Tests inject a mock that
 // returns a controllable "process handle" without actually forking.
 function defaultSpawner(command, args, options) {
@@ -174,6 +184,23 @@ function createRunner(options) {
       record.started_at = Date.now();
       record.port_addr = rt.port ? "host:" + rt.port : null;
       return record;
+    }
+
+    // Security: validate command against allowlist
+    var cmdBase = path.basename(cmd);
+    if (ALLOWED_COMMANDS.indexOf(cmdBase) === -1) {
+      record.state = "failed";
+      record.failure_reason = "command not in allowlist: " + cmdBase;
+      throw new Error("command not in allowlist: " + cmdBase + " (allowed: " + ALLOWED_COMMANDS.join(", ") + ")");
+    }
+
+    // Security: reject args containing shell metacharacters
+    for (var i = 0; i < args.length; i++) {
+      if (SHELL_META.test(args[i])) {
+        record.state = "failed";
+        record.failure_reason = "shell metacharacter in arg: " + args[i];
+        throw new Error("shell metacharacters not allowed in service args");
+      }
     }
 
     var env = Object.assign({}, process.env, rt.env || {});
@@ -400,4 +427,5 @@ module.exports = {
   createRunner: createRunner,
   defaultSpawner: defaultSpawner,
   defaultBlobFetcher: defaultBlobFetcher,
+  ALLOWED_COMMANDS: ALLOWED_COMMANDS,
 };
