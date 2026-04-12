@@ -40,7 +40,7 @@ var finalizedReadings = new Map();
 var sensorStats = new Map();
 
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "custom"];
+var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "custom"];
 
 // Number of epochs of silence before a sensor transitions to "idle"
 var IDLE_EPOCH_THRESHOLD = 100;
