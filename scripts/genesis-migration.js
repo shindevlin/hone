@@ -48,6 +48,39 @@ async function run() {
     process.exit(1);
   }
 
+  // ── Step 1b: Load keys from Mongo (fallback for pre-v2.13.1 accounts) ──
+  // stateStore has empty public_keys for accounts created before the cross-
+  // process queue fix. Mongo's User collection still has the keys from the
+  // original createAccount() call. Pull them as a fallback.
+  let mongoKeys = {};
+  try {
+    const mongoose = require("mongoose");
+    await mongoose.connect(
+      process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin",
+      { serverSelectionTimeoutMS: 5000 }
+    );
+    const User = require(path.join(REPO_ROOT, "src/models/User"));
+    const users = await User.find({}).lean();
+    for (const u of users) {
+      if (u.ownerPublicKey) {
+        mongoKeys[u.username] = {
+          public_keys: {
+            owner: u.ownerPublicKey,
+            active: u.activePublicKey || null,
+            posting: u.postingPublicKey || null,
+            memo: u.memoPublicKey || null,
+          },
+          email: u.email,
+          telegram_id: u.telegramId,
+        };
+      }
+    }
+    await mongoose.disconnect();
+    console.log("[1b] Loaded " + Object.keys(mongoKeys).length + " key sets from Mongo");
+  } catch (e) {
+    console.log("[1b] Mongo unavailable (" + e.message + ") — using stateStore keys only");
+  }
+
   // ── Step 2: Export all accounts ─────────────────────────────────
   console.log("\n[2/5] Exporting accounts...");
   const allAccounts = stateStore.getAllAccounts();
@@ -78,11 +111,18 @@ async function run() {
       });
     } else {
       totalSupplyMigrated += btcpcBalance;
+      // Merge keys: prefer stateStore (on-chain), fall back to Mongo
+      let publicKeys = acct.public_keys || {};
+      if ((!publicKeys.owner) && mongoKeys[username]) {
+        publicKeys = mongoKeys[username].public_keys;
+        console.log("[2/5]   " + username + " — keys recovered from Mongo ✓");
+      }
+
       accounts.push({
         username: username,
         balance: btcpcBalance,
         token_balances: tokenBalances,
-        public_keys: acct.public_keys || {},
+        public_keys: publicKeys,
         chain_addresses: acct.chain_addresses || {},
         created_epoch: acct.created_epoch || 0,
       });
