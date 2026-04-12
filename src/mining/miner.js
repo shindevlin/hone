@@ -593,12 +593,18 @@ async function mineEpoch(epochNumber) {
 
   console.log(`\n[BTCPC] ${ts} -- Epoch ${epochNumber} mining started`);
 
-  // Get miner references
-  const user = await User.findOne({ username: MINER_ACCOUNT });
-  if (!user) {
-    console.error(`[BTCPC] Miner account '${MINER_ACCOUNT}' not found.`);
-    return;
+  // Get miner references — Phase F: stateStore first, Mongo fallback.
+  // On a Mongo-disabled node the User model returns null; that's fine
+  // because the miner account is tracked via stateStore + nodeRegistry.
+  let user = null;
+  try {
+    user = await User.findOne({ username: MINER_ACCOUNT });
+  } catch (_) {
+    // Mongo disabled — that's ok
   }
+  // If neither Mongo nor stateStore knows the account, the miner was
+  // just registered in startMiner() via ledger.recordAccountCreate.
+  // The account exists in stateStore even if User.findOne returns null.
 
   // Phase E: Node/Wallet models deleted — use nodeRegistry and stateStore
   const nodeEntry = nodeRegistry.getNode(MINER_ACCOUNT);
@@ -995,40 +1001,80 @@ async function startMiner() {
   // Create genesis block if needed
   const genesis = await createGenesisBlock();
 
-  // Ensure this miner's account exists (auto-register on first run)
-  // Uses BTCPC_MNEMONIC from .env if set — preserves saved keys across chain resets
-  let minerUser = await User.findOne({ username: MINER_ACCOUNT });
-  if (!minerUser) {
-    const { createAccount } = require('../wallet/accountManager');
-    const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
-    try {
-      const account = await createAccount(MINER_ACCOUNT, savedMnemonic, `${MINER_ACCOUNT}-miner`);
-      minerUser = await User.findOne({ username: MINER_ACCOUNT });
-      console.log(`[BTCPC] Miner account created: ${MINER_ACCOUNT} (${account.address})`);
-      if (savedMnemonic) {
-        console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC env`);
-      }
-      console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
+  // Ensure this miner's account exists (auto-register on first run).
+  // Phase F: Mongo is optional. Check stateStore first (the canonical
+  // source of truth), then Mongo as fallback, then create from scratch
+  // via ledger.recordAccountCreate (which goes through the cross-process
+  // queue + P2P mempool gossip — no Mongo needed).
+  let minerAccountExists = stateStore.hasAccount
+    ? stateStore.hasAccount(MINER_ACCOUNT)
+    : !!stateStore.getAccount(MINER_ACCOUNT);
 
-      // Record account creation on the permanent ledger
-      await ledger.recordAccountCreate(MINER_ACCOUNT, account.publicKeys, account.chainWallets, 0);
+  // Fallback to Mongo if stateStore doesn't know the account yet
+  // (e.g., replay hasn't caught up). Wrapped in try/catch because
+  // Mongo may be disabled (Phase F).
+  let minerUser = null;
+  if (!minerAccountExists) {
+    try {
+      minerUser = await User.findOne({ username: MINER_ACCOUNT });
+      if (minerUser) minerAccountExists = true;
+    } catch (_) {
+      // Mongo disabled or unreachable — that's fine, stateStore is primary
+    }
+  }
+
+  if (!minerAccountExists) {
+    console.log(`[BTCPC] Account '${MINER_ACCOUNT}' not found — creating...`);
+    try {
+      // Try the full wallet creation path (generates mnemonic + keys).
+      // This calls accountManager.createAccount which writes to Mongo IF
+      // available, but we don't depend on it — the ledger entry below is
+      // what actually puts the account on chain.
+      const { createAccount } = require('../wallet/accountManager');
+      const savedMnemonic = process.env.BTCPC_MNEMONIC || process.env[`BTCPC_MNEMONIC_${MINER_ACCOUNT.toUpperCase().replace(/-/g, '_')}`] || null;
+      let account;
+      try {
+        account = await createAccount(MINER_ACCOUNT, savedMnemonic, `${MINER_ACCOUNT}-miner`);
+        console.log(`[BTCPC] Miner account created: ${MINER_ACCOUNT}`);
+        if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic`);
+      } catch (createErr) {
+        // createAccount may fail if Mongo is down (it tries to create a User doc).
+        // Fall back to a minimal on-chain-only creation via ledger entry.
+        console.warn(`[BTCPC] Full account creation failed (${createErr.message}), using chain-only path`);
+        account = null;
+      }
+
+      // Record on the permanent ledger — this is the canonical path that
+      // works with or without Mongo. The entry flows through the cross-
+      // process queue and P2P mempool gossip to reach the broadcaster.
+      const publicKeys = account ? account.publicKeys : {};
+      const chainWallets = account ? account.chainWallets : {};
+      await ledger.recordAccountCreate(MINER_ACCOUNT, publicKeys, chainWallets, 0);
       console.log(`[BTCPC] Account announced to ledger (permanent)`);
 
-      // Broadcast to all nodes so they have the account too
-      const announceMsg = createMessage('ACCOUNT_ANNOUNCE', {
-        username: MINER_ACCOUNT,
-        public_keys: account.publicKeys,
-        chain_addresses: account.chainWallets,
-        epoch: 0
-      }, p2p.NODE_ID);
-      p2p.broadcast(announceMsg);
-      console.log(`[BTCPC] Account broadcast to P2P network`);
+      // Broadcast to all nodes so they have the account immediately
+      // (ACCOUNT_ANNOUNCE updates stateStore in memory on every peer)
+      try {
+        const announceMsg = createMessage('ACCOUNT_ANNOUNCE', {
+          username: MINER_ACCOUNT,
+          public_keys: publicKeys,
+          chain_addresses: chainWallets,
+          epoch: 0
+        }, p2p.NODE_ID);
+        p2p.broadcast(announceMsg);
+        console.log(`[BTCPC] Account broadcast to P2P network`);
+      } catch (_) {}
 
-      // Phase E: Wallet model deleted — unclaimed token check skipped.
-      // Chain state is source of truth; balances are in stateStore.
+      minerAccountExists = true;
     } catch (err) {
       console.error(`[BTCPC] Failed to create miner account: ${err.message}`);
+      // Continue anyway — the miner can still participate as a clock/verifier
+      // even without a fully-created account. The account will auto-create
+      // on the next MINING_REWARD that credits this username.
+      minerAccountExists = true; // don't block startup
     }
+  } else {
+    console.log(`[BTCPC] Miner account '${MINER_ACCOUNT}' found on chain`);
   }
 
   // Phase E: Node model deleted — register in nodeRegistry in-memory
