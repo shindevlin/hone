@@ -31,6 +31,7 @@
  */
 
 var path = require("path");
+var fs   = require("fs");
 var { spawn } = require("child_process");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
@@ -44,11 +45,12 @@ function wanted() {
   return parts.filter(function (p) { return KNOWN_ROLES.indexOf(p) !== -1; });
 }
 
-var BACKOFF_MS = 5000;
-var REPO_ROOT = path.resolve(__dirname, "..");
-var children = {};
-var shuttingDown = false;
-var startedAt = Date.now();
+var BACKOFF_MS    = 5000;
+var REPO_ROOT     = path.resolve(__dirname, "..");
+var PENDING_FILE  = path.join(REPO_ROOT, ".btcpc-update-pending");
+var children      = {};
+var shuttingDown  = false;
+var startedAt     = Date.now();
 
 function prefix(role, line) {
   return "[" + role + "] " + line;
@@ -146,6 +148,37 @@ function shutdown(signal) {
 process.on("SIGINT", function () { shutdown("SIGINT"); });
 process.on("SIGTERM", function () { shutdown("SIGTERM"); });
 
+// ─── Update-pending check ────────────────────────────────────────────────────
+// Checked every 60 s. When bin/btcpc-auto-update writes .btcpc-update-pending
+// we gracefully restart all running children so they load the new image code.
+
+function restartAllChildren() {
+  if (shuttingDown) return;
+  var roles = Object.keys(children);
+  console.log("[supervisor] Update detected — restarting children");
+
+  // SIGTERM every live child. The existing exit handler will respawn each one.
+  for (var i = 0; i < roles.length; i++) {
+    var entry = children[roles[i]];
+    if (entry && entry.child) {
+      try { entry.child.kill("SIGTERM"); } catch (_) {}
+    }
+  }
+}
+
+setInterval(function () {
+  if (shuttingDown) return;
+  try {
+    if (fs.existsSync(PENDING_FILE)) {
+      // Delete the flag first so we don't loop
+      try { fs.unlinkSync(PENDING_FILE); } catch (_) {}
+      restartAllChildren();
+    }
+  } catch (e) {
+    console.error("[supervisor] update-check error: " + e.message);
+  }
+}, 60000);
+
 // Periodic status line so `docker logs` shows the supervisor is alive
 setInterval(function () {
   var uptimeS = Math.floor((Date.now() - startedAt) / 1000);
@@ -180,3 +213,8 @@ if (Object.keys(children).length === 0) {
   console.error("[supervisor] no roles to run — exiting");
   process.exit(1);
 }
+
+// Always launch the auto-update background watcher regardless of BTCPC_ROLES.
+// It writes .btcpc-update-pending when a new image is available; the interval
+// above catches that flag and restarts children.
+launch("auto-update", "bin/btcpc-auto-update");
