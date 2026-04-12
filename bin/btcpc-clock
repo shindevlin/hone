@@ -370,33 +370,22 @@ function start() {
       genesisTimestamp = genesis.block.timestamp;
       console.log("[CLOCK] Genesis timestamp: " + new Date(genesisTimestamp).toISOString());
     } else {
-      // Try to derive genesis from the earliest block or finality snapshot
+      // Derive genesis timestamp from ANY block's timestamp algebraically:
+      //   genesis = block.timestamp - (epochNumber * EPOCH_DURATION_MS)
+      // This is purely arithmetic and doesn't depend on file mtime.
       try {
         var _fs = require("fs");
         var _path = require("path");
         var bDir = _path.resolve(process.cwd(), "data", "blocks");
         if (_fs.existsSync(bDir)) {
-          // Try earliest finality snapshot
-          var fins = _fs.readdirSync(bDir).filter(function(f) { return f.startsWith("finality-"); }).sort();
-          if (fins.length > 0) {
-            // Use stateManager's loaded genesis or estimate from the finality epoch number
-            // The finality snap at epoch N was created at (genesis + N * EPOCH_DURATION_MS)
-            // So genesis = snap_mtime - N * EPOCH_DURATION_MS (rough estimate)
-            var firstFinEpoch = parseInt(fins[0].replace("finality-", "").replace(".bin", ""), 10) || 0;
-            var firstFinMtime = _fs.statSync(_path.join(bDir, fins[0])).mtimeMs;
-            genesisTimestamp = firstFinMtime - (firstFinEpoch * EPOCH_DURATION_MS);
-            console.log("[CLOCK] Genesis timestamp estimated from finality: " + new Date(genesisTimestamp).toISOString());
-          }
-          // Also try the earliest block- file
-          if (!genesisTimestamp) {
-            var blocks = _fs.readdirSync(bDir).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
-            if (blocks.length > 0) {
-              var firstEpNum = parseInt(blocks[0].replace("block-", "").replace(".bin", ""), 10) || 0;
-              var b = blockStore.readBlock(firstEpNum);
-              if (b && b.block && b.block.timestamp) {
-                genesisTimestamp = b.block.timestamp - (firstEpNum * EPOCH_DURATION_MS);
-                console.log("[CLOCK] Genesis timestamp estimated from block " + firstEpNum + ": " + new Date(genesisTimestamp).toISOString());
-              }
+          var blockFiles = _fs.readdirSync(bDir).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
+          for (var i = 0; i < blockFiles.length && !genesisTimestamp; i++) {
+            var epNum = parseInt(blockFiles[i].replace("block-", "").replace(".bin", ""), 10);
+            if (!Number.isFinite(epNum) || epNum <= 0) continue;
+            var blk = blockStore.readBlock(epNum);
+            if (blk && blk.block && blk.block.timestamp > 0) {
+              genesisTimestamp = blk.block.timestamp - (epNum * EPOCH_DURATION_MS);
+              console.log("[CLOCK] Genesis timestamp derived from block " + epNum + ": " + new Date(genesisTimestamp).toISOString());
             }
           }
         }
@@ -447,20 +436,22 @@ function start() {
             clearInterval(checkInterval);
             return;
           }
-          // Also try to estimate from ANY block on disk
+          // Derive from ANY block's timestamp algebraically
           try {
             var _fs2 = require("fs");
             var _path2 = require("path");
             var bDir2 = _path2.resolve(process.cwd(), "data", "blocks");
-            var allBlocks = _fs2.readdirSync(bDir2).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
-            if (allBlocks.length > 0) {
-              var ep = parseInt(allBlocks[0].replace("block-", "").replace(".bin", ""), 10) || 0;
+            var blkFiles = _fs2.readdirSync(bDir2).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
+            for (var j = 0; j < blkFiles.length; j++) {
+              var ep = parseInt(blkFiles[j].replace("block-", "").replace(".bin", ""), 10);
+              if (!Number.isFinite(ep) || ep <= 0) continue;
               var b2 = blockStore.readBlock(ep);
-              if (b2 && b2.block && b2.block.timestamp) {
+              if (b2 && b2.block && b2.block.timestamp > 0) {
                 genesisTimestamp = b2.block.timestamp - (ep * EPOCH_DURATION_MS);
-                console.log("[CLOCK] Genesis estimated from block " + ep + ": " + new Date(genesisTimestamp).toISOString());
+                console.log("[CLOCK] Genesis derived from block " + ep + ": " + new Date(genesisTimestamp).toISOString());
                 startEpochClock();
                 clearInterval(checkInterval);
+                break;
               }
             }
           } catch (_) {}
