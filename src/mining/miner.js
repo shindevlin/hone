@@ -712,19 +712,30 @@ async function mineEpoch(epochNumber) {
   const modelCheck = await verifyModel(workingModel);
   const modelHash = modelCheck.localHash; // store on proofs for verification
 
+  // Fire-and-forget: launch inference jobs in the background.
+  // Jobs complete in a future epoch — work is credited when it finishes,
+  // not when it starts. This means a slow model (60s on CPU) earns in
+  // epoch N+2 or N+3, which is fine. The chain counts completed work
+  // whenever the block proposal runs.
   for (let i = 0; i < syntheticCount; i++) {
-    try {
-      const isGenesisFirstWork = (epochNumber === 0 && i === 0);
-      if (isGenesisFirstWork) {
-        console.log(`[BTCPC]   GENESIS INFERENCE -- the first dream computed into reality`);
-      } else {
-        console.log(`[BTCPC]   Work item ${i + 1}/${syntheticCount} -- sending to Ollama (${workingModel})...`);
-      }
-      const work = await generateWork(workingModel, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
+    const itemNum = i + 1;
+    const isGenesisFirstWork = (epochNumber === 0 && i === 0);
+    const startedEpoch = epochNumber;
 
-      // Phase D: WorkProofs live in stateStore + next block payload, not Mongo.
+    if (isGenesisFirstWork) {
+      console.log(`[BTCPC]   GENESIS INFERENCE -- the first dream computed into reality`);
+    } else {
+      console.log(`[BTCPC]   Work item ${itemNum}/${syntheticCount} -- sending to Ollama (${workingModel}) [fire-and-forget]`);
+    }
+
+    // Don't await — let it run in the background
+    generateWork(workingModel, isGenesisFirstWork ? GENESIS_PROMPT : undefined).then((work) => {
+      // Job completed — might be a different epoch now
+      const completedEpoch = currentEpoch || startedEpoch;
+      const creditEpoch = completedEpoch > startedEpoch ? completedEpoch : startedEpoch;
+
       const proof = {
-        epoch_number: epochNumber,
+        epoch_number: creditEpoch,
         node_id: MINER_ACCOUNT,
         prompt_hash: work.prompt_hash,
         result_hash: work.result_hash,
@@ -733,24 +744,20 @@ async function mineEpoch(epochNumber) {
         model_weight_factor: work.model_weight_factor,
         work_value: work.work_value,
       };
-      stateStore.addComputeProof(epochNumber, proof);
+      stateStore.addComputeProof(creditEpoch, proof);
 
-      workProofs.push(proof);
-      totalTokens += work.tokens_generated;
-      totalWorkValue += work.work_value;
+      console.log(`[BTCPC]   Work item ${itemNum} complete: ${work.tokens_generated} tokens, value=${work.work_value.toFixed(1)} (started epoch ${startedEpoch}, credited epoch ${creditEpoch})`);
 
-      console.log(`[BTCPC]   Work item ${i + 1} complete: ${work.tokens_generated} tokens, value=${work.work_value.toFixed(1)}`);
-
-      // Record work in protocol module so block proposals count it
+      // Record in protocol so next block proposal counts it
       try {
         const protocolMod = require('../p2p/protocol');
         if (protocolMod.recordMinerWork) {
-          protocolMod.recordMinerWork(MINER_ACCOUNT, work.prompt_hash, work.work_value, epochNumber);
+          protocolMod.recordMinerWork(MINER_ACCOUNT, work.prompt_hash, work.work_value, creditEpoch);
         }
       } catch (_) {}
-    } catch (err) {
-      console.error(`[BTCPC]   Work item ${i + 1} failed: ${err.message}`);
-    }
+    }).catch((err) => {
+      console.error(`[BTCPC]   Work item ${itemNum} failed: ${err.message}`);
+    });
   }
 
   // If no synthetic work, check if we completed any inference jobs this epoch
