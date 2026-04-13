@@ -7,16 +7,16 @@
  * Centralized cryptographic authentication for P2P messages.
  * Provides signing, verification, allowlists, and key-ownership proofs.
  *
- * Backward-compatible: messages without signatures are accepted with a warning
- * unless BTCPC_REQUIRE_SIGNATURES=true is set.
+ * Signatures required by default. Unsigned messages are rejected unless
+ * BTCPC_REQUIRE_SIGNATURES=false is set (legacy/test mode only).
  */
 
 const crypto = require("crypto");
 
 // When true, reject any message that lacks a required signature.
-// Set BTCPC_REQUIRE_SIGNATURES=true in the environment to opt into strict mode.
-// Default: false — unsigned messages produce a warning but are still accepted.
-const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES === "true";
+// Set BTCPC_REQUIRE_SIGNATURES=false in the environment to opt out of strict mode.
+// Default: true — unsigned messages are rejected. Set to "false" only for legacy/test nodes.
+const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES !== "false";
 
 // ---------------------------------------------------------------------------
 // Canonical data hashing

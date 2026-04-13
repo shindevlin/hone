@@ -248,10 +248,10 @@ describe("ACCOUNT_ANNOUNCE proof verification", () => {
     expect(messageAuth.verifyMessage(proofPayload, badProof.signature, ownerKp.publicKey)).toBe(false);
   });
 
-  test("missing proof accepted without strict mode (backward compat)", () => {
-    // REQUIRE_SIGNATURES is false by default in tests.
-    // We just verify the flag is false so the lenient path is taken.
-    expect(messageAuth.REQUIRE_SIGNATURES).toBe(false);
+  test("REQUIRE_SIGNATURES defaults to true (strict mode)", () => {
+    // REQUIRE_SIGNATURES is true by default — unsigned messages are rejected.
+    // Set BTCPC_REQUIRE_SIGNATURES=false in the environment to opt out.
+    expect(messageAuth.REQUIRE_SIGNATURES).toBe(true);
   });
 });
 

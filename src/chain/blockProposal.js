@@ -57,7 +57,26 @@ function buildProposal(options) {
   // ── Aggregate gossiped attestations ──
   var minerWork = protocol.getMinerWorkForEpoch(epochNumber); // { miner: { work_value, job_count } }
   var activeVerifiers = (protocol.getActiveVerifiers(epochNumber) || []).filter(isValidAccount);
-  var activeClocks = (protocol.getActiveClockNodes(epochNumber) || []).filter(isValidAccount);
+  var rawClocks = (protocol.getActiveClockNodes(epochNumber) || []).filter(isValidAccount);
+
+  // Anti-self-credit: the proposer's own heartbeats only count if at least one
+  // OTHER node witnessed them. Without this, a solo node could self-report
+  // heartbeats and claim clock rewards with no external validation.
+  var activeClocks = rawClocks;
+  if (typeof protocol.getHeartbeatWitnesses === "function") {
+    activeClocks = rawClocks.filter(function (clock) {
+      if (clock !== proposerAccount) return true; // not the proposer — keep
+      var witnesses = protocol.getHeartbeatWitnesses(clock, epochNumber);
+      // The proposer's own nodeId doesn't count. We need at least one witness
+      // that is NOT the proposer's own relay of its heartbeat. Since nodeIds
+      // are opaque hex, we check if there are >= 2 distinct witnesses (self +
+      // at least one other) or if the set is non-empty from P2P (heartbeats
+      // only get recorded in handleClockHeartbeat which runs on receipt from
+      // a PEER, not on local send — so any witness entry means another node
+      // relayed it).
+      return witnesses.size > 0;
+    });
+  }
 
   // ── Filter and sort miners (deterministic order) ──
   var miners = Object.keys(minerWork).filter(isValidAccount).sort();

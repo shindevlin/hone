@@ -32,6 +32,7 @@ var nodeRegistry = require("../src/chain/nodeRegistry");
 var epochConsensus = require("../src/chain/authorityRotation");
 var mempool = require("../src/p2p/mempool");
 var { getBlockReward } = require("../src/services/emissionSchedule");
+var messageAuth = require("../src/p2p/messageAuth");
 
 // ─── Configuration ───────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex"
 var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
 var EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
+var POSTING_KEY = process.env.BTCPC_POSTING_KEY || null;
+var ACTIVE_KEY = process.env.BTCPC_ACTIVE_KEY || null;
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -314,20 +317,41 @@ function startEpochClock() {
 
     // End previous epoch
     if (currentEpoch > 1) {
-      var endMsg = createMessage("EPOCH_END", {
+      var endData = {
         epoch_number: currentEpoch - 1,
         ended_at: Date.now(),
         authority: CLOCK_ACCOUNT
-      });
+      };
+      if (POSTING_KEY) {
+        try {
+          var endSig = messageAuth.signMessage(endData, POSTING_KEY);
+          endData.signature = endSig.signature;
+        } catch (e) {
+          console.warn("[CLOCK] Failed to sign EPOCH_END: " + e.message);
+        }
+      }
+      var endMsg = createMessage("EPOCH_END", endData);
       broadcast(endMsg);
     }
 
     // Start new epoch
-    var startMsg = createMessage("EPOCH_START", {
+    var startData = {
       epoch_number: currentEpoch,
       started_at: Date.now(),
       authority: CLOCK_ACCOUNT
-    });
+    };
+    // Sign EPOCH_START with posting key
+    if (POSTING_KEY) {
+      try {
+        var startSig = messageAuth.signMessage(startData, POSTING_KEY);
+        startData.signature = startSig.signature;
+      } catch (e) {
+        console.warn("[CLOCK] Failed to sign EPOCH_START: " + e.message);
+      }
+    } else {
+      console.warn("[CLOCK] No BTCPC_POSTING_KEY — EPOCH_START will be unsigned (rejected by strict nodes)");
+    }
+    var startMsg = createMessage("EPOCH_START", startData);
     broadcast(startMsg);
     console.log("[CLOCK] Epoch " + currentEpoch + " START (this node)");
 
@@ -466,11 +490,23 @@ function start() {
   // Heartbeat — prove we're online for clock rewards
   setInterval(function () {
     if (!running || currentEpoch < 0) return;
-    var hb = createMessage("CLOCK_HEARTBEAT", {
+    var hbData = {
       account: CLOCK_ACCOUNT,
       epoch_number: currentEpoch,
       timestamp: Date.now()
-    });
+    };
+    // Sign with posting key (heartbeats are social-tier operations)
+    if (POSTING_KEY) {
+      try {
+        var sig = messageAuth.signMessage(hbData, POSTING_KEY);
+        hbData.signature = sig.signature;
+      } catch (e) {
+        console.warn("[CLOCK] Failed to sign heartbeat: " + e.message);
+      }
+    } else {
+      console.warn("[CLOCK] No BTCPC_POSTING_KEY — heartbeat will be unsigned (rejected by strict nodes)");
+    }
+    var hb = createMessage("CLOCK_HEARTBEAT", hbData);
     broadcast(hb);
   }, 60000);
 

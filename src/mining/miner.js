@@ -1368,6 +1368,27 @@ async function startMiner() {
         protocol: protocolModule,
       });
 
+      // Sign proposal with active key (block proposals are active-tier operations)
+      const activeKey = process.env.BTCPC_ACTIVE_KEY;
+      if (activeKey) {
+        try {
+          const messageAuth = require('../p2p/messageAuth');
+          const proposalSignData = {
+            epoch_number: proposal.epoch_number,
+            proposer: proposal.proposer,
+            consensus_hash: proposal.consensus_hash,
+            total_work: proposal.total_work || 0,
+            timestamp: proposal.timestamp || 0,
+          };
+          const sig = messageAuth.signMessage(proposalSignData, activeKey);
+          proposal.proposal_signature = sig.signature;
+        } catch (sigErr) {
+          console.warn(`[BTCPC] Failed to sign block proposal: ${sigErr.message}`);
+        }
+      } else {
+        console.warn('[BTCPC] No BTCPC_ACTIVE_KEY — block proposal will be unsigned (rejected by peers)');
+      }
+
       const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
       p2p.broadcast(msg);
       console.log(`[BTCPC] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);

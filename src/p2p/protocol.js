@@ -225,11 +225,36 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.MINER_IDLE:
       handleMinerIdle(peer, msg, ctx);
       break;
-    case MESSAGE_TYPES.EPOCH_START:
-      console.log("[BTCPC P2P] Epoch START: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
-      if (msg.data?.epoch_number) setCurrentEpoch(msg.data.epoch_number);
+    case MESSAGE_TYPES.EPOCH_START: {
+      let esData = msg.data || {};
+      let esAuthority = esData.authority || "unknown";
+      // Verify signature against authority's posting key
+      if (esData.signature) {
+        let esVerifyData = {
+          epoch_number: esData.epoch_number,
+          started_at: esData.started_at,
+          authority: esData.authority
+        };
+        let esSigOk = messageAuth.verifyAccountSignature(esAuthority, esVerifyData, esData.signature, "posting");
+        if (!esSigOk) {
+          if (messageAuth.REQUIRE_SIGNATURES) {
+            console.log("[BTCPC P2P] EPOCH_START REJECTED: invalid signature from " + esAuthority + " for epoch " + (esData.epoch_number || "?"));
+            break;
+          }
+          console.log("[BTCPC P2P WARN] EPOCH_START from " + esAuthority + " has invalid signature");
+        }
+      } else {
+        if (messageAuth.REQUIRE_SIGNATURES) {
+          console.log("[BTCPC P2P] EPOCH_START REJECTED: no signature from " + esAuthority + " (strict mode)");
+          break;
+        }
+        console.log("[BTCPC P2P WARN] Unsigned EPOCH_START from " + esAuthority);
+      }
+      console.log("[BTCPC P2P] Epoch START: " + (esData.epoch_number || "?") + " from " + esAuthority);
+      if (esData.epoch_number) setCurrentEpoch(esData.epoch_number);
       ctx.broadcast(msg, peer.address);
       break;
+    }
     case MESSAGE_TYPES.EPOCH_END:
       console.log("[BTCPC P2P] Epoch END: " + (msg.data?.epoch_number || "?") + " from " + (msg.data?.authority || "unknown"));
       ctx.broadcast(msg, peer.address);
@@ -945,18 +970,12 @@ function handleBlockProposal(peer, msg, ctx) {
     };
     var sigOk = messageAuth.verifyAccountSignature(data.proposer, proposalData, data.proposal_signature, "active");
     if (!sigOk) {
-      if (messageAuth.REQUIRE_SIGNATURES) {
-        console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
-        return;
-      }
-      console.log("[BTCPC P2P WARN] BLOCK_PROPOSAL from " + data.proposer + " epoch " + data.epoch_number + " has invalid proposal_signature — will be rejected after v2.17");
-    }
-  } else {
-    if (messageAuth.REQUIRE_SIGNATURES) {
-      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " (strict mode)");
+      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
       return;
     }
-    console.log("[BTCPC P2P WARN] Unsigned BLOCK_PROPOSAL from " + data.proposer + " epoch " + data.epoch_number + " — will be rejected after v2.17");
+  } else {
+    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
+    return;
   }
 
   console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
@@ -1328,6 +1347,38 @@ function handleVerifyResponse(peer, msg, ctx) {
 var clockUptimeByEpoch = new Map();
 var _currentClockEpoch = -1;
 
+// Track which nodes witnessed each clock heartbeat for anti-self-credit checks.
+// Map<epochNumber, Map<account, Set<witnessNodeId>>>
+// A heartbeat is only trustworthy if at least one OTHER node relayed/witnessed it.
+var heartbeatWitnesses = new Map();
+
+function recordHeartbeatWitness(account, epochNumber, witnessNodeId) {
+  if (!epochNumber || epochNumber < 0 || !account || !witnessNodeId) return;
+  if (!heartbeatWitnesses.has(epochNumber)) {
+    heartbeatWitnesses.set(epochNumber, new Map());
+  }
+  var epochMap = heartbeatWitnesses.get(epochNumber);
+  if (!epochMap.has(account)) {
+    epochMap.set(account, new Set());
+  }
+  epochMap.get(account).add(witnessNodeId);
+
+  // Prune old epochs (keep last 5)
+  for (var key of heartbeatWitnesses.keys()) {
+    if (key < epochNumber - 5) heartbeatWitnesses.delete(key);
+  }
+}
+
+/**
+ * Get the set of witness nodeIds for a given account's heartbeat in an epoch.
+ * Returns an empty Set if no witnesses recorded.
+ */
+function getHeartbeatWitnesses(account, epochNumber) {
+  var epochMap = heartbeatWitnesses.get(epochNumber);
+  if (!epochMap) return new Set();
+  return epochMap.get(account) || new Set();
+}
+
 /**
  * Record that a node was active during an epoch.
  * Called from any message handler when we see a nodeId.
@@ -1376,6 +1427,29 @@ function handleClockHeartbeat(peer, msg, ctx) {
   var claimedEpoch = data.epoch_number || 0;
   var source = data.source || 'p2p';
 
+  // Verify signature against account's posting key
+  if (data.signature) {
+    var hbVerifyData = {
+      account: data.account,
+      epoch_number: data.epoch_number,
+      timestamp: data.timestamp
+    };
+    var hbSigOk = messageAuth.verifyAccountSignature(account, hbVerifyData, data.signature, "posting");
+    if (!hbSigOk) {
+      if (messageAuth.REQUIRE_SIGNATURES) {
+        console.log("[BTCPC P2P] CLOCK_HEARTBEAT REJECTED: invalid signature from " + account);
+        return;
+      }
+      console.log("[BTCPC P2P WARN] CLOCK_HEARTBEAT from " + account + " has invalid signature");
+    }
+  } else {
+    if (messageAuth.REQUIRE_SIGNATURES) {
+      console.log("[BTCPC P2P] CLOCK_HEARTBEAT REJECTED: no signature from " + account + " (strict mode)");
+      return;
+    }
+    console.log("[BTCPC P2P WARN] Unsigned CLOCK_HEARTBEAT from " + account);
+  }
+
   // File under THIS node's current epoch (what we think the chain height is),
   // not the sender's claim. Heartbeats can arrive several epochs after they
   // were sent (relay delay, sender's view stale). Crediting them as "active
@@ -1386,6 +1460,8 @@ function handleClockHeartbeat(peer, msg, ctx) {
 
   recordPeerEpoch(msg.nodeId || account, claimedEpoch);
   recordNodeActivity(msg.nodeId, account, fileEpoch);
+  // Track which node relayed this heartbeat for anti-self-credit checks
+  recordHeartbeatWitness(account, fileEpoch, msg.nodeId || peer.nodeId || "unknown");
   // Rebroadcast so all nodes see the heartbeat
   ctx.broadcast(msg, peer.address);
 }
@@ -1452,6 +1528,7 @@ module.exports = {
   getIdleMiners,
   recordNodeActivity,
   getActiveClockNodes,
+  getHeartbeatWitnesses,
   getActiveVerifiers,
   recordMinerWork,
   getMinerWorkForEpoch,
