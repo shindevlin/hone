@@ -199,6 +199,7 @@ async function registerGateway(account, name, region, lat, lon) {
 
   try {
     const resp = await apiRequest('POST', '/api/gateways', {
+      account: account,
       name: name,
       region: region,
       latitude: lat,
@@ -227,7 +228,7 @@ async function sendHeartbeat(account, name, stats) {
   const gwId = encodeURIComponent(account + '/' + name);
   if (DRY_RUN) return;
   try {
-    await apiRequest('POST', '/api/gateways/' + gwId + '/heartbeat', stats);
+    await apiRequest('POST', '/api/gateways/' + gwId + '/heartbeat', Object.assign({ account: account }, stats));
   } catch (_) {}
 }
 
@@ -238,7 +239,8 @@ async function submitSensorReading(sensorId, value, metadata) {
     return;
   }
   try {
-    const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { value, metadata });
+    const account = sensorId.split('/')[0];
+    const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
     if (resp.status !== 201) {
       console.warn('[btcpc-nebra] Reading submission failed for', sensorId, 'HTTP', resp.status);
     }
