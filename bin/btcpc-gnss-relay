@@ -44,27 +44,27 @@ var WIFI_IFACE = process.env.BTCPC_GNSS_WIFI_IFACE || "wlp0s20f3";
 var GEODNET_IP = process.env.BTCPC_GNSS_GEODNET_IP || "52.8.236.207";
 var GEODNET_PORT = parseInt(process.env.BTCPC_GNSS_GEODNET_PORT) || 2201;
 
-// NTRIP caster destinations
+// NTRIP caster destinations — credentials from env vars, never hardcoded
 var CASTERS = [
   {
     name: "onocoy",
-    host: "servers.onocoy.com",
-    port: 2121,
-    username: "REDACTED_USER",
-    password: "REDACTED_PASS",
-    mountpoint: "",
+    host: process.env.BTCPC_ONOCOY_HOST || "servers.onocoy.com",
+    port: parseInt(process.env.BTCPC_ONOCOY_PORT) || 2121,
+    username: process.env.BTCPC_ONOCOY_USER || "",
+    password: process.env.BTCPC_ONOCOY_PASS || "",
+    mountpoint: process.env.BTCPC_ONOCOY_MOUNT || "",
     tls: false,
-    enabled: true,
+    enabled: !!(process.env.BTCPC_ONOCOY_USER),
   },
   {
     name: "rtkdirect",
-    host: "ntrip.rtkdirect.com",
-    port: 2101,
-    username: "REDACTED_USER",
-    password: "REDACTED_PASS",
-    mountpoint: "REDACTED_MOUNT",
+    host: process.env.BTCPC_RTK_HOST || "ntrip.rtkdirect.com",
+    port: parseInt(process.env.BTCPC_RTK_PORT) || 2101,
+    username: process.env.BTCPC_RTK_USER || "",
+    password: process.env.BTCPC_RTK_PASS || "",
+    mountpoint: process.env.BTCPC_RTK_MOUNT || "",
     tls: false,
-    enabled: true,
+    enabled: !!(process.env.BTCPC_RTK_USER),
   },
 ];
 

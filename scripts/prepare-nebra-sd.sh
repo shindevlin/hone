@@ -111,7 +111,7 @@ ok "SSH enabled"
 # ─── Configure user (pi) with password ───────────────────────────
 # Raspberry Pi OS Bookworm requires a userconf.txt file for first-boot user
 # Format: username:encrypted-password
-NEBRA_PASS="REDACTED_PASS"
+NEBRA_PASS="${BTCPC_NEBRA_PASS:?Set BTCPC_NEBRA_PASS env var}"
 ENCRYPTED_PASS=$(openssl passwd -6 "$NEBRA_PASS")
 echo "pi:$ENCRYPTED_PASS" > "$BOOT_MNT/userconf.txt"
 ok "User 'pi' configured (password: $NEBRA_PASS)"
