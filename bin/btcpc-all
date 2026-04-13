@@ -36,7 +36,7 @@ var { spawn } = require("child_process");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 
-var KNOWN_ROLES = ["api", "miner", "clock", "storage", "monitor", "updater", "gnss"];
+var KNOWN_ROLES = ["api", "miner", "clock", "storage", "monitor", "updater", "gnss", "gateway"];
 
 function wanted() {
   var raw = (process.env.BTCPC_ROLES || "all").toLowerCase();
@@ -201,6 +201,7 @@ var roleMap = {
   monitor: "bin/btcpc-chain-monitor",
   updater: "bin/btcpc-update-source",
   gnss:    "bin/btcpc-gnss-bridge",
+  gateway: "bin/btcpc-nebra",
 };
 
 roles.forEach(function (role) {
