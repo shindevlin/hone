@@ -333,12 +333,12 @@ function startLoRaListener(account, gatewayName) {
     // ── Onboard sensor readings ─────────────────────────────────
     // The Pi itself is a sensor node — report everything it can measure.
     onboardReadingCount++;
-    var sensorBase = account + '/' + gatewayName;
+    var sensorBase = account + '/' + gatewayName + '-';
 
     // CPU temperature (always available on Pi)
     try {
       var cpuTemp = parseFloat(fs.readFileSync('/sys/class/thermal/thermal_zone0/temp', 'utf8')) / 1000;
-      submitSensorReading(sensorBase + '/cpu-temp', cpuTemp, {
+      submitSensorReading(sensorBase + 'cpu-temp', cpuTemp, {
         type: 'temperature', unit: 'celsius', source: 'onboard',
         reading_number: onboardReadingCount,
       }).catch(() => {});
@@ -351,7 +351,7 @@ function startLoRaListener(account, gatewayName) {
       if (lines.length >= 3) {
         var parts = lines[2].trim().split(/\s+/);
         var signalDbm = parseFloat(parts[3]) || 0;
-        submitSensorReading(sensorBase + '/wifi-signal', signalDbm, {
+        submitSensorReading(sensorBase + 'wifi-signal', signalDbm, {
           type: 'power', unit: 'dBm', source: 'onboard',
           interface: parts[0].replace(':', ''),
           reading_number: onboardReadingCount,
@@ -362,7 +362,7 @@ function startLoRaListener(account, gatewayName) {
     // System load average (1 min)
     try {
       var loadAvg = os.loadavg()[0];
-      submitSensorReading(sensorBase + '/load', loadAvg, {
+      submitSensorReading(sensorBase + 'load', loadAvg, {
         type: 'custom', unit: 'load_1m', source: 'onboard',
         cpu_count: os.cpus().length,
         memory_free_mb: Math.round(os.freemem() / 1048576),
@@ -375,7 +375,7 @@ function startLoRaListener(account, gatewayName) {
     try {
       var diskInfo = require('child_process').execSync("df -B1 / | tail -1", { encoding: 'utf8' }).trim().split(/\s+/);
       var diskUsedPct = parseFloat(diskInfo[4]) || 0;
-      submitSensorReading(sensorBase + '/disk', diskUsedPct, {
+      submitSensorReading(sensorBase + 'disk', diskUsedPct, {
         type: 'custom', unit: 'percent_used', source: 'onboard',
         total_bytes: parseInt(diskInfo[1]) || 0,
         used_bytes: parseInt(diskInfo[2]) || 0,
@@ -387,7 +387,7 @@ function startLoRaListener(account, gatewayName) {
     // LoRa radio status (concentrator alive check)
     try {
       var loraAlive = fs.existsSync(LORA_DEV) || fs.existsSync('/dev/spidev0.1');
-      submitSensorReading(sensorBase + '/lora-status', loraAlive ? 1 : 0, {
+      submitSensorReading(sensorBase + 'lora-status', loraAlive ? 1 : 0, {
         type: 'custom', unit: 'boolean', source: 'onboard',
         device: LORA_DEV,
         reading_number: onboardReadingCount,
