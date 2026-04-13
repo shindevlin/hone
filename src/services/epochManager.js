@@ -16,63 +16,15 @@ const MAX_DIFFICULTY_INCREASE = 4.0;
 const MAX_DIFFICULTY_DECREASE = 0.25;
 const BASELINE_WORK_PER_EPOCH = 100; // baseline expected work per epoch at difficulty 1.0
 
-// Genesis timestamp — set on first epoch creation if not configured
-let GENESIS_TIMESTAMP = null;
+// Genesis timestamp — hardcoded. April 12, 2026 10:30 PM Mountain Time (04:30 UTC April 13).
+// This is the birth of the BTCPC v3.0 chain. All nodes must agree on this value.
+// Every epoch number on every node is derived from this single constant.
+const GENESIS_TIMESTAMP = 1776054600000; // 2026-04-13T04:30:00.000Z
 let epochInterval = null;
 let currentDifficulty = 1.0;
 
-/**
- * Get or initialize the genesis timestamp.
- * Uses BTCPC_GENESIS_TIMESTAMP env var, or the timestamp of epoch 0 in stateStore.
- */
 async function getGenesisTimestamp() {
-  if (GENESIS_TIMESTAMP) return GENESIS_TIMESTAMP;
-
-  // Check env var first
-  if (process.env.BTCPC_GENESIS_TIMESTAMP) {
-    GENESIS_TIMESTAMP = parseInt(process.env.BTCPC_GENESIS_TIMESTAMP);
-    return GENESIS_TIMESTAMP;
-  }
-
-  // Check if epoch 0 exists in chain state (stateStore)
-  const genesisEpochState = stateStore.getEpoch(0);
-  if (genesisEpochState && genesisEpochState.started_at) {
-    const startedAt = genesisEpochState.started_at instanceof Date
-      ? genesisEpochState.started_at
-      : new Date(genesisEpochState.started_at);
-    GENESIS_TIMESTAMP = startedAt.getTime();
-    return GENESIS_TIMESTAMP;
-  }
-
-  // No epoch 0 in stateStore — derive genesis algebraically from any block on disk.
-  // Formula: genesis = block.timestamp - (epochNumber * EPOCH_DURATION_MS)
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const blockStore = require('../chain/blockStore');
-    const dataDir = process.env.BTCPC_DATA_DIR || path.resolve(__dirname, '..', '..', 'data');
-    const bDir = path.join(dataDir, 'blocks');
-    if (fs.existsSync(bDir)) {
-      const blockFiles = fs.readdirSync(bDir)
-        .filter(f => f.startsWith('block-') && f.endsWith('.bin'))
-        .sort();
-      for (const file of blockFiles) {
-        const epNum = parseInt(file.replace('block-', '').replace('.bin', ''), 10);
-        if (!Number.isFinite(epNum) || epNum <= 0) continue;
-        const blk = blockStore.readBlock(epNum);
-        if (blk && blk.block && blk.block.timestamp > 0) {
-          GENESIS_TIMESTAMP = blk.block.timestamp - (epNum * EPOCH_DURATION_MS);
-          console.log(`[BTCPC] Genesis timestamp derived from block ${epNum}: ${new Date(GENESIS_TIMESTAMP).toISOString()}`);
-          return GENESIS_TIMESTAMP;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[BTCPC] Genesis derivation from blocks failed:', e.message);
-  }
-
-  // No blocks exist at all — will be set when first epoch is created
-  return null;
+  return GENESIS_TIMESTAMP;
 }
 
 /**

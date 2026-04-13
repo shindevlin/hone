@@ -45,7 +45,8 @@ var EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
 // ─── State ───────────────────────────────────────────────────────
 
 var currentEpoch = -1;
-var genesisTimestamp = null;
+// Genesis: April 12, 2026 10:30 PM Mountain Time (04:30 UTC April 13)
+var genesisTimestamp = 1776054600000;
 var peers = new Map();
 var seenMessages = new Set();
 var running = false;

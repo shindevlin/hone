@@ -149,7 +149,9 @@ async function run() {
 
   // ── Step 4: Build genesis block entries ─────────────────────────
   console.log("\n[4/7] Building genesis block entries...");
-  const now = new Date();
+  // Genesis: April 12, 2026 10:30 PM Mountain Time (04:30 UTC April 13)
+  const GENESIS_TIME_MS = 1776054600000;
+  const now = new Date(GENESIS_TIME_MS);
   const nowIso = now.toISOString();
 
   // Dream #0 — whitepaper inscription
