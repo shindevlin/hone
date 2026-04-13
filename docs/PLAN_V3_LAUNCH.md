@@ -239,3 +239,52 @@ Step 22: Mobile app (React Native — balance, sensor data, mining status)
 5. **Everything else follows the launch sequence above**
 
 Estimated time to Step 10 (go public): 2-3 more sessions if we keep this pace.
+
+---
+
+## Post-Launch Roadmap — Hardware + Partnerships
+
+### Flipper Zero integration (post-genesis)
+- Custom firmware for Flipper Zero as a BTCPC hardware wallet + mobile sensor
+- NFC tap-to-authenticate: tap Flipper to sign transactions instead of passwords
+- GPIO sensor input: connect DHT22/BME280 via GPIO pins → mobile IoT data collection
+- Sub-GHz radio: short-range sensor receiver (~100m) for environments without LoRa coverage
+- BLE relay: bridge BLE sensor beacons to BTCPC network
+- Flipper becomes a pocket-sized BTCPC node that earns IoT rewards while walking around
+
+### ADS-B flight tracking (Wingbits integration)
+- $25 USB ADS-B dongle plugged into Nebra's USB port
+- Receives airplane transponder signals → earns WINGS tokens
+- Same device (Nebra) earns BTCPC IoT rewards + Wingbits WINGS simultaneously
+- Hyfix Wingbits serial discovered: REDACTED_SERIAL
+
+### Additional LoRa sensors
+- Dragino LHT65 (temp+humidity, ~$20) — outdoor environmental monitoring
+- Dragino LSE01 (soil moisture, ~$25) — agriculture data
+- RAK7204 (multi-sensor, ~$30) — temp+humidity+barometer+gas
+- All transmit Cayenne LPP format → Nebra gateway receives automatically
+- Each sensor earns from 60% of IoT reward pool (sensor share)
+
+### GNSS revenue optimization
+- Fix onocoy TLS connection → 4th revenue stream from Hyfix
+- Email GEODNET support → deregister previous owner → $96 GEOD/day potential
+- Optional: USB GNSS receiver ($30-150) for direct NTRIP without ARP spoofing
+
+### Paid data API (api.btcpc.net)
+- REST API selling sensor data to external consumers
+- Fiat (Stripe) + stablecoin + BTCPC payment options
+- Pricing tiers: free (100 calls/day), developer ($10/mo), enterprise (custom)
+- Revenue split: 70% data owner (gateway/sensor) / 20% recycle / 10% storage hosts
+- GNSS correction data: highest value ($500-5000/mo for precision positioning)
+- Environmental data: moderate value ($50-500/mo per region)
+- UWB positioning data: premium value ($500-10000/mo for asset tracking)
+
+### Cross-DePIN aggregator
+- Single device (Nebra + sensors + Hyfix) earns from multiple DePIN networks:
+  - BTCPC (IoT + clock + storage rewards)
+  - GEODNET (GEOD tokens for GNSS corrections)
+  - RTK Direct (RTK tokens for GNSS data)
+  - onocoy (ONO tokens for GNSS coverage)
+  - Wingbits (WINGS tokens for ADS-B flight tracking)
+  - WeatherXM (WXM tokens for weather data — needs weather station)
+- BTCPC chain monitors all earnings across networks via cross-chain address monitoring
