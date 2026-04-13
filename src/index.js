@@ -144,6 +144,7 @@ const appealRoutes = require("./routes/appealRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const commerceRoutes = require("./routes/commerceRoutes");
 const amberPillRoutes = require("./routes/amberPillRoutes");
+const { sensorsRouter, gatewaysRouter } = require("./routes/sensorRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -156,6 +157,8 @@ app.use("/api/totp", totpRoutes);
 app.use("/api/appeal", appealRoutes);
 app.use("/api/commerce", commerceRoutes);
 app.use("/api/amber-pills", amberPillRoutes);
+app.use("/api/sensors", sensorsRouter);
+app.use("/api/gateways", gatewaysRouter);
 app.use("/public", publicRoutes);
 app.use("/api", dreamRoutes);
 app.use("/api/onboard", onboardLimiter, (req, res, next) => {
@@ -260,6 +263,12 @@ connectDB().then(async () => {
       // Initialize P2P inference router (listens for results)
       const { initP2PRouter } = require('./inference/p2pRouter');
       initP2PRouter();
+
+      // Sync local models into the API's model registry so it knows what this node can serve
+      const { syncLocalModels } = require('./services/modelRegistry');
+      syncLocalModels('local').then(models => {
+        if (models.length) console.log(`[BTCPC] API model registry synced: ${models.join(', ')}`);
+      }).catch(() => {});
     } catch (err) {
       console.error('[BTCPC] Failed to start P2P network:', err.message);
     }
