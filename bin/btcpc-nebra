@@ -315,16 +315,82 @@ function startLoRaListener(account, gatewayName) {
     console.log('[btcpc-nebra] Listening for LoRa packets on UDP port ' + LORA_PORT);
   });
 
-  // Heartbeat every epoch (5 min = 300s)
-  const HEARTBEAT_INTERVAL_MS = parseInt(process.env.BTCPC_HEARTBEAT_INTERVAL_MS || '300000', 10);
+  // Heartbeat + onboard sensor readings every epoch
+  const HEARTBEAT_INTERVAL_MS = parseInt(process.env.BTCPC_HEARTBEAT_INTERVAL_MS || '30000', 10);
+  var onboardReadingCount = 0;
+
   setInterval(() => {
     const stats = {
-      sensors_connected: 0, // unknown without explicit sensor registry
+      sensors_connected: 0,
       packets_relayed_this_epoch: packetsRelayed,
       uptime_seconds: process.uptime(),
     };
     packetsRelayed = 0;
     sendHeartbeat(account, gatewayName, stats).catch(() => {});
+
+    // ── Onboard sensor readings ─────────────────────────────────
+    // The Pi itself is a sensor node — report everything it can measure.
+    onboardReadingCount++;
+    var sensorBase = account + '/' + gatewayName;
+
+    // CPU temperature (always available on Pi)
+    try {
+      var cpuTemp = parseFloat(fs.readFileSync('/sys/class/thermal/thermal_zone0/temp', 'utf8')) / 1000;
+      submitSensorReading(sensorBase + '/cpu-temp', cpuTemp, {
+        type: 'temperature', unit: 'celsius', source: 'onboard',
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // WiFi signal strength
+    try {
+      var wifiInfo = fs.readFileSync('/proc/net/wireless', 'utf8');
+      var lines = wifiInfo.trim().split('\n');
+      if (lines.length >= 3) {
+        var parts = lines[2].trim().split(/\s+/);
+        var signalDbm = parseFloat(parts[3]) || 0;
+        submitSensorReading(sensorBase + '/wifi-signal', signalDbm, {
+          type: 'power', unit: 'dBm', source: 'onboard',
+          interface: parts[0].replace(':', ''),
+          reading_number: onboardReadingCount,
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // System load average (1 min)
+    try {
+      var loadAvg = os.loadavg()[0];
+      submitSensorReading(sensorBase + '/load', loadAvg, {
+        type: 'custom', unit: 'load_1m', source: 'onboard',
+        cpu_count: os.cpus().length,
+        memory_free_mb: Math.round(os.freemem() / 1048576),
+        memory_total_mb: Math.round(os.totalmem() / 1048576),
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // Disk usage
+    try {
+      var diskInfo = require('child_process').execSync("df -B1 / | tail -1", { encoding: 'utf8' }).trim().split(/\s+/);
+      var diskUsedPct = parseFloat(diskInfo[4]) || 0;
+      submitSensorReading(sensorBase + '/disk', diskUsedPct, {
+        type: 'custom', unit: 'percent_used', source: 'onboard',
+        total_bytes: parseInt(diskInfo[1]) || 0,
+        used_bytes: parseInt(diskInfo[2]) || 0,
+        available_bytes: parseInt(diskInfo[3]) || 0,
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // LoRa radio status (concentrator alive check)
+    try {
+      var loraAlive = fs.existsSync(LORA_DEV) || fs.existsSync('/dev/spidev0.1');
+      submitSensorReading(sensorBase + '/lora-status', loraAlive ? 1 : 0, {
+        type: 'custom', unit: 'boolean', source: 'onboard',
+        device: LORA_DEV,
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
   }, HEARTBEAT_INTERVAL_MS);
 
   return server;
