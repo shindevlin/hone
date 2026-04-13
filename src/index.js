@@ -115,6 +115,17 @@ app.get('/install.sh', (_req, res) => {
   res.setHeader('Content-Disposition', 'inline; filename="install.sh"');
   return res.sendFile(scriptPath);
 });
+
+app.get('/install-termux.sh', (_req, res) => {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'install-termux.sh');
+  if (!fs.existsSync(scriptPath)) {
+    return res.status(404).type('text/plain').send('install script not found\n');
+  }
+  res.type('text/plain');
+  res.setHeader('Content-Disposition', 'inline; filename="install-termux.sh"');
+  return res.sendFile(scriptPath);
+});
+
 // Import routes
 const userRoutes = require("./routes/userRoutes");
 const walletRoutes = require("./routes/walletRoutes");

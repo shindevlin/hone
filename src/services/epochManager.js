@@ -44,7 +44,34 @@ async function getGenesisTimestamp() {
     return GENESIS_TIMESTAMP;
   }
 
-  // No genesis exists yet — will be set when first epoch is created
+  // No epoch 0 in stateStore — derive genesis algebraically from any block on disk.
+  // Formula: genesis = block.timestamp - (epochNumber * EPOCH_DURATION_MS)
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const blockStore = require('../chain/blockStore');
+    const dataDir = process.env.BTCPC_DATA_DIR || path.resolve(__dirname, '..', '..', 'data');
+    const bDir = path.join(dataDir, 'blocks');
+    if (fs.existsSync(bDir)) {
+      const blockFiles = fs.readdirSync(bDir)
+        .filter(f => f.startsWith('block-') && f.endsWith('.bin'))
+        .sort();
+      for (const file of blockFiles) {
+        const epNum = parseInt(file.replace('block-', '').replace('.bin', ''), 10);
+        if (!Number.isFinite(epNum) || epNum <= 0) continue;
+        const blk = blockStore.readBlock(epNum);
+        if (blk && blk.block && blk.block.timestamp > 0) {
+          GENESIS_TIMESTAMP = blk.block.timestamp - (epNum * EPOCH_DURATION_MS);
+          console.log(`[BTCPC] Genesis timestamp derived from block ${epNum}: ${new Date(GENESIS_TIMESTAMP).toISOString()}`);
+          return GENESIS_TIMESTAMP;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[BTCPC] Genesis derivation from blocks failed:', e.message);
+  }
+
+  // No blocks exist at all — will be set when first epoch is created
   return null;
 }
 

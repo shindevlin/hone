@@ -281,6 +281,7 @@ function handleHandshake(peer, msg, ctx) {
   peer.status = "connected";
 
   console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
+  if (peer.chainHeight > 0) recordPeerEpoch(msg.nodeId, peer.chainHeight);
 
   // Reject peers on incompatible versions — chain requires v2.0.75+
   var MIN_VERSION = "2.0.75";
@@ -462,6 +463,25 @@ function handleResponseBlocks(peer, msg, ctx) {
   const blocks = data.blocks || [];
 
   if (blocks.length === 0) return;
+
+  // Genesis chain ID check — reject blocks from a different chain
+  const localGenesis = blockStore.readBlock(0);
+  if (localGenesis) {
+    const localGenesisHash = localGenesis.block.computeHash();
+    for (const b of blocks) {
+      if (b.epoch_number === 0 && b.header_hex) {
+        try {
+          const remoteBlock = Block.deserialize(Buffer.from(b.header_hex, "hex"));
+          const remoteHash = remoteBlock.computeHash();
+          if (remoteHash !== localGenesisHash) {
+            console.log("[BTCPC P2P] Rejected blocks from " +
+              (peer.nodeId || "unknown").slice(0, 12) + " — different genesis chain");
+            return;
+          }
+        } catch (_) {}
+      }
+    }
+  }
 
   console.log("[BTCPC P2P] Received " + blocks.length + " blocks from " +
     (peer.nodeId || "unknown").slice(0, 12));
@@ -1029,6 +1049,65 @@ function setCurrentEpoch(epochNumber) {
 }
 function getCurrentEpochCache() { return _currentEpochCache; }
 
+// ---------------------------------------------------------------------------
+// Epoch Consensus — if a majority of peers agree on an epoch, adopt it.
+// Prevents stale nodes from falling behind when their local clock drifts
+// or genesis derivation differs.
+// ---------------------------------------------------------------------------
+var _peerEpochVotes = {};  // nodeId → { epoch, timestamp }
+var EPOCH_CONSENSUS_THRESHOLD = 0.5; // >50% of peers must agree
+
+function recordPeerEpoch(nodeId, claimedEpoch) {
+  if (typeof claimedEpoch !== 'number' || claimedEpoch < 0) return;
+  _peerEpochVotes[nodeId] = { epoch: claimedEpoch, timestamp: Date.now() };
+
+  // Clean stale votes (>5 min old)
+  var now = Date.now();
+  var keys = Object.keys(_peerEpochVotes);
+  for (var i = 0; i < keys.length; i++) {
+    if (now - _peerEpochVotes[keys[i]].timestamp > 300000) {
+      delete _peerEpochVotes[keys[i]];
+    }
+  }
+
+  // Count votes — group by epoch (allow ±1 tolerance for propagation delay)
+  keys = Object.keys(_peerEpochVotes);
+  if (keys.length < 2) return; // need at least 2 peers to form consensus
+
+  var epochCounts = {};
+  for (var j = 0; j < keys.length; j++) {
+    var ep = _peerEpochVotes[keys[j]].epoch;
+    epochCounts[ep] = (epochCounts[ep] || 0) + 1;
+  }
+
+  // Find the epoch with the most votes
+  var bestEpoch = -1;
+  var bestCount = 0;
+  var epochs = Object.keys(epochCounts);
+  for (var k = 0; k < epochs.length; k++) {
+    // Sum votes for this epoch ±1 (propagation tolerance)
+    var ep2 = parseInt(epochs[k]);
+    var count = (epochCounts[ep2] || 0) +
+                (epochCounts[ep2 - 1] || 0) +
+                (epochCounts[ep2 + 1] || 0);
+    if (count > bestCount) {
+      bestCount = count;
+      bestEpoch = ep2;
+    }
+  }
+
+  // If majority agrees and their epoch is ahead of ours, adopt it
+  var totalPeers = keys.length + 1; // +1 for ourselves
+  if (bestCount / totalPeers > EPOCH_CONSENSUS_THRESHOLD) {
+    if (bestEpoch > _currentEpochCache + 1) {
+      console.log("[BTCPC P2P] Epoch consensus: " + bestCount + "/" + totalPeers +
+        " peers at epoch ~" + bestEpoch + " (local: " + _currentEpochCache +
+        ") — adopting peer majority");
+      _currentEpochCache = bestEpoch;
+    }
+  }
+}
+
 /**
  * Record that a miner produced work during an epoch.
  * Idempotent: same job_id won't be double-counted for the same miner.
@@ -1297,6 +1376,7 @@ function handleClockHeartbeat(peer, msg, ctx) {
 
   console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (claimed epoch " + claimedEpoch + ", filing under " + fileEpoch + ", source: " + source + ")");
 
+  recordPeerEpoch(msg.nodeId || account, claimedEpoch);
   recordNodeActivity(msg.nodeId, account, fileEpoch);
   // Rebroadcast so all nodes see the heartbeat
   ctx.broadcast(msg, peer.address);

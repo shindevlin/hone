@@ -89,8 +89,8 @@ Block.prototype.serialize = function () {
   // timestamp — 8 bytes, little-endian uint64
   // Use two 32-bit writes since Buffer has no writeUInt64
   var ts = typeof this.timestamp === "number" ? this.timestamp : Date.now();
-  buf.writeUInt32LE(ts & 0xFFFFFFFF, offset);
-  buf.writeUInt32LE(Math.floor(ts / 0x100000000) & 0xFFFFFFFF, offset + 4);
+  buf.writeUInt32LE(ts >>> 0, offset);
+  buf.writeUInt32LE((ts / 0x100000000) >>> 0, offset + 4);
   offset += TIMESTAMP_SIZE;
 
   // epoch_number — 4 bytes, little-endian uint32

@@ -533,6 +533,105 @@ Four concurrent income streams on hardware the owner already owns. The `btcpc-ne
 installer handles LoRa packet forwarder configuration, gateway registration, and
 systemd service setup with a single command.
 
+### 7.6 GNSS Base Stations
+
+GNSS (Global Navigation Satellite System) base stations produce high-precision
+correction data used by surveying, agriculture, and autonomous vehicles. A base
+station running `btcpc-gnss-bridge` polls the device for status and submits
+`SENSOR_READING` entries to the chain every 30 seconds.
+
+The same correction stream can simultaneously earn from multiple networks:
+
+- **BTCPC** — IoT pool rewards for every epoch with valid GNSS data
+- **GEODNET** — GEOD token rewards for RTK correction contributions
+- **RTK Direct** — RTK token rewards for NTRIP correction streaming
+- **onocoy** — ONO token rewards for GNSS observation data
+
+The `btcpc-gnss-relay` daemon intercepts RTCM3 correction data from the base
+station and forwards copies to all configured NTRIP casters simultaneously.
+One antenna, one base station, four income streams.
+
+### 7.7 ADS-B Flight Tracking
+
+A USB ADS-B receiver connected to a gateway (such as a Nebra hotspot) can track
+aircraft transponder signals and earn from flight tracking networks like Wingbits.
+The gateway forwards ADS-B data to the tracking network while simultaneously
+submitting coverage proofs to the BTCPC chain as sensor readings.
+
+### 7.8 Hardware Wallets
+
+BTCPC accounts are derived from standard BIP-39 mnemonics (12 words), making them
+natively compatible with hardware wallets:
+
+- **Ledger** — store BTCPC mnemonic on a Ledger device for cold storage. The
+  owner key never touches a networked machine. Key rotation and recovery
+  operations are signed on the device and submitted via `btcpc.net/rotate`.
+- **Flipper Zero** — a portable hardware wallet and mobile sensor node. Sub-GHz
+  radio, NFC/RFID, BLE, and GPIO make it capable of both securing keys and
+  relaying short-range sensor data in the field.
+
+The mnemonic generates four keypairs (Owner, Active, Posting, Memo). Only the
+owner key requires cold storage. Active and posting keys live on the node for
+day-to-day signing. The memo key enables end-to-end encrypted inference.
+
+### 7.9 Self-Build Nodes
+
+A Raspberry Pi (or any ARM/x86 single-board computer) running the standard BTCPC
+installer becomes a full node capable of all roles: clock, storage, gateway, and
+verifier. The minimum viable setup:
+
+- **Raspberry Pi 4/5** (4GB+ RAM) — clock + storage + verifier
+- **Pi + LoRa HAT** — add gateway role for IoT sensor relay
+- **Pi + USB GNSS receiver** — native GNSS corrections without ARP spoofing
+- **Pi + USB ADS-B dongle** — flight tracking via Wingbits
+- **Pi + external SSD** — high-capacity BTCPC-FS storage host
+
+The `install.sh` one-liner handles Node.js, systemd services, and account setup.
+No Docker required. Self-build nodes earn the same rewards as commercial hardware.
+
+### 7.10 Supported Sensor Types
+
+The BTCPC sensor registry accepts any hardware that can produce a signed reading.
+Currently supported sensor types:
+
+| Type | Example Hardware | Data Produced |
+|------|-----------------|---------------|
+| temperature | SenseCAP, LoRa T/H sensors | Celsius readings |
+| humidity | SenseCAP, DHT22 | Relative humidity % |
+| air_quality | PurpleAir, SenseCAP AQI | PM2.5, PM10, AQI index |
+| gps | Hyfix, u-blox GNSS receivers | RTK corrections, position |
+| soil | LoRa soil moisture probes | Volumetric water content |
+| uwb_position | Hyfix UWB anchors | Indoor positioning coordinates |
+| uwb_range | Hyfix UWB tags | Distance measurements |
+| motion | Accelerometers, dashcams | Movement vectors, imagery CIDs |
+| power | Smart plugs, solar monitors | Watts, kWh, grid feed-in |
+| noise | Sound level meters | Decibel readings |
+| light | Lux sensors | Illuminance |
+| pressure | Barometers, weather stations | Atmospheric pressure hPa |
+| seismic | Raspberry Shake, MEMS accelerometers | Ground motion, early warning |
+| weather | WeatherXM, Davis, Ambient Weather | Multi-parameter weather bundles |
+| water | pH/TDS probes | Water quality metrics |
+| traffic | Camera counters, radar | Vehicle/pedestrian counts |
+| custom | Any device with a serial output | User-defined payload |
+
+New sensor types are added by registering with `type: "custom"` and a payload
+schema. No protocol upgrade required. Any hardware that can reach a gateway
+(via LoRa, WiFi, Bluetooth, USB, or serial) can earn from the IoT pool.
+
+### 7.11 Bandwidth and Relay Services
+
+Beyond physical sensors, nodes can earn by providing network infrastructure:
+
+- **VPN exit nodes** — route traffic for subscribers, earn per-GB via escrow
+- **CDN edge caching** — serve BTCPC-FS blobs from local storage, earn per-request
+- **WiFi hotspot sharing** — metered bandwidth access, paid per-session
+- **Mesh relay** — forward LoRa or Meshtastic packets between nodes that cannot
+  reach each other directly, earn relay fees from the IoT pool
+
+These services use the same stake-escrow-reputation primitive as all other BTCPC
+services. The protocol does not prescribe which hardware or service to run. If a
+node can prove it did useful work, it earns.
+
 ---
 
 ## 8. Oracle Feeds
