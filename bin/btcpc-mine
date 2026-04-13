@@ -74,6 +74,11 @@ async function main() {
 
   // Start mining
   await startMiner();
+
+  // Keep the process alive — inference jobs run in the background
+  // and complete in future epochs. Without this, Node exits after
+  // startMiner() returns because no timers/sockets hold the event loop.
+  setInterval(() => {}, 60000);
 }
 
 main().catch(err => {

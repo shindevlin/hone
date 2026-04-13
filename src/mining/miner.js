@@ -728,8 +728,10 @@ async function mineEpoch(epochNumber) {
       console.log(`[BTCPC]   Work item ${itemNum}/${syntheticCount} -- sending to Ollama (${workingModel}) [fire-and-forget]`);
     }
 
-    // Don't await — let it run in the background
-    generateWork(workingModel, isGenesisFirstWork ? GENESIS_PROMPT : undefined).then((work) => {
+    // Fire-and-forget with a generous timeout — inference may take minutes on CPU
+    const inferencePromise = generateWork(workingModel, isGenesisFirstWork ? GENESIS_PROMPT : undefined);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('inference timeout (5 min)')), 300000));
+    Promise.race([inferencePromise, timeoutPromise]).then((work) => {
       // Job completed — might be a different epoch now
       const completedEpoch = currentEpoch || startedEpoch;
       const creditEpoch = completedEpoch > startedEpoch ? completedEpoch : startedEpoch;
