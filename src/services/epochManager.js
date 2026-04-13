@@ -35,7 +35,8 @@ async function getCurrentEpoch() {
   if (!genesis) return 0;
 
   const elapsed = Date.now() - genesis;
-  return Math.floor(elapsed / EPOCH_DURATION_MS);
+  const epoch = Math.floor(elapsed / EPOCH_DURATION_MS);
+  return epoch < 0 ? 0 : epoch;
 }
 
 /**
