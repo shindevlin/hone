@@ -1141,10 +1141,21 @@ async function startMiner() {
   // 3. P2P chain height (blocks synced from other miners)
   let currentEpoch;
   if (genesis.alreadyExisted) {
-    const startedAt = genesis.epoch.started_at instanceof Date
-      ? genesis.epoch.started_at
-      : new Date(genesis.epoch.started_at);
-    const genesisTime = startedAt.getTime();
+    // Derive genesis time from block 0 on disk (authoritative), fallback to stateStore
+    let genesisTime;
+    try {
+      const blockStore = require('../chain/blockStore');
+      const b0 = blockStore.readBlock(0);
+      if (b0 && b0.block && b0.block.timestamp > 0) {
+        genesisTime = b0.block.timestamp;
+      }
+    } catch (_) {}
+    if (!genesisTime) {
+      const startedAt = genesis.epoch.started_at instanceof Date
+        ? genesis.epoch.started_at
+        : new Date(genesis.epoch.started_at);
+      genesisTime = startedAt.getTime();
+    }
     const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
 
     const chainHeight = stateStore.getChainHeight();
