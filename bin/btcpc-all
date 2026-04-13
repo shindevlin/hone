@@ -87,7 +87,7 @@ function launch(role, script) {
       BTCPC_ROLE: role,
       // Each role needs distinct default ports to avoid collisions when
       // two processes try to bind the same socket inside the container.
-      P2P_PORT: process.env.P2P_PORT || (role === "clock" ? "6943" : "6942"),
+      P2P_PORT: role === "clock" ? "6943" : (process.env.P2P_PORT || "6942"),
     }),
     stdio: ["ignore", "pipe", "pipe"],
   });
