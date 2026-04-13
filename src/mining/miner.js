@@ -733,8 +733,9 @@ async function mineEpoch(epochNumber) {
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('inference timeout (5 min)')), 300000));
     Promise.race([inferencePromise, timeoutPromise]).then((work) => {
       // Job completed — might be a different epoch now
-      const completedEpoch = currentEpoch || startedEpoch;
-      const creditEpoch = completedEpoch > startedEpoch ? completedEpoch : startedEpoch;
+      // Credit to the current chain height at completion time
+      const chainHeight = stateStore.getChainHeight();
+      const creditEpoch = chainHeight > startedEpoch ? chainHeight : startedEpoch;
 
       const proof = {
         epoch_number: creditEpoch,
