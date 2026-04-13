@@ -691,8 +691,9 @@ async function mineEpoch(epochNumber) {
 
   // Phase E: InferenceJob model deleted. Stale claim expiry handled by handler.js
   // which tracks claimedJobs in memory. No Mongo sweep needed here.
-  // No synthetic work — miners only earn from real inference jobs
-  const syntheticCount = 0;
+  // Miners produce real inference work every epoch to earn mining rewards.
+  // External API inference jobs are counted on top of this baseline work.
+  const syntheticCount = WORK_ITEMS_PER_EPOCH;
 
   // Resolve working model — auto-heals via pull + fallback chain; never crashes
   const workingModel = await resolveWorkingModel(MODEL);
