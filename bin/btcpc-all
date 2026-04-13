@@ -81,7 +81,13 @@ function launch(role, script) {
 
   console.log("[supervisor] starting " + role + " (restart #" + entry.restarts + ")");
 
-  var child = spawn("node", [script], {
+  // Gateway role needs --account passed from BTCPC_MINER env
+  var args = [script];
+  if (role === "gateway" && process.env.BTCPC_MINER) {
+    args.push("--account", process.env.BTCPC_MINER);
+  }
+
+  var child = spawn("node", args, {
     cwd: REPO_ROOT,
     env: Object.assign({}, process.env, {
       BTCPC_ROLE: role,
