@@ -1147,14 +1147,22 @@ function recordMinerWork(miner, jobId, workValue, epochNumber) {
  * Returns: { miner: { work_value, jobs: Set } }
  */
 function getMinerWorkForEpoch(epochNumber) {
-  var epochMap = minerWorkByEpoch.get(epochNumber);
-  if (!epochMap) return {};
+  // Check the target epoch plus recent prior epochs — fire-and-forget
+  // inference completes in future epochs, so work credited to epoch N
+  // may need to be picked up by the proposal for epoch N or N+1.
   var result = {};
-  for (var entry of epochMap) {
-    result[entry[0]] = {
-      work_value: entry[1].work_value,
-      job_count: entry[1].jobs.size,
-    };
+  var lookback = 10; // check up to 10 epochs back for uncredited work
+  for (var ep = Math.max(0, epochNumber - lookback); ep <= epochNumber; ep++) {
+    var epochMap = minerWorkByEpoch.get(ep);
+    if (!epochMap) continue;
+    for (var entry of epochMap) {
+      var miner = entry[0];
+      if (!result[miner]) {
+        result[miner] = { work_value: 0, job_count: 0 };
+      }
+      result[miner].work_value += entry[1].work_value;
+      result[miner].job_count += entry[1].jobs.size;
+    }
   }
   return result;
 }
