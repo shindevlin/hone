@@ -1201,6 +1201,29 @@ async function startMiner() {
 
   let lastEpoch = -1;
 
+  // Self-tick fallback: if no EPOCH_START arrives within 2 epochs, derive
+  // the current epoch from genesis and mine it. Prevents stalling when the
+  // local clock's P2P messages don't reach the miner process.
+  const GENESIS_TIME = 1776054600000;
+  setInterval(() => {
+    const now = Date.now();
+    const derivedEpoch = Math.floor((now - GENESIS_TIME) / EPOCH_DURATION_MS);
+    if (derivedEpoch > 0 && derivedEpoch > lastEpoch + 1) {
+      console.log(`[BTCPC] Self-tick: epoch ${derivedEpoch} (no EPOCH_START received, deriving from genesis)`);
+      lastEpoch = derivedEpoch;
+      currentEpoch = derivedEpoch;
+      setImmediate(async () => {
+        try {
+          const { syncLocalModels } = require('../services/modelRegistry');
+          syncLocalModels(null).catch(() => {});
+          await mineEpoch(derivedEpoch);
+        } catch (err) {
+          console.error(`[BTCPC] Epoch ${derivedEpoch} mining error:`, err.message);
+        }
+      });
+    }
+  }, EPOCH_DURATION_MS * 2); // check every 2 epochs
+
   p2p.onMessage(async (msg) => {
     // ── EPOCH_START from a clock node — start mining ──
     if (msg.type === 'EPOCH_START') {
