@@ -178,6 +178,11 @@ function writePendingFlag() {
 // ─── Core check ───────────────────────────────────────────────────────────────
 
 async function checkForUpdate() {
+  // Skip on source-based installations — btcpc-update-source handles those
+  if (process.env.BTCPC_DOCKER_UPDATE_DISABLED === 'true') {
+    log("Docker update disabled (source install) — skipping");
+    return;
+  }
   log("checking for update — polling " + VERSION_URL);
 
   // 1. Fetch remote version hash
