@@ -132,6 +132,7 @@ const totpRoutes = require("./routes/totpRoutes");
 const appealRoutes = require("./routes/appealRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const commerceRoutes = require("./routes/commerceRoutes");
+const amberPillRoutes = require("./routes/amberPillRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -143,6 +144,7 @@ app.use("/api/recovery", recoveryRoutes);
 app.use("/api/totp", totpRoutes);
 app.use("/api/appeal", appealRoutes);
 app.use("/api/commerce", commerceRoutes);
+app.use("/api/amber-pills", amberPillRoutes);
 app.use("/public", publicRoutes);
 app.use("/api", dreamRoutes);
 app.use("/api/onboard", onboardLimiter, (req, res, next) => {

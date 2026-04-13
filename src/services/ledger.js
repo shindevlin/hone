@@ -574,6 +574,12 @@ async function recordNFTMint(collection, to, tokenId, metadata, epoch) {
  * Transfer an NFT. Rejects soulbound and time-locked tokens.
  */
 async function recordNFTTransfer(from, to, collection, tokenId, epoch, signature) {
+  // Amber Pill NFTs are non-transferable by design — check by ID prefix
+  // before even looking up the stateStore record (covers replay + fresh mints).
+  if (tokenId && tokenId.startsWith('amber-pill-')) {
+    throw new Error('Amber Pill NFTs are non-transferable (soulbound geo-pioneer badges)');
+  }
+
   // Check soulbound / time-lock flags via stateStore NFT map.
   const nft = stateStore.getNFT(collection, tokenId);
   if (nft) {
@@ -1789,6 +1795,38 @@ function appendForeignEntry(entry) {
 }
 
 /**
+ * Record an Amber Pill NFT mint on the ledger (v2.18).
+ *
+ * Called automatically by the stateStore AMBER_PILL_MINT dispatcher when a
+ * geo-pioneer is detected. Creates a permanent, soulbound on-chain record of
+ * the first node of a given role to operate in a geographic region.
+ *
+ * @param {string} account   — pioneer's BTCPC account
+ * @param {string} role      — MINER | STORAGE | CLOCK | SENSOR | GATEWAY
+ * @param {string} region    — metro-area region code (e.g. "sv-san-salvador")
+ * @param {string} nftId     — "amber-pill-<role>-<region>"
+ * @param {number} epoch
+ */
+async function recordAmberPillMint(account, role, region, nftId, epoch) {
+  if (!account) throw new Error('account required');
+  if (!role) throw new Error('role required');
+  if (!region) throw new Error('region required');
+  if (!nftId) throw new Error('nftId required');
+
+  return _persist(_entry({
+    type: 'AMBER_PILL_MINT',
+    to: account,
+    epoch: epoch || 0,
+    amber_pill_data: {
+      role: role,
+      region: region,
+      nft_id: nftId,
+      expires_epoch: (epoch || 0) + 1051200,
+    },
+  }));
+}
+
+/**
  * Record a key rotation on the ledger.
  *
  * @param {string} username         — account whose keys are being rotated
@@ -1898,4 +1936,6 @@ module.exports = {
   recordCrossChainActivity,
   // Key rotation (security)
   recordKeyRotate,
+  // Amber Pill geo-pioneer NFT (v2.18)
+  recordAmberPillMint,
 };

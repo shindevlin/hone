@@ -1101,6 +1101,55 @@ function applyEntry(entry) {
       break;
 
     // ─────────────────────────────────────────────────────────────────
+    // Amber Pill geo-pioneer NFT (v2.18)
+    // ─────────────────────────────────────────────────────────────────
+    // AMBER_PILL_MINT: amber_pill_data = { role, region, nft_id, expires_epoch }
+    // Stores the pill in the nfts Map (soulbound) AND hydrates the in-memory
+    // amberPill module so weight lookups work immediately.
+    case "AMBER_PILL_MINT":
+      if (entry.amber_pill_data && entry.amber_pill_data.nft_id) {
+        var apd = entry.amber_pill_data;
+        var apCollection = "amber-pills";
+        var apTokenId = apd.nft_id;
+        var apKey = apCollection + "|" + apTokenId;
+        // Only set if not already present — first entry wins (soulbound)
+        if (!nfts.has(apKey)) {
+          nfts.set(apKey, {
+            owner: to,
+            collection: apCollection,
+            tokenId: apTokenId,
+            metadata: {
+              role: apd.role,
+              region: apd.region,
+              account: to,
+              epoch: entry.epoch,
+              timestamp: entry.timestamp,
+              expires_epoch: apd.expires_epoch,
+            },
+            minted_epoch: entry.epoch,
+            soulbound: true,
+            time_locked: false,
+            unlock_epoch: null,
+            rev_share: null,
+          });
+        }
+        // Hydrate in-memory pioneer registry (lazy require to avoid circular dep)
+        try {
+          var amberPill = require('../services/amberPill');
+          amberPill.loadFromEntry({
+            account: to,
+            role: apd.role,
+            region: apd.region,
+            epoch: entry.epoch,
+            timestamp: entry.timestamp,
+            expires_epoch: apd.expires_epoch,
+            nft_id: apTokenId,
+          });
+        } catch (_) { /* amberPill module not available — skip */ }
+      }
+      break;
+
+    // ─────────────────────────────────────────────────────────────────
     // Stateful compute entries (v2.14-beta)
     // ─────────────────────────────────────────────────────────────────
 
