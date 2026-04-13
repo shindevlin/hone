@@ -1,10 +1,10 @@
 {
   "name": "@btcpc/sdk",
-  "version": "0.1.0",
-  "description": "BTCPC SDK — use AI inference powered by Proof of Compute",
+  "version": "3.0.0",
+  "description": "BTCPC SDK — AI inference, sensors, and payments on Proof of Compute",
   "main": "index.js",
-  "keywords": ["btcpc", "inference", "ai", "blockchain", "proof-of-compute"],
-  "author": "Shin Devlin <shin@btcpc.network>",
+  "keywords": ["btcpc", "inference", "ai", "blockchain", "proof-of-compute", "iot", "sensors"],
+  "author": "Natoshi Sakamoto",
   "license": "MIT",
   "repository": {
     "type": "git",
