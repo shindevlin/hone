@@ -1,0 +1,381 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-gnss-relay — RTCM3 stream interceptor + multi-caster
+ * Shin Devlin
+ *
+ * Intercepts RTCM3 correction data from a Hyfix GNSS base station
+ * via ARP spoofing, then forwards copies to multiple NTRIP casters
+ * simultaneously. The original stream to GEODNET continues unmodified.
+ *
+ * Architecture:
+ *   Hyfix (192.168.68.54) → UDP → GEODNET (52.8.236.207:2201)
+ *                              ↓ (intercepted via ARP spoof)
+ *                         This relay
+ *                           ├→ onocoy   (NTRIP server, TCP)
+ *                           ├→ RTK Direct (NTRIP server, TCP)
+ *                           └→ BTCPC chain (sensor reading)
+ *
+ * Usage:
+ *   sudo node bin/btcpc-gnss-relay
+ *   (requires sudo for ARP spoofing + raw packet capture)
+ *
+ * Environment:
+ *   BTCPC_GNSS_DEVICE_IP    — Hyfix IP (default: 192.168.68.54)
+ *   BTCPC_GNSS_GATEWAY_IP   — Router IP (default: 192.168.68.1)
+ *   BTCPC_GNSS_WIFI_IFACE   — WiFi interface (default: wlp0s20f3)
+ *   BTCPC_GNSS_GEODNET_IP   — GEODNET server (default: 52.8.236.207)
+ *   BTCPC_GNSS_GEODNET_PORT — GEODNET port (default: 2201)
+ */
+
+var { execSync, spawn } = require("child_process");
+var net = require("net");
+var dgram = require("dgram");
+var path = require("path");
+
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+// ─── Config ──────────────────────────────────────────────────────
+
+var DEVICE_IP = process.env.BTCPC_GNSS_DEVICE_IP || "192.168.68.54";
+var GATEWAY_IP = process.env.BTCPC_GNSS_GATEWAY_IP || "192.168.68.1";
+var WIFI_IFACE = process.env.BTCPC_GNSS_WIFI_IFACE || "wlp0s20f3";
+var GEODNET_IP = process.env.BTCPC_GNSS_GEODNET_IP || "52.8.236.207";
+var GEODNET_PORT = parseInt(process.env.BTCPC_GNSS_GEODNET_PORT) || 2201;
+
+// NTRIP caster destinations
+var CASTERS = [
+  {
+    name: "onocoy",
+    host: "servers.onocoy.com",
+    port: 2121,
+    username: "REDACTED_USER",
+    password: "REDACTED_PASS",
+    mountpoint: "",
+    tls: false,
+    enabled: true,
+  },
+  {
+    name: "rtkdirect",
+    host: "ntrip.rtkdirect.com",
+    port: 2101,
+    username: "REDACTED_USER",
+    password: "REDACTED_PASS",
+    mountpoint: "REDACTED_MOUNT",
+    tls: false,
+    enabled: true,
+  },
+];
+
+var STATS_INTERVAL_MS = 30000;
+
+function log(msg) { console.log("[gnss-relay] " + msg); }
+function warn(msg) { console.warn("[gnss-relay] WARN: " + msg); }
+
+// ─── ARP Spoofing ────────────────────────────────────────────────
+
+var arpProcesses = [];
+
+function startArpSpoof() {
+  log("Starting ARP spoof: " + DEVICE_IP + " ↔ " + GATEWAY_IP + " on " + WIFI_IFACE);
+
+  // Enable IP forwarding
+  try {
+    execSync("sysctl -w net.ipv4.ip_forward=1", { stdio: "ignore" });
+  } catch (e) {
+    warn("Could not enable IP forwarding: " + e.message);
+  }
+
+  // Spoof device → think we're the gateway
+  var arp1 = spawn("arpspoof", ["-i", WIFI_IFACE, "-t", DEVICE_IP, GATEWAY_IP], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  arpProcesses.push(arp1);
+
+  // Spoof gateway → think we're the device
+  var arp2 = spawn("arpspoof", ["-i", WIFI_IFACE, "-t", GATEWAY_IP, DEVICE_IP], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  arpProcesses.push(arp2);
+
+  arp1.on("exit", function (code) {
+    if (code !== null) warn("arpspoof (device→gw) exited: " + code);
+  });
+  arp2.on("exit", function (code) {
+    if (code !== null) warn("arpspoof (gw→device) exited: " + code);
+  });
+
+  log("ARP spoof active");
+}
+
+function stopArpSpoof() {
+  for (var i = 0; i < arpProcesses.length; i++) {
+    try { arpProcesses[i].kill("SIGTERM"); } catch (_) {}
+  }
+  arpProcesses = [];
+}
+
+// ─── NTRIP Client Connections ────────────────────────────────────
+
+var casterConnections = {};
+
+function buildNtripRequest(caster) {
+  // NTRIP v1 server mode: POST to mountpoint with RTCM data in body
+  var auth = Buffer.from(caster.username + ":" + caster.password).toString("base64");
+  var mp = caster.mountpoint ? "/" + caster.mountpoint : "/";
+
+  var request =
+    "POST " + mp + " HTTP/1.1\r\n" +
+    "Host: " + caster.host + "\r\n" +
+    "Ntrip-Version: Ntrip/2.0\r\n" +
+    "Authorization: Basic " + auth + "\r\n" +
+    "User-Agent: BTCPC-GNSS-Relay/1.0\r\n" +
+    "Content-Type: application/octet-stream\r\n" +
+    "Transfer-Encoding: chunked\r\n" +
+    "\r\n";
+
+  return request;
+}
+
+function connectCaster(caster) {
+  if (!caster.enabled) return;
+
+  var key = caster.name;
+  if (casterConnections[key] && !casterConnections[key].destroyed) {
+    return; // already connected
+  }
+
+  log("Connecting to " + caster.name + " (" + caster.host + ":" + caster.port + ")...");
+
+  var socket = net.createConnection({
+    host: caster.host,
+    port: caster.port,
+    timeout: 10000,
+  });
+
+  socket.on("connect", function () {
+    log(caster.name + ": connected");
+    var request = buildNtripRequest(caster);
+    socket.write(request);
+    casterConnections[key] = socket;
+    casterConnections[key].ready = false;
+  });
+
+  socket.on("data", function (data) {
+    var response = data.toString();
+    if (response.indexOf("200") !== -1 || response.indexOf("ICY 200") !== -1) {
+      log(caster.name + ": NTRIP server accepted connection ✓");
+      casterConnections[key].ready = true;
+    } else if (response.indexOf("401") !== -1) {
+      warn(caster.name + ": authentication failed (401)");
+    } else if (response.indexOf("404") !== -1) {
+      warn(caster.name + ": mountpoint not found (404)");
+    } else {
+      log(caster.name + ": response: " + response.trim().slice(0, 100));
+    }
+  });
+
+  socket.on("error", function (err) {
+    warn(caster.name + ": " + err.message);
+    casterConnections[key] = null;
+    // Reconnect after 30 seconds
+    setTimeout(function () { connectCaster(caster); }, 30000);
+  });
+
+  socket.on("close", function () {
+    log(caster.name + ": disconnected, reconnecting in 30s...");
+    casterConnections[key] = null;
+    setTimeout(function () { connectCaster(caster); }, 30000);
+  });
+
+  socket.on("timeout", function () {
+    warn(caster.name + ": connection timeout");
+    socket.destroy();
+  });
+}
+
+function forwardToCasters(rtcmData) {
+  for (var i = 0; i < CASTERS.length; i++) {
+    var key = CASTERS[i].name;
+    var conn = casterConnections[key];
+    if (conn && conn.ready && !conn.destroyed) {
+      try {
+        // Send as chunked transfer encoding
+        var chunk = rtcmData.length.toString(16) + "\r\n";
+        conn.write(chunk);
+        conn.write(rtcmData);
+        conn.write("\r\n");
+        stats[key] = (stats[key] || 0) + rtcmData.length;
+      } catch (e) {
+        warn(key + ": write error: " + e.message);
+      }
+    }
+  }
+}
+
+// ─── Packet Capture ──────────────────────────────────────────────
+
+var stats = { captured: 0, bytes: 0 };
+
+function startCapture() {
+  log("Starting packet capture on " + WIFI_IFACE + "...");
+  log("Filtering: src " + DEVICE_IP + " → dst " + GEODNET_IP + ":" + GEODNET_PORT + " (UDP)");
+
+  // Use tcpdump to capture raw packets, pipe to our process
+  var tcpdump = spawn("tcpdump", [
+    "-i", WIFI_IFACE,
+    "-n",
+    "-l",          // line-buffered
+    "-B", "4096",  // buffer size
+    "-w", "-",     // write raw pcap to stdout
+    "src host " + DEVICE_IP + " and dst host " + GEODNET_IP + " and udp and dst port " + GEODNET_PORT,
+  ], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+
+  var buffer = Buffer.alloc(0);
+
+  tcpdump.stdout.on("data", function (chunk) {
+    buffer = Buffer.concat([buffer, chunk]);
+
+    // Parse pcap packets — skip the 24-byte global header on first read
+    // Each packet: 16-byte pcap header + 14-byte ethernet + 20-byte IP + 8-byte UDP + payload
+    while (buffer.length > 58) {
+      // pcap packet header: 4 bytes ts_sec, 4 ts_usec, 4 incl_len, 4 orig_len
+      if (buffer.length < 16) break;
+
+      var inclLen;
+      // Check if this is the global pcap header (magic number)
+      if (buffer.readUInt32LE(0) === 0xa1b2c3d4 || buffer.readUInt32BE(0) === 0xa1b2c3d4) {
+        // Skip 24-byte global header
+        buffer = buffer.slice(24);
+        continue;
+      }
+
+      inclLen = buffer.readUInt32LE(8);
+      var totalLen = 16 + inclLen;
+
+      if (buffer.length < totalLen) break;
+
+      // Extract the UDP payload
+      // pcap header (16) + ethernet (14) + IP header (20) + UDP header (8) = 58 bytes before payload
+      if (inclLen > 42) {
+        var ipHeaderLen = (buffer[16 + 14] & 0x0f) * 4;
+        var udpStart = 16 + 14 + ipHeaderLen;
+        var udpPayloadStart = udpStart + 8;
+        var udpLen = buffer.readUInt16BE(udpStart + 4);
+        var payloadLen = udpLen - 8;
+
+        if (payloadLen > 0 && udpPayloadStart + payloadLen <= totalLen) {
+          var payload = buffer.slice(udpPayloadStart, udpPayloadStart + payloadLen);
+
+          // Check for RTCM3 framing (starts with 0xD3)
+          if (payload[0] === 0xd3) {
+            stats.captured++;
+            stats.bytes += payload.length;
+
+            // Forward to all casters
+            forwardToCasters(payload);
+
+            // Record on BTCPC (every 30th packet to avoid flooding)
+            if (stats.captured % 30 === 0) {
+              recordOnBtcpc(payload);
+            }
+          }
+        }
+      }
+
+      buffer = buffer.slice(totalLen);
+    }
+  });
+
+  tcpdump.on("exit", function (code) {
+    warn("tcpdump exited with code " + code + " — restarting in 5s...");
+    setTimeout(startCapture, 5000);
+  });
+
+  return tcpdump;
+}
+
+// ─── BTCPC Chain Recording ───────────────────────────────────────
+
+function recordOnBtcpc(rtcmPayload) {
+  try {
+    var sensorRegistry = require("../src/services/sensorRegistry");
+    var sensorId = (process.env.BTCPC_MINER || "shindevlin") + "/gnss-base";
+
+    // Record RTCM frame metadata (not the raw bytes — just the type + size)
+    var rtcmType = ((rtcmPayload[1] & 0x03) << 10) | (rtcmPayload[2] << 2) | ((rtcmPayload[3] >> 6) & 0x03);
+
+    sensorRegistry.submitReading(sensorId, rtcmType, {
+      rtcm_type: rtcmType,
+      payload_bytes: rtcmPayload.length,
+      timestamp: Date.now(),
+    }, Math.floor(Date.now() / 30000)); // epoch = 30-second window
+  } catch (_) {}
+}
+
+// ─── Stats Logging ───────────────────────────────────────────────
+
+function logStats() {
+  var parts = ["captured=" + stats.captured + " bytes=" + stats.bytes];
+  for (var i = 0; i < CASTERS.length; i++) {
+    var key = CASTERS[i].name;
+    var conn = casterConnections[key];
+    var state = conn && conn.ready ? "streaming" : conn ? "connecting" : "disconnected";
+    parts.push(key + "=" + state + "(" + (stats[key] || 0) + "b)");
+  }
+  log(parts.join(" | "));
+}
+
+// ─── Main ────────────────────────────────────────────────────────
+
+function main() {
+  log("BTCPC GNSS Relay — RTCM3 Multi-Caster");
+  log("Device: " + DEVICE_IP);
+  log("Gateway: " + GATEWAY_IP);
+  log("Interface: " + WIFI_IFACE);
+  log("GEODNET: " + GEODNET_IP + ":" + GEODNET_PORT);
+  log("Casters: " + CASTERS.filter(function (c) { return c.enabled; }).map(function (c) { return c.name; }).join(", "));
+  log("");
+
+  // Start ARP spoofing
+  startArpSpoof();
+
+  // Connect to NTRIP casters
+  for (var i = 0; i < CASTERS.length; i++) {
+    connectCaster(CASTERS[i]);
+  }
+
+  // Start packet capture
+  setTimeout(function () {
+    startCapture();
+    log("Relay active — intercepting RTCM3 stream");
+  }, 3000);
+
+  // Stats every 30 seconds
+  setInterval(logStats, STATS_INTERVAL_MS);
+}
+
+// Graceful shutdown
+function shutdown(sig) {
+  log("Shutdown (" + sig + ")");
+  stopArpSpoof();
+  // Close caster connections
+  for (var key in casterConnections) {
+    if (casterConnections[key]) {
+      try { casterConnections[key].destroy(); } catch (_) {}
+    }
+  }
+  // Restore normal ARP
+  try {
+    execSync("sysctl -w net.ipv4.ip_forward=0", { stdio: "ignore" });
+  } catch (_) {}
+  process.exit(0);
+}
+
+process.on("SIGINT", function () { shutdown("SIGINT"); });
+process.on("SIGTERM", function () { shutdown("SIGTERM"); });
+
+main();
