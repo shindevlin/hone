@@ -740,6 +740,14 @@ async function mineEpoch(epochNumber) {
       totalWorkValue += work.work_value;
 
       console.log(`[BTCPC]   Work item ${i + 1} complete: ${work.tokens_generated} tokens, value=${work.work_value.toFixed(1)}`);
+
+      // Record work in protocol module so block proposals count it
+      try {
+        const protocolMod = require('../p2p/protocol');
+        if (protocolMod.recordMinerWork) {
+          protocolMod.recordMinerWork(MINER_ACCOUNT, work.prompt_hash, work.work_value, epochNumber);
+        }
+      } catch (_) {}
     } catch (err) {
       console.error(`[BTCPC]   Work item ${i + 1} failed: ${err.message}`);
     }
