@@ -95,8 +95,19 @@ canvas { display: block; width: 100%; height: 100%; }
 </head>
 <body>
 
+<!-- Navigation -->
+<div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:16px;">
+  <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;">BTCPC</a>
+  <a href="/globe" style="color:#22c55e;text-decoration:none;">Globe</a>
+  <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Dashboard</a>
+  <a href="/clock" style="color:#c8ccd4;text-decoration:none;">Clock</a>
+  <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
+  <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
+  <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
+</div>
+
 <!-- Stats bar -->
-<div id="stats-bar">
+<div id="stats-bar" style="top:30px;">
   <div class="stat-item">
     <span class="stat-label">Epoch</span>
     <span class="stat-value" id="s-epoch">--</span>
@@ -289,8 +300,8 @@ scene.add(flatMapGroup);
 // Dark ocean sphere
 const oceanGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
 const oceanMat = new THREE.MeshPhongMaterial({
-  color: 0x060a14,
-  emissive: 0x0a1020,
+  color: 0x020408,
+  emissive: 0x050810,
   transparent: true,
   opacity: 0.95,
   shininess: 5,
@@ -312,7 +323,7 @@ const atmosMat = new THREE.ShaderMaterial({
     varying vec3 vNormal;
     void main() {
       float intensity = pow(0.65 - dot(vNormal, vec3(0,0,1.0)), 2.0);
-      gl_FragColor = vec4(0.12, 0.28, 0.6, 1.0) * intensity * 1.2;
+      gl_FragColor = vec4(0.15, 0.35, 0.7, 1.0) * intensity * 1.8;
     }
   `,
   side: THREE.BackSide,
@@ -322,7 +333,7 @@ const atmosMat = new THREE.ShaderMaterial({
 globeGroup.add(new THREE.Mesh(atmosGeo, atmosMat));
 
 // Grid lines (subtle)
-const gridMat = new THREE.LineBasicMaterial({ color: 0x253060, transparent: true, opacity: 0.4 });
+const gridMat = new THREE.LineBasicMaterial({ color: 0x304070, transparent: true, opacity: 0.35 });
 for (let lat = -60; lat <= 60; lat += 30) {
   const pts = [];
   for (let lon = 0; lon <= 360; lon += 2) {
@@ -357,7 +368,7 @@ const continents = [
   [[-12,130],[-15,125],[-18,122],[-22,114],[-28,114],[-32,116],[-35,118],[-35,138],[-38,146],[-38,148],[-34,151],[-28,153],[-23,150],[-18,146],[-15,145],[-12,142],[-12,136],[-12,130]],
 ];
 
-const landMat = new THREE.LineBasicMaterial({ color: 0x3a5080, transparent: true, opacity: 0.7 });
+const landMat = new THREE.LineBasicMaterial({ color: 0x70a0d0, transparent: true, opacity: 0.9 });
 continents.forEach(poly => {
   const pts = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.002));
   pts.push(pts[0].clone()); // close the loop
@@ -366,7 +377,7 @@ continents.forEach(poly => {
 });
 
 // Filled landmass — subtle translucent fill by creating closed shape triangulations
-const landFillMat = new THREE.MeshBasicMaterial({ color: 0x1a2a45, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+const landFillMat = new THREE.MeshBasicMaterial({ color: 0x1a3a55, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
 continents.forEach(poly => {
   // Simple fan triangulation from centroid
   const pts3d = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.0015));
@@ -713,22 +724,40 @@ function fireRandomEffect() {
   const from = nodePositionMap[names[fromIdx]];
   const to = nodePositionMap[names[toIdx]];
 
-  if (roll < 0.45) {
-    // Inference arc (magenta)
-    const arc = createArc(from, to, 0xff00ff, 2, 0.8 + Math.random() * 0.6);
+  if (roll < 0.30) {
+    // Inference request (magenta laser)
+    const arc = createArc(from, to, 0xff00ff, 2.5, 1.0 + Math.random() * 0.8);
     arcObjects.push(arc);
-    addEvent('INFERENCE', `${names[fromIdx]} -> ${names[toIdx]}`);
-  } else if (roll < 0.75) {
-    // Storage trail (cyan)
+    const models = ['qwen3.5:9b','qwen2.5:0.5b','llama3:8b','deepseek-r1:8b'];
+    addEvent('INFERENCE', `${names[fromIdx]} → ${names[toIdx]} (${models[Math.floor(Math.random()*models.length)]})`);
+  } else if (roll < 0.50) {
+    // Storage sync (cyan stream)
     const trail = createStorageTrail(from, to);
     storageTrails.push(trail);
-    addEvent('STORAGE', `${names[fromIdx]} <-> ${names[toIdx]}`);
-  } else {
-    // Sensor pulse (amber)
+    const sizes = ['2.4MB','512KB','1.1MB','8.7MB','340KB'];
+    addEvent('STORAGE', `${names[fromIdx]} ↔ ${names[toIdx]} ${sizes[Math.floor(Math.random()*sizes.length)]}`);
+  } else if (roll < 0.65) {
+    // Sensor reading (amber pulse)
     const target = nodePositionMap[names[fromIdx]];
     const pulse = createSensorPulse(target.lat, target.lon);
     sensorPulses.push(pulse);
-    addEvent('SENSOR', `${names[fromIdx]} heartbeat`);
+    const types = ['subghz -92dBm','temp 42.3°C','ble 5 devices','air PM2.5=12','humidity 68%'];
+    addEvent('SENSOR', `${names[fromIdx]} ${types[Math.floor(Math.random()*types.length)]}`);
+  } else if (roll < 0.80) {
+    // Clock heartbeat (green arc, fast)
+    const arc = createArc(from, to, 0x22c55e, 1.5, 1.5 + Math.random() * 0.5);
+    arcObjects.push(arc);
+    addEvent('CLOCK', `${names[fromIdx]} epoch heartbeat`);
+  } else if (roll < 0.92) {
+    // Verification (yellow arc)
+    const arc = createArc(from, to, 0xfbbf24, 1.5, 0.6 + Math.random() * 0.4);
+    arcObjects.push(arc);
+    addEvent('VERIFY', `${names[toIdx]} verifying ${names[fromIdx]}`);
+  } else {
+    // P2P relay (dim white)
+    const arc = createArc(from, to, 0x667788, 1, 2.0);
+    arcObjects.push(arc);
+    addEvent('P2P', `peer sync ${names[fromIdx]} ↔ ${names[toIdx]}`);
   }
 }
 
@@ -839,8 +868,8 @@ function latLonToFlat(lat, lon) {
 }
 
 // Continent outlines on flat map
-const flatLandMat = new THREE.LineBasicMaterial({ color: 0x3a5080, transparent: true, opacity: 0.7 });
-const flatLandFillMat = new THREE.MeshBasicMaterial({ color: 0x1a2a45, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+const flatLandMat = new THREE.LineBasicMaterial({ color: 0x70a0d0, transparent: true, opacity: 0.9 });
+const flatLandFillMat = new THREE.MeshBasicMaterial({ color: 0x1a3a55, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
 
 continents.forEach(poly => {
   // Outline
@@ -1051,9 +1080,11 @@ function animate() {
 
   // Fire periodic effects
   effectTimer += dt;
-  if (effectTimer > 1.5 + Math.random() * 1.5) {
+  if (effectTimer > 0.4 + Math.random() * 0.6) {
     effectTimer = 0;
     fireRandomEffect();
+    // Fire multiple effects per tick for busy network feel
+    if (Math.random() < 0.5) fireRandomEffect();
   }
 
   // Matrix rain
