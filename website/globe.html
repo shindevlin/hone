@@ -181,7 +181,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 // ============================================================
 const GLOBE_RADIUS = 5;
 const ARC_HEIGHT = 1.8;
-const HUB_SIZE = 0.12;
+const HUB_SIZE = 0.18;
 const ROTATION_SPEED = 0.05 * Math.PI * 2 / 60; // 0.05 RPM
 const COORDINATE_FUZZ_KM = 50;
 const API_BASE = location.origin;
@@ -265,11 +265,15 @@ composer.addPass(bloomPass);
 // ============================================================
 // LIGHTING
 // ============================================================
-const ambientLight = new THREE.AmbientLight(0x222244, 0.5);
+const ambientLight = new THREE.AmbientLight(0x334466, 0.8);
 scene.add(ambientLight);
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.3);
 dirLight.position.set(5, 3, 5);
 scene.add(dirLight);
+// Fill light so dark side isn't completely black
+const fillLight = new THREE.DirectionalLight(0x1a2a4a, 0.4);
+fillLight.position.set(-5, -2, -5);
+scene.add(fillLight);
 
 // ============================================================
 // GLOBE — procedural landmass via lat/lon point cloud
@@ -277,11 +281,16 @@ scene.add(dirLight);
 const globeGroup = new THREE.Group();
 scene.add(globeGroup);
 
+// Flat map group (populated later, declared here to avoid temporal dead zone)
+const flatMapGroup = new THREE.Group();
+flatMapGroup.visible = false;
+scene.add(flatMapGroup);
+
 // Dark ocean sphere
 const oceanGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
 const oceanMat = new THREE.MeshPhongMaterial({
-  color: 0x0a0e17,
-  emissive: 0x050811,
+  color: 0x060a14,
+  emissive: 0x0a1020,
   transparent: true,
   opacity: 0.95,
   shininess: 5,
@@ -303,7 +312,7 @@ const atmosMat = new THREE.ShaderMaterial({
     varying vec3 vNormal;
     void main() {
       float intensity = pow(0.65 - dot(vNormal, vec3(0,0,1.0)), 2.0);
-      gl_FragColor = vec4(0.12, 0.28, 0.6, 1.0) * intensity * 0.6;
+      gl_FragColor = vec4(0.12, 0.28, 0.6, 1.0) * intensity * 1.2;
     }
   `,
   side: THREE.BackSide,
@@ -313,7 +322,7 @@ const atmosMat = new THREE.ShaderMaterial({
 globeGroup.add(new THREE.Mesh(atmosGeo, atmosMat));
 
 // Grid lines (subtle)
-const gridMat = new THREE.LineBasicMaterial({ color: 0x1a2040, transparent: true, opacity: 0.3 });
+const gridMat = new THREE.LineBasicMaterial({ color: 0x253060, transparent: true, opacity: 0.4 });
 for (let lat = -60; lat <= 60; lat += 30) {
   const pts = [];
   for (let lon = 0; lon <= 360; lon += 2) {
@@ -348,7 +357,7 @@ const continents = [
   [[-12,130],[-15,125],[-18,122],[-22,114],[-28,114],[-32,116],[-35,118],[-35,138],[-38,146],[-38,148],[-34,151],[-28,153],[-23,150],[-18,146],[-15,145],[-12,142],[-12,136],[-12,130]],
 ];
 
-const landMat = new THREE.LineBasicMaterial({ color: 0x2a3050, transparent: true, opacity: 0.5 });
+const landMat = new THREE.LineBasicMaterial({ color: 0x3a5080, transparent: true, opacity: 0.7 });
 continents.forEach(poly => {
   const pts = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.002));
   pts.push(pts[0].clone()); // close the loop
@@ -357,7 +366,7 @@ continents.forEach(poly => {
 });
 
 // Filled landmass — subtle translucent fill by creating closed shape triangulations
-const landFillMat = new THREE.MeshBasicMaterial({ color: 0x151d30, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+const landFillMat = new THREE.MeshBasicMaterial({ color: 0x1a2a45, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
 continents.forEach(poly => {
   // Simple fan triangulation from centroid
   const pts3d = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.0015));
@@ -464,23 +473,39 @@ function createNodeHub(name, lat, lon, roles) {
   group.add(hex);
 
   // Glow ring
-  const ringGeo = new THREE.RingGeometry(HUB_SIZE * 1.2, HUB_SIZE * 1.8, 6);
-  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+  const ringGeo = new THREE.RingGeometry(HUB_SIZE * 1.2, HUB_SIZE * 2.2, 6);
+  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.position.z = 0.01;
   group.add(ring);
 
   // Pulse ring (animated)
-  const pulseGeo = new THREE.RingGeometry(HUB_SIZE * 0.5, HUB_SIZE * 2.5, 32);
-  const pulseMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+  const pulseGeo = new THREE.RingGeometry(HUB_SIZE * 0.5, HUB_SIZE * 3.5, 32);
+  const pulseMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
   const pulse = new THREE.Mesh(pulseGeo, pulseMat);
   pulse.position.z = 0.02;
   group.add(pulse);
 
   // Point light for glow
-  const pointLight = new THREE.PointLight(color, 0.5, 2);
+  const pointLight = new THREE.PointLight(color, 0.8, 3);
   pointLight.position.z = 0.1;
   group.add(pointLight);
+
+  // Account name label (sprite)
+  const labelCanvas = document.createElement('canvas');
+  labelCanvas.width = 256;
+  labelCanvas.height = 64;
+  const ctx = labelCanvas.getContext('2d');
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.font = 'bold 28px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText(name, 128, 38);
+  const labelTexture = new THREE.CanvasTexture(labelCanvas);
+  const labelMat = new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.85, depthTest: false });
+  const label = new THREE.Sprite(labelMat);
+  label.scale.set(1.2, 0.3, 1);
+  label.position.z = 0.3;
+  group.add(label);
 
   group.userData = { name, lat, lon, roles, pulse, pulseMat, ring, ringMat, phase: Math.random() * Math.PI * 2 };
   globeGroup.add(group);
@@ -632,11 +657,15 @@ function updateLeaderboard(d) {
 // REBUILD NODES FROM DATA
 // ============================================================
 let nodePositionMap = {};
+let flatNodeObjects = [];  // forward declaration — populated after flatMapGroup is created
 
 function rebuildNodes() {
-  // Clear existing nodes
+  // Clear existing globe nodes
   nodeObjects.forEach(n => globeGroup.remove(n));
   nodeObjects = [];
+  // Clear existing flat nodes
+  flatNodeObjects.forEach(n => flatMapGroup.remove(n));
+  flatNodeObjects = [];
   nodePositionMap = {};
 
   // Gather accounts
@@ -661,6 +690,9 @@ function rebuildNodes() {
     nodePositionMap[acc.name] = pos;
     const hub = createNodeHub(acc.name, pos.lat, pos.lon, acc.roles);
     nodeObjects.push(hub);
+    // Also create flat map node
+    const flatHub = createFlatNodeHub(acc.name, pos.lat, pos.lon, acc.roles);
+    flatNodeObjects.push(flatHub);
   });
 }
 
@@ -761,28 +793,156 @@ function drawMatrix() {
 initMatrix();
 
 // ============================================================
+// FLAT MAP GROUP — equirectangular projection on a plane
+// (flatMapGroup declared earlier with globeGroup)
+// ============================================================
+const FLAT_W = 14;  // width of the flat map rectangle
+const FLAT_H = 7;   // height
+
+// Dark background plane
+const flatBgGeo = new THREE.PlaneGeometry(FLAT_W, FLAT_H);
+const flatBgMat = new THREE.MeshBasicMaterial({ color: 0x060a14, side: THREE.DoubleSide });
+const flatBgMesh = new THREE.Mesh(flatBgGeo, flatBgMat);
+flatMapGroup.add(flatBgMesh);
+
+// Border
+const flatBorderPts = [
+  new THREE.Vector3(-FLAT_W/2, -FLAT_H/2, 0.001),
+  new THREE.Vector3( FLAT_W/2, -FLAT_H/2, 0.001),
+  new THREE.Vector3( FLAT_W/2,  FLAT_H/2, 0.001),
+  new THREE.Vector3(-FLAT_W/2,  FLAT_H/2, 0.001),
+  new THREE.Vector3(-FLAT_W/2, -FLAT_H/2, 0.001),
+];
+const flatBorderGeo = new THREE.BufferGeometry().setFromPoints(flatBorderPts);
+const flatBorderMat = new THREE.LineBasicMaterial({ color: 0x3a5080, transparent: true, opacity: 0.6 });
+flatMapGroup.add(new THREE.Line(flatBorderGeo, flatBorderMat));
+
+// Grid lines on flat map
+const flatGridMat = new THREE.LineBasicMaterial({ color: 0x253060, transparent: true, opacity: 0.3 });
+for (let lat = -60; lat <= 60; lat += 30) {
+  const y = (lat / 90) * (FLAT_H / 2);
+  const pts = [new THREE.Vector3(-FLAT_W/2, y, 0.001), new THREE.Vector3(FLAT_W/2, y, 0.001)];
+  flatMapGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), flatGridMat));
+}
+for (let lon = -180; lon < 180; lon += 30) {
+  const x = (lon / 180) * (FLAT_W / 2);
+  const pts = [new THREE.Vector3(x, -FLAT_H/2, 0.001), new THREE.Vector3(x, FLAT_H/2, 0.001)];
+  flatMapGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), flatGridMat));
+}
+
+function latLonToFlat(lat, lon) {
+  return new THREE.Vector3(
+    (lon / 180) * (FLAT_W / 2),
+    (lat / 90) * (FLAT_H / 2),
+    0.002
+  );
+}
+
+// Continent outlines on flat map
+const flatLandMat = new THREE.LineBasicMaterial({ color: 0x3a5080, transparent: true, opacity: 0.7 });
+const flatLandFillMat = new THREE.MeshBasicMaterial({ color: 0x1a2a45, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+
+continents.forEach(poly => {
+  // Outline
+  const pts = poly.map(([lat, lon]) => latLonToFlat(lat, lon));
+  pts.push(pts[0].clone());
+  flatMapGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), flatLandMat));
+
+  // Fill
+  const pts2d = poly.map(([lat, lon]) => latLonToFlat(lat, lon));
+  const centroid = new THREE.Vector3();
+  pts2d.forEach(p => centroid.add(p));
+  centroid.divideScalar(pts2d.length);
+  centroid.z = 0.0015;
+
+  const verts = [];
+  for (let i = 0; i < pts2d.length; i++) {
+    const next = (i + 1) % pts2d.length;
+    verts.push(centroid.x, centroid.y, centroid.z);
+    verts.push(pts2d[i].x, pts2d[i].y, pts2d[i].z);
+    verts.push(pts2d[next].x, pts2d[next].y, pts2d[next].z);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  flatMapGroup.add(new THREE.Mesh(geo, flatLandFillMat));
+});
+
+// Flat node hubs (createFlatNodeHub) — flatNodeObjects declared earlier
+
+function createFlatNodeHub(name, lat, lon, roles) {
+  const group = new THREE.Group();
+  let color = 0xf7931a;
+  if (roles.includes('miner')) color = 0xff00ff;
+  else if (roles.includes('clock')) color = 0x22c55e;
+  else if (roles.includes('storage')) color = 0x00ffff;
+
+  const pos = latLonToFlat(lat, lon);
+  group.position.copy(pos);
+
+  // Hex marker (flat, facing camera)
+  const hexGeo = createHexagonGeometry(HUB_SIZE, 0.01);
+  const hexMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+  group.add(new THREE.Mesh(hexGeo, hexMat));
+
+  // Pulse ring
+  const pulseGeo = new THREE.RingGeometry(HUB_SIZE * 0.5, HUB_SIZE * 3.5, 32);
+  const pulseMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+  const pulse = new THREE.Mesh(pulseGeo, pulseMat);
+  pulse.position.z = 0.01;
+  group.add(pulse);
+
+  // Point light
+  const pointLight = new THREE.PointLight(color, 0.8, 3);
+  pointLight.position.z = 0.1;
+  group.add(pointLight);
+
+  // Label
+  const labelCanvas = document.createElement('canvas');
+  labelCanvas.width = 256;
+  labelCanvas.height = 64;
+  const ctx = labelCanvas.getContext('2d');
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.font = 'bold 28px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText(name, 128, 38);
+  const labelTexture = new THREE.CanvasTexture(labelCanvas);
+  const labelMat = new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.85, depthTest: false });
+  const label = new THREE.Sprite(labelMat);
+  label.scale.set(1.2, 0.3, 1);
+  label.position.z = 0.2;
+  group.add(label);
+
+  group.userData = { name, lat, lon, roles, pulse, pulseMat, phase: Math.random() * Math.PI * 2 };
+  flatMapGroup.add(group);
+  return group;
+}
+
+// ============================================================
 // PROJECTION TOGGLE
 // ============================================================
-let targetFlatten = 0; // 0 = globe, 1 = flat
 window.setProjection = function(mode) {
   is3D = mode === '3d';
-  targetFlatten = is3D ? 0 : 1;
   document.getElementById('btn-3d').classList.toggle('active', is3D);
   document.getElementById('btn-2d').classList.toggle('active', !is3D);
-  if (!is3D) {
-    controls.enableRotate = false;
-    camera.position.set(0, 0, 16);
+  if (is3D) {
+    globeGroup.visible = true;
+    flatMapGroup.visible = false;
+    controls.enableRotate = true;
+    camera.position.set(0, 2, 14);
     camera.lookAt(0, 0, 0);
   } else {
-    controls.enableRotate = true;
+    globeGroup.visible = false;
+    flatMapGroup.visible = true;
+    controls.enableRotate = false;
+    camera.position.set(0, 0, 12);
+    camera.lookAt(0, 0, 0);
   }
 };
 
 // ============================================================
 // ANIMATION LOOP
 // ============================================================
-let currentFlatten = 0;
-
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
@@ -795,10 +955,7 @@ function animate() {
 
   controls.update();
 
-  // Flatten interpolation
-  currentFlatten += (targetFlatten - currentFlatten) * 0.03;
-
-  // Animate node pulses
+  // Animate node pulses (globe)
   nodeObjects.forEach(node => {
     const ud = node.userData;
     const t = elapsed + ud.phase;
@@ -809,6 +966,17 @@ function animate() {
     }
     if (ud.ringMat) {
       ud.ringMat.opacity = 0.2 + 0.2 * Math.abs(Math.sin(t * 1.5 + 1));
+    }
+  });
+
+  // Animate flat map node pulses
+  flatNodeObjects.forEach(node => {
+    const ud = node.userData;
+    const t = elapsed + ud.phase;
+    const scale = 1 + 0.3 * Math.sin(t * 2);
+    if (ud.pulse) {
+      ud.pulse.scale.set(scale, scale, 1);
+      ud.pulseMat.opacity = 0.3 + 0.3 * Math.abs(Math.sin(t * 2));
     }
   });
 
