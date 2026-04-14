@@ -5,10 +5,10 @@
  * btcpc-setup — Auto-detect hardware, configure, and start the right nodes
  * Shin Devlin
  *
- * Detects: GPU (VRAM), CPU cores, RAM, OS, disk space
- * Decides: miner (needs GPU), clock (anything), explorer (optional)
- * Creates: .env.local with proper config
- * Starts: the appropriate processes
+ * Detects: GPU (VRAM), CPU cores, RAM, OS, disk space, network peers
+ * Decides: miner (needs GPU), clock (anything), storage, verifier, gateway, sensor
+ * Creates: .env with proper config
+ * Starts: the appropriate processes via btcpc-all
  *
  * Usage: node bin/btcpc-setup
  */
@@ -177,13 +177,500 @@ function detectDisk() {
   return { totalGB: 0, freeGB: 0 };
 }
 
+function detectOS() {
+  var platform = os.platform();
+  var release = os.release();
+  var name = platform;
+
+  // Friendly OS name
+  if (platform === "linux") {
+    try {
+      var osRelease = fs.readFileSync("/etc/os-release", "utf8");
+      var pretty = osRelease.match(/PRETTY_NAME="([^"]+)"/);
+      if (pretty) name = pretty[1];
+    } catch (_) {
+      name = "Linux " + release;
+    }
+  } else if (platform === "darwin") {
+    try {
+      var ver = execSync("sw_vers -productVersion", { encoding: "utf8", timeout: 3000 }).trim();
+      name = "macOS " + ver;
+    } catch (_) {
+      name = "macOS";
+    }
+  } else if (platform === "win32") {
+    name = "Windows " + release;
+  }
+
+  // WSL detection
+  var isWSL = false;
+  if (platform === "linux") {
+    try {
+      var uname = execSync("uname -r", { encoding: "utf8", timeout: 3000 }).trim().toLowerCase();
+      if (uname.includes("microsoft") || uname.includes("wsl")) isWSL = true;
+    } catch (_) {}
+    if (!isWSL) {
+      try {
+        if (fs.existsSync("/proc/sys/fs/binfmt_misc/WSLInterop")) isWSL = true;
+      } catch (_) {}
+    }
+  }
+
+  return { name: name, platform: platform, release: release, isWSL: isWSL };
+}
+
+function detectNetwork() {
+  var interfaces = os.networkInterfaces();
+  var localIP = null;
+  var subnet = null;
+
+  // Find primary local IP
+  var ifNames = Object.keys(interfaces);
+  for (var i = 0; i < ifNames.length; i++) {
+    var addrs = interfaces[ifNames[i]];
+    for (var j = 0; j < addrs.length; j++) {
+      var addr = addrs[j];
+      if (addr.family === "IPv4" && !addr.internal) {
+        localIP = addr.address;
+        // Derive /24 subnet
+        var octets = localIP.split(".");
+        subnet = octets[0] + "." + octets[1] + "." + octets[2];
+        break;
+      }
+    }
+    if (localIP) break;
+  }
+
+  // Count known BTCPC peers via seed
+  var peerCount = 0;
+  try {
+    var peersRaw = execSync("curl -s --connect-timeout 2 http://localhost:3000/api/peers 2>/dev/null || echo '[]'", {
+      encoding: "utf8", timeout: 5000, windowsHide: true
+    });
+    var peers = JSON.parse(peersRaw);
+    if (Array.isArray(peers)) peerCount = peers.length;
+  } catch (_) {}
+
+  return { localIP: localIP || "unknown", subnet: subnet, peerCount: peerCount };
+}
+
+function detectLoRaHardware() {
+  // Check for LoRa/sensor hardware indicators
+  try {
+    // Check for common LoRa USB devices
+    if (os.platform() !== "win32") {
+      var usb = execSync("ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || true", {
+        encoding: "utf8", timeout: 3000
+      }).trim();
+      if (usb) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function detectGPIOSensors() {
+  // Check for GPIO/sensor availability (Raspberry Pi, etc.)
+  try {
+    if (fs.existsSync("/sys/class/gpio")) return true;
+    if (fs.existsSync("/dev/i2c-1")) return true;
+  } catch (_) {}
+  return false;
+}
+
+// ─── Hardware Summary Display ───────────────────────────────────
+
+function displayHardwareSummary(hw) {
+  console.log("");
+  console.log("  === Your Hardware ===");
+  console.log("  CPU:     " + hw.cpu.model + " (" + hw.cpu.cores + " cores)");
+  console.log("  RAM:     " + hw.ram.totalGB + " GB (" + hw.ram.freeGB + " GB available)");
+  if (hw.gpu.available) {
+    console.log("  GPU:     " + hw.gpu.name + " (" + hw.gpu.vramGB + " GB VRAM)");
+  } else {
+    console.log("  GPU:     none detected");
+  }
+  console.log("  Disk:    " + hw.disk.freeGB + " GB available");
+  console.log("  Network: " + hw.network.localIP + " (" + hw.network.peerCount + " peers visible)");
+  console.log("  OS:      " + hw.osInfo.name + " (WSL: " + (hw.osInfo.isWSL ? "yes" : "no") + ")");
+  console.log("  Ollama:  " + (hw.ollama.running ? "running (" + hw.ollama.models.length + " models)" : "not running"));
+  console.log("");
+}
+
+// ─── Role Selection ─────────────────────────────────────────────
+
+var ROLES = [
+  {
+    id: "clock",
+    name: "Clock Node",
+    ram: "~50 MB RAM, minimal CPU",
+    desc: "Keeps network time alive. Lightest role. Every device should run this.",
+    alwaysOn: true,
+    recommend: function () { return true; }
+  },
+  {
+    id: "miner",
+    name: "Miner",
+    ram: "~2-8 GB RAM/VRAM, heavy CPU/GPU",
+    desc: "AI inference for the network. Requires Ollama. Bigger models = more earnings.",
+    alwaysOn: false,
+    recommend: function (hw) { return hw.gpu.available || hw.ram.totalGB >= 8; }
+  },
+  {
+    id: "storage",
+    name: "Storage Host",
+    ram: "~100 MB RAM, uses disk space",
+    desc: "Host files for the network. Set max disk allocation below.",
+    alwaysOn: false,
+    recommend: function (hw) { return hw.disk.freeGB > 50; }
+  },
+  {
+    id: "verifier",
+    name: "Verifier",
+    ram: "~200 MB RAM, moderate CPU",
+    desc: "Verify other miners' work. Earn 10% pool.",
+    alwaysOn: false,
+    recommend: function (hw) { return hw.cpu.cores >= 4; }
+  },
+  {
+    id: "gateway",
+    name: "Gateway",
+    ram: "~100 MB RAM, needs LoRa/sensors",
+    desc: "Relay IoT sensor data. Requires hardware sensors.",
+    alwaysOn: false,
+    recommend: function (hw) { return hw.hasLoRa; }
+  },
+  {
+    id: "sensor",
+    name: "Sensor Node",
+    ram: "~50 MB RAM, needs GPIO/USB sensors",
+    desc: "Report environmental data. Earns from IoT pool.",
+    alwaysOn: false,
+    recommend: function (hw) { return hw.hasGPIO; }
+  }
+];
+
+async function selectRoles(hw) {
+  console.log("  === What do you want this node to do? ===");
+  console.log("");
+  console.log("  Each role earns BTCPC. You can run multiple roles.");
+  console.log("  Resource usage shown per role.");
+  console.log("");
+
+  for (var i = 0; i < ROLES.length; i++) {
+    var role = ROLES[i];
+    var recommended = role.alwaysOn || role.recommend(hw);
+    var marker = recommended ? "+" : " ";
+    var num = i + 1;
+    console.log("  [" + num + "] " + marker + " " + role.name.padEnd(18) + "(" + role.ram + ")");
+    console.log("      " + role.desc);
+    console.log("");
+  }
+
+  console.log("  + = recommended for your hardware. Clock is always on.");
+  console.log("");
+
+  // Build default selection: clock always, plus recommended roles
+  var defaults = [];
+  for (var r = 0; r < ROLES.length; r++) {
+    if (ROLES[r].alwaysOn || ROLES[r].recommend(hw)) {
+      defaults.push(r + 1);
+    }
+  }
+  var defaultStr = defaults.join(",");
+
+  var answer = await ask("Enter selections (e.g., 1,2,3 or \"all\") [" + defaultStr + "]:", defaultStr);
+
+  if (answer === "all") {
+    return ROLES.map(function (r) { return r.id; });
+  }
+
+  // Parse comma/space separated numbers
+  var selections = answer.split(/[,\s]+/).map(function (s) { return parseInt(s); }).filter(function (n) { return n >= 1 && n <= ROLES.length; });
+
+  if (selections.length === 0) {
+    selections = defaults;
+  }
+
+  // Always include clock
+  var roleIds = selections.map(function (n) { return ROLES[n - 1].id; });
+  if (roleIds.indexOf("clock") === -1) roleIds.unshift("clock");
+
+  return roleIds;
+}
+
+// ─── Resource Limits ────────────────────────────────────────────
+
+async function configureResourceLimits(hw, selectedRoles) {
+  console.log("  === Resource Limits ===");
+  console.log("");
+  console.log("  Set maximum resources this node can use.");
+  console.log("");
+
+  var limits = {
+    maxRamGB: null,
+    maxVramGB: null,
+    maxStorageGB: null,
+    maxCpuPct: null
+  };
+
+  // General CPU limit
+  var cpuDefault = hw.cpu.cores <= 4 ? "50" : "75";
+  var cpuAnswer = await ask("Max total CPU usage [25/50/75/100] (" + cpuDefault + "%):", cpuDefault);
+  var cpuVal = parseInt(cpuAnswer);
+  if (cpuVal && cpuVal >= 10 && cpuVal <= 100) {
+    limits.maxCpuPct = cpuVal;
+  } else {
+    limits.maxCpuPct = parseInt(cpuDefault);
+  }
+
+  // Miner limits
+  if (selectedRoles.indexOf("miner") !== -1) {
+    console.log("");
+    log("Miner resource limits:");
+
+    // RAM for inference
+    var ramDefault = "auto";
+    if (hw.ram.totalGB >= 32) ramDefault = "16";
+    else if (hw.ram.totalGB >= 16) ramDefault = "8";
+    else ramDefault = "4";
+
+    var ramAnswer = await ask("Max RAM for inference [auto/" + ramDefault + "GB]: (" + ramDefault + "):", ramDefault);
+    if (ramAnswer === "auto") {
+      limits.maxRamGB = Math.floor(hw.ram.totalGB * 0.6);
+    } else {
+      var ramVal = parseInt(ramAnswer);
+      if (ramVal && ramVal >= 2) {
+        limits.maxRamGB = ramVal;
+      } else {
+        limits.maxRamGB = parseInt(ramDefault);
+      }
+    }
+
+    // VRAM limit (only if GPU present)
+    if (hw.gpu.available) {
+      var vramDefault = String(Math.floor(hw.gpu.vramGB));
+      var vramAnswer = await ask("Max VRAM [auto/" + vramDefault + "GB]: (" + vramDefault + "):", vramDefault);
+      if (vramAnswer === "auto") {
+        limits.maxVramGB = Math.floor(hw.gpu.vramGB);
+      } else {
+        var vramVal = parseInt(vramAnswer);
+        if (vramVal && vramVal >= 2) {
+          limits.maxVramGB = vramVal;
+        } else {
+          limits.maxVramGB = Math.floor(hw.gpu.vramGB);
+        }
+      }
+    }
+  }
+
+  // Storage limits
+  if (selectedRoles.indexOf("storage") !== -1) {
+    console.log("");
+    log("Storage host limits:");
+
+    var storDefault = "50";
+    if (hw.disk.freeGB >= 200) storDefault = "100";
+    else if (hw.disk.freeGB >= 100) storDefault = "50";
+    else storDefault = "10";
+
+    var storAnswer = await ask("Max disk space for BTCPC files [10/50/100/unlimited] (" + storDefault + "GB):", storDefault);
+    if (storAnswer === "unlimited") {
+      limits.maxStorageGB = 0; // 0 = unlimited
+    } else {
+      var storVal = parseInt(storAnswer);
+      if (storVal && storVal >= 1) {
+        limits.maxStorageGB = storVal;
+      } else {
+        limits.maxStorageGB = parseInt(storDefault);
+      }
+    }
+  }
+
+  console.log("");
+  log("Resource limits set:");
+  log("  CPU:     " + limits.maxCpuPct + "%");
+  if (limits.maxRamGB) log("  RAM:     " + limits.maxRamGB + " GB");
+  if (limits.maxVramGB) log("  VRAM:    " + limits.maxVramGB + " GB");
+  if (limits.maxStorageGB !== null && limits.maxStorageGB !== undefined) {
+    log("  Storage: " + (limits.maxStorageGB === 0 ? "unlimited" : limits.maxStorageGB + " GB"));
+  }
+
+  return limits;
+}
+
+// ─── Network Scan ───────────────────────────────────────────────
+
+async function networkScan(hw, selectedRoles) {
+  console.log("");
+  console.log("  === Network Discovery ===");
+  console.log("");
+
+  var answer = await ask("Scan local network for BTCPC-compatible devices? (y/n):", "y");
+  if (answer !== "y" && answer !== "yes") {
+    log("Skipping network scan.");
+    return [];
+  }
+
+  if (!hw.network.subnet) {
+    log("Could not determine local subnet. Skipping scan.");
+    return [];
+  }
+
+  log("Scanning " + hw.network.subnet + ".0/24 ...");
+
+  var found = [];
+  var subnet = hw.network.subnet;
+
+  // Quick ping sweep — scan a subset for speed, check common device IPs
+  // We scan in parallel using a background fping or sequential fast pings
+  var aliveHosts = [];
+  try {
+    // Try fping first (fast parallel ping)
+    var fpingResult = execSync(
+      "fping -a -q -g " + subnet + ".1 " + subnet + ".254 2>/dev/null || true",
+      { encoding: "utf8", timeout: 15000, windowsHide: true }
+    ).trim();
+    if (fpingResult) {
+      aliveHosts = fpingResult.split("\n").filter(function (l) { return l.trim(); });
+    }
+  } catch (_) {
+    // Fallback: quick sequential ping of common ranges
+    try {
+      var pingResult = execSync(
+        "for i in $(seq 1 254); do (ping -c 1 -W 1 " + subnet + ".$i >/dev/null 2>&1 && echo " + subnet + ".$i) & done; wait",
+        { encoding: "utf8", timeout: 20000, windowsHide: true, shell: "/bin/bash" }
+      ).trim();
+      if (pingResult) {
+        aliveHosts = pingResult.split("\n").filter(function (l) { return l.trim(); });
+      }
+    } catch (_) {}
+  }
+
+  // Skip our own IP
+  aliveHosts = aliveHosts.filter(function (ip) { return ip !== hw.network.localIP; });
+
+  log("Found " + aliveHosts.length + " device(s) on local network.");
+
+  // Probe each alive host for BTCPC node (port 3000 or 6942) and known devices
+  for (var i = 0; i < aliveHosts.length; i++) {
+    var ip = aliveHosts[i].trim();
+    var device = { ip: ip, type: "Unknown device", btcpc: null };
+
+    // Check for BTCPC node on port 3000
+    try {
+      var nodeInfo = execSync(
+        "curl -s --connect-timeout 1 http://" + ip + ":3000/api/node-info 2>/dev/null || true",
+        { encoding: "utf8", timeout: 3000, windowsHide: true }
+      ).trim();
+      if (nodeInfo && nodeInfo.startsWith("{")) {
+        var info = JSON.parse(nodeInfo);
+        device.btcpc = {
+          account: info.account || info.miner || "unknown",
+          roles: info.roles || []
+        };
+        device.type = "BTCPC node";
+      }
+    } catch (_) {}
+
+    // Check for BTCPC node on port 6942 (P2P)
+    if (!device.btcpc) {
+      try {
+        var p2pCheck = execSync(
+          "curl -s --connect-timeout 1 http://" + ip + ":6942/ 2>/dev/null || true",
+          { encoding: "utf8", timeout: 3000, windowsHide: true }
+        ).trim();
+        if (p2pCheck && p2pCheck.length > 0) {
+          device.type = "BTCPC P2P node (possible)";
+        }
+      } catch (_) {}
+    }
+
+    // Check for Hyfix GNSS base station (port 80)
+    try {
+      var httpCheck = execSync(
+        "curl -s --connect-timeout 1 http://" + ip + "/ 2>/dev/null | head -c 500 || true",
+        { encoding: "utf8", timeout: 3000, windowsHide: true }
+      ).trim();
+      if (httpCheck) {
+        if (/hyfix/i.test(httpCheck) || /gnss/i.test(httpCheck) || /ntrip/i.test(httpCheck)) {
+          device.type = "Hyfix GNSS base station (sensor data available)";
+        } else if (/raspberry/i.test(httpCheck) || /raspberrypi/i.test(httpCheck)) {
+          device.type = "Raspberry Pi";
+        }
+      }
+    } catch (_) {}
+
+    // Identify Raspberry Pi via mDNS/hostname heuristics
+    if (device.type === "Unknown device") {
+      try {
+        var arpLine = execSync(
+          "arp -a " + ip + " 2>/dev/null || true",
+          { encoding: "utf8", timeout: 2000, windowsHide: true }
+        ).trim();
+        // Raspberry Pi MACs start with b8:27:eb, dc:a6:32, e4:5f:01, or d8:3a:dd
+        if (/b8:27:eb|dc:a6:32|e4:5f:01|d8:3a:dd/i.test(arpLine)) {
+          device.type = "Raspberry Pi";
+        }
+      } catch (_) {}
+    }
+
+    found.push(device);
+  }
+
+  // Display results
+  if (found.length > 0) {
+    console.log("");
+    console.log("  Found:");
+    for (var f = 0; f < found.length; f++) {
+      var d = found[f];
+      var label = "  " + d.ip + " -- " + d.type;
+      if (d.btcpc) {
+        label += " (" + d.btcpc.account;
+        if (d.btcpc.roles.length > 0) label += ", " + d.btcpc.roles.join("+");
+        label += ")";
+      } else {
+        label += " (no BTCPC)";
+      }
+      console.log(label);
+    }
+
+    // Recommendations
+    console.log("");
+    console.log("  Recommendations:");
+    var hasHyfix = found.some(function (d) { return d.type.includes("Hyfix"); });
+    var hasPi = found.some(function (d) { return d.type.includes("Raspberry Pi"); });
+
+    if (hasHyfix) {
+      var hyfixDev = found.find(function (d) { return d.type.includes("Hyfix"); });
+      console.log("  - The Hyfix at " + hyfixDev.ip + " can provide GNSS correction data to the network");
+    }
+    if (hasPi && selectedRoles.indexOf("miner") !== -1) {
+      console.log("  - Raspberry Pis on your network can run as clock+storage nodes");
+    }
+    if (hw.gpu.available && selectedRoles.indexOf("miner") !== -1) {
+      var tier = getModelTier(hw);
+      if (tier === "medium" || tier === "small") {
+        console.log("  - Your GPU could earn more with a larger model (qwen3.5:27b recommended)");
+      }
+    }
+    if (found.length > 0 && !found.some(function (d) { return d.btcpc; })) {
+      console.log("  - No other BTCPC nodes found — you'll be the first on this network!");
+    }
+  } else {
+    log("No other devices found on local network.");
+  }
+  console.log("");
+
+  return found;
+}
+
 // ─── Ollama Installation ─────────────────────────────────────────
 
 function canRunOllama(hw) {
   // Needs at least 4GB RAM for smallest model
   if (hw.ram.totalGB < 4) return { can: false, reason: "Need at least 4GB RAM (have " + hw.ram.totalGB + "GB)" };
   // Supported OS
-  if (hw.platform !== "linux" && hw.platform !== "darwin" && hw.platform !== "win32") {
+  if (hw.osInfo.platform !== "linux" && hw.osInfo.platform !== "darwin" && hw.osInfo.platform !== "win32") {
     return { can: false, reason: "Ollama supports Linux, macOS, and Windows only" };
   }
   return { can: true, reason: null };
@@ -364,66 +851,11 @@ async function pickModels(hw) {
   return selections.map(function (n) { return models[n - 1].name; });
 }
 
-// ─── Decision Engine ─────────────────────────────────────────────
-
-function decideNodes(hw) {
-  var nodes = [];
-  var reasons = [];
-
-  // Clock node — always. Runs on anything.
-  nodes.push("clock");
-  reasons.push("Clock node: runs on any hardware");
-
-  // Miner — needs Ollama running with models. GPU preferred but CPU works too.
-  if (hw.ollama.running && hw.ollama.models.length > 0) {
-    nodes.push("miner");
-    if (hw.gpu.available) {
-      reasons.push("Miner: " + hw.gpu.name + " (" + hw.gpu.vramGB + "GB VRAM) + Ollama (" + hw.ollama.models.length + " models)");
-    } else {
-      reasons.push("Miner: Ollama running (" + hw.ollama.models.length + " models, CPU mode). GPU recommended for better performance.");
-    }
-  } else if (hw.ollama.running && hw.ollama.models.length === 0) {
-    reasons.push("Miner: Ollama running but no models installed. Run: ollama pull qwen3:4b");
-  } else {
-    reasons.push("Miner: Ollama not running. Install from https://ollama.com to mine.");
-  }
-
-  // Explorer — if disk space allows
-  if (hw.disk.freeGB >= 1) {
-    nodes.push("explorer");
-    reasons.push("Explorer: " + hw.disk.freeGB + "GB free disk");
-  }
-
-  // Pick the best installed model, or recommend one
-  var model = null;
-  if (hw.ollama.models && hw.ollama.models.length > 0) {
-    // Use the largest installed model
-    var preferOrder = ["qwen3.5:27b", "llama3.3:70b", "deepseek-r1:32b", "gemma3:27b",
-      "qwen3.5:9b", "llama3.1:8b", "gemma3:12b", "mistral-nemo:12b",
-      "qwen3:4b", "llama3.2:3b", "phi4-mini:3.8b", "gemma3:4b", "mistral:7b"];
-    for (var p = 0; p < preferOrder.length; p++) {
-      if (hw.ollama.models.indexOf(preferOrder[p]) !== -1) {
-        model = preferOrder[p];
-        break;
-      }
-    }
-    if (!model) model = hw.ollama.models[0]; // fallback to first installed
-  }
-
-  // CPU/GPU caps based on RAM and cores
-  var cpuCap = 100;
-  var gpuCap = 100;
-  if (hw.cpu.cores <= 4) cpuCap = 50; // leave room on small machines
-  if (hw.ram.totalGB <= 8) cpuCap = Math.min(cpuCap, 60);
-
-  return { nodes: nodes, reasons: reasons, model: model, cpuCap: cpuCap, gpuCap: gpuCap };
-}
-
 // ─── Config Generation ───────────────────────────────────────────
 
-function generateConfig(hw, decision) {
+function generateConfig(hw, selectedRoles, limits, accountName, bestModel) {
   var nodeId = crypto.randomBytes(16).toString("hex");
-  var account = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || "miner-" + nodeId.slice(0, 8);
+  var account = accountName || process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || "miner-" + nodeId.slice(0, 8);
 
   var lines = [
     "# BTCPC Node Configuration",
@@ -433,15 +865,29 @@ function generateConfig(hw, decision) {
     "BTCPC_NODE_ID=" + nodeId,
     "BTCPC_MINER=" + account,
     "BTCPC_CLOCK_ACCOUNT=" + account,
+    "BTCPC_ROLES=" + selectedRoles.join(","),
     "P2P_PORT=6942",
     "BTCPC_SEED_PEERS=ws://100.122.145.60:6942",
     "BTCPC_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws",
-    "BTCPC_MAX_CPU=" + decision.cpuCap,
-    "BTCPC_MAX_GPU=" + decision.gpuCap,
+    "BTCPC_MONGO_MODE=disabled",
   ];
 
-  if (decision.model) {
-    lines.push("BTCPC_MODEL=" + decision.model);
+  // Resource limits
+  if (limits.maxCpuPct) {
+    lines.push("BTCPC_MAX_CPU_PCT=" + limits.maxCpuPct);
+  }
+  if (limits.maxRamGB) {
+    lines.push("BTCPC_MAX_RAM_GB=" + limits.maxRamGB);
+  }
+  if (limits.maxVramGB) {
+    lines.push("BTCPC_MAX_VRAM_GB=" + limits.maxVramGB);
+  }
+  if (limits.maxStorageGB !== null && limits.maxStorageGB !== undefined) {
+    lines.push("BTCPC_MAX_STORAGE_GB=" + (limits.maxStorageGB === 0 ? "unlimited" : limits.maxStorageGB));
+  }
+
+  if (bestModel) {
+    lines.push("BTCPC_MODEL=" + bestModel);
   }
 
   if (hw.ollama.running) {
@@ -451,17 +897,50 @@ function generateConfig(hw, decision) {
   return lines.join("\n") + "\n";
 }
 
+// ─── Best Model Selection ────────────────────────────────────────
+
+function pickBestModel(hw) {
+  if (!hw.ollama.models || hw.ollama.models.length === 0) return null;
+
+  var preferOrder = ["qwen3.5:27b", "llama3.3:70b", "deepseek-r1:32b", "gemma3:27b",
+    "qwen3.5:9b", "llama3.1:8b", "gemma3:12b", "mistral-nemo:12b",
+    "qwen3:4b", "llama3.2:3b", "phi4-mini:3.8b", "gemma3:4b", "mistral:7b"];
+  for (var p = 0; p < preferOrder.length; p++) {
+    if (hw.ollama.models.indexOf(preferOrder[p]) !== -1) {
+      return preferOrder[p];
+    }
+  }
+  return hw.ollama.models[0]; // fallback to first installed
+}
+
 // ─── Startup ─────────────────────────────────────────────────────
 
-function startNodes(decision) {
+function startNodes(selectedRoles) {
   var spawn = require("child_process").spawn;
+
+  // Use btcpc-all if it exists, otherwise start individually
+  var allScript = path.join(REPO_DIR, "bin/btcpc-all");
+  if (fs.existsSync(allScript)) {
+    log("Starting via btcpc-all...");
+    var out = fs.openSync("/tmp/btcpc-all.log", "a");
+    var child = spawn(process.execPath, [allScript], {
+      cwd: REPO_DIR,
+      detached: true,
+      stdio: ["ignore", out, out],
+      env: Object.assign({}, process.env)
+    });
+    child.unref();
+    return [{ node: "all (" + selectedRoles.join(", ") + ")", pid: child.pid, log: "/tmp/btcpc-all.log" }];
+  }
+
+  // Fallback: start individually
   var pids = [];
 
-  for (var i = 0; i < decision.nodes.length; i++) {
-    var node = decision.nodes[i];
+  for (var i = 0; i < selectedRoles.length; i++) {
+    var role = selectedRoles[i];
     var cmd, args, logFile;
 
-    switch (node) {
+    switch (role) {
       case "clock":
         cmd = process.execPath;
         args = [path.join(REPO_DIR, "bin/btcpc-clock")];
@@ -472,10 +951,34 @@ function startNodes(decision) {
         args = [path.join(REPO_DIR, "bin/btcpc-mine")];
         logFile = "/tmp/btcpc-miner.log";
         break;
-      case "explorer":
+      case "storage":
+        // Storage host — if bin exists
+        var storBin = path.join(REPO_DIR, "bin/btcpc-storage");
+        if (!fs.existsSync(storBin)) continue;
         cmd = process.execPath;
-        args = [path.join(REPO_DIR, "src/explorer/server.js")];
-        logFile = "/tmp/btcpc-explorer.log";
+        args = [storBin];
+        logFile = "/tmp/btcpc-storage.log";
+        break;
+      case "verifier":
+        var verBin = path.join(REPO_DIR, "bin/btcpc-verifier");
+        if (!fs.existsSync(verBin)) continue;
+        cmd = process.execPath;
+        args = [verBin];
+        logFile = "/tmp/btcpc-verifier.log";
+        break;
+      case "gateway":
+        var gwBin = path.join(REPO_DIR, "bin/btcpc-gateway");
+        if (!fs.existsSync(gwBin)) continue;
+        cmd = process.execPath;
+        args = [gwBin];
+        logFile = "/tmp/btcpc-gateway.log";
+        break;
+      case "sensor":
+        var senBin = path.join(REPO_DIR, "bin/btcpc-sensor");
+        if (!fs.existsSync(senBin)) continue;
+        cmd = process.execPath;
+        args = [senBin];
+        logFile = "/tmp/btcpc-sensor.log";
         break;
       default:
         continue;
@@ -489,8 +992,8 @@ function startNodes(decision) {
       env: Object.assign({}, process.env)
     });
     child.unref();
-    pids.push({ node: node, pid: child.pid, log: logFile });
-    log("Started " + node + " (pid " + child.pid + ") → " + logFile);
+    pids.push({ node: role, pid: child.pid, log: logFile });
+    log("Started " + role + " (pid " + child.pid + ") -> " + logFile);
   }
 
   return pids;
@@ -505,7 +1008,7 @@ async function main() {
   console.log("  ============================================");
   console.log("");
 
-  // Detect hardware
+  // ── Step 1: Hardware Scan ──
   log("Detecting hardware...");
   var hw = {
     platform: os.platform(),
@@ -513,63 +1016,29 @@ async function main() {
     ram: detectRAM(),
     gpu: detectGPU(),
     ollama: detectOllama(),
-    disk: detectDisk()
+    disk: detectDisk(),
+    osInfo: detectOS(),
+    network: detectNetwork(),
+    hasLoRa: detectLoRaHardware(),
+    hasGPIO: detectGPIOSensors()
   };
 
+  displayHardwareSummary(hw);
+
+  // ── Step 2: Role Selection ──
   console.log("");
-  log("Hardware detected:");
-  log("  OS:     " + hw.platform + " " + os.release());
-  log("  CPU:    " + hw.cpu.cores + " cores (" + hw.cpu.model + ")");
-  log("  RAM:    " + hw.ram.totalGB + "GB total, " + hw.ram.freeGB + "GB free");
-  log("  GPU:    " + (hw.gpu.available ? hw.gpu.name + " (" + hw.gpu.vramGB + "GB VRAM)" : "none detected"));
-  log("  Ollama: " + (hw.ollama.running ? "running (" + hw.ollama.models.length + " models)" : "not installed or not running"));
-  log("  Disk:   " + hw.disk.freeGB + "GB free of " + hw.disk.totalGB + "GB");
+  var selectedRoles = await selectRoles(hw);
+  console.log("");
+  log("Selected roles: " + selectedRoles.join(", "));
 
-  // ── Ollama setup (interactive) ──
-  if (!hw.ollama.running) {
-    var ollamaCheck = canRunOllama(hw);
-    if (SETUP_OPTIONS.skipOllama) {
-      log("Skipping Ollama install by request.");
-      log("This machine will run as a clock node only.");
-    } else if (ollamaCheck.can) {
-      console.log("");
-      log("Ollama is not installed or not running.");
-      log("Ollama is required for mining (earning 98% of block rewards).");
-      log("Without it, this machine runs as a clock node only (2% rewards).");
-      console.log("");
+  // ── Step 3: Resource Limits ──
+  console.log("");
+  var limits = await configureResourceLimits(hw, selectedRoles);
 
-      var answer = await ask("Install Ollama to enable mining? (y/n)", SETUP_OPTIONS.assumeYes ? "y" : null);
-      if (answer === "y" || answer === "yes") {
-        var installed = await installOllama();
-        if (installed) {
-          var started = await startOllamaIfNeeded();
-          if (started) {
-            // Let user pick from recommended models
-            var selectedModels = await pickModels(hw);
-            for (var m = 0; m < selectedModels.length; m++) {
-              await pullModel(selectedModels[m]);
-            }
-            // Re-detect Ollama
-            hw.ollama = detectOllama();
-          }
-        }
-      }
-    } else {
-      log("Cannot run Ollama: " + ollamaCheck.reason);
-      log("This machine will run as a clock node only.");
-    }
-  } else if (hw.ollama.models.length === 0) {
-    // Ollama running but no models
-    console.log("");
-    log("Ollama is running but has no models installed.");
-    var selectedModels = await pickModels(hw);
-    for (var m = 0; m < selectedModels.length; m++) {
-      await pullModel(selectedModels[m]);
-    }
-    hw.ollama = detectOllama();
-  }
+  // ── Step 4: Network Scan ──
+  await networkScan(hw, selectedRoles);
 
-  // ── Account creation ──
+  // ── Step 5: Account Setup ──
   console.log("");
   var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
   if (!accountName) {
@@ -633,44 +1102,104 @@ async function main() {
     log("Using existing account: " + accountName);
   }
 
-  // Decide what to run
-  console.log("");
-  var decision = decideNodes(hw);
-  log("Node selection:");
-  for (var i = 0; i < decision.reasons.length; i++) {
-    log("  " + decision.reasons[i]);
-  }
-  if (decision.model) {
-    log("  Model: " + decision.model);
+  // ── Step 6: Ollama + Model Selection (if miner role selected) ──
+  if (selectedRoles.indexOf("miner") !== -1) {
+    if (!hw.ollama.running) {
+      var ollamaCheck = canRunOllama(hw);
+      if (SETUP_OPTIONS.skipOllama) {
+        log("Skipping Ollama install by request.");
+        log("Miner role selected but Ollama not available. Will run other roles.");
+      } else if (ollamaCheck.can) {
+        console.log("");
+        log("Ollama is not installed or not running.");
+        log("Ollama is required for mining (earning 98% of block rewards).");
+        console.log("");
+
+        var answer = await ask("Install Ollama to enable mining? (y/n)", SETUP_OPTIONS.assumeYes ? "y" : null);
+        if (answer === "y" || answer === "yes") {
+          var installed = await installOllama();
+          if (installed) {
+            var started = await startOllamaIfNeeded();
+            if (started) {
+              var selectedModels = await pickModels(hw);
+              for (var m = 0; m < selectedModels.length; m++) {
+                await pullModel(selectedModels[m]);
+              }
+              hw.ollama = detectOllama();
+            }
+          }
+        }
+      } else {
+        log("Cannot run Ollama: " + ollamaCheck.reason);
+        log("Miner role selected but hardware insufficient. Will run other roles.");
+      }
+    } else if (hw.ollama.models.length === 0) {
+      // Ollama running but no models
+      console.log("");
+      log("Ollama is running but has no models installed.");
+      var selectedModels = await pickModels(hw);
+      for (var m = 0; m < selectedModels.length; m++) {
+        await pullModel(selectedModels[m]);
+      }
+      hw.ollama = detectOllama();
+    }
   }
 
-  // Generate config
-  var configPath = path.join(REPO_DIR, ".env.node");
-  var config = generateConfig(hw, decision);
-  // Override account name
-  config = config.replace(/BTCPC_MINER=.*/, "BTCPC_MINER=" + accountName);
-  config = config.replace(/BTCPC_CLOCK_ACCOUNT=.*/, "BTCPC_CLOCK_ACCOUNT=" + accountName);
+  // Pick best model from what's installed
+  var bestModel = pickBestModel(hw);
+
+  // ── Step 7: Save Config and Start ──
+  console.log("");
+  console.log("  === Save Config and Start ===");
+  console.log("");
+
+  var configPath = path.join(REPO_DIR, ".env");
+  var config = generateConfig(hw, selectedRoles, limits, accountName, bestModel);
   fs.writeFileSync(configPath, config);
   log("Config written to " + configPath);
 
-  // Load the config
+  // Also write .env.node for backwards compat
+  var envNodePath = path.join(REPO_DIR, ".env.node");
+  fs.writeFileSync(envNodePath, config);
+
+  // Load the config into current process
   process.env.BTCPC_MINER = accountName;
   process.env.BTCPC_CLOCK_ACCOUNT = accountName;
+  process.env.BTCPC_ROLES = selectedRoles.join(",");
+  if (limits.maxCpuPct) process.env.BTCPC_MAX_CPU_PCT = String(limits.maxCpuPct);
+  if (limits.maxRamGB) process.env.BTCPC_MAX_RAM_GB = String(limits.maxRamGB);
+  if (limits.maxVramGB) process.env.BTCPC_MAX_VRAM_GB = String(limits.maxVramGB);
+  if (limits.maxStorageGB !== null && limits.maxStorageGB !== undefined) {
+    process.env.BTCPC_MAX_STORAGE_GB = String(limits.maxStorageGB === 0 ? "unlimited" : limits.maxStorageGB);
+  }
   require("dotenv").config({ path: configPath, override: true });
+
+  // Display final config summary
+  console.log("");
+  console.log("  ============================================");
+  console.log("    BTCPC Node Configuration Summary");
+  console.log("  ============================================");
+  console.log("");
+  console.log("  Account:  " + accountName);
+  console.log("  Roles:    " + selectedRoles.join(", "));
+  console.log("  CPU:      " + (limits.maxCpuPct || 100) + "%");
+  if (limits.maxRamGB) console.log("  RAM:      " + limits.maxRamGB + " GB");
+  if (limits.maxVramGB) console.log("  VRAM:     " + limits.maxVramGB + " GB");
+  if (limits.maxStorageGB !== null && limits.maxStorageGB !== undefined) {
+    console.log("  Storage:  " + (limits.maxStorageGB === 0 ? "unlimited" : limits.maxStorageGB + " GB"));
+  }
+  if (bestModel) console.log("  Model:    " + bestModel);
+  console.log("  Config:   " + configPath);
+  console.log("");
 
   // Start nodes
   if (SETUP_OPTIONS.noStart) {
-    console.log("");
     log("Setup complete. Node startup skipped (--no-start).");
-    console.log("  Config: " + configPath);
-    console.log("  Username: " + accountName);
-    console.log("");
     return;
   }
 
-  console.log("");
-  log("Starting " + decision.nodes.length + " node(s)...");
-  var pids = startNodes(decision);
+  log("Starting " + selectedRoles.length + " role(s)...");
+  var pids = startNodes(selectedRoles);
 
   console.log("");
   console.log("  ============================================");
@@ -682,18 +1211,13 @@ async function main() {
   }
   console.log("");
 
-  if (decision.nodes.indexOf("miner") === -1) {
-    console.log("  Running as clock node only (2% of block rewards).");
-    console.log("  Install Ollama + a model to mine (98% of block rewards).");
+  if (selectedRoles.indexOf("miner") === -1) {
+    console.log("  Running as: " + selectedRoles.join(" + ") + " (no miner).");
+    console.log("  Install Ollama + a model to enable mining (98% of block rewards).");
     console.log("");
   } else {
-    console.log("  Mining + clock node active. Earning full rewards.");
-    console.log("");
-  }
-
-  if (decision.nodes.indexOf("explorer") !== -1) {
-    console.log("  Explorer: http://localhost:4242");
-    console.log("  Settings: http://localhost:4242/settings");
+    console.log("  Mining active. Earning full rewards.");
+    console.log("  Roles: " + selectedRoles.join(" + "));
     console.log("");
   }
 
