@@ -252,4 +252,53 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
   }
 });
 
+/**
+ * GET /public/leaderboard — top 20 accounts by BTCPC balance.
+ * Returns role breakdown (miner, clock, storage, etc.) for each account.
+ * No auth required.
+ */
+router.get('/leaderboard', async (_req, res) => {
+  try {
+    const stateStore = require('../chain/stateStore');
+    const nodeRegistry = require('../chain/nodeRegistry');
+
+    const allAccounts = stateStore.getAllAccounts();
+    const entries = allAccounts.map(function(acc) {
+      var balance = stateStore.getBalance(acc.username, 'BTCPC');
+      return { username: acc.username, balance: balance, created_epoch: acc.created_epoch };
+    });
+
+    entries.sort(function(a, b) { return b.balance - a.balance; });
+    var top = entries.slice(0, 20);
+
+    if (typeof nodeRegistry.loadFromBlocks === 'function' && nodeRegistry.getNodeCount() === 0) {
+      try { nodeRegistry.loadFromBlocks(); } catch (_e) {}
+    }
+    var registered = nodeRegistry.getRegisteredNodes();
+
+    var leaderboard = top.map(function(entry) {
+      var roles = [];
+      for (var i = 0; i < registered.length; i++) {
+        if (registered[i].account === entry.username && registered[i].type) {
+          if (roles.indexOf(registered[i].type) === -1) roles.push(registered[i].type);
+        }
+      }
+      return {
+        account: entry.username,
+        balance: entry.balance,
+        roles: roles,
+        created_epoch: entry.created_epoch,
+      };
+    });
+
+    res.json({
+      leaderboard: leaderboard,
+      total_accounts: allAccounts.length,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

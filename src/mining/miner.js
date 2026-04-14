@@ -459,7 +459,7 @@ async function applyFinalization(epochNumber, proposal) {
   // is updated in-place on the in-memory proof entry.
   const epochProofs = stateStore.getMiningProofs(epochNumber).slice();
   for (const r of rewards) {
-    await ledger.recordMiningReward(r.miner, r.amount, epochNumber);
+    await ledger.recordMiningReward(r.miner, r.amount, epochNumber, null, null, r.type || 'mining');
 
     // Update reward_earned on the matching proof
     for (const proof of epochProofs) {
@@ -476,7 +476,7 @@ async function applyFinalization(epochNumber, proposal) {
   // Finalize epoch record in stateStore
   epoch.consensus_hash = proposal.consensus_hash || '0'.repeat(64);
   epoch.total_work = proposal.total_work || 0;
-  epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount }));
+  epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount, type: r.type || 'mining' }));
   epoch.block_reward = proposal.block_reward || 0;
   epoch.reward_number = proposal.reward_number;
   epoch.epochs_deferred = proposal.epochs_deferred || 0;

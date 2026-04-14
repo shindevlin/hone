@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Reward Dashboard</title>
+  <meta name="description" content="Live BTCPC network stats, top earners leaderboard, and recent block rewards.">
+  <meta name="theme-color" content="#0a0e17">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0e17;
+      color: #e2e8f0;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    a { color: #f7931a; text-decoration: none; }
+    a:hover { color: #fbbf24; }
+
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding-top: 16px;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: #f7931a;
+      margin-bottom: 4px;
+    }
+    .header p {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .nav-links {
+      margin-top: 12px;
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .nav-links a {
+      font-size: 13px;
+      padding: 4px 12px;
+      border: 1px solid rgba(247,147,26,0.3);
+      border-radius: 6px;
+    }
+    .nav-links a:hover {
+      background: rgba(247,147,26,0.1);
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    /* Network status grid */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      margin-bottom: 36px;
+    }
+    .status-card {
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .status-card .value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f7931a;
+    }
+    .status-card .label {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-card .value.alive { color: #22c55e; }
+    .status-card .value.dead { color: #ef4444; }
+
+    /* Section headers */
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #f7931a;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    /* Leaderboard table */
+    .table-wrap {
+      overflow-x: auto;
+      margin-bottom: 36px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      color: #64748b;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-bottom: 1px solid #1e293b;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(30,41,59,0.5);
+    }
+    tr:hover td {
+      background: rgba(247,147,26,0.04);
+    }
+    .rank { color: #64748b; font-weight: 600; width: 36px; }
+    .account-name { color: #e2e8f0; font-weight: 600; }
+    .balance-val { color: #f7931a; font-weight: 700; text-align: right; }
+    .role-tag {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .role-miner { background: rgba(247,147,26,0.15); color: #f7931a; }
+    .role-clock { background: rgba(59,130,246,0.15); color: #3b82f6; }
+    .role-storage { background: rgba(168,85,247,0.15); color: #a855f7; }
+    .role-gateway { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .role-verifier { background: rgba(236,72,153,0.15); color: #ec4899; }
+
+    /* Recent blocks */
+    .blocks-list { margin-bottom: 36px; }
+    .block-item {
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .block-epoch {
+      font-weight: 700;
+      color: #f7931a;
+      font-size: 14px;
+    }
+    .block-meta {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .block-reward {
+      font-weight: 700;
+      color: #22c55e;
+      font-size: 13px;
+    }
+    .block-age {
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    /* Refresh indicator */
+    .refresh-bar {
+      text-align: center;
+      font-size: 11px;
+      color: #475569;
+      margin-top: 24px;
+      padding-bottom: 24px;
+    }
+
+    .loading {
+      text-align: center;
+      color: #64748b;
+      padding: 32px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 600px) {
+      .status-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .status-card { padding: 12px 8px; }
+      .status-card .value { font-size: 18px; }
+      table { font-size: 12px; }
+      td, th { padding: 6px 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>BTCPC Dashboard</h1>
+    <p>Network rewards and leaderboard</p>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/clock">Clock</a>
+      <a href="/map">Map</a>
+      <a href="/install">Install</a>
+    </div>
+  </div>
+
+  <!-- Network Status -->
+  <div class="section-title">Network Status</div>
+  <div class="status-grid" id="status-grid">
+    <div class="status-card">
+      <div class="value" id="s-epoch">--</div>
+      <div class="label">Epoch</div>
+    </div>
+    <div class="status-card">
+      <div class="value" id="s-nodes">--</div>
+      <div class="label">Nodes</div>
+    </div>
+    <div class="status-card">
+      <div class="value" id="s-miners">--</div>
+      <div class="label">Miners</div>
+    </div>
+    <div class="status-card">
+      <div class="value" id="s-clocks">--</div>
+      <div class="label">Clocks</div>
+    </div>
+    <div class="status-card">
+      <div class="value" id="s-storage">--</div>
+      <div class="label">Storage</div>
+    </div>
+    <div class="status-card">
+      <div class="value" id="s-alive">--</div>
+      <div class="label">Status</div>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="section-title">Top Earners</div>
+  <div class="table-wrap" id="leaderboard-wrap">
+    <div class="loading">Loading leaderboard...</div>
+  </div>
+
+  <!-- Recent Blocks -->
+  <div class="section-title">Recent Blocks</div>
+  <div class="blocks-list" id="blocks-list">
+    <div class="loading">Loading blocks...</div>
+  </div>
+
+  <div class="refresh-bar" id="refresh-bar">Auto-refreshes every 30 seconds</div>
+</div>
+
+<script>
+(function() {
+  var API_BASE = window.location.origin;
+
+  function formatBalance(n) {
+    if (typeof n !== 'number') return '0';
+    if (n >= 1000) return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    if (n >= 1) return n.toFixed(4);
+    return n.toFixed(8);
+  }
+
+  function roleTag(role) {
+    var cls = 'role-' + role;
+    return '<span class="role-tag ' + cls + '">' + role + '</span>';
+  }
+
+  function timeAgo(seconds) {
+    if (seconds < 60) return seconds + 's ago';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+    return Math.floor(seconds / 86400) + 'd ago';
+  }
+
+  function fetchNetwork() {
+    fetch(API_BASE + '/public/network')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        document.getElementById('s-epoch').textContent = d.epoch || 0;
+        document.getElementById('s-nodes').textContent = d.nodes || 0;
+        document.getElementById('s-miners').textContent = d.miners || 0;
+        document.getElementById('s-clocks').textContent = d.clocks || 0;
+        document.getElementById('s-storage').textContent = d.storage || 0;
+
+        var aliveEl = document.getElementById('s-alive');
+        if (d.alive) {
+          aliveEl.textContent = 'ALIVE';
+          aliveEl.className = 'value alive';
+        } else {
+          aliveEl.textContent = 'DOWN';
+          aliveEl.className = 'value dead';
+        }
+      })
+      .catch(function() {
+        document.getElementById('s-alive').textContent = '?';
+      });
+  }
+
+  function fetchLeaderboard() {
+    fetch(API_BASE + '/public/leaderboard')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.leaderboard || d.leaderboard.length === 0) {
+          document.getElementById('leaderboard-wrap').innerHTML =
+            '<div class="loading">No accounts yet</div>';
+          return;
+        }
+
+        var html = '<table><thead><tr>'
+          + '<th>#</th><th>Account</th><th>Roles</th><th style="text-align:right">Balance (BTCPC)</th>'
+          + '</tr></thead><tbody>';
+
+        d.leaderboard.forEach(function(entry, i) {
+          var roles = (entry.roles || []).map(roleTag).join('');
+          html += '<tr>'
+            + '<td class="rank">' + (i + 1) + '</td>'
+            + '<td class="account-name">' + entry.account + '</td>'
+            + '<td>' + (roles || '<span style="color:#475569">--</span>') + '</td>'
+            + '<td class="balance-val">' + formatBalance(entry.balance) + '</td>'
+            + '</tr>';
+        });
+
+        html += '</tbody></table>';
+        if (d.total_accounts) {
+          html += '<div style="text-align:right;font-size:11px;color:#475569;margin-top:8px;">'
+            + d.total_accounts + ' total accounts</div>';
+        }
+        document.getElementById('leaderboard-wrap').innerHTML = html;
+      })
+      .catch(function() {
+        document.getElementById('leaderboard-wrap').innerHTML =
+          '<div class="loading">Could not load leaderboard</div>';
+      });
+  }
+
+  function fetchBlocks() {
+    // Use the /public/network endpoint to get epoch, then show basic block info.
+    // If a dedicated blocks endpoint exists, use it; otherwise derive from network.
+    fetch(API_BASE + '/public/network')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var currentEpoch = d.epoch || 0;
+        if (currentEpoch === 0) {
+          document.getElementById('blocks-list').innerHTML =
+            '<div class="loading">No blocks yet</div>';
+          return;
+        }
+
+        var html = '';
+        var epochAge = d.epoch_age_seconds || 0;
+        // Show the latest few epochs as "recent blocks"
+        var count = Math.min(currentEpoch, 10);
+        for (var i = 0; i < count; i++) {
+          var ep = currentEpoch - i;
+          var age = i === 0 ? epochAge : (epochAge + i * 300);
+          html += '<div class="block-item">'
+            + '<div>'
+            + '<span class="block-epoch">Epoch ' + ep + '</span>'
+            + '</div>'
+            + '<div class="block-age">' + timeAgo(age) + '</div>'
+            + '</div>';
+        }
+
+        document.getElementById('blocks-list').innerHTML = html;
+      })
+      .catch(function() {
+        document.getElementById('blocks-list').innerHTML =
+          '<div class="loading">Could not load blocks</div>';
+      });
+  }
+
+  function refreshAll() {
+    fetchNetwork();
+    fetchLeaderboard();
+    fetchBlocks();
+    document.getElementById('refresh-bar').textContent =
+      'Last updated: ' + new Date().toLocaleTimeString() + ' — auto-refreshes every 30s';
+  }
+
+  refreshAll();
+  setInterval(refreshAll, 30000);
+})();
+</script>
+
+</body>
+</html>

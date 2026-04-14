@@ -157,20 +157,20 @@ async function distributeRewards(epoch) {
       const minerAmount = parseFloat((minerReward * minerShare).toFixed(10));
 
       if (minerAmount > 0) {
-        await ledger.recordMiningReward(minerName, minerAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward (miner share)`);
+        await ledger.recordMiningReward(minerName, minerAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward (miner share)`, 'mining');
       }
 
       for (const delegation of delegations) {
         const delegatorShare = delegation.amount / totalPool;
         const delegatorAmount = parseFloat((minerReward * delegatorShare).toFixed(10));
         if (delegatorAmount <= 0) continue;
-        await ledger.recordMiningReward(delegation.from, delegatorAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} delegation reward`);
+        await ledger.recordMiningReward(delegation.from, delegatorAmount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} delegation reward`, 'mining');
       }
 
       rewards.push({ node_id: minerName, amount: minerReward });
     } else {
       // No delegations — miner gets full reward
-      await ledger.recordMiningReward(minerName, minerReward, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward`);
+      await ledger.recordMiningReward(minerName, minerReward, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} mining reward`, 'mining');
       rewards.push({ node_id: minerName, amount: minerReward });
     }
   }

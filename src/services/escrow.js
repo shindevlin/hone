@@ -109,8 +109,10 @@ async function sweepEscrows(maxAgeMs) {
 /**
  * Release escrow for a settled inference job by job_id.
  * Pays the miner who completed the work.
+ * If the project has a revenue split configured, distributes the miner
+ * payout according to those splits instead of paying the miner directly.
  */
-async function releaseForJob(requestId, minerUsername, amount, model) {
+async function releaseForJob(requestId, minerUsername, amount, model, projectName) {
   const escrow = stateStore.getEscrow ? stateStore.getEscrow(requestId) : null;
   if (!escrow) return null; // no escrow for this job (pre-escrow era)
   if (escrow.status !== 'locked') return null; // already released/refunded
@@ -131,8 +133,29 @@ async function releaseForJob(requestId, minerUsername, amount, model) {
 
   // Pay the miner (minus revenue share)
   const minerPayout = parseFloat((amount - revSharePaid).toFixed(10));
-  await ledger.recordEscrowRelease(minerUsername, requestId, minerPayout, epoch, 'Inference settlement');
-  await ledger.updateWalletCache(minerUsername, 'BTCPC', minerPayout);
+
+  // Check for project revenue split configuration
+  const splitConfig = projectName && stateStore.getProjectRevenueSplit
+    ? stateStore.getProjectRevenueSplit(projectName)
+    : null;
+
+  if (splitConfig && splitConfig.splits && splitConfig.splits.length > 0 && minerPayout > 0) {
+    // Distribute the miner payout according to the project's revenue splits
+    const splitPayouts = [];
+    for (const split of splitConfig.splits) {
+      const splitAmount = parseFloat((minerPayout * split.percent / 100).toFixed(10));
+      if (splitAmount > 0.000001) {
+        await ledger.recordMiningReward(split.account, splitAmount, epoch, null, null, 'inference_split');
+        splitPayouts.push({ account: split.account, amount: splitAmount, percent: split.percent });
+        console.log(`[BTCPC Escrow] Revenue split: ${split.account} earned ${splitAmount.toFixed(6)} BTCPC (${split.percent}% of ${projectName})`);
+      }
+    }
+    // Release escrow with zero to miner (funds go to split accounts via MINING_REWARD)
+    await ledger.recordEscrowRelease(minerUsername, requestId, 0, epoch, 'Inference settlement (revenue split applied)');
+  } else {
+    await ledger.recordEscrowRelease(minerUsername, requestId, minerPayout, epoch, 'Inference settlement');
+    await ledger.updateWalletCache(minerUsername, 'BTCPC', minerPayout);
+  }
 
   // Refund overpayment if escrow > actual cost
   const overpayment = escrow.amount - amount;

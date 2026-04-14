@@ -424,4 +424,76 @@ router.post('/transfer', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/projects/revenue-split
+ * Set revenue split configuration for a project.
+ * Body: { project: "nsfwotica", splits: [{ account: "natoshisakamoto", percent: 70 }, { account: "btcpc_recycle", percent: 30 }] }
+ * Splits must total exactly 100%.
+ * Auth: JWT (project owner must be authenticated).
+ */
+router.post('/revenue-split', authenticateToken, async (req, res) => {
+  const objErr = rejectObjectInputs(req.body, ['project', 'splits']);
+  if (objErr) return res.status(400).json({ error: objErr });
+  const projectName = sanitizeString(req.body.project, 200);
+  if (!projectName) return res.status(400).json({ error: 'project name required' });
+
+  const splits = req.body.splits;
+  if (!Array.isArray(splits) || splits.length === 0) {
+    return res.status(400).json({ error: 'splits must be a non-empty array of { account, percent }' });
+  }
+
+  // Validate each split entry
+  let totalPercent = 0;
+  const cleanSplits = [];
+  for (const s of splits) {
+    if (!s || typeof s !== 'object') return res.status(400).json({ error: 'each split must be an object with account and percent' });
+    const account = sanitizeString(s.account, 40);
+    const percent = Number(s.percent);
+    if (!account) return res.status(400).json({ error: 'each split must have an account name' });
+    if (!validAccountName(account) && account !== 'btcpc_recycle') {
+      return res.status(400).json({ error: 'invalid account name: ' + account });
+    }
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      return res.status(400).json({ error: 'percent must be between 0 and 100 for account: ' + account });
+    }
+    totalPercent += percent;
+    cleanSplits.push({ account, percent });
+  }
+
+  // Splits must total exactly 100%
+  if (Math.abs(totalPercent - 100) > 0.001) {
+    return res.status(400).json({ error: 'splits must total exactly 100%, got ' + totalPercent + '%' });
+  }
+
+  try {
+    // Verify the project exists
+    const project = await _findProjectByName(projectName);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Verify the authenticated user is the project owner
+    const User = require('../models/User');
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) return res.status(401).json({ error: 'User not found' });
+    if (project.owner !== currentUser.username) {
+      return res.status(403).json({ error: 'Only the project owner can set revenue splits' });
+    }
+
+    // Record on permanent ledger
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordProjectRevenueSplit(currentUser.username, projectName, cleanSplits, epoch);
+
+    // Read back from stateStore for confirmation
+    const stored = stateStore.getProjectRevenueSplit(projectName);
+
+    res.json({
+      success: true,
+      project: projectName,
+      splits: stored ? stored.splits : cleanSplits,
+      set_epoch: stored ? stored.set_epoch : epoch,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

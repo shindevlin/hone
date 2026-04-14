@@ -264,14 +264,31 @@ async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
 
 /**
  * Record a mining reward on the ledger.
+ * @param {string} rewardSource — optional: 'mining', 'clock', 'storage', 'iot', 'verifier', 'service', 'inference_split'
  */
-async function recordMiningReward(miner, amount, epoch) {
+async function recordMiningReward(miner, amount, epoch, _token, _memo, rewardSource) {
   const entry = _entry({
     type: 'MINING_REWARD',
     to: miner,
     token: 'BTCPC',
     amount,
     epoch,
+    reward_source: rewardSource || 'mining',
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a project revenue split configuration on the ledger.
+ */
+async function recordProjectRevenueSplit(setter, project, splits, epoch) {
+  const entry = _entry({
+    type: 'PROJECT_REVENUE_SPLIT',
+    from: setter,
+    token: 'BTCPC',
+    amount: 0,
+    epoch,
+    split_data: { project, splits },
   });
   return _persist(entry);
 }
@@ -1856,6 +1873,7 @@ module.exports = {
   recordAccountCreate,
   recordTransfer,
   recordMiningReward,
+  recordProjectRevenueSplit,
   recordFaucet,
   recordTokenCreate,
   recordStake,

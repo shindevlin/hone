@@ -1442,4 +1442,214 @@ router.post('/set-password', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════════
+// SEND / IMPORT / EXPORT-MNEMONIC
+// ════════════════════════════════════════════════════════════════════
+
+// POST /api/bot/send { from_telegram_id, to_account, amount, password }
+// Transfer BTCPC between accounts. Requires password verification.
+router.post('/send', async (req, res) => {
+  try {
+    var objErr = rejectObjectInputs(req.body, ['from_telegram_id', 'to_account', 'amount', 'password']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    var fromTid = sanitizeTelegramId(req.body.from_telegram_id);
+    var toAccount = sanitizeString(req.body.to_account, 20);
+    var amount = sanitizeAmount(req.body.amount);
+    var password = typeof req.body.password === 'string' ? req.body.password.slice(0, 200) : null;
+
+    if (!fromTid) return res.status(400).json({ error: 'valid from_telegram_id required' });
+    if (!toAccount || !validAccountName(toAccount)) return res.status(400).json({ error: 'valid to_account required' });
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'positive amount required' });
+    if (!password) return res.status(400).json({ error: 'password required' });
+
+    // Resolve sender
+    var sender = await resolveUser(fromTid);
+    if (!sender) return res.status(404).json({ error: 'Sender account not linked to Telegram' });
+
+    // Verify recipient exists
+    var recipientExists = stateStore.hasAccount(toAccount);
+    if (!recipientExists) {
+      var mongoRecip = await User.findOne({ username: toAccount });
+      if (!mongoRecip) return res.status(404).json({ error: 'Recipient account not found' });
+    }
+
+    if (sender.username === toAccount) {
+      return res.status(400).json({ error: 'Cannot send to yourself' });
+    }
+
+    // Verify password
+    await ensureSecretStore();
+    var pwOk = await secretStore.verifyPassword(sender.username, password);
+    if (!pwOk) return res.status(401).json({ error: 'Invalid password' });
+
+    // Check balance
+    var balance = stateStore.getBalance(sender.username, 'BTCPC');
+    if (balance < amount) {
+      return res.status(400).json({ error: 'Insufficient balance: ' + balance + ' BTCPC available' });
+    }
+
+    // Execute transfer
+    var epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+    var entry = await ledger.recordTransfer(
+      sender.username, toAccount, amount, 'BTCPC', null, epoch,
+      'Telegram bot send'
+    );
+
+    var newBalance = stateStore.getBalance(sender.username, 'BTCPC');
+
+    res.json({
+      success: true,
+      balance: newBalance,
+      tx_hash: entry ? (entry.hash || entry.tx_hash || null) : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/import { telegram_id, mnemonic }
+// Import/link an existing BTCPC account by verifying mnemonic ownership.
+// Mnemonic is used for verification only — never stored.
+router.post('/import', async (req, res) => {
+  try {
+    var objErr = rejectObjectInputs(req.body, ['telegram_id', 'mnemonic']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    var telegramId = sanitizeTelegramId(req.body.telegram_id);
+    var mnemonic = typeof req.body.mnemonic === 'string' ? req.body.mnemonic.trim().slice(0, 500) : null;
+
+    if (!telegramId) return res.status(400).json({ error: 'valid telegram_id required' });
+    if (!mnemonic) return res.status(400).json({ error: 'mnemonic required' });
+
+    // Validate mnemonic format
+    var keyManager = require('../wallet/keyManager');
+    if (!keyManager.validateMnemonic(mnemonic)) {
+      return res.status(400).json({ error: 'Invalid BIP-39 mnemonic' });
+    }
+
+    // Check if this telegram_id is already linked
+    var existingLink = await User.findOne({ telegramId: String(telegramId) });
+    if (existingLink) {
+      return res.status(400).json({ error: 'Telegram already linked to ' + existingLink.username + '. Unlink first.' });
+    }
+
+    // Derive keys from mnemonic
+    var keys = await keyManager.mnemonicToKeys(mnemonic);
+    var ownerPubKey = keys.owner ? keys.owner.publicKey : null;
+
+    if (!ownerPubKey) {
+      return res.status(400).json({ error: 'Could not derive keys from mnemonic' });
+    }
+
+    // Find the on-chain account whose owner public key matches
+    var allAccounts = stateStore.getAllAccounts();
+    var matchedUsername = null;
+    for (var i = 0; i < allAccounts.length; i++) {
+      if (allAccounts[i].public_keys && allAccounts[i].public_keys.owner === ownerPubKey) {
+        matchedUsername = allAccounts[i].username;
+        break;
+      }
+    }
+
+    if (!matchedUsername) {
+      return res.status(404).json({ error: 'No on-chain account matches this mnemonic. Create an account first.' });
+    }
+
+    // Link telegram_id to the matched account
+    var mongoUser = await User.findOne({ username: matchedUsername });
+    if (mongoUser) {
+      if (mongoUser.telegramId && mongoUser.telegramId !== String(telegramId)) {
+        return res.status(400).json({ error: 'Account already linked to a different Telegram user' });
+      }
+      mongoUser.telegramId = String(telegramId);
+      await mongoUser.save();
+    }
+
+    // Also update secretStore
+    try {
+      await ensureSecretStore();
+      if (secretStore.hasUser(matchedUsername)) {
+        await secretStore.updateUser(matchedUsername, { telegram_id: String(telegramId) });
+      }
+    } catch (_) {}
+
+    res.json({ success: true, username: matchedUsername });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/export-mnemonic — deliberately disabled.
+// Mnemonics are never stored on BTCPC servers.
+router.post('/export-mnemonic', async (_req, res) => {
+  res.status(403).json({
+    error: 'Mnemonics are never stored on BTCPC servers.',
+    message: 'Your mnemonic was shown once when you created your account. '
+      + 'BTCPC never stores it. If you lost it, use btcpc.net/rotate to generate new keys.',
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// EARNINGS BREAKDOWN
+// ════════════════════════════════════════════════════════════════════
+
+// GET /api/bot/earnings?telegramId=xxx  OR  ?account=xxx
+// Returns a breakdown of how an account is earning BTCPC, plus recent epochs.
+router.get('/earnings', async (req, res) => {
+  try {
+    let username;
+
+    // Support lookup by telegramId (linked user) or direct account name
+    const tid = sanitizeTelegramId(req.query.telegramId);
+    const accountParam = sanitizeString(req.query.account, 40);
+
+    if (tid) {
+      const user = await resolveUser(tid);
+      if (!user) return res.status(404).json({ error: 'Not linked' });
+      username = user.username;
+    } else if (accountParam && validAccountName(accountParam)) {
+      username = accountParam;
+    } else {
+      return res.status(400).json({ error: 'telegramId or valid account name required' });
+    }
+
+    // Get cumulative earnings from stateStore
+    const earningsData = stateStore.getEarnings(username);
+
+    // Gather recent epoch reward data for this account
+    const recentEpochs = stateStore.getRecentEpochs(20);
+    const recentRewards = [];
+    for (const ep of recentEpochs) {
+      if (!ep.rewards_distributed) continue;
+      for (const r of ep.rewards_distributed) {
+        if (r.node_id === username) {
+          recentRewards.push({
+            epoch: ep.epoch_number,
+            amount: r.amount,
+            type: r.type || 'mining',
+          });
+        }
+      }
+    }
+
+    res.json({
+      account: username,
+      total_earned: earningsData.total,
+      breakdown: {
+        mining: earningsData.mining,
+        clock: earningsData.clock,
+        storage: earningsData.storage,
+        iot: earningsData.iot,
+        verifier: earningsData.verifier,
+        service: earningsData.service,
+        inference_split: earningsData.inference_split,
+      },
+      recent_epochs: recentRewards,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
