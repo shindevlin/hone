@@ -1077,10 +1077,25 @@ document.getElementById('btn-settings').addEventListener('click', () => {
 
 document.getElementById('btn-stop').addEventListener('click', () => {
   stopAll();
+  // Clear all sensor states
+  for (const id of Object.keys(sensorStates)) {
+    sensorStates[id] = false;
+  }
   sensorStates = {};
   localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
-  renderSensors();
+  // Update all UI elements
+  SENSORS.forEach(s => {
+    const card = document.getElementById('sensor-' + s.id);
+    if (card) {
+      card.classList.remove('on');
+      const toggle = card.querySelector('.toggle');
+      if (toggle) { toggle.classList.remove('active'); toggle.textContent = 'OFF'; }
+      const val = document.getElementById('val-' + s.id);
+      if (val) val.textContent = 'stopped';
+    }
+  });
   updateDashStatus();
+  document.getElementById('sync-status').textContent = 'Stopped';
 });
 
 function stopAll() {
