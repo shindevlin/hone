@@ -1117,10 +1117,56 @@ function handleBlockProposal(peer, msg, ctx) {
     return;
   }
 
-  console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
-    " for epoch " + data.epoch_number +
-    " (work=" + (data.total_work || 0) +
-    ", hash=" + data.consensus_hash.slice(0, 12) + ")");
+  // ── VRF-based proposer rotation: verify the proposer is the designated
+  // authority for this epoch, or that the fallback timeout has elapsed. ──
+  var authorityRotation = require("../chain/authorityRotation");
+  var nodeRegistry = require("../chain/nodeRegistry");
+  var blockStoreForVRF = require("../chain/blockStore");
+
+  var allNodes = nodeRegistry.getRegisteredNodes();
+  var eligibleAccounts = allNodes.filter(function (n) {
+    var elig = authorityRotation.isEpochEligible(n.username, n, nodeRegistry.PERMISSIONLESS_MIN_STAKE);
+    return elig.eligible;
+  }).map(function (n) { return n.username; }).sort();
+
+  // Get previous block hash for VRF input
+  var prevEpoch = data.epoch_number - 1;
+  var prevBlockHash = "0".repeat(64);
+  if (prevEpoch >= 0) {
+    try {
+      var prevBlock = blockStoreForVRF.readBlockHeader(prevEpoch);
+      if (prevBlock && prevBlock.hash) prevBlockHash = prevBlock.hash;
+    } catch (_) {}
+  }
+
+  // Compute epoch start time for fallback window
+  var genesisTimestamp = parseInt(process.env.BTCPC_GENESIS_TIMESTAMP) || 0;
+  var epochDurationMs = parseInt(process.env.BTCPC_EPOCH_DURATION_MS) || 300000;
+  var epochStart = authorityRotation.epochStartTime(data.epoch_number, genesisTimestamp, epochDurationMs);
+
+  var vrfResult = authorityRotation.validateProposer(
+    data.proposer, data.epoch_number, prevBlockHash, eligibleAccounts, epochStart
+  );
+
+  if (!vrfResult.valid) {
+    console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED (VRF): " + vrfResult.reason +
+      " for epoch " + data.epoch_number);
+    return;
+  }
+
+  if (vrfResult.fallback) {
+    console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
+      " for epoch " + data.epoch_number +
+      " (FALLBACK — designated was " + vrfResult.designated + ")" +
+      " (work=" + (data.total_work || 0) +
+      ", hash=" + data.consensus_hash.slice(0, 12) + ")");
+  } else {
+    console.log("[BTCPC P2P] BLOCK_PROPOSAL from " + data.proposer +
+      " for epoch " + data.epoch_number +
+      " (designated authority ✓)" +
+      " (work=" + (data.total_work || 0) +
+      ", hash=" + data.consensus_hash.slice(0, 12) + ")");
+  }
 
   // Update the local epoch cache
   setCurrentEpoch(data.epoch_number);

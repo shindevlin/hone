@@ -22,9 +22,13 @@ var crypto = require("crypto");
 var stateStore = require("./stateStore");
 
 // Reward split (whitepaper canonical)
-var MINER_PCT = 0.85;
+// 6-pool reward distribution per whitepaper
+var MINER_PCT = 0.55;
 var VERIFIER_PCT = 0.10;
 var CLOCK_PCT = 0.05;
+var STORAGE_PCT = 0.12;
+var SERVICE_PCT = 0.08;
+var IOT_PCT = 0.10;
 var IDLE_VERIFIER_PCT = 0.01;
 var IDLE_CLOCK_PCT = 0.01;
 
@@ -218,6 +222,91 @@ function buildProposal(options) {
       var extraClock = roundAmount(clockPool / miners.length);
       for (var r2 of rewards) {
         if (r2.type === "mining") r2.amount = roundAmount(r2.amount + extraClock);
+      }
+    }
+
+    // Storage hosts — 12% pool, split equally among active hosts
+    var storagePool = roundAmount(blockReward * STORAGE_PCT);
+    var activeStorageHosts = [];
+    try {
+      var sensorRegistry = require("../services/sensorRegistry");
+      // Storage hosts are tracked in stateStore as nodes with type 'storage'
+      var allNodes = require("../chain/nodeRegistry").getRegisteredNodes();
+      activeStorageHosts = allNodes
+        .filter(function (n) { return n.type === "storage" && isValidAccount(n.account); })
+        .map(function (n) { return n.account; });
+      // Deduplicate
+      activeStorageHosts = Array.from(new Set(activeStorageHosts));
+    } catch (_) {}
+
+    if (activeStorageHosts.length > 0) {
+      var sEqual = roundAmount(storagePool / activeStorageHosts.length);
+      for (var sh of activeStorageHosts) {
+        var existingS = rewards.find(function (r) { return r.to === sh; });
+        if (existingS) {
+          existingS.amount = roundAmount(existingS.amount + sEqual);
+        } else {
+          rewards.push({ to: sh, amount: sEqual, type: "storage" });
+        }
+      }
+    }
+
+    // IoT pool — 10%, split 60% sensors (by readings) + 40% gateways (equal)
+    var iotPool = roundAmount(blockReward * IOT_PCT);
+    var sensorPool = roundAmount(iotPool * 0.6);
+    var gatewayPool = roundAmount(iotPool * 0.4);
+    var activeSensors = [];
+    var activeGateways = [];
+    try {
+      var sr = require("../services/sensorRegistry");
+      // Get sensors that submitted readings this epoch
+      var allSensors = sr.getRegisteredSensors ? sr.getRegisteredSensors() : [];
+      activeSensors = allSensors
+        .filter(function (s) { return s.last_reading_epoch >= epochNumber - 10; })
+        .map(function (s) { return s.owner; });
+      activeSensors = Array.from(new Set(activeSensors));
+
+      // Gateways with recent heartbeats
+      var allGateways = sr.getRegisteredGateways ? sr.getRegisteredGateways() : [];
+      activeGateways = allGateways
+        .filter(function (g) { return g.last_heartbeat_epoch >= epochNumber - 10; })
+        .map(function (g) { return g.owner; });
+      activeGateways = Array.from(new Set(activeGateways));
+    } catch (_) {}
+
+    // Sensor rewards — split among sensor owners
+    if (activeSensors.length > 0) {
+      var sensorEqual = roundAmount(sensorPool / activeSensors.length);
+      for (var so of activeSensors) {
+        var existingIot = rewards.find(function (r) { return r.to === so; });
+        if (existingIot) {
+          existingIot.amount = roundAmount(existingIot.amount + sensorEqual);
+        } else {
+          rewards.push({ to: so, amount: sensorEqual, type: "iot_sensor" });
+        }
+      }
+    }
+
+    // Gateway rewards — split among gateway owners
+    if (activeGateways.length > 0) {
+      var gwEqual = roundAmount(gatewayPool / activeGateways.length);
+      for (var gw of activeGateways) {
+        var existingGw = rewards.find(function (r) { return r.to === gw; });
+        if (existingGw) {
+          existingGw.amount = roundAmount(existingGw.amount + gwEqual);
+        } else {
+          rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
+        }
+      }
+    }
+
+    // Service pool — 8%, reserved for future service hosting rewards
+    // Currently redistributed to miners if no services active
+    var servicePool = roundAmount(blockReward * SERVICE_PCT);
+    if (miners.length > 0) {
+      var serviceExtra = roundAmount(servicePool / miners.length);
+      for (var r3 of rewards) {
+        if (r3.type === "mining") r3.amount = roundAmount(r3.amount + serviceExtra);
       }
     }
   }
