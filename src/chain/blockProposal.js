@@ -19,6 +19,7 @@
  */
 
 var crypto = require("crypto");
+var stateStore = require("./stateStore");
 
 // Reward split (whitepaper canonical)
 var MINER_PCT = 0.85;
@@ -26,6 +27,11 @@ var VERIFIER_PCT = 0.10;
 var CLOCK_PCT = 0.05;
 var IDLE_VERIFIER_PCT = 0.01;
 var IDLE_CLOCK_PCT = 0.01;
+
+// Staking thresholds
+var MIN_CLOCK_STAKE = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE) || 10;
+var MIN_MINER_STAKE = parseInt(process.env.BTCPC_MIN_MINER_STAKE) || 10;
+var BOOTSTRAP_EPOCHS = 1000;
 
 // Account name validation — same as everywhere else
 var ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
@@ -78,10 +84,31 @@ function buildProposal(options) {
     });
   }
 
+  // ── Filter clocks by minimum stake (skip during bootstrap) ──
+  if (epochNumber >= BOOTSTRAP_EPOCHS) {
+    activeClocks = activeClocks.filter(function (clock) {
+      var pool = stateStore.getStakePool(clock);
+      return pool && pool.total_staked >= MIN_CLOCK_STAKE;
+    });
+  }
+
+  // ── Verifier enforcement: unverified work counts at 50% ──
+  var verifiedMiners = (typeof protocol.getVerifiedMiners === "function")
+    ? protocol.getVerifiedMiners(epochNumber)
+    : new Set();
+
   // ── Filter and sort miners (deterministic order) ──
   var miners = Object.keys(minerWork).filter(isValidAccount).sort();
+
+  // Build effective work values — verified miners get full credit,
+  // unverified miners get 50% penalty.
+  var effectiveWork = {};
   var totalWorkValue = 0;
-  for (var m of miners) totalWorkValue += (minerWork[m].work_value || 0);
+  for (var m of miners) {
+    var raw = minerWork[m].work_value || 0;
+    effectiveWork[m] = verifiedMiners.has(m) ? raw : roundAmount(raw * 0.5);
+    totalWorkValue += effectiveWork[m];
+  }
 
   // Sort verifiers and clocks deterministically
   activeVerifiers.sort();
@@ -114,10 +141,33 @@ function buildProposal(options) {
     var verifierPool = roundAmount(blockReward * VERIFIER_PCT);
     var clockPool = roundAmount(blockReward * CLOCK_PCT);
 
-    // Miners — proportional to work
+    // Miners — proportional to work × stake weight
+    // weight = sqrt(staked / MIN_MINER_STAKE), capped at 10
+    // During bootstrap (epoch < BOOTSTRAP_EPOCHS): unstaked miners earn at 25% rate
+    // After bootstrap: unstaked miners earn 0%
+    var weightedWork = {};
+    var totalWeightedWork = 0;
     for (var miner of miners) {
-      var share = roundAmount(minerPool * (minerWork[miner].work_value / totalWorkValue));
-      rewards.push({ to: miner, amount: share, type: "mining" });
+      var pool = stateStore.getStakePool(miner);
+      var staked = (pool && pool.total_staked) || 0;
+      var weight;
+      if (staked >= MIN_MINER_STAKE) {
+        weight = Math.min(Math.sqrt(staked / MIN_MINER_STAKE), 10);
+      } else if (epochNumber < BOOTSTRAP_EPOCHS) {
+        weight = 0.25; // bootstrap grace: 25% rate for unstaked miners
+      } else {
+        weight = 0; // post-bootstrap: no stake = no rewards
+      }
+      var ww = (effectiveWork[miner] || 0) * weight;
+      weightedWork[miner] = ww;
+      totalWeightedWork += ww;
+    }
+
+    if (totalWeightedWork > 0) {
+      for (var miner2 of miners) {
+        var share = roundAmount(minerPool * (weightedWork[miner2] / totalWeightedWork));
+        rewards.push({ to: miner2, amount: share, type: "mining" });
+      }
     }
 
     // Verifiers — split equally (or redistribute to miners if none)

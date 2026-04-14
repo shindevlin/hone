@@ -171,6 +171,13 @@ var seenEntries = new Set();
 var SEEN_ENTRIES_CAP = 100000;
 
 // ─────────────────────────────────────────────────────────────────
+// Integer arithmetic helpers (10 decimal places = 1e10 units per BTCPC)
+// ─────────────────────────────────────────────────────────────────
+var UNITS_PER_BTCPC = 1e10; // 10 decimal places
+function toUnits(btcpc) { return Math.round(btcpc * UNITS_PER_BTCPC); }
+function fromUnits(units) { return units / UNITS_PER_BTCPC; }
+
+// ─────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────
 
@@ -185,18 +192,22 @@ function _round(n) {
 function _credit(username, token, amount) {
   if (!username || !amount) return;
   var key = _balanceKey(username, token);
-  balances.set(key, _round((balances.get(key) || 0) + amount));
+  var currentUnits = balances.get(key) || 0;
+  var addUnits = toUnits(amount);
+  balances.set(key, currentUnits + addUnits);
 }
 
 function _debit(username, token, amount) {
-  if (!username || !amount) return;
+  if (!username || !amount) return false;
   var key = _balanceKey(username, token);
-  var current = balances.get(key) || 0;
+  var currentUnits = balances.get(key) || 0;
+  var debitUnits = toUnits(amount);
   // System/issuance accounts may go negative; all others are floor-checked.
-  if (!_isSystemAccount(username) && current < amount) {
-    return; // insufficient balance — reject silently (Vuln 6 fix)
+  if (!_isSystemAccount(username) && currentUnits < debitUnits) {
+    return false; // insufficient balance — reject silently (Vuln 6 fix)
   }
-  balances.set(key, _round(current - amount));
+  balances.set(key, currentUnits - debitUnits);
+  return true;
 }
 
 function _ensureAccount(username, metadata) {
@@ -352,7 +363,9 @@ function applyEntry(entry) {
       break;
 
     case "TRANSFER":
-      _debit(from, token, amount);
+      // Integer-unit validation: amount must convert to a positive integer
+      if (toUnits(amount) <= 0) break;
+      if (!_debit(from, token, amount)) break; // insufficient balance
       _credit(to, token, amount);
       break;
 
@@ -1531,6 +1544,11 @@ function setCurrentBlockCap(cap) {
 // ─────────────────────────────────────────────────────────────────
 
 function getBalance(username, token) {
+  var units = balances.get(_balanceKey(username, token)) || 0;
+  return fromUnits(units);
+}
+
+function getBalanceUnits(username, token) {
   return balances.get(_balanceKey(username, token)) || 0;
 }
 
@@ -2487,6 +2505,10 @@ module.exports = {
   // Cross-chain monitor (v2.17)
   getCrossChainActivity: getCrossChainActivity,
   getRecentCrossChainActivity: getRecentCrossChainActivity,
+  // Integer arithmetic
+  toUnits: toUnits,
+  fromUnits: fromUnits,
+  getBalanceUnits: getBalanceUnits,
   // Introspection
   snapshot: snapshot,
   stats: stats,
