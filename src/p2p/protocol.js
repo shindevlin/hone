@@ -1692,6 +1692,12 @@ function handleClockHeartbeat(peer, msg, ctx) {
   recordPeerEpoch(msg.nodeId || account, claimedEpoch);
   recordNodeActivity(msg.nodeId, account, fileEpoch);
 
+  // Track which node relayed this heartbeat for anti-self-credit checks
+  recordHeartbeatWitness(account, fileEpoch, msg.nodeId || peer.nodeId || "unknown");
+  // Rebroadcast so all nodes see the heartbeat
+  ctx.broadcast(msg, peer.address);
+}
+
 // ---------------------------------------------------------------------------
 // PEER_ANNOUNCE — relay-free peer discovery
 // ---------------------------------------------------------------------------
@@ -1747,12 +1753,6 @@ function stopPeerAnnounce() {
     clearInterval(_peerAnnounceTimer);
     _peerAnnounceTimer = null;
   }
-}
-
-  // Track which node relayed this heartbeat for anti-self-credit checks
-  recordHeartbeatWitness(account, fileEpoch, msg.nodeId || peer.nodeId || "unknown");
-  // Rebroadcast so all nodes see the heartbeat
-  ctx.broadcast(msg, peer.address);
 }
 
 // ---------------------------------------------------------------------------
