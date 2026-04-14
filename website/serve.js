@@ -15,6 +15,31 @@ const PORT = process.env.PORT || 4243;
 const ROOT = __dirname;
 const API_PORT = process.env.BTCPC_API_PORT || 3100;
 
+// Proxy /api/* to the BTCPC API for sensor nodes and bot endpoints
+app.use("/api", (req, res) => {
+  const options = {
+    hostname: "127.0.0.1",
+    port: API_PORT,
+    path: "/api" + req.url,
+    method: req.method,
+    headers: req.headers,
+  };
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on("error", (err) => {
+    res.status(502).json({ error: "API unreachable: " + err.message });
+  });
+  if (req.method === "POST" || req.method === "PUT") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => proxyReq.end(body));
+  } else {
+    proxyReq.end();
+  }
+});
+
 // Proxy /public/* to the BTCPC API for browser clock nodes
 app.use("/public", (req, res) => {
   const options = {

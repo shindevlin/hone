@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>BTCPC Sensor — Turn Your Phone Into a Node</title>
+  <meta name="description" content="Earn BTCPC by sharing sensor data from your phone. GPS, motion, orientation, battery, network — every reading pays.">
+  <meta name="theme-color" content="#f7931a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/app-manifest.json">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%230a0e17'/%3E%3Cpolygon points='32,8 56,22 56,42 32,56 8,42 8,22' fill='none' stroke='%23f7931a' stroke-width='4'/%3E%3C/svg%3E">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0e17; --bg2: #111827; --card: #1a1f2e; --border: #2a3040;
+      --text: #e2e8f0; --muted: #64748b; --orange: #f7931a; --green: #22c55e;
+      --red: #ef4444; --gray: #4b5563;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      background: var(--bg); color: var(--text); line-height: 1.5;
+      min-height: 100vh; padding-top: 42px; -webkit-tap-highlight-color: transparent;
+    }
+    a { color: var(--orange); text-decoration: none; }
+
+    /* Nav */
+    #nav-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      display: flex; align-items: center; padding: 6px 16px;
+      background: rgba(10,14,23,0.95); border-bottom: 1px solid rgba(247,147,26,0.3);
+      font-size: 12px; gap: 16px; overflow-x: auto; white-space: nowrap;
+    }
+    #nav-bar a { color: #c8ccd4; text-decoration: none; }
+    #nav-bar a.nav-brand { color: var(--orange); font-weight: bold; font-size: 14px; }
+    #nav-bar a.active { color: var(--orange); }
+
+    /* Screens */
+    .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; }
+    .screen.active { display: block; }
+
+    /* Setup screen */
+    .setup-hero { text-align: center; padding: 48px 0 32px; }
+    .setup-hex {
+      width: 96px; height: 96px; margin: 0 auto 24px;
+    }
+    .setup-hero h1 { font-size: 22px; color: var(--orange); margin-bottom: 8px; }
+    .setup-hero p { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .input-group { margin-bottom: 16px; }
+    .input-group label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+    .input-group input {
+      width: 100%; padding: 14px 16px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: inherit; font-size: 16px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .input-group input:focus { border-color: var(--orange); }
+    .btn {
+      display: block; width: 100%; padding: 16px; border: none; border-radius: 10px;
+      font-family: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-primary:hover { background: #fbbf24; }
+    .btn-secondary { background: var(--card); color: var(--orange); border: 1px solid var(--orange); margin-top: 12px; }
+    .btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid var(--red); margin-top: 12px; }
+
+    /* Dashboard */
+    .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .dash-header h2 { font-size: 16px; color: var(--orange); }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px;
+      border-radius: 20px; font-size: 12px; font-weight: 600;
+    }
+    .status-earning { background: rgba(34,197,94,0.15); color: var(--green); }
+    .status-idle { background: rgba(75,85,99,0.15); color: var(--gray); }
+
+    .stats-bar {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 16px 0;
+    }
+    .stat-box {
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 10px; text-align: center;
+    }
+    .stat-box .val { font-size: 18px; font-weight: 700; color: var(--orange); }
+    .stat-box .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+    /* Sensor cards */
+    .sensor-card {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 8px; transition: border-color 0.2s;
+    }
+    .sensor-card.on { border-color: rgba(34,197,94,0.4); }
+    .sensor-card.unavailable { opacity: 0.5; }
+    .sensor-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .sensor-icon.green { background: rgba(34,197,94,0.15); }
+    .sensor-icon.gray { background: rgba(75,85,99,0.15); }
+    .sensor-icon.red { background: rgba(239,68,68,0.15); }
+    .sensor-info { flex: 1; min-width: 0; }
+    .sensor-name { font-size: 13px; font-weight: 600; }
+    .sensor-value { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sensor-toggle {
+      position: relative; width: 48px; height: 28px; flex-shrink: 0;
+    }
+    .sensor-toggle input { opacity: 0; width: 0; height: 0; }
+    .sensor-toggle .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--gray); border-radius: 28px; transition: 0.3s;
+    }
+    .sensor-toggle .slider::before {
+      content: ''; position: absolute; height: 22px; width: 22px; left: 3px; bottom: 3px;
+      background: white; border-radius: 50%; transition: 0.3s;
+    }
+    .sensor-toggle input:checked + .slider { background: var(--green); }
+    .sensor-toggle input:checked + .slider::before { transform: translateX(20px); }
+    .sensor-toggle input:disabled + .slider { cursor: not-allowed; opacity: 0.4; }
+
+    /* Permission modal */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7); z-index: 50; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px 24px; max-width: 360px; width: 100%; text-align: center;
+    }
+    .modal h3 { color: var(--orange); font-size: 16px; margin-bottom: 12px; }
+    .modal p { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.6; }
+    .modal .btn { margin-bottom: 8px; }
+
+    /* Sync bar */
+    .sync-bar {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-top: 16px; font-size: 12px; color: var(--muted);
+    }
+    .sync-bar .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .sync-bar .row:last-child { margin-bottom: 0; }
+
+    /* Footer */
+    .app-footer { text-align: center; padding: 32px 16px; font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <div id="nav-bar">
+    <a href="/" class="nav-brand">BTCPC</a>
+    <a href="/globe">Globe</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/clock">Clock</a>
+    <a href="/map">Map</a>
+    <a href="/app" class="active">Sensor</a>
+    <a href="/install">Install</a>
+    <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  </div>
+
+  <!-- Screen: Setup -->
+  <div id="screen-setup" class="screen active">
+    <div class="setup-hero">
+      <svg class="setup-hex" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="60,10 110,35 110,85 60,110 10,85 10,35" fill="none" stroke="#f7931a" stroke-width="4"/>
+        <text x="60" y="72" text-anchor="middle" font-size="40" font-family="monospace" font-weight="bold" fill="#f7931a">S</text>
+        <circle cx="30" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/></circle>
+        <circle cx="90" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/></circle>
+        <circle cx="60" cy="95" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/></circle>
+      </svg>
+      <h1>BTCPC Sensor Node</h1>
+      <p>Turn your phone into a BTCPC sensor node. Share GPS, motion, orientation, and device data to earn from the IoT pool.</p>
+    </div>
+    <div class="input-group">
+      <label>BTCPC Username</label>
+      <input type="text" id="input-account" placeholder="e.g. shindevlin" autocomplete="off" autocapitalize="none" spellcheck="false">
+    </div>
+    <button class="btn btn-primary" id="btn-start">Start Earning</button>
+    <div class="app-footer">
+      Your phone sensors = your mining rig.<br>
+      Every reading earns BTCPC from the IoT pool.
+    </div>
+  </div>
+
+  <!-- Screen: Dashboard -->
+  <div id="screen-dash" class="screen">
+    <div class="dash-header">
+      <h2>=== BTCPC Mobile Sensor ===</h2>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div>
+        <span style="font-size:12px;color:var(--muted);">Account:</span>
+        <span id="dash-account" style="font-size:14px;font-weight:700;color:var(--orange);"></span>
+      </div>
+      <span id="dash-status" class="status-badge status-idle">Idle</span>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-box">
+        <div class="val" id="stat-buffered">0</div>
+        <div class="lbl">Buffered</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" id="stat-synced">0</div>
+        <div class="lbl">Synced</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" id="stat-earnings">0.00</div>
+        <div class="lbl">BTCPC Today</div>
+      </div>
+    </div>
+
+    <div id="sensor-list"></div>
+
+    <div class="sync-bar" id="sync-bar">
+      <div class="row"><span>Next reading in</span><span id="sync-countdown">30s</span></div>
+      <div class="row"><span>Sync status</span><span id="sync-status">Waiting</span></div>
+      <div class="row"><span>Estimated/hr</span><span id="sync-rate">~0.00 BTCPC</span></div>
+    </div>
+
+    <!-- Privacy Settings -->
+    <div class="card" style="margin-top:16px;">
+      <h3 style="font-size:13px;color:var(--orange);margin-bottom:12px;">Privacy Settings</h3>
+      <div style="margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" id="gps-exclude-wifi" style="accent-color:var(--orange);">
+          Pause GPS when on WiFi (home/work protection)
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+        GPS Privacy (always active):
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding-left:8px;">
+        &#x2713; Grid snapping — location rounded to ~500m grid<br>
+        &#x2713; Minimum movement — only reports when you move 500m+<br>
+        &#x2713; Time fuzzing — timestamps randomized ±5 minutes<br>
+        &#x2713; Aggregate only — chain stores grid cell counts, not individual locations
+      </div>
+    </div>
+
+    <button class="btn btn-secondary" id="btn-settings">Change Account</button>
+    <button class="btn btn-danger" id="btn-stop">Stop All Sensors</button>
+
+    <div class="app-footer">BTCPC Sensor v1.0 &mdash; btcpc.net</div>
+  </div>
+
+  <!-- Permission modal -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-title">Enable Sensor</h3>
+      <p id="modal-body">Explanation here.</p>
+      <button class="btn btn-primary" id="modal-allow">Allow</button>
+      <button class="btn btn-secondary" id="modal-cancel">Not Now</button>
+    </div>
+  </div>
+
+<script>
+// ─── Config ───
+const API_BASE = location.origin;
+const EPOCH_INTERVAL = 30000; // 30 seconds
+const BTCPC_PER_READING = 0.000042; // estimated per sensor per epoch
+
+// ─── State ───
+let account = localStorage.getItem('btcpc-sensor-account') || '';
+let db = null;
+let epochTimer = null;
+let countdownTimer = null;
+let countdown = 30;
+let totalBuffered = 0;
+let totalSynced = 0;
+let todayEarnings = parseFloat(localStorage.getItem('btcpc-sensor-earnings-today') || '0');
+let sensorStates = JSON.parse(localStorage.getItem('btcpc-sensor-states') || '{}');
+let liveValues = {};
+let sensorWatchers = {};
+
+// ─── Sensor Definitions ───
+const SENSORS = [
+  {
+    id: 'gps', name: 'GPS', icon: '\u{1F4CD}',
+    desc: 'BTCPC needs your location to report GPS coordinates to the network. You earn from the IoT pool for each reading.',
+    check: () => 'geolocation' in navigator,
+  },
+  {
+    id: 'motion', name: 'Motion', icon: '\u{1F4F1}',
+    desc: 'Share accelerometer data (device motion) to earn BTCPC. Used for movement pattern analysis on the network.',
+    check: () => typeof DeviceMotionEvent !== 'undefined',
+  },
+  {
+    id: 'orientation', name: 'Orientation', icon: '\u{1F9ED}',
+    desc: 'Share gyroscope/orientation data to earn BTCPC. Reports device tilt and rotation to the network.',
+    check: () => typeof DeviceOrientationEvent !== 'undefined',
+  },
+  {
+    id: 'light', name: 'Ambient Light', icon: '\u{2600}\u{FE0F}',
+    desc: 'Share ambient light readings to earn BTCPC. Reports environmental brightness to the sensor network.',
+    check: () => 'AmbientLightSensor' in window,
+  },
+  {
+    id: 'magnetometer', name: 'Magnetometer', icon: '\u{1F9F2}',
+    desc: 'Share magnetic field data to earn BTCPC. Reports compass/magnetic readings to the network.',
+    check: () => 'Magnetometer' in window,
+  },
+  {
+    id: 'barometer', name: 'Barometer', icon: '\u{1F321}\u{FE0F}',
+    desc: 'Share barometric pressure data to earn BTCPC. Reports atmospheric pressure for weather data on the network.',
+    check: () => 'PressureSensor' in window || 'Barometer' in window,
+  },
+  {
+    id: 'proximity', name: 'Proximity', icon: '\u{1F91A}',
+    desc: 'Share proximity sensor data to earn BTCPC. Reports near/far object detection to the network.',
+    check: () => 'ProximitySensor' in window,
+  },
+  {
+    id: 'battery', name: 'Battery', icon: '\u{1F50B}',
+    desc: 'Share battery status to earn BTCPC. Reports charge level and charging state to the network.',
+    check: () => 'getBattery' in navigator,
+  },
+  {
+    id: 'network', name: 'Network', icon: '\u{1F4F6}',
+    desc: 'Share network connection info to earn BTCPC. Reports connection type, speed, and latency to the network.',
+    check: () => 'connection' in navigator || 'mozConnection' in navigator || 'webkitConnection' in navigator,
+  },
+];
+
+// ─── IndexedDB ───
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('btcpc-sensor', 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains('readings')) d.createObjectStore('readings', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('config')) d.createObjectStore('config', { keyPath: 'key' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbPut(store, data) {
+  return new Promise((resolve, reject) => {
+    const req = store.put(data);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGetAll(store) {
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbCount(store) {
+  return new Promise((resolve, reject) => {
+    const req = store.count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbClear(store) {
+  return new Promise((resolve, reject) => {
+    const req = store.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ─── Screens ───
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ─── Setup ───
+document.getElementById('btn-start').addEventListener('click', () => {
+  const val = document.getElementById('input-account').value.trim().toLowerCase();
+  if (!val) { document.getElementById('input-account').focus(); return; }
+  account = val;
+  localStorage.setItem('btcpc-sensor-account', account);
+  saveAccountToDB();
+  initDashboard();
+});
+
+if (account) {
+  document.getElementById('input-account').value = account;
+}
+
+// ─── Dashboard Init ───
+async function initDashboard() {
+  showScreen('screen-dash');
+  document.getElementById('dash-account').textContent = account;
+  db = await openDB();
+  saveAccountToDB();
+  renderSensors();
+  startEpochLoop();
+  updateStats();
+  // Restore active sensors
+  for (const s of SENSORS) {
+    if (sensorStates[s.id] && s.check()) {
+      startSensor(s.id, true);
+    }
+  }
+  updateDashStatus();
+}
+
+function saveAccountToDB() {
+  if (!db) return;
+  try {
+    const tx = db.transaction('config', 'readwrite');
+    tx.objectStore('config').put({ key: 'account', value: account });
+  } catch (_) {}
+}
+
+// ─── Render Sensor List ───
+function renderSensors() {
+  const list = document.getElementById('sensor-list');
+  list.innerHTML = '';
+  for (const s of SENSORS) {
+    const available = s.check();
+    const on = !!sensorStates[s.id] && available;
+    const card = document.createElement('div');
+    card.className = 'sensor-card' + (on ? ' on' : '') + (!available ? ' unavailable' : '');
+    card.id = 'card-' + s.id;
+
+    const iconClass = on ? 'green' : (available ? 'gray' : 'red');
+    const statusMark = on ? '\u2713' : (available ? '\u25CB' : '\u2717');
+    const valueText = on ? (liveValues[s.id] || 'reading...') : (!available ? 'not available' : 'off');
+
+    card.innerHTML = `
+      <div class="sensor-icon ${iconClass}">${s.icon}</div>
+      <div class="sensor-info">
+        <div class="sensor-name">${statusMark} ${s.name}</div>
+        <div class="sensor-value" id="val-${s.id}">${valueText}</div>
+      </div>
+      <label class="sensor-toggle">
+        <input type="checkbox" id="toggle-${s.id}" ${on ? 'checked' : ''} ${!available ? 'disabled' : ''}>
+        <span class="slider"></span>
+      </label>
+    `;
+    list.appendChild(card);
+
+    if (available) {
+      document.getElementById('toggle-' + s.id).addEventListener('change', (e) => {
+        if (e.target.checked) {
+          showPermissionModal(s);
+        } else {
+          stopSensor(s.id);
+          sensorStates[s.id] = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          renderSensors();
+          updateDashStatus();
+        }
+      });
+    }
+  }
+}
+
+// ─── Permission Modal ───
+function showPermissionModal(sensor) {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = 'Enable ' + sensor.name;
+  document.getElementById('modal-body').textContent = sensor.desc;
+  overlay.classList.add('active');
+
+  const allow = document.getElementById('modal-allow');
+  const cancel = document.getElementById('modal-cancel');
+
+  const cleanup = () => {
+    overlay.classList.remove('active');
+    allow.replaceWith(allow.cloneNode(true));
+    cancel.replaceWith(cancel.cloneNode(true));
+  };
+
+  document.getElementById('modal-allow').addEventListener('click', () => {
+    cleanup();
+    startSensor(sensor.id, false);
+  });
+  document.getElementById('modal-cancel').addEventListener('click', () => {
+    cleanup();
+    document.getElementById('toggle-' + sensor.id).checked = false;
+  });
+}
+
+// ─── GPS Privacy ───
+const GPS_GRID_SIZE = 0.005; // ~500m grid snapping
+const GPS_TIME_FUZZ_MS = 300000; // ±5 min timestamp fuzz
+let gpsHomeZoneNetworks = JSON.parse(localStorage.getItem('btcpc-gps-exclusions') || '[]');
+let gpsMinMovement = 0.005; // ~500m minimum movement to report
+let lastReportedGPS = null;
+
+function snapToGrid(val) { return Math.round(val / GPS_GRID_SIZE) * GPS_GRID_SIZE; }
+function fuzzTimestamp(ts) { return ts + (Math.random() - 0.5) * GPS_TIME_FUZZ_MS; }
+
+function isOnExcludedNetwork() {
+  // Check if current WiFi is in exclusion list
+  try {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.type === 'wifi') {
+      // SSID not directly available in most browsers for privacy
+      // Fall back to checking if on ANY wifi (user can disable GPS on wifi in settings)
+      const excludeOnWifi = localStorage.getItem('btcpc-gps-exclude-wifi') === 'true';
+      if (excludeOnWifi) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function hasMovedEnough(lat, lon) {
+  if (!lastReportedGPS) return true;
+  const dlat = lat - lastReportedGPS.lat;
+  const dlon = lon - lastReportedGPS.lon;
+  return Math.sqrt(dlat * dlat + dlon * dlon) >= gpsMinMovement;
+}
+
+function privacyFilterGPS(lat, lon) {
+  // 1. Check excluded networks
+  if (isOnExcludedNetwork()) return null;
+  // 2. Check minimum movement
+  if (!hasMovedEnough(lat, lon)) return null;
+  // 3. Grid snap (500m)
+  const snapped = { lat: snapToGrid(lat), lon: snapToGrid(lon) };
+  lastReportedGPS = { lat, lon };
+  return snapped;
+}
+
+// ─── Sensor Start/Stop ───
+function startSensor(id, silent) {
+  sensorStates[id] = true;
+  localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+
+  switch (id) {
+    case 'gps':
+      if ('geolocation' in navigator) {
+        const wid = navigator.geolocation.watchPosition(
+          pos => {
+            const raw = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            const filtered = privacyFilterGPS(raw.lat, raw.lon);
+            if (filtered) {
+              liveValues.gps = `${filtered.lat.toFixed(3)}, ${filtered.lon.toFixed(3)} (grid)`;
+            } else {
+              liveValues.gps = `privacy zone — paused`;
+            }
+            updateSensorUI('gps');
+          },
+          err => {
+            liveValues.gps = 'permission denied';
+            if (!silent) { sensorStates.gps = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); }
+            updateSensorUI('gps');
+          },
+          { enableHighAccuracy: true, maximumAge: 10000 }
+        );
+        sensorWatchers.gps = { type: 'geo', id: wid };
+      }
+      break;
+
+    case 'motion':
+      if (typeof DeviceMotionEvent !== 'undefined') {
+        // iOS 13+ requires permission
+        if (typeof DeviceMotionEvent.requestPermission === 'function' && !silent) {
+          DeviceMotionEvent.requestPermission().then(state => {
+            if (state === 'granted') bindMotion();
+            else { sensorStates.motion = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
+          }).catch(() => { bindMotion(); }); // non-iOS, just bind
+        } else {
+          bindMotion();
+        }
+      }
+      break;
+
+    case 'orientation':
+      if (typeof DeviceOrientationEvent !== 'undefined') {
+        if (typeof DeviceOrientationEvent.requestPermission === 'function' && !silent) {
+          DeviceOrientationEvent.requestPermission().then(state => {
+            if (state === 'granted') bindOrientation();
+            else { sensorStates.orientation = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
+          }).catch(() => { bindOrientation(); });
+        } else {
+          bindOrientation();
+        }
+      }
+      break;
+
+    case 'light':
+      try {
+        const sensor = new AmbientLightSensor();
+        sensor.addEventListener('reading', () => {
+          liveValues.light = `${sensor.illuminance.toFixed(0)} lux`;
+          updateSensorUI('light');
+        });
+        sensor.addEventListener('error', () => { liveValues.light = 'error'; updateSensorUI('light'); });
+        sensor.start();
+        sensorWatchers.light = { type: 'generic', obj: sensor };
+      } catch (_) { liveValues.light = 'not available'; }
+      break;
+
+    case 'magnetometer':
+      try {
+        const sensor = new Magnetometer({ frequency: 1 });
+        sensor.addEventListener('reading', () => {
+          liveValues.magnetometer = `x:${sensor.x.toFixed(1)} y:${sensor.y.toFixed(1)} z:${sensor.z.toFixed(1)} uT`;
+          updateSensorUI('magnetometer');
+        });
+        sensor.addEventListener('error', () => { liveValues.magnetometer = 'error'; });
+        sensor.start();
+        sensorWatchers.magnetometer = { type: 'generic', obj: sensor };
+      } catch (_) { liveValues.magnetometer = 'not available'; }
+      break;
+
+    case 'barometer':
+      try {
+        const SensorClass = window.PressureSensor || window.Barometer;
+        const sensor = new SensorClass({ frequency: 1 });
+        sensor.addEventListener('reading', () => {
+          liveValues.barometer = `${sensor.pressure.toFixed(1)} hPa`;
+          updateSensorUI('barometer');
+        });
+        sensor.addEventListener('error', () => { liveValues.barometer = 'error'; });
+        sensor.start();
+        sensorWatchers.barometer = { type: 'generic', obj: sensor };
+      } catch (_) { liveValues.barometer = 'not available'; }
+      break;
+
+    case 'proximity':
+      try {
+        const sensor = new ProximitySensor();
+        sensor.addEventListener('reading', () => {
+          liveValues.proximity = sensor.near ? 'near' : `${sensor.distance.toFixed(1)} cm`;
+          updateSensorUI('proximity');
+        });
+        sensor.addEventListener('error', () => { liveValues.proximity = 'error'; });
+        sensor.start();
+        sensorWatchers.proximity = { type: 'generic', obj: sensor };
+      } catch (_) { liveValues.proximity = 'not available'; }
+      break;
+
+    case 'battery':
+      if ('getBattery' in navigator) {
+        navigator.getBattery().then(bat => {
+          const update = () => {
+            const pct = Math.round(bat.level * 100);
+            const state = bat.charging ? 'charging' : 'discharging';
+            liveValues.battery = `${pct}%, ${state}`;
+            updateSensorUI('battery');
+          };
+          update();
+          bat.addEventListener('levelchange', update);
+          bat.addEventListener('chargingchange', update);
+          sensorWatchers.battery = { type: 'battery', obj: bat, fn: update };
+        });
+      }
+      break;
+
+    case 'network':
+      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (conn) {
+        const update = () => {
+          const parts = [];
+          if (conn.type) parts.push(conn.type);
+          if (conn.effectiveType) parts.push(conn.effectiveType);
+          if (conn.rtt) parts.push(conn.rtt + 'ms');
+          if (conn.downlink) parts.push(conn.downlink + ' Mbps');
+          liveValues.network = parts.join(', ') || 'connected';
+          updateSensorUI('network');
+        };
+        update();
+        conn.addEventListener('change', update);
+        sensorWatchers.network = { type: 'network', obj: conn, fn: update };
+      }
+      break;
+  }
+
+  renderSensors();
+  updateDashStatus();
+}
+
+function bindMotion() {
+  const handler = (e) => {
+    const a = e.accelerationIncludingGravity || {};
+    liveValues.motion = `${(a.x||0).toFixed(2)}g, ${(a.y||0).toFixed(2)}g, ${(a.z||0).toFixed(2)}g`;
+    updateSensorUI('motion');
+  };
+  window.addEventListener('devicemotion', handler);
+  sensorWatchers.motion = { type: 'event', event: 'devicemotion', fn: handler };
+}
+
+function bindOrientation() {
+  const handler = (e) => {
+    liveValues.orientation = `${(e.alpha||0).toFixed(0)}\u00B0, ${(e.beta||0).toFixed(0)}\u00B0, ${(e.gamma||0).toFixed(0)}\u00B0`;
+    updateSensorUI('orientation');
+  };
+  window.addEventListener('deviceorientation', handler);
+  sensorWatchers.orientation = { type: 'event', event: 'deviceorientation', fn: handler };
+}
+
+function stopSensor(id) {
+  const w = sensorWatchers[id];
+  if (!w) return;
+  switch (w.type) {
+    case 'geo': navigator.geolocation.clearWatch(w.id); break;
+    case 'event': window.removeEventListener(w.event, w.fn); break;
+    case 'generic': try { w.obj.stop(); } catch (_) {} break;
+    case 'battery':
+      try { w.obj.removeEventListener('levelchange', w.fn); w.obj.removeEventListener('chargingchange', w.fn); } catch (_) {}
+      break;
+    case 'network':
+      try { w.obj.removeEventListener('change', w.fn); } catch (_) {}
+      break;
+  }
+  delete sensorWatchers[id];
+  delete liveValues[id];
+}
+
+function updateSensorUI(id) {
+  const el = document.getElementById('val-' + id);
+  if (el) el.textContent = liveValues[id] || 'reading...';
+}
+
+function updateDashStatus() {
+  const activeCount = SENSORS.filter(s => sensorStates[s.id] && s.check()).length;
+  const badge = document.getElementById('dash-status');
+  if (activeCount > 0) {
+    badge.textContent = 'Earning \u25CF';
+    badge.className = 'status-badge status-earning';
+  } else {
+    badge.textContent = 'Idle';
+    badge.className = 'status-badge status-idle';
+  }
+}
+
+// ─── Epoch Loop: Collect + Buffer ───
+function startEpochLoop() {
+  if (epochTimer) clearInterval(epochTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdown = 30;
+
+  epochTimer = setInterval(collectAndBuffer, EPOCH_INTERVAL);
+  countdownTimer = setInterval(() => {
+    countdown--;
+    if (countdown < 0) countdown = 30;
+    document.getElementById('sync-countdown').textContent = countdown + 's';
+  }, 1000);
+}
+
+async function collectAndBuffer() {
+  if (!db) return;
+  const activeSensors = SENSORS.filter(s => sensorStates[s.id] && s.check() && liveValues[s.id]);
+  if (!activeSensors.length) return;
+
+  const ts = Date.now();
+  const tx = db.transaction('readings', 'readwrite');
+  const store = tx.objectStore('readings');
+
+  for (const s of activeSensors) {
+    await idbPut(store, {
+      sensorType: s.id,
+      account: account,
+      timestamp: ts,
+      value: liveValues[s.id],
+      raw: getRawValue(s.id),
+    });
+  }
+
+  totalBuffered += activeSensors.length;
+  todayEarnings += activeSensors.length * BTCPC_PER_READING;
+  localStorage.setItem('btcpc-sensor-earnings-today', todayEarnings.toString());
+  countdown = 30;
+  updateStats();
+
+  // Try to sync
+  syncReadings();
+}
+
+function getRawValue(id) {
+  // Return structured data for API submission
+  switch (id) {
+    case 'gps': {
+      const parts = (liveValues.gps || '').split(',').map(s => parseFloat(s.trim()));
+      return { lat: parts[0] || 0, lon: parts[1] || 0 };
+    }
+    case 'motion': {
+      const parts = (liveValues.motion || '').replace(/g/g, '').split(',').map(s => parseFloat(s.trim()));
+      return { x: parts[0] || 0, y: parts[1] || 0, z: parts[2] || 0 };
+    }
+    case 'orientation': {
+      const parts = (liveValues.orientation || '').replace(/\u00B0/g, '').split(',').map(s => parseFloat(s.trim()));
+      return { alpha: parts[0] || 0, beta: parts[1] || 0, gamma: parts[2] || 0 };
+    }
+    default:
+      return { value: liveValues[id] };
+  }
+}
+
+// ─── Sync to API ───
+async function syncReadings() {
+  if (!db || !navigator.onLine) {
+    document.getElementById('sync-status').textContent = 'Offline \u2014 buffering';
+    return;
+  }
+
+  document.getElementById('sync-status').textContent = 'Syncing...';
+
+  try {
+    const tx = db.transaction('readings', 'readonly');
+    const store = tx.objectStore('readings');
+    const all = await idbGetAll(store);
+    if (!all.length) {
+      document.getElementById('sync-status').textContent = 'Up to date';
+      return;
+    }
+
+    // Group by sensor type
+    const groups = {};
+    for (const r of all) {
+      const key = r.sensorType || 'unknown';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    }
+
+    let syncedThisBatch = 0;
+    for (const [type, readings] of Object.entries(groups)) {
+      try {
+        const resp = await fetch(`${API_BASE}/api/sensors/${account}/phone-${type}/readings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ readings: readings.map(r => ({ timestamp: r.timestamp, value: r.value, raw: r.raw })) }),
+        });
+        if (resp.ok) {
+          // Remove synced readings from IndexedDB
+          const delTx = db.transaction('readings', 'readwrite');
+          const delStore = delTx.objectStore('readings');
+          for (const r of readings) {
+            delStore.delete(r.id);
+          }
+          syncedThisBatch += readings.length;
+        }
+      } catch (_) {
+        // Will retry next epoch
+      }
+    }
+
+    totalSynced += syncedThisBatch;
+    totalBuffered = Math.max(0, totalBuffered - syncedThisBatch);
+    updateStats();
+    document.getElementById('sync-status').textContent = syncedThisBatch > 0 ? `Synced ${syncedThisBatch}` : 'Retrying...';
+
+    // Register background sync if available
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      const reg = await navigator.serviceWorker.ready;
+      try { await reg.sync.register('btcpc-sensor-sync'); } catch (_) {}
+    }
+
+  } catch (err) {
+    document.getElementById('sync-status').textContent = 'Error \u2014 retrying';
+  }
+}
+
+async function updateStats() {
+  document.getElementById('stat-buffered').textContent = totalBuffered;
+  document.getElementById('stat-synced').textContent = totalSynced;
+  document.getElementById('stat-earnings').textContent = todayEarnings.toFixed(todayEarnings >= 1 ? 2 : 4);
+
+  const activeCount = SENSORS.filter(s => sensorStates[s.id] && s.check()).length;
+  const perHour = activeCount * BTCPC_PER_READING * (3600 / 30);
+  document.getElementById('sync-rate').textContent = `~${perHour.toFixed(4)} BTCPC`;
+
+  // Update buffered count from DB
+  if (db) {
+    try {
+      const tx = db.transaction('readings', 'readonly');
+      const count = await idbCount(tx.objectStore('readings'));
+      totalBuffered = count;
+      document.getElementById('stat-buffered').textContent = count;
+    } catch (_) {}
+  }
+}
+
+// ─── Settings / Stop ───
+// GPS WiFi exclusion toggle
+const gpsExcludeEl = document.getElementById('gps-exclude-wifi');
+if (gpsExcludeEl) {
+  gpsExcludeEl.checked = localStorage.getItem('btcpc-gps-exclude-wifi') === 'true';
+  gpsExcludeEl.addEventListener('change', () => {
+    localStorage.setItem('btcpc-gps-exclude-wifi', gpsExcludeEl.checked ? 'true' : 'false');
+  });
+}
+
+document.getElementById('btn-settings').addEventListener('click', () => {
+  stopAll();
+  showScreen('screen-setup');
+});
+
+document.getElementById('btn-stop').addEventListener('click', () => {
+  stopAll();
+  sensorStates = {};
+  localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+  renderSensors();
+  updateDashStatus();
+});
+
+function stopAll() {
+  if (epochTimer) { clearInterval(epochTimer); epochTimer = null; }
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  for (const id of Object.keys(sensorWatchers)) {
+    stopSensor(id);
+  }
+}
+
+// ─── Reset daily earnings at midnight ───
+function checkDayReset() {
+  const today = new Date().toDateString();
+  const saved = localStorage.getItem('btcpc-sensor-earnings-date');
+  if (saved !== today) {
+    todayEarnings = 0;
+    localStorage.setItem('btcpc-sensor-earnings-today', '0');
+    localStorage.setItem('btcpc-sensor-earnings-date', today);
+  }
+}
+checkDayReset();
+
+// ─── Service Worker ───
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/app-sw.js').then(reg => {
+    console.log('BTCPC Sensor SW registered', reg.scope);
+  }).catch(err => {
+    console.log('SW registration failed', err);
+  });
+}
+
+// ─── Auto-start if account exists ───
+if (account) {
+  initDashboard();
+}
+</script>
+</body>
+</html>
