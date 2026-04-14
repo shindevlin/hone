@@ -16,26 +16,15 @@
 <body>
 
   <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="#" class="nav-logo">
-        <div class="nav-logo-icon">B</div>
-        <div>BTCPC</div>
-      </a>
-      <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Toggle navigation">&#9776;</button>
-      <div class="nav-links">
-        <a href="#problem">Problem</a>
-        <a href="#how">Earn</a>
-        <a href="#recycle">No Burn</a>
-        <a href="#bridge">Bridge</a>
-        <a href="#finality">Finality</a>
-        <a href="#security">Security</a>
-        <a href="#42">42</a>
-        <a href="#sensors">Sensors</a>
-        <a href="#start">Start</a>
-      </div>
-    </div>
-  </nav>
+  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:16px;">
+    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;">BTCPC</a>
+    <a href="/globe" style="color:#c8ccd4;text-decoration:none;">Globe</a>
+    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Dashboard</a>
+    <a href="/clock" style="color:#c8ccd4;text-decoration:none;">Clock</a>
+    <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
+    <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
+    <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
+  </div>
 
   <!-- Hero -->
   <section class="hero" id="hero">
