@@ -185,6 +185,28 @@
     </div>
   </div>
 
+  <!-- Screen: Mnemonic (shown once for new accounts) -->
+  <div id="screen-mnemonic" class="screen">
+    <div style="max-width:400px;margin:0 auto;padding:20px 16px;">
+      <h2 style="color:#f7931a;text-align:center;margin-bottom:16px;">Your Wallet</h2>
+      <div style="background:#1a0a00;border:2px solid #f7931a;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <div style="color:#ef4444;font-weight:bold;font-size:14px;margin-bottom:8px;">&#x26A0; SAVE THESE 12 WORDS — SHOWN ONLY ONCE</div>
+        <div style="color:#94a3b8;font-size:11px;margin-bottom:12px;">This is your recovery phrase. Write it on paper. Never share it. If you lose it, your BTCPC is gone forever.</div>
+        <div id="mnemonic-words" style="font-size:16px;line-height:2;color:#f7931a;font-weight:bold;letter-spacing:1px;word-spacing:8px;text-align:center;padding:12px;background:#0a0e17;border-radius:4px;"></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Account</div>
+        <div id="mnemonic-account" style="color:#22c55e;font-size:14px;"></div>
+        <div id="mnemonic-balance" style="color:#f7931a;font-size:12px;margin-top:4px;">1 BTCPC granted from faucet</div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;cursor:pointer;">
+        <input type="checkbox" id="mnemonic-confirm" style="accent-color:#f7931a;width:20px;height:20px;">
+        <span style="font-size:13px;">I saved my 12 words somewhere safe</span>
+      </label>
+      <button class="btn btn-primary" id="btn-mnemonic-continue" disabled style="opacity:0.5;">Start Earning</button>
+    </div>
+  </div>
+
   <!-- Screen: Dashboard -->
   <div id="screen-dash" class="screen">
     <div class="dash-header">
@@ -378,14 +400,87 @@ function showScreen(id) {
 }
 
 // ─── Setup ───
-document.getElementById('btn-start').addEventListener('click', () => {
+document.getElementById('btn-start').addEventListener('click', async () => {
   const val = document.getElementById('input-account').value.trim().toLowerCase();
-  if (!val) { document.getElementById('input-account').focus(); return; }
-  account = val;
-  localStorage.setItem('btcpc-sensor-account', account);
-  saveAccountToDB();
-  initDashboard();
+  if (!val || !/^[a-z0-9][a-z0-9._-]{1,18}[a-z0-9]$/.test(val)) {
+    document.getElementById('input-account').placeholder = 'letters, numbers, hyphens (3-20 chars)';
+    document.getElementById('input-account').focus();
+    return;
+  }
+
+  const btn = document.getElementById('btn-start');
+  btn.textContent = 'Creating account...';
+  btn.disabled = true;
+
+  try {
+    // Try to create account on the BTCPC network
+    const password = 'phone-' + Date.now(); // auto-generated, not needed for sensor-only
+    const resp = await fetch('/api/bot/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: val, password: password })
+    });
+    const data = await resp.json();
+
+    if (data.mnemonic) {
+      // New account — show mnemonic
+      account = val;
+      localStorage.setItem('btcpc-sensor-account', account);
+      saveAccountToDB();
+
+      document.getElementById('mnemonic-words').textContent = data.mnemonic;
+      document.getElementById('mnemonic-account').textContent = val;
+
+      // Auto-claim faucet
+      try {
+        await fetch('/api/faucet/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: val })
+        });
+        document.getElementById('mnemonic-balance').textContent = '1 BTCPC granted from faucet';
+      } catch (_) {
+        document.getElementById('mnemonic-balance').textContent = 'Faucet unavailable — earn from sensors';
+      }
+
+      showScreen('screen-mnemonic');
+    } else if (data.error && /exists|taken|duplicate/i.test(data.error)) {
+      // Account exists — just go to dashboard
+      account = val;
+      localStorage.setItem('btcpc-sensor-account', account);
+      saveAccountToDB();
+      initDashboard();
+    } else {
+      // Other error — try proceeding anyway (might work offline)
+      account = val;
+      localStorage.setItem('btcpc-sensor-account', account);
+      saveAccountToDB();
+      initDashboard();
+    }
+  } catch (e) {
+    // Network error — proceed offline, sync later
+    account = val;
+    localStorage.setItem('btcpc-sensor-account', account);
+    saveAccountToDB();
+    initDashboard();
+  }
+
+  btn.textContent = 'Start Earning';
+  btn.disabled = false;
 });
+
+// Mnemonic confirm checkbox + continue
+const mnemonicConfirm = document.getElementById('mnemonic-confirm');
+const mnemonicContinue = document.getElementById('btn-mnemonic-continue');
+if (mnemonicConfirm && mnemonicContinue) {
+  mnemonicConfirm.addEventListener('change', () => {
+    mnemonicContinue.disabled = !mnemonicConfirm.checked;
+    mnemonicContinue.style.opacity = mnemonicConfirm.checked ? '1' : '0.5';
+  });
+  mnemonicContinue.addEventListener('click', () => {
+    initDashboard();
+  });
+}
 
 if (account) {
   document.getElementById('input-account').value = account;
@@ -504,7 +599,7 @@ function isOnExcludedNetwork() {
     if (conn && conn.type === 'wifi') {
       // SSID not directly available in most browsers for privacy
       // Fall back to checking if on ANY wifi (user can disable GPS on wifi in settings)
-      const excludeOnWifi = localStorage.getItem('btcpc-gps-exclude-wifi') === 'true';
+      const excludeOnWifi = localStorage.getItem('btcpc-gps-exclude-wifi') !== 'false';
       if (excludeOnWifi) return true;
     }
   } catch (_) {}
@@ -587,56 +682,136 @@ function startSensor(id, silent) {
       break;
 
     case 'light':
+      if (!window.AmbientLightSensor) {
+        liveValues.light = 'Not available on this device';
+        sensorStates.light = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('light');
+        break;
+      }
       try {
-        const sensor = new AmbientLightSensor();
-        sensor.addEventListener('reading', () => {
-          liveValues.light = `${sensor.illuminance.toFixed(0)} lux`;
+        const lightSensor = new AmbientLightSensor({ frequency: 1 });
+        lightSensor.addEventListener('reading', () => {
+          liveValues.light = `${lightSensor.illuminance.toFixed(0)} lux`;
           updateSensorUI('light');
         });
-        sensor.addEventListener('error', () => { liveValues.light = 'error'; updateSensorUI('light'); });
-        sensor.start();
-        sensorWatchers.light = { type: 'generic', obj: sensor };
-      } catch (_) { liveValues.light = 'not available'; }
+        lightSensor.addEventListener('error', (e) => {
+          if (e.error && e.error.name === 'NotAllowedError') {
+            liveValues.light = 'Permission denied — enable ambient-light-sensor';
+          } else if (e.error && e.error.name === 'NotReadableError') {
+            liveValues.light = 'Not available on this device';
+          } else {
+            liveValues.light = 'Not available on this device';
+          }
+          sensorStates.light = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('light');
+        });
+        lightSensor.start();
+        sensorWatchers.light = { type: 'generic', obj: lightSensor };
+      } catch (_) {
+        liveValues.light = 'Not available on this device';
+        sensorStates.light = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('light');
+      }
       break;
 
     case 'magnetometer':
+      if (!window.Magnetometer) {
+        liveValues.magnetometer = 'Not available on this device';
+        sensorStates.magnetometer = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('magnetometer');
+        break;
+      }
       try {
-        const sensor = new Magnetometer({ frequency: 1 });
-        sensor.addEventListener('reading', () => {
-          liveValues.magnetometer = `x:${sensor.x.toFixed(1)} y:${sensor.y.toFixed(1)} z:${sensor.z.toFixed(1)} uT`;
+        const magSensor = new Magnetometer({ frequency: 1 });
+        magSensor.addEventListener('reading', () => {
+          liveValues.magnetometer = `x:${magSensor.x.toFixed(1)} y:${magSensor.y.toFixed(1)} z:${magSensor.z.toFixed(1)} uT`;
           updateSensorUI('magnetometer');
         });
-        sensor.addEventListener('error', () => { liveValues.magnetometer = 'error'; });
-        sensor.start();
-        sensorWatchers.magnetometer = { type: 'generic', obj: sensor };
-      } catch (_) { liveValues.magnetometer = 'not available'; }
+        magSensor.addEventListener('error', (e) => {
+          if (e.error && e.error.name === 'NotAllowedError') {
+            liveValues.magnetometer = 'Permission denied — enable magnetometer';
+          } else {
+            liveValues.magnetometer = 'Not available on this device';
+          }
+          sensorStates.magnetometer = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('magnetometer');
+        });
+        magSensor.start();
+        sensorWatchers.magnetometer = { type: 'generic', obj: magSensor };
+      } catch (_) {
+        liveValues.magnetometer = 'Not available on this device';
+        sensorStates.magnetometer = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('magnetometer');
+      }
       break;
 
     case 'barometer':
+      // No standard Barometer/PressureSensor API in most browsers
+      if (!window.PressureSensor && !window.Barometer) {
+        liveValues.barometer = 'Not available on this device';
+        sensorStates.barometer = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('barometer');
+        break;
+      }
       try {
-        const SensorClass = window.PressureSensor || window.Barometer;
-        const sensor = new SensorClass({ frequency: 1 });
-        sensor.addEventListener('reading', () => {
-          liveValues.barometer = `${sensor.pressure.toFixed(1)} hPa`;
+        const BaroClass = window.PressureSensor || window.Barometer;
+        const baroSensor = new BaroClass({ frequency: 1 });
+        baroSensor.addEventListener('reading', () => {
+          liveValues.barometer = `${baroSensor.pressure.toFixed(1)} hPa`;
           updateSensorUI('barometer');
         });
-        sensor.addEventListener('error', () => { liveValues.barometer = 'error'; });
-        sensor.start();
-        sensorWatchers.barometer = { type: 'generic', obj: sensor };
-      } catch (_) { liveValues.barometer = 'not available'; }
+        baroSensor.addEventListener('error', (e) => {
+          liveValues.barometer = 'Not available on this device';
+          sensorStates.barometer = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('barometer');
+        });
+        baroSensor.start();
+        sensorWatchers.barometer = { type: 'generic', obj: baroSensor };
+      } catch (_) {
+        liveValues.barometer = 'Not available on this device';
+        sensorStates.barometer = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('barometer');
+      }
       break;
 
     case 'proximity':
+      // ProximitySensor is deprecated in most browsers
+      if (!window.ProximitySensor) {
+        liveValues.proximity = 'Not available on this device';
+        sensorStates.proximity = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('proximity');
+        break;
+      }
       try {
-        const sensor = new ProximitySensor();
-        sensor.addEventListener('reading', () => {
-          liveValues.proximity = sensor.near ? 'near' : `${sensor.distance.toFixed(1)} cm`;
+        const proxSensor = new ProximitySensor();
+        proxSensor.addEventListener('reading', () => {
+          liveValues.proximity = proxSensor.near ? 'near' : `${proxSensor.distance.toFixed(1)} cm`;
           updateSensorUI('proximity');
         });
-        sensor.addEventListener('error', () => { liveValues.proximity = 'error'; });
-        sensor.start();
-        sensorWatchers.proximity = { type: 'generic', obj: sensor };
-      } catch (_) { liveValues.proximity = 'not available'; }
+        proxSensor.addEventListener('error', (e) => {
+          liveValues.proximity = 'Not available on this device';
+          sensorStates.proximity = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('proximity');
+        });
+        proxSensor.start();
+        sensorWatchers.proximity = { type: 'generic', obj: proxSensor };
+      } catch (_) {
+        liveValues.proximity = 'Not available on this device';
+        sensorStates.proximity = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('proximity');
+      }
       break;
 
     case 'battery':
@@ -656,22 +831,27 @@ function startSensor(id, silent) {
       }
       break;
 
-    case 'network':
+    case 'network': {
       const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
       if (conn) {
         const update = () => {
           const parts = [];
-          if (conn.type) parts.push(conn.type);
+          if (conn.type) parts.push('type:' + conn.type);
           if (conn.effectiveType) parts.push(conn.effectiveType);
-          if (conn.rtt) parts.push(conn.rtt + 'ms');
-          if (conn.downlink) parts.push(conn.downlink + ' Mbps');
+          if (conn.downlink !== undefined) parts.push(conn.downlink + ' Mbps down');
+          if (conn.rtt !== undefined) parts.push(conn.rtt + 'ms rtt');
+          if (conn.saveData) parts.push('data-saver');
           liveValues.network = parts.join(', ') || 'connected';
           updateSensorUI('network');
         };
         update();
         conn.addEventListener('change', update);
         sensorWatchers.network = { type: 'network', obj: conn, fn: update };
+      } else {
+        liveValues.network = navigator.onLine ? 'online (no details available)' : 'offline';
+        updateSensorUI('network');
       }
+    }
       break;
   }
 
@@ -884,7 +1064,7 @@ async function updateStats() {
 // GPS WiFi exclusion toggle
 const gpsExcludeEl = document.getElementById('gps-exclude-wifi');
 if (gpsExcludeEl) {
-  gpsExcludeEl.checked = localStorage.getItem('btcpc-gps-exclude-wifi') === 'true';
+  gpsExcludeEl.checked = localStorage.getItem('btcpc-gps-exclude-wifi') !== 'false';
   gpsExcludeEl.addEventListener('change', () => {
     localStorage.setItem('btcpc-gps-exclude-wifi', gpsExcludeEl.checked ? 'true' : 'false');
   });
