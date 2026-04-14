@@ -92,7 +92,7 @@ const sensorsRouter = express.Router();
 sensorsRouter.post('/', async (req, res) => {
   try {
     const owner = (req.user && req.user.username) || (req.body && req.body.account);
-    if (!owner) return res.status(400).json({ error: 'account required' });
+    if (!owner) return res.status(401).json({ error: 'unauthenticated' });
 
     const body = req.body || {};
     const name = sanitizeString(body.name, 63);
@@ -166,23 +166,8 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
       const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
       return res.status(201).json({ success: true, reading: reading });
     } catch (err) {
-      // Auto-register sensor on first reading (self-heal — never 404)
       if (/not found/i.test(err.message)) {
-        try {
-          const owner = sensorId.split('/')[0];
-          const sensorName = sensorId.split('/').slice(1).join('/');
-          const type = (metadata && metadata.type) || 'custom';
-          const unit = (metadata && metadata.unit) || 'auto';
-          sensorRegistry.registerSensor(owner, sensorId, {
-            type, unit, decimals: 2, region: 'auto',
-            hardware_model: 'auto-registered',
-          });
-          // Retry the reading
-          const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
-          return res.status(201).json({ success: true, reading: reading, auto_registered: true });
-        } catch (regErr) {
-          return res.status(422).json({ error: regErr.message });
-        }
+        return res.status(404).json({ error: err.message });
       }
       return res.status(422).json({ error: err.message });
     }
