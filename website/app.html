@@ -37,7 +37,7 @@
     #nav-bar a.active { color: var(--orange); }
 
     /* Screens */
-    .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; }
+    .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
     .screen.active { display: block; }
 
     /* Setup screen */
@@ -144,7 +144,92 @@
     .sync-bar .row:last-child { margin-bottom: 0; }
 
     /* Footer */
-    .app-footer { text-align: center; padding: 32px 16px; font-size: 11px; color: var(--muted); }
+    .app-footer { text-align: center; padding: 32px 16px 80px; font-size: 11px; color: var(--muted); }
+
+    /* Tab Bar */
+    #tab-bar {
+      display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+      background: rgba(10,14,23,0.97); border-top: 1px solid rgba(247,147,26,0.3);
+      padding: 6px 0 env(safe-area-inset-bottom, 6px);
+    }
+    #tab-bar .tab-inner {
+      display: flex; justify-content: space-around; max-width: 480px; margin: 0 auto;
+    }
+    #tab-bar button {
+      flex: 1; background: none; border: none; color: var(--muted); font-family: inherit;
+      font-size: 11px; padding: 8px 4px 4px; cursor: pointer; display: flex;
+      flex-direction: column; align-items: center; gap: 2px; transition: color 0.2s;
+    }
+    #tab-bar button .tab-icon { font-size: 20px; }
+    #tab-bar button.active { color: var(--orange); }
+
+    /* Tab content panels inside dashboard */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Chat */
+    #chat-messages {
+      height: 380px; overflow-y: auto; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; margin-bottom: 10px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .chat-msg {
+      max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 13px;
+      line-height: 1.5; word-break: break-word; white-space: pre-wrap;
+    }
+    .chat-msg.user {
+      align-self: flex-end; background: var(--orange); color: #000; border-bottom-right-radius: 2px;
+    }
+    .chat-msg.assistant {
+      align-self: flex-start; background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-bottom-left-radius: 2px;
+    }
+    .chat-msg .chat-cost {
+      display: block; font-size: 10px; margin-top: 4px; opacity: 0.6;
+    }
+    .chat-input-row {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .chat-input-row textarea {
+      flex: 1; padding: 12px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: inherit; font-size: 14px;
+      resize: none; outline: none; min-height: 44px; max-height: 120px;
+      transition: border-color 0.2s;
+    }
+    .chat-input-row textarea:focus { border-color: var(--orange); }
+    .chat-input-row button {
+      padding: 12px 18px; background: var(--orange); color: #000; border: none;
+      border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 700;
+      cursor: pointer; white-space: nowrap; transition: background 0.2s;
+    }
+    .chat-input-row button:hover { background: #fbbf24; }
+    .chat-input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .chat-model-row {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px;
+    }
+    .chat-model-row select {
+      flex: 1; padding: 8px 10px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
+      outline: none;
+    }
+    .chat-model-row select:focus { border-color: var(--orange); }
+
+    /* Settings panel */
+    .settings-section {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px; margin-bottom: 12px;
+    }
+    .settings-section h3 { font-size: 13px; color: var(--orange); margin-bottom: 12px; }
+    .setting-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      margin-bottom: 10px; font-size: 12px;
+    }
+    .setting-row:last-child { margin-bottom: 0; }
+    .setting-note {
+      font-size: 11px; color: var(--muted); padding: 10px 12px; margin-top: 8px;
+      background: rgba(247,147,26,0.08); border: 1px solid rgba(247,147,26,0.2);
+      border-radius: 6px; line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -241,38 +326,97 @@
       </div>
     </div>
 
-    <div id="sensor-list"></div>
+    <!-- Tab: Sensors -->
+    <div id="panel-sensors" class="tab-panel active">
+      <div id="sensor-list"></div>
 
-    <div class="sync-bar" id="sync-bar">
-      <div class="row"><span>Next reading in</span><span id="sync-countdown">30s</span></div>
-      <div class="row"><span>Sync status</span><span id="sync-status">Waiting</span></div>
-      <div class="row"><span>Estimated/hr</span><span id="sync-rate">~0.00 BTCPC</span></div>
-    </div>
-
-    <!-- Privacy Settings -->
-    <div class="card" style="margin-top:16px;">
-      <h3 style="font-size:13px;color:var(--orange);margin-bottom:12px;">Privacy Settings</h3>
-      <div style="margin-bottom:12px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;">
-          <input type="checkbox" id="gps-exclude-wifi" style="accent-color:var(--orange);">
-          Pause GPS when on WiFi (home/work protection)
-        </label>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
-        GPS Privacy (always active):
-      </div>
-      <div style="font-size:11px;color:var(--muted);padding-left:8px;">
-        &#x2713; Grid snapping — location rounded to ~500m grid<br>
-        &#x2713; Minimum movement — only reports when you move 500m+<br>
-        &#x2713; Time fuzzing — timestamps randomized ±5 minutes<br>
-        &#x2713; Aggregate only — chain stores grid cell counts, not individual locations
+      <div class="sync-bar" id="sync-bar">
+        <div class="row"><span>Next reading in</span><span id="sync-countdown">30s</span></div>
+        <div class="row"><span>Sync status</span><span id="sync-status">Waiting</span></div>
+        <div class="row"><span>Estimated/hr</span><span id="sync-rate">~0.00 BTCPC</span></div>
       </div>
     </div>
 
-    <button class="btn btn-secondary" id="btn-settings">Change Account</button>
-    <button class="btn btn-danger" id="btn-stop">Stop All Sensors</button>
+    <!-- Tab: Chat -->
+    <div id="panel-chat" class="tab-panel">
+      <div class="chat-model-row">
+        <span style="color:var(--muted);">Model:</span>
+        <select id="chat-model">
+          <option value="auto">auto (network picks)</option>
+          <option value="qwen2.5:0.5b">qwen2.5:0.5b</option>
+          <option value="qwen3:4b">qwen3:4b</option>
+          <option value="llama3.2:3b">llama3.2:3b</option>
+          <option value="gemma3:4b">gemma3:4b</option>
+          <option value="deepseek-r1:7b">deepseek-r1:7b</option>
+          <option value="mistral:7b">mistral:7b</option>
+        </select>
+      </div>
+      <div id="chat-messages"></div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
+        <button id="chat-send">Send</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;">
+        Inference powered by BTCPC miners. Cost: ~0.001 BTCPC per message.
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="panel-settings" class="tab-panel">
+      <div class="settings-section">
+        <h3>Privacy</h3>
+        <div style="margin-bottom:12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;">
+            <input type="checkbox" id="gps-exclude-wifi" style="accent-color:var(--orange);">
+            Pause GPS when on WiFi (home/work protection)
+          </label>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+          GPS Privacy (always active):
+        </div>
+        <div style="font-size:11px;color:var(--muted);padding-left:8px;">
+          &#x2713; Grid snapping — location rounded to ~500m grid<br>
+          &#x2713; Minimum movement — only reports when you move 500m+<br>
+          &#x2713; Time fuzzing — timestamps randomized ±5 minutes<br>
+          &#x2713; Aggregate only — chain stores grid cell counts, not individual locations
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>On-Device AI</h3>
+        <div class="setting-row">
+          <span>Run AI on this device (experimental)</span>
+          <label class="sensor-toggle">
+            <input type="checkbox" id="toggle-ondevice-ai">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div id="ondevice-ai-note" class="setting-note" style="display:none;">
+          Your phone can run small AI models privately. Prompts never leave your device. Coming soon — WebGPU inference.
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Account</h3>
+        <div style="font-size:12px;margin-bottom:12px;">
+          <span style="color:var(--muted);">Logged in as:</span>
+          <span id="settings-account" style="color:var(--orange);font-weight:700;"></span>
+        </div>
+        <button class="btn btn-secondary" id="btn-settings" style="margin-top:0;">Change Account</button>
+        <button class="btn btn-danger" id="btn-stop">Stop All Sensors</button>
+      </div>
+    </div>
 
     <div class="app-footer">BTCPC Sensor v1.0 &mdash; btcpc.net</div>
+  </div>
+
+  <!-- Tab Bar (shown on dashboard) -->
+  <div id="tab-bar">
+    <div class="tab-inner">
+      <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
+      <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
+      <button data-tab="settings"><span class="tab-icon">&#x2699;&#xFE0F;</span>Settings</button>
+    </div>
   </div>
 
   <!-- Permission modal -->
@@ -1156,6 +1300,191 @@ if ('serviceWorker' in navigator) {
     console.log('SW registration failed', err);
   });
 }
+
+// ─── Tab Bar ───
+const tabBar = document.getElementById('tab-bar');
+const tabButtons = tabBar.querySelectorAll('button[data-tab]');
+
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    tabButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+  });
+});
+
+// Show/hide tab bar with dashboard
+const origShowScreen = showScreen;
+showScreen = function(id) {
+  origShowScreen(id);
+  tabBar.style.display = (id === 'screen-dash') ? 'block' : 'none';
+};
+
+// ─── On-Device AI Toggle ───
+const ondeviceToggle = document.getElementById('toggle-ondevice-ai');
+const ondeviceNote = document.getElementById('ondevice-ai-note');
+if (ondeviceToggle) {
+  ondeviceToggle.checked = localStorage.getItem('btcpc-ondevice-ai') === 'true';
+  ondeviceNote.style.display = ondeviceToggle.checked ? 'block' : 'none';
+  ondeviceToggle.addEventListener('change', () => {
+    localStorage.setItem('btcpc-ondevice-ai', ondeviceToggle.checked ? 'true' : 'false');
+    ondeviceNote.style.display = ondeviceToggle.checked ? 'block' : 'none';
+  });
+}
+
+// ─── Chat: IndexedDB for messages ───
+let chatDB = null;
+function openChatDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('btcpc-chat', 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains('messages')) {
+        d.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveChatMessage(role, content, model, cost) {
+  if (!chatDB) chatDB = await openChatDB();
+  return new Promise((resolve, reject) => {
+    const tx = chatDB.transaction('messages', 'readwrite');
+    const store = tx.objectStore('messages');
+    const req = store.put({ role, content, model, cost, timestamp: Date.now() });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function loadChatHistory() {
+  if (!chatDB) chatDB = await openChatDB();
+  return new Promise((resolve, reject) => {
+    const tx = chatDB.transaction('messages', 'readonly');
+    const req = tx.objectStore('messages').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function appendChatBubble(role, content, cost) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  let html = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (cost && role === 'assistant') {
+    html += `<span class="chat-cost">${cost} BTCPC</span>`;
+  }
+  div.innerHTML = html;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function initChat() {
+  chatDB = await openChatDB();
+  const history = await loadChatHistory();
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = '';
+  for (const msg of history.slice(-50)) { // last 50 messages
+    appendChatBubble(msg.role, msg.content, msg.cost);
+  }
+}
+
+// ─── Chat: Send ───
+const chatInput = document.getElementById('chat-input');
+const chatSendBtn = document.getElementById('chat-send');
+
+chatSendBtn.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+// Auto-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  const jwt = localStorage.getItem('btcpc-jwt');
+  if (!jwt) {
+    appendChatBubble('assistant', 'Please log in first to use BTCPC inference.', null);
+    return;
+  }
+
+  const model = document.getElementById('chat-model').value;
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  chatSendBtn.disabled = true;
+
+  appendChatBubble('user', text, null);
+  await saveChatMessage('user', text, model, null);
+
+  // Show typing indicator
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'chat-msg assistant';
+  typingDiv.textContent = 'thinking...';
+  typingDiv.style.opacity = '0.5';
+  const container = document.getElementById('chat-messages');
+  container.appendChild(typingDiv);
+  container.scrollTop = container.scrollHeight;
+
+  try {
+    const body = {
+      messages: [{ role: 'user', content: text }],
+      stream: false,
+    };
+    if (model !== 'auto') body.model = model;
+
+    const resp = await fetch(API_BASE + '/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + jwt,
+      },
+      body: JSON.stringify(body),
+    });
+
+    typingDiv.remove();
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      const errMsg = errData.error || errData.message || `Error ${resp.status}`;
+      appendChatBubble('assistant', errMsg, null);
+      await saveChatMessage('assistant', errMsg, model, null);
+    } else {
+      const data = await resp.json();
+      const reply = data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
+      const cost = data.usage?.cost || '~0.001';
+      appendChatBubble('assistant', reply, cost);
+      await saveChatMessage('assistant', reply, model, cost);
+    }
+  } catch (err) {
+    typingDiv.remove();
+    const errMsg = 'Network error — check your connection';
+    appendChatBubble('assistant', errMsg, null);
+    await saveChatMessage('assistant', errMsg, model, null);
+  }
+
+  chatSendBtn.disabled = false;
+  chatInput.focus();
+}
+
+// ─── Update settings account display ───
+const origInitDashboard = initDashboard;
+initDashboard = async function() {
+  await origInitDashboard();
+  const settingsAcct = document.getElementById('settings-account');
+  if (settingsAcct) settingsAcct.textContent = account;
+  tabBar.style.display = 'block';
+  initChat();
+};
 
 // ─── Auto-start if account exists ───
 if (account) {
