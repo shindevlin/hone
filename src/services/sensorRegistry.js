@@ -39,6 +39,12 @@ var finalizedReadings = new Map();
 // sensor_id → stats accumulator
 var sensorStats = new Map();
 
+// Fraud prevention: per-sensor rolling history of last 10 values
+var readingHistory = new Map(); // sensorId → array of last 10 numeric values
+
+// Fraud prevention: rate-limit tracking — last epoch a sensor submitted
+var lastEpochBySensor = new Map(); // sensorId → epoch number
+
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "custom"];
 
@@ -196,6 +202,46 @@ function submitReading(sensorId, value, metadata, epoch) {
   }
 
   var ep = epoch || 0;
+
+  // ── Fraud prevention: rate limit (one reading per sensor per epoch) ──
+  var prevEpoch = lastEpochBySensor.get(sensorId);
+  if (prevEpoch !== undefined && prevEpoch === ep) {
+    throw new Error("duplicate reading: sensor " + sensorId + " already submitted in epoch " + ep);
+  }
+  lastEpochBySensor.set(sensorId, ep);
+
+  // ── Fraud prevention: outlier detection (3-sigma on rolling window) ──
+  var history = readingHistory.get(sensorId) || [];
+  var outlier = false;
+  if (history.length >= 3) {
+    var sum = 0;
+    for (var h = 0; h < history.length; h++) sum += history[h];
+    var mean = sum / history.length;
+    var sqSum = 0;
+    for (var h2 = 0; h2 < history.length; h2++) sqSum += (history[h2] - mean) * (history[h2] - mean);
+    var stddev = Math.sqrt(sqSum / history.length);
+    if (stddev > 0 && Math.abs(numeric - mean) > 3 * stddev) {
+      outlier = true;
+    }
+  }
+  // Update rolling buffer (keep last 10)
+  history.push(numeric);
+  if (history.length > 10) history.shift();
+  readingHistory.set(sensorId, history);
+
+  // ── Fraud prevention: gateway attestation ──
+  var meta = metadata || {};
+  var gatewayVerified = false;
+  var trustWeight = 1;
+  if (meta.gateway_id) {
+    // Check if this gateway_id matches the sensor's registered lora_gateway
+    if (record.lora_gateway && meta.gateway_id === record.lora_gateway) {
+      gatewayVerified = true;
+    }
+  } else {
+    trustWeight = 0.5;
+  }
+
   var key = _readingsKey(sensorId, ep);
 
   var readings = readingsByEpoch.get(key) || [];
@@ -204,8 +250,11 @@ function submitReading(sensorId, value, metadata, epoch) {
     sensor_id: sensorId,
     epoch: ep,
     value: numeric,
-    metadata: metadata || {},
+    metadata: meta,
     submitted_at: Date.now(),
+    outlier: outlier,
+    gateway_verified: gatewayVerified,
+    trust_weight: trustWeight,
   };
 
   readings.push(reading);
@@ -415,6 +464,8 @@ function resetForTests() {
   readingsByEpoch.clear();
   finalizedReadings.clear();
   sensorStats.clear();
+  readingHistory.clear();
+  lastEpochBySensor.clear();
 }
 
 module.exports = {

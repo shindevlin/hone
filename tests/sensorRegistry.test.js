@@ -161,13 +161,10 @@ describe('sensorRegistry — reading submission', () => {
     expect(() => sr.submitReading('shindevlin/temp-01', 22.5, {}, 5)).toThrow(/retired/);
   });
 
-  it('allows multiple readings in the same epoch from the same sensor', () => {
+  it('rejects duplicate reading in the same epoch from the same sensor', () => {
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.5, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 23.0, {}, 10);
-    const readings = sr.getReadingsForEpoch('shindevlin/temp-01', 10);
-    expect(readings.length).toBe(3);
+    expect(() => sr.submitReading('shindevlin/temp-01', 22.5, {}, 10)).toThrow(/duplicate reading/);
   });
 
   it('tracks total_readings on the sensor record', () => {
@@ -199,32 +196,42 @@ describe('sensorRegistry — epoch finalization + median consensus', () => {
     expect(fin.outliers.length).toBe(0);
   });
 
-  it('uses _median() for consensus — odd count', () => {
+  it('uses _median() for consensus — odd count (cross-sensor)', () => {
+    // Three sensors in same region+type, one reading each → median across all
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-02', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-03', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 20.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 24.0, {}, 10);
+    sr.submitReading('shindevlin/temp-02', 22.0, {}, 10);
+    sr.submitReading('shindevlin/temp-03', 24.0, {}, 10);
     const fin = sr.finalizeEpochReadings('shindevlin/temp-01', 10);
     expect(fin.median).toBe(22.0);
   });
 
-  it('uses _median() for consensus — even count', () => {
+  it('uses _median() for consensus — even count (cross-sensor)', () => {
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-02', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-03', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-04', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 20.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 24.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 26.0, {}, 10);
+    sr.submitReading('shindevlin/temp-02', 22.0, {}, 10);
+    sr.submitReading('shindevlin/temp-03', 24.0, {}, 10);
+    sr.submitReading('shindevlin/temp-04', 26.0, {}, 10);
     const fin = sr.finalizeEpochReadings('shindevlin/temp-01', 10);
     expect(fin.median).toBe(23.0);
   });
 
-  it('detects outliers using 500 bps threshold', () => {
+  it('detects outliers using 500 bps threshold (cross-sensor)', () => {
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-02', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-03', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-04', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.1, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.2, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 99.9, {}, 10); // extreme outlier
-    const fin = sr.finalizeEpochReadings('shindevlin/temp-01', 10);
+    sr.submitReading('shindevlin/temp-02', 22.1, {}, 10);
+    sr.submitReading('shindevlin/temp-03', 22.2, {}, 10);
+    sr.submitReading('shindevlin/temp-04', 99.9, {}, 10); // extreme outlier
+    // Finalize on temp-04 which submitted the outlier value
+    const fin = sr.finalizeEpochReadings('shindevlin/temp-04', 10);
     expect(fin.outliers.length).toBe(1);
     expect(fin.outliers[0].value).toBe(99.9);
   });
@@ -323,23 +330,26 @@ describe('sensorRegistry — sensor stats', () => {
   it('getSensorStats returns correct total_readings and total_epochs_active', () => {
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.5, {}, 10);
     sr.submitReading('shindevlin/temp-01', 23.0, {}, 11);
+    sr.submitReading('shindevlin/temp-01', 23.5, {}, 12);
     sr.finalizeEpochReadings('shindevlin/temp-01', 10);
     sr.finalizeEpochReadings('shindevlin/temp-01', 11);
     const stats = sr.getSensorStats('shindevlin/temp-01', 15);
     expect(stats.total_readings).toBe(3);
-    expect(stats.total_epochs_active).toBe(2);
-    expect(stats.last_reading_epoch).toBe(11);
+    expect(stats.total_epochs_active).toBe(3);
+    expect(stats.last_reading_epoch).toBe(12);
   });
 
   it('getSensorStats outlier_rate reflects finalized outliers', () => {
+    // Use cross-sensor consensus: three sensors in same region, one submits an outlier
     sr.registerSensor('shindevlin', 'shindevlin/temp-01', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-02', baseSpec(), { epoch: 1 });
+    sr.registerSensor('shindevlin', 'shindevlin/temp-03', baseSpec(), { epoch: 1 });
     sr.submitReading('shindevlin/temp-01', 22.0, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 22.1, {}, 10);
-    sr.submitReading('shindevlin/temp-01', 999.0, {}, 10); // outlier
-    sr.finalizeEpochReadings('shindevlin/temp-01', 10);
-    const stats = sr.getSensorStats('shindevlin/temp-01');
+    sr.submitReading('shindevlin/temp-02', 22.1, {}, 10);
+    sr.submitReading('shindevlin/temp-03', 999.0, {}, 10); // outlier
+    sr.finalizeEpochReadings('shindevlin/temp-03', 10);
+    const stats = sr.getSensorStats('shindevlin/temp-03');
     expect(stats.outlier_rate).toBeGreaterThan(0);
   });
 
