@@ -47,6 +47,9 @@ var epochs = new Map();
 // Projects (PROJECT_CREATE ledger entries): name → { owner, repo_url, wallet_address, created_epoch }
 // Note: API keys are NOT here — they live in ~/.btcpc/secrets.json
 var projects = new Map();
+var projectRevenueSplits = new Map(); // projectName → { splits: [{ account, percent }] }
+var earnings = new Map(); // account → { mining, clock, storage, iot, verifier, total }
+var seenEntries = new Set(); // deduplicate replayed entries
 
 // ─────────────────────────────────────────────────────────────────
 // Commerce state (v2.10)
@@ -372,6 +375,18 @@ function applyEntry(entry) {
     case "MINING_REWARD":
     case "FAUCET":
       _credit(to, token, amount);
+      // Track earnings by source for the earnings breakdown endpoint
+      if (entry.type === "MINING_REWARD" && to) {
+        var earningRecord = earnings.get(to) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
+        var rewardSource = entry.reward_source || "mining";
+        if (earningRecord[rewardSource] !== undefined) {
+          earningRecord[rewardSource] = _round(earningRecord[rewardSource] + amount);
+        } else {
+          earningRecord.mining = _round(earningRecord.mining + amount);
+        }
+        earningRecord.total = _round(earningRecord.total + amount);
+        earnings.set(to, earningRecord);
+      }
       break;
 
     case "TOKEN_CREATE":
@@ -536,6 +551,19 @@ function applyEntry(entry) {
           repo_url: entry.account_data.repo_url || "",
           wallet_address: entry.account_data.wallet_address || from,
           created_epoch: entry.epoch,
+        });
+      }
+      break;
+
+    case "PROJECT_REVENUE_SPLIT":
+      // Set revenue split configuration for a project.
+      // split_data: { project: "name", splits: [{ account, percent }] }
+      if (entry.split_data && entry.split_data.project) {
+        var spd = entry.split_data;
+        projectRevenueSplits.set(spd.project, {
+          splits: Array.isArray(spd.splits) ? spd.splits.slice() : [],
+          set_epoch: entry.epoch,
+          set_by: from,
         });
       }
       break;
@@ -1779,6 +1807,14 @@ function getAllProjects() {
   return result;
 }
 
+function getProjectRevenueSplit(projectName) {
+  return projectRevenueSplits.get(projectName) || null;
+}
+
+function getEarnings(account) {
+  return earnings.get(account) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Commerce getters (v2.10)
 // ─────────────────────────────────────────────────────────────────
@@ -2402,6 +2438,8 @@ function resetAll() {
   bridgeUnwraps.clear();
   bridgeFunders.clear();
   crossChainActivity.clear();
+  projectRevenueSplits.clear();
+  earnings.clear();
   seenEntries.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
@@ -2457,6 +2495,9 @@ module.exports = {
   // Projects
   getProject: getProject,
   getAllProjects: getAllProjects,
+  getProjectRevenueSplit: getProjectRevenueSplit,
+  // Earnings breakdown
+  getEarnings: getEarnings,
   // Commerce (v2.10)
   getStore: getStore,
   getAllStores: getAllStores,
