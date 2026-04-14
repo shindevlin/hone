@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTCPC Global Nervous System</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; }
+
+#canvas-container { position: fixed; inset: 0; z-index: 0; }
+canvas { display: block; width: 100%; height: 100%; }
+
+/* Stats bar */
+#stats-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; gap: 32px; flex-wrap: wrap;
+  padding: 10px 20px;
+  background: linear-gradient(180deg, rgba(10,14,23,0.95) 0%, rgba(10,14,23,0.6) 100%);
+  border-bottom: 1px solid rgba(247,147,26,0.2);
+  font-size: 13px; letter-spacing: 0.5px;
+}
+#stats-bar .stat-item { display: flex; align-items: center; gap: 6px; }
+#stats-bar .stat-label { color: #667; text-transform: uppercase; font-size: 10px; }
+#stats-bar .stat-value { color: #f7931a; font-weight: bold; }
+#stats-bar .stat-value.alive { color: #22c55e; }
+
+/* Sidebar */
+#sidebar {
+  position: fixed; top: 50px; right: 0; bottom: 0; width: 320px; z-index: 10;
+  background: linear-gradient(270deg, rgba(10,14,23,0.92) 0%, rgba(10,14,23,0.7) 100%);
+  border-left: 1px solid rgba(247,147,26,0.15);
+  padding: 20px 16px; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+#sidebar h2 {
+  font-size: 14px; text-transform: uppercase; letter-spacing: 2px;
+  color: #f7931a; margin-bottom: 16px; border-bottom: 1px solid rgba(247,147,26,0.3);
+  padding-bottom: 8px;
+}
+#sidebar .section { margin-bottom: 20px; }
+#sidebar .section-title { font-size: 11px; color: #556; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+#sidebar .metric { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
+#sidebar .metric .val { color: #f7931a; }
+
+/* Event log */
+#event-log {
+  flex: 1; overflow: hidden; position: relative;
+  border: 1px solid rgba(0,255,100,0.1); border-radius: 4px;
+  padding: 8px; background: rgba(0,20,0,0.3);
+}
+#event-log .event-line {
+  font-size: 11px; line-height: 1.6; color: #22c55e; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; opacity: 0; animation: fadeInEvent 0.3s forwards;
+}
+@keyframes fadeInEvent { to { opacity: 1; } }
+.event-line .ts { color: #334; margin-right: 6px; }
+
+/* Matrix rain overlay in event log */
+#matrix-canvas {
+  position: absolute; inset: 0; z-index: 0; opacity: 0.06; pointer-events: none;
+}
+#event-log .event-line { position: relative; z-index: 1; }
+
+/* Toggle + controls */
+#controls {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 20;
+  display: flex; gap: 12px;
+}
+#controls button {
+  background: rgba(247,147,26,0.15); color: #f7931a; border: 1px solid rgba(247,147,26,0.4);
+  padding: 8px 20px; border-radius: 6px; font-family: inherit; font-size: 12px;
+  cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.2s;
+}
+#controls button:hover { background: rgba(247,147,26,0.3); }
+#controls button.active { background: #f7931a; color: #0a0e17; }
+
+/* Leaderboard tooltip */
+#node-tooltip {
+  position: fixed; z-index: 30; pointer-events: none; display: none;
+  background: rgba(10,14,23,0.95); border: 1px solid #f7931a; border-radius: 6px;
+  padding: 10px 14px; font-size: 12px; max-width: 220px;
+}
+#node-tooltip .tt-name { color: #f7931a; font-weight: bold; margin-bottom: 4px; }
+#node-tooltip .tt-roles { color: #00ffff; font-size: 11px; }
+#node-tooltip .tt-balance { color: #22c55e; font-size: 11px; margin-top: 2px; }
+
+/* Mobile */
+@media (max-width: 768px) {
+  #sidebar { width: 100%; top: auto; bottom: 0; height: 200px; border-left: none; border-top: 1px solid rgba(247,147,26,0.15); }
+  #stats-bar { font-size: 11px; gap: 16px; padding: 6px 12px; }
+  #controls { bottom: 210px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Stats bar -->
+<div id="stats-bar">
+  <div class="stat-item">
+    <span class="stat-label">Epoch</span>
+    <span class="stat-value" id="s-epoch">--</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Nodes</span>
+    <span class="stat-value" id="s-nodes">--</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Miners</span>
+    <span class="stat-value" id="s-miners">--</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Clocks</span>
+    <span class="stat-value" id="s-clocks">--</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Storage</span>
+    <span class="stat-value" id="s-storage">--</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Status</span>
+    <span class="stat-value alive" id="s-status">--</span>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <h2>Global Nervous System</h2>
+  <div class="section">
+    <div class="section-title">Network Metrics</div>
+    <div class="metric"><span>Total Peers</span><span class="val" id="m-peers">--</span></div>
+    <div class="metric"><span>Browser Clocks</span><span class="val" id="m-bclocks">--</span></div>
+    <div class="metric"><span>Gateways</span><span class="val" id="m-gateways">--</span></div>
+    <div class="metric"><span>Verifiers</span><span class="val" id="m-verifiers">--</span></div>
+    <div class="metric"><span>Total Accounts</span><span class="val" id="m-accounts">--</span></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Top Accounts</div>
+    <div id="leaderboard-list" style="font-size:11px;max-height:100px;overflow-y:auto;"></div>
+  </div>
+  <div class="section-title">Live Events</div>
+  <div id="event-log">
+    <canvas id="matrix-canvas"></canvas>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button id="btn-3d" class="active" onclick="setProjection('3d')">3D Globe</button>
+  <button id="btn-2d" onclick="setProjection('2d')">2D Flat Map</button>
+</div>
+
+<!-- Tooltip -->
+<div id="node-tooltip">
+  <div class="tt-name"></div>
+  <div class="tt-roles"></div>
+  <div class="tt-balance"></div>
+</div>
+
+<div id="canvas-container"></div>
+
+<!-- Three.js -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// ============================================================
+// CONFIGURATION
+// ============================================================
+const GLOBE_RADIUS = 5;
+const ARC_HEIGHT = 1.8;
+const HUB_SIZE = 0.12;
+const ROTATION_SPEED = 0.05 * Math.PI * 2 / 60; // 0.05 RPM
+const COORDINATE_FUZZ_KM = 50;
+const API_BASE = location.origin;
+
+// Known node positions (mock coords, fuzzed at runtime)
+const KNOWN_POSITIONS = {
+  shindevlin:       { lat: 13.69, lon: -89.19 },
+  natoshisakamoto:  { lat: 13.72, lon: -89.21 },
+};
+
+// Fallback positions for nodes without known coords — distributed globally
+const FALLBACK_POSITIONS = [
+  { lat: 35.68, lon: 139.69 },   // Tokyo
+  { lat: 51.51, lon: -0.13 },    // London
+  { lat: 40.71, lon: -74.01 },   // NYC
+  { lat: -33.87, lon: 151.21 },  // Sydney
+  { lat: 48.86, lon: 2.35 },     // Paris
+  { lat: 55.76, lon: 37.62 },    // Moscow
+  { lat: 19.43, lon: -99.13 },   // Mexico City
+  { lat: -23.55, lon: -46.63 },  // Sao Paulo
+  { lat: 1.35, lon: 103.82 },    // Singapore
+  { lat: 37.57, lon: 126.98 },   // Seoul
+  { lat: 28.61, lon: 77.21 },    // Delhi
+  { lat: -1.29, lon: 36.82 },    // Nairobi
+  { lat: 30.04, lon: 31.24 },    // Cairo
+  { lat: 59.33, lon: 18.07 },    // Stockholm
+  { lat: -34.60, lon: -58.38 },  // Buenos Aires
+];
+
+// ============================================================
+// STATE
+// ============================================================
+let networkData = null;
+let leaderboardData = null;
+let is3D = true;
+let nodeObjects = [];
+let arcObjects = [];
+let storageTrails = [];
+let sensorPulses = [];
+let clock = new THREE.Clock();
+
+// ============================================================
+// SCENE SETUP
+// ============================================================
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0e17);
+scene.fog = new THREE.FogExp2(0x0a0e17, 0.015);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 2, 14);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.rotateSpeed = 0.5;
+controls.zoomSpeed = 0.8;
+controls.minDistance = 7;
+controls.maxDistance = 30;
+controls.enablePan = false;
+
+// Bloom
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  1.5,   // strength
+  0.4,   // radius
+  0.85   // threshold
+);
+composer.addPass(bloomPass);
+
+// ============================================================
+// LIGHTING
+// ============================================================
+const ambientLight = new THREE.AmbientLight(0x222244, 0.5);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.3);
+dirLight.position.set(5, 3, 5);
+scene.add(dirLight);
+
+// ============================================================
+// GLOBE — procedural landmass via lat/lon point cloud
+// ============================================================
+const globeGroup = new THREE.Group();
+scene.add(globeGroup);
+
+// Dark ocean sphere
+const oceanGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+const oceanMat = new THREE.MeshPhongMaterial({
+  color: 0x0a0e17,
+  emissive: 0x050811,
+  transparent: true,
+  opacity: 0.95,
+  shininess: 5,
+});
+const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+globeGroup.add(oceanMesh);
+
+// Atmosphere glow
+const atmosGeo = new THREE.SphereGeometry(GLOBE_RADIUS * 1.015, 64, 64);
+const atmosMat = new THREE.ShaderMaterial({
+  vertexShader: `
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    void main() {
+      float intensity = pow(0.65 - dot(vNormal, vec3(0,0,1.0)), 2.0);
+      gl_FragColor = vec4(0.12, 0.28, 0.6, 1.0) * intensity * 0.6;
+    }
+  `,
+  side: THREE.BackSide,
+  blending: THREE.AdditiveBlending,
+  transparent: true,
+});
+globeGroup.add(new THREE.Mesh(atmosGeo, atmosMat));
+
+// Grid lines (subtle)
+const gridMat = new THREE.LineBasicMaterial({ color: 0x1a2040, transparent: true, opacity: 0.3 });
+for (let lat = -60; lat <= 60; lat += 30) {
+  const pts = [];
+  for (let lon = 0; lon <= 360; lon += 2) {
+    pts.push(latLonToVec3(lat, lon - 180, GLOBE_RADIUS * 1.001));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  globeGroup.add(new THREE.Line(geo, gridMat));
+}
+for (let lon = -180; lon < 180; lon += 30) {
+  const pts = [];
+  for (let lat = -90; lat <= 90; lat += 2) {
+    pts.push(latLonToVec3(lat, lon, GLOBE_RADIUS * 1.001));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  globeGroup.add(new THREE.Line(geo, gridMat));
+}
+
+// Simplified continent outlines — major landmass polygons
+// Each continent is a rough polygon of [lat, lon] pairs
+const continents = [
+  // North America
+  [[70,-168],[72,-100],[60,-65],[50,-55],[45,-65],[30,-82],[25,-80],[25,-98],[20,-105],[15,-92],[15,-83],[10,-84],[8,-77],[30,-115],[35,-120],[48,-125],[55,-132],[60,-140],[62,-165],[70,-168]],
+  // South America
+  [[12,-72],[10,-62],[7,-55],[5,-50],[0,-50],[-5,-35],[-10,-37],[-15,-39],[-22,-40],[-25,-48],[-33,-52],[-40,-62],[-50,-68],[-55,-70],[-55,-65],[-48,-65],[-42,-64],[-35,-57],[-22,-40],[-15,-47],[-10,-78],[-5,-80],[0,-78],[5,-77],[10,-72],[12,-72]],
+  // Europe
+  [[36,-10],[38,-5],[43,5],[44,10],[45,14],[42,20],[40,26],[42,29],[45,30],[48,30],[50,25],[55,22],[57,25],[60,25],[65,25],[70,30],[72,28],[70,20],[63,10],[60,5],[55,8],[52,5],[51,2],[48,-5],[44,-8],[36,-10]],
+  // Africa
+  [[37,10],[35,0],[30,-10],[25,-17],[15,-17],[5,-5],[5,10],[0,10],[-5,12],[-10,14],[-15,12],[-20,15],[-25,16],[-27,18],[-30,18],[-34,19],[-34,26],[-28,32],[-25,35],[-15,42],[-10,50],[0,50],[5,50],[10,50],[12,44],[15,42],[20,40],[25,35],[30,32],[32,32],[35,25],[37,10]],
+  // Asia
+  [[42,30],[35,35],[30,35],[25,45],[20,40],[15,45],[10,50],[5,80],[0,105],[-5,105],[-8,115],[-8,120],[0,120],[5,115],[10,107],[15,108],[20,107],[22,110],[28,120],[35,120],[40,130],[45,135],[50,140],[55,135],[60,140],[65,170],[70,180],[72,150],[72,120],[68,100],[60,70],[55,60],[52,50],[48,40],[45,37],[42,30]],
+  // Australia
+  [[-12,130],[-15,125],[-18,122],[-22,114],[-28,114],[-32,116],[-35,118],[-35,138],[-38,146],[-38,148],[-34,151],[-28,153],[-23,150],[-18,146],[-15,145],[-12,142],[-12,136],[-12,130]],
+];
+
+const landMat = new THREE.LineBasicMaterial({ color: 0x2a3050, transparent: true, opacity: 0.5 });
+continents.forEach(poly => {
+  const pts = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.002));
+  pts.push(pts[0].clone()); // close the loop
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  globeGroup.add(new THREE.Line(geo, landMat));
+});
+
+// Filled landmass — subtle translucent fill by creating closed shape triangulations
+const landFillMat = new THREE.MeshBasicMaterial({ color: 0x151d30, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+continents.forEach(poly => {
+  // Simple fan triangulation from centroid
+  const pts3d = poly.map(([lat, lon]) => latLonToVec3(lat, lon, GLOBE_RADIUS * 1.0015));
+  const centroid = new THREE.Vector3();
+  pts3d.forEach(p => centroid.add(p));
+  centroid.divideScalar(pts3d.length);
+  centroid.normalize().multiplyScalar(GLOBE_RADIUS * 1.0015);
+
+  const verts = [];
+  for (let i = 0; i < pts3d.length; i++) {
+    const next = (i + 1) % pts3d.length;
+    verts.push(centroid.x, centroid.y, centroid.z);
+    verts.push(pts3d[i].x, pts3d[i].y, pts3d[i].z);
+    verts.push(pts3d[next].x, pts3d[next].y, pts3d[next].z);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  globeGroup.add(new THREE.Mesh(geo, landFillMat));
+});
+
+// Star field
+const starGeo = new THREE.BufferGeometry();
+const starPositions = [];
+for (let i = 0; i < 2000; i++) {
+  const r = 80 + Math.random() * 120;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  starPositions.push(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+const starMat = new THREE.PointsMaterial({ color: 0x556688, size: 0.15, transparent: true, opacity: 0.6 });
+scene.add(new THREE.Points(starGeo, starMat));
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function latLonToVec3(lat, lon, radius) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function fuzzCoord(lat, lon) {
+  // ~50km random jitter (approx 0.45 degrees)
+  const jitter = COORDINATE_FUZZ_KM / 111;
+  return {
+    lat: lat + (Math.random() - 0.5) * 2 * jitter,
+    lon: lon + (Math.random() - 0.5) * 2 * jitter / Math.cos(lat * Math.PI / 180),
+  };
+}
+
+function getNodePosition(name, index) {
+  let base;
+  if (KNOWN_POSITIONS[name]) {
+    base = KNOWN_POSITIONS[name];
+  } else {
+    base = FALLBACK_POSITIONS[index % FALLBACK_POSITIONS.length];
+  }
+  return fuzzCoord(base.lat, base.lon);
+}
+
+// ============================================================
+// NODE HUBS — glowing hexagonal points
+// ============================================================
+function createHexagonGeometry(radius, height) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 6;
+    const x = radius * Math.cos(angle);
+    const y = radius * Math.sin(angle);
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+  return geo;
+}
+
+function createNodeHub(name, lat, lon, roles) {
+  const group = new THREE.Group();
+
+  // Determine color based on primary role
+  let color = 0xf7931a; // default orange
+  if (roles.includes('miner')) color = 0xff00ff;
+  else if (roles.includes('clock')) color = 0x22c55e;
+  else if (roles.includes('storage')) color = 0x00ffff;
+
+  // Hex marker
+  const hexGeo = createHexagonGeometry(HUB_SIZE, 0.02);
+  const hexMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+  const hex = new THREE.Mesh(hexGeo, hexMat);
+
+  // Orient to globe surface
+  const pos = latLonToVec3(lat, lon, GLOBE_RADIUS * 1.005);
+  group.position.copy(pos);
+  group.lookAt(new THREE.Vector3(0, 0, 0));
+  group.rotateX(Math.PI / 2);
+
+  group.add(hex);
+
+  // Glow ring
+  const ringGeo = new THREE.RingGeometry(HUB_SIZE * 1.2, HUB_SIZE * 1.8, 6);
+  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.z = 0.01;
+  group.add(ring);
+
+  // Pulse ring (animated)
+  const pulseGeo = new THREE.RingGeometry(HUB_SIZE * 0.5, HUB_SIZE * 2.5, 32);
+  const pulseMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+  const pulse = new THREE.Mesh(pulseGeo, pulseMat);
+  pulse.position.z = 0.02;
+  group.add(pulse);
+
+  // Point light for glow
+  const pointLight = new THREE.PointLight(color, 0.5, 2);
+  pointLight.position.z = 0.1;
+  group.add(pointLight);
+
+  group.userData = { name, lat, lon, roles, pulse, pulseMat, ring, ringMat, phase: Math.random() * Math.PI * 2 };
+  globeGroup.add(group);
+  return group;
+}
+
+// ============================================================
+// INFERENCE ARCS — neon magenta great circle arcs
+// ============================================================
+function createArc(fromLatLon, toLatLon, color, thickness, speed) {
+  const from = latLonToVec3(fromLatLon.lat, fromLatLon.lon, GLOBE_RADIUS * 1.01);
+  const to = latLonToVec3(toLatLon.lat, toLatLon.lon, GLOBE_RADIUS * 1.01);
+
+  // Mid-point raised above surface
+  const mid = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+  const dist = from.distanceTo(to);
+  mid.normalize().multiplyScalar(GLOBE_RADIUS + ARC_HEIGHT * (dist / (GLOBE_RADIUS * 2)));
+
+  const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+  const points = curve.getPoints(60);
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+
+  // Animated draw using drawRange
+  geo.setDrawRange(0, 0);
+
+  const mat = new THREE.LineBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.8,
+    linewidth: thickness,
+  });
+  const line = new THREE.Line(geo, mat);
+  line.userData = {
+    totalPoints: 61,
+    progress: 0,
+    speed: speed || 0.8 + Math.random() * 0.5,
+    phase: 'draw', // draw -> hold -> fade -> done
+    holdTime: 0,
+    opacity: 0.8,
+  };
+  globeGroup.add(line);
+  return line;
+}
+
+// ============================================================
+// SENSOR PULSES — amber particle bursts
+// ============================================================
+function createSensorPulse(lat, lon) {
+  const pos = latLonToVec3(lat, lon, GLOBE_RADIUS * 1.01);
+  const particleCount = 20;
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const velocities = [];
+
+  for (let i = 0; i < particleCount; i++) {
+    positions[i * 3] = pos.x;
+    positions[i * 3 + 1] = pos.y;
+    positions[i * 3 + 2] = pos.z;
+    const dir = new THREE.Vector3(pos.x, pos.y, pos.z).normalize();
+    const tangent = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).cross(dir).normalize();
+    velocities.push(dir.clone().multiplyScalar(0.02 + Math.random() * 0.03).add(tangent.multiplyScalar(0.01)));
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+  const mat = new THREE.PointsMaterial({ color: 0xf7931a, size: 0.06, transparent: true, opacity: 1.0 });
+  const points = new THREE.Points(geo, mat);
+  points.userData = { velocities, life: 1.0, positions };
+  globeGroup.add(points);
+  return points;
+}
+
+// ============================================================
+// STORAGE TRAILS — cyan streams
+// ============================================================
+function createStorageTrail(fromLatLon, toLatLon) {
+  const from = latLonToVec3(fromLatLon.lat, fromLatLon.lon, GLOBE_RADIUS * 1.008);
+  const to = latLonToVec3(toLatLon.lat, toLatLon.lon, GLOBE_RADIUS * 1.008);
+  const mid = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+  const dist = from.distanceTo(to);
+  mid.normalize().multiplyScalar(GLOBE_RADIUS + ARC_HEIGHT * 0.5 * (dist / (GLOBE_RADIUS * 2)));
+
+  const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+  const tubeGeo = new THREE.TubeGeometry(curve, 40, 0.015, 6, false);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.0 });
+  const mesh = new THREE.Mesh(tubeGeo, mat);
+  mesh.userData = { progress: 0, speed: 0.3 + Math.random() * 0.2, phase: 'in' };
+  globeGroup.add(mesh);
+  return mesh;
+}
+
+// ============================================================
+// DATA FETCHING
+// ============================================================
+async function fetchData() {
+  try {
+    const [netRes, lbRes] = await Promise.allSettled([
+      fetch(`${API_BASE}/public/network`).then(r => r.json()),
+      fetch(`${API_BASE}/public/leaderboard`).then(r => r.json()),
+    ]);
+    if (netRes.status === 'fulfilled') {
+      networkData = netRes.value;
+      updateStatsBar(networkData);
+      updateSidebarMetrics(networkData);
+    }
+    if (lbRes.status === 'fulfilled') {
+      leaderboardData = lbRes.value;
+      updateLeaderboard(lbRes.value);
+    }
+  } catch (e) {
+    // Silently use mock data
+  }
+  rebuildNodes();
+}
+
+function updateStatsBar(d) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('s-epoch', d.epoch || '--');
+  set('s-nodes', d.nodes || '--');
+  set('s-miners', d.miners || '--');
+  set('s-clocks', d.clocks || '--');
+  set('s-storage', d.storage || '--');
+  const statusEl = document.getElementById('s-status');
+  if (statusEl) {
+    statusEl.textContent = d.alive ? 'ALIVE' : 'STALE';
+    statusEl.style.color = d.alive ? '#22c55e' : '#f7931a';
+  }
+}
+
+function updateSidebarMetrics(d) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('m-peers', d.peer_count || '--');
+  set('m-bclocks', d.browser_clocks || '--');
+  set('m-gateways', d.gateways || '--');
+  set('m-verifiers', d.verifiers || '--');
+}
+
+function updateLeaderboard(d) {
+  const el = document.getElementById('leaderboard-list');
+  if (!el || !d.leaderboard) return;
+  document.getElementById('m-accounts').textContent = d.total_accounts || '--';
+  el.innerHTML = d.leaderboard.slice(0, 8).map((e, i) => {
+    const bal = typeof e.balance === 'number' ? (e.balance / 1e10).toFixed(2) : '0';
+    const roles = e.roles && e.roles.length ? e.roles.join(', ') : 'user';
+    return `<div style="display:flex;justify-content:space-between;padding:2px 0;color:${i < 3 ? '#f7931a' : '#667'}"><span>${e.account}</span><span style="color:#22c55e">${bal}</span></div>`;
+  }).join('');
+}
+
+// ============================================================
+// REBUILD NODES FROM DATA
+// ============================================================
+let nodePositionMap = {};
+
+function rebuildNodes() {
+  // Clear existing nodes
+  nodeObjects.forEach(n => globeGroup.remove(n));
+  nodeObjects = [];
+  nodePositionMap = {};
+
+  // Gather accounts
+  let accounts = [];
+  if (leaderboardData && leaderboardData.leaderboard) {
+    accounts = leaderboardData.leaderboard.map(e => ({ name: e.account, roles: e.roles || [] }));
+  }
+
+  // Ensure at least some nodes for visual interest
+  if (accounts.length === 0) {
+    accounts = [
+      { name: 'shindevlin', roles: ['miner'] },
+      { name: 'natoshisakamoto', roles: ['miner', 'clock'] },
+      { name: 'node_alpha', roles: ['storage'] },
+      { name: 'node_beta', roles: ['clock'] },
+      { name: 'node_gamma', roles: ['miner'] },
+    ];
+  }
+
+  accounts.forEach((acc, i) => {
+    const pos = getNodePosition(acc.name, i);
+    nodePositionMap[acc.name] = pos;
+    const hub = createNodeHub(acc.name, pos.lat, pos.lon, acc.roles);
+    nodeObjects.push(hub);
+  });
+}
+
+// ============================================================
+// PERIODIC EFFECTS — fire arcs, trails, sensor pulses
+// ============================================================
+let effectTimer = 0;
+
+function fireRandomEffect() {
+  const names = Object.keys(nodePositionMap);
+  if (names.length < 2) return;
+
+  const roll = Math.random();
+  const fromIdx = Math.floor(Math.random() * names.length);
+  let toIdx = Math.floor(Math.random() * names.length);
+  while (toIdx === fromIdx && names.length > 1) toIdx = Math.floor(Math.random() * names.length);
+
+  const from = nodePositionMap[names[fromIdx]];
+  const to = nodePositionMap[names[toIdx]];
+
+  if (roll < 0.45) {
+    // Inference arc (magenta)
+    const arc = createArc(from, to, 0xff00ff, 2, 0.8 + Math.random() * 0.6);
+    arcObjects.push(arc);
+    addEvent('INFERENCE', `${names[fromIdx]} -> ${names[toIdx]}`);
+  } else if (roll < 0.75) {
+    // Storage trail (cyan)
+    const trail = createStorageTrail(from, to);
+    storageTrails.push(trail);
+    addEvent('STORAGE', `${names[fromIdx]} <-> ${names[toIdx]}`);
+  } else {
+    // Sensor pulse (amber)
+    const target = nodePositionMap[names[fromIdx]];
+    const pulse = createSensorPulse(target.lat, target.lon);
+    sensorPulses.push(pulse);
+    addEvent('SENSOR', `${names[fromIdx]} heartbeat`);
+  }
+}
+
+// ============================================================
+// EVENT LOG
+// ============================================================
+const eventLog = document.getElementById('event-log');
+const eventTypes = {
+  INFERENCE: '#ff00ff',
+  STORAGE: '#00ffff',
+  SENSOR: '#f7931a',
+  EPOCH: '#22c55e',
+  SYNC: '#556',
+};
+
+function addEvent(type, msg) {
+  const line = document.createElement('div');
+  line.className = 'event-line';
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  line.innerHTML = `<span class="ts">${ts}</span><span style="color:${eventTypes[type] || '#667'}">[${type}]</span> ${msg}`;
+  eventLog.appendChild(line);
+
+  // Keep only last 50 lines
+  while (eventLog.querySelectorAll('.event-line').length > 50) {
+    const first = eventLog.querySelector('.event-line');
+    if (first) first.remove();
+  }
+  eventLog.scrollTop = eventLog.scrollHeight;
+}
+
+// ============================================================
+// MATRIX RAIN in event log
+// ============================================================
+const matrixCanvas = document.getElementById('matrix-canvas');
+const matrixCtx = matrixCanvas.getContext('2d');
+let matrixColumns = [];
+const matrixChars = 'BTCPC01ABCDEF';
+
+function initMatrix() {
+  matrixCanvas.width = eventLog.clientWidth;
+  matrixCanvas.height = eventLog.clientHeight;
+  const cols = Math.floor(matrixCanvas.width / 10);
+  matrixColumns = Array(cols).fill(0).map(() => Math.floor(Math.random() * matrixCanvas.height / 14));
+}
+
+function drawMatrix() {
+  matrixCtx.fillStyle = 'rgba(0, 20, 0, 0.1)';
+  matrixCtx.fillRect(0, 0, matrixCanvas.width, matrixCanvas.height);
+  matrixCtx.fillStyle = '#22c55e';
+  matrixCtx.font = '10px monospace';
+  matrixColumns.forEach((y, i) => {
+    const char = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+    matrixCtx.fillText(char, i * 10, y * 14);
+    if (y * 14 > matrixCanvas.height && Math.random() > 0.975) {
+      matrixColumns[i] = 0;
+    } else {
+      matrixColumns[i] = y + 1;
+    }
+  });
+}
+initMatrix();
+
+// ============================================================
+// PROJECTION TOGGLE
+// ============================================================
+let targetFlatten = 0; // 0 = globe, 1 = flat
+window.setProjection = function(mode) {
+  is3D = mode === '3d';
+  targetFlatten = is3D ? 0 : 1;
+  document.getElementById('btn-3d').classList.toggle('active', is3D);
+  document.getElementById('btn-2d').classList.toggle('active', !is3D);
+  if (!is3D) {
+    controls.enableRotate = false;
+    camera.position.set(0, 0, 16);
+    camera.lookAt(0, 0, 0);
+  } else {
+    controls.enableRotate = true;
+  }
+};
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+let currentFlatten = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const elapsed = clock.getElapsedTime();
+
+  // Auto-rotate
+  if (is3D) {
+    globeGroup.rotation.y += ROTATION_SPEED * dt;
+  }
+
+  controls.update();
+
+  // Flatten interpolation
+  currentFlatten += (targetFlatten - currentFlatten) * 0.03;
+
+  // Animate node pulses
+  nodeObjects.forEach(node => {
+    const ud = node.userData;
+    const t = elapsed + ud.phase;
+    const scale = 1 + 0.3 * Math.sin(t * 2);
+    if (ud.pulse) {
+      ud.pulse.scale.set(scale, scale, 1);
+      ud.pulseMat.opacity = 0.3 + 0.3 * Math.abs(Math.sin(t * 2));
+    }
+    if (ud.ringMat) {
+      ud.ringMat.opacity = 0.2 + 0.2 * Math.abs(Math.sin(t * 1.5 + 1));
+    }
+  });
+
+  // Animate inference arcs
+  for (let i = arcObjects.length - 1; i >= 0; i--) {
+    const arc = arcObjects[i];
+    const ud = arc.userData;
+    if (ud.phase === 'draw') {
+      ud.progress += ud.speed * dt;
+      const count = Math.min(Math.floor(ud.progress * ud.totalPoints), ud.totalPoints);
+      arc.geometry.setDrawRange(0, count);
+      if (count >= ud.totalPoints) {
+        ud.phase = 'hold';
+        ud.holdTime = 0;
+      }
+    } else if (ud.phase === 'hold') {
+      ud.holdTime += dt;
+      if (ud.holdTime > 0.8) ud.phase = 'fade';
+    } else if (ud.phase === 'fade') {
+      ud.opacity -= dt * 1.5;
+      arc.material.opacity = Math.max(0, ud.opacity);
+      if (ud.opacity <= 0) {
+        globeGroup.remove(arc);
+        arc.geometry.dispose();
+        arc.material.dispose();
+        arcObjects.splice(i, 1);
+      }
+    }
+  }
+
+  // Animate storage trails
+  for (let i = storageTrails.length - 1; i >= 0; i--) {
+    const trail = storageTrails[i];
+    const ud = trail.userData;
+    ud.progress += ud.speed * dt;
+    if (ud.phase === 'in') {
+      trail.material.opacity = Math.min(ud.progress * 0.6, 0.6);
+      if (ud.progress > 2) ud.phase = 'out';
+    } else {
+      trail.material.opacity -= dt * 0.5;
+      if (trail.material.opacity <= 0) {
+        globeGroup.remove(trail);
+        trail.geometry.dispose();
+        trail.material.dispose();
+        storageTrails.splice(i, 1);
+      }
+    }
+  }
+
+  // Animate sensor pulses
+  for (let i = sensorPulses.length - 1; i >= 0; i--) {
+    const pulse = sensorPulses[i];
+    const ud = pulse.userData;
+    ud.life -= dt * 0.8;
+    pulse.material.opacity = Math.max(0, ud.life);
+
+    const posAttr = pulse.geometry.getAttribute('position');
+    for (let j = 0; j < ud.velocities.length; j++) {
+      posAttr.array[j * 3] += ud.velocities[j].x;
+      posAttr.array[j * 3 + 1] += ud.velocities[j].y;
+      posAttr.array[j * 3 + 2] += ud.velocities[j].z;
+    }
+    posAttr.needsUpdate = true;
+
+    if (ud.life <= 0) {
+      globeGroup.remove(pulse);
+      pulse.geometry.dispose();
+      pulse.material.dispose();
+      sensorPulses.splice(i, 1);
+    }
+  }
+
+  // Fire periodic effects
+  effectTimer += dt;
+  if (effectTimer > 1.5 + Math.random() * 1.5) {
+    effectTimer = 0;
+    fireRandomEffect();
+  }
+
+  // Matrix rain
+  drawMatrix();
+
+  // Render
+  composer.render();
+}
+
+// ============================================================
+// RESIZE HANDLER
+// ============================================================
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  initMatrix();
+});
+
+// ============================================================
+// MOUSE HOVER — node tooltip
+// ============================================================
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltip = document.getElementById('node-tooltip');
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  let hit = false;
+
+  for (const node of nodeObjects) {
+    const intersects = raycaster.intersectObjects(node.children, true);
+    if (intersects.length > 0) {
+      const ud = node.userData;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 16) + 'px';
+      tooltip.style.top = (e.clientY - 10) + 'px';
+      tooltip.querySelector('.tt-name').textContent = ud.name;
+      tooltip.querySelector('.tt-roles').textContent = ud.roles.length ? ud.roles.join(', ') : 'node';
+
+      // Find balance from leaderboard
+      let bal = '--';
+      if (leaderboardData && leaderboardData.leaderboard) {
+        const entry = leaderboardData.leaderboard.find(e => e.account === ud.name);
+        if (entry && typeof entry.balance === 'number') bal = (entry.balance / 1e10).toFixed(4) + ' BTCPC';
+      }
+      tooltip.querySelector('.tt-balance').textContent = bal;
+      hit = true;
+      break;
+    }
+  }
+  if (!hit) tooltip.style.display = 'none';
+});
+
+// ============================================================
+// INIT
+// ============================================================
+fetchData();
+setInterval(fetchData, 10000);
+
+// Initial events
+addEvent('SYNC', 'Globe visualizer initialized');
+addEvent('EPOCH', 'Connecting to BTCPC network...');
+
+animate();
+</script>
+</body>
+</html>
