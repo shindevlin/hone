@@ -7,16 +7,36 @@
  * Centralized cryptographic authentication for P2P messages.
  * Provides signing, verification, allowlists, and key-ownership proofs.
  *
- * Signatures required by default. Unsigned messages are rejected unless
- * BTCPC_REQUIRE_SIGNATURES=false is set (legacy/test mode only).
+ * Signatures are required by default. Unsigned messages are rejected unless
+ * BTCPC_REQUIRE_SIGNATURES=false is set explicitly for local legacy/test use.
  */
 
 const crypto = require("crypto");
 
-// When true, reject any message that lacks a required signature.
-// Default: false during genesis (nodes need time to set up signing keys).
-// Set BTCPC_REQUIRE_SIGNATURES=true to enforce strict mode after key setup.
-const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES === "true";
+// Signature enforcement only applies to value-moving operations (spend, stake,
+// delegation, escrow). Mining, clock heartbeats, and block proposals do NOT
+// require signatures — their security comes from VRF rotation and verification.
+const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES !== "false";
+
+// Entry types that MUST be signed — these move value or delegate authority.
+// All other operations (heartbeats, proposals, sensor readings) are unsigned.
+const SIGNATURE_REQUIRED_TYPES = [
+  "TRANSFER",
+  "STAKE",
+  "UNSTAKE",
+  "DELEGATE",
+  "UNDELEGATE",
+  "ESCROW_LOCK",
+  "ESCROW_RELEASE",
+  "ESCROW_REFUND",
+  "BRIDGE_WRAP",
+  "BRIDGE_UNWRAP",
+  "KEY_ROTATE",
+];
+
+function requiresSignature(entryType) {
+  return SIGNATURE_REQUIRED_TYPES.indexOf(entryType) !== -1;
+}
 
 // ---------------------------------------------------------------------------
 // Canonical data hashing
@@ -109,6 +129,7 @@ const MEMPOOL_ALLOWED_TYPES = [
   "SNAPSHOT_COMMIT",
   "BRIDGE_WRAP",
   "BRIDGE_UNWRAP",
+  "TOTP_POLICY",
 ];
 
 /**
@@ -126,6 +147,8 @@ const BLOCK_ONLY_TYPES = [
 
 module.exports = {
   REQUIRE_SIGNATURES,
+  SIGNATURE_REQUIRED_TYPES,
+  requiresSignature,
   hashMessageData,
   signMessage,
   verifyMessage,

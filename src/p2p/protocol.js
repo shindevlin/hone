@@ -17,6 +17,7 @@ const blockchain = require("../chain/blockchain");
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
 const messageAuth = require("./messageAuth");
+const PROTOCOL_EPOCH_DURATION_MS = 30 * 1000;
 
 // ---------------------------------------------------------------------------
 // Known peers — persistent peer address book for relay-free reconnection
@@ -365,20 +366,8 @@ function handleMessage(peer, msg, ctx) {
           started_at: esData.started_at,
           authority: esData.authority
         };
-        let esSigOk = messageAuth.verifyAccountSignature(esAuthority, esVerifyData, esData.signature, "posting");
-        if (!esSigOk) {
-          if (messageAuth.REQUIRE_SIGNATURES) {
-            console.log("[BTCPC P2P] EPOCH_START REJECTED: invalid signature from " + esAuthority + " for epoch " + (esData.epoch_number || "?"));
-            break;
-          }
-          console.log("[BTCPC P2P WARN] EPOCH_START from " + esAuthority + " has invalid signature");
-        }
-      } else {
-        if (messageAuth.REQUIRE_SIGNATURES) {
-          console.log("[BTCPC P2P] EPOCH_START REJECTED: no signature from " + esAuthority + " (strict mode)");
-          break;
-        }
-        console.log("[BTCPC P2P WARN] Unsigned EPOCH_START from " + esAuthority);
+        // EPOCH_START doesn't require signatures — timing is verified by
+        // VRF-based authority rotation, not cryptographic signing.
       }
       console.log("[BTCPC P2P] Epoch START: " + (esData.epoch_number || "?") + " from " + esAuthority);
       if (esData.epoch_number) setCurrentEpoch(esData.epoch_number);
@@ -1007,10 +996,12 @@ async function handleMempoolEntry(peer, msg, ctx) {
     " to=" + (entry.to || "-") +
     " epoch=" + (entry.epoch || 0));
 
-  // Vuln 2 (continued): for TRANSFER entries, verify the posting-key signature.
-  if (entry.type === "TRANSFER" && entry.from) {
+  // Signature enforcement: only required for value-moving operations
+  // (transfers, staking, delegation, escrow, bridge, key rotation).
+  // All other entry types (heartbeats, sensor readings, etc.) are unsigned.
+  if (messageAuth.requiresSignature(entry.type) && entry.from) {
     if (entry.signature) {
-      var transferData = {
+      var spendData = {
         type: entry.type,
         from: entry.from,
         to: entry.to,
@@ -1020,20 +1011,14 @@ async function handleMempoolEntry(peer, msg, ctx) {
         epoch: entry.epoch || 0,
         timestamp: entry.timestamp || 0,
       };
-      var sigOk = messageAuth.verifyAccountSignature(entry.from, transferData, entry.signature, "posting");
+      var sigOk = messageAuth.verifyAccountSignature(entry.from, spendData, entry.signature, "posting");
       if (!sigOk) {
-        if (messageAuth.REQUIRE_SIGNATURES) {
-          console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: TRANSFER from " + entry.from + " — invalid posting-key signature");
-          return;
-        }
-        console.log("[BTCPC P2P WARN] TRANSFER from " + entry.from + " has invalid posting-key signature — rejecting after v2.17");
-      }
-    } else {
-      if (messageAuth.REQUIRE_SIGNATURES) {
-        console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: unsigned TRANSFER from " + entry.from + " (strict mode)");
+        console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: " + entry.type + " from " + entry.from + " — invalid signature");
         return;
       }
-      console.log("[BTCPC P2P WARN] Unsigned TRANSFER from " + (entry.from || "?") + " — will be rejected after v2.17");
+    } else {
+      console.log("[BTCPC P2P] MEMPOOL_ENTRY REJECTED: unsigned " + entry.type + " from " + entry.from + " — signature required for spend operations");
+      return;
     }
   }
 
@@ -1141,7 +1126,7 @@ function handleBlockProposal(peer, msg, ctx) {
 
   // Compute epoch start time for fallback window
   var genesisTimestamp = parseInt(process.env.BTCPC_GENESIS_TIMESTAMP) || 0;
-  var epochDurationMs = parseInt(process.env.BTCPC_EPOCH_DURATION_MS) || 300000;
+  var epochDurationMs = PROTOCOL_EPOCH_DURATION_MS;
   var epochStart = authorityRotation.epochStartTime(data.epoch_number, genesisTimestamp, epochDurationMs);
 
   var vrfResult = authorityRotation.validateProposer(
@@ -1412,10 +1397,9 @@ function handleVerifyRequest(peer, msg, ctx) {
   // Check if this node should verify — deterministic selection
   var verifier = require("../inference/verifier");
 
-  // Eligible verifier pool: any node currently active as a clock or
-  // any node we've seen broadcast work in recent epochs. This means
-  // clock-only nodes (like josh on Termux) participate in verification
-  // alongside miners. Verification is text analysis — no Ollama needed.
+  // Eligible verifier pool: nodes seen recently that are also running this
+  // process with verification explicitly enabled. Verification is text
+  // analysis — no Ollama needed — but it is still an opt-in node role.
   var eligibleSet = new Set();
   var currentEpoch = _currentEpochCache;
   for (var i = 0; i <= 3; i++) {
@@ -1431,8 +1415,9 @@ function handleVerifyRequest(peer, msg, ctx) {
 
   // This node's identity — could be a miner OR a clock-only node
   var myAccount = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || null;
+  var verifierOptIn = process.env.BTCPC_VERIFIER_ENABLED === "true" || process.env.BTCPC_NODE_ROLE === "verifier";
 
-  if (!myAccount || myAccount === data.miner) {
+  if (!myAccount || myAccount === data.miner || !verifierOptIn) {
     // Miner doesn't verify own work; nodes without accounts can't verify
     ctx.broadcast(msg, peer.address);
     return;
@@ -1445,8 +1430,13 @@ function handleVerifyRequest(peer, msg, ctx) {
   }
 
   var totalNodes = allNodes.length;
-  var vCount = verifier.getVerifierCount(totalNodes);
   var blockHash = data.block_hash || "0".repeat(64);
+  var policy = verifier.getVerifierPolicy(totalNodes, totalNodes);
+  if (!verifier.shouldVerifyJob(data.job_id, blockHash, policy.coverage)) {
+    ctx.broadcast(msg, peer.address);
+    return;
+  }
+  var vCount = policy.count;
   var selected = verifier.selectVerifiers(blockHash, data.job_id, data.miner, allNodes, vCount);
 
   if (selected.indexOf(myAccount) === -1) {
@@ -1667,18 +1657,10 @@ function handleClockHeartbeat(peer, msg, ctx) {
     };
     var hbSigOk = messageAuth.verifyAccountSignature(account, hbVerifyData, data.signature, "posting");
     if (!hbSigOk) {
-      if (messageAuth.REQUIRE_SIGNATURES) {
-        console.log("[BTCPC P2P] CLOCK_HEARTBEAT REJECTED: invalid signature from " + account);
-        return;
-      }
-      console.log("[BTCPC P2P WARN] CLOCK_HEARTBEAT from " + account + " has invalid signature");
+      // Heartbeats don't require signatures — security comes from the
+      // staking requirement and anti-sybil checks, not cryptographic signing.
+      // Log for debugging but always accept.
     }
-  } else {
-    if (messageAuth.REQUIRE_SIGNATURES) {
-      console.log("[BTCPC P2P] CLOCK_HEARTBEAT REJECTED: no signature from " + account + " (strict mode)");
-      return;
-    }
-    console.log("[BTCPC P2P WARN] Unsigned CLOCK_HEARTBEAT from " + account);
   }
 
   // File under THIS node's current epoch (what we think the chain height is),
