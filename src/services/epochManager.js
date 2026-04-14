@@ -16,10 +16,10 @@ const MAX_DIFFICULTY_INCREASE = 4.0;
 const MAX_DIFFICULTY_DECREASE = 0.25;
 const BASELINE_WORK_PER_EPOCH = 100; // baseline expected work per epoch at difficulty 1.0
 
-// Genesis timestamp — hardcoded. April 12, 2026 10:30 PM Mountain Time (04:30 UTC April 13).
+// Genesis timestamp — hardcoded. April 14 2026 7:30 AM Mountain Time (04:30 UTC April 13).
 // This is the birth of the BTCPC v3.0 chain. All nodes must agree on this value.
 // Every epoch number on every node is derived from this single constant.
-const GENESIS_TIMESTAMP = 1776054600000; // 2026-04-13T04:30:00.000Z
+const GENESIS_TIMESTAMP = 1776173400000; // 2026-04-14T13:30:00.000Z
 let epochInterval = null;
 let currentDifficulty = 1.0;
 

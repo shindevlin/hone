@@ -24,7 +24,7 @@ const https = require("https");
 const http = require("http");
 
 const SDK_VERSION = "3.0.0";
-const GENESIS_TIMESTAMP = 1776054600000; // 2026-04-13T04:30:00.000Z
+const GENESIS_TIMESTAMP = 1776173400000; // 2026-04-14T13:30:00.000Z
 const EPOCH_DURATION_MS = 30000;
 
 // Auto-discover order
@@ -314,7 +314,7 @@ class BTCPC {
         path: parsed.pathname + parsed.search,
         method: method,
         headers: headers,
-        timeout: 180000,
+        timeout: 600000,
       }, function (res) {
         var data = "";
         res.on("data", function (chunk) { data += chunk; });
