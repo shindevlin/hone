@@ -192,6 +192,41 @@ setInterval(function () {
   console.log("[supervisor] uptime=" + uptimeS + "s alive=[" + alive.join(",") + "]");
 }, 300000);
 
+// ─── Self-heal watchdog ─────────────────────────────────────────────────────
+// Check every 5 minutes: if the latest block file is older than 10 minutes,
+// the node is stalled. Restart all children to reconnect to the network.
+var WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
+var WATCHDOG_STALE_MS = 10 * 60 * 1000;
+var lastWatchdogRestart = 0;
+
+setInterval(function () {
+  if (shuttingDown) return;
+  try {
+    var blocksDir = require("path").join(REPO_ROOT, "data", "blocks");
+    var _fs = require("fs");
+    if (!_fs.existsSync(blocksDir)) return;
+
+    var files = _fs.readdirSync(blocksDir).filter(function (f) { return f.endsWith(".bin"); });
+    if (files.length === 0) return; // no blocks yet (pre-genesis)
+
+    // Find the most recently modified block file
+    var latestMtime = 0;
+    for (var i = 0; i < files.length; i++) {
+      var st = _fs.statSync(require("path").join(blocksDir, files[i]));
+      if (st.mtimeMs > latestMtime) latestMtime = st.mtimeMs;
+    }
+
+    var age = Date.now() - latestMtime;
+    if (age > WATCHDOG_STALE_MS && Date.now() - lastWatchdogRestart > WATCHDOG_STALE_MS) {
+      console.log("[supervisor] WATCHDOG: latest block is " + Math.round(age / 60000) + "m old — restarting children to reconnect");
+      lastWatchdogRestart = Date.now();
+      restartAllChildren();
+    }
+  } catch (e) {
+    console.error("[supervisor] watchdog error: " + e.message);
+  }
+}, WATCHDOG_INTERVAL_MS);
+
 // ─── Launch requested roles ──────────────────────────────────────
 
 var roles = wanted();
