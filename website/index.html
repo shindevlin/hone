@@ -31,6 +31,7 @@
         <a href="#finality">Finality</a>
         <a href="#security">Security</a>
         <a href="#42">42</a>
+        <a href="#sensors">Sensors</a>
         <a href="#start">Start</a>
       </div>
     </div>
@@ -45,6 +46,7 @@
     <p class="hero-sub">Total supply &mdash; fixed forever, like Bitcoin. Every token earned by a machine doing something useful.</p>
     <div style="display:flex;gap:12px;justify-content:center;margin-top:32px;flex-wrap:wrap;">
       <a href="/install" style="background:#f7931a;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;">Install BTCPC</a>
+      <a href="/globe" style="background:rgba(34,197,94,0.15);color:#22c55e;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid #22c55e;">Live Network Globe</a>
       <a href="/map" style="background:rgba(247,147,26,0.15);color:#f7931a;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid #f7931a;">View Network Map</a>
     </div>
   </section>
@@ -96,7 +98,7 @@
     <ul class="bullet-list">
       <li><strong>GPUs burn electricity solving purposeless hashes</strong> &mdash; Bitcoin's PoW consumes ~150 TWh/year. The work proves effort. It produces nothing else. Those same GPUs could run AI inference that real people are already paying for.</li>
       <li><strong>Cloud computing is a $500B/year monopoly</strong> &mdash; AI inference, data storage, and application hosting are routed through a handful of corporations. Millions of devices with spare capacity sit idle or mine hashes nobody uses.</li>
-      <li><strong>IoT hardware goes to waste</strong> &mdash; Helium miners, Raspberry Pis, LoRa gateways — devices purpose-built for useful sensing work sit idle with nothing to do. There is no chain that pays for environmental data.</li>
+      <li><strong>IoT hardware goes to waste</strong> &mdash; Helium miners, Raspberry Pis, LoRa gateways, Flipper Zeros &mdash; devices purpose-built for useful sensing work sit idle with nothing to do. There is no chain that pays for environmental data.</li>
     </ul>
   </section>
 
@@ -131,7 +133,7 @@
       <div class="card">
         <span class="card-icon">&#128225;</span>
         <h3>IoT Sensor &mdash; 10%</h3>
-        <p>LoRa gateway plus sensors. Report environmental data &mdash; temperature, air quality, weather, location signals. Like Helium, but the data goes on-chain and the rewards are real.</p>
+        <p>LoRa gateway, Flipper Zero, or standalone sensors. Report environmental data &mdash; temperature, air quality, RF spectrum, crowd density, weather. Like Helium, but the data goes on-chain and the rewards are real.</p>
       </div>
     </div>
 
@@ -389,6 +391,47 @@ node bin/btcpc-all</pre>
     <h2 class="section-title">See the network <span>live</span></h2>
     <p class="section-text" style="margin:0 auto 32px;">Every gateway, sensor node, clock, and miner on one map. Updated in real time from the P2P network.</p>
     <a href="/map" style="display:inline-block;background:rgba(247,147,26,0.15);color:#f7931a;padding:14px 36px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid #f7931a;font-size:15px;">See every gateway, sensor, and node on the live map &#8594;</a>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Mobile Sensors -->
+  <section id="sensors">
+    <p class="section-label">10 &mdash; Mobile Sensors</p>
+    <h2 class="section-title">Carry a Flipper Zero. <span>Earn BTCPC while you walk.</span></h2>
+    <p class="section-text">Fixed sensors cover one location. Your pocket covers every street you walk down. A Flipper Zero turns your daily commute into a data-generating machine.</p>
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#128225;</span>
+        <h3>What It Scans</h3>
+        <p>Sub-GHz RF spectrum mapping, BLE device density, NFC field detection, temperature, and anything you wire to the GPIO header. Scans continuously while you carry it.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128178;</span>
+        <h3>Who Buys the Data</h3>
+        <p><strong>Telecoms</strong> &mdash; RF coverage and interference maps. <strong>Retailers</strong> &mdash; foot traffic and crowd density ($10B+ market). <strong>Fintech</strong> &mdash; contactless payment terminal mapping. <strong>Weather</strong> &mdash; hyperlocal temperature grids. <strong>Security</strong> &mdash; rogue transmitter detection.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128260;</span>
+        <h3>How It Syncs</h3>
+        <p>Readings buffer to microSD with GPS coordinates. Connect via USB or BLE to any BTCPC gateway or PC &mdash; readings sync to the chain automatically, signed with your memo key for attestation.</p>
+      </div>
+    </div>
+    <div class="feature-visual" style="margin-top:32px;">
+      <pre>Mobile sensor mesh:
+
+  <span class="hl">Flipper Zero</span>  scans RF, BLE, NFC, temp
+       ↓
+  Buffers to <span class="hlb">microSD</span> with GPS + timestamp
+       ↓
+  Syncs via USB/BLE to <span class="hlg">BTCPC gateway</span>
+       ↓
+  Gateway co-signs → <span class="hl">IoT reward pool (10%)</span>
+       ↓
+  Data sold to telecoms, retailers,
+  fintech, weather services, security</pre>
+    </div>
+    <p class="section-text" style="margin-top:24px;">Supported devices: <strong>Nebra</strong>, <strong>Hyfix</strong>, <strong>Raspberry Pi</strong>, <strong>Flipper Zero</strong>, and any GPIO/I2C/SPI sensor. Bring what you have.</p>
   </section>
 
   <!-- Footer -->

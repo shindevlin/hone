@@ -665,6 +665,67 @@ consensus pipeline described in Sections 7.2–7.4. Phase numbers indicate sugge
 deployment order, not hard dependencies — operators can skip ahead to any phase
 their use case requires.
 
+### 7.13 Mobile Sensor Arrays (Flipper Zero)
+
+Fixed sensor networks cover one location each. A Flipper Zero in someone's pocket
+covers every location that person walks through. Thousands of Flippers moving through
+cities generate real-time maps of RF spectrum, crowd density, weather, and NFC coverage
+that update every time someone walks by. No fixed sensor network can produce this data.
+
+**The device.** Flipper Zero is a pocket-sized, open-source multi-tool with Sub-GHz RF
+transceiver, BLE 5.0, NFC, infrared, 1-Wire, and a GPIO header for expansion. Out of
+the box it performs:
+
+- **Sub-GHz RF spectrum mapping** — scans 300–928 MHz, logs signal strength by frequency
+  and GPS coordinate. Detects active transmitters, interference sources, dead zones.
+- **BLE device density tracking** — passive BLE scan counts unique devices per sweep,
+  producing crowd density estimates without identifying individuals.
+- **NFC field detection** — detects active NFC readers (payment terminals, transit gates,
+  access control). Maps contactless payment infrastructure coverage.
+- **Temperature** — onboard sensor, plus GPIO-extensible to BME280 or any I2C/SPI probe
+  for humidity and barometric pressure.
+- **GPIO expansion** — the same I2C/SPI/UART sensors listed in the Phase 1–7 device
+  roadmap (Section 7.12) can be wired directly to the Flipper's GPIO header.
+
+**Data buyers and market value.** The data a mobile sensor mesh produces has direct
+commercial value across multiple industries:
+
+| Buyer | Data Product | Market Size |
+|-------|-------------|-------------|
+| **Telecoms** | RF coverage maps, interference detection, dead-zone identification | $B/year — carriers pay for independent coverage verification |
+| **Retailers** | Foot traffic analytics, crowd density by time and location | $10B+ market — currently served by camera systems and WiFi probes |
+| **Fintech** | Contactless payment terminal coverage mapping | Terminal operators and payment networks need coverage data |
+| **Weather / Environmental** | Hyperlocal temperature grids, urban heat island detection | Complements fixed weather stations with street-level resolution |
+| **Security** | Rogue transmitter detection, spectrum compliance monitoring | Regulatory bodies and enterprise security teams |
+| **Urban planning** | Pedestrian flow patterns, neighborhood activity scoring | Municipal governments and real estate developers |
+
+**How it works.** The Flipper scans continuously during normal carry. Readings are
+buffered to microSD with GPS coordinates and Unix timestamps. When the user connects
+to a BTCPC gateway (via USB or BLE), buffered readings sync to the chain. Each reading
+is signed with the user's memo key for attestation — the same key hierarchy described
+in Section 10 (Security). Gateway nodes that relay Flipper readings co-sign the
+submission, providing a second attestation layer.
+
+**Earning.** Flipper readings enter the IoT reward pool (10% of epoch emissions).
+Rewards per reading are weighted by:
+
+1. **Gateway attestation** — readings relayed through a registered gateway with a
+   co-signature earn full weight. Self-submitted readings earn reduced weight until
+   cross-validated by nearby sensors.
+2. **Statistical consistency** — median consensus (Section 7.3) applies. Readings that
+   deviate significantly from the median of nearby sensors are downweighted. A Flipper
+   that reports 40°C in a city where every other sensor reads 22°C earns nothing for
+   that reading.
+3. **Coverage novelty** — readings from areas with sparse existing coverage earn a
+   bonus multiplier. Walking through an unmapped neighborhood is worth more than
+   re-scanning a location with 50 existing data points.
+
+**The mobile mesh advantage.** A Nebra or Hyfix gateway covers one rooftop. A Raspberry
+Pi covers one room. A Flipper Zero covers every street, subway car, shopping mall, and
+park bench its carrier walks through. The network effect is pedestrian-powered: the more
+people carry Flippers, the higher the spatial and temporal resolution of every data
+product the chain can sell.
+
 ---
 
 ## 8. Oracle Feeds
