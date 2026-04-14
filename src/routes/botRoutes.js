@@ -160,7 +160,6 @@ router.post('/create', async (req, res) => {
     }
 
     // Record on permanent ledger
-    const ledger = require('../services/ledger');
     await ledger.recordAccountCreate(username, account.publicKeys, account.chainWallets, 0);
 
     // Announce to P2P
@@ -174,6 +173,14 @@ router.post('/create', async (req, res) => {
         epoch: 0
       }, p2p.NODE_ID);
       p2p.broadcast(announceMsg);
+    } catch (_) {}
+
+    // Auto-claim 1 BTCPC from faucet for new account
+    let faucetClaimed = false;
+    try {
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordTransfer('btcpc_treasury', username, 1, 'BTCPC', null, epoch, 'New account faucet claim');
+      faucetClaimed = true;
     } catch (_) {}
 
     // Build quiz words for mnemonic verification
@@ -190,7 +197,11 @@ router.post('/create', async (req, res) => {
       success: true,
       username,
       mnemonic: account.mnemonic,
+      mnemonic_warning: 'SAVE YOUR MNEMONIC NOW. It will never be shown again.',
       password_set: passwordSet,
+      faucet_claimed: faucetClaimed,
+      balance: faucetClaimed ? 1 : 0,
+      btcpc_address: account.address,
       addresses: {
         btcpc: account.address,
         evm: evmAddr,
