@@ -105,11 +105,25 @@ router.get('/network', async (req, res) => {
     const epochAgeMs = latestMtimeMs > 0 ? Date.now() - latestMtimeMs : Infinity;
     const alive = epochAgeMs < 30 * 60 * 1000;
 
+    // Distinct node count — each unique account is one "node" regardless of roles
+    const uniqueAccounts = new Set();
+    registered.forEach(n => { if (n.account) uniqueAccounts.add(n.account); });
+    browserClocks.forEach(c => { if (c.account) uniqueAccounts.add(c.account); });
+
+    // Role breakdown
+    const storageNodes = registered.filter(n => n.type === 'storage').length;
+    const gatewayNodes = registered.filter(n => n.type === 'gateway').length;
+    const verifierNodes = registered.filter(n => n.type === 'verifier').length;
+
     res.json({
       epoch: latestEpoch,
+      nodes: uniqueAccounts.size,
       peer_count: registered.length + browserClocks.length,
       miners,
       clocks: registeredClocks + browserClocks.length,
+      storage: storageNodes,
+      gateways: gatewayNodes,
+      verifiers: verifierNodes,
       browser_clocks: browserClocks.length,
       active_clock_accounts: Array.from(activeClockAccounts),
       alive,
