@@ -8,6 +8,8 @@
  * Every message follows the format: { type, data, timestamp, nodeId }
  */
 
+const fs = require("fs");
+const path = require("path");
 const { validateBlock, getChainHeight, getBlockRange } = require("./chainSync");
 const mempool = require("./mempool");
 const Block = require("../chain/block");
@@ -15,6 +17,40 @@ const blockchain = require("../chain/blockchain");
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
 const messageAuth = require("./messageAuth");
+
+// ---------------------------------------------------------------------------
+// Known peers — persistent peer address book for relay-free reconnection
+// ---------------------------------------------------------------------------
+
+const KNOWN_PEERS_PATH = path.join(__dirname, "../../data/known-peers.json");
+const knownPeers = new Set();
+
+// Load persisted peers on startup
+try {
+  if (fs.existsSync(KNOWN_PEERS_PATH)) {
+    var _saved = JSON.parse(fs.readFileSync(KNOWN_PEERS_PATH, "utf8"));
+    if (Array.isArray(_saved)) {
+      for (var _addr of _saved) {
+        if (typeof _addr === "string" && _addr.startsWith("ws")) {
+          knownPeers.add(_addr);
+        }
+      }
+    }
+    if (knownPeers.size > 0) {
+      console.log("[BTCPC P2P] Loaded " + knownPeers.size + " known peers from disk");
+    }
+  }
+} catch (_e) {
+  // Ignore — file may not exist yet
+}
+
+function saveKnownPeers() {
+  try {
+    fs.writeFileSync(KNOWN_PEERS_PATH, JSON.stringify(Array.from(knownPeers), null, 2));
+  } catch (_e) {
+    console.error("[BTCPC P2P] Failed to save known peers:", _e.message);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -71,18 +107,87 @@ const MESSAGE_TYPES = {
   // Mempool gossip — ledger entries broadcast across machines so any
   // broadcaster can include them in its next block (v2.13.3)
   MEMPOOL_ENTRY: "MEMPOOL_ENTRY",
+  // Peer relay — nodes announce their known peers so the network
+  // doesn't depend on a single Cloudflare relay for discovery
+  PEER_ANNOUNCE: "PEER_ANNOUNCE",
 };
 
-// Track seen message IDs to prevent rebroadcast loops
-const seenMessages = new Set();
+// ---------------------------------------------------------------------------
+// Replay attack prevention — chain_id + timestamp freshness
+// ---------------------------------------------------------------------------
+
+var _genesisHash = null; // cached on first use
+var STALE_MSG_MS = 300000; // 5 minutes
+
+function getGenesisHash() {
+  if (_genesisHash) return _genesisHash;
+  try {
+    var genesis = blockStore.readBlock(0);
+    if (genesis && genesis.block) {
+      _genesisHash = genesis.block.computeHash();
+    }
+  } catch (_) {}
+  return _genesisHash;
+}
+
+// Track seen message IDs to prevent rebroadcast loops.
+// Persisted to data/seen-messages.json so restarts don't re-process
+// messages that arrived in the last 10 minutes.
+const SEEN_MESSAGES_PATH = path.join(__dirname, "..", "..", "data", "seen-messages.json");
 const SEEN_MAX = 10000;
+const SEEN_MAX_AGE_MS = 600000; // 10 minutes
+
+// { msgId: timestamp } — in-memory mirror of the persisted file
+var seenMessages = new Map();
+
+// Load persisted seen messages on startup
+(function loadSeenMessages() {
+  try {
+    if (fs.existsSync(SEEN_MESSAGES_PATH)) {
+      var raw = JSON.parse(fs.readFileSync(SEEN_MESSAGES_PATH, "utf8"));
+      var now = Date.now();
+      var keys = Object.keys(raw);
+      for (var i = 0; i < keys.length; i++) {
+        if (now - raw[keys[i]] < SEEN_MAX_AGE_MS) {
+          seenMessages.set(keys[i], raw[keys[i]]);
+        }
+      }
+      console.log("[BTCPC P2P] Loaded " + seenMessages.size + " seen messages from disk (pruned " + (keys.length - seenMessages.size) + " stale)");
+    }
+  } catch (_) {
+    // Non-fatal — start fresh
+  }
+})();
+
+// Batch-write seen messages to disk every 30 seconds
+var _seenDirty = false;
+
+function flushSeenMessages() {
+  if (!_seenDirty) return;
+  try {
+    var obj = {};
+    for (var entry of seenMessages) {
+      obj[entry[0]] = entry[1];
+    }
+    // Ensure data/ directory exists
+    var dir = path.dirname(SEEN_MESSAGES_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(SEEN_MESSAGES_PATH, JSON.stringify(obj));
+    _seenDirty = false;
+  } catch (_) {
+    // Non-fatal — persistence is best-effort
+  }
+}
+
+setInterval(flushSeenMessages, 30000);
 
 function markSeen(msgId) {
-  seenMessages.add(msgId);
+  seenMessages.set(msgId, Date.now());
+  _seenDirty = true;
   if (seenMessages.size > SEEN_MAX) {
-    // Evict oldest entries (Set maintains insertion order)
-    const iter = seenMessages.values();
-    for (let i = 0; i < 1000; i++) {
+    // Evict oldest entries (Map maintains insertion order)
+    var iter = seenMessages.keys();
+    for (var i = 0; i < 1000; i++) {
       seenMessages.delete(iter.next().value);
     }
   }
@@ -94,13 +199,17 @@ function markSeen(msgId) {
 
 function createMessage(type, data, nodeId) {
   const id = nodeId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-  return {
+  var msg = {
     id: id,
     type: type,
     data: data,
     timestamp: Date.now(),
     nodeId: nodeId
   };
+  // Attach chain_id so peers can reject cross-chain replays
+  var genesis = getGenesisHash();
+  if (genesis) msg.chain_id = genesis;
+  return msg;
 }
 
 /**
@@ -111,7 +220,8 @@ function createHandshake(nodeId) {
   return createMessage(MESSAGE_TYPES.HANDSHAKE, {
     chainHeight: getChainHeight(),
     version: pkg.version,
-    peerCount: 0 // filled by caller if needed
+    peerCount: 0, // filled by caller if needed
+    public_address: process.env.BTCPC_PUBLIC_ADDRESS || null
   }, nodeId);
 }
 
@@ -178,6 +288,26 @@ function createRequestBlocksMessage(fromEpoch, toEpoch, nodeId) {
  */
 function handleMessage(peer, msg, ctx) {
   if (!msg || !msg.type) return;
+
+  // Replay attack prevention: reject messages from a different chain
+  if (msg.chain_id) {
+    var ourGenesis = getGenesisHash();
+    if (ourGenesis && msg.chain_id !== ourGenesis) {
+      console.log("[BTCPC P2P] Rejected cross-chain message from " +
+        (msg.nodeId || "?").slice(0, 12) + " (chain_id mismatch)");
+      return;
+    }
+  }
+
+  // Replay attack prevention: reject stale messages (>5 min old)
+  if (msg.timestamp) {
+    var msgAge = Date.now() - msg.timestamp;
+    if (msgAge > STALE_MSG_MS) {
+      console.log("[BTCPC P2P] Rejected stale " + msg.type + " from " +
+        (msg.nodeId || "?").slice(0, 12) + " (age: " + Math.round(msgAge / 1000) + "s)");
+      return;
+    }
+  }
 
   // Deduplicate
   if (msg.id && seenMessages.has(msg.id)) return;
@@ -289,6 +419,9 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.RESPONSE_LEDGER:
       handleResponseLedger(peer, msg, ctx);
       break;
+    case MESSAGE_TYPES.PEER_ANNOUNCE:
+      handlePeerAnnounce(peer, msg, ctx);
+      break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
   }
@@ -304,6 +437,12 @@ function handleHandshake(peer, msg, ctx) {
   peer.chainHeight = data.chainHeight || 0;
   peer.version = data.version || "unknown";
   peer.status = "connected";
+
+  // Store the peer's claimed public address for relay-free discovery
+  if (data.public_address && typeof data.public_address === "string" && data.public_address.startsWith("ws")) {
+    knownPeers.add(data.public_address);
+    saveKnownPeers();
+  }
 
   console.log("[BTCPC P2P] Handshake from " + msg.nodeId.slice(0, 12) + "... (v" + peer.version + ", height: " + peer.chainHeight + ")");
   if (peer.chainHeight > 0) recordPeerEpoch(msg.nodeId, peer.chainHeight);
@@ -1013,6 +1152,16 @@ function handleBlockProposal(peer, msg, ctx) {
 var verifiersByEpoch = new Map();
 var _currentVerifierEpoch = -1;
 
+// Track which miners had their work verified: Map<epochNumber, Set<minerAccount>>
+// Populated when VERIFY_RESPONSE arrives with verdict="valid".
+var verifiedWork = new Map();
+var _currentVerifiedWorkEpoch = -1;
+
+// Track job_id → { miner, epoch } from VERIFY_REQUEST so VERIFY_RESPONSE
+// can look up which miner the job belongs to.
+var verifyJobIndex = new Map();  // job_id → { miner, epoch }
+var VERIFY_JOB_INDEX_MAX = 5000;
+
 /**
  * Record that a node verified work during an epoch.
  */
@@ -1045,6 +1194,14 @@ function getActiveVerifiers(epochNumber) {
     }
   }
   return Array.from(union);
+}
+
+/**
+ * Get the set of miners whose work was verified for a given epoch.
+ * Checked by blockProposal to apply the 50% penalty to unverified work.
+ */
+function getVerifiedMiners(epochNumber) {
+  return verifiedWork.get(epochNumber) || new Set();
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,6 +1356,13 @@ function handleVerifyRequest(peer, msg, ctx) {
     " for job " + (data.job_id || "?").slice(0, 12) + "..." +
     " (" + (data.token_count || 0) + " tokens, " + (data.model || "?") + ")");
 
+  // Index job_id → miner so VERIFY_RESPONSE can credit the right miner
+  verifyJobIndex.set(data.job_id, { miner: data.miner, epoch: data.epoch || _currentEpochCache });
+  if (verifyJobIndex.size > VERIFY_JOB_INDEX_MAX) {
+    var vjIter = verifyJobIndex.keys();
+    for (var vjI = 0; vjI < 1000; vjI++) verifyJobIndex.delete(vjIter.next().value);
+  }
+
   // Check if this node should verify — deterministic selection
   var verifier = require("../inference/verifier");
 
@@ -1290,6 +1454,27 @@ function handleVerifyResponse(peer, msg, ctx) {
   var epoch = data.epoch || 0;
   if (epoch > 0) {
     recordVerifier(data.verifier, epoch);
+  }
+
+  // Track verified miners — when a verifier says "valid", the miner's work
+  // counts as verified for reward calculation (full work_value vs 50%).
+  // Look up the miner from the job index (populated by VERIFY_REQUEST).
+  var jobInfo = verifyJobIndex.get(data.job_id);
+  var verifiedMiner = data.miner || (jobInfo ? jobInfo.miner : null);
+  var verifiedEpoch = epoch > 0 ? epoch : (jobInfo ? jobInfo.epoch : 0);
+  if (data.verdict === "valid" && verifiedMiner && verifiedEpoch > 0) {
+    if (!verifiedWork.has(verifiedEpoch)) {
+      verifiedWork.set(verifiedEpoch, new Set());
+    }
+    verifiedWork.get(verifiedEpoch).add(verifiedMiner);
+
+    // Prune old epochs (keep last 10)
+    if (verifiedEpoch > _currentVerifiedWorkEpoch) {
+      _currentVerifiedWorkEpoch = verifiedEpoch;
+      for (var vwKey of verifiedWork.keys()) {
+        if (vwKey < verifiedEpoch - 10) verifiedWork.delete(vwKey);
+      }
+    }
   }
 
   // Phase E: InferenceJob model deleted.
@@ -1460,6 +1645,64 @@ function handleClockHeartbeat(peer, msg, ctx) {
 
   recordPeerEpoch(msg.nodeId || account, claimedEpoch);
   recordNodeActivity(msg.nodeId, account, fileEpoch);
+
+// ---------------------------------------------------------------------------
+// PEER_ANNOUNCE — relay-free peer discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle incoming PEER_ANNOUNCE — learn about new peers from the network.
+ */
+function handlePeerAnnounce(peer, msg, ctx) {
+  var addresses = (msg.data && msg.data.peers) || [];
+  var newCount = 0;
+  for (var addr of addresses) {
+    if (typeof addr === "string" && addr.startsWith("ws") && !knownPeers.has(addr)) {
+      knownPeers.add(addr);
+      newCount++;
+      // Try connecting to new peers
+      if (ctx.connectToPeer) ctx.connectToPeer(addr);
+    }
+  }
+  if (newCount > 0) {
+    saveKnownPeers();
+    console.log("[BTCPC P2P] PEER_ANNOUNCE: learned " + newCount + " new peer(s) from " + (peer.nodeId || "?").slice(0, 12));
+  }
+  // Rebroadcast to other peers
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * Start the periodic PEER_ANNOUNCE broadcast.
+ * Every 5 minutes, broadcast known peers and save to disk.
+ * ctx: { broadcast, NODE_ID }
+ */
+var _peerAnnounceTimer = null;
+
+function startPeerAnnounce(ctx) {
+  if (_peerAnnounceTimer) return;
+  var PEER_ANNOUNCE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+  _peerAnnounceTimer = setInterval(function () {
+    if (knownPeers.size === 0) return;
+
+    var peersArray = Array.from(knownPeers);
+    var announceMsg = createMessage(MESSAGE_TYPES.PEER_ANNOUNCE, {
+      peers: peersArray
+    }, ctx.NODE_ID);
+    ctx.broadcast(announceMsg);
+    saveKnownPeers();
+    console.log("[BTCPC P2P] PEER_ANNOUNCE broadcast: " + peersArray.length + " known peer(s)");
+  }, PEER_ANNOUNCE_INTERVAL);
+}
+
+function stopPeerAnnounce() {
+  if (_peerAnnounceTimer) {
+    clearInterval(_peerAnnounceTimer);
+    _peerAnnounceTimer = null;
+  }
+}
+
   // Track which node relayed this heartbeat for anti-self-credit checks
   recordHeartbeatWitness(account, fileEpoch, msg.nodeId || peer.nodeId || "unknown");
   // Rebroadcast so all nodes see the heartbeat
@@ -1530,9 +1773,13 @@ module.exports = {
   getActiveClockNodes,
   getHeartbeatWitnesses,
   getActiveVerifiers,
+  getVerifiedMiners,
   recordMinerWork,
   getMinerWorkForEpoch,
   setCurrentEpoch,
   getCurrentEpochCache,
-  handleMempoolEntry
+  handleMempoolEntry,
+  knownPeers,
+  startPeerAnnounce,
+  stopPeerAnnounce
 };

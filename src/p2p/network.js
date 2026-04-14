@@ -11,7 +11,7 @@
 
 const WebSocket = require("ws");
 const crypto = require("crypto");
-const { handleMessage, createHandshake } = require("./protocol");
+const { handleMessage, createHandshake, knownPeers, startPeerAnnounce, stopPeerAnnounce } = require("./protocol");
 
 // Node identity — generated once on first start, persisted in env or memory
 const NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
@@ -62,6 +62,14 @@ function startServer(port) {
   // Start heartbeat loop
   heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
 
+  // Start peer announce relay — every 5 minutes, broadcast known peers
+  startPeerAnnounce({ broadcast, NODE_ID });
+
+  // Connect to any previously known peers from disk (relay-free reconnection)
+  for (var savedAddr of knownPeers) {
+    connectToPeer(savedAddr);
+  }
+
   console.log("[BTCPC P2P] Server listening on port " + listenPort);
   console.log("[BTCPC P2P] Node ID: " + NODE_ID);
 
@@ -72,6 +80,8 @@ function startServer(port) {
  * Stop the P2P server and disconnect all peers.
  */
 function stopServer() {
+  stopPeerAnnounce();
+
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
@@ -136,6 +146,8 @@ function connectToPeer(address) {
       console.log("[BTCPC P2P] Connected to " + address);
       setupPeerSocket(ws, address, "outbound");
       sendHandshake(ws);
+      // Remember this peer for relay-free reconnection
+      knownPeers.add(address);
     });
 
     ws.on("error", function (err) {
