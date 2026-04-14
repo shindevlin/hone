@@ -14,9 +14,9 @@
 const crypto = require("crypto");
 
 // When true, reject any message that lacks a required signature.
-// Set BTCPC_REQUIRE_SIGNATURES=false in the environment to opt out of strict mode.
-// Default: true — unsigned messages are rejected. Set to "false" only for legacy/test nodes.
-const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES !== "false";
+// Default: false during genesis (nodes need time to set up signing keys).
+// Set BTCPC_REQUIRE_SIGNATURES=true to enforce strict mode after key setup.
+const REQUIRE_SIGNATURES = process.env.BTCPC_REQUIRE_SIGNATURES === "true";
 
 // ---------------------------------------------------------------------------
 // Canonical data hashing
