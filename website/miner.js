@@ -22,6 +22,7 @@
   let connected = false;
   let reconnectAttempts = 0;
   let reconnectTimer = null;
+  let clockTimer = null;
   let intentionalClose = false;
 
   // Job state
@@ -125,12 +126,29 @@
         createMessage("HANDSHAKE", {
           nodeId: nodeId,
           node_name: minerName,
-          capabilities: ["inference"],
+          capabilities: ["inference", "clock", "sensor"],
           models: models,
           version: "phone-1.0",
           platform: "browser",
         })
       );
+
+      // Start clock heartbeat — every 30 seconds while connected
+      if (clockTimer) clearInterval(clockTimer);
+      clockTimer = setInterval(function () {
+        if (!connected) return;
+        var epoch = Math.floor((Date.now() - 1776193200000) / 30000);
+        if (epoch < 0) epoch = 0;
+        send(
+          createMessage("CLOCK_HEARTBEAT", {
+            account: minerName,
+            epoch_number: epoch,
+            timestamp: Date.now(),
+            source: "phone",
+          })
+        );
+        stats.heartbeats = (stats.heartbeats || 0) + 1;
+      }, 30000);
     };
 
     ws.onmessage = function (event) {
@@ -145,6 +163,7 @@
     ws.onclose = function () {
       connected = false;
       stats.connected = false;
+      if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
       console.log("[BTCPC Miner] Disconnected from relay");
       emitStatus("disconnected");
       if (!intentionalClose) scheduleReconnect();
