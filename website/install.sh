@@ -163,6 +163,53 @@ if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------
+# 3b. CUDA / GPU detection (WSL + Linux with NVIDIA)
+# ------------------------------------------------------------------
+if command -v nvidia-smi >/dev/null 2>&1; then
+  ok "NVIDIA GPU detected: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+elif [ -f /usr/lib/wsl/lib/libcuda.so ] || [ -f /usr/lib/wsl/lib/libcuda.so.1 ]; then
+  say "WSL NVIDIA driver detected but nvidia-smi not found"
+  say "Installing CUDA toolkit for WSL..."
+  case "$PKG" in
+    apt)
+      # WSL already has the driver from Windows — just need the toolkit
+      if ! dpkg -l cuda-toolkit-12-* >/dev/null 2>&1; then
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb 2>/dev/null && \
+        sudo dpkg -i /tmp/cuda-keyring.deb 2>/dev/null && \
+        sudo apt-get update -qq 2>/dev/null && \
+        sudo apt-get install -y cuda-toolkit-12-6 2>/dev/null && \
+        ok "CUDA toolkit installed" || say "CUDA install failed (non-fatal — Ollama may still use GPU)"
+      else
+        ok "CUDA toolkit already installed"
+      fi
+      ;;
+    *) say "CUDA auto-install only supported on apt-based systems. Install manually if needed." ;;
+  esac
+elif lspci 2>/dev/null | grep -qi nvidia; then
+  say "NVIDIA GPU detected but no driver installed"
+  say "Installing NVIDIA driver + CUDA..."
+  case "$PKG" in
+    apt)
+      sudo apt-get update -qq 2>/dev/null && \
+      sudo apt-get install -y nvidia-driver-535 nvidia-cuda-toolkit 2>/dev/null && \
+      ok "NVIDIA driver + CUDA installed (reboot may be required)" || \
+      say "NVIDIA driver install failed (non-fatal — Ollama will use CPU)"
+      ;;
+    dnf|yum)
+      sudo $PKG install -y nvidia-driver cuda-toolkit 2>/dev/null && \
+      ok "NVIDIA driver + CUDA installed" || say "NVIDIA install failed (non-fatal)"
+      ;;
+    pacman)
+      sudo pacman -Sy --noconfirm nvidia nvidia-utils cuda 2>/dev/null && \
+      ok "NVIDIA + CUDA installed" || say "NVIDIA install failed (non-fatal)"
+      ;;
+    *) say "Install NVIDIA drivers manually for GPU mining. Ollama will use CPU for now." ;;
+  esac
+else
+  say "No NVIDIA GPU detected — mining will use CPU (slower but still works)"
+fi
+
+# ------------------------------------------------------------------
 # 4. Clone BTCPC
 # ------------------------------------------------------------------
 if [ -d "$INSTALL_DIR/.git" ]; then
