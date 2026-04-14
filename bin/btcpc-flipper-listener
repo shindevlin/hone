@@ -1,0 +1,152 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-flipper-listener — auto-detect Flipper and sync sensor data
+ * 
+ * Runs as a background daemon. When a Flipper Zero is connected via USB,
+ * automatically flushes its buffered sensor readings to the BTCPC chain.
+ * Also checks periodically if the Flipper is nearby via BLE.
+ *
+ * Usage: node bin/btcpc-flipper-listener
+ */
+
+var fs = require("fs");
+var path = require("path");
+var { execSync } = require("child_process");
+
+var CHECK_INTERVAL_MS = 10000; // check every 10 seconds
+var FLUSH_INTERVAL_MS = 30000; // flush readings every 30 seconds
+var lastFlush = 0;
+
+function log(msg) { console.log("[flipper-listener] " + msg); }
+
+function findFlipperPort() {
+    try {
+        var files = fs.readdirSync("/dev").filter(function(f) { return f.startsWith("ttyACM"); });
+        for (var i = 0; i < files.length; i++) {
+            var port = "/dev/" + files[i];
+            try {
+                // Check if it's a Flipper by reading the USB manufacturer
+                var sysPath = "/sys/class/tty/" + files[i] + "/device/../manufacturer";
+                var mfg = fs.readFileSync(sysPath, "utf8").trim().toLowerCase();
+                if (mfg.includes("flipper")) return port;
+            } catch (_) {}
+        }
+        // Fallback: check lsusb
+        var lsusb = execSync("lsusb 2>/dev/null", { encoding: "utf8" });
+        if (lsusb.includes("0483:5740") && files.length > 0) return "/dev/" + files[0];
+    } catch (_) {}
+    return null;
+}
+
+function sendCommand(port, cmd) {
+    return new Promise(function(resolve, reject) {
+        var serialport;
+        try {
+            serialport = require("serialport");
+        } catch (_) {
+            // No serialport module — use raw file IO
+            var fd = fs.openSync(port, "r+");
+            var json = JSON.stringify(cmd) + "\n";
+            fs.writeSync(fd, json);
+            
+            // Wait for response
+            setTimeout(function() {
+                try {
+                    var buf = Buffer.alloc(4096);
+                    var n = fs.readSync(fd, buf, 0, 4096);
+                    fs.closeSync(fd);
+                    var resp = buf.slice(0, n).toString().trim();
+                    try { resolve(JSON.parse(resp)); } catch (_) { resolve({ raw: resp }); }
+                } catch (e) {
+                    try { fs.closeSync(fd); } catch (_) {}
+                    reject(e);
+                }
+            }, 2000);
+            return;
+        }
+        // If serialport is available, use it
+        var sp = new serialport.SerialPort({ path: port, baudRate: 115200 });
+        var data = "";
+        sp.on("data", function(chunk) { data += chunk.toString(); });
+        sp.on("open", function() {
+            sp.write(JSON.stringify(cmd) + "\n");
+            setTimeout(function() {
+                sp.close();
+                var lines = data.trim().split("\n");
+                try { resolve(JSON.parse(lines[lines.length - 1])); } catch (_) { resolve({ raw: data }); }
+            }, 2000);
+        });
+        sp.on("error", reject);
+    });
+}
+
+async function flushReadings(port) {
+    try {
+        log("Flushing readings from Flipper...");
+        var resp = await sendCommand(port, { cmd: "flush_readings" });
+        
+        if (resp && resp.readings && resp.readings.length > 0) {
+            log("Got " + resp.readings.length + " readings from Flipper");
+            
+            // Submit each reading to the BTCPC chain
+            var BTCPC = require("../sdk");
+            var btcpc = new BTCPC({ account: "josh" });
+            
+            var submitted = 0;
+            for (var i = 0; i < resp.readings.length; i++) {
+                var r = resp.readings[i];
+                try {
+                    await btcpc.sensorReading("josh/flipper-" + (r.type || "unknown"), r.rssi || r.value || 0, r);
+                    submitted++;
+                } catch (_) {}
+            }
+            log("Submitted " + submitted + "/" + resp.readings.length + " to chain");
+        } else {
+            log("No readings to flush");
+        }
+    } catch (e) {
+        log("Flush error: " + e.message);
+    }
+}
+
+async function checkBLE() {
+    // Scan for Flipper via BLE advertisement
+    try {
+        var result = execSync("hcitool lescan --duplicates 2>/dev/null & sleep 3; kill %1 2>/dev/null; hcitool lecc 2>/dev/null", 
+            { encoding: "utf8", timeout: 5000 });
+        if (result.includes("Flipper")) {
+            log("Flipper detected via BLE!");
+            return true;
+        }
+    } catch (_) {}
+    return false;
+}
+
+log("BTCPC Flipper Listener started");
+log("Checking for Flipper every " + (CHECK_INTERVAL_MS / 1000) + "s");
+
+setInterval(async function() {
+    var port = findFlipperPort();
+    
+    if (port) {
+        var now = Date.now();
+        if (now - lastFlush > FLUSH_INTERVAL_MS) {
+            try {
+                // Check if the BTCPC app is running (responds to ping)
+                var ping = await sendCommand(port, { cmd: "ping" });
+                if (ping && ping.status === "ok") {
+                    log("Flipper connected on " + port + " (v" + (ping.version || "?") + ")");
+                    await flushReadings(port);
+                    lastFlush = now;
+                }
+            } catch (e) {
+                // App not running or port busy — skip
+            }
+        }
+    }
+}, CHECK_INTERVAL_MS);
+
+// Keep alive
+setInterval(function() {}, 60000);
