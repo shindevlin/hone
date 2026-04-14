@@ -138,8 +138,18 @@ async function checkAndUpdate() {
 
 // ─── Scheduling ─────────────────────────────────────────────────────
 
-// If explicit interval is set, use that (for development/testing)
+// Core team accounts get immediate updates (every 5 min).
+// Everyone else updates daily unless they opt-in via BTCPC_UPDATE_INTERVAL.
+var CORE_ACCOUNTS = ["natoshisakamoto", "shindevlin", "josh"];
+var minerAccount = process.env.BTCPC_MINER || "";
+var isCoreAccount = CORE_ACCOUNTS.indexOf(minerAccount) !== -1;
 var explicitInterval = parseInt(process.env.BTCPC_UPDATE_INTERVAL);
+
+if (isCoreAccount && !explicitInterval) {
+  explicitInterval = 5 * 60 * 1000; // 5 minutes for core team
+  log("Core account (" + minerAccount + ") — checking every 5 min");
+}
+
 if (explicitInterval > 0) {
   log("BTCPC auto-updater started (every " + (explicitInterval / 60000) + " min)");
   checkAndUpdate();
