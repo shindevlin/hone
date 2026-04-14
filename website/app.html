@@ -214,6 +214,65 @@
     }
     .chat-model-row select:focus { border-color: var(--orange); }
 
+    /* Mine panel */
+    .mine-connection {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .mine-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .mine-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .mine-dot.red { background: var(--red); }
+    .mine-model-status {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 12px; font-size: 12px;
+    }
+    .mine-model-status .label { color: var(--muted); margin-bottom: 4px; }
+    .mine-model-status .value { color: var(--text); font-weight: 600; }
+    .mine-toggle-btn {
+      display: block; width: 100%; padding: 18px; border: none; border-radius: 12px;
+      font-family: inherit; font-size: 18px; font-weight: 700; cursor: pointer;
+      transition: all 0.3s; margin-bottom: 16px;
+    }
+    .mine-toggle-btn.start { background: var(--green); color: #000; }
+    .mine-toggle-btn.start:hover { background: #4ade80; }
+    .mine-toggle-btn.stop { background: var(--red); color: #fff; }
+    .mine-toggle-btn.stop:hover { background: #f87171; }
+    .mine-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .mine-job {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 12px; font-size: 12px;
+    }
+    .mine-job .label { color: var(--muted); margin-bottom: 4px; }
+    .mine-job .value { color: var(--text); }
+    .mine-stats {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;
+    }
+    .mine-progress-bar {
+      width: 100%; height: 6px; background: var(--border); border-radius: 3px;
+      overflow: hidden; margin-top: 8px;
+    }
+    .mine-progress-bar .fill {
+      height: 100%; background: var(--orange); border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .mine-option {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 8px; font-size: 12px;
+    }
+    .mine-option .label { color: var(--text); }
+    .mine-option .sublabel { color: var(--muted); font-size: 11px; }
+    .mine-option input[type="range"] {
+      width: 100px; accent-color: var(--orange);
+    }
+    .mine-option select {
+      padding: 6px 10px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
+      outline: none;
+    }
+
     /* Settings panel */
     .settings-section {
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
@@ -337,6 +396,74 @@
       </div>
     </div>
 
+    <!-- Tab: Mine -->
+    <div id="panel-mine" class="tab-panel">
+      <div class="mine-connection">
+        <span class="mine-dot red" id="mine-conn-dot"></span>
+        <span id="mine-conn-text">Disconnected</span>
+      </div>
+
+      <div class="mine-model-status">
+        <div class="label">Model</div>
+        <div class="value" id="mine-model-text">Not loaded</div>
+        <div class="mine-progress-bar" id="mine-progress-wrap" style="display:none;">
+          <div class="fill" id="mine-progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <button class="mine-toggle-btn start" id="mine-toggle-btn">Start Mining</button>
+
+      <div class="mine-job">
+        <div class="label">Current Job</div>
+        <div class="value" id="mine-job-text">Idle</div>
+      </div>
+
+      <div class="mine-stats">
+        <div class="stat-box">
+          <div class="val" id="mine-stat-jobs">0</div>
+          <div class="lbl">Jobs Done</div>
+        </div>
+        <div class="stat-box">
+          <div class="val" id="mine-stat-tokens">0</div>
+          <div class="lbl">Tokens</div>
+        </div>
+        <div class="stat-box">
+          <div class="val" id="mine-stat-earned">0.00</div>
+          <div class="lbl">BTCPC Earned</div>
+        </div>
+      </div>
+
+      <div class="mine-option">
+        <div>
+          <div class="label">Battery threshold</div>
+          <div class="sublabel">Stop mining below <span id="mine-batt-val">20</span>%</div>
+        </div>
+        <input type="range" id="mine-batt-slider" min="5" max="50" value="20" step="5">
+      </div>
+
+      <div class="mine-option">
+        <div>
+          <div class="label">WiFi only for model download</div>
+          <div class="sublabel">Avoid using mobile data for large downloads</div>
+        </div>
+        <label class="sensor-toggle">
+          <input type="checkbox" id="mine-wifi-only" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="mine-option">
+        <div>
+          <div class="label">Model</div>
+          <div class="sublabel">Smaller = faster download, less RAM</div>
+        </div>
+        <select id="mine-model-select">
+          <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B (350MB)</option>
+          <option value="SmolLM2-360M-Instruct-q4f16_1-MLC">SmolLM-360M (250MB)</option>
+        </select>
+      </div>
+    </div>
+
     <!-- Tab: Chat -->
     <div id="panel-chat" class="tab-panel">
       <div class="chat-model-row">
@@ -414,6 +541,7 @@
   <div id="tab-bar">
     <div class="tab-inner">
       <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
+      <button data-tab="mine"><span class="tab-icon">&#x26CF;&#xFE0F;</span>Mine</button>
       <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
       <button data-tab="settings"><span class="tab-icon">&#x2699;&#xFE0F;</span>Settings</button>
     </div>
@@ -428,6 +556,10 @@
       <button class="btn btn-secondary" id="modal-cancel">Not Now</button>
     </div>
   </div>
+
+<script src="/inference-crypto.js"></script>
+<script src="/inference-engine.js"></script>
+<script src="/miner.js"></script>
 
 <script>
 // ─── Config ───
@@ -494,6 +626,26 @@ const SENSORS = [
     id: 'network', name: 'Network', icon: '\u{1F4F6}',
     desc: 'Share network connection info to earn BTCPC. Reports connection type, speed, and latency to the network.',
     check: () => 'connection' in navigator || 'mozConnection' in navigator || 'webkitConnection' in navigator,
+  },
+  {
+    id: 'noise', name: 'Noise Level', icon: '\u{1F399}\u{FE0F}',
+    desc: 'Measures ambient noise level only. No audio is recorded or stored. Reports decibel level to the network.',
+    check: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+  },
+  {
+    id: 'steps', name: 'Step Counter', icon: '\u{1F6B6}',
+    desc: 'Counts steps using device pedometer. Reports step count to the sensor network.',
+    check: () => 'StepCounter' in window || 'Pedometer' in window,
+  },
+  {
+    id: 'heading', name: 'Compass Heading', icon: '\u{1F9ED}',
+    desc: 'Reports compass heading (absolute orientation) to the network. Shows direction your device is facing.',
+    check: () => 'AbsoluteOrientationSensor' in window || typeof DeviceOrientationEvent !== 'undefined',
+  },
+  {
+    id: 'nfc', name: 'NFC Scanner', icon: '\u{1F4F2}',
+    desc: 'Passively scans for NFC tags. Reports tag detection events to the network. Chrome Android only.',
+    check: () => 'NDEFReader' in window,
   },
 ];
 
@@ -799,7 +951,7 @@ function privacyFilterGPS(lat, lon) {
 }
 
 // ─── Sensor Start/Stop ───
-function startSensor(id, silent) {
+async function startSensor(id, silent) {
   sensorStates[id] = true;
   localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
 
@@ -1027,6 +1179,160 @@ function startSensor(id, silent) {
       }
     }
       break;
+
+    case 'noise':
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const noiseInterval = setInterval(() => {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i] * dataArray[i];
+          const rms = Math.sqrt(sum / dataArray.length);
+          const db = rms > 0 ? Math.round(20 * Math.log10(rms / 255) + 90) : 0;
+          liveValues.noise = 'Noise: ' + Math.max(0, db) + ' dB';
+          updateSensorUI('noise');
+        }, 500);
+        sensorWatchers.noise = {
+          type: 'custom',
+          stop: () => {
+            clearInterval(noiseInterval);
+            stream.getTracks().forEach(t => t.stop());
+            audioCtx.close().catch(() => {});
+          }
+        };
+      } catch (e) {
+        liveValues.noise = 'Permission denied';
+        sensorStates.noise = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('noise');
+      }
+      break;
+
+    case 'steps':
+      try {
+        if ('StepCounter' in window) {
+          const stepper = new StepCounter();
+          stepper.addEventListener('reading', () => {
+            liveValues.steps = stepper.steps + ' steps';
+            updateSensorUI('steps');
+          });
+          stepper.addEventListener('error', () => {
+            liveValues.steps = 'Not available on this device';
+            sensorStates.steps = false;
+            localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+            updateSensorUI('steps');
+          });
+          stepper.start();
+          sensorWatchers.steps = { type: 'generic', obj: stepper };
+        } else {
+          liveValues.steps = 'Coming soon \u2014 not supported in this browser';
+          sensorStates.steps = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('steps');
+        }
+      } catch (_) {
+        liveValues.steps = 'Coming soon \u2014 not supported in this browser';
+        sensorStates.steps = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('steps');
+      }
+      break;
+
+    case 'heading':
+      try {
+        if ('AbsoluteOrientationSensor' in window) {
+          const ori = new AbsoluteOrientationSensor({ frequency: 2 });
+          ori.addEventListener('reading', () => {
+            const q = ori.quaternion; // [x, y, z, w]
+            const heading = Math.round(Math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1] * q[1] + q[2] * q[2])) * 180 / Math.PI);
+            const deg = ((heading % 360) + 360) % 360;
+            const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+            const dir = dirs[Math.round(deg / 45) % 8];
+            liveValues.heading = 'Heading: ' + deg + '\u00B0 ' + dir;
+            updateSensorUI('heading');
+          });
+          ori.addEventListener('error', () => {
+            liveValues.heading = 'Not available on this device';
+            sensorStates.heading = false;
+            localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+            updateSensorUI('heading');
+          });
+          ori.start();
+          sensorWatchers.heading = { type: 'generic', obj: ori };
+        } else {
+          // Fallback: DeviceOrientationEvent (webkitCompassHeading or alpha)
+          const headingHandler = (e) => {
+            let deg = null;
+            if (e.webkitCompassHeading !== undefined) {
+              deg = Math.round(e.webkitCompassHeading);
+            } else if (e.alpha !== null && e.absolute) {
+              deg = Math.round((360 - e.alpha) % 360);
+            } else if (e.alpha !== null) {
+              deg = Math.round(e.alpha);
+            }
+            if (deg !== null) {
+              const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+              const dir = dirs[Math.round(deg / 45) % 8];
+              liveValues.heading = 'Heading: ' + deg + '\u00B0 ' + dir;
+            } else {
+              liveValues.heading = 'No compass data';
+            }
+            updateSensorUI('heading');
+          };
+          window.addEventListener('deviceorientation', headingHandler, true);
+          sensorWatchers.heading = { type: 'event', event: 'deviceorientation', fn: headingHandler };
+        }
+      } catch (_) {
+        liveValues.heading = 'Not available on this device';
+        sensorStates.heading = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('heading');
+      }
+      break;
+
+    case 'nfc':
+      try {
+        if ('NDEFReader' in window) {
+          const nfcReader = new NDEFReader();
+          liveValues.nfc = 'NFC: scanning...';
+          updateSensorUI('nfc');
+          await nfcReader.scan();
+          nfcReader.addEventListener('reading', (event) => {
+            const type = event.message.records.length > 0 ? event.message.records[0].recordType : 'unknown';
+            liveValues.nfc = 'Tag detected: ' + type.toUpperCase();
+            updateSensorUI('nfc');
+            // Reset to scanning after 5s
+            setTimeout(() => {
+              if (sensorStates.nfc) {
+                liveValues.nfc = 'NFC: scanning...';
+                updateSensorUI('nfc');
+              }
+            }, 5000);
+          });
+          nfcReader.addEventListener('readingerror', () => {
+            liveValues.nfc = 'NFC: read error, still scanning...';
+            updateSensorUI('nfc');
+          });
+          sensorWatchers.nfc = { type: 'custom', stop: () => { /* NDEFReader has no stop */ } };
+        } else {
+          liveValues.nfc = 'Not available \u2014 requires Chrome on Android';
+          sensorStates.nfc = false;
+          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          updateSensorUI('nfc');
+        }
+      } catch (e) {
+        liveValues.nfc = e.name === 'NotAllowedError' ? 'Permission denied' : 'Not available on this device';
+        sensorStates.nfc = false;
+        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        updateSensorUI('nfc');
+      }
+      break;
   }
 
   renderSensors();
@@ -1065,6 +1371,8 @@ function stopSensor(id) {
     case 'network':
       try { w.obj.removeEventListener('change', w.fn); } catch (_) {}
       break;
+    case 'custom':
+      try { w.stop(); } catch (_) {} break;
   }
   delete sensorWatchers[id];
   delete liveValues[id];
@@ -1485,6 +1793,207 @@ initDashboard = async function() {
   tabBar.style.display = 'block';
   initChat();
 };
+
+// ─── Mine Tab ───
+let miningActive = false;
+let mineModelLoaded = false;
+
+const mineToggleBtn = document.getElementById('mine-toggle-btn');
+const mineConnDot = document.getElementById('mine-conn-dot');
+const mineConnText = document.getElementById('mine-conn-text');
+const mineModelText = document.getElementById('mine-model-text');
+const mineProgressWrap = document.getElementById('mine-progress-wrap');
+const mineProgressFill = document.getElementById('mine-progress-fill');
+const mineJobText = document.getElementById('mine-job-text');
+const mineBattSlider = document.getElementById('mine-batt-slider');
+const mineBattVal = document.getElementById('mine-batt-val');
+const mineWifiOnly = document.getElementById('mine-wifi-only');
+const mineModelSelect = document.getElementById('mine-model-select');
+
+// Restore saved preferences
+mineBattSlider.value = localStorage.getItem('btcpc-mine-batt') || '20';
+mineBattVal.textContent = mineBattSlider.value;
+mineWifiOnly.checked = localStorage.getItem('btcpc-mine-wifi-only') !== 'false';
+const savedMineModel = localStorage.getItem('btcpc-mine-model');
+if (savedMineModel) mineModelSelect.value = savedMineModel;
+
+mineBattSlider.addEventListener('input', () => {
+  mineBattVal.textContent = mineBattSlider.value;
+  localStorage.setItem('btcpc-mine-batt', mineBattSlider.value);
+});
+mineWifiOnly.addEventListener('change', () => {
+  localStorage.setItem('btcpc-mine-wifi-only', mineWifiOnly.checked ? 'true' : 'false');
+});
+mineModelSelect.addEventListener('change', () => {
+  localStorage.setItem('btcpc-mine-model', mineModelSelect.value);
+});
+
+function updateMineStats() {
+  if (!window.btcpcMiner) return;
+  const s = window.btcpcMiner.getStats();
+  document.getElementById('mine-stat-jobs').textContent = s.jobsCompleted;
+  document.getElementById('mine-stat-tokens').textContent = s.tokensGenerated;
+  document.getElementById('mine-stat-earned').textContent = s.earnings.toFixed(s.earnings >= 1 ? 2 : 4);
+}
+
+// Wire miner status updates
+if (window.btcpcMiner) {
+  window.btcpcMiner.onStatusChange(function(status, data) {
+    switch (status) {
+      case 'connected':
+        mineConnDot.className = 'mine-dot green';
+        mineConnText.textContent = 'Connected to relay';
+        break;
+      case 'disconnected':
+        mineConnDot.className = 'mine-dot red';
+        mineConnText.textContent = 'Disconnected';
+        break;
+      case 'reconnecting':
+        mineConnDot.className = 'mine-dot red';
+        mineConnText.textContent = 'Reconnecting... (attempt ' + (data && data.attempt || '?') + ')';
+        break;
+      case 'job_claimed':
+        mineJobText.textContent = 'Processing job ' + ((data && data.request_id || '').slice(0, 8)) + '...';
+        break;
+      case 'job_complete':
+        mineJobText.textContent = 'Completed: ' + (data && data.tokens || 0) + ' tokens, ' + ((data && data.elapsed_ms || 0) / 1000).toFixed(1) + 's';
+        updateMineStats();
+        break;
+      case 'job_error':
+        mineJobText.textContent = 'Job error \u2014 waiting for next';
+        break;
+      case 'idle':
+        mineJobText.textContent = 'Idle \u2014 waiting for jobs';
+        break;
+    }
+  });
+}
+
+// Wire engine progress updates
+if (window.btcpcEngine) {
+  window.btcpcEngine.onProgress(function(progress) {
+    if (progress && progress.progress !== undefined) {
+      const pct = Math.round(progress.progress * 100);
+      mineProgressWrap.style.display = 'block';
+      mineProgressFill.style.width = pct + '%';
+      mineModelText.textContent = 'Downloading ' + pct + '%';
+      if (pct >= 100) {
+        setTimeout(() => {
+          mineProgressWrap.style.display = 'none';
+          const modelName = mineModelSelect.value.split('-q')[0].replace(/-/g, ' ');
+          mineModelText.textContent = 'Ready: ' + modelName;
+          mineModelLoaded = true;
+        }, 500);
+      }
+    }
+  });
+}
+
+async function checkBatteryForMining() {
+  if (!('getBattery' in navigator)) return true;
+  try {
+    const bat = await navigator.getBattery();
+    const pct = Math.round(bat.level * 100);
+    const threshold = parseInt(mineBattSlider.value) || 20;
+    if (pct < threshold && !bat.charging) {
+      return false;
+    }
+  } catch (_) {}
+  return true;
+}
+
+function checkWifiForDownload() {
+  if (!mineWifiOnly.checked) return true;
+  try {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.type === 'wifi') return true;
+    if (conn && conn.type) return false; // on cellular
+  } catch (_) {}
+  return true; // can't detect, allow
+}
+
+mineToggleBtn.addEventListener('click', async () => {
+  if (miningActive) {
+    // Stop mining
+    miningActive = false;
+    mineToggleBtn.textContent = 'Start Mining';
+    mineToggleBtn.className = 'mine-toggle-btn start';
+    mineJobText.textContent = 'Idle';
+    if (window.btcpcMiner) window.btcpcMiner.disconnect();
+    return;
+  }
+
+  // Start mining
+  mineToggleBtn.disabled = true;
+  mineToggleBtn.textContent = 'Starting...';
+
+  try {
+    // 1. Check WebGPU
+    if (window.btcpcEngine && !window.btcpcEngine.isWebGPUSupported()) {
+      mineModelText.textContent = 'WebGPU not supported \u2014 try Chrome 113+';
+      mineToggleBtn.textContent = 'Start Mining';
+      mineToggleBtn.disabled = false;
+      return;
+    }
+
+    // 2. Check battery
+    const battOk = await checkBatteryForMining();
+    if (!battOk) {
+      mineModelText.textContent = 'Battery too low \u2014 charge to ' + mineBattSlider.value + '%';
+      mineToggleBtn.textContent = 'Start Mining';
+      mineToggleBtn.disabled = false;
+      return;
+    }
+
+    // 3. Load model if needed
+    if (!mineModelLoaded && window.btcpcEngine) {
+      if (!checkWifiForDownload()) {
+        mineModelText.textContent = 'Waiting for WiFi to download model';
+        mineToggleBtn.textContent = 'Start Mining';
+        mineToggleBtn.disabled = false;
+        return;
+      }
+      mineModelText.textContent = 'Loading model...';
+      mineProgressWrap.style.display = 'block';
+      mineProgressFill.style.width = '0%';
+      await window.btcpcEngine.initEngine(mineModelSelect.value);
+      mineModelLoaded = true;
+      mineProgressWrap.style.display = 'none';
+      const modelName = mineModelSelect.value.split('-q')[0].replace(/-/g, ' ');
+      mineModelText.textContent = 'Ready: ' + modelName;
+    }
+
+    // 4. Connect to relay
+    if (window.btcpcMiner) {
+      const jwt = localStorage.getItem('btcpc-jwt');
+      window.btcpcMiner.connect({ account: account, token: jwt });
+    }
+
+    miningActive = true;
+    mineToggleBtn.textContent = 'Stop Mining';
+    mineToggleBtn.className = 'mine-toggle-btn stop';
+    mineJobText.textContent = 'Idle \u2014 waiting for jobs';
+  } catch (e) {
+    mineModelText.textContent = 'Error: ' + (e.message || 'failed to start');
+    mineToggleBtn.textContent = 'Start Mining';
+    mineToggleBtn.className = 'mine-toggle-btn start';
+  }
+
+  mineToggleBtn.disabled = false;
+});
+
+// Periodic battery check while mining
+setInterval(async () => {
+  if (!miningActive) return;
+  const battOk = await checkBatteryForMining();
+  if (!battOk) {
+    miningActive = false;
+    mineToggleBtn.textContent = 'Start Mining';
+    mineToggleBtn.className = 'mine-toggle-btn start';
+    mineJobText.textContent = 'Stopped \u2014 battery low';
+    if (window.btcpcMiner) window.btcpcMiner.disconnect();
+  }
+}, 30000);
 
 // ─── Auto-start if account exists ───
 if (account) {
