@@ -166,8 +166,21 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
       const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
       return res.status(201).json({ success: true, reading: reading });
     } catch (err) {
+      // Auto-register sensor on first reading (self-heal — never 404)
       if (/not found/i.test(err.message)) {
-        return res.status(404).json({ error: err.message });
+        try {
+          const owner = sensorId.split('/')[0];
+          const type = (metadata && metadata.type) || 'custom';
+          const unit = (metadata && metadata.unit) || 'auto';
+          sensorRegistry.registerSensor(owner, sensorId, {
+            type, unit, decimals: 2, region: 'auto',
+            hardware_model: 'auto-registered',
+          });
+          const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
+          return res.status(201).json({ success: true, reading: reading, auto_registered: true });
+        } catch (regErr) {
+          return res.status(422).json({ error: regErr.message });
+        }
       }
       return res.status(422).json({ error: err.message });
     }
