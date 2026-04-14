@@ -632,6 +632,39 @@ These services use the same stake-escrow-reputation primitive as all other BTCPC
 services. The protocol does not prescribe which hardware or service to run. If a
 node can prove it did useful work, it earns.
 
+### 7.12 Device Roadmap
+
+The current Raspberry Pi gateway already supports USB, Serial, I2C, SPI, and GPIO
+sensors with no redesign needed. The following hardware is prioritized across seven
+deployment phases:
+
+| Phase | Device | Interface | Price Range | Purpose |
+|-------|--------|-----------|-------------|---------|
+| **1 — Immediate** | RTL-SDR v4 dongle | USB | $30–40 | Software-defined radio receiver |
+| | ADS-B 1090 MHz antenna | SMA → RTL-SDR | $15–25 | Air traffic surveillance data |
+| **2 — Environmental baseline** | BME280 | I2C / SPI | $3–8 | Temperature, humidity, barometric pressure |
+| | Pimoroni Enviro | I2C + onboard MCU | $50–70 | All-in-one weather station (temp, humidity, pressure, light, noise) |
+| **3 — Public health** | PMS5003 | Serial (UART) | $15–25 | PM1.0 / PM2.5 / PM10 particulate matter |
+| | MH-Z19B | Serial (UART) | $18–25 | NDIR CO₂ concentration (0–5000 ppm) |
+| | SGP30 | I2C | $10–15 | Total VOC and eCO₂ indoor air quality |
+| **4 — Structural** | ADXL345 | I2C / SPI | $3–8 | 3-axis accelerometer for vibration monitoring |
+| | Grove D7S | I2C | $35–45 | Earthquake / structural vibration detection |
+| | Raspberry Shake 1D | USB (geophone) | $300–400 | Seismograph-grade ground motion |
+| **5 — Water / soil** | JSN-SR04T ultrasonic | GPIO (trigger/echo) | $5–10 | Water level in tanks, rivers, flood zones |
+| | Capacitive soil moisture | Analog / I2C (ADC) | $3–6 | Soil moisture for agriculture |
+| | Flood detection float switch | GPIO | $2–5 | Binary flood / no-flood alert |
+| **6 — Energy** | INA219 | I2C | $3–8 | DC current and voltage monitoring |
+| | SCT-013 current clamp | Analog (ADC) | $8–12 | Non-invasive AC current measurement |
+| | PZEM-004T | Serial (UART) | $10–15 | AC voltage, current, power, energy metering |
+| **7 — Expansion** | ESP32 dev board | WiFi / BLE → gateway | $5–12 | Remote sensor nodes without Pi per location |
+| | LoRa SX1276 / RFM95W module | SPI | $8–15 | Long-range (2–15 km) low-power sensor links |
+| | GPS NEO-6M / NEO-M8N | Serial (UART) | $8–15 | Geolocation tagging for mobile or field nodes |
+
+Each sensor submits readings through the same on-chain registration and median
+consensus pipeline described in Sections 7.2–7.4. Phase numbers indicate suggested
+deployment order, not hard dependencies — operators can skip ahead to any phase
+their use case requires.
+
 ---
 
 ## 8. Oracle Feeds
