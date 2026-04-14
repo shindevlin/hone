@@ -176,9 +176,14 @@
     </div>
     <div class="input-group">
       <label>BTCPC Username</label>
-      <input type="text" id="input-account" placeholder="e.g. shindevlin" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <input type="text" id="input-account" placeholder="e.g. daniel" autocomplete="off" autocapitalize="none" spellcheck="false">
     </div>
-    <button class="btn btn-primary" id="btn-start">Start Earning</button>
+    <div class="input-group">
+      <label>Password</label>
+      <input type="password" id="input-password" placeholder="your password" autocomplete="off">
+    </div>
+    <div id="login-error" style="color:#ef4444;font-size:12px;margin-bottom:8px;display:none;"></div>
+    <button class="btn btn-primary" id="btn-start">Login / Create Account</button>
     <div class="app-footer">
       Your phone sensors = your mining rig.<br>
       Every reading earns BTCPC from the IoT pool.
@@ -402,60 +407,84 @@ function showScreen(id) {
 // ─── Setup ───
 document.getElementById('btn-start').addEventListener('click', async () => {
   const val = document.getElementById('input-account').value.trim().toLowerCase();
-  if (!val || !/^[a-z0-9][a-z0-9._-]{1,18}[a-z0-9]$/.test(val)) {
-    document.getElementById('input-account').placeholder = 'letters, numbers, hyphens (3-20 chars)';
+  const pwd = document.getElementById('input-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  if (!val || val.length < 3) {
+    errEl.textContent = 'Username must be at least 3 characters';
+    errEl.style.display = 'block';
     document.getElementById('input-account').focus();
+    return;
+  }
+  if (!pwd || pwd.length < 6) {
+    errEl.textContent = 'Password must be at least 6 characters';
+    errEl.style.display = 'block';
+    document.getElementById('input-password').focus();
     return;
   }
 
   const btn = document.getElementById('btn-start');
-  btn.textContent = 'Creating account...';
+  btn.textContent = 'Connecting...';
   btn.disabled = true;
 
   try {
-    // Try to create account on the BTCPC network
-    const password = 'phone-' + Date.now(); // auto-generated, not needed for sensor-only
-    const resp = await fetch('/api/bot/create', {
+    // Step 1: Try to LOGIN first (existing account)
+    const loginResp = await fetch('/api/bot/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: val, password: password })
+      body: JSON.stringify({ username: val, password: pwd })
     });
-    const data = await resp.json();
+    const loginData = await loginResp.json();
 
-    if (data.mnemonic) {
-      // New account — show mnemonic
+    if (loginData.success || loginData.token) {
+      // Login success — existing account
       account = val;
       localStorage.setItem('btcpc-sensor-account', account);
+      if (loginData.token) localStorage.setItem('btcpc-jwt', loginData.token);
       saveAccountToDB();
+      initDashboard();
+    } else if (loginData.error && /not found|no account|unknown/i.test(loginData.error)) {
+      // Account doesn't exist — CREATE it
+      btn.textContent = 'Creating account...';
+      const createResp = await fetch('/api/bot/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: val, password: pwd })
+      });
+      const createData = await createResp.json();
 
-      document.getElementById('mnemonic-words').textContent = data.mnemonic;
-      document.getElementById('mnemonic-account').textContent = val;
+      if (createData.mnemonic) {
+        // New account — show mnemonic
+        account = val;
+        localStorage.setItem('btcpc-sensor-account', account);
+        if (createData.token) localStorage.setItem('btcpc-jwt', createData.token);
+        saveAccountToDB();
 
-      // Auto-claim faucet
-      try {
-        await fetch('/api/faucet/claim', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account: val })
-        });
-        document.getElementById('mnemonic-balance').textContent = '1 BTCPC granted from faucet';
-      } catch (_) {
-        document.getElementById('mnemonic-balance').textContent = 'Faucet unavailable — earn from sensors';
+        document.getElementById('mnemonic-words').textContent = createData.mnemonic;
+        document.getElementById('mnemonic-account').textContent = val;
+
+        // Auto-claim faucet
+        try {
+          await fetch('/api/faucet/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account: val })
+          });
+          document.getElementById('mnemonic-balance').textContent = '1 BTCPC granted from faucet';
+        } catch (_) {
+          document.getElementById('mnemonic-balance').textContent = 'Faucet unavailable — earn from sensors';
+        }
+
+        showScreen('screen-mnemonic');
+      } else {
+        errEl.textContent = createData.error || 'Account creation failed';
+        errEl.style.display = 'block';
       }
-
-      showScreen('screen-mnemonic');
-    } else if (data.error && /exists|taken|duplicate/i.test(data.error)) {
-      // Account exists — just go to dashboard
-      account = val;
-      localStorage.setItem('btcpc-sensor-account', account);
-      saveAccountToDB();
-      initDashboard();
     } else {
-      // Other error — try proceeding anyway (might work offline)
-      account = val;
-      localStorage.setItem('btcpc-sensor-account', account);
-      saveAccountToDB();
-      initDashboard();
+      // Wrong password
+      errEl.textContent = loginData.error || 'Wrong password';
+      errEl.style.display = 'block';
     }
   } catch (e) {
     // Network error — proceed offline, sync later
