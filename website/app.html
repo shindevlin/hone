@@ -16,6 +16,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/app-manifest.json">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%230a0e17'/%3E%3Cpolygon points='32,8 56,22 56,42 32,56 8,42 8,22' fill='none' stroke='%23f7931a' stroke-width='4'/%3E%3C/svg%3E">
+  <script>
+    // Suppress login screen flash when a saved session exists
+    (function() {
+      if (localStorage.getItem('btcpc-sensor-account')) {
+        document.documentElement.setAttribute('data-autologin', '1');
+      }
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -45,6 +53,10 @@
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
     .screen.active { display: block; }
+    /* Hide login screen when auto-login will fire */
+    [data-autologin='1'] #screen-setup.active { display: none !important; }
+    #autologin-splash { display: none; }
+    [data-autologin='1'] #autologin-splash { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; min-height: 80vh; color: var(--muted); font-size: 13px; }
 
     /* Setup screen */
     .setup-hero { text-align: center; padding: 48px 0 32px; }
@@ -321,8 +333,18 @@
     <a href="/app" style="color:#22c55e;text-decoration:none;">Start</a>
     <a href="/install">Install</a>
     <a href="/meshtastic" style="color:#c8ccd4;text-decoration:none;">Meshtastic</a>
-    <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
-  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+    <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  </div>
+
+  <!-- Auto-login splash (shown instead of login form when session exists) -->
+  <div id="autologin-splash">
+    <svg viewBox="0 0 120 120" width="60" height="60" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="60,10 110,35 110,85 60,110 10,85 10,35" fill="none" stroke="#f7931a" stroke-width="4"/>
+      <circle cx="30" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/></circle>
+      <circle cx="90" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/></circle>
+      <circle cx="60" cy="95" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/></circle>
+    </svg>
+    <span>Resuming session...</span>
   </div>
 
   <!-- Screen: Setup -->
@@ -2286,9 +2308,21 @@ async function sendChat() {
 
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
-      const errMsg = errData.error || errData.message || `Error ${resp.status}`;
-      appendChatBubble('assistant', errMsg, null);
-      await saveChatMessage('assistant', errMsg, model, null);
+      if (resp.status === 401) {
+        localStorage.removeItem('btcpc-jwt');
+        // Inject a clickable re-auth notice directly (not through appendChatBubble which escapes HTML)
+        const container = document.getElementById('chat-messages');
+        const notice = document.createElement('div');
+        notice.className = 'chat-msg assistant';
+        notice.innerHTML = 'Session expired. <a href="#" style="color:#f7931a" onclick="showReauth();return false;">Tap here to re-login</a>.';
+        container.appendChild(notice);
+        container.scrollTop = container.scrollHeight;
+        await saveChatMessage('assistant', 'Session expired — please re-login', model, null);
+      } else {
+        const errMsg = errData.error || errData.message || `Error ${resp.status}`;
+        appendChatBubble('assistant', errMsg, null);
+        await saveChatMessage('assistant', errMsg, model, null);
+      }
     } else {
       const data = await resp.json();
       const reply = data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
@@ -2313,6 +2347,7 @@ async function sendChat() {
 // ─── Update settings account display ───
 const origInitDashboard = initDashboard;
 initDashboard = async function() {
+  document.documentElement.removeAttribute('data-autologin');
   await origInitDashboard();
   const settingsAcct = document.getElementById('settings-account');
   if (settingsAcct) settingsAcct.textContent = account;
@@ -2614,6 +2649,25 @@ setInterval(async () => {
     if (window.btcpcMiner) window.btcpcMiner.disconnect();
   }
 }, 30000);
+
+// ─── Re-auth when session expires ───
+function showReauth() {
+  stopAll();
+  // Pre-fill username so user only needs to enter password
+  const inputAcct = document.getElementById('input-account');
+  const inputPw = document.getElementById('input-password');
+  const loginError = document.getElementById('login-error');
+  if (inputAcct) inputAcct.value = account;
+  if (loginError) {
+    loginError.textContent = 'Session expired \u2014 enter your password to continue';
+    loginError.style.display = 'block';
+    loginError.style.color = '#f7931a';
+  }
+  document.documentElement.removeAttribute('data-autologin');
+  showScreen('screen-setup');
+  tabBar.style.display = 'none';
+  if (inputPw) inputPw.focus();
+}
 
 // ─── Auto-start if account exists ───
 if (account) {
