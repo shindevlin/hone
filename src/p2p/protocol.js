@@ -729,7 +729,7 @@ function addModelDemand(model, account) {
     const { recordUnmetDemand } = require('../services/modelRegistry');
     recordUnmetDemand(model.trim().toLowerCase());
     // Kick the model manager now rather than waiting for its 30-min tick
-    const { checkAndPullModels } = require('./modelManager');
+    const { checkAndPullModels } = require('../services/modelManager');
     checkAndPullModels().catch(() => {});
   } catch (_) {}
 }

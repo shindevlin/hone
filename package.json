@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "3.0.93",
+  "version": "3.0.94",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
