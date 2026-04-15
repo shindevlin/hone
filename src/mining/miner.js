@@ -1136,6 +1136,24 @@ async function startMiner() {
     console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
+  // Auto-register active public key on-chain if BTCPC_ACTIVE_KEY is set but not yet recorded
+  const activeKeyPriv = process.env.BTCPC_ACTIVE_KEY;
+  if (activeKeyPriv) {
+    try {
+      const minerAccount = stateStore.getAccount(MINER_ACCOUNT);
+      const hasActiveKey = minerAccount && minerAccount.public_keys && minerAccount.public_keys.active;
+      if (!hasActiveKey) {
+        const { secp256k1 } = require('@noble/curves/secp256k1');
+        const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(activeKeyPriv, 'hex'), true);
+        const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
+        await ledger.recordKeyRotate(MINER_ACCOUNT, { active: activePubKey }, MINER_ACCOUNT, 0);
+        console.log(`[BTCPC] Registered active public key on-chain for ${MINER_ACCOUNT}: ${activePubKey.slice(0, 16)}...`);
+      }
+    } catch (keyRegErr) {
+      console.warn(`[BTCPC] Could not auto-register active key: ${keyRegErr.message}`);
+    }
+  }
+
   running = true;
 
   // Seed the protocol's epoch cache so heartbeats arriving before the first
