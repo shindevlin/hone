@@ -109,6 +109,11 @@ const MESSAGE_TYPES = {
   // after VERIFIER_REVEAL_WINDOW_MS to prevent early-verdict influence (T-04)
   VERIFIER_COMMIT: "VERIFIER_COMMIT",
   VERIFIER_REVEAL: "VERIFIER_REVEAL",
+  // Agent protocol: multi-turn tool-calling sessions on miners
+  // TOOL_CALL: miner detected a tool_use block, needs the client to run the tool
+  // TOOL_RESULT: client delivers the result back to the miner to resume inference
+  TOOL_CALL: "TOOL_CALL",
+  TOOL_RESULT: "TOOL_RESULT",
   // Mempool gossip — ledger entries broadcast across machines so any
   // broadcaster can include them in its next block (v2.13.3)
   MEMPOOL_ENTRY: "MEMPOOL_ENTRY",
@@ -411,6 +416,12 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.VERIFIER_REVEAL:
       handleVerifierReveal(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.TOOL_CALL:
+      handleToolCall(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.TOOL_RESULT:
+      handleToolResult(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.REQUEST_LEDGER:
       handleRequestLedger(peer, msg, ctx);
@@ -2090,6 +2101,71 @@ function createRequestLedgerMessage(localCount, nodeId) {
   return createMessage(MESSAGE_TYPES.REQUEST_LEDGER, {
     localCount: localCount
   }, nodeId);
+}
+
+// ---------------------------------------------------------------------------
+// Agent Protocol — Tool-call P2P routing
+// ---------------------------------------------------------------------------
+
+/**
+ * TOOL_CALL — A miner detected a tool_use block in a model response.
+ * Route point-to-point back to the origin peer (the client that opened the session).
+ * Also deliver locally if this node is the session owner.
+ *
+ * Payload: { session_id, call_id, tool_name, arguments, origin_peer }
+ */
+function handleToolCall(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.session_id || !data.call_id || !data.tool_name) return;
+
+  console.log("[BTCPC Agent] Tool call: " + data.tool_name +
+    " call_id=" + data.call_id.slice(0, 12) + "..." +
+    " session=" + data.session_id.slice(0, 12) + "...");
+
+  // Deliver to local agent session if this node is waiting
+  try {
+    var agentSession = require("../inference/agentSession");
+    var session = agentSession.getAgentSession(data.session_id);
+    if (session) {
+      // This node has the session — the client submitted here.
+      // Forward the tool call to whatever callback is listening on the REST layer.
+      // The REST layer (POST /v1/agent/turn) polls pendingToolCalls via waitForToolResult;
+      // but for TOOL_CALL we need to expose the call to the client. Since REST is
+      // synchronous, we emit via a local EventEmitter so the streaming response
+      // can include the tool_call in its SSE stream.
+      var agentEvents = require("../inference/agentEvents");
+      agentEvents.emit("tool_call", data);
+      return; // don't rebroadcast — session is local
+    }
+  } catch (_) { /* agentSession or agentEvents not loaded */ }
+
+  // Rebroadcast to other peers (point-to-point routing: only toward origin)
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * TOOL_RESULT — A client delivers the tool execution result to the miner.
+ * Route to the miner that originated the TOOL_CALL.
+ *
+ * Payload: { session_id, call_id, result, error }
+ */
+function handleToolResult(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.session_id || !data.call_id) return;
+
+  console.log("[BTCPC Agent] Tool result: call_id=" + data.call_id.slice(0, 12) + "..." +
+    " session=" + data.session_id.slice(0, 12) + "..." +
+    (data.error ? " ERROR: " + data.error : " OK"));
+
+  // Deliver locally if this miner is waiting for a tool result
+  try {
+    var agentSession = require("../inference/agentSession");
+    var delivered = agentSession.deliverToolResult(data.session_id, data.call_id, data.result, data.error);
+    if (delivered) return; // consumed locally
+  } catch (_) { /* agentSession not loaded */ }
+
+  // Not consumed locally — relay to other peers
+  ctx.broadcast(msg, peer.address);
 }
 
 // ---------------------------------------------------------------------------

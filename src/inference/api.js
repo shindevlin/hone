@@ -438,7 +438,7 @@ async function authenticateBearer(req, res, next) {
   }
 
   // Node-operator paths: accept standard JWT (logged-in desktop user pulling models)
-  const jwtAllowedPaths = ['/v1/node/pull-model', '/v1/node/model-info'];
+  const jwtAllowedPaths = ['/v1/node/pull-model', '/v1/node/model-info', '/v1/agent'];
   if (jwtAllowedPaths.some(p => req.path.startsWith(p))) {
     try {
       const jwtLib = require('jsonwebtoken');
@@ -1337,6 +1337,206 @@ router.post('/v1/inference/encrypted', async (req, res) => {
       error: { message: err.message, type: 'server_error', code: 'internal_error' }
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Agent Protocol — POST /v1/agent/session, /v1/agent/turn, DELETE /v1/agent/session/:id
+// ---------------------------------------------------------------------------
+
+const agentSession = require('./agentSession');
+const agentEvents = require('./agentEvents');
+
+/**
+ * POST /v1/agent/session
+ * Open a new agent session.
+ *
+ * Body: {
+ *   system_prompt: string,
+ *   tools: [{ name, description, parameters: { type: "object", properties, required } }],
+ *   client_public_key: string (hex secp256k1, optional — can also be sent with first turn)
+ * }
+ *
+ * Returns: { session_id, server_public_key, expires_at }
+ */
+router.post('/v1/agent/session', async (req, res) => {
+  try {
+    const { system_prompt, tools, client_public_key } = req.body || {};
+    if (!system_prompt && (!tools || tools.length === 0)) {
+      return res.status(400).json({
+        error: { message: 'system_prompt or tools required', type: 'invalid_request', code: 'missing_params' }
+      });
+    }
+    const result = agentSession.createAgentSession({
+      system_prompt: system_prompt || '',
+      tools: tools || [],
+      client_public_key: client_public_key || null,
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('[BTCPC Agent] Session create error:', err.message);
+    return res.status(500).json({ error: { message: err.message, type: 'server_error', code: 'internal_error' } });
+  }
+});
+
+/**
+ * POST /v1/agent/turn
+ * Submit a user turn and get the assistant response.
+ *
+ * Plaintext mode (for local / same-network clients):
+ *   Body: { session_id, client_public_key?, message: string }
+ *   Response: { session_id, role: "assistant", content: string, tool_calls?: [...] }
+ *
+ * Encrypted mode (for privacy):
+ *   Body: { session_id, client_public_key?, encrypted_turn: hex }
+ *   encrypted_turn decrypts to JSON: { message: string }
+ *   Response: { session_id, encrypted_response: hex }
+ *   encrypted_response decrypts to JSON: { role: "assistant", content: string, tool_calls?: [...] }
+ *
+ * If the model returns tool_use blocks, the response includes tool_calls and
+ * the client should re-submit the turn with tool results via the same endpoint:
+ *   Body: { session_id, tool_results: [{ call_id, result }] }
+ */
+router.post('/v1/agent/turn', async (req, res) => {
+  try {
+    const { session_id, client_public_key, message, encrypted_turn, tool_results } = req.body || {};
+    if (!session_id) {
+      return res.status(400).json({ error: { message: 'session_id required', type: 'invalid_request', code: 'missing_session_id' } });
+    }
+
+    const session = agentSession.getAgentSession(session_id);
+    if (!session) {
+      return res.status(404).json({ error: { message: 'Session not found or expired', type: 'invalid_request', code: 'session_expired' } });
+    }
+
+    // Derive key if client sends public key
+    if (client_public_key && !session.key) {
+      agentSession.deriveAgentSessionKey(session_id, client_public_key);
+    }
+
+    let userMessage = message || null;
+
+    // Decrypt encrypted_turn if provided
+    if (encrypted_turn && session.key) {
+      const blob = Buffer.from(encrypted_turn, 'hex');
+      const plain = agentSession.decrypt(session.key, blob);
+      const parsed = JSON.parse(plain.toString('utf8'));
+      userMessage = parsed.message;
+    }
+
+    // Handle tool_results submission (continuing a paused turn)
+    if (tool_results && Array.isArray(tool_results)) {
+      for (const tr of tool_results) {
+        agentSession.deliverToolResult(session_id, tr.call_id, tr.result, tr.error || null);
+      }
+      // Add tool results to history
+      agentSession.addTurn(session_id, 'tool', JSON.stringify(tool_results));
+    }
+
+    if (!userMessage && !tool_results) {
+      return res.status(400).json({ error: { message: 'message or tool_results required', type: 'invalid_request', code: 'missing_message' } });
+    }
+
+    // Append user turn to history
+    if (userMessage) {
+      agentSession.addTurn(session_id, 'user', userMessage);
+    }
+
+    // Build Ollama request
+    const messages = agentSession.buildMessages(session_id, null); // history already has the new user turn
+    const ollamaModel = process.env.BTCPC_MODEL || 'qwen2.5:0.5b';
+    const ollamaBase = process.env.OLLAMA_HOST || 'http://localhost:11434';
+
+    const reqBody = {
+      model: ollamaModel,
+      messages: messages,
+      stream: false,
+    };
+
+    // Attach tool definitions if session has them
+    if (session.tools && session.tools.length > 0) {
+      reqBody.tools = session.tools;
+    }
+
+    const ollamaResp = await axios.post(ollamaBase + '/api/chat', reqBody, { timeout: 120000 });
+    const ollamaData = ollamaResp.data;
+
+    const assistantMsg = ollamaData.message || {};
+    const content = assistantMsg.content || '';
+    const toolCalls = assistantMsg.tool_calls || null;
+
+    // Append assistant response to history
+    agentSession.addTurn(session_id, 'assistant', content || JSON.stringify(assistantMsg));
+
+    // If the model returned tool calls, broadcast TOOL_CALL via P2P and include in response
+    let p2pToolCalls = null;
+    if (toolCalls && toolCalls.length > 0) {
+      p2pToolCalls = toolCalls.map(tc => {
+        const callId = crypto.randomBytes(8).toString('hex');
+        // Broadcast to P2P so any subscriber can receive the tool call
+        try {
+          const protocol = require('../p2p/protocol');
+          const network = require('../p2p/network');
+          const ctx = network.getContext ? network.getContext() : null;
+          if (ctx) {
+            const toolCallMsg = protocol.createMessage(protocol.MESSAGE_TYPES.TOOL_CALL, {
+              session_id: session_id,
+              call_id: callId,
+              tool_name: tc.function ? tc.function.name : (tc.name || 'unknown'),
+              arguments: tc.function ? tc.function.arguments : (tc.arguments || {}),
+            }, ctx.NODE_ID);
+            ctx.broadcast(toolCallMsg);
+          }
+        } catch (_) { /* P2P not available in all deployments */ }
+        return {
+          call_id: callId,
+          tool_name: tc.function ? tc.function.name : (tc.name || 'unknown'),
+          arguments: tc.function ? tc.function.arguments : (tc.arguments || {}),
+        };
+      });
+    }
+
+    // Build response
+    const responseData = {
+      session_id: session_id,
+      role: 'assistant',
+      content: content,
+      tool_calls: p2pToolCalls || undefined,
+      model: ollamaModel,
+      turn_count: session.history.length,
+    };
+
+    // Encrypt response if session has a derived key
+    if (session.key) {
+      const encBuf = agentSession.encrypt(session.key, Buffer.from(JSON.stringify(responseData), 'utf8'));
+      return res.json({ session_id: session_id, encrypted_response: encBuf.toString('hex') });
+    }
+
+    return res.json(responseData);
+  } catch (err) {
+    console.error('[BTCPC Agent] Turn error:', err.message);
+    return res.status(500).json({ error: { message: err.message, type: 'server_error', code: 'internal_error' } });
+  }
+});
+
+/**
+ * DELETE /v1/agent/session/:id
+ * Close and destroy an agent session, zeroing its key material.
+ */
+router.delete('/v1/agent/session/:id', async (req, res) => {
+  try {
+    agentSession.closeAgentSession(req.params.id);
+    return res.json({ ok: true, session_id: req.params.id });
+  } catch (err) {
+    return res.status(500).json({ error: { message: err.message, type: 'server_error', code: 'internal_error' } });
+  }
+});
+
+/**
+ * GET /v1/agent/sessions
+ * Return active session count (admin info, no session content).
+ */
+router.get('/v1/agent/sessions', async (req, res) => {
+  return res.json({ active_sessions: agentSession.getSessionCount() });
 });
 
 module.exports = router;
