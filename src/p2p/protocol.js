@@ -724,6 +724,14 @@ function _addModelDemand(model, account) {
 
 function addModelDemand(model, account) {
   _addModelDemand(model, account);
+  // Feed the model manager's pull queue and trigger an immediate check
+  try {
+    const { recordUnmetDemand } = require('../services/modelRegistry');
+    recordUnmetDemand(model.trim().toLowerCase());
+    // Kick the model manager now rather than waiting for its 30-min tick
+    const { checkAndPullModels } = require('./modelManager');
+    checkAndPullModels().catch(() => {});
+  } catch (_) {}
 }
 
 function getModelDemand() {
