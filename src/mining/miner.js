@@ -1136,7 +1136,9 @@ async function startMiner() {
     console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
-  // Auto-register active public key on-chain if BTCPC_ACTIVE_KEY is set but not yet recorded
+  // Bootstrap: if BTCPC_ACTIVE_KEY is set but the miner account has no active
+  // public key in stateStore, inject it locally so block proposal signatures
+  // are verifiable by peers on this same machine (they share the .env).
   const activeKeyPriv = process.env.BTCPC_ACTIVE_KEY;
   if (activeKeyPriv) {
     try {
@@ -1146,11 +1148,11 @@ async function startMiner() {
         const { secp256k1 } = require('@noble/curves/secp256k1');
         const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(activeKeyPriv, 'hex'), true);
         const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
-        await ledger.recordKeyRotate(MINER_ACCOUNT, { active: activePubKey }, MINER_ACCOUNT, 0);
-        console.log(`[BTCPC] Registered active public key on-chain for ${MINER_ACCOUNT}: ${activePubKey.slice(0, 16)}...`);
+        stateStore.bootstrapAccountKey(MINER_ACCOUNT, 'active', activePubKey);
+        console.log(`[BTCPC] Bootstrap: active public key set for ${MINER_ACCOUNT}: ${activePubKey.slice(0, 16)}...`);
       }
     } catch (keyRegErr) {
-      console.warn(`[BTCPC] Could not auto-register active key: ${keyRegErr.message}`);
+      console.warn(`[BTCPC] Could not bootstrap active key: ${keyRegErr.message}`);
     }
   }
 

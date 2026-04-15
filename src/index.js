@@ -231,6 +231,25 @@ connectDB().then(async () => {
     console.error('[BTCPC] stateStore replay error:', err.message);
   }
 
+  // Bootstrap: if BTCPC_ACTIVE_KEY is set and the miner account has no active
+  // public key in stateStore yet, inject it directly so block proposal signatures
+  // from this node can be verified without waiting for an on-chain KEY_ROTATE.
+  if (process.env.BTCPC_ACTIVE_KEY && process.env.BTCPC_MINER) {
+    try {
+      const stateStore = require('./chain/stateStore');
+      const minerAcct = stateStore.getAccount(process.env.BTCPC_MINER);
+      if (!minerAcct || !minerAcct.public_keys || !minerAcct.public_keys.active) {
+        const { secp256k1 } = require('@noble/curves/secp256k1');
+        const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(process.env.BTCPC_ACTIVE_KEY, 'hex'), true);
+        const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
+        stateStore.bootstrapAccountKey(process.env.BTCPC_MINER, 'active', activePubKey);
+        console.log('[BTCPC] Bootstrap: injected active public key for ' + process.env.BTCPC_MINER + ': ' + activePubKey.slice(0, 16) + '...');
+      }
+    } catch (keyErr) {
+      console.warn('[BTCPC] Bootstrap key inject failed:', keyErr.message);
+    }
+  }
+
   app.listen(PORT, () => {
     console.log(`BTCPC server running on port ${PORT}`);
   });

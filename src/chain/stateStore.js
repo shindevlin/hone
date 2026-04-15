@@ -1637,6 +1637,18 @@ function getAccountCount() {
   return accounts.size;
 }
 
+/**
+ * Bootstrap: directly inject a public key for an account that was created
+ * before the key system existed (e.g., genesis accounts). Does not write a
+ * ledger entry — local trust only, derived from BTCPC_ACTIVE_KEY env var.
+ */
+function bootstrapAccountKey(username, keyRole, publicKey) {
+  var acct = accounts.get(username);
+  if (!acct) return;
+  if (!acct.public_keys) acct.public_keys = {};
+  acct.public_keys[keyRole] = publicKey;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Token / NFT getters
 // ─────────────────────────────────────────────────────────────────
@@ -2466,6 +2478,7 @@ module.exports = {
   hasAccount: hasAccount,
   getAllAccounts: getAllAccounts,
   getAccountCount: getAccountCount,
+  bootstrapAccountKey: bootstrapAccountKey,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,
