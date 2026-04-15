@@ -748,6 +748,12 @@ function getModelDemand() {
   return result.slice(0, 20);
 }
 
+// Content-based dedup for mining proofs: "miner:block_number"
+// Prevents a miner from flooding the network with duplicate proofs
+// carrying different message IDs (which would bypass seenMessages).
+var seenProofKeys = new Set();
+var SEEN_PROOF_MAX = 5000;
+
 /**
  * MINING_PROOF — A miner broadcasts their proof for an epoch.
  * Receiving nodes store it locally so finalization can collect all proofs.
@@ -756,6 +762,18 @@ function getModelDemand() {
 function handleMiningProof(peer, msg, ctx) {
   const data = msg.data || {};
   if (!data.block_number || !data.miner) return;
+
+  // Content-based dedup: reject duplicate (miner, block_number) proofs
+  var proofKey = data.miner + ":" + data.block_number;
+  if (seenProofKeys.has(proofKey)) {
+    return; // silently drop duplicate
+  }
+  seenProofKeys.add(proofKey);
+  if (seenProofKeys.size > SEEN_PROOF_MAX) {
+    // Evict oldest 500 (Set preserves insertion order)
+    var iter = seenProofKeys.values();
+    for (var i = 0; i < 500; i++) seenProofKeys.delete(iter.next().value);
+  }
 
   console.log("[BTCPC P2P] Mining proof from " + data.miner + " for block " + data.block_number);
 
