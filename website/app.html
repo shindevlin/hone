@@ -608,15 +608,31 @@
           });
         }
 
-        // Base cost per 1K tokens = params_in_billions BTCPC (at default load, BASE_TOKENS_PER_BTCPC=1000)
+        // Static fallback: params_in_billions BTCPC per 1K tokens (BASE_TOKENS_PER_BTCPC=1000, load=1)
         function modelCostLabel(modelId) {
           var m = modelId.match(/:(\d+(?:\.\d+)?)b/i) || modelId.match(/[\-_](\d+(?:\.\d+)?)b/i);
           if (!m) return null;
           var params = parseFloat(m[1]);
-          var tokPerBtcpc = Math.floor(1000 / params);
-          // Show as BTCPC per 1K tokens
-          var per1k = (1000 / tokPerBtcpc).toFixed(params < 1 ? 2 : 1);
+          var per1k = (params).toFixed(params < 1 ? 2 : 1);
           return per1k + ' BTCPC / 1K tokens';
+        }
+
+        // After list renders, fetch live pricing (bonding curve + network load) and update each row
+        function fetchLivePricing(modelIds) {
+          var base = (typeof API_BASE !== 'undefined') ? API_BASE : location.origin;
+          modelIds.forEach(function(id) {
+            var el = document.getElementById('model-cost-' + id.replace(/[^a-z0-9]/g, '_'));
+            if (!el) return;
+            fetch(base + '/v1/pricing?model=' + encodeURIComponent(id))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .then(function(data) {
+                if (!data || !data.cost_per_token) return;
+                var per1k = (data.cost_per_token * 1000).toFixed(4).replace(/\.?0+$/, '');
+                el.textContent = '~' + per1k + ' BTCPC / 1K tokens';
+                el.title = 'load×' + (data.load_multiplier || '?') + '  model×' + (data.model_weight || '?');
+              })
+              .catch(function() { /* keep static fallback */ });
+          });
         }
 
         var listEl = document.getElementById('model-list');
@@ -652,8 +668,8 @@
                 '<span>' + m.name + ' <span style="color:var(--muted);font-size:10px;">(' + m.size + ')</span></span>' +
                 '<span style="font-size:10px;white-space:nowrap;margin-left:8px;text-align:right;">' +
                   (canRun
-                    ? '<span style="color:#22c55e;">' + m.earning + ' earn</span>' + (costLabel ? '<br><span style="color:#f7931a;">~' + costLabel + '</span>' : '')
-                    : '<span style="color:#64748b;">needs ' + m.ram + 'GB</span>' + (costLabel ? '<br><span style="color:#f7931a;opacity:0.6;">~' + costLabel + '</span>' : '')) +
+                    ? '<span style="color:#22c55e;">' + m.earning + ' earn</span>' + (costLabel ? '<br><span id="model-cost-' + m.id.replace(/[^a-z0-9]/g,'_') + '" style="color:#f7931a;">~' + costLabel + '</span>' : '')
+                    : '<span style="color:#64748b;">needs ' + m.ram + 'GB</span>' + (costLabel ? '<br><span id="model-cost-' + m.id.replace(/[^a-z0-9]/g,'_') + '" style="color:#f7931a;opacity:0.6;">~' + costLabel + '</span>' : '')) +
                 '</span>' +
               '</div>' +
               '<div style="font-size:10px;color:var(--muted);">' + m.desc + '</div>' +
@@ -675,6 +691,9 @@
           ? '<strong style="color:#22c55e;">How it works:</strong> Models are pulled to your local Ollama instance. Only one runs at a time. Bigger models = higher earnings per inference token.'
           : '<strong style="color:#22c55e;">How it works:</strong> Models are cached in your browser. Only one runs at a time — swapped automatically per job. Bigger models = higher earnings.';
         listEl.appendChild(note);
+
+        // Fetch live pricing (bonding curve + network load) and update cost labels
+        fetchLivePricing(activeModels.map(function(m) { return m.id; }));
 
         // ── Select helpers ──────────────────────────────────────────────
         var selRow = document.createElement('div');
