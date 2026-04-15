@@ -90,6 +90,9 @@ app.get('/', (_req, res) => {
       '/api/user',
       '/api/wallet',
       '/api/staking',
+      '/api/sensor-data/rate-card',
+      '/api/sensor-data/quote',
+      '/api/sensor-data/query',
       '/api/node',
       '/api/dreams/:account',
       '/api/dream/:blockNumber',
@@ -151,6 +154,7 @@ const sessionRoutes = require("./routes/sessionRoutes");
 const commerceRoutes = require("./routes/commerceRoutes");
 const amberPillRoutes = require("./routes/amberPillRoutes");
 const { sensorsRouter, gatewaysRouter } = require("./routes/sensorRoutes");
+const { router: sensorDataRouter } = require("./routes/sensorDataRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -165,6 +169,7 @@ app.use("/api/commerce", commerceRoutes);
 app.use("/api/amber-pills", amberPillRoutes);
 app.use("/api/sensors", sensorsRouter);
 app.use("/api/gateways", gatewaysRouter);
+app.use("/api/sensor-data", sensorDataRouter);
 app.use("/public", publicRoutes);
 app.use("/api/auth", sessionRoutes);
 app.use("/api", dreamRoutes);

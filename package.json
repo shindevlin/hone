@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "3.0.95",
+  "version": "3.0.97",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
@@ -20,6 +20,11 @@
     "p2p": "node src/p2p/network.js",
     "update": "node bin/btcpc-update",
     "website": "npx serve website",
+    "desktop": "electron --no-sandbox desktop/main.js",
+    "desktop:dev": "BTCPC_DESKTOP_DEV=1 electron --no-sandbox desktop/main.js",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:build": "npx cap sync android && cd android && ./gradlew assembleDebug",
     "smoke:api": "bash scripts/smoke-api.sh",
     "smoke:inference": "node scripts/smoke-inference.js",
     "docs": "npx docsify-cli serve docs"
@@ -57,6 +62,10 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@capacitor/android": "7.6.1",
+    "@capacitor/cli": "7.6.1",
+    "@capacitor/core": "7.6.1",
+    "electron": "41.2.0",
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2"

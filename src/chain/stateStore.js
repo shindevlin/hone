@@ -2134,6 +2134,26 @@ function getSensorsForEpoch(epoch) {
   return result;
 }
 
+/**
+ * Get buffered readings for a sensor across an epoch range.
+ * Returns array of { epoch, value, metadata, submitted_at } objects.
+ * Capped at maxReadings (default 10000) to guard against huge ranges.
+ */
+function getSensorReadings(sensorId, fromEpoch, toEpoch, maxReadings) {
+  var sid = String(sensorId || '');
+  var from = Number.isFinite(Number(fromEpoch)) ? Number(fromEpoch) : 0;
+  var to = Number.isFinite(Number(toEpoch)) ? Number(toEpoch) : from;
+  var cap = Math.min(Math.max(1, Number(maxReadings) || 10000), 50000);
+  var result = [];
+  for (var ep = from; ep <= to && result.length < cap; ep++) {
+    var list = sensorReadings.get(sid + '|' + ep) || [];
+    for (var i = 0; i < list.length && result.length < cap; i++) {
+      result.push({ epoch: ep, value: list[i].value, metadata: list[i].metadata || {}, submitted_at: list[i].submitted_at });
+    }
+  }
+  return result;
+}
+
 function getGateway(gatewayId) {
   return gateways.get(gatewayId) || null;
 }
@@ -2550,6 +2570,7 @@ module.exports = {
   getSensor: getSensor,
   getAllSensors: getAllSensors,
   getSensorsForEpoch: getSensorsForEpoch,
+  getSensorReadings: getSensorReadings,
   getGateway: getGateway,
   getAllGateways: getAllGateways,
   getGatewaysForEpoch: getGatewaysForEpoch,
