@@ -2058,6 +2058,11 @@ try {
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         const panel = document.getElementById('panel-' + tab);
         if (panel) panel.classList.add('active');
+        // Always refresh account display when settings tab opens
+        if (tab === 'settings') {
+          const sa = document.getElementById('settings-account');
+          if (sa) sa.textContent = account || localStorage.getItem('btcpc-sensor-account') || '';
+        }
       });
     });
 
