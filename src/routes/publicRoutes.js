@@ -391,11 +391,18 @@ router.post('/login', async (req, res) => {
     const secretStore = require('../services/secretStore');
     try { secretStore.load(); } catch (_) {}
 
-    const ok = await secretStore.verifyPassword(username.trim().toLowerCase(), password);
+    // Check if user exists first
+    const clean = username.trim().toLowerCase();
+    const user = secretStore.getUser(clean);
+    if (!user) return res.status(404).json({ error: 'account not found' });
+
+    const ok = await secretStore.verifyPassword(clean, password);
     if (!ok) return res.status(401).json({ error: 'wrong password' });
 
     const jwt = require('jsonwebtoken');
-    const token = jwt.sign({ username: username.trim().toLowerCase() }, process.env.JWT_SECRET || 'btcpc', { expiresIn: '30d' });
+    const jwtSecret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+    if (!jwtSecret) return res.status(503).json({ error: 'JWT secret not initialized' });
+    const token = jwt.sign({ username: username.trim().toLowerCase() }, jwtSecret, { expiresIn: '30d' });
 
     const stateStore = require('../chain/stateStore');
     const balance = stateStore.getBalance(username.trim().toLowerCase(), 'BTCPC');
