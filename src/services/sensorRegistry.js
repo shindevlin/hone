@@ -45,6 +45,14 @@ var readingHistory = new Map(); // sensorId → array of last 10 numeric values
 // Fraud prevention: rate-limit tracking — last epoch a sensor submitted
 var lastEpochBySensor = new Map(); // sensorId → epoch number
 
+// Sensor divergence strikes: sensorId → { strikes, window_start_epoch }
+var divergenceStrikes = new Map();
+var DIVERGENCE_WINDOW_EPOCHS = 2880;  // 24h at 30s epochs
+var DIVERGENCE_STRIKE_THRESHOLD = 5;
+var GEO_CORROBORATION_RADIUS_KM = 0.1; // 100m
+var GEO_CORROBORATION_TOLERANCE = 0.10; // 10%
+var GEO_MIN_CORROBORATORS = 2;
+
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "custom"];
 
@@ -229,21 +237,39 @@ function submitReading(sensorId, value, metadata, epoch) {
   if (history.length > 10) history.shift();
   readingHistory.set(sensorId, history);
 
-  // ── Fraud prevention: gateway attestation ──
+  // ── Fraud prevention: gateway attestation + signature verification ──
   var meta = metadata || {};
   var gatewayVerified = false;
+  var gatewaySigValid = false;
   var trustWeight = 1;
   if (meta.gateway_id) {
-    // Check if this gateway_id matches the sensor's registered lora_gateway
     if (record.lora_gateway && meta.gateway_id === record.lora_gateway) {
       gatewayVerified = true;
+    }
+    // Phase alpha: verify gateway signature if provided.
+    if (meta.gateway_sig) {
+      try {
+        var gatewayReg = require("./loraGatewayRegistry");
+        var gwRecord = gatewayReg.getGateway(meta.gateway_id);
+        if (gwRecord && gwRecord.public_key) {
+          gatewaySigValid = gatewayReg.verifyGatewaySignature(meta.gateway_id, {
+            sensor_id: sensorId, epoch: ep, value: numeric, nonce: meta.nonce || ""
+          }, meta.gateway_sig);
+          if (!gatewaySigValid) {
+            trustWeight = 0.25;
+            console.warn("[BTCPC Sensor] Bad gateway sig from " + meta.gateway_id +
+              " for sensor " + sensorId + " epoch " + ep);
+          }
+        } else if (gwRecord) {
+          gatewaySigValid = gatewayVerified; // no key registered, trust by ID
+        }
+      } catch (_) { /* non-fatal */ }
     }
   } else {
     trustWeight = 0.5;
   }
 
   var key = _readingsKey(sensorId, ep);
-
   var readings = readingsByEpoch.get(key) || [];
 
   var reading = {
@@ -254,7 +280,9 @@ function submitReading(sensorId, value, metadata, epoch) {
     submitted_at: Date.now(),
     outlier: outlier,
     gateway_verified: gatewayVerified,
+    gateway_sig_valid: gatewaySigValid,
     trust_weight: trustWeight,
+    confirmation_status: "pending",
   };
 
   readings.push(reading);
@@ -305,7 +333,9 @@ function finalizeEpochReadings(sensorId, epoch) {
   }
 
   // Gather all readings from same region+type for this epoch (cross-sensor consensus)
+  // Phase beta: also collect peer sensor locations for geographic corroboration.
   var regionValues = [];
+  var peerSensorData = []; // { sensor_id, value, lat, lon }
   for (var entry of sensors) {
     var s = entry[1];
     if (s.type !== record.type || s.region !== record.region) continue;
@@ -313,14 +343,20 @@ function finalizeEpochReadings(sensorId, epoch) {
     var peerReadings = readingsByEpoch.get(peerKey) || [];
     for (var i = 0; i < peerReadings.length; i++) {
       regionValues.push(peerReadings[i].value);
+      var pMeta = peerReadings[i].metadata || {};
+      peerSensorData.push({
+        sensor_id: s.sensor_id,
+        value: peerReadings[i].value,
+        lat: Number(pMeta.latitude) || null,
+        lon: Number(pMeta.longitude) || null
+      });
     }
   }
 
   var median = oracle._median(regionValues.length > 0 ? regionValues : readings.map(function(r) { return r.value; }));
   var medianRounded = parseFloat(Number(median).toFixed(record.decimals));
 
-  // Flag outlier readings for this sensor
-  // Use 500 bps (5%) as the default deviation threshold for sensors
+  // Flag outlier readings for this sensor (5% threshold)
   var OUTLIER_BPS = 500;
   var outliers = [];
   var insiders = [];
@@ -338,6 +374,66 @@ function finalizeEpochReadings(sensorId, epoch) {
       outliers.push({ value: r.value, deviation_bps: medianRounded === 0 ? Infinity : Math.abs((r.value - medianRounded) / medianRounded) * 10000 });
     } else {
       insiders.push(r.value);
+    }
+  }
+
+  // Phase beta: geographic corroboration.
+  // Reading is "confirmed" if 2+ independent sensors within 100m agree within 10% of median.
+  var myMeta = readings[0] && readings[0].metadata ? readings[0].metadata : {};
+  var myLat = Number(myMeta.latitude) || null;
+  var myLon = Number(myMeta.longitude) || null;
+  var confirmationStatus = "unconfirmed";
+  var corroboratorCount = 0;
+
+  if (Number.isFinite(myLat) && Number.isFinite(myLon)) {
+    for (var pi = 0; pi < peerSensorData.length; pi++) {
+      var peer = peerSensorData[pi];
+      if (peer.sensor_id === sensorId) continue;
+      if (!Number.isFinite(peer.lat) || !Number.isFinite(peer.lon)) continue;
+      var dLat = (peer.lat - myLat) * Math.PI / 180;
+      var dLon = (peer.lon - myLon) * Math.PI / 180;
+      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(myLat * Math.PI / 180) * Math.cos(peer.lat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      var distKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      if (distKm > GEO_CORROBORATION_RADIUS_KM) continue;
+      var peerDev = medianRounded === 0 ? (peer.value === 0 ? 0 : 1) :
+        Math.abs((peer.value - medianRounded) / medianRounded);
+      if (peerDev <= GEO_CORROBORATION_TOLERANCE) corroboratorCount++;
+    }
+    if (corroboratorCount >= GEO_MIN_CORROBORATORS) confirmationStatus = "confirmed";
+  } else {
+    confirmationStatus = "location_unknown";
+  }
+
+  // Phase gamma: divergence strike tracking + slashing.
+  var allOutlier = outliers.length > 0 && insiders.length === 0;
+  var diverged = allOutlier || (confirmationStatus === "unconfirmed" &&
+    corroboratorCount === 0 && peerSensorData.length >= GEO_MIN_CORROBORATORS);
+
+  if (diverged) {
+    var strikeRec = divergenceStrikes.get(sensorId) || { strikes: 0, window_start_epoch: ep };
+    if (ep - strikeRec.window_start_epoch > DIVERGENCE_WINDOW_EPOCHS) {
+      strikeRec = { strikes: 0, window_start_epoch: ep };
+    }
+    strikeRec.strikes++;
+    divergenceStrikes.set(sensorId, strikeRec);
+    if (strikeRec.strikes >= DIVERGENCE_STRIKE_THRESHOLD) {
+      divergenceStrikes.set(sensorId, { strikes: 0, window_start_epoch: ep });
+      (function (ownerId, sid, epNum, why) {
+        try {
+          var slashing = require("./slashing");
+          slashing.recordOffense(ownerId, "SENSOR_DIVERGENCE", { sensor_id: sid, epoch: epNum, divergence_type: why })
+            .catch(function (err) { console.error("[BTCPC Sensor] Divergence slash failed:", err.message); });
+          console.warn("[BTCPC Sensor] SENSOR_DIVERGENCE slash for " + ownerId + " sensor=" + sid + " epoch=" + epNum);
+        } catch (_) { /* non-fatal */ }
+      })(record.owner, sensorId, ep, allOutlier ? "all_outlier" : "unconfirmed_solo");
+    }
+  } else {
+    var existing = divergenceStrikes.get(sensorId);
+    if (existing && existing.strikes > 0) {
+      existing.strikes = Math.max(0, existing.strikes - 1);
+      divergenceStrikes.set(sensorId, existing);
     }
   }
 
@@ -363,6 +459,8 @@ function finalizeEpochReadings(sensorId, epoch) {
     region_value_count: regionValues.length,
     insiders: insiders,
     outliers: outliers,
+    confirmation_status: confirmationStatus,
+    corroborator_count: corroboratorCount,
     finalized_at: Date.now(),
   };
 
@@ -466,6 +564,7 @@ function resetForTests() {
   sensorStats.clear();
   readingHistory.clear();
   lastEpochBySensor.clear();
+  divergenceStrikes.clear();
 }
 
 module.exports = {

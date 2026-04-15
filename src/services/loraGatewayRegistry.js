@@ -106,6 +106,7 @@ function registerGateway(owner, gatewayId, spec, options) {
     record.hardware_model = spec.hardware_model || record.hardware_model || null;
     record.firmware_version = spec.firmware_version || record.firmware_version || null;
     record.max_sensors = spec.max_sensors !== undefined ? parseInt(spec.max_sensors, 10) : record.max_sensors;
+    if (spec.public_key) record.public_key = spec.public_key;
     record.last_updated_epoch = epoch;
     record.status = "active";
   } else {
@@ -118,6 +119,8 @@ function registerGateway(owner, gatewayId, spec, options) {
       antenna_gain_dbi: spec.antenna_gain_dbi !== undefined ? Number(spec.antenna_gain_dbi) : null,
       hardware_model: spec.hardware_model || null,
       firmware_version: spec.firmware_version || null,
+      // secp256k1 compressed hex public key for gateway signature verification
+      public_key: spec.public_key || null,
       max_sensors: spec.max_sensors !== undefined ? parseInt(spec.max_sensors, 10) : 50,
       status: "active",
       created_epoch: epoch,
@@ -283,6 +286,33 @@ function getGatewayStats(gatewayId, currentEpoch) {
   };
 }
 
+/**
+ * Verify a gateway signature over a sensor reading payload.
+ * Signature covers { sensor_id, epoch, value, nonce } deterministically.
+ *
+ * @param {string} gatewayId
+ * @param {{ sensor_id, epoch, value, nonce }} payload
+ * @param {string} signature — hex secp256k1 signature
+ * @returns {boolean}
+ */
+function verifyGatewaySignature(gatewayId, payload, signature) {
+  if (!gatewayId || !payload || !signature) return false;
+  var record = gateways.get(gatewayId);
+  if (!record || !record.public_key) return false;
+  try {
+    var messageAuth = require("./messageAuth");
+    var canonical = {
+      sensor_id: payload.sensor_id,
+      epoch: payload.epoch,
+      value: payload.value,
+      nonce: payload.nonce || ""
+    };
+    return messageAuth.verifyMessage(canonical, signature, record.public_key);
+  } catch (_) {
+    return false;
+  }
+}
+
 function resetForTests() {
   gateways.clear();
   gatewayStats.clear();
@@ -298,6 +328,8 @@ module.exports = {
   getAllGateways: getAllGateways,
   getGatewaysInRegion: getGatewaysInRegion,
   getGatewayStats: getGatewayStats,
+  // Security
+  verifyGatewaySignature: verifyGatewaySignature,
   // Helpers
   parseGatewayId: parseGatewayId,
   _checkIdleTransition: _checkIdleTransition,
