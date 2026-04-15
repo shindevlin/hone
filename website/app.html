@@ -781,8 +781,7 @@
                 } catch(_) {}
               }
               if (!resp) {
-                if (window.btcpc && window.btcpc.native && window.btcpc.native.startOllama) {
-                  // Running inside BTCPC Desktop — offer to start Ollama automatically
+                if (desktopMode) {
                   pullStatus.innerHTML =
                     '<div style="color:#f7931a;margin-bottom:8px;">Ollama needs to start before downloading models.</div>' +
                     '<button id="start-ollama-btn" style="background:#f7931a;color:#000;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">Start Ollama</button>';
@@ -793,7 +792,12 @@
                       startBtn.textContent = 'Starting...';
                       startBtn.disabled = true;
                       try {
-                        var result = await window.btcpc.native.startOllama();
+                        var startFn = window.btcpc && window.btcpc.native && window.btcpc.native.startOllama;
+                        if (!startFn) {
+                          pullStatus.innerHTML = '<div style="color:#ef4444;">Please update BTCPC Desktop — this version cannot start Ollama automatically.<br><span style="color:var(--muted);font-size:11px;">Download the latest version from btcpc.net/install</span></div>';
+                          return;
+                        }
+                        var result = await startFn();
                         if (result.ok) {
                           pullStatus.innerHTML = '<span style="color:#22c55e;">✓ Ollama started — click Pull again to download your models.</span>';
                         } else if (result.reason === 'not_installed') {
@@ -807,7 +811,7 @@
                     });
                   }
                 } else {
-                  pullStatus.innerHTML = '<div style="color:#ef4444;">Could not connect to Ollama.<br><span style="color:var(--muted);font-size:11px;">Restart BTCPC Desktop and click Start Ollama when asked.</span></div>';
+                  pullStatus.innerHTML = '<div style="color:#ef4444;">Could not connect to Ollama.<br><span style="color:var(--muted);font-size:11px;">Install the BTCPC Desktop app to manage Ollama automatically.</span></div>';
                 }
                 if (pb) { pb.textContent = 'Ollama not running'; pb.style.color = '#ef4444'; }
                 continue;
