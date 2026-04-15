@@ -509,18 +509,81 @@
         </select>
       </div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-        <div class="label">Or load model from file</div>
-        <div class="sublabel">If auto-download fails, download the model files first, then load them here.</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:4px;padding:6px 8px;background:rgba(247,147,26,0.05);border-radius:4px;">
-          <strong style="color:var(--orange);">Step 1:</strong> Tap "Download" → save files to a folder you can find (e.g. <strong>Downloads/btcpc-models/</strong>)<br>
-          <strong style="color:var(--orange);">Step 2:</strong> Tap "Load from File" → select the downloaded files from that folder
+        <div class="label">Download Models</div>
+        <div class="sublabel">Select models to download. Your device specs are checked automatically.</div>
+        <div id="device-specs" style="font-size:10px;color:var(--muted);margin:6px 0;padding:6px 8px;background:rgba(247,147,26,0.05);border-radius:4px;">
+          Checking device...
         </div>
+        <div id="model-list" style="margin-top:8px;"></div>
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <a href="https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-0.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm" download style="flex:1;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;text-align:center;text-decoration:none;display:block;">Download Model (350MB)</a>
+          <button id="mine-download-selected" style="flex:1;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Download Selected</button>
           <button id="mine-load-file-btn" style="flex:1;padding:8px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Load from File</button>
-          <input type="file" id="mine-file-input" style="display:none;" accept=".bin,.wasm,.gguf">
+          <input type="file" id="mine-file-input" style="display:none;" accept=".bin,.wasm,.gguf" multiple>
         </div>
       </div>
+      <script>
+      (function() {
+        var models = [
+          { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', name: 'SmolLM 360M', size: '250MB', ram: 0.5, desc: 'Fastest, any device', url: 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/SmolLM2-360M-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen 0.5B', size: '350MB', ram: 0.7, desc: 'Best small model', url: 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-0.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '900MB', ram: 1.5, desc: 'Good quality, mid device', url: 'https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-1.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Gemma-2B-Instruct-q4f16_1-MLC', name: 'Gemma 2B', size: '1.2GB', ram: 2, desc: 'Strong, needs 4GB+ RAM', url: 'https://huggingface.co/nicolo-ribaudo/Gemma-2B-Instruct-q4f16_1-MLC/resolve/main/Gemma-2B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', name: 'Phi-3 Mini 3.8B', size: '2.1GB', ram: 3.5, desc: 'Highest quality, flagship only', url: 'https://huggingface.co/nicolo-ribaudo/Phi-3-mini-4k-instruct-q4f16_1-MLC/resolve/main/Phi-3-mini-4k-instruct-q4f16_1-MLC-q4f16_1.wasm' },
+        ];
+
+        // Detect device capabilities
+        var deviceRAM = navigator.deviceMemory || 4; // GB, defaults to 4 if not available
+        var hasWebGPU = !!navigator.gpu;
+        var specEl = document.getElementById('device-specs');
+        specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' +
+          deviceRAM + 'GB RAM' +
+          (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
+          (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
+
+        // Render model list with checkboxes
+        var listEl = document.getElementById('model-list');
+        models.forEach(function(m) {
+          var canRun = m.ram <= deviceRAM && hasWebGPU;
+          var div = document.createElement('div');
+          div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:4px;background:' +
+            (canRun ? 'rgba(34,197,94,0.05)' : 'rgba(100,100,100,0.05)') + ';border:1px solid ' +
+            (canRun ? 'rgba(34,197,94,0.2)' : 'rgba(100,100,100,0.2)');
+          div.innerHTML =
+            '<input type="checkbox" class="model-cb" data-url="' + m.url + '" data-name="' + m.name + '" ' +
+            (canRun ? '' : 'disabled') +
+            ' style="accent-color:#f7931a;width:16px;height:16px;">' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:12px;color:' + (canRun ? 'var(--text)' : '#64748b') + ';">' +
+                m.name + ' <span style="color:var(--muted);font-size:10px;">(' + m.size + ')</span>' +
+                (canRun ? '' : ' <span style="color:#ef4444;font-size:10px;">needs ' + m.ram + 'GB</span>') +
+              '</div>' +
+              '<div style="font-size:10px;color:var(--muted);">' + m.desc + '</div>' +
+            '</div>';
+          listEl.appendChild(div);
+        });
+
+        // Download selected models
+        document.getElementById('mine-download-selected').addEventListener('click', function() {
+          var checked = document.querySelectorAll('.model-cb:checked');
+          if (checked.length === 0) {
+            this.textContent = 'Select at least one model';
+            setTimeout(function() { document.getElementById('mine-download-selected').textContent = 'Download Selected'; }, 2000);
+            return;
+          }
+          checked.forEach(function(cb) {
+            var a = document.createElement('a');
+            a.href = cb.dataset.url;
+            a.download = '';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          });
+          this.textContent = 'Downloading ' + checked.length + ' model(s)...';
+          setTimeout(function() { document.getElementById('mine-download-selected').textContent = 'Download Selected'; }, 3000);
+        });
+      })();
+      </script>
     </div>
 
     <!-- Tab: Chat -->
