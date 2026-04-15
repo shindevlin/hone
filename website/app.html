@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>BTCPC Sensor — Turn Your Phone Into a Node</title>
+  <title>BTCPC — Turn Any Device Into a Node</title>
+  <!-- iPad/Apple fullscreen -->
+  <meta name="apple-mobile-web-app-title" content="BTCPC">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%230a0e17'/%3E%3Cpolygon points='90,20 160,55 160,125 90,160 20,125 20,55' fill='none' stroke='%23f7931a' stroke-width='8'/%3E%3C/svg%3E">
   <meta name="description" content="Earn BTCPC by sharing sensor data from your phone. GPS, motion, orientation, battery, network — every reading pays.">
   <meta name="theme-color" content="#f7931a">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -165,6 +168,17 @@
     #tab-bar button .tab-icon { font-size: 18px; line-height: 1; }
     #tab-bar button.active { color: var(--orange); }
 
+    /* iPad/tablet: 2-column sensor grid */
+    @media (min-width: 600px) {
+      #sensor-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .sensor-card { margin-bottom: 0; }
+      #panel-chat, #panel-mine, #panel-settings { max-width: 600px; margin: 0 auto; }
+    }
+    /* Large iPad: 3 columns */
+    @media (min-width: 1024px) {
+      #sensor-list { grid-template-columns: 1fr 1fr 1fr; }
+    }
+
     /* Tab content panels inside dashboard */
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -300,7 +314,6 @@
     <a href="/" class="nav-brand">BTCPC</a>
     <a href="/globe">Globe</a>
     <a href="/dashboard">Dashboard</a>
-    <a href="/clock">Clock</a>
     <a href="/map">Map</a>
     <a href="/app" style="color:#22c55e;text-decoration:none;">App</a>
     <a href="/install">Install</a>
@@ -571,9 +584,9 @@
     </div>
   </div>
 
-<script src="/inference-crypto.js"></script>
-<script src="/inference-engine.js"></script>
-<script src="/miner.js"></script>
+<script src="/inference-crypto.js" onerror="console.warn('inference-crypto.js not loaded')"></script>
+<script src="/inference-engine.js" onerror="console.warn('inference-engine.js not loaded')"></script>
+<script src="/miner.js" onerror="console.warn('miner.js not loaded')"></script>
 
 <script>
 // ─── Config ───
@@ -1625,25 +1638,32 @@ if ('serviceWorker' in navigator) {
 }
 
 // ─── Tab Bar ───
-const tabBar = document.getElementById('tab-bar');
-const tabButtons = tabBar.querySelectorAll('button[data-tab]');
+try {
+  const tabBar = document.getElementById('tab-bar');
+  if (tabBar) {
+    const tabButtons = tabBar.querySelectorAll('button[data-tab]');
 
-tabButtons.forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.dataset.tab;
-    tabButtons.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('panel-' + tab).classList.add('active');
-  });
-});
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        tabButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById('panel-' + tab);
+        if (panel) panel.classList.add('active');
+      });
+    });
 
-// Show/hide tab bar with dashboard
-const origShowScreen = showScreen;
-showScreen = function(id) {
-  origShowScreen(id);
-  tabBar.style.display = (id === 'screen-dash') ? 'block' : 'none';
-};
+    // Show/hide tab bar with dashboard
+    const origShowScreen = showScreen;
+    showScreen = function(id) {
+      origShowScreen(id);
+      tabBar.style.display = (id === 'screen-dash') ? 'flex' : 'none';
+    };
+  }
+} catch (e) {
+  console.error('[BTCPC] Tab bar init error:', e);
+}
 
 // ─── On-Device AI Toggle ───
 const ondeviceToggle = document.getElementById('toggle-ondevice-ai');
