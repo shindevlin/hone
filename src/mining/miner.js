@@ -1310,6 +1310,18 @@ async function startMiner() {
 
       const bd = epoch._blockData || {};
 
+      // Sign the finalized block so peers can verify it came from the authorized miner
+      let blockSignature = null;
+      const activeKeyForSign = process.env.BTCPC_ACTIVE_KEY;
+      if (activeKeyForSign && bd.block_hash) {
+        try {
+          const messageAuth = require('../p2p/messageAuth');
+          const blockHeaderData = { epoch_number: epochNumber, block_hash: bd.block_hash, state_root: bd.state_root || '' };
+          const sig = messageAuth.signMessage(blockHeaderData, activeKeyForSign);
+          blockSignature = sig.signature;
+        } catch (_) {}
+      }
+
       const blockMsg = createMessage('EPOCH_FINALIZED', {
         epoch_number: epochNumber,
         block_reward: winner.block_reward,
@@ -1323,6 +1335,8 @@ async function startMiner() {
         total_work: winner.total_work,
         consensus_hash: winner.consensus_hash,
         authority: MINER_ACCOUNT,
+        proposer: MINER_ACCOUNT,
+        block_signature: blockSignature,
         ledger: bd.ledger || [],
         header_hex: bd.header_hex || null,
         block_hash: bd.block_hash || null,

@@ -242,7 +242,10 @@ async function submitSensorReading(sensorId, value, metadata) {
     const account = sensorId.split('/')[0];
     const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
     if (resp.status !== 201) {
-      console.warn('[btcpc-nebra] Reading submission failed for', sensorId, 'HTTP', resp.status);
+      const body = resp.data || {};
+      // Duplicate reading in same epoch is normal — suppress it
+      if (resp.status === 422 && body.error && /duplicate/i.test(body.error)) return;
+      console.warn('[btcpc-nebra] Reading submission failed for', sensorId, 'HTTP', resp.status, body.error || '');
     }
   } catch (err) {
     console.error('[btcpc-nebra] Reading error:', err.message);
@@ -428,10 +431,18 @@ async function main() {
     process.exit(1);
   }
 
-  // Register gateway
-  const registered = await registerGateway(ACCOUNT, GATEWAY_NAME, activeRegion, LAT, LON);
+  // Register gateway — retry for up to 60s to handle API startup race
+  let registered = false;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    registered = await registerGateway(ACCOUNT, GATEWAY_NAME, activeRegion, LAT, LON);
+    if (registered) break;
+    if (attempt < 6) {
+      console.log('[btcpc-nebra] Registration retry in 10s (attempt ' + attempt + '/6)...');
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
   if (!registered) {
-    console.warn('[btcpc-nebra] Gateway registration failed. Continuing in listener mode.');
+    console.warn('[btcpc-nebra] Gateway registration failed after retries. Continuing in listener mode.');
   }
 
   // Start LoRa listener
