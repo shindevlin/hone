@@ -83,6 +83,7 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 #node-tooltip .tt-name { color: #f7931a; font-weight: bold; margin-bottom: 4px; }
 #node-tooltip .tt-roles { color: #00ffff; font-size: 11px; }
+#node-tooltip .tt-metro { color: #94a3b8; font-size: 11px; margin-top: 2px; }
 #node-tooltip .tt-balance { color: #22c55e; font-size: 11px; margin-top: 2px; }
 
 /* Mobile */
@@ -103,7 +104,7 @@ canvas { display: block; width: 100%; height: 100%; }
   <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
   <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
   <a href="/meshtastic" style="color:#c8ccd4;text-decoration:none;">Meshtastic</a>
-  <a href="/app" style="color:#c8ccd4;text-decoration:none;">App</a>
+  <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
   <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
 </div>
 
@@ -151,6 +152,7 @@ canvas { display: block; width: 100%; height: 100%; }
     <div id="leaderboard-list" style="font-size:11px;max-height:100px;overflow-y:auto;"></div>
   </div>
   <div class="section-title">Live Events</div>
+  <div style="font-size:10px;color:#556;margin:-4px 0 8px;line-height:1.4;">Locations are metro buckets with wide deterministic spread, not exact node positions.</div>
   <div id="event-log">
     <canvas id="matrix-canvas"></canvas>
   </div>
@@ -166,6 +168,7 @@ canvas { display: block; width: 100%; height: 100%; }
 <div id="node-tooltip">
   <div class="tt-name"></div>
   <div class="tt-roles"></div>
+  <div class="tt-metro"></div>
   <div class="tt-balance"></div>
 </div>
 
@@ -195,33 +198,44 @@ const GLOBE_RADIUS = 5;
 const ARC_HEIGHT = 1.8;
 const HUB_SIZE = 0.18;
 const ROTATION_SPEED = 0.05 * Math.PI * 2 / 60; // 0.05 RPM
-const COORDINATE_FUZZ_KM = 50;
 const API_BASE = location.origin;
 
-// Known node positions (mock coords, fuzzed at runtime)
-const KNOWN_POSITIONS = {
-  shindevlin:       { lat: 13.69, lon: -89.19 },
-  natoshisakamoto:  { lat: 13.72, lon: -89.21 },
-};
+// Privacy-preserving metro buckets. Nodes are never rendered at exact
+// physical coordinates; each account is deterministically placed in a broad
+// metro-sector ring so nearby users do not look like neighbors.
+const METRO_SPREAD_MIN_KM = 15;
+const METRO_SPREAD_MAX_KM = 50;
 
-// Fallback positions for nodes without known coords — distributed globally
-const FALLBACK_POSITIONS = [
-  { lat: 35.68, lon: 139.69 },   // Tokyo
-  { lat: 51.51, lon: -0.13 },    // London
-  { lat: 40.71, lon: -74.01 },   // NYC
-  { lat: -33.87, lon: 151.21 },  // Sydney
-  { lat: 48.86, lon: 2.35 },     // Paris
-  { lat: 55.76, lon: 37.62 },    // Moscow
-  { lat: 19.43, lon: -99.13 },   // Mexico City
-  { lat: -23.55, lon: -46.63 },  // Sao Paulo
-  { lat: 1.35, lon: 103.82 },    // Singapore
-  { lat: 37.57, lon: 126.98 },   // Seoul
-  { lat: 28.61, lon: 77.21 },    // Delhi
-  { lat: -1.29, lon: 36.82 },    // Nairobi
-  { lat: 30.04, lon: 31.24 },    // Cairo
-  { lat: 59.33, lon: 18.07 },    // Stockholm
-  { lat: -34.60, lon: -58.38 },  // Buenos Aires
+const METRO_BUCKETS = [
+  { name: 'San Salvador', lat: 13.6929, lon: -89.2182 },
+  { name: 'Los Angeles', lat: 34.0522, lon: -118.2437 },
+  { name: 'New York', lat: 40.7128, lon: -74.0060 },
+  { name: 'Mexico City', lat: 19.4326, lon: -99.1332 },
+  { name: 'Sao Paulo', lat: -23.5558, lon: -46.6396 },
+  { name: 'London', lat: 51.5072, lon: -0.1276 },
+  { name: 'Frankfurt', lat: 50.1109, lon: 8.6821 },
+  { name: 'Dubai', lat: 25.2048, lon: 55.2708 },
+  { name: 'Lagos', lat: 6.5244, lon: 3.3792 },
+  { name: 'Mumbai', lat: 19.0760, lon: 72.8777 },
+  { name: 'Singapore', lat: 1.3521, lon: 103.8198 },
+  { name: 'Tokyo', lat: 35.6762, lon: 139.6503 },
+  { name: 'Seoul', lat: 37.5665, lon: 126.9780 },
+  { name: 'Sydney', lat: -33.8688, lon: 151.2093 },
+  { name: 'Nairobi', lat: -1.2921, lon: 36.8219 },
+  { name: 'Stockholm', lat: 59.3293, lon: 18.0686 },
+  { name: 'Buenos Aires', lat: -34.6037, lon: -58.3816 },
+  { name: 'Toronto', lat: 43.6532, lon: -79.3832 },
+  { name: 'Amsterdam', lat: 52.3676, lon: 4.9041 },
+  { name: 'Madrid', lat: 40.4168, lon: -3.7038 },
 ];
+
+const ACCOUNT_METRO_BUCKETS = {
+  shindevlin: 'San Salvador',
+  natoshisakamoto: 'San Salvador',
+  josh: 'Los Angeles',
+  daniel: 'New York',
+  emory: 'London',
+};
 
 // ============================================================
 // STATE
@@ -414,23 +428,48 @@ function latLonToVec3(lat, lon, radius) {
   );
 }
 
-function fuzzCoord(lat, lon) {
-  // ~50km random jitter (approx 0.45 degrees)
-  const jitter = COORDINATE_FUZZ_KM / 111;
+function hashString(value) {
+  let h = 2166136261;
+  const str = String(value || '');
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededFloat(seed, salt) {
+  const x = Math.sin((hashString(seed + ':' + salt) + 1) * 12.9898) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+function metroByName(name) {
+  return METRO_BUCKETS.find(m => m.name === name) || METRO_BUCKETS[0];
+}
+
+function metroForAccount(name, index) {
+  const assigned = ACCOUNT_METRO_BUCKETS[String(name || '').toLowerCase()];
+  if (assigned) return metroByName(assigned);
+  return METRO_BUCKETS[(hashString(name || index) + index) % METRO_BUCKETS.length];
+}
+
+function privacyMetroCoord(name, index) {
+  const metro = metroForAccount(name, index);
+  const seed = String(name || 'node') + ':' + index;
+  const distanceKm = METRO_SPREAD_MIN_KM + seededFloat(seed, 'distance') * (METRO_SPREAD_MAX_KM - METRO_SPREAD_MIN_KM);
+  const angle = seededFloat(seed, 'bearing') * Math.PI * 2;
+  const latOffset = (Math.cos(angle) * distanceKm) / 111;
+  const lonScale = Math.max(0.25, Math.cos(metro.lat * Math.PI / 180));
+  const lonOffset = (Math.sin(angle) * distanceKm) / (111 * lonScale);
   return {
-    lat: lat + (Math.random() - 0.5) * 2 * jitter,
-    lon: lon + (Math.random() - 0.5) * 2 * jitter / Math.cos(lat * Math.PI / 180),
+    lat: metro.lat + latOffset,
+    lon: metro.lon + lonOffset,
+    metro: metro.name,
   };
 }
 
 function getNodePosition(name, index) {
-  let base;
-  if (KNOWN_POSITIONS[name]) {
-    base = KNOWN_POSITIONS[name];
-  } else {
-    base = FALLBACK_POSITIONS[index % FALLBACK_POSITIONS.length];
-  }
-  return fuzzCoord(base.lat, base.lon);
+  return privacyMetroCoord(name, index);
 }
 
 // ============================================================
@@ -450,7 +489,7 @@ function createHexagonGeometry(radius, height) {
   return geo;
 }
 
-function createNodeHub(name, lat, lon, roles) {
+function createNodeHub(name, lat, lon, roles, metro) {
   const group = new THREE.Group();
 
   // Determine color based on primary role
@@ -507,7 +546,7 @@ function createNodeHub(name, lat, lon, roles) {
   label.position.z = 0.3;
   group.add(label);
 
-  group.userData = { name, lat, lon, roles, pulse, pulseMat, ring, ringMat, phase: Math.random() * Math.PI * 2 };
+  group.userData = { name, lat, lon, metro, roles, pulse, pulseMat, ring, ringMat, phase: Math.random() * Math.PI * 2 };
   globeGroup.add(group);
   return group;
 }
@@ -688,10 +727,10 @@ function rebuildNodes() {
   accounts.forEach((acc, i) => {
     const pos = getNodePosition(acc.name, i);
     nodePositionMap[acc.name] = pos;
-    const hub = createNodeHub(acc.name, pos.lat, pos.lon, acc.roles);
+    const hub = createNodeHub(acc.name, pos.lat, pos.lon, acc.roles, pos.metro);
     nodeObjects.push(hub);
     // Also create flat map node
-    const flatHub = createFlatNodeHub(acc.name, pos.lat, pos.lon, acc.roles);
+    const flatHub = createFlatNodeHub(acc.name, pos.lat, pos.lon, acc.roles, pos.metro);
     flatNodeObjects.push(flatHub);
   });
 }
@@ -888,7 +927,7 @@ continents.forEach(poly => {
 
 // Flat node hubs (createFlatNodeHub) — flatNodeObjects declared earlier
 
-function createFlatNodeHub(name, lat, lon, roles) {
+function createFlatNodeHub(name, lat, lon, roles, metro) {
   const group = new THREE.Group();
   let color = 0xf7931a;
   if (roles.includes('miner')) color = 0xff00ff;
@@ -931,7 +970,7 @@ function createFlatNodeHub(name, lat, lon, roles) {
   label.position.z = 0.2;
   group.add(label);
 
-  group.userData = { name, lat, lon, roles, pulse, pulseMat, phase: Math.random() * Math.PI * 2 };
+  group.userData = { name, lat, lon, metro, roles, pulse, pulseMat, phase: Math.random() * Math.PI * 2 };
   flatMapGroup.add(group);
   return group;
 }
@@ -1117,6 +1156,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
       tooltip.style.top = (e.clientY - 10) + 'px';
       tooltip.querySelector('.tt-name').textContent = ud.name;
       tooltip.querySelector('.tt-roles').textContent = ud.roles.length ? ud.roles.join(', ') : 'node';
+      tooltip.querySelector('.tt-metro').textContent = ud.metro ? ('metro bucket: ' + ud.metro) : 'metro bucket';
 
       // Find balance from leaderboard
       let bal = '--';
