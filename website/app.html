@@ -807,12 +807,8 @@
                       startBtn.textContent = 'Starting...';
                       startBtn.disabled = true;
                       try {
-                        var startFn = window.btcpc && window.btcpc.native && window.btcpc.native.startOllama;
-                        if (!startFn) {
-                          pullStatus.innerHTML = '<div style="color:#ef4444;">Please update BTCPC Desktop — this version cannot start Ollama automatically.<br><span style="color:var(--muted);font-size:11px;">Download the latest version from btcpc.net/install</span></div>';
-                          return;
-                        }
-                        var result = await startFn();
+                        var { invoke } = window.__TAURI__.core;
+                        var result = await invoke('start_ollama');
                         if (result.ok) {
                           pullStatus.innerHTML = '<span style="color:#22c55e;">✓ Ollama started — click Pull again to download your models.</span>';
                         } else if (result.reason === 'not_installed') {
@@ -3383,6 +3379,78 @@ if (account) {
       document.getElementById('data-results').style.display = 'block';
     } catch (e) { showStatus('Network error: ' + e.message); }
     btn.disabled = false; btn.textContent = 'Query Network';
+  });
+})();
+</script>
+
+<script>
+// ── Tauri desktop integration ─────────────────────────────────────────────────
+// Wire up events emitted from the Rust backend (tauri-plugin events).
+// window.__TAURI__ is only present inside BTCPC Desktop (Tauri).
+(function() {
+  if (typeof window.__TAURI__ === 'undefined') return;
+
+  var listen = window.__TAURI__.event.listen;
+
+  // Show an unobtrusive banner asking user to start Ollama
+  window.showOllamaStartPrompt = async function() {
+    if (document.getElementById('ollama-start-banner')) return; // already shown
+    var banner = document.createElement('div');
+    banner.id = 'ollama-start-banner';
+    banner.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9998;background:#1a1a1a;border:1px solid #f7931a;border-radius:10px;padding:14px 18px;font-family:monospace;font-size:12px;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,0.6);';
+    banner.innerHTML =
+      '<div style="color:#f7931a;font-weight:700;margin-bottom:6px;">Ollama is not running</div>' +
+      '<div style="color:#aaa;margin-bottom:10px;">Start it to pull models and run AI inference.</div>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button id="ollama-start-yes" style="flex:1;background:#f7931a;color:#000;border:none;padding:7px;border-radius:5px;font-weight:700;cursor:pointer;font-size:12px;">Start Ollama</button>' +
+        '<button id="ollama-start-no" style="background:transparent;color:#666;border:1px solid #333;padding:7px 12px;border-radius:5px;cursor:pointer;font-size:12px;">Dismiss</button>' +
+      '</div>';
+    document.body.appendChild(banner);
+
+    document.getElementById('ollama-start-no').onclick = function() { banner.remove(); };
+    document.getElementById('ollama-start-yes').onclick = async function() {
+      var btn = document.getElementById('ollama-start-yes');
+      btn.textContent = 'Starting…';
+      btn.disabled = true;
+      try {
+        var result = await window.__TAURI__.core.invoke('start_ollama');
+        if (result.ok) {
+          banner.innerHTML = '<div style="color:#22c55e;font-weight:700;">✓ Ollama started</div>';
+          setTimeout(function() { banner.remove(); }, 3000);
+        } else if (result.reason === 'not_installed') {
+          banner.innerHTML = '<div style="color:#ef4444;">Ollama not installed.<br><a href="https://ollama.com" target="_blank" style="color:#f7931a;">ollama.com</a></div>';
+        } else {
+          banner.innerHTML = '<div style="color:#ef4444;">Could not start Ollama.<br><span style="color:#666;font-size:11px;">' + (result.reason || '') + '</span></div>';
+        }
+      } catch(e) {
+        banner.innerHTML = '<div style="color:#ef4444;">Error: ' + e.message + '</div>';
+      }
+    };
+  };
+
+  // Rust backend detected Ollama is installed but not running
+  listen('ollama-not-running', function() {
+    window.showOllamaStartPrompt();
+  });
+
+  // Rust backend found a newer version on GitHub
+  listen('update-available', function(event) {
+    var version = event.payload || 'new version';
+    var banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#f7931a;color:#000;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:monospace;font-size:13px;font-weight:700;';
+    banner.innerHTML =
+      '<span>BTCPC Desktop ' + version + ' is available.</span>' +
+      '<button id="tauri-update-btn" style="background:#000;color:#f7931a;border:none;padding:6px 16px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;">Update Now</button>';
+    document.body.prepend(banner);
+
+    document.getElementById('tauri-update-btn').addEventListener('click', async function() {
+      try {
+        var { invoke } = window.__TAURI__.core;
+        await invoke('tauri', { cmd: 'install_update' });
+      } catch(_) {
+        window.open('https://btcpc.net/install', '_blank');
+      }
+    });
   });
 })();
 </script>
