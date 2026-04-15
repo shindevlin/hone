@@ -149,18 +149,20 @@
     /* Tab Bar */
     #tab-bar {
       display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-      background: rgba(10,14,23,0.97); border-top: 1px solid rgba(247,147,26,0.3);
-      padding: 6px 0 env(safe-area-inset-bottom, 6px);
+      background: rgba(10,14,23,0.98); border-top: 1px solid rgba(247,147,26,0.3);
+      padding: 4px 0 max(4px, env(safe-area-inset-bottom, 4px));
+      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     }
     #tab-bar .tab-inner {
-      display: flex; justify-content: space-around; max-width: 480px; margin: 0 auto;
+      display: flex; justify-content: space-evenly; width: 100%; max-width: 480px; margin: 0 auto;
     }
     #tab-bar button {
-      flex: 1; background: none; border: none; color: var(--muted); font-family: inherit;
-      font-size: 11px; padding: 8px 4px 4px; cursor: pointer; display: flex;
-      flex-direction: column; align-items: center; gap: 2px; transition: color 0.2s;
+      flex: 1; min-width: 0; background: none; border: none; color: var(--muted); font-family: inherit;
+      font-size: 10px; padding: 6px 2px 2px; cursor: pointer; display: flex;
+      flex-direction: column; align-items: center; gap: 1px; transition: color 0.2s;
+      -webkit-tap-highlight-color: transparent; white-space: nowrap; overflow: hidden;
     }
-    #tab-bar button .tab-icon { font-size: 20px; }
+    #tab-bar button .tab-icon { font-size: 18px; line-height: 1; }
     #tab-bar button.active { color: var(--orange); }
 
     /* Tab content panels inside dashboard */
