@@ -360,7 +360,19 @@
   <!-- Screen: Dashboard -->
   <div id="screen-dash" class="screen">
     <div class="dash-header">
-      <h2>=== BTCPC Mobile Sensor ===</h2>
+      <h2>=== BTCPC Mobile Node ===</h2>
+    </div>
+    <!-- Role status indicators -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <div id="role-clock" style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">
+        <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;"></span> Clock
+      </div>
+      <div id="role-sensors" style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(247,147,26,0.15);color:#f7931a;border:1px solid rgba(247,147,26,0.3);">
+        <span style="width:6px;height:6px;border-radius:50%;background:#f7931a;display:inline-block;"></span> Sensors
+      </div>
+      <div id="role-mine" style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(100,100,100,0.15);color:#64748b;border:1px solid rgba(100,100,100,0.3);">
+        <span style="width:6px;height:6px;border-radius:50%;background:#64748b;display:inline-block;"></span> Mining: Off
+      </div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <div>
@@ -844,9 +856,10 @@ function renderSensors() {
   list.innerHTML = '';
   for (const s of SENSORS) {
     const available = s.check();
-    const on = !!sensorStates[s.id] && available;
+    if (!available) continue; // hide unavailable sensors entirely
+    const on = !!sensorStates[s.id];
     const card = document.createElement('div');
-    card.className = 'sensor-card' + (on ? ' on' : '') + (!available ? ' unavailable' : '');
+    card.className = 'sensor-card' + (on ? ' on' : '');
     card.id = 'card-' + s.id;
 
     const iconClass = on ? 'green' : (available ? 'gray' : 'red');
