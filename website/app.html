@@ -9,13 +9,13 @@
   <title>BTCPC — Turn Any Device Into a Node</title>
   <!-- iPad/Apple fullscreen -->
   <meta name="apple-mobile-web-app-title" content="BTCPC">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%230a0e17'/%3E%3Cpolygon points='90,20 160,55 160,125 90,160 20,125 20,55' fill='none' stroke='%23f7931a' stroke-width='8'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="description" content="Earn BTCPC by sharing sensor data from your device. GPS, motion, orientation, battery, network — every reading pays.">
   <meta name="theme-color" content="#f7931a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/app-manifest.json">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%230a0e17'/%3E%3Cpolygon points='32,8 56,22 56,42 32,56 8,42 8,22' fill='none' stroke='%23f7931a' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <script>
     // Suppress login screen flash when a saved session exists
     (function() {
@@ -47,7 +47,8 @@
       font-size: 12px; gap: 16px; overflow-x: auto; white-space: nowrap;
     }
     #nav-bar a { color: #c8ccd4; text-decoration: none; }
-    #nav-bar a.nav-brand { color: var(--orange); font-weight: bold; font-size: 14px; }
+    #nav-bar a.nav-brand { color: var(--orange); font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    .brand-mark { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; box-shadow: 0 0 14px rgba(247,147,26,0.35); }
     #nav-bar a.active { color: var(--orange); }
 
     /* Screens */
@@ -61,7 +62,8 @@
     /* Setup screen */
     .setup-hero { text-align: center; padding: 48px 0 32px; }
     .setup-hex {
-      width: 96px; height: 96px; margin: 0 auto 24px;
+      width: 96px; height: 96px; margin: 0 auto 24px; border-radius: 18px; object-fit: cover;
+      box-shadow: 0 0 32px rgba(247,147,26,0.25), 0 0 42px rgba(34,211,238,0.12);
     }
     .setup-hero h1 { font-size: 22px; color: var(--orange); margin-bottom: 8px; }
     .setup-hero p { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
@@ -326,7 +328,7 @@
 
   <!-- Navigation -->
   <div id="nav-bar">
-    <a href="/" class="nav-brand">BTCPC</a>
+    <a href="/" class="nav-brand"><img src="/btcpc-logo.jpeg" alt="" class="brand-mark">BTCPC</a>
     <a href="/globe">Globe</a>
     <a href="/dashboard">Dashboard</a>
     <a href="/map">Map</a>
@@ -350,13 +352,7 @@
   <!-- Screen: Setup -->
   <div id="screen-setup" class="screen active">
     <div class="setup-hero">
-      <svg class="setup-hex" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="60,10 110,35 110,85 60,110 10,85 10,35" fill="none" stroke="#f7931a" stroke-width="4"/>
-        <text x="60" y="72" text-anchor="middle" font-size="40" font-family="monospace" font-weight="bold" fill="#f7931a">S</text>
-        <circle cx="30" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/></circle>
-        <circle cx="90" cy="42" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/></circle>
-        <circle cx="60" cy="95" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/></circle>
-      </svg>
+      <img class="setup-hex" src="/btcpc-logo.jpeg" alt="BTCPC">
       <h1>BTCPC Sensor Node</h1>
       <p>Turn your device into a BTCPC sensor node. Share GPS, motion, orientation, and device data to earn from the IoT pool.</p>
     </div>
@@ -766,6 +762,138 @@
       </div>
     </div>
 
+    <!-- Tab: Data marketplace -->
+    <div id="panel-data" class="tab-panel">
+      <div style="padding:12px 0 4px;font-size:13px;font-weight:600;color:var(--text);">Sensor Data Marketplace</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Query live sensor readings from the BTCPC network. Pay per reading — earnings go directly to sensor operators.</div>
+
+      <!-- Query builder -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em;">Query</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Sensor Type</label>
+            <select id="data-type" style="width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+              <option value="">All types</option>
+              <option value="gps">GPS (0.004 BTCPC/reading)</option>
+              <option value="heart_rate">Heart Rate (0.0035)</option>
+              <option value="barometer">Barometer (0.0025)</option>
+              <option value="magnetometer">Magnetometer (0.0025)</option>
+              <option value="pressure">Pressure (0.0015)</option>
+              <option value="motion">Motion (0.0018)</option>
+              <option value="orientation">Orientation (0.0018)</option>
+              <option value="network">Network (0.0012)</option>
+              <option value="light">Light (0.001)</option>
+              <option value="proximity">Proximity (0.001)</option>
+              <option value="steps">Steps (0.001)</option>
+              <option value="temperature">Temperature (0.0005)</option>
+              <option value="humidity">Humidity (0.0005)</option>
+              <option value="battery">Battery (0.0008)</option>
+              <option value="custom">Custom (0.0015)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Resolution</label>
+            <select id="data-resolution" style="width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+              <option value="raw">Raw (all readings)</option>
+              <option value="epoch">Per epoch (median)</option>
+              <option value="aggregate">Aggregate</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Owner (optional)</label>
+            <input type="text" id="data-owner" placeholder="e.g. shindevlin" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Sensor ID (optional)</label>
+            <input type="text" id="data-sensor-id" placeholder="e.g. shindevlin/nebra-1" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Epochs back</label>
+            <input type="number" id="data-epochs-back" value="100" min="1" max="10000" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Limit</label>
+            <input type="number" id="data-limit" value="100" min="1" max="10000" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+          <div style="display:flex;align-items:flex-end;padding-bottom:1px;">
+            <button id="data-quote-btn" style="width:100%;padding:7px 8px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.2);color:#f7931a;border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;">Estimate</button>
+          </div>
+        </div>
+
+        <!-- Cost estimate bar -->
+        <div id="data-quote-bar" style="display:none;background:rgba(247,147,26,0.07);border:1px solid rgba(247,147,26,0.2);border-radius:6px;padding:8px 10px;font-size:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:var(--muted);">Estimated cost</span>
+            <span id="data-quote-cost" style="color:#f7931a;font-weight:600;"></span>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;" id="data-quote-detail"></div>
+        </div>
+      </div>
+
+      <!-- AI analysis toggle -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;margin-bottom:8px;">
+          <input type="checkbox" id="data-analyze-toggle" style="accent-color:var(--orange);">
+          <span>AI analysis — run inference on returned data</span>
+        </label>
+        <div id="data-analyze-opts" style="display:none;">
+          <input type="text" id="data-analyze-prompt" placeholder="e.g. Are there any anomalies? What trends do you see?" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:6px;">
+          <select id="data-analyze-model" style="width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+            <option value="qwen3:4b">qwen3:4b (fast)</option>
+            <option value="gemma2:9b">gemma2:9b (thorough)</option>
+            <option value="qwen3.5:9b">qwen3.5:9b</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="data-query-btn" style="width:100%;padding:10px;background:var(--orange);border:none;border-radius:8px;color:#000;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px;">Query Network</button>
+      <div id="data-query-status" style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:10px;display:none;"></div>
+
+      <!-- Results -->
+      <div id="data-results" style="display:none;">
+        <!-- Payment receipt -->
+        <div id="data-receipt" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;font-size:12px;">
+          <div style="font-weight:600;margin-bottom:6px;color:var(--text);">Payment Receipt</div>
+          <div id="data-receipt-body" style="color:var(--muted);line-height:1.8;"></div>
+        </div>
+
+        <!-- AI analysis output -->
+        <div id="data-analysis-box" style="display:none;background:var(--surface);border:1px solid rgba(247,147,26,0.3);border-radius:10px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:600;color:#f7931a;margin-bottom:6px;">AI Analysis</div>
+          <div id="data-analysis-content" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;"></div>
+        </div>
+
+        <!-- Readings table -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+          <div style="padding:10px 12px;font-size:11px;font-weight:600;color:var(--muted);display:flex;justify-content:space-between;border-bottom:1px solid var(--border);">
+            <span>Readings</span>
+            <span id="data-reading-count" style="color:var(--orange);"></span>
+          </div>
+          <div id="data-table-container" style="overflow-x:auto;max-height:320px;overflow-y:auto;">
+            <table id="data-table" style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead>
+                <tr style="background:var(--bg);position:sticky;top:0;">
+                  <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:500;white-space:nowrap;">Sensor</th>
+                  <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:500;">Type</th>
+                  <th style="padding:6px 10px;text-align:right;color:var(--muted);font-weight:500;">Epoch</th>
+                  <th style="padding:6px 10px;text-align:right;color:var(--muted);font-weight:500;">Value</th>
+                </tr>
+              </thead>
+              <tbody id="data-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab: Settings -->
     <div id="panel-settings" class="tab-panel">
       <div class="settings-section">
@@ -863,6 +991,7 @@
       <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
       <button data-tab="mine"><span class="tab-icon">&#x26CF;&#xFE0F;</span>Mine</button>
       <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
+      <button data-tab="data"><span class="tab-icon">&#x1F4CA;</span>Data</button>
       <button data-tab="settings"><span class="tab-icon">&#x2699;&#xFE0F;</span>Settings</button>
     </div>
   </div>
@@ -2673,6 +2802,161 @@ function showReauth() {
 if (account) {
   initDashboard();
 }
+
+// ─── Data Marketplace Tab ───
+(function() {
+  var rateCard = null;
+
+  function getJwt() { return localStorage.getItem('btcpc-jwt'); }
+  function getAccount() { return localStorage.getItem('btcpc-sensor-account'); }
+
+  function buildQueryBody() {
+    var type = document.getElementById('data-type').value;
+    var resolution = document.getElementById('data-resolution').value;
+    var owner = (document.getElementById('data-owner').value || '').trim();
+    var sensorId = (document.getElementById('data-sensor-id').value || '').trim();
+    var epochsBack = Math.max(1, parseInt(document.getElementById('data-epochs-back').value) || 100);
+    var limit = Math.max(1, Math.min(10000, parseInt(document.getElementById('data-limit').value) || 100));
+    var analyze = document.getElementById('data-analyze-toggle').checked;
+    var analyzePrompt = (document.getElementById('data-analyze-prompt').value || '').trim();
+    var analyzeModel = document.getElementById('data-analyze-model').value;
+    var body = { resolution: resolution, limit: limit, epochs_back: epochsBack };
+    if (type) body.type = type;
+    if (owner) body.owner = owner;
+    if (sensorId) body.sensor_id = sensorId;
+    if (analyze) {
+      body.analyze = true;
+      body.analyze_model = analyzeModel;
+      if (analyzePrompt) body.analyze_prompt = analyzePrompt;
+    }
+    return body;
+  }
+
+  // Estimate cost without executing query
+  document.getElementById('data-quote-btn').addEventListener('click', async function() {
+    var jwt = getJwt();
+    if (!jwt) { showStatus('Log in first'); return; }
+    var btn = this;
+    btn.disabled = true; btn.textContent = '...';
+    try {
+      var body = buildQueryBody();
+      body.estimated_readings = parseInt(document.getElementById('data-limit').value) || 100;
+      var resp = await fetch('/api/sensor-data/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+        body: JSON.stringify(body)
+      });
+      var data = await resp.json();
+      if (data.success && data.quote) {
+        var q = data.quote;
+        var bar = document.getElementById('data-quote-bar');
+        document.getElementById('data-quote-cost').textContent = q.max_cost.toFixed(6) + ' BTCPC';
+        document.getElementById('data-quote-detail').textContent =
+          q.price_per_reading.toFixed(8) + ' BTCPC/reading · ' +
+          q.estimated_readings + ' estimated · type: ' + (q.type || 'any') + ' · ' + q.resolution;
+        bar.style.display = 'block';
+      } else {
+        showStatus(data.error && data.error.message ? data.error.message : 'Could not get quote');
+      }
+    } catch (e) { showStatus('Network error'); }
+    btn.disabled = false; btn.textContent = 'Estimate';
+  });
+
+  // AI analysis toggle
+  document.getElementById('data-analyze-toggle').addEventListener('change', function() {
+    document.getElementById('data-analyze-opts').style.display = this.checked ? 'block' : 'none';
+  });
+
+  function showStatus(msg) {
+    var el = document.getElementById('data-query-status');
+    el.textContent = msg; el.style.display = 'block';
+  }
+  function hideStatus() {
+    document.getElementById('data-query-status').style.display = 'none';
+  }
+
+  function renderReceipt(payment) {
+    if (!payment) return '';
+    var lines = ['Paid: ' + payment.total_fee.toFixed(8) + ' BTCPC (query: ' + payment.query_id.slice(0, 12) + '...)'];
+    if (payment.per_sensor && payment.per_sensor.length) {
+      lines.push('Sensor operators:');
+      payment.per_sensor.forEach(function(p) {
+        if (p.amount > 0) lines.push('  ' + p.owner + ' — ' + p.amount.toFixed(8) + ' BTCPC (' + p.readings + ' readings)');
+      });
+    }
+    if (payment.protocol && payment.protocol.length) {
+      lines.push('Protocol: ' + payment.protocol.map(function(p) { return p.account + ' ' + p.amount.toFixed(8); }).join(' / '));
+    }
+    return lines.join('\n');
+  }
+
+  function renderReadings(readings) {
+    var tbody = document.getElementById('data-table-body');
+    tbody.innerHTML = '';
+    readings.forEach(function(r) {
+      var tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--border)';
+      var sensorShort = r.sensor_id ? r.sensor_id.split('/').pop() : '—';
+      var val = r.value !== undefined && r.value !== null ? String(r.value) : '—';
+      if (r.unit) val += ' ' + r.unit;
+      tr.innerHTML =
+        '<td style="padding:5px 10px;color:var(--muted);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;" title="' + (r.sensor_id || '') + '">' + sensorShort + '</td>' +
+        '<td style="padding:5px 10px;color:var(--text);">' + (r.type || '—') + '</td>' +
+        '<td style="padding:5px 10px;text-align:right;color:var(--muted);">' + (r.epoch || '—') + '</td>' +
+        '<td style="padding:5px 10px;text-align:right;color:var(--orange);font-variant-numeric:tabular-nums;">' + val + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Execute paid query
+  document.getElementById('data-query-btn').addEventListener('click', async function() {
+    var jwt = getJwt();
+    if (!jwt) { showStatus('Log in first'); return; }
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Querying...';
+    hideStatus();
+    document.getElementById('data-results').style.display = 'none';
+    try {
+      var body = buildQueryBody();
+      var resp = await fetch('/api/sensor-data/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+        body: JSON.stringify(body)
+      });
+      var data = await resp.json();
+      if (resp.status === 401) {
+        localStorage.removeItem('btcpc-jwt');
+        showStatus('Session expired — please log in again');
+        btn.disabled = false; btn.textContent = 'Query Network'; return;
+      }
+      if (!data.success || !data.result) {
+        showStatus((data.error && data.error.message) ? data.error.message : 'Query failed');
+        btn.disabled = false; btn.textContent = 'Query Network'; return;
+      }
+      var result = data.result;
+      // Receipt
+      document.getElementById('data-receipt-body').style.whiteSpace = 'pre';
+      document.getElementById('data-receipt-body').style.fontFamily = 'monospace';
+      document.getElementById('data-receipt-body').textContent = renderReceipt(result.payment);
+      // Analysis
+      var analysisBox = document.getElementById('data-analysis-box');
+      if (result.analysis && result.analysis.content) {
+        document.getElementById('data-analysis-content').textContent = result.analysis.content;
+        analysisBox.style.display = 'block';
+      } else if (result.analysis && result.analysis.error) {
+        document.getElementById('data-analysis-content').textContent = 'Analysis failed: ' + result.analysis.error;
+        analysisBox.style.display = 'block';
+      } else {
+        analysisBox.style.display = 'none';
+      }
+      // Readings table
+      document.getElementById('data-reading-count').textContent = result.reading_count + ' readings';
+      renderReadings(result.readings || []);
+      document.getElementById('data-results').style.display = 'block';
+    } catch (e) { showStatus('Network error: ' + e.message); }
+    btn.disabled = false; btn.textContent = 'Query Network';
+  });
+})();
 </script>
 </body>
 </html>
