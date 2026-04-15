@@ -726,6 +726,30 @@ park bench its carrier walks through. The network effect is pedestrian-powered: 
 people carry Flippers, the higher the spatial and temporal resolution of every data
 product the chain can sell.
 
+### 7.14 Earn Where You Are
+
+BTCPC does not require specialized hardware or a data center. The design principle
+is: **earn where you are, not where we want you to be.**
+
+- A phone in your pocket earns from GPS, motion, and orientation sensors while you
+  walk. Open the browser, tap "Start Earning," and your device joins the network.
+- A laptop on your desk earns from AI inference while you work. The browser-based
+  miner uses WebGPU — no installation, no CLI, no Docker. Open a tab and mine.
+- A Raspberry Pi on your shelf earns from clock, storage, and gateway roles 24/7.
+  One-command install, set and forget.
+- A Flipper Zero in your bag earns from Sub-GHz, BLE, and NFC scanning everywhere
+  you go. Sync when you get home.
+
+The browser PWA at btcpc.net/app is the easiest onramp: zero installation, works on
+any device, earns from three pools simultaneously (clock 5%, sensors 10%, mining 55%).
+For users who want maximum earnings, the CLI provides full GPU access, larger models,
+and always-on operation.
+
+Every device contributes what it can. A phone's GPS reading is as valuable to the
+network as a GPU's inference result — both are real work, both earn BTCPC. The
+protocol does not privilege one type of hardware over another. It rewards useful work,
+wherever and however it happens.
+
 ---
 
 ## 8. Oracle Feeds
