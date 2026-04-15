@@ -506,7 +506,11 @@
       </div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
         <div class="label">Or load model from file</div>
-        <div class="sublabel">If auto-download fails (Brave, Firefox), download the model file first then load it here</div>
+        <div class="sublabel">If auto-download fails, download the model files first, then load them here.</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;padding:6px 8px;background:rgba(247,147,26,0.05);border-radius:4px;">
+          <strong style="color:var(--orange);">Step 1:</strong> Tap "Download" → save files to a folder you can find (e.g. <strong>Downloads/btcpc-models/</strong>)<br>
+          <strong style="color:var(--orange);">Step 2:</strong> Tap "Load from File" → select the downloaded files from that folder
+        </div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button id="mine-download-btn" style="flex:1;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Download Model File</button>
           <button id="mine-load-file-btn" style="flex:1;padding:8px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Load from File</button>
