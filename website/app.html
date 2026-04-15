@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>BTCPC — Turn Any Device Into a Node</title>
   <!-- iPad/Apple fullscreen -->
   <meta name="apple-mobile-web-app-title" content="BTCPC">
@@ -1749,10 +1752,15 @@ function checkDayReset() {
 }
 checkDayReset();
 
-// ─── Service Worker ───
+// ─── Service Worker — force update old cached versions ───
 if ('serviceWorker' in navigator) {
+  // Unregister old service workers first to bust stale cache
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.update());
+  });
   navigator.serviceWorker.register('/app-sw.js').then(reg => {
-    console.log('BTCPC Sensor SW registered', reg.scope);
+    reg.update(); // force check for new version
+    console.log('BTCPC SW registered', reg.scope);
   }).catch(err => {
     console.log('SW registration failed', err);
   });
