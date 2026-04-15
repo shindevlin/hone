@@ -780,11 +780,34 @@
                 } catch(_) {}
               }
               if (!resp) {
-                pullStatus.innerHTML =
-                  '<div style="color:#ef4444;margin-bottom:6px;">⚠ Could not reach Ollama at localhost:11434</div>' +
-                  '<div style="color:var(--muted);font-size:11px;line-height:1.6;">' +
-                  'Make sure Ollama is running: <code style="color:#f7931a;">ollama serve</code>' +
-                  '</div>';
+                if (window.btcpc && window.btcpc.native && window.btcpc.native.startOllama) {
+                  // Running inside BTCPC Desktop — offer to start Ollama automatically
+                  pullStatus.innerHTML =
+                    '<div style="color:#f7931a;margin-bottom:8px;">Ollama needs to start before downloading models.</div>' +
+                    '<button id="start-ollama-btn" style="background:#f7931a;color:#000;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">Start Ollama</button>';
+                  if (pb) { pb.textContent = 'Ollama not running'; pb.style.color = '#f7931a'; }
+                  var startBtn = document.getElementById('start-ollama-btn');
+                  if (startBtn) {
+                    startBtn.addEventListener('click', async function() {
+                      startBtn.textContent = 'Starting...';
+                      startBtn.disabled = true;
+                      try {
+                        var result = await window.btcpc.native.startOllama();
+                        if (result.ok) {
+                          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ Ollama started — click Pull again to download your models.</span>';
+                        } else if (result.reason === 'not_installed') {
+                          pullStatus.innerHTML = '<div style="color:#ef4444;">Ollama is not installed on this computer.<br><span style="color:var(--muted);font-size:11px;">Download it from ollama.com</span></div>';
+                        } else {
+                          pullStatus.innerHTML = '<div style="color:#ef4444;">Could not start Ollama.<br><span style="color:var(--muted);font-size:11px;">' + (result.reason || 'Unknown error') + '</span></div>';
+                        }
+                      } catch(e) {
+                        pullStatus.innerHTML = '<span style="color:#ef4444;">Something went wrong. Try restarting BTCPC Desktop.</span>';
+                      }
+                    });
+                  }
+                } else {
+                  pullStatus.innerHTML = '<div style="color:#ef4444;">Could not connect to Ollama.<br><span style="color:var(--muted);font-size:11px;">Restart BTCPC Desktop and click Start Ollama when asked.</span></div>';
+                }
                 if (pb) { pb.textContent = 'Ollama not running'; pb.style.color = '#ef4444'; }
                 continue;
               }
