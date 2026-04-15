@@ -118,7 +118,7 @@ const MESSAGE_TYPES = {
 // ---------------------------------------------------------------------------
 
 var _genesisHash = null; // cached on first use
-var STALE_MSG_MS = 300000; // 5 minutes
+var STALE_MSG_MS = 30000; // 30 seconds (one epoch) — tightened per security audit P2P-02
 
 function getGenesisHash() {
   if (_genesisHash) return _genesisHash;

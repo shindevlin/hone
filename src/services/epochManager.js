@@ -245,6 +245,17 @@ async function finalizeEpoch(epochNumber) {
     return epoch;
   }
 
+  // Security T-01: require minimum work before finalizing (prevents empty-epoch inflation).
+  // Bypass during genesis bootstrap (first 10 epochs) so chain can start without miners.
+  const MIN_WORK_THRESHOLD = parseFloat(process.env.BTCPC_MIN_WORK_THRESHOLD || '0');
+  if (MIN_WORK_THRESHOLD > 0 && epochNumber > 10) {
+    const totalWork = (epoch.commitments || []).reduce((s, c) => s + (c.inference_count || 0) + (c.tx_count || 0), 0);
+    if (totalWork < MIN_WORK_THRESHOLD) {
+      console.warn(`[BTCPC] Epoch ${epochNumber} below work threshold (${totalWork} < ${MIN_WORK_THRESHOLD}) — deferring finalization`);
+      return null;
+    }
+  }
+
   // Determine consensus hash
   epoch.consensus_hash = determineConsensusHash(epoch.commitments);
 

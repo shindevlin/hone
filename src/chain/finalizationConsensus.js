@@ -42,10 +42,12 @@ function hashRewards(rewards, totalWork, settledJobs, epochNumber) {
     return aName < bName ? -1 : aName > bName ? 1 : 0;
   });
 
-  // Hash rewards + epoch number to prevent cross-epoch replay of identical reward splits.
-  // total_work and settled_jobs remain metadata — not part of the consensus agreement.
+  // Hash rewards + epoch + total_work + settled_jobs count to prevent equivocation (T-05).
+  // All consensus-critical fields bound — different work totals produce different hashes.
   var canonical = {
     epoch: epochNumber || 0,
+    total_work: parseFloat((totalWork || 0).toFixed(6)),
+    settled_jobs: Array.isArray(settledJobs) ? settledJobs.length : (settledJobs || 0),
     rewards: sorted.map(function (r) {
       return { miner: r.miner || r.node_id, amount: parseFloat((r.amount || 0).toFixed(10)) };
     })
