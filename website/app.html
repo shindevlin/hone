@@ -238,15 +238,6 @@
     }
     .chat-input-row button:hover { background: #fbbf24; }
     .chat-input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .chat-model-row {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px;
-    }
-    .chat-model-row select {
-      flex: 1; padding: 8px 10px; background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
-      outline: none;
-    }
-    .chat-model-row select:focus { border-color: var(--orange); }
 
     /* Mine panel */
     .mine-connection {
@@ -517,16 +508,6 @@
         </label>
       </div>
 
-      <div class="mine-option">
-        <div>
-          <div class="label">Model</div>
-          <div class="sublabel">Smaller = faster download, less RAM</div>
-        </div>
-        <select id="mine-model-select">
-          <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5-0.5B (350MB)</option>
-          <option value="SmolLM2-360M-Instruct-q4f16_1-MLC">SmolLM-360M (250MB)</option>
-        </select>
-      </div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
         <div class="label">Download Models</div>
         <div class="sublabel">Select models to download. Your device specs are checked automatically.</div>
@@ -912,18 +893,6 @@
 
     <!-- Tab: Chat -->
     <div id="panel-chat" class="tab-panel">
-      <div class="chat-model-row">
-        <span style="color:var(--muted);">Model:</span>
-        <select id="chat-model">
-          <option value="auto">auto (network picks)</option>
-          <option value="qwen2.5:0.5b">qwen2.5:0.5b</option>
-          <option value="qwen3:4b">qwen3:4b</option>
-          <option value="llama3.2:3b">llama3.2:3b</option>
-          <option value="gemma3:4b">gemma3:4b</option>
-          <option value="deepseek-r1:7b">deepseek-r1:7b</option>
-          <option value="mistral:7b">mistral:7b</option>
-        </select>
-      </div>
       <div id="chat-messages"></div>
       <div class="chat-input-row">
         <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
@@ -2604,7 +2573,7 @@ function sendDeviceHeartbeat() {
       name: getDeviceType() + '-' + deviceId.slice(4,8),
       type: getDeviceType(),
       roles: ['clock', 'sensor'].concat(typeof miningActive !== 'undefined' && miningActive ? ['miner'] : []),
-      model: typeof mineModelSelect !== 'undefined' ? (mineModelSelect.value || null) : null,
+      model: typeof mineModelSelect !== 'undefined' ? (DEFAULT_MINE_MODEL || null) : null,
       status: 'active',
       sensors: activeSensors,
       earnings: todayEarnings || 0,
@@ -2808,7 +2777,7 @@ async function sendChat() {
     return;
   }
 
-  const model = document.getElementById('chat-model').value;
+  const model = 'auto';
   chatInput.value = '';
   chatInput.style.height = 'auto';
   chatSendBtn.disabled = true;
@@ -2993,14 +2962,12 @@ const mineJobText = document.getElementById('mine-job-text');
 const mineBattSlider = document.getElementById('mine-batt-slider');
 const mineBattVal = document.getElementById('mine-batt-val');
 const mineWifiOnly = document.getElementById('mine-wifi-only');
-const mineModelSelect = document.getElementById('mine-model-select');
+const DEFAULT_MINE_MODEL = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 
 // Restore saved preferences
 mineBattSlider.value = localStorage.getItem('btcpc-mine-batt') || '20';
 mineBattVal.textContent = mineBattSlider.value;
 mineWifiOnly.checked = localStorage.getItem('btcpc-mine-wifi-only') !== 'false';
-const savedMineModel = localStorage.getItem('btcpc-mine-model');
-if (savedMineModel) mineModelSelect.value = savedMineModel;
 
 mineBattSlider.addEventListener('input', () => {
   mineBattVal.textContent = mineBattSlider.value;
@@ -3008,9 +2975,6 @@ mineBattSlider.addEventListener('input', () => {
 });
 mineWifiOnly.addEventListener('change', () => {
   localStorage.setItem('btcpc-mine-wifi-only', mineWifiOnly.checked ? 'true' : 'false');
-});
-mineModelSelect.addEventListener('change', () => {
-  localStorage.setItem('btcpc-mine-model', mineModelSelect.value);
 });
 
 function updateMineStats() {
@@ -3065,7 +3029,7 @@ if (window.btcpcEngine) {
       if (pct >= 100) {
         setTimeout(() => {
           mineProgressWrap.style.display = 'none';
-          const modelName = mineModelSelect.value.split('-q')[0].replace(/-/g, ' ');
+          const modelName = DEFAULT_MINE_MODEL.split('-q')[0].replace(/-/g, ' ');
           mineModelText.textContent = 'Ready: ' + modelName;
           mineModelLoaded = true;
         }, 500);
@@ -3141,10 +3105,10 @@ mineToggleBtn.addEventListener('click', async () => {
       mineModelText.textContent = 'Loading model...';
       mineProgressWrap.style.display = 'block';
       mineProgressFill.style.width = '0%';
-      await window.btcpcEngine.initEngine(mineModelSelect.value);
+      await window.btcpcEngine.initEngine(DEFAULT_MINE_MODEL);
       mineModelLoaded = true;
       mineProgressWrap.style.display = 'none';
-      const modelName = mineModelSelect.value.split('-q')[0].replace(/-/g, ' ');
+      const modelName = DEFAULT_MINE_MODEL.split('-q')[0].replace(/-/g, ' ');
       mineModelText.textContent = 'Ready: ' + modelName;
     }
 
