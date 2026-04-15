@@ -93,6 +93,58 @@ function shouldFinalize(epochNumber, genesisTimestamp, epochDurationMs) {
 }
 
 /**
+ * Deterministically choose the expected proposer for an epoch.
+ * Uses the previous block hash as the seed so every node reaches the same
+ * authority choice after replaying the same chain.
+ */
+function selectProposer(epochNumber, previousBlockHash, eligibleAccounts) {
+  if (!Array.isArray(eligibleAccounts) || eligibleAccounts.length === 0) return null;
+  var accounts = eligibleAccounts
+    .filter(function (a) { return typeof a === "string" && a.length > 0; })
+    .slice()
+    .sort();
+  if (accounts.length === 0) return null;
+  var seed = String(previousBlockHash || "") + ":" + String(epochNumber || 0);
+  var digest = crypto.createHash("sha256").update(seed).digest();
+  var n = digest.readUInt32BE(0);
+  return accounts[n % accounts.length];
+}
+
+/**
+ * Validate a BLOCK_PROPOSAL proposer against deterministic authority rotation.
+ * If the designated proposer misses most of the epoch, any eligible proposer
+ * can finalize as a fallback so the chain self-heals instead of stalling.
+ *
+ * @returns {{valid:boolean, reason:string|null, designated:string|null, fallback:boolean}}
+ */
+function validateProposer(proposer, epochNumber, previousBlockHash, eligibleAccounts, epochStartMs, nowMs) {
+  var designated = selectProposer(epochNumber, previousBlockHash, eligibleAccounts);
+  if (!proposer) {
+    return { valid: false, reason: "missing proposer", designated: designated, fallback: false };
+  }
+  if (!designated) {
+    return { valid: true, reason: null, designated: proposer, fallback: true };
+  }
+  var accounts = eligibleAccounts || [];
+  if (accounts.indexOf(proposer) < 0) {
+    return { valid: false, reason: "proposer is not eligible", designated: designated, fallback: false };
+  }
+  if (proposer === designated) {
+    return { valid: true, reason: null, designated: designated, fallback: false };
+  }
+  var epochMs = 30000;
+  var envEpochMs = parseInt(process.env.BTCPC_EPOCH_DURATION_MS || process.env.EPOCH_DURATION_MS, 10);
+  if (Number.isFinite(envEpochMs) && envEpochMs > 0) epochMs = envEpochMs;
+  var start = Number(epochStartMs);
+  var now = Number(nowMs || Date.now());
+  var fallbackAfterMs = Math.floor(epochMs * 0.75);
+  if (Number.isFinite(start) && start > 0 && now >= start + fallbackAfterMs) {
+    return { valid: true, reason: null, designated: designated, fallback: true };
+  }
+  return { valid: false, reason: "not designated proposer (designated " + designated + ")", designated: designated, fallback: false };
+}
+
+/**
  * Compare two finalization proposals.
  * The one with more total work wins. Ties broken by earlier timestamp.
  *
@@ -133,6 +185,8 @@ module.exports = {
   computeEpochNumber: computeEpochNumber,
   epochStartTime: epochStartTime,
   shouldFinalize: shouldFinalize,
+  selectProposer: selectProposer,
+  validateProposer: validateProposer,
   compareFinalization: compareFinalization,
   validateEpochStart: validateEpochStart,
   GENESIS_MINER: GENESIS_MINER

@@ -34,7 +34,7 @@ var onResolvedCallbacks = [];
  * Hash a rewards array to produce a deterministic consensus_hash.
  * All miners with the same proofs will compute the same hash.
  */
-function hashRewards(rewards, totalWork, settledJobs) {
+function hashRewards(rewards, totalWork, settledJobs, epochNumber) {
   // Sort rewards deterministically: by miner name ascending
   var sorted = (rewards || []).slice().sort(function (a, b) {
     var aName = a.miner || a.node_id || "";
@@ -42,9 +42,10 @@ function hashRewards(rewards, totalWork, settledJobs) {
     return aName < bName ? -1 : aName > bName ? 1 : 0;
   });
 
-  // Only hash the rewards — this is what we're reaching consensus on.
-  // total_work and settled_jobs are metadata, not part of the agreement.
+  // Hash rewards + epoch number to prevent cross-epoch replay of identical reward splits.
+  // total_work and settled_jobs remain metadata — not part of the consensus agreement.
   var canonical = {
+    epoch: epochNumber || 0,
     rewards: sorted.map(function (r) {
       return { miner: r.miner || r.node_id, amount: parseFloat((r.amount || 0).toFixed(10)) };
     })
@@ -103,7 +104,7 @@ function submitProposal(epochNumber, proposal) {
 
   // Ensure consensus_hash
   if (!proposal.consensus_hash) {
-    proposal.consensus_hash = hashRewards(proposal.rewards, proposal.total_work, proposal.settled_jobs);
+    proposal.consensus_hash = hashRewards(proposal.rewards, proposal.total_work, proposal.settled_jobs, epochNumber);
   }
 
   state.proposals.push(proposal);
