@@ -808,7 +808,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
   try {
     // Step 1: Try to LOGIN first (existing account)
-    const loginResp = await fetch('/api/bot/login', {
+    const loginResp = await fetch('/public/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: val, password: pwd })
@@ -825,7 +825,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     } else if (loginData.error && /not found|no account|unknown/i.test(loginData.error)) {
       // Account doesn't exist — CREATE it
       btn.textContent = 'Creating account...';
-      const createResp = await fetch('/api/bot/create', {
+      const createResp = await fetch('/public/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: val, password: pwd })
