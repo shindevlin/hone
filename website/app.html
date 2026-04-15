@@ -679,6 +679,43 @@
           : '<strong style="color:#22c55e;">How it works:</strong> Models are cached in your browser. Only one runs at a time — swapped automatically per job. Bigger models = higher earnings.';
         listEl.appendChild(note);
 
+        // ── Select helpers ──────────────────────────────────────────────
+        var selRow = document.createElement('div');
+        selRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;';
+
+        // "Select all compatible" button
+        var selAllBtn = document.createElement('button');
+        selAllBtn.textContent = 'Select All Compatible';
+        selAllBtn.style.cssText = 'padding:5px 12px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;';
+        selAllBtn.addEventListener('click', function() {
+          document.querySelectorAll('.model-cb').forEach(function(cb) {
+            cb.checked = !cb.disabled;
+          });
+        });
+
+        // "Deselect all" button
+        var deselBtn = document.createElement('button');
+        deselBtn.textContent = 'Deselect All';
+        deselBtn.style.cssText = 'padding:5px 12px;background:rgba(100,100,100,0.1);border:1px solid rgba(100,100,100,0.2);color:var(--muted);border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;';
+        deselBtn.addEventListener('click', function() {
+          document.querySelectorAll('.model-cb').forEach(function(cb) { cb.checked = false; });
+        });
+
+        var selCount = document.createElement('span');
+        selCount.style.cssText = 'font-size:11px;color:var(--muted);margin-left:4px;';
+        selCount.textContent = '';
+
+        // Keep count updated
+        listEl.addEventListener('change', function() {
+          var n = document.querySelectorAll('.model-cb:checked').length;
+          selCount.textContent = n > 0 ? n + ' selected' : '';
+        });
+
+        selRow.appendChild(selAllBtn);
+        selRow.appendChild(deselBtn);
+        selRow.appendChild(selCount);
+        listEl.appendChild(selRow);
+
         // Download / Pull button handler
         var dlBtn = document.getElementById('mine-download-selected');
         dlBtn.textContent = desktopMode ? 'Pull Selected (Ollama)' : 'Download Selected';
