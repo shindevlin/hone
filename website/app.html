@@ -752,12 +752,21 @@
               if (pb) { pb.style.display = 'inline'; pb.textContent = 'Starting...'; }
               dlBtn.textContent = 'Pulling ' + modelId + '...';
               pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span> — connecting to Ollama...';
+              // Always try local node first — works whether loaded from btcpc.net or localhost
+              var pullEndpoints = ['http://localhost:3000/v1/node/pull-model', '/v1/node/pull-model'];
+              var resp = null;
+              for (var pi = 0; pi < pullEndpoints.length; pi++) {
+                try {
+                  var tryResp = await fetch(pullEndpoints[pi], {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+                    body: JSON.stringify({ model: modelId })
+                  });
+                  if (tryResp.status !== 404) { resp = tryResp; break; }
+                } catch(_) {}
+              }
+              if (!resp) { pullStatus.innerHTML = '<span style="color:#ef4444;">No local node found at localhost:3000</span>'; if (pb) { pb.textContent = 'No local node'; pb.style.color = '#ef4444'; } continue; }
               try {
-                var resp = await fetch('/v1/node/pull-model', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-                  body: JSON.stringify({ model: modelId })
-                });
                 if (!resp.ok) {
                   var errBody = await resp.text();
                   var errMsg = 'HTTP ' + resp.status;
