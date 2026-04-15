@@ -575,7 +575,10 @@
           (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
 
         var desktopMode = new URLSearchParams(location.search).get('desktop') === '1'
-          || navigator.userAgent.includes('Electron');
+          || navigator.userAgent.includes('Electron')
+          || location.hostname === 'localhost'
+          || location.hostname === '127.0.0.1'
+          || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname);
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
         var ollamaModels = [
