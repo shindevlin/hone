@@ -12,6 +12,7 @@
 const WebSocket = require("ws");
 const crypto = require("crypto");
 const { handleMessage, createHandshake, knownPeers, startPeerAnnounce, stopPeerAnnounce } = require("./protocol");
+const transport = require("./encryptedTransport");
 
 // Node identity — generated once on first start, persisted in env or memory
 const NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
@@ -51,8 +52,14 @@ function startServer(port) {
 
     setupPeerSocket(ws, remoteAddr, "inbound");
 
-    // Send handshake to the newly connected peer
-    sendHandshake(ws);
+    // Noise_XX handshake — responder waits for initiator's first message
+    transport.acceptHandshake(ws, transport.getStaticKeypair(), remoteAddr).then(function () {
+      // Handshake complete — send BTCPC protocol handshake over encrypted channel
+      sendHandshake(ws);
+    }).catch(function (err) {
+      console.error("[BTCPC Noise] Inbound handshake failed from " + rawAddr + ":", err.message);
+      ws.close();
+    });
   });
 
   wss.on("error", function (err) {
@@ -145,9 +152,16 @@ function connectToPeer(address) {
     ws.on("open", function () {
       console.log("[BTCPC P2P] Connected to " + address);
       setupPeerSocket(ws, address, "outbound");
-      sendHandshake(ws);
-      // Remember this peer for relay-free reconnection
-      knownPeers.add(address);
+
+      // Noise_XX handshake — initiator sends first message
+      transport.startHandshake(ws, transport.getStaticKeypair(), address).then(function () {
+        // Handshake complete — send BTCPC protocol handshake and pin peer
+        sendHandshake(ws);
+        knownPeers.add(address);
+      }).catch(function (err) {
+        console.error("[BTCPC Noise] Outbound handshake failed to " + address + ":", err.message);
+        ws.close();
+      });
     });
 
     ws.on("error", function (err) {
@@ -203,8 +217,24 @@ function setupPeerSocket(ws, address, direction) {
 
   ws.on("message", function (data) {
     peer.lastSeen = Date.now();
+
+    // Route through Noise handshake while in progress
+    if (transport.isHandshaking(ws)) {
+      transport.processHandshakeData(ws, data, transport.getStaticKeypair());
+      return;
+    }
+
+    // Decrypt transport message, then dispatch
+    var plaintext;
     try {
-      const msg = JSON.parse(data.toString());
+      plaintext = transport.receive(ws, data);
+    } catch (err) {
+      console.error("[BTCPC Noise] Decrypt error from " + address + ":", err.message);
+      return;
+    }
+
+    try {
+      const msg = JSON.parse(plaintext);
       handleIncoming(peer, msg);
     } catch (err) {
       console.error("[BTCPC P2P] Bad message from " + address + ":", err.message);
@@ -214,6 +244,7 @@ function setupPeerSocket(ws, address, direction) {
   ws.on("close", function () {
     console.log("[BTCPC P2P] Disconnected from " + address);
     peer.status = "disconnected";
+    transport.closeTransport(ws);
     if (direction === "outbound") {
       scheduleReconnect(address);
     }
@@ -222,6 +253,7 @@ function setupPeerSocket(ws, address, direction) {
   ws.on("error", function () {
     // Error already logged on the ws object; just mark disconnected
     peer.status = "disconnected";
+    transport.closeTransport(ws);
   });
 }
 
@@ -235,23 +267,31 @@ function sendHandshake(ws) {
 // ---------------------------------------------------------------------------
 
 /**
- * Send a message object to a single WebSocket.
+ * Send a message object to a single WebSocket (Noise-encrypted).
  */
 function send(ws, msg) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
+  if (ws.readyState === WebSocket.OPEN && transport.isReady(ws)) {
+    try {
+      transport.send(ws, msg);
+    } catch (err) {
+      console.error("[BTCPC P2P] Send error:", err.message);
+    }
   }
 }
 
 /**
- * Broadcast a message to all connected peers.
+ * Broadcast a message to all connected peers (Noise-encrypted).
  * Optionally exclude a specific peer address.
  */
 function broadcast(message, excludeAddress) {
   for (const [addr, peer] of peers) {
     if (addr === excludeAddress) continue;
-    if (peer.ws && peer.ws.readyState === WebSocket.OPEN) {
-      peer.ws.send(JSON.stringify(message));
+    if (peer.ws && peer.ws.readyState === WebSocket.OPEN && transport.isReady(peer.ws)) {
+      try {
+        transport.send(peer.ws, message);
+      } catch (err) {
+        console.error("[BTCPC P2P] Broadcast error to " + addr + ":", err.message);
+      }
     }
   }
 }
@@ -403,5 +443,6 @@ module.exports = {
   getConnectedCount,
   getNodeId,
   NODE_ID,
-  peers
+  peers,
+  getKnownPeerKeys: transport.getKnownPeerKeys,
 };
