@@ -438,7 +438,7 @@ async function authenticateBearer(req, res, next) {
   }
 
   // Node-operator paths: accept standard JWT (logged-in desktop user pulling models)
-  const jwtAllowedPaths = ['/v1/node/pull-model'];
+  const jwtAllowedPaths = ['/v1/node/pull-model', '/v1/node/model-info'];
   if (jwtAllowedPaths.some(p => req.path.startsWith(p))) {
     try {
       const jwtLib = require('jsonwebtoken');
@@ -529,6 +529,44 @@ router.post('/v1/node/pull-model', async (req, res) => {
   } catch (err) {
     res.write(JSON.stringify({ error: err.message || 'Pull failed' }) + '\n');
     res.end();
+  }
+});
+
+/**
+ * GET /v1/node/model-info?model=<name>
+ * Returns Ollama model digest + storage path for security verification.
+ * No billing — read-only metadata. Accessible with login JWT.
+ */
+router.get('/v1/node/model-info', async (req, res) => {
+  const model = (req.query.model || '').trim();
+  if (!model || !/^[a-zA-Z0-9_.:/-]+$/.test(model)) {
+    return res.status(400).json({ error: 'Invalid model name' });
+  }
+  try {
+    const info = await axios.post(`${OLLAMA_URL}/api/show`, { name: model }, { timeout: 10000 });
+    const digest = info.data.details && info.data.details.parent_model
+      ? info.data.details.parent_model
+      : (info.data.digest || null);
+    const blobHash = digest ? digest.replace('sha256:', '') : null;
+    const os = process.platform;
+    const home = process.env.HOME || process.env.USERPROFILE || '~';
+    const ollamaDir = os === 'win32'
+      ? '%USERPROFILE%\\.ollama\\models'
+      : (os === 'darwin' ? home + '/.ollama/models' : home + '/.ollama/models');
+    res.json({
+      model,
+      digest: digest || null,
+      blob_hash: blobHash,
+      storage_dir: ollamaDir,
+      blob_path: blobHash ? ollamaDir + '/blobs/sha256-' + blobHash : null,
+      verify_cmd: blobHash
+        ? (os === 'win32'
+          ? 'certutil -hashfile "' + ollamaDir + '\\blobs\\sha256-' + blobHash + '" SHA256'
+          : 'sha256sum "' + ollamaDir + '/blobs/sha256-' + blobHash + '"')
+        : null
+    });
+  } catch (err) {
+    res.status(502).json({ error: 'Could not fetch model info from Ollama: ' + err.message });
   }
 });
 

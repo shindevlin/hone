@@ -794,8 +794,27 @@
                         pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span>  ' + ev.status + pct + mb;
                         if (pb) pb.textContent = ev.status + pct;
                         if (ev.status === 'success') {
-                          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span>';
                           if (pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
+                          // Fetch digest for security verification
+                          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' downloaded — fetching digest...</span>';
+                          try {
+                            var infoResp = await fetch('http://localhost:3000/v1/node/model-info?model=' + encodeURIComponent(modelId), {
+                              headers: { 'Authorization': 'Bearer ' + jwt }
+                            });
+                            var info = await infoResp.json();
+                            if (info.digest) {
+                              pullStatus.innerHTML =
+                                '<div style="color:#22c55e;margin-bottom:6px;">✓ ' + modelId + ' ready</div>' +
+                                '<div style="color:var(--muted);margin-bottom:4px;">📁 Stored in: <span style="color:var(--text);">' + info.storage_dir + '</span></div>' +
+                                '<div style="color:var(--muted);margin-bottom:6px;">🔑 SHA256: <span style="color:#f7931a;word-break:break-all;">' + info.blob_hash + '</span></div>' +
+                                '<div style="color:#64748b;font-size:10px;border-top:1px solid var(--border);padding-top:6px;">For security, verify this hash matches the official Ollama registry before mining.<br>' +
+                                'Run: <span style="color:var(--text);">' + (info.verify_cmd || 'sha256sum ' + info.blob_path) + '</span></div>';
+                            } else {
+                              pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span><br><span style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/</span>';
+                            }
+                          } catch(_) {
+                            pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span><br><span style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/blobs/</span>';
+                          }
                         }
                       }
                     } catch(_) {}
