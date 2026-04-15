@@ -31,11 +31,12 @@
       --text: #e2e8f0; --muted: #64748b; --orange: #f7931a; --green: #22c55e;
       --red: #ef4444; --gray: #4b5563;
     }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; overscroll-behavior: none; }
     body {
       font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
       background: var(--bg); color: var(--text); line-height: 1.5;
       min-height: 100vh; padding-top: 42px; -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
     }
     a { color: var(--orange); text-decoration: none; }
 
