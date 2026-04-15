@@ -1005,6 +1005,232 @@
       </div>
     </div>
 
+    <!-- Node Dashboard Panel -->
+    <div id="panel-node" class="tab-panel">
+      <!-- Connection banner -->
+      <div id="node-connection-bar" style="padding:8px 12px;border-radius:8px;margin-bottom:12px;font-size:12px;display:flex;align-items:center;gap:8px;background:rgba(247,147,26,0.08);border:1px solid rgba(247,147,26,0.2);">
+        <span id="node-conn-dot" style="width:8px;height:8px;border-radius:50%;background:#6b7280;flex-shrink:0;"></span>
+        <span id="node-conn-label" style="color:var(--muted);">Checking local node...</span>
+      </div>
+
+      <!-- Epoch progress -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <span class="label">Epoch</span>
+          <span id="node-epoch-num" style="font-size:20px;font-weight:700;color:var(--orange);">—</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+          <div id="node-epoch-bar" style="height:100%;width:0%;background:var(--orange);border-radius:3px;transition:width 1s linear;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--muted);">
+          <span id="node-epoch-elapsed">—s elapsed</span>
+          <span id="node-epoch-remain">—s remaining</span>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+          Block reward: <span id="node-block-reward" style="color:var(--orange);">—</span> BTCPC &nbsp;·&nbsp;
+          Status: <span id="node-epoch-status">—</span>
+        </div>
+      </div>
+
+      <!-- Network stats row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="node-stat-nodes" style="font-size:20px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Nodes</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="node-stat-miners" style="font-size:20px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Miners</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="node-stat-clocks" style="font-size:20px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Clocks</div>
+        </div>
+      </div>
+
+      <!-- My node stats (only when logged in + local node) -->
+      <div id="node-my-stats" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;display:none;">
+        <div class="label" style="margin-bottom:8px;">My Node</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <div style="font-size:10px;color:var(--muted);">Balance</div>
+            <div id="node-my-balance" style="font-size:16px;font-weight:700;color:var(--orange);">—</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);">Commitments this epoch</div>
+            <div id="node-my-commitments" style="font-size:16px;font-weight:700;">—</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Loaded models</div>
+          <div id="node-my-models" style="font-size:11px;color:var(--muted);">—</div>
+        </div>
+      </div>
+
+      <!-- Recent blocks -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span class="label">Recent Blocks</span>
+          <button id="node-refresh-btn" onclick="window._nodeRefresh && window._nodeRefresh()" style="padding:3px 8px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.2);color:#f7931a;border-radius:5px;font-family:inherit;font-size:10px;cursor:pointer;">Refresh</button>
+        </div>
+        <div id="node-blocks-list" style="font-size:11px;color:var(--muted);">Loading...</div>
+      </div>
+
+      <!-- Peers / roles -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;">
+        <div class="label" style="margin-bottom:8px;">Network Roles</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;" id="node-roles-grid">
+          <div style="color:var(--muted);">Verifiers: <span id="node-verifiers" style="color:var(--text);">—</span></div>
+          <div style="color:var(--muted);">Storage: <span id="node-storage" style="color:var(--text);">—</span></div>
+          <div style="color:var(--muted);">Gateways: <span id="node-gateways" style="color:var(--text);">—</span></div>
+          <div style="color:var(--muted);">Browser clocks: <span id="node-browser-clocks" style="color:var(--text);">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    // ── Node Dashboard ──────────────────────────────────────────────────────
+    (function() {
+      var EPOCH_MS = 30000;
+      var GENESIS_TS = 1776236400000;
+      var refreshInterval = null;
+
+      async function refreshNode() {
+        try {
+          // 1. Network stats (always available — works against any node)
+          var netResp = await fetch('/public/network');
+          var net = await netResp.json();
+
+          var dot = document.getElementById('node-conn-dot');
+          var label = document.getElementById('node-conn-label');
+          if (net.alive) {
+            dot.style.background = '#22c55e';
+            label.style.color = '#22c55e';
+            label.textContent = 'Local node connected · epoch age ' + net.epoch_age_seconds + 's';
+          } else {
+            dot.style.background = '#ef4444';
+            label.style.color = '#ef4444';
+            label.textContent = 'Node stalled — last block ' + Math.round(net.epoch_age_seconds / 60) + 'm ago';
+          }
+
+          document.getElementById('node-stat-nodes').textContent = net.nodes || '—';
+          document.getElementById('node-stat-miners').textContent = net.miners || '—';
+          document.getElementById('node-stat-clocks').textContent = net.clocks || '—';
+          document.getElementById('node-verifiers').textContent = net.verifiers || '0';
+          document.getElementById('node-storage').textContent = net.storage || '0';
+          document.getElementById('node-gateways').textContent = net.gateways || '0';
+          document.getElementById('node-browser-clocks').textContent = net.browser_clocks || '0';
+
+          // 2. Epoch info
+          var epResp = await fetch('/node/epoch/current');
+          var epData = await epResp.json();
+          if (epData.success && epData.epoch) {
+            var ep = epData.epoch;
+            document.getElementById('node-epoch-num').textContent = '#' + ep.epoch_number;
+            document.getElementById('node-block-reward').textContent = ep.block_reward ? ep.block_reward.toFixed(4) : '—';
+            document.getElementById('node-epoch-status').textContent = ep.status || '—';
+
+            // Progress bar — compute elapsed time within current epoch
+            var epochStart = GENESIS_TS + (ep.epoch_number * EPOCH_MS);
+            var elapsed = Math.max(0, Math.min(EPOCH_MS, Date.now() - epochStart));
+            var pct = (elapsed / EPOCH_MS * 100).toFixed(1);
+            document.getElementById('node-epoch-bar').style.width = pct + '%';
+            document.getElementById('node-epoch-elapsed').textContent = Math.round(elapsed / 1000) + 's elapsed';
+            document.getElementById('node-epoch-remain').textContent = Math.round((EPOCH_MS - elapsed) / 1000) + 's remaining';
+          }
+
+          // 3. My node — balance + loaded models (requires JWT)
+          var jwt = localStorage.getItem('btcpc-jwt');
+          var account = localStorage.getItem('btcpc-account') || localStorage.getItem('btcpc-sensor-account');
+          if (jwt && account) {
+            document.getElementById('node-my-stats').style.display = 'block';
+            try {
+              var balResp = await fetch('/api/wallet/balance?account=' + encodeURIComponent(account));
+              var bal = await balResp.json();
+              document.getElementById('node-my-balance').textContent = (bal.balance || 0).toFixed(4) + ' BTCPC';
+            } catch(_) {}
+            try {
+              var modResp = await fetch('/v1/models', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              var modData = await modResp.json();
+              var names = (modData.data || []).map(function(m){ return m.id; }).join(', ') || 'None loaded';
+              document.getElementById('node-my-models').textContent = names;
+            } catch(_) {
+              document.getElementById('node-my-models').textContent = 'Ollama not running';
+            }
+            if (epData.success && epData.epoch) {
+              document.getElementById('node-my-commitments').textContent = epData.epoch.commitments_count || '0';
+            }
+          }
+
+          // 4. Recent blocks — last 8 epochs
+          try {
+            var blocksHtml = '';
+            var epNum = (epData.success && epData.epoch) ? epData.epoch.epoch_number : net.epoch;
+            for (var i = 0; i < 8; i++) {
+              var n = epNum - i;
+              if (n < 0) break;
+              var bResp = await fetch('/node/epoch/' + n);
+              var bData = await bResp.json();
+              if (bData.success && bData.epoch) {
+                var b = bData.epoch;
+                var ago = b.ended_at ? Math.round((Date.now() - new Date(b.ended_at).getTime()) / 1000) + 's ago' : 'active';
+                blocksHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;">' +
+                  '<span style="color:var(--orange);">#' + b.epoch_number + '</span>' +
+                  '<span style="color:var(--muted);">' + (b.commitments_count || 0) + ' commits</span>' +
+                  '<span style="color:var(--muted);">' + (b.total_work ? b.total_work.toFixed(2) : '0') + ' work</span>' +
+                  '<span style="color:var(--muted);font-size:10px;">' + ago + '</span>' +
+                  '</div>';
+              }
+            }
+            document.getElementById('node-blocks-list').innerHTML = blocksHtml || '<span style="color:var(--muted);">No blocks yet</span>';
+          } catch(_) {}
+
+        } catch(err) {
+          var dot2 = document.getElementById('node-conn-dot');
+          var label2 = document.getElementById('node-conn-label');
+          dot2.style.background = '#6b7280';
+          label2.style.color = 'var(--muted)';
+          label2.textContent = 'Cannot reach node at ' + location.hostname;
+        }
+      }
+
+      window._nodeRefresh = refreshNode;
+
+      // Auto-refresh when Node tab is active
+      var tabBar = document.getElementById('tab-bar');
+      if (tabBar) {
+        tabBar.addEventListener('click', function(e) {
+          var btn = e.target.closest('[data-tab]');
+          if (!btn) return;
+          clearInterval(refreshInterval);
+          if (btn.dataset.tab === 'node') {
+            refreshNode();
+            refreshInterval = setInterval(refreshNode, 15000);
+          }
+        });
+      }
+
+      // Tick epoch bar every second when on node tab
+      setInterval(function() {
+        var panel = document.getElementById('panel-node');
+        if (!panel || !panel.classList.contains('active')) return;
+        var bar = document.getElementById('node-epoch-bar');
+        var elapsed_el = document.getElementById('node-epoch-elapsed');
+        var remain_el = document.getElementById('node-epoch-remain');
+        if (!bar) return;
+        var epNumText = (document.getElementById('node-epoch-num').textContent || '').replace('#','');
+        var epNum = parseInt(epNumText);
+        if (isNaN(epNum)) return;
+        var epochStart = GENESIS_TS + (epNum * EPOCH_MS);
+        var elapsed = Math.max(0, Math.min(EPOCH_MS, Date.now() - epochStart));
+        var pct = (elapsed / EPOCH_MS * 100).toFixed(1);
+        bar.style.width = pct + '%';
+        elapsed_el.textContent = Math.round(elapsed / 1000) + 's elapsed';
+        remain_el.textContent = Math.round((EPOCH_MS - elapsed) / 1000) + 's remaining';
+      }, 1000);
+    })();
+    </script>
+
     <div class="app-footer">BTCPC Node v3.0 &mdash; btcpc.net</div>
   </div>
 
@@ -1013,6 +1239,7 @@
     <div class="tab-inner">
       <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
       <button data-tab="mine"><span class="tab-icon">&#x26CF;&#xFE0F;</span>Mine</button>
+      <button data-tab="node"><span class="tab-icon">&#x1F5A5;&#xFE0F;</span>Node</button>
       <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
       <button data-tab="data"><span class="tab-icon">&#x1F4CA;</span>Data</button>
       <button data-tab="settings"><span class="tab-icon">&#x2699;&#xFE0F;</span>Settings</button>
