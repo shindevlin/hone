@@ -152,13 +152,13 @@ You should see output like:
 [BTCPC] Ollama:     http://localhost:11434
 [BTCPC] Model:      qwen3.5:27b
 [BTCPC] Work/epoch: 3
-[BTCPC] Epoch:      300s
+[BTCPC] Epoch:      30s
 [BTCPC] ================================================
 [BTCPC] Genesis block already exists
 [BTCPC] Epoch 1 mining started
 ```
 
-The daemon runs continuously with 5-minute epoch cycles. Press `Ctrl+C` to stop gracefully.
+The daemon runs continuously with 30-second epoch cycles. Press `Ctrl+C` to stop gracefully.
 
 ### Always-On Mode (Recommended)
 

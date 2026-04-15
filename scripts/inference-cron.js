@@ -10,7 +10,7 @@
 require('dotenv').config();
 const axios = require('axios');
 
-const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3100';
+const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
 const PROJECT_KEY = process.env.BTCPC_PROJECT_KEY;
 const INTERVAL = parseInt(process.env.CRON_INTERVAL_MS) || 120000; // 2 min default
 const MODEL = process.env.CRON_MODEL || 'qwen3:4b';

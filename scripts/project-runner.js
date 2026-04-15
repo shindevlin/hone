@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // ─── Configuration ───────────────────────────────────────────────
 
 const INTERVAL_MS = parseInt(process.env.JOB_INTERVAL_MS) || 120000;
-const API_URL = 'http://localhost:3100';
+const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
 const REPOS_DIR = '/home/ubuntclaw/repos';
 
 // Project definitions with intelligent prompt strategies

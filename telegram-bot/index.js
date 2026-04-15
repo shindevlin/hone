@@ -558,7 +558,7 @@ bot.on('message', async (msg) => {
 
   try {
     // Submit async job via local API
-    const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3100';
+    const API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
     const submitRes = await axios.post(`${API_URL}/v1/inference/submit`, {
       model: 'qwen3.5:27b',
       messages: [{ role: 'user', content: prompt }],

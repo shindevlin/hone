@@ -13,7 +13,7 @@ const http = require("http");
 const app = express();
 const PORT = process.env.PORT || 4243;
 const ROOT = __dirname;
-const API_PORT = process.env.BTCPC_API_PORT || 3100;
+const API_PORT = process.env.BTCPC_API_PORT || 3000;
 
 // Permissions-Policy header for PWA sensor access on Android Chrome
 app.use((req, res, next) => {

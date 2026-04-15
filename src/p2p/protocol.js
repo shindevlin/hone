@@ -692,8 +692,52 @@ function handleInferenceMessage(peer, msg, ctx) {
     }
   }
 
+  // Track model demand from MODEL_DEMAND messages
+  if (msg.type === MESSAGE_TYPES.MODEL_DEMAND) {
+    var demandData = msg.data || {};
+    if (demandData.model && typeof demandData.model === "string") {
+      _addModelDemand(demandData.model, demandData.account || "anonymous");
+    }
+  }
+
   // Rebroadcast to all other peers
   ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Model demand tracking — miners use this to decide which models to pull
+// ---------------------------------------------------------------------------
+// Map<model, { count, accounts: Set<string>, first_requested: number }>
+const modelDemandMap = new Map();
+
+function _addModelDemand(model, account) {
+  var clean = model.trim().toLowerCase();
+  if (!clean || clean.length > 100) return;
+  var entry = modelDemandMap.get(clean);
+  if (!entry) {
+    entry = { count: 0, accounts: new Set(), first_requested: Date.now() };
+    modelDemandMap.set(clean, entry);
+  }
+  entry.count++;
+  if (account && typeof account === "string") entry.accounts.add(account);
+}
+
+function addModelDemand(model, account) {
+  _addModelDemand(model, account);
+}
+
+function getModelDemand() {
+  var result = [];
+  for (var [model, entry] of modelDemandMap) {
+    result.push({
+      model: model,
+      count: entry.count,
+      unique_accounts: entry.accounts.size,
+      first_requested: entry.first_requested,
+    });
+  }
+  result.sort(function(a, b) { return b.count - a.count; });
+  return result.slice(0, 20);
 }
 
 /**
@@ -1809,5 +1853,7 @@ module.exports = {
   handleMempoolEntry,
   knownPeers,
   startPeerAnnounce,
-  stopPeerAnnounce
+  stopPeerAnnounce,
+  addModelDemand,
+  getModelDemand
 };

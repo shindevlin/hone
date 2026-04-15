@@ -21,7 +21,7 @@ TASKS:
 1. Read all JSON files from .btcpc-inference/ and extract the "result" field
 2. Parse each result as a fake headline and store in the game's headline database
 3. Create a script that submits NEW headline generation jobs to BTCPC:
-   - POST to http://localhost:3100/v1/inference/submit with the project API key
+   - POST to http://localhost:3000/v1/inference/submit with the project API key
    - Prompts like: "Generate a fake but believable crypto headline about [topic]"
    - Rotate through topics: Bitcoin, Ethereum, Solana, memecoins, DeFi, NFTs
 4. Run the job submitter on a cron (every 30 minutes) to keep fresh headlines flowing
@@ -299,4 +299,4 @@ Give each prompt to a Claude/Codex session that has access to the respective pro
 2. Read `.btcpc-inference/*.json` to see what inference results look like
 3. Implement the integration described in the prompt
 4. Test by reading existing results AND submitting a new inference job
-5. The BTCPC API is at `http://localhost:3100/v1/inference/submit` (Bearer token from `.envbtcpc`)
+5. The BTCPC API is at `http://localhost:3000/v1/inference/submit` (Bearer token from `.envbtcpc`)

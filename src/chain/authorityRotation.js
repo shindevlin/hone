@@ -61,7 +61,7 @@ function isEpochEligible(username, nodeInfo, minStake) {
  * Every node computes this independently — consensus of time.
  *
  * @param {number} genesisTimestamp — ms since unix epoch
- * @param {number} epochDurationMs — epoch length in ms (default 300000 = 5 min)
+ * @param {number} epochDurationMs — epoch length in ms (v3.0 default = 30000 = 30 sec)
  * @param {number} [now] — current time (for testing)
  * @returns {number} epoch number
  */

@@ -24,9 +24,17 @@ node bin/btcpc-mine --miner shindevlin  # manual mine
 
 ## Key Specs
 - Supply: 42,000,000 BTCPC (1 BTCPC = 100M dreams)
-- Genesis reward: 243.06 BTCPC/epoch (5 min epochs)
+- Current package version: 3.0.87
+- Genesis timestamp: 1776236400000 (2026-04-15T07:00:00.000Z). Do not change.
+- Epochs: 30 seconds
+- Genesis reward: 243.06 BTCPC/epoch during bootstrap; current reward logic lives in `src/chain/blockProposal.js`
 - MongoDB: optional (post-Phase F). Default: disabled. Set BTCPC_MONGO_MODE=enabled and MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin to re-enable for legacy migration.
 - Explorer: port 4242, P2P: port 6942
+
+## Version Rule
+- When bumping BTCPC version, update `package.json` and `package-lock.json` in the same change.
+- Verify with: `node -e "const p=require('./package.json'); const l=require('./package-lock.json'); if (p.version !== l.version || p.version !== l.packages[''].version) process.exit(1)"`
+- Do not commit a version bump if those three values differ.
 
 ## Telegram Bots
 See [docs/bots.md](docs/bots.md) for full bot documentation.

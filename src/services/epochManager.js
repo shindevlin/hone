@@ -6,7 +6,7 @@ const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
 /**
  * BTCPC Epoch Manager
  *
- * Manages the 5-minute epoch cycle: creation, commitment collection,
+ * Manages the 30-second epoch cycle: creation, commitment collection,
  * consensus determination, and reward distribution.
  */
 
@@ -16,7 +16,7 @@ const MAX_DIFFICULTY_INCREASE = 4.0;
 const MAX_DIFFICULTY_DECREASE = 0.25;
 const BASELINE_WORK_PER_EPOCH = 100; // baseline expected work per epoch at difficulty 1.0
 
-// Genesis timestamp — hardcoded. April 14 2026 7:30 AM Mountain Time (04:30 UTC April 13).
+// Genesis timestamp — hardcoded. Midnight California, April 15 2026.
 // This is the birth of the BTCPC v3.0 chain. All nodes must agree on this value.
 // Every epoch number on every node is derived from this single constant.
 const GENESIS_TIMESTAMP = 1776236400000; // 2026-04-15T07:00:00.000Z (midnight California)
@@ -339,8 +339,10 @@ function stopEpochLoop() {
 }
 
 module.exports = {
+  GENESIS_TIMESTAMP,
   EPOCH_DURATION_MS,
   DIFFICULTY_ADJUSTMENT_INTERVAL,
+  getGenesisTimestamp,
   startEpochLoop,
   stopEpochLoop,
   finalizeEpoch,

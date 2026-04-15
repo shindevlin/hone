@@ -26,7 +26,7 @@ if ! command -v yad &>/dev/null; then
     if echo "$STATUS" | grep -q "state_root"; then
       EPOCH=$(echo "$STATUS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('current_epoch',0))" 2>/dev/null)
       # Only notify on updates
-      UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3100/api/bot/update-status" 2>/dev/null)
+      UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3000/api/bot/update-status" 2>/dev/null)
       if echo "$UPDATE_CHECK" | grep -q '"pending":true'; then
         notify-send --urgency=normal --app-name=BTCPC "BTCPC Update" "New version available. Update to keep earning." 2>/dev/null
       fi
@@ -85,7 +85,7 @@ while kill -0 $YAD_PID 2>/dev/null; do
   fi
 
   # Check for updates
-  UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3100/api/bot/update-status" 2>/dev/null)
+  UPDATE_CHECK=$(curl -s -H "x-bot-key: ${BOT_API_KEY}" "http://localhost:3000/api/bot/update-status" 2>/dev/null)
   if echo "$UPDATE_CHECK" | grep -q '"pending":true'; then
     VERSION=$(echo "$UPDATE_CHECK" | python3 -c "import sys,json; u=json.load(sys.stdin).get('update',{}); print(u.get('version','?'))" 2>/dev/null)
     notify-send --urgency=normal --app-name=BTCPC \

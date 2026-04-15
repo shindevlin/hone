@@ -299,7 +299,7 @@ function deriveSolanaWallet(seed) {
  * The raw public key is stored; actual TON address is computed on deployment.
  * User imports raw key into Tonkeeper/TON wallets.
  * @param {Buffer} seed - BIP-39 seed
- * @returns {{ privateKey: string, publicKey: string, address: string }}
+ * @returns {{ privateKey: string, publicKey: string, address: string, linkAddress: string }}
  */
 function deriveTONWallet(seed) {
   const { key } = derivePath(CHAIN_PATHS.ton, seed.toString("hex"));
@@ -312,7 +312,8 @@ function deriveTONWallet(seed) {
   return {
     privateKey: Buffer.from(key).toString("hex"),
     publicKey: Buffer.from(pubKey).toString("hex"),
-    address: address
+    address: address,
+    linkAddress: "ton:" + Buffer.from(pubKey).toString("hex")
   };
 }
 

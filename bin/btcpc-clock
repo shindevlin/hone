@@ -48,7 +48,7 @@ var ACTIVE_KEY = process.env.BTCPC_ACTIVE_KEY || null;
 // ─── State ───────────────────────────────────────────────────────
 
 var currentEpoch = -1;
-// Genesis: April 14 2026 7:30 AM Mountain Time (04:30 UTC April 13)
+// Genesis: 2026-04-15T07:00:00.000Z (midnight California)
 var genesisTimestamp = 1776236400000;
 var peers = new Map();
 var seenMessages = new Set();

@@ -14,6 +14,11 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const { version } = require('../package.json');
 
+// Accept the persisted BTCPC_JWT_SECRET alias written by older self-heal code.
+if (!process.env.JWT_SECRET && process.env.BTCPC_JWT_SECRET) {
+  process.env.JWT_SECRET = process.env.BTCPC_JWT_SECRET;
+}
+
 // Auto-generate JWT_SECRET if not set (self-heal: never ask user to configure)
 if (!process.env.JWT_SECRET) {
   const crypto = require('crypto');
@@ -22,7 +27,7 @@ if (!process.env.JWT_SECRET) {
   // Try to persist to .env so subsequent restarts keep the same secret
   try {
     const envPath = path.resolve(__dirname, '..', '.env');
-    const envLine = '\nBTCPC_JWT_SECRET=' + process.env.JWT_SECRET + '\n';
+    const envLine = '\nBTCPC_JWT_SECRET=' + process.env.JWT_SECRET + '\nJWT_SECRET=' + process.env.JWT_SECRET + '\n';
     fs.appendFileSync(envPath, envLine);
     console.log('[BTCPC] JWT_SECRET saved to .env');
   } catch (_) {
@@ -41,7 +46,7 @@ app.set('trust proxy', 'loopback');
 
 // Middleware — security first
 app.use(cors({
-  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net', 'http://localhost:4242', 'http://localhost:3100'],
+  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net', 'http://localhost:4242', 'http://localhost:3000', 'http://localhost:3100'],
   credentials: true
 }));
 app.use(helmet());

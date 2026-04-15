@@ -73,7 +73,7 @@ $timer.Add_Tick({
 
         # Check for updates
         $headers = @{ "x-bot-key" = $env:BOT_API_KEY }
-        $update = Invoke-RestMethod -Uri "http://localhost:3100/api/bot/update-status" -Headers $headers -TimeoutSec 5
+        $update = Invoke-RestMethod -Uri "http://localhost:3000/api/bot/update-status" -Headers $headers -TimeoutSec 5
         if ($update.pending) {
             $notifyIcon.ShowBalloonTip(10000, "BTCPC Update Available",
                 "v$($update.update.version) ready. Update to keep earning.",

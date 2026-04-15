@@ -40,7 +40,7 @@ for (const [name, dir] of Object.entries(PROJECT_DIRS)) {
       if (k && v.length) env[k.trim()] = v.join('=').trim();
     });
     if (env.BTCPC_PROJECT_KEY) {
-      PROJECTS[name] = { key: env.BTCPC_PROJECT_KEY, url: env.BTCPC_API_URL || 'http://localhost:3100' };
+      PROJECTS[name] = { key: env.BTCPC_PROJECT_KEY, url: env.BTCPC_API_URL || 'http://localhost:3000' };
     }
   }
 }

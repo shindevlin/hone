@@ -208,6 +208,7 @@ router.post('/create', async (req, res) => {
         solana: solanaAddr,
         bitcoin: bitcoinAddr,
         ton: tonAddr,
+        ton_link: chainWallets.ton ? chainWallets.ton.linkAddress : null,
         hive: username,
       },
       public_keys: {
@@ -225,7 +226,8 @@ router.post('/create', async (req, res) => {
 
 // ── JWT helpers ──
 function signBotJwt(username) {
-  const secret = process.env.JWT_SECRET || 'btcpc-bot-dev-secret';
+  const secret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+  if (!secret) throw new Error('JWT secret not initialized');
   return jwt.sign({ username, src: 'bot' }, secret, { expiresIn: '30d' });
 }
 
@@ -859,7 +861,7 @@ router.post('/inference', async (req, res) => {
 
     // Submit via internal inference API
     const axios = require('axios');
-    const API_URL = 'http://localhost:' + (process.env.PORT || 3100);
+    const API_URL = 'http://localhost:' + (process.env.PORT || 3000);
     const RELAY_KEY = process.env.BTCPC_RELAY_API_KEY;
     if (!RELAY_KEY) return res.status(500).json({ error: 'BTCPC_RELAY_API_KEY not configured' });
 

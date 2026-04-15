@@ -18,7 +18,7 @@ const axios = require('axios');
 const REPO_DIR = path.resolve(__dirname, '../..');
 const CHECK_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS) || 900000; // 15 min
 const IS_WINDOWS = process.platform === 'win32';
-const BOT_API_URL = process.env.BTCPC_API_URL || 'http://localhost:3100';
+const BOT_API_URL = process.env.BTCPC_API_URL || 'http://localhost:3000';
 const BOT_API_KEY = process.env.BOT_API_KEY;
 
 let updateTimer = null;

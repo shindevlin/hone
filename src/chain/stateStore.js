@@ -89,7 +89,7 @@ var blobs = new Map();
 var storageHeartbeats = new Map();
 
 // Keep at most this many recent heartbeats per host to bound memory.
-// 1000 epochs ≈ 3.5 days at 5 min epochs — enough history for uptime
+// 1000 epochs ≈ 8.3 hours at 30 sec epochs — enough history for uptime
 // calculation windows without unbounded growth.
 var STORAGE_HEARTBEAT_RETENTION = 1000;
 
@@ -1943,7 +1943,7 @@ function getAllStorageHosts() {
  *
  * Where expected_heartbeats assumes the host should heartbeat at least
  * once every `heartbeatInterval` epochs. Default interval is 5 epochs
- * (~25 min at 5 min epochs) — frequent enough to catch downtime quickly
+ * (~2.5 min at 30 sec epochs) — frequent enough to catch downtime quickly
  * but not so frequent that flaky home ISPs get penalized for brief drops.
  *
  * Returns 0 if host has no heartbeat record at all.

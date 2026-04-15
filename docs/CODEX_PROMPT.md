@@ -1,6 +1,6 @@
-# Codex Work Prompt — BTCPC v2.0.99
+# Codex Work Prompt — BTCPC v3.0.87
 
-You are working on the BTCPC blockchain codebase at ~/repos/btcpc (GitHub: shindevlin/btcpc, private). Version 2.0.99. Node.js, MongoDB, WebSocket P2P.
+You are working on the BTCPC blockchain codebase at ~/repos/btcpc (GitHub: shindevlin/btcpc, private). Version 3.0.87. Node.js, optional MongoDB, WebSocket P2P.
 
 The main Claude engine is building cross-chain claims, wBTCPC contracts, token creation, and tokenomics dashboard. You handle everything else below.
 
@@ -99,7 +99,7 @@ Add a model stats tracker that records per-model: avg response time, success rat
 
 - Git author: Shin Devlin <shin@btcpc.network>
 - NO Claude attribution in commits
-- Bump version for each commit (currently 2.0.99, start at 2.1.0)
+- Bump version for each commit only when the user wants a commit. Always update `package.json` and `package-lock.json` together, and verify both files plus `package-lock.json.packages[""].version` match.
 - Don't modify: src/mining/miner.js, src/chain/finalizationConsensus.js, src/services/escrow.js, src/services/ledger.js (main engine is working on these)
 - Don't restart running processes
 - Read CLAUDE.md for full project context

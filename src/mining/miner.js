@@ -1160,7 +1160,7 @@ async function startMiner() {
   // 3. P2P chain height (blocks synced from other miners)
   let currentEpoch;
   if (genesis.alreadyExisted) {
-    // Genesis: April 14 2026 7:30 AM Mountain Time (04:30 UTC April 13)
+    // Genesis: 2026-04-15T07:00:00.000Z (midnight California)
     const genesisTime = 1776236400000;
     const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
 
