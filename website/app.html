@@ -2777,13 +2777,12 @@ async function sendChat() {
     return;
   }
 
-  const model = 'auto';
   chatInput.value = '';
   chatInput.style.height = 'auto';
   chatSendBtn.disabled = true;
 
   appendChatBubble('user', text, null);
-  await saveChatMessage('user', text, model, null);
+  await saveChatMessage('user', text, null, null);
 
   // Show typing indicator
   const typingDiv = document.createElement('div');
@@ -2799,7 +2798,7 @@ async function sendChat() {
       messages: [{ role: 'user', content: text }],
       stream: false,
     };
-    if (model !== 'auto') body.model = model;
+    // No model field — network routes to best available miner for this requester
 
     const resp = await fetch(API_BASE + '/v1/chat/completions', {
       method: 'POST',
@@ -2823,27 +2822,28 @@ async function sendChat() {
         notice.innerHTML = 'Session expired. <a href="#" style="color:#f7931a" onclick="showReauth();return false;">Tap here to re-login</a>.';
         container.appendChild(notice);
         container.scrollTop = container.scrollHeight;
-        await saveChatMessage('assistant', 'Session expired — please re-login', model, null);
+        await saveChatMessage('assistant', 'Session expired — please re-login', null, null);
       } else {
         const errMsg = errData.error || errData.message || `Error ${resp.status}`;
         appendChatBubble('assistant', errMsg, null);
-        await saveChatMessage('assistant', errMsg, model, null);
+        await saveChatMessage('assistant', errMsg, null, null);
       }
     } else {
       const data = await resp.json();
       const reply = data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
+      const usedModel = data.model || null;
       const tokens = data.usage?.total_tokens || data.usage?.completion_tokens || 0;
       const costPerToken = data.usage?.cost_per_token || 0;
       const totalCost = data.usage?.cost || (tokens * costPerToken) || null;
       const costLabel = totalCost ? `${totalCost} BTCPC (${tokens} tokens)` : (tokens ? `${tokens} tokens` : null);
       appendChatBubble('assistant', reply, costLabel);
-      await saveChatMessage('assistant', reply, model, cost);
+      await saveChatMessage('assistant', reply, usedModel, cost);
     }
   } catch (err) {
     typingDiv.remove();
     const errMsg = 'Network error — check your connection';
     appendChatBubble('assistant', errMsg, null);
-    await saveChatMessage('assistant', errMsg, model, null);
+    await saveChatMessage('assistant', errMsg, null, null);
   }
 
   chatSendBtn.disabled = false;
