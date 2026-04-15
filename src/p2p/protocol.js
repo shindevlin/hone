@@ -105,6 +105,10 @@ const MESSAGE_TYPES = {
   // Inference verification — verifiers validate miner output
   VERIFY_REQUEST: "VERIFY_REQUEST",
   VERIFY_RESPONSE: "VERIFY_RESPONSE",
+  // Commit-reveal: verifier first commits (hash of verdict+nonce), then reveals
+  // after VERIFIER_REVEAL_WINDOW_MS to prevent early-verdict influence (T-04)
+  VERIFIER_COMMIT: "VERIFIER_COMMIT",
+  VERIFIER_REVEAL: "VERIFIER_REVEAL",
   // Mempool gossip — ledger entries broadcast across machines so any
   // broadcaster can include them in its next block (v2.13.3)
   MEMPOOL_ENTRY: "MEMPOOL_ENTRY",
@@ -401,6 +405,12 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.VERIFY_RESPONSE:
       handleVerifyResponse(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.VERIFIER_COMMIT:
+      handleVerifierCommit(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.VERIFIER_REVEAL:
+      handleVerifierReveal(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.REQUEST_LEDGER:
       handleRequestLedger(peer, msg, ctx);
@@ -1526,21 +1536,252 @@ function handleVerifyRequest(peer, msg, ctx) {
       : 0
   });
 
+  var verdictStr = verdict.valid ? "valid" : "invalid";
   console.log("[BTCPC P2P] Verified job " + data.job_id.slice(0, 12) + "... verdict=" +
-    (verdict.valid ? "VALID" : "INVALID") + " score=" + verdict.score);
+    verdictStr.toUpperCase() + " score=" + verdict.score);
 
-  // Send VERIFY_RESPONSE
-  var response = createMessage(MESSAGE_TYPES.VERIFY_RESPONSE, {
-    job_id: data.job_id,
-    verifier: myAccount,
-    verdict: verdict.valid ? "valid" : "invalid",
+  // Phase T-04: commit-reveal — broadcast commitment now, reveal after window
+  var nonce = require("crypto").randomBytes(16).toString("hex");
+  var commitment = require("crypto").createHash("sha256")
+    .update(verdictStr + ":" + nonce + ":" + data.job_id)
+    .digest("hex");
+
+  _storeCommitment(data.job_id, myAccount, {
+    verdict: verdictStr,
     score: verdict.score,
     checks: verdict.checks,
+    nonce: nonce,
+    epoch: data.epoch || 0
+  });
+
+  var commitMsg = createMessage(MESSAGE_TYPES.VERIFIER_COMMIT, {
+    job_id: data.job_id,
+    verifier: myAccount,
+    commitment: commitment,
     epoch: data.epoch || 0
   }, ctx.NODE_ID);
-  ctx.broadcast(response);
+  ctx.broadcast(commitMsg);
+
+  // Reveal after the window expires
+  setTimeout(function () {
+    _broadcastReveal(data.job_id, myAccount, ctx);
+  }, VERIFIER_REVEAL_WINDOW_MS);
 
   // Rebroadcast original request so other verifiers see it
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Verifier Commit-Reveal State Machine (T-04)
+// Prevents early-verdict influence: verifiers commit first, reveal after window.
+// ---------------------------------------------------------------------------
+
+var VERIFIER_REVEAL_WINDOW_MS = parseInt(process.env.BTCPC_VERIFIER_REVEAL_WINDOW_MS) || 15000;
+
+// Per job: { commits: Map<verifier, commitment>, pending: Map<verifier, {verdict,score,checks,nonce,epoch}>, reveals: Map<verifier, verdict>, timer: timeout, resolved: bool }
+var _commitRevealByJob = new Map();
+var COMMIT_REVEAL_JOB_MAX = 2000;
+
+function _getCommitRevealState(jobId) {
+  if (!_commitRevealByJob.has(jobId)) {
+    _commitRevealByJob.set(jobId, {
+      commits: new Map(),
+      pending: new Map(), // local node's uncommitted verdicts waiting to reveal
+      reveals: new Map(),
+      timer: null,
+      resolved: false
+    });
+    // Prune oldest jobs if over cap
+    if (_commitRevealByJob.size > COMMIT_REVEAL_JOB_MAX) {
+      var iter = _commitRevealByJob.keys();
+      for (var i = 0; i < 200; i++) {
+        var old = iter.next().value;
+        var oldState = _commitRevealByJob.get(old);
+        if (oldState && oldState.timer) clearTimeout(oldState.timer);
+        _commitRevealByJob.delete(old);
+      }
+    }
+  }
+  return _commitRevealByJob.get(jobId);
+}
+
+/**
+ * Store our own verdict locally so we can reveal it after the window.
+ */
+function _storeCommitment(jobId, verifier, verdictData) {
+  var state = _getCommitRevealState(jobId);
+  state.pending.set(verifier, verdictData);
+}
+
+/**
+ * Broadcast our VERIFIER_REVEAL for a job (called after window expires).
+ */
+function _broadcastReveal(jobId, myAccount, ctx) {
+  var state = _commitRevealByJob.get(jobId);
+  if (!state) return;
+  var mine = state.pending.get(myAccount);
+  if (!mine) return; // already revealed or never committed
+  var revealMsg = createMessage(MESSAGE_TYPES.VERIFIER_REVEAL, {
+    job_id: jobId,
+    verifier: myAccount,
+    verdict: mine.verdict,
+    score: mine.score,
+    checks: mine.checks,
+    nonce: mine.nonce,
+    epoch: mine.epoch
+  }, ctx.NODE_ID);
+  ctx.broadcast(revealMsg);
+  state.pending.delete(myAccount);
+}
+
+/**
+ * Aggregate verdicts from all received reveals and apply the result.
+ * Called when the reveal window closes or all committed verifiers have revealed.
+ */
+function _aggregateAndApply(jobId, ctx) {
+  var state = _commitRevealByJob.get(jobId);
+  if (!state || state.resolved) return;
+  state.resolved = true;
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+
+  var reveals = state.reveals;
+  if (reveals.size === 0) return;
+
+  // Check for non-revealers (committed but never revealed)
+  var nonRevealers = [];
+  for (var entry of state.commits) {
+    var verifierName = entry[0];
+    if (!reveals.has(verifierName)) {
+      nonRevealers.push(verifierName);
+    }
+  }
+  if (nonRevealers.length > 0) {
+    var slashing = require("../services/slashing");
+    nonRevealers.forEach(function (v) {
+      slashing.recordOffense(v, "VERIFIER_NO_REVEAL", { job_id: jobId })
+        .catch(function (err) { console.error("[BTCPC P2P] No-reveal slash failed:", err.message); });
+      console.log("[BTCPC P2P] VERIFIER_NO_REVEAL: " + v + " committed but never revealed for job " + jobId.slice(0, 12) + "...");
+    });
+  }
+
+  // Tally reveals
+  var validCount = 0;
+  var invalidCount = 0;
+  var scores = [];
+  var checks = [];
+  var epoch = 0;
+  for (var revEntry of reveals) {
+    var rv = revEntry[1];
+    if (rv.verdict === "valid") { validCount++; scores.push(rv.score || 0); }
+    else invalidCount++;
+    if (rv.epoch > epoch) epoch = rv.epoch;
+    if (rv.checks) checks = rv.checks; // last one wins (all should agree)
+  }
+
+  var majorityVerdict = validCount > invalidCount ? "valid" : "invalid";
+  var avgScore = scores.length > 0 ? scores.reduce(function (a, b) { return a + b; }, 0) / scores.length : 0;
+
+  console.log("[BTCPC P2P] Commit-reveal resolved for job " + jobId.slice(0, 12) + "..." +
+    " valid=" + validCount + " invalid=" + invalidCount + " verdict=" + majorityVerdict.toUpperCase());
+
+  // Synthesize a VERIFY_RESPONSE for backward-compat downstream processing
+  var syntheticMsg = {
+    id: "cr-" + jobId,
+    type: MESSAGE_TYPES.VERIFY_RESPONSE,
+    data: {
+      job_id: jobId,
+      verifier: "consensus",
+      verdict: majorityVerdict,
+      score: avgScore,
+      checks: checks,
+      epoch: epoch,
+      commit_reveal: true,
+      valid_count: validCount,
+      invalid_count: invalidCount
+    },
+    timestamp: Date.now(),
+    nodeId: ctx ? ctx.NODE_ID : "local"
+  };
+  // Route through existing VERIFY_RESPONSE logic
+  handleVerifyResponse({ address: "local" }, syntheticMsg, ctx || { broadcast: function () {} });
+}
+
+/**
+ * VERIFIER_COMMIT — A verifier broadcasts their commitment hash.
+ * Store it; start the reveal window timer on first commit for a job.
+ */
+function handleVerifierCommit(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.job_id || !data.verifier || !data.commitment) return;
+
+  var state = _getCommitRevealState(data.job_id);
+  if (state.resolved) return;
+
+  // Reject duplicate commits from same verifier
+  if (state.commits.has(data.verifier)) return;
+  state.commits.set(data.verifier, data.commitment);
+
+  console.log("[BTCPC P2P] Verifier commit from " + data.verifier +
+    " for job " + data.job_id.slice(0, 12) + "... (" + state.commits.size + " commits)");
+
+  // Start reveal window on first commit
+  if (!state.timer) {
+    state.timer = setTimeout(function () {
+      _aggregateAndApply(data.job_id, ctx);
+    }, VERIFIER_REVEAL_WINDOW_MS);
+  }
+
+  ctx.broadcast(msg, peer.address);
+}
+
+/**
+ * VERIFIER_REVEAL — A verifier reveals their verdict + nonce.
+ * Verify the commitment matches before accepting.
+ */
+function handleVerifierReveal(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.job_id || !data.verifier || !data.verdict || !data.nonce) return;
+
+  var state = _commitRevealByJob.get(data.job_id);
+  if (!state || state.resolved) return;
+
+  // Must have committed first
+  var storedCommitment = state.commits.get(data.verifier);
+  if (!storedCommitment) {
+    console.log("[BTCPC P2P] VERIFIER_REVEAL from " + data.verifier + " has no matching commit — ignored");
+    return;
+  }
+
+  // Verify commitment: sha256(verdict + ":" + nonce + ":" + job_id)
+  var expected = require("crypto").createHash("sha256")
+    .update(data.verdict + ":" + data.nonce + ":" + data.job_id)
+    .digest("hex");
+  if (expected !== storedCommitment) {
+    console.log("[BTCPC P2P] VERIFIER_EQUIVOCATION: " + data.verifier +
+      " reveal hash mismatch for job " + data.job_id.slice(0, 12) + "...");
+    var slashing = require("../services/slashing");
+    slashing.recordOffense(data.verifier, "VERIFIER_EQUIVOCATION", {
+      job_id: data.job_id,
+      expected: storedCommitment.slice(0, 12),
+      got: expected.slice(0, 12)
+    }).catch(function (err) { console.error("[BTCPC P2P] Equivocation slash failed:", err.message); });
+    return;
+  }
+
+  // Reject duplicate reveals
+  if (state.reveals.has(data.verifier)) return;
+  state.reveals.set(data.verifier, { verdict: data.verdict, score: data.score || 0, checks: data.checks, epoch: data.epoch || 0 });
+
+  console.log("[BTCPC P2P] Verifier reveal from " + data.verifier +
+    " for job " + data.job_id.slice(0, 12) + "..." +
+    " verdict=" + data.verdict.toUpperCase() +
+    " (" + state.reveals.size + "/" + state.commits.size + " revealed)");
+
+  // If all committed verifiers have revealed, aggregate immediately
+  if (state.reveals.size >= state.commits.size) {
+    _aggregateAndApply(data.job_id, ctx);
+  }
+
   ctx.broadcast(msg, peer.address);
 }
 
@@ -1881,5 +2122,6 @@ module.exports = {
   startPeerAnnounce,
   stopPeerAnnounce,
   addModelDemand,
-  getModelDemand
+  getModelDemand,
+  VERIFIER_REVEAL_WINDOW_MS: VERIFIER_REVEAL_WINDOW_MS
 };

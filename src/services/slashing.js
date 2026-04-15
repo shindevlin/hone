@@ -71,6 +71,17 @@ const SLASH_SCHEDULE = {
     { percent: 0.25, deregister: false },
     { percent: 0,    deregister: true }
   ],
+  // Verifier committed but never revealed (network dropout is forgivable tier-1)
+  VERIFIER_NO_REVEAL: [
+    { percent: 0,    deregister: false }, // first: warning
+    { percent: 0.02, deregister: false }, // second: 2%
+    { percent: 0.05, deregister: false }  // chronic: 5%
+  ],
+  // Verifier revealed a hash that doesn't match their commitment
+  VERIFIER_EQUIVOCATION: [
+    { percent: 0.10, deregister: false },
+    { percent: 0,    deregister: true }
+  ],
 
   // Clock offenses
   TIME_DRIFT: [
@@ -95,6 +106,8 @@ const OFFENSE_ROLE = {
   RUBBER_STAMPING: 'verifier',
   GRIEFING: 'verifier',
   COLLUSION: 'verifier',
+  VERIFIER_NO_REVEAL: 'verifier',
+  VERIFIER_EQUIVOCATION: 'verifier',
   TIME_DRIFT: 'clock',
   CLOCK_OFFLINE: 'clock'
 };
