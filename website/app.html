@@ -1990,7 +1990,14 @@ mineToggleBtn.addEventListener('click', async () => {
     mineToggleBtn.className = 'mine-toggle-btn stop';
     mineJobText.textContent = 'Idle \u2014 waiting for jobs';
   } catch (e) {
-    mineModelText.textContent = 'Error: ' + (e.message || 'failed to start');
+    var errMsg = e.message || 'failed to start';
+    if (/cache|storage|quota|internal/i.test(errMsg)) {
+      mineModelText.textContent = 'Storage error — try Chrome instead of Brave (Brave blocks large model downloads). Or go to brave://settings/shields and disable shields for btcpc.net';
+    } else if (/webgpu|gpu/i.test(errMsg)) {
+      mineModelText.textContent = 'WebGPU not supported on this browser. Try Chrome 121+';
+    } else {
+      mineModelText.textContent = 'Error: ' + errMsg;
+    }
     mineToggleBtn.textContent = 'Start Mining';
     mineToggleBtn.className = 'mine-toggle-btn start';
   }
