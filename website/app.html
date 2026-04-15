@@ -696,18 +696,39 @@
             var jwt = localStorage.getItem('btcpc-jwt');
             if (!jwt) { dlBtn.textContent = 'Log in first'; setTimeout(function(){dlBtn.textContent='Pull Selected (Ollama)';},2000); return; }
             dlBtn.disabled = true;
+
+            // Pull status area — large visible feedback box
+            var pullStatus = document.getElementById('pull-status-box');
+            if (!pullStatus) {
+              pullStatus = document.createElement('div');
+              pullStatus.id = 'pull-status-box';
+              pullStatus.style.cssText = 'margin-top:12px;padding:10px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:monospace;min-height:48px;';
+              dlBtn.parentNode.insertBefore(pullStatus, dlBtn.nextSibling);
+            }
+            pullStatus.style.display = 'block';
+            pullStatus.textContent = '';
+
             for (var i = 0; i < checked.length; i++) {
               var modelId = checked[i].dataset.id;
               var pbId = 'pull-progress-' + modelId.replace(/[^a-z0-9]/g,'_');
               var pb = document.getElementById(pbId);
               if (pb) { pb.style.display = 'inline'; pb.textContent = 'Starting...'; }
               dlBtn.textContent = 'Pulling ' + modelId + '...';
+              pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span> — connecting to Ollama...';
               try {
                 var resp = await fetch('/v1/node/pull-model', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
                   body: JSON.stringify({ model: modelId })
                 });
+                if (!resp.ok) {
+                  var errBody = await resp.text();
+                  var errMsg = 'HTTP ' + resp.status;
+                  try { errMsg = JSON.parse(errBody).error.message || errMsg; } catch(_) {}
+                  if (pb) { pb.textContent = 'Error: ' + errMsg; pb.style.color = '#ef4444'; }
+                  pullStatus.innerHTML = '<span style="color:#ef4444;">Error ' + resp.status + ': ' + errMsg + '</span>';
+                  continue;
+                }
                 var reader = resp.body.getReader();
                 var decoder = new TextDecoder();
                 while (true) {
@@ -715,15 +736,29 @@
                   if (chunk.done) break;
                   var lines = decoder.decode(chunk.value).trim().split('\n');
                   for (var l = 0; l < lines.length; l++) {
+                    if (!lines[l].trim()) continue;
                     try {
                       var ev = JSON.parse(lines[l]);
-                      if (ev.status && pb) pb.textContent = ev.status + (ev.completed && ev.total ? ' ' + Math.round(ev.completed/ev.total*100) + '%' : '');
-                      if (ev.status === 'success' && pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
+                      if (ev.error) {
+                        pullStatus.innerHTML = '<span style="color:#ef4444;">Ollama error: ' + ev.error + '</span>';
+                        if (pb) { pb.textContent = 'Error: ' + ev.error; pb.style.color = '#ef4444'; }
+                      } else if (ev.status) {
+                        var pct = (ev.completed && ev.total) ? ' — ' + Math.round(ev.completed/ev.total*100) + '%' : '';
+                        var mb = (ev.completed) ? ' (' + (ev.completed/1024/1024).toFixed(0) + ' MB)' : '';
+                        pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span>  ' + ev.status + pct + mb;
+                        if (pb) pb.textContent = ev.status + pct;
+                        if (ev.status === 'success') {
+                          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span>';
+                          if (pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
+                        }
+                      }
                     } catch(_) {}
                   }
                 }
               } catch(e) {
-                if (pb) { pb.textContent = 'Error: ' + e.message; pb.style.color = '#ef4444'; }
+                var msg = e.message || 'Network error';
+                if (pb) { pb.textContent = 'Error: ' + msg; pb.style.color = '#ef4444'; }
+                pullStatus.innerHTML = '<span style="color:#ef4444;">Error: ' + msg + '</span>';
               }
             }
             dlBtn.disabled = false;
