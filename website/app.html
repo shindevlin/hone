@@ -496,7 +496,7 @@
         <button id="chat-send">Send</button>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;">
-        Inference powered by BTCPC miners. Cost: ~0.001 BTCPC per message.
+        Inference powered by BTCPC miners. Cost per token varies by model and network load.
       </div>
     </div>
 
@@ -1782,8 +1782,11 @@ async function sendChat() {
     } else {
       const data = await resp.json();
       const reply = data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
-      const cost = data.usage?.cost || '~0.001';
-      appendChatBubble('assistant', reply, cost);
+      const tokens = data.usage?.total_tokens || data.usage?.completion_tokens || 0;
+      const costPerToken = data.usage?.cost_per_token || 0;
+      const totalCost = data.usage?.cost || (tokens * costPerToken) || null;
+      const costLabel = totalCost ? `${totalCost} BTCPC (${tokens} tokens)` : (tokens ? `${tokens} tokens` : null);
+      appendChatBubble('assistant', reply, costLabel);
       await saveChatMessage('assistant', reply, model, cost);
     }
   } catch (err) {
