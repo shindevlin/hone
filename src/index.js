@@ -142,6 +142,7 @@ const botRoutes = require("./routes/botRoutes");
 const totpRoutes = require("./routes/totpRoutes");
 const appealRoutes = require("./routes/appealRoutes");
 const publicRoutes = require("./routes/publicRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
 const commerceRoutes = require("./routes/commerceRoutes");
 const amberPillRoutes = require("./routes/amberPillRoutes");
 const { sensorsRouter, gatewaysRouter } = require("./routes/sensorRoutes");
@@ -160,6 +161,7 @@ app.use("/api/amber-pills", amberPillRoutes);
 app.use("/api/sensors", sensorsRouter);
 app.use("/api/gateways", gatewaysRouter);
 app.use("/public", publicRoutes);
+app.use("/api/auth", sessionRoutes);
 app.use("/api", dreamRoutes);
 app.use("/api/onboard", onboardLimiter, (req, res, next) => {
   req.url = "/onboard";

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authorize App - BTCPC</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .auth-container {
+      max-width: 460px;
+      margin: 80px auto 40px;
+      padding: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .auth-container h1 {
+      font-size: 20px;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+    .auth-app-name {
+      color: var(--accent);
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .auth-details {
+      margin: 20px 0;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .auth-details .label {
+      color: var(--text-muted);
+    }
+    .auth-details .value {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .auth-field {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      margin: 8px 0 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .auth-field:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .auth-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .auth-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .auth-buttons button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-approve {
+      background: var(--accent);
+      color: #000;
+    }
+    .btn-approve:hover {
+      background: #fbbf24;
+    }
+    .btn-approve:disabled {
+      background: var(--text-muted);
+      cursor: not-allowed;
+    }
+    .btn-deny {
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-deny:hover {
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+    .auth-error {
+      margin-top: 12px;
+      padding: 10px;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 6px;
+      color: #ef4444;
+      font-size: 13px;
+      display: none;
+    }
+    .auth-success {
+      margin-top: 20px;
+      display: none;
+    }
+    .auth-success h3 {
+      color: var(--green);
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .token-display {
+      padding: 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      word-break: break-all;
+      font-size: 13px;
+      color: var(--accent);
+      cursor: pointer;
+      position: relative;
+    }
+    .token-display:hover::after {
+      content: 'Click to copy';
+      position: absolute;
+      top: -24px;
+      right: 0;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .copied-msg {
+      color: var(--green);
+      font-size: 12px;
+      margin-top: 6px;
+      display: none;
+    }
+    .auth-meta {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:16px;">
+    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;">BTCPC</a>
+    <a href="/globe" style="color:#c8ccd4;text-decoration:none;">Globe</a>
+    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Dashboard</a>
+    <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
+    <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
+    <a href="/app" style="color:#c8ccd4;text-decoration:none;">App</a>
+  </div>
+
+  <div class="auth-container" id="authForm">
+    <h1>Authorization Request</h1>
+    <p style="color:var(--text-secondary);font-size:13px;margin-top:4px;">A third-party app wants to use your BTCPC account for AI inference.</p>
+
+    <div class="auth-details">
+      <div><span class="label">App: </span><span class="value auth-app-name" id="appName">--</span></div>
+      <div><span class="label">Spending limit: </span><span class="value" id="spendLimit">--</span> BTCPC</div>
+      <div><span class="label">Expires: </span><span class="value">24 hours</span></div>
+    </div>
+
+    <label class="auth-label">Username</label>
+    <input type="text" class="auth-field" id="username" placeholder="your BTCPC account name" autocomplete="username">
+
+    <label class="auth-label">Password</label>
+    <input type="password" class="auth-field" id="password" placeholder="account password" autocomplete="current-password">
+
+    <div class="auth-error" id="errorMsg"></div>
+
+    <div class="auth-buttons">
+      <button class="btn-deny" id="btnDeny">Deny</button>
+      <button class="btn-approve" id="btnApprove">Approve</button>
+    </div>
+  </div>
+
+  <div class="auth-container auth-success" id="authSuccess">
+    <h3>Session Authorized</h3>
+    <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
+      <span id="successApp">--</span> can now spend up to <span id="successLimit">--</span> BTCPC on your behalf.
+    </p>
+    <label class="auth-label">Session Token</label>
+    <div class="token-display" id="tokenDisplay" onclick="copyToken()">--</div>
+    <div class="copied-msg" id="copiedMsg">Copied to clipboard</div>
+    <div class="auth-meta">
+      <div>Account: <span id="successAccount">--</span></div>
+      <div>Expires: <span id="successExpiry">--</span></div>
+    </div>
+  </div>
+
+  <script>
+    var params = new URLSearchParams(window.location.search);
+    var appName = params.get('app') || 'Unknown App';
+    var spendLimit = parseFloat(params.get('limit')) || 1;
+    var callbackUrl = params.get('callback') || '';
+
+    document.getElementById('appName').textContent = appName;
+    document.getElementById('spendLimit').textContent = spendLimit;
+
+    document.getElementById('btnDeny').addEventListener('click', function() {
+      if (callbackUrl) {
+        window.location.href = callbackUrl + (callbackUrl.includes('?') ? '&' : '?') + 'error=denied';
+      } else {
+        document.querySelector('.auth-container').innerHTML =
+          '<h1 style="color:#ef4444;">Denied</h1>' +
+          '<p style="color:var(--text-secondary);margin-top:8px;">Authorization was denied. You can close this tab.</p>';
+      }
+    });
+
+    document.getElementById('btnApprove').addEventListener('click', async function() {
+      var btn = this;
+      var username = document.getElementById('username').value.trim();
+      var password = document.getElementById('password').value;
+      var errorEl = document.getElementById('errorMsg');
+
+      if (!username || !password) {
+        errorEl.textContent = 'Username and password are required.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Authorizing...';
+      errorEl.style.display = 'none';
+
+      try {
+        var resp = await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: username,
+            password: password,
+            app_name: appName,
+            spending_limit: spendLimit
+          })
+        });
+
+        var data = await resp.json();
+
+        if (!resp.ok) {
+          errorEl.textContent = data.error || 'Authorization failed.';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Approve';
+          return;
+        }
+
+        // If callback URL provided, redirect with token
+        if (callbackUrl) {
+          var sep = callbackUrl.includes('?') ? '&' : '?';
+          window.location.href = callbackUrl + sep +
+            'token=' + encodeURIComponent(data.token) +
+            '&account=' + encodeURIComponent(data.account) +
+            '&expires_at=' + encodeURIComponent(data.expires_at);
+          return;
+        }
+
+        // Otherwise show the token for manual copy
+        document.getElementById('authForm').style.display = 'none';
+        var successEl = document.getElementById('authSuccess');
+        successEl.style.display = 'block';
+        document.getElementById('successApp').textContent = data.app_name;
+        document.getElementById('successLimit').textContent = data.spending_limit;
+        document.getElementById('successAccount').textContent = data.account;
+        document.getElementById('tokenDisplay').textContent = data.token;
+        document.getElementById('successExpiry').textContent = new Date(data.expires_at).toLocaleString();
+
+      } catch (err) {
+        errorEl.textContent = 'Network error: ' + err.message;
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Approve';
+      }
+    });
+
+    function copyToken() {
+      var token = document.getElementById('tokenDisplay').textContent;
+      navigator.clipboard.writeText(token).then(function() {
+        var msg = document.getElementById('copiedMsg');
+        msg.style.display = 'block';
+        setTimeout(function() { msg.style.display = 'none'; }, 2000);
+      });
+    }
+  </script>
+
+</body>
+</html>

@@ -362,6 +362,52 @@ async function authenticateBearer(req, res, next) {
     return next();
   }
 
+  // ── Session tokens (btcpc_session_*) — third-party app authorization ──
+  if (token.startsWith('btcpc_session_')) {
+    const sessionStore = require('../services/sessionStore');
+    const session = sessionStore.getSession(token);
+    if (!session) {
+      return res.status(401).json({
+        error: { message: 'Session token invalid or expired.', type: 'authentication_error', code: 'session_expired' }
+      });
+    }
+    const remaining = sessionStore.getRemaining(token);
+    if (remaining <= 0) {
+      return res.status(402).json({
+        error: {
+          message: `Session spending limit exhausted (${session.spending_limit} BTCPC). Request a new session token.`,
+          type: 'billing_error',
+          code: 'session_limit_exceeded',
+          spent: session.spent,
+          spending_limit: session.spending_limit,
+        }
+      });
+    }
+    // Attach session info so downstream handlers can record spend
+    req.session_token = session;
+    // Create a project-like facade so cost deduction works via the existing path
+    req.project = {
+      _source: 'session_token',
+      name: session.app_name,
+      owner: session.account,
+      wallet_address: session.account,
+      balance: remaining,
+      verified: true,
+      isActive: true,
+      totalSpent: session.spent,
+      totalRequests: 0,
+      save: async function () {
+        // Record the spend delta back into the session store
+        const newSpent = this.totalSpent;
+        if (newSpent > session.spent) {
+          const delta = newSpent - session.spent;
+          sessionStore.recordSpend(token, delta);
+        }
+      }
+    };
+    return next();
+  }
+
   // Resolve btcpc_ project keys — secretStore first, Mongo fallback
   if (token.startsWith('btcpc_')) {
     const project = await _findProjectByApiKey(token);
