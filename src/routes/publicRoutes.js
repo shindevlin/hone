@@ -448,4 +448,157 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Model demand — users request models, miners see what to pull
+// ---------------------------------------------------------------------------
+
+const modelRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many model requests. Wait a minute.' },
+});
+
+/**
+ * POST /public/model-request
+ * Body: { model, account }
+ * Stores demand in memory, broadcasts via P2P, returns total demand.
+ */
+router.post('/model-request', modelRequestLimiter, async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['model', 'account']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const model = sanitizeString(req.body.model, 100);
+    const account = sanitizeString(req.body.account, 20);
+
+    if (!model || model.length < 2) {
+      return res.status(400).json({ error: 'model name required (e.g. "llama3.3:70b")' });
+    }
+
+    // Record demand locally
+    const { addModelDemand, getModelDemand, createMessage } = require('../p2p/protocol');
+    addModelDemand(model, account || 'anonymous');
+
+    // Broadcast via P2P so all nodes track this demand
+    try {
+      const p2p = require('../p2p/network');
+      const msg = createMessage('MODEL_DEMAND', {
+        model: model,
+        account: account || 'anonymous',
+      }, p2p.NODE_ID || 'api-relay');
+      if (typeof p2p.broadcast === 'function') p2p.broadcast(msg);
+    } catch (_) {}
+
+    // Find current demand for this model
+    const allDemand = getModelDemand();
+    const thisDemand = allDemand.find(d => d.model === model.trim().toLowerCase());
+
+    res.json({
+      success: true,
+      model: model.trim().toLowerCase(),
+      total_demand: thisDemand ? thisDemand.count : 1,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /public/model-demand
+ * Returns top 20 most-requested models with demand counts.
+ * Used by miners to decide what to pull.
+ */
+router.get('/model-demand', async (_req, res) => {
+  try {
+    const { getModelDemand } = require('../p2p/protocol');
+    const demand = getModelDemand();
+    res.json({
+      demand: demand,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// Device Registry — track all devices under one account
+// ---------------------------------------------------------------------------
+
+var deviceRegistry = new Map(); // account → [{ device_id, name, type, roles, last_seen, earnings, model, status }]
+
+/**
+ * POST /public/device-heartbeat
+ * Each device pings this every 30s with its status.
+ */
+router.post('/device-heartbeat', async (req, res) => {
+  try {
+    var body = req.body || {};
+    var account = (body.account || '').trim().toLowerCase();
+    var deviceId = body.device_id || 'unknown';
+    if (!account) return res.status(400).json({ error: 'account required' });
+
+    var devices = deviceRegistry.get(account) || [];
+    var existing = devices.find(d => d.device_id === deviceId);
+
+    var update = {
+      device_id: deviceId,
+      name: body.name || deviceId,
+      type: body.type || 'unknown', // phone, desktop, pi, flipper
+      roles: body.roles || [],
+      model: body.model || null,
+      status: body.status || 'active',
+      sensors: body.sensors || 0,
+      earnings: body.earnings || 0,
+      last_seen: Date.now(),
+      ip: (req.ip || '').replace('::ffff:', ''),
+    };
+
+    if (existing) {
+      Object.assign(existing, update);
+    } else {
+      devices.push(update);
+    }
+    deviceRegistry.set(account, devices);
+
+    res.json({ success: true, devices: devices.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /public/my-devices?account=xxx
+ * Returns all devices registered under an account.
+ */
+router.get('/my-devices', async (req, res) => {
+  try {
+    var account = ((req.query.account || '') + '').trim().toLowerCase();
+    if (!account) return res.status(400).json({ error: 'account required' });
+
+    var devices = deviceRegistry.get(account) || [];
+    // Mark stale devices (no heartbeat in 5 min)
+    var now = Date.now();
+    devices.forEach(d => {
+      d.online = (now - d.last_seen) < 300000;
+    });
+
+    res.json({ account: account, devices: devices, timestamp: now });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clean stale devices every 10 min
+setInterval(function() {
+  var cutoff = Date.now() - 3600000; // 1 hour
+  for (var [acct, devs] of deviceRegistry) {
+    deviceRegistry.set(acct, devs.filter(d => d.last_seen > cutoff));
+    if (deviceRegistry.get(acct).length === 0) deviceRegistry.delete(acct);
+  }
+}, 600000);
+
 module.exports = router;

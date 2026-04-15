@@ -626,6 +626,13 @@
         });
       })();
       </script>
+
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+        <div class="label">Network Demand</div>
+        <div class="sublabel">Models users are requesting. Download these to maximize your earnings.</div>
+        <div id="network-demand-list" style="margin-top:8px;font-size:12px;color:var(--muted);">Loading demand data...</div>
+        <button id="refresh-demand-btn" style="margin-top:8px;padding:6px 12px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.2);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Refresh Demand</button>
+      </div>
     </div>
 
     <!-- Tab: Chat -->
@@ -649,6 +656,15 @@
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;">
         Inference powered by BTCPC miners. Cost per token varies by model and network load.
+      </div>
+
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Request a model the network doesn't have yet</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="model-request-input" placeholder='e.g. "llama3.3:70b", "codestral:22b"' style="flex:1;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          <button id="model-request-btn" style="padding:8px 14px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;white-space:nowrap;">Request Model</button>
+        </div>
+        <div id="model-request-status" style="font-size:11px;color:var(--muted);margin-top:6px;display:none;"></div>
       </div>
     </div>
 
@@ -693,6 +709,11 @@
       </div>
 
       <div class="settings-section">
+        <h3>My Devices</h3>
+        <div id="my-devices-list" style="margin-bottom:12px;font-size:11px;color:var(--muted);">Loading...</div>
+      </div>
+
+      <div class="settings-section">
         <h3>Account</h3>
         <div style="font-size:12px;margin-bottom:12px;">
           <span style="color:var(--muted);">Logged in as:</span>
@@ -727,6 +748,10 @@
         </div>
         <div style="font-size:10px;color:var(--muted);">
           Works on Linux, Mac, Windows WSL, Raspberry Pi. Or <a href="/install" style="color:var(--orange);">see all install options</a>.
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <a href="/btcpc.apk" style="display:inline-block;padding:8px 16px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;text-decoration:none;">Download Android APK</a>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px;">Native app with full sensor access. Sideload on any Android device.</div>
         </div>
       </div>
     </div>
@@ -1916,6 +1941,83 @@ if (loadBtn && fileInput) {
   });
 }
 
+// ─── Device heartbeat + My Devices ───
+var deviceId = localStorage.getItem('btcpc-device-id');
+if (!deviceId) {
+  deviceId = 'dev-' + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('btcpc-device-id', deviceId);
+}
+
+function getDeviceType() {
+  var ua = navigator.userAgent || '';
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua) ? 'phone' : 'tablet';
+  if (/iPad/i.test(ua)) return 'tablet';
+  if (/iPhone/i.test(ua)) return 'phone';
+  if (/Windows|Mac|Linux/i.test(ua) && !/Mobile/i.test(ua)) return 'desktop';
+  return 'unknown';
+}
+
+function sendDeviceHeartbeat() {
+  if (!account) return;
+  var activeSensors = Object.keys(sensorStates).filter(k => sensorStates[k]).length;
+  fetch('/public/device-heartbeat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      account: account,
+      device_id: deviceId,
+      name: getDeviceType() + '-' + deviceId.slice(4,8),
+      type: getDeviceType(),
+      roles: ['clock', 'sensor'].concat(typeof miningActive !== 'undefined' && miningActive ? ['miner'] : []),
+      model: typeof mineModelSelect !== 'undefined' ? (mineModelSelect.value || null) : null,
+      status: 'active',
+      sensors: activeSensors,
+      earnings: todayEarnings || 0,
+    })
+  }).catch(function(){});
+}
+
+function loadMyDevices() {
+  if (!account) return;
+  fetch('/public/my-devices?account=' + encodeURIComponent(account))
+    .then(r => r.json())
+    .then(data => {
+      var el = document.getElementById('my-devices-list');
+      if (!el) return;
+      var devices = data.devices || [];
+      if (devices.length === 0) {
+        el.innerHTML = '<div style="color:var(--muted);">No devices registered yet</div>';
+        return;
+      }
+      var html = '';
+      devices.forEach(d => {
+        var isMe = d.device_id === deviceId;
+        var dot = d.online ? '#22c55e' : '#ef4444';
+        var roleStr = (d.roles || []).join(', ') || 'idle';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:4px;background:' +
+          (isMe ? 'rgba(247,147,26,0.08)' : 'rgba(100,100,100,0.05)') + ';border:1px solid ' +
+          (isMe ? 'rgba(247,147,26,0.2)' : 'rgba(100,100,100,0.15)') + ';">' +
+          '<span style="width:8px;height:8px;border-radius:50%;background:' + dot + ';flex-shrink:0;"></span>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-size:12px;color:var(--text);">' + (d.name || d.device_id) + (isMe ? ' <span style="color:var(--orange);font-size:10px;">(this device)</span>' : '') + '</div>' +
+            '<div style="font-size:10px;color:var(--muted);">' + d.type + ' • ' + roleStr + (d.model ? ' • ' + d.model.split('-')[0] : '') + ' • ' + d.sensors + ' sensors</div>' +
+          '</div>' +
+          '<div style="font-size:11px;color:' + (d.online ? '#22c55e' : '#64748b') + ';white-space:nowrap;">' +
+            (d.online ? 'online' : 'offline') +
+          '</div>' +
+        '</div>';
+      });
+      el.innerHTML = html;
+    })
+    .catch(function() {});
+}
+
+// Send heartbeat every 30s, refresh device list every 60s
+setInterval(sendDeviceHeartbeat, 30000);
+setInterval(loadMyDevices, 60000);
+// Initial calls after dashboard loads
+setTimeout(function() { sendDeviceHeartbeat(); loadMyDevices(); }, 2000);
+
 // ─── Reset daily earnings at midnight ───
 function checkDayReset() {
   const today = new Date().toDateString();
@@ -2136,6 +2238,93 @@ initDashboard = async function() {
   tabBar.style.display = 'block';
   initChat();
 };
+
+// ─── Model Request (Chat tab) ───
+(function() {
+  var reqBtn = document.getElementById('model-request-btn');
+  var reqInput = document.getElementById('model-request-input');
+  var reqStatus = document.getElementById('model-request-status');
+  if (!reqBtn || !reqInput) return;
+
+  reqBtn.addEventListener('click', async function() {
+    var model = reqInput.value.trim();
+    if (!model) { reqInput.focus(); return; }
+    reqBtn.disabled = true;
+    reqBtn.textContent = 'Submitting...';
+    reqStatus.style.display = 'none';
+    try {
+      var acct = localStorage.getItem('btcpc-account') || 'anonymous';
+      var resp = await fetch('/public/model-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: model, account: acct }),
+      });
+      var data = await resp.json();
+      if (data.success) {
+        reqStatus.style.display = 'block';
+        reqStatus.style.color = '#22c55e';
+        reqStatus.textContent = 'Request submitted — miners will see this demand (' + data.total_demand + ' total requests for ' + data.model + ')';
+        reqInput.value = '';
+      } else {
+        reqStatus.style.display = 'block';
+        reqStatus.style.color = '#ef4444';
+        reqStatus.textContent = data.error || 'Request failed';
+      }
+    } catch (err) {
+      reqStatus.style.display = 'block';
+      reqStatus.style.color = '#ef4444';
+      reqStatus.textContent = 'Network error — try again';
+    }
+    reqBtn.disabled = false;
+    reqBtn.textContent = 'Request Model';
+  });
+
+  reqInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); reqBtn.click(); }
+  });
+})();
+
+// ─── Network Demand (Mine tab) ───
+async function loadNetworkDemand() {
+  var listEl = document.getElementById('network-demand-list');
+  if (!listEl) return;
+  try {
+    var resp = await fetch('/public/model-demand');
+    var data = await resp.json();
+    var demand = data.demand || [];
+    if (demand.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--muted);font-size:11px;">No model requests yet. Users can request models from the Chat tab.</div>';
+      return;
+    }
+    var html = '';
+    demand.forEach(function(d, i) {
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;margin-bottom:3px;border-radius:4px;background:rgba(247,147,26,0.05);border:1px solid rgba(247,147,26,0.1);">' +
+        '<div>' +
+          '<span style="color:var(--text);font-weight:500;">' + d.model + '</span>' +
+          '<span style="color:var(--muted);font-size:10px;margin-left:6px;">' + d.unique_accounts + ' user' + (d.unique_accounts !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+        '<div style="color:#f7931a;font-size:11px;font-weight:600;">' + d.count + ' request' + (d.count !== 1 ? 's' : '') + '</div>' +
+      '</div>';
+    });
+    listEl.innerHTML = html;
+  } catch (err) {
+    listEl.innerHTML = '<div style="color:#ef4444;font-size:11px;">Failed to load demand data</div>';
+  }
+}
+
+(function() {
+  var refreshBtn = document.getElementById('refresh-demand-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function() {
+      refreshBtn.textContent = 'Loading...';
+      loadNetworkDemand().then(function() {
+        refreshBtn.textContent = 'Refresh Demand';
+      });
+    });
+  }
+  // Auto-load when Mine tab is shown
+  loadNetworkDemand();
+})();
 
 // ─── Mine Tab ───
 let miningActive = false;
