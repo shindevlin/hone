@@ -524,11 +524,19 @@
       <script>
       (function() {
         var models = [
-          { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', name: 'SmolLM 360M', size: '250MB', ram: 0.5, desc: 'Fastest, any device', url: 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/SmolLM2-360M-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen 0.5B', size: '350MB', ram: 0.7, desc: 'Best small model', url: 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-0.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '900MB', ram: 1.5, desc: 'Good quality, mid device', url: 'https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-1.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Gemma-2B-Instruct-q4f16_1-MLC', name: 'Gemma 2B', size: '1.2GB', ram: 2, desc: 'Strong, needs 4GB+ RAM', url: 'https://huggingface.co/nicolo-ribaudo/Gemma-2B-Instruct-q4f16_1-MLC/resolve/main/Gemma-2B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', name: 'Phi-3 Mini 3.8B', size: '2.1GB', ram: 3.5, desc: 'Highest quality, flagship only', url: 'https://huggingface.co/nicolo-ribaudo/Phi-3-mini-4k-instruct-q4f16_1-MLC/resolve/main/Phi-3-mini-4k-instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          // Phone / low-end
+          { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', name: 'SmolLM 360M', size: '250MB', ram: 0.5, desc: 'Fastest — any phone or device', url: 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/SmolLM2-360M-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen 0.5B', size: '350MB', ram: 0.7, desc: 'Best small model, phones + tablets', url: 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-0.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          // Mid-range
+          { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '900MB', ram: 1.5, desc: 'Good quality, flagship phones + laptops', url: 'https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-1.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Gemma-2B-Instruct-q4f16_1-MLC', name: 'Gemma 2B', size: '1.2GB', ram: 2, desc: 'Strong quality, laptops + PCs', url: 'https://huggingface.co/nicolo-ribaudo/Gemma-2B-Instruct-q4f16_1-MLC/resolve/main/Gemma-2B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', name: 'Phi-3 Mini 3.8B', size: '2.1GB', ram: 3.5, desc: 'High quality, PCs with 4GB+ GPU', url: 'https://huggingface.co/nicolo-ribaudo/Phi-3-mini-4k-instruct-q4f16_1-MLC/resolve/main/Phi-3-mini-4k-instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          // Desktop / GPU
+          { id: 'Llama-3-8B-Instruct-q4f16_1-MLC', name: 'Llama 3 8B', size: '4.5GB', ram: 6, desc: 'Excellent quality, desktop GPUs 8GB+', url: 'https://huggingface.co/nicolo-ribaudo/Llama-3-8B-Instruct-q4f16_1-MLC/resolve/main/Llama-3-8B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Mistral-7B-Instruct-v0.3-q4f16_1-MLC', name: 'Mistral 7B', size: '4.1GB', ram: 6, desc: 'Fast + smart, desktop GPUs 8GB+', url: 'https://huggingface.co/nicolo-ribaudo/Mistral-7B-Instruct-v0.3-q4f16_1-MLC/resolve/main/Mistral-7B-Instruct-v0.3-q4f16_1-MLC-q4f16_1.wasm' },
+          { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', name: 'Qwen 7B', size: '4.2GB', ram: 6, desc: 'Top tier small, 8GB+ GPU', url: 'https://huggingface.co/mlc-ai/Qwen2.5-7B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-7B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          // High-end PC
+          { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, desc: 'Maximum quality — needs 48GB+ VRAM (A6000, multi-GPU)', url: 'https://huggingface.co/nicolo-ribaudo/Llama-3.1-70B-Instruct-q4f16_1-MLC/resolve/main/Llama-3.1-70B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
         ];
 
         // Detect device capabilities
