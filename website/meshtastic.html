@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meshtastic + BTCPC — Earn with Your Mesh Radio</title>
+  <meta name="description" content="Already have a Meshtastic device? Start earning BTCPC by relaying sensor data over mesh radio. One command setup.">
+  <meta property="og:title" content="Meshtastic + BTCPC">
+  <meta property="og:description" content="Turn your Meshtastic radio into a BTCPC sensor relay. Earn from the IoT pool.">
+  <meta property="og:url" content="https://btcpc.net/meshtastic">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
+    .mesh-hero {
+      text-align: center;
+      padding: 80px 24px 40px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .mesh-hero h1 { font-size: 44px; font-weight: 800; margin: 0 0 16px; color: #e2e8f0; }
+    .mesh-hero h1 span { color: #f7931a; }
+    .mesh-hero p { font-size: 18px; color: #94a3b8; max-width: 620px; margin: 0 auto; line-height: 1.6; }
+    .mesh-badge {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 8px 20px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 20px;
+      font-size: 14px;
+      color: #22c55e;
+      font-weight: 600;
+    }
+    .setup-box {
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 28px;
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 16px;
+      text-align: left;
+    }
+    .setup-box h2 { color: #f7931a; font-size: 22px; margin: 0 0 16px; }
+    .setup-box p { color: #94a3b8; font-size: 15px; line-height: 1.6; margin: 0 0 16px; }
+    .code-block {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 14px;
+      color: #22c55e;
+      overflow-x: auto;
+      margin: 12px 0;
+      position: relative;
+    }
+    .code-block .comment { color: #6e7681; }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(247, 147, 26, 0.2);
+      border: 1px solid rgba(247, 147, 26, 0.4);
+      color: #f7931a;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .copy-btn:hover { background: rgba(247, 147, 26, 0.3); }
+    .how-section {
+      max-width: 900px;
+      margin: 60px auto;
+      padding: 0 24px;
+    }
+    .how-section h2 { color: #e2e8f0; font-size: 28px; margin: 0 0 32px; text-align: center; }
+    .how-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+    }
+    .how-card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .how-card .step-num {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      line-height: 32px;
+      text-align: center;
+      background: rgba(247, 147, 26, 0.15);
+      color: #f7931a;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .how-card h3 { color: #e2e8f0; font-size: 17px; margin: 0 0 8px; }
+    .how-card p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 0; }
+    .earn-section {
+      max-width: 800px;
+      margin: 60px auto;
+      padding: 0 24px;
+      text-align: center;
+    }
+    .earn-section h2 { color: #e2e8f0; font-size: 28px; margin: 0 0 16px; }
+    .earn-section p { color: #94a3b8; font-size: 16px; line-height: 1.6; max-width: 600px; margin: 0 auto 24px; }
+    .earn-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      text-align: left;
+    }
+    .earn-card {
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .earn-card h4 { color: #f7931a; font-size: 15px; margin: 0 0 8px; }
+    .earn-card p { color: #94a3b8; font-size: 13px; line-height: 1.5; margin: 0; }
+    .devices-section {
+      max-width: 900px;
+      margin: 60px auto;
+      padding: 0 24px;
+    }
+    .devices-section h2 { color: #e2e8f0; font-size: 28px; margin: 0 0 16px; text-align: center; }
+    .devices-section p.sub { color: #94a3b8; font-size: 16px; text-align: center; margin: 0 0 32px; }
+    .device-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .device-table th {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid #2a3550;
+      color: #f7931a;
+      font-weight: 600;
+    }
+    .device-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1a2235;
+      color: #c8ccd4;
+    }
+    .device-table tr:hover td { background: rgba(247, 147, 26, 0.05); }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .tag-popular { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .tag-gps { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+    .tag-budget { background: rgba(247, 147, 26, 0.15); color: #f7931a; }
+    .footer {
+      text-align: center;
+      padding: 60px 24px;
+      color: #475569;
+      font-size: 13px;
+    }
+    .footer a { color: #f7931a; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:16px;">
+    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;">BTCPC</a>
+    <a href="/globe" style="color:#c8ccd4;text-decoration:none;">Globe</a>
+    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Dashboard</a>
+    <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
+    <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
+    <a href="/meshtastic" style="color:#22c55e;text-decoration:none;font-weight:600;">Meshtastic</a>
+    <a href="/app" style="color:#c8ccd4;text-decoration:none;">App</a>
+    <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
+  </div>
+
+  <!-- Hero -->
+  <section class="mesh-hero">
+    <h1>Meshtastic + <span>BTCPC</span></h1>
+    <p>Already have a Meshtastic device? Start earning BTCPC by relaying sensor data over mesh radio. No internet required at the edge. One command to set up.</p>
+    <div class="mesh-badge">Millions of devices already in the field</div>
+  </section>
+
+  <!-- One-command setup -->
+  <section class="setup-box" style="max-width:700px;margin:0 auto;padding:28px;">
+    <h2>One-Command Setup</h2>
+    <p>Connect your Meshtastic device via USB and run:</p>
+    <div class="code-block">
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash')">Copy</button>
+      curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash
+    </div>
+    <p>This adds the <strong style="color:#f7931a;">btcpc</strong> channel to your device. Then start the bridge:</p>
+    <div class="code-block">
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('node bin/btcpc-meshtastic --account your-name')">Copy</button>
+      node bin/btcpc-meshtastic --account your-name
+    </div>
+    <p style="color:#475569;font-size:13px;">The bridge auto-detects your device on USB and starts relaying. It reconnects automatically if the device disconnects.</p>
+  </section>
+
+  <!-- How it works -->
+  <section class="how-section">
+    <h2>How Mesh Relay Works</h2>
+    <div class="how-grid">
+      <div class="how-card">
+        <div class="step-num">1</div>
+        <h3>Device joins mesh</h3>
+        <p>Your Meshtastic radio joins the "btcpc" channel on the mesh network. Any device in range can send BTCPC sensor packets.</p>
+      </div>
+      <div class="how-card">
+        <div class="step-num">2</div>
+        <h3>Bridge relays data</h3>
+        <p>The bridge daemon reads packets from your device over USB and submits sensor readings to the BTCPC chain via the local node API.</p>
+      </div>
+      <div class="how-card">
+        <div class="step-num">3</div>
+        <h3>Chain records it</h3>
+        <p>Each reading is recorded on the BTCPC blockchain with the relay node credited. Verifiable, permanent, and useful data.</p>
+      </div>
+      <div class="how-card">
+        <div class="step-num">4</div>
+        <h3>You earn BTCPC</h3>
+        <p>Relay operators earn a share of the IoT sensor pool every epoch. More data relayed means more earned. No mining rig needed.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- What you earn -->
+  <section class="earn-section">
+    <h2>What You Earn</h2>
+    <p>BTCPC rewards come from the IoT sensor pool. Every epoch, active relay nodes receive a share proportional to the data they contributed.</p>
+    <div class="earn-grid">
+      <div class="earn-card">
+        <h4>Relay Fees</h4>
+        <p>Every sensor packet you relay from the mesh to the chain earns a small relay fee from the IoT pool.</p>
+      </div>
+      <div class="earn-card">
+        <h4>Own Device Sensors</h4>
+        <p>Your Meshtastic device's GPS, battery, and signal strength are reported as sensor data and earn rewards too.</p>
+      </div>
+      <div class="earn-card">
+        <h4>Network Coverage</h4>
+        <p>Devices that extend mesh coverage to new areas earn a coverage bonus, incentivizing geographic spread.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Compatible devices -->
+  <section class="devices-section">
+    <h2>Compatible Devices</h2>
+    <p class="sub">Any Meshtastic-compatible device works. These are the most popular options.</p>
+    <table class="device-table">
+      <thead>
+        <tr>
+          <th>Device</th>
+          <th>Chip</th>
+          <th>Features</th>
+          <th>Price</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>LILYGO T-Beam</strong></td>
+          <td>ESP32</td>
+          <td>LoRa + GPS + 18650 battery <span class="tag tag-gps">GPS</span></td>
+          <td>$25-35</td>
+          <td><span class="tag tag-popular">Most Popular</span></td>
+        </tr>
+        <tr>
+          <td><strong>Heltec V3</strong></td>
+          <td>ESP32-S3</td>
+          <td>LoRa + OLED display</td>
+          <td>$18-25</td>
+          <td><span class="tag tag-budget">Budget Pick</span></td>
+        </tr>
+        <tr>
+          <td><strong>RAK WisBlock</strong></td>
+          <td>nRF52840</td>
+          <td>LoRa + modular sensor slots</td>
+          <td>$30-50</td>
+          <td>Best for sensor add-ons</td>
+        </tr>
+        <tr>
+          <td><strong>LilyGo T-Echo</strong></td>
+          <td>nRF52840</td>
+          <td>LoRa + GPS + E-Ink display <span class="tag tag-gps">GPS</span></td>
+          <td>$40-55</td>
+          <td>Low power, great battery life</td>
+        </tr>
+        <tr>
+          <td><strong>Station G2</strong></td>
+          <td>ESP32-S3</td>
+          <td>LoRa + Ethernet + enclosure</td>
+          <td>$60-80</td>
+          <td>Best for fixed installations</td>
+        </tr>
+        <tr>
+          <td><strong>Heltec Capsule</strong></td>
+          <td>ESP32-S3</td>
+          <td>LoRa + GPS + tiny form factor <span class="tag tag-gps">GPS</span></td>
+          <td>$20-30</td>
+          <td>Pocket-sized</td>
+        </tr>
+        <tr>
+          <td><strong>RAK4631 + RAK19007</strong></td>
+          <td>nRF52840</td>
+          <td>LoRa + solar + weatherproof</td>
+          <td>$45-65</td>
+          <td>Best for outdoor/solar</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- BTCPC packet format -->
+  <section class="setup-box" style="max-width:700px;margin:60px auto;padding:28px;">
+    <h2>BTCPC Mesh Packet Format</h2>
+    <p>Devices send JSON text messages on the "btcpc" channel:</p>
+    <div class="code-block" style="color:#e2e8f0;">
+      <span class="comment">// Sensor reading packet</span><br>
+      {"btcpc":1,"sensor":"josh/flipper-subghz","value":-92,"meta":{"freq":"433MHz"},"sig":"abc123"}
+    </div>
+    <p style="margin-top:16px;">Fields:</p>
+    <div style="font-size:14px;color:#94a3b8;line-height:2;">
+      <strong style="color:#f7931a;">btcpc</strong> — must be 1 (identifies as BTCPC packet)<br>
+      <strong style="color:#f7931a;">sensor</strong> — sensor ID in account/name format<br>
+      <strong style="color:#f7931a;">value</strong> — numeric reading value<br>
+      <strong style="color:#f7931a;">meta</strong> — optional metadata object<br>
+      <strong style="color:#f7931a;">sig</strong> — optional signature (for trusted relay mode)
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section style="text-align:center;padding:60px 24px;">
+    <h2 style="color:#e2e8f0;font-size:32px;margin:0 0 16px;">Ready to bridge the mesh?</h2>
+    <p style="color:#94a3b8;font-size:16px;margin:0 0 28px;">Plug in your Meshtastic device and start earning.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <a href="/install" style="background:#f7931a;color:#000;padding:14px 32px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;">Install BTCPC</a>
+      <a href="https://meshtastic.org/docs/hardware/devices/" style="background:rgba(34,197,94,0.15);color:#22c55e;padding:14px 32px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;border:1px solid #22c55e;" target="_blank">Buy a Device</a>
+    </div>
+  </section>
+
+  <div class="footer">
+    <a href="/">btcpc.net</a> &mdash; Bitcoin Proof of Compute<br>
+    42,000,000 BTCPC. Every token earned.
+  </div>
+
+</body>
+</html>
