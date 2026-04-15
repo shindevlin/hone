@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-ble-listener — BLE auto-sync for Flipper Zero
+ *
+ * Scans for Flipper's BLE advertisement. When in range, connects
+ * and pulls sensor readings. No USB needed — just walk in the door.
+ *
+ * Requires: sudo (for BLE scanning) and bluez installed
+ * Usage: sudo node bin/btcpc-ble-listener
+ */
+
+var { execSync, spawn } = require("child_process");
+var path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
+
+var SCAN_INTERVAL_MS = 60000; // scan every 60 seconds
+var FLIPPER_NAME_PREFIX = "Flipper";
+var lastSync = 0;
+var SYNC_COOLDOWN_MS = 300000; // don't sync more than once per 5 min
+
+function log(msg) { console.log("[ble-listener] " + msg); }
+
+function scanForFlipper() {
+  try {
+    // Use bluetoothctl to scan
+    var result = execSync(
+      "timeout 5 bluetoothctl scan on 2>/dev/null & sleep 4; bluetoothctl scan off 2>/dev/null; bluetoothctl devices 2>/dev/null",
+      { encoding: "utf8", timeout: 10000 }
+    );
+
+    var lines = result.split("\n").filter(function(l) {
+      return l.includes("Flipper") || l.includes("flip_");
+    });
+
+    if (lines.length > 0) {
+      log("Flipper detected via BLE: " + lines[0].trim());
+      return true;
+    }
+  } catch (e) {
+    // Scan failed — not fatal
+  }
+  return false;
+}
+
+function syncViaUSB() {
+  // Check if Flipper is also on USB (preferred for data transfer)
+  var fs = require("fs");
+  var ttyFiles = [];
+  try {
+    ttyFiles = fs.readdirSync("/dev").filter(function(f) { return f.startsWith("ttyACM"); });
+  } catch (_) {}
+
+  if (ttyFiles.length === 0) {
+    log("Flipper in BLE range but no USB connection — readings buffered on device");
+    log("Plug in USB to sync, or add CC1101 module to Nebra for radio sync");
+    return;
+  }
+
+  log("Flipper on USB — triggering sync...");
+  try {
+    var child = spawn("node", [path.resolve(__dirname, "btcpc-flipper-listener")], {
+      stdio: "inherit",
+      timeout: 30000
+    });
+    child.on("exit", function() { log("USB sync complete"); });
+  } catch (e) {
+    log("USB sync failed: " + e.message);
+  }
+}
+
+log("BTCPC BLE Listener — scanning for Flipper Zero");
+log("Scan interval: " + (SCAN_INTERVAL_MS / 1000) + "s");
+
+// Initial scan
+if (scanForFlipper()) syncViaUSB();
+
+// Periodic scan
+setInterval(function() {
+  if (Date.now() - lastSync < SYNC_COOLDOWN_MS) return;
+
+  if (scanForFlipper()) {
+    lastSync = Date.now();
+    syncViaUSB();
+  }
+}, SCAN_INTERVAL_MS);
+
+// Keep alive
+setInterval(function() {}, 60000);

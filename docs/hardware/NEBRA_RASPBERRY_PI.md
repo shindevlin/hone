@@ -103,3 +103,44 @@
 - Port 4243 conflict on restart (old storage process holds port, resolves after timeout)
 - LoRa concentrator detected but untested with actual sensors
 - npm install is slow on ARM (~5 minutes)
+
+## Flipper Zero Relay via CC1101 Module
+
+To receive Flipper Zero sensor data directly via Sub-GHz radio (no USB/BLE needed):
+
+### Hardware needed
+- CC1101 module ($3 on Amazon/AliExpress)
+- 5 jumper wires
+
+### Wiring to Nebra Pi GPIO
+| CC1101 Pin | Pi GPIO | Description |
+|-----------|---------|-------------|
+| VCC | Pin 1 (3.3V) | Power |
+| GND | Pin 6 (GND) | Ground |
+| MOSI | GPIO 10 (Pin 19) | SPI data in |
+| MISO | GPIO 9 (Pin 21) | SPI data out |
+| SCK | GPIO 11 (Pin 23) | SPI clock |
+| CSN | GPIO 25 (Pin 22) | Chip select |
+| GDO0 | GPIO 24 (Pin 18) | Data ready interrupt |
+
+**Note:** The LoRa concentrator uses SPI0 (/dev/spidev0.0). The CC1101 must use SPI1 (/dev/spidev1.0) or bitbang SPI on different GPIO pins to avoid conflict.
+
+### Software
+btcpc-nebra daemon needs a CC1101 listener that:
+1. Listens on 915 MHz FSK (matching Flipper's Sub-GHz TX format)
+2. Parses BTCPC sensor packets (the format defined in the Flipper plan)
+3. Submits readings to the chain via POST /api/sensors/:id/readings
+
+### Flipper TX format (already implemented)
+The Flipper transmits sensor readings as:
+- Frequency: 915 MHz (US) or 433.92 MHz
+- Modulation: 2-FSK
+- Packet: [0xBT][0xCP][version][type][sensor_id][epoch][value][signature][CRC16]
+
+### Range
+- Indoor: 50-100m through walls
+- Outdoor line-of-sight: 200-500m
+- With antenna upgrade: 1-2km
+
+This means the Flipper can sync to the Nebra from anywhere in the house
+or yard without USB, BLE, or WiFi. Walk in range → data syncs automatically.
