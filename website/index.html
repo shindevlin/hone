@@ -27,6 +27,32 @@
   <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
   </div>
 
+  <!-- Genesis Countdown (disappears after launch) -->
+  <div id="genesis-countdown" style="text-align:center;padding:40px 20px;display:none;">
+    <div style="font-size:12px;letter-spacing:2px;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Genesis Launches In</div>
+    <div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px;">
+      <div><span id="cd-h" style="font-size:48px;font-weight:bold;color:#f7931a;">--</span><div style="font-size:10px;color:#64748b;">HOURS</div></div>
+      <div><span id="cd-m" style="font-size:48px;font-weight:bold;color:#f7931a;">--</span><div style="font-size:10px;color:#64748b;">MINUTES</div></div>
+      <div><span id="cd-s" style="font-size:48px;font-weight:bold;color:#f7931a;">--</span><div style="font-size:10px;color:#64748b;">SECONDS</div></div>
+    </div>
+    <div style="font-size:12px;color:#64748b;">Midnight California &bull; April 15, 2026 &bull; All nodes launch together</div>
+  </div>
+  <script>
+  (function(){
+    var G=1776236400000;
+    var el=document.getElementById('genesis-countdown');
+    function tick(){
+      var d=G-Date.now();
+      if(d<=0){el.style.display='none';return;}
+      el.style.display='block';
+      document.getElementById('cd-h').textContent=String(Math.floor(d/3600000)).padStart(2,'0');
+      document.getElementById('cd-m').textContent=String(Math.floor((d%3600000)/60000)).padStart(2,'0');
+      document.getElementById('cd-s').textContent=String(Math.floor((d%60000)/1000)).padStart(2,'0');
+    }
+    tick();setInterval(tick,1000);
+  })();
+  </script>
+
   <!-- Hero -->
   <section class="hero" id="hero">
     <p class="section-label">Sovereign Blockchain</p>
