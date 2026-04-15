@@ -413,4 +413,39 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/**
+ * POST /public/change-password
+ * Body: { username, old_password, new_password }
+ */
+router.post('/change-password', async (req, res) => {
+  try {
+    const { username, old_password, new_password } = req.body || {};
+    if (!username || !old_password || !new_password) {
+      return res.status(400).json({ error: 'username, old_password, and new_password required' });
+    }
+    if (new_password.length < 6) {
+      return res.status(400).json({ error: 'new password must be at least 6 characters' });
+    }
+
+    const secretStore = require('../services/secretStore');
+    try { secretStore.load(); } catch (_) {}
+
+    const clean = username.trim().toLowerCase();
+    const user = secretStore.getUser(clean);
+    if (!user) return res.status(404).json({ error: 'account not found' });
+
+    const ok = await secretStore.verifyPassword(clean, old_password);
+    if (!ok) return res.status(401).json({ error: 'current password is wrong' });
+
+    // Hash new password and update
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash(new_password, 10);
+    secretStore.updateUser(clean, { password_hash: hash });
+
+    res.json({ success: true, message: 'Password changed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

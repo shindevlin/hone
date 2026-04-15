@@ -593,7 +593,14 @@
           <span style="color:var(--muted);">Logged in as:</span>
           <span id="settings-account" style="color:var(--orange);font-weight:700;"></span>
         </div>
-        <button class="btn btn-secondary" id="btn-settings" style="margin-top:0;">Change Account</button>
+        <div id="change-pw-section" style="margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Change Password</div>
+          <input type="password" id="pw-old" placeholder="Current password" style="width:100%;padding:8px;margin-bottom:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:inherit;font-size:12px;">
+          <input type="password" id="pw-new" placeholder="New password (6+ chars)" style="width:100%;padding:8px;margin-bottom:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:inherit;font-size:12px;">
+          <button id="btn-change-pw" style="width:100%;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:4px;font-family:inherit;font-size:12px;cursor:pointer;">Change Password</button>
+          <div id="pw-msg" style="font-size:11px;margin-top:4px;display:none;"></div>
+        </div>
+        <button class="btn btn-secondary" id="btn-settings" style="margin-top:0;">Switch Account</button>
         <button class="btn btn-danger" id="btn-stop">Stop All Sensors</button>
       </div>
 
@@ -1640,6 +1647,41 @@ if (gpsExcludeEl) {
 document.getElementById('btn-settings').addEventListener('click', () => {
   stopAll();
   showScreen('screen-setup');
+});
+
+// Change password handler
+document.getElementById('btn-change-pw').addEventListener('click', async () => {
+  const oldPw = document.getElementById('pw-old').value;
+  const newPw = document.getElementById('pw-new').value;
+  const msg = document.getElementById('pw-msg');
+  if (!oldPw || !newPw || newPw.length < 6) {
+    msg.textContent = 'New password must be at least 6 characters';
+    msg.style.color = '#ef4444';
+    msg.style.display = 'block';
+    return;
+  }
+  try {
+    const resp = await fetch('/public/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: account, old_password: oldPw, new_password: newPw })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      msg.textContent = 'Password changed!';
+      msg.style.color = '#22c55e';
+      document.getElementById('pw-old').value = '';
+      document.getElementById('pw-new').value = '';
+    } else {
+      msg.textContent = data.error || 'Failed';
+      msg.style.color = '#ef4444';
+    }
+    msg.style.display = 'block';
+  } catch (e) {
+    msg.textContent = 'Network error';
+    msg.style.color = '#ef4444';
+    msg.style.display = 'block';
+  }
 });
 
 document.getElementById('btn-stop').addEventListener('click', () => {
