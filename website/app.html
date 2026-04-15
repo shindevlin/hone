@@ -597,7 +597,8 @@
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Change Password</div>
           <input type="password" id="pw-old" placeholder="Current password" style="width:100%;padding:8px;margin-bottom:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:inherit;font-size:12px;">
           <input type="password" id="pw-new" placeholder="New password (6+ chars)" style="width:100%;padding:8px;margin-bottom:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:inherit;font-size:12px;">
-          <button id="btn-change-pw" style="width:100%;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.3);color:#f7931a;border-radius:4px;font-family:inherit;font-size:12px;cursor:pointer;">Change Password</button>
+          <input type="password" id="pw-confirm" placeholder="Confirm new password" style="width:100%;padding:8px;margin-bottom:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:inherit;font-size:12px;">
+          <button id="btn-change-pw" disabled style="width:100%;padding:8px;background:rgba(100,100,100,0.15);border:1px solid rgba(100,100,100,0.3);color:#64748b;border-radius:4px;font-family:inherit;font-size:12px;cursor:not-allowed;">Passwords must match</button>
           <div id="pw-msg" style="font-size:11px;margin-top:4px;display:none;"></div>
         </div>
         <button class="btn btn-secondary" id="btn-settings" style="margin-top:0;">Switch Account</button>
@@ -1649,11 +1650,39 @@ document.getElementById('btn-settings').addEventListener('click', () => {
   showScreen('screen-setup');
 });
 
+// Password confirm matching — enable button only when they match
+(function() {
+  const newEl = document.getElementById('pw-new');
+  const confEl = document.getElementById('pw-confirm');
+  const btn = document.getElementById('btn-change-pw');
+  function checkMatch() {
+    const match = newEl.value && confEl.value && newEl.value === confEl.value && newEl.value.length >= 6;
+    btn.disabled = !match;
+    btn.style.background = match ? 'rgba(247,147,26,0.15)' : 'rgba(100,100,100,0.15)';
+    btn.style.borderColor = match ? 'rgba(247,147,26,0.3)' : 'rgba(100,100,100,0.3)';
+    btn.style.color = match ? '#f7931a' : '#64748b';
+    btn.style.cursor = match ? 'pointer' : 'not-allowed';
+    btn.textContent = !newEl.value ? 'Passwords must match' :
+      newEl.value.length < 6 ? 'Min 6 characters' :
+      !confEl.value ? 'Confirm new password' :
+      newEl.value !== confEl.value ? 'Passwords don\'t match' : 'Change Password';
+  }
+  newEl.addEventListener('input', checkMatch);
+  confEl.addEventListener('input', checkMatch);
+})();
+
 // Change password handler
 document.getElementById('btn-change-pw').addEventListener('click', async () => {
   const oldPw = document.getElementById('pw-old').value;
   const newPw = document.getElementById('pw-new').value;
+  const confPw = document.getElementById('pw-confirm').value;
   const msg = document.getElementById('pw-msg');
+  if (newPw !== confPw) {
+    msg.textContent = 'Passwords don\'t match';
+    msg.style.color = '#ef4444';
+    msg.style.display = 'block';
+    return;
+  }
   if (!oldPw || !newPw || newPw.length < 6) {
     msg.textContent = 'New password must be at least 6 characters';
     msg.style.color = '#ef4444';
