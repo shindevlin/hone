@@ -524,20 +524,27 @@
       <script>
       (function() {
         var models = [
-          // Phone / low-end
-          { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', name: 'SmolLM 360M', size: '250MB', ram: 0.5, desc: 'Fastest — any phone or device', url: 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/SmolLM2-360M-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen 0.5B', size: '350MB', ram: 0.7, desc: 'Best small model, phones + tablets', url: 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-0.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          // Mid-range
-          { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '900MB', ram: 1.5, desc: 'Good quality, flagship phones + laptops', url: 'https://huggingface.co/mlc-ai/Qwen2.5-1.5B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-1.5B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Gemma-2B-Instruct-q4f16_1-MLC', name: 'Gemma 2B', size: '1.2GB', ram: 2, desc: 'Strong quality, laptops + PCs', url: 'https://huggingface.co/nicolo-ribaudo/Gemma-2B-Instruct-q4f16_1-MLC/resolve/main/Gemma-2B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', name: 'Phi-3 Mini 3.8B', size: '2.1GB', ram: 3.5, desc: 'High quality, PCs with 4GB+ GPU', url: 'https://huggingface.co/nicolo-ribaudo/Phi-3-mini-4k-instruct-q4f16_1-MLC/resolve/main/Phi-3-mini-4k-instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          // Desktop / GPU
-          { id: 'Llama-3-8B-Instruct-q4f16_1-MLC', name: 'Llama 3 8B', size: '4.5GB', ram: 6, desc: 'Excellent quality, desktop GPUs 8GB+', url: 'https://huggingface.co/nicolo-ribaudo/Llama-3-8B-Instruct-q4f16_1-MLC/resolve/main/Llama-3-8B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Mistral-7B-Instruct-v0.3-q4f16_1-MLC', name: 'Mistral 7B', size: '4.1GB', ram: 6, desc: 'Fast + smart, desktop GPUs 8GB+', url: 'https://huggingface.co/nicolo-ribaudo/Mistral-7B-Instruct-v0.3-q4f16_1-MLC/resolve/main/Mistral-7B-Instruct-v0.3-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', name: 'Qwen 7B', size: '4.2GB', ram: 6, desc: 'Top tier small, 8GB+ GPU', url: 'https://huggingface.co/mlc-ai/Qwen2.5-7B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-7B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          // High-end PC
-          { id: 'Qwen2.5-32B-Instruct-q4f16_1-MLC', name: 'Qwen 27B', size: '16GB', ram: 20, desc: 'Premium quality — 24GB+ GPU (3090, 4090)', url: 'https://huggingface.co/mlc-ai/Qwen2.5-32B-Instruct-q4f16_1-MLC/resolve/main/Qwen2.5-32B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
-          { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, desc: 'Maximum quality — 48GB+ VRAM (A6000, multi-GPU)', url: 'https://huggingface.co/nicolo-ribaudo/Llama-3.1-70B-Instruct-q4f16_1-MLC/resolve/main/Llama-3.1-70B-Instruct-q4f16_1-MLC-q4f16_1.wasm' },
+          // ── Phone / low-end ──
+          { id: 'SmolLM2-360M-Instruct-q4f16_1-MLC', name: 'SmolLM 360M', size: '250MB', ram: 0.5, tier: 'phone', desc: 'Fastest — any device', earning: '1x' },
+          { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen 0.5B', size: '350MB', ram: 0.7, tier: 'phone', desc: 'Best small model', earning: '1.2x' },
+          // ── Mid-range ──
+          { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '900MB', ram: 1.5, tier: 'tablet', desc: 'Good quality, flagship phones + laptops', earning: '2x' },
+          { id: 'Phi-3-mini-4k-instruct-q4f16_1-MLC', name: 'Phi-3 3.8B', size: '2.1GB', ram: 3.5, tier: 'laptop', desc: 'Microsoft, strong for size', earning: '3x' },
+          // ── Desktop GPU 8GB ──
+          { id: 'Mistral-7B-Instruct-v0.3-q4f16_1-MLC', name: 'Mistral 7B', size: '4.1GB', ram: 6, tier: 'gpu8', desc: 'Classic reliable, fast', earning: '4x' },
+          { id: 'Llama-3.1-8B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 8B', size: '4.7GB', ram: 6, tier: 'gpu8', desc: 'Meta flagship', earning: '4x' },
+          { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', name: 'Qwen 7B', size: '4.2GB', ram: 6, tier: 'gpu8', desc: 'Top tier 7B', earning: '4x' },
+          { id: 'Gemma2-9B-Instruct-q4f16_1-MLC', name: 'Gemma2 9B', size: '5.4GB', ram: 7, tier: 'gpu8', desc: 'Google, excellent quality', earning: '4.5x' },
+          { id: 'DeepSeek-R1-8B-q4f16_1-MLC', name: 'DeepSeek-R1 8B', size: '5GB', ram: 6, tier: 'gpu8', desc: 'Reasoning specialist', earning: '4x' },
+          // ── Desktop GPU 12-16GB ──
+          { id: 'Phi3-14B-Instruct-q4f16_1-MLC', name: 'Phi-3 14B', size: '7.9GB', ram: 10, tier: 'gpu16', desc: 'Microsoft, small-strong', earning: '6x' },
+          { id: 'CodeLlama-13B-Instruct-q4f16_1-MLC', name: 'CodeLlama 13B', size: '7.4GB', ram: 10, tier: 'gpu16', desc: 'Code specialist', earning: '6x' },
+          { id: 'Qwen3.5-9B-Instruct-q4f16_1-MLC', name: 'Qwen 3.5 9B', size: '5.5GB', ram: 7, tier: 'gpu8', desc: 'Latest Qwen, balanced', earning: '5x' },
+          // ── Desktop GPU 24GB (3090/4090) ──
+          { id: 'Qwen3.5-27B-Instruct-q4f16_1-MLC', name: 'Qwen 3.5 27B', size: '16GB', ram: 20, tier: 'gpu24', desc: 'Default BTCPC model, highest demand', earning: '10x' },
+          { id: 'Dolphin-Mixtral-8x7B-q4f16_1-MLC', name: 'Dolphin Mixtral 8x7B', size: '26GB', ram: 22, tier: 'gpu24', desc: 'Uncensored MoE, heavy', earning: '12x' },
+          // ── Data center 48GB+ ──
+          { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, tier: 'gpu48', desc: 'Maximum quality, multi-GPU', earning: '17x' },
         ];
 
         // Detect device capabilities
@@ -550,26 +557,52 @@
           (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
 
         // Render model list with checkboxes
+        // Build download URLs from model ID
+        var HF_BASE = 'https://huggingface.co/mlc-ai/';
+        models.forEach(function(m) {
+          if (!m.url) m.url = HF_BASE + m.id + '/resolve/main/' + m.id + '-q4f16_1.wasm';
+        });
+
         var listEl = document.getElementById('model-list');
+        var lastTier = '';
         models.forEach(function(m) {
           var canRun = m.ram <= deviceRAM && hasWebGPU;
+
+          // Tier header
+          var tierLabels = { phone: 'Phone / Low-end', tablet: 'Tablets + Laptops', laptop: 'Laptops', gpu8: 'Desktop GPU 8GB', gpu16: 'Desktop GPU 12-16GB', gpu24: 'Desktop GPU 24GB (3090/4090)', gpu48: 'Data Center 48GB+' };
+          if (m.tier !== lastTier) {
+            lastTier = m.tier;
+            var header = document.createElement('div');
+            header.style.cssText = 'font-size:10px;color:var(--orange);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px;padding:2px 0;border-bottom:1px solid rgba(247,147,26,0.2);';
+            header.textContent = tierLabels[m.tier] || m.tier;
+            listEl.appendChild(header);
+          }
+
           var div = document.createElement('div');
-          div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:4px;background:' +
+          div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;margin-bottom:3px;border-radius:4px;background:' +
             (canRun ? 'rgba(34,197,94,0.05)' : 'rgba(100,100,100,0.05)') + ';border:1px solid ' +
-            (canRun ? 'rgba(34,197,94,0.2)' : 'rgba(100,100,100,0.2)');
+            (canRun ? 'rgba(34,197,94,0.15)' : 'rgba(100,100,100,0.15)');
           div.innerHTML =
-            '<input type="checkbox" class="model-cb" data-url="' + m.url + '" data-name="' + m.name + '" ' +
+            '<input type="checkbox" class="model-cb" data-url="' + m.url + '" data-name="' + m.name + '" data-id="' + m.id + '" ' +
             (canRun ? '' : 'disabled') +
-            ' style="accent-color:#f7931a;width:16px;height:16px;">' +
-            '<div style="flex:1;">' +
-              '<div style="font-size:12px;color:' + (canRun ? 'var(--text)' : '#64748b') + ';">' +
-                m.name + ' <span style="color:var(--muted);font-size:10px;">(' + m.size + ')</span>' +
-                (canRun ? '' : ' <span style="color:#ef4444;font-size:10px;">needs ' + m.ram + 'GB</span>') +
+            ' style="accent-color:#f7931a;width:16px;height:16px;flex-shrink:0;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:12px;color:' + (canRun ? 'var(--text)' : '#64748b') + ';display:flex;justify-content:space-between;align-items:center;">' +
+                '<span>' + m.name + ' <span style="color:var(--muted);font-size:10px;">(' + m.size + ')</span></span>' +
+                '<span style="font-size:10px;color:' + (canRun ? '#22c55e' : '#64748b') + ';white-space:nowrap;margin-left:8px;">' +
+                  (canRun ? m.earning + ' earn' : 'needs ' + m.ram + 'GB') +
+                '</span>' +
               '</div>' +
               '<div style="font-size:10px;color:var(--muted);">' + m.desc + '</div>' +
             '</div>';
           listEl.appendChild(div);
         });
+
+        // Info note about model swapping
+        var note = document.createElement('div');
+        note.style.cssText = 'font-size:10px;color:var(--muted);margin-top:8px;padding:6px 8px;background:rgba(34,197,94,0.05);border-radius:4px;';
+        note.innerHTML = '<strong style="color:#22c55e;">How it works:</strong> Download multiple models. Only one runs at a time — when a job needs a different model, the current one unloads and the requested one loads. Bigger models = higher earnings per token.';
+        listEl.appendChild(note);
 
         // Download selected models
         document.getElementById('mine-download-selected').addEventListener('click', function() {
