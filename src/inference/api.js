@@ -482,6 +482,42 @@ router.get('/v1/models', async (req, res) => {
 });
 
 /**
+ * POST /v1/node/pull-model
+ * Pull an Ollama model to the local inference backend.
+ * Streams newline-delimited JSON progress so callers can show a progress bar.
+ * Requires a valid btcpc_ API key or JWT session (same auth as inference).
+ */
+router.post('/v1/node/pull-model', async (req, res) => {
+  const model = (req.body && req.body.model || '').trim();
+  if (!model || model.length > 200 || !/^[a-zA-Z0-9_.:/-]+$/.test(model)) {
+    return res.status(400).json({ error: { message: 'Invalid model name', code: 'invalid_model' } });
+  }
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache');
+
+  try {
+    const pullResp = await axios.post(
+      `${OLLAMA_URL}/api/pull`,
+      { name: model, stream: true },
+      { responseType: 'stream', timeout: 30 * 60 * 1000 }
+    );
+
+    pullResp.data.on('data', chunk => {
+      try { res.write(chunk); } catch (_) {}
+    });
+    pullResp.data.on('end', () => res.end());
+    pullResp.data.on('error', err => {
+      try { res.write(JSON.stringify({ error: err.message }) + '\n'); res.end(); } catch (_) {}
+    });
+  } catch (err) {
+    res.write(JSON.stringify({ error: err.message || 'Pull failed' }) + '\n');
+    res.end();
+  }
+});
+
+/**
  * GET /v1/pricing
  * Current dynamic pricing. Accepts ?model= to get model-specific pricing.
  */
