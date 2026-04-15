@@ -894,6 +894,10 @@
     <!-- Tab: Chat -->
     <div id="panel-chat" class="tab-panel">
       <div id="chat-messages"></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap;">Model:</span>
+        <input type="text" id="chat-model-input" placeholder="e.g. qwen3:4b, llama3.2:3b" style="flex:1;padding:5px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;outline:none;" required>
+      </div>
       <div class="chat-input-row">
         <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
         <button id="chat-send">Send</button>
@@ -2777,12 +2781,20 @@ async function sendChat() {
     return;
   }
 
+  const modelInput = document.getElementById('chat-model-input');
+  const model = modelInput ? modelInput.value.trim() : '';
+  if (!model) {
+    if (modelInput) { modelInput.style.borderColor = '#ef4444'; modelInput.focus(); }
+    return;
+  }
+  if (modelInput) modelInput.style.borderColor = '';
+
   chatInput.value = '';
   chatInput.style.height = 'auto';
   chatSendBtn.disabled = true;
 
   appendChatBubble('user', text, null);
-  await saveChatMessage('user', text, null, null);
+  await saveChatMessage('user', text, model, null);
 
   // Show typing indicator
   const typingDiv = document.createElement('div');
@@ -2795,10 +2807,10 @@ async function sendChat() {
 
   try {
     const body = {
+      model: model,
       messages: [{ role: 'user', content: text }],
       stream: false,
     };
-    // No model field — network routes to best available miner for this requester
 
     const resp = await fetch(API_BASE + '/v1/chat/completions', {
       method: 'POST',
@@ -2976,6 +2988,16 @@ mineBattSlider.addEventListener('input', () => {
 mineWifiOnly.addEventListener('change', () => {
   localStorage.setItem('btcpc-mine-wifi-only', mineWifiOnly.checked ? 'true' : 'false');
 });
+
+// Restore last-used chat model
+const chatModelInput = document.getElementById('chat-model-input');
+if (chatModelInput) {
+  const saved = localStorage.getItem('btcpc-chat-model');
+  if (saved) chatModelInput.value = saved;
+  chatModelInput.addEventListener('change', () => {
+    localStorage.setItem('btcpc-chat-model', chatModelInput.value.trim());
+  });
+}
 
 function updateMineStats() {
   if (!window.btcpcMiner) return;
