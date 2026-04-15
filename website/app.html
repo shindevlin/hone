@@ -765,7 +765,17 @@
                   if (tryResp.status !== 404) { resp = tryResp; break; }
                 } catch(_) {}
               }
-              if (!resp) { pullStatus.innerHTML = '<span style="color:#ef4444;">No local node found at localhost:3000</span>'; if (pb) { pb.textContent = 'No local node'; pb.style.color = '#ef4444'; } continue; }
+              if (!resp) {
+                pullStatus.innerHTML =
+                  '<div style="color:#ef4444;margin-bottom:6px;">⚠ BTCPC node not running at localhost:3000</div>' +
+                  '<div style="color:var(--muted);font-size:11px;line-height:1.6;">' +
+                  'Model pulls are proxied through your local node. Start it first:<br>' +
+                  '<code style="color:#f7931a;">node bin/btcpc-mine --miner &lt;username&gt;</code><br>' +
+                  'Then try again. The node must be running at port 3000.' +
+                  '</div>';
+                if (pb) { pb.textContent = 'Node not running'; pb.style.color = '#ef4444'; }
+                continue;
+              }
               try {
                 if (!resp.ok) {
                   var errBody = await resp.text();
