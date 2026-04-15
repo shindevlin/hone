@@ -581,19 +581,39 @@
           || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname);
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
+        // BTCPC is model-agnostic — work value scales with verified parameter count.
         var ollamaModels = [
-          { id: 'qwen2.5:0.5b',   name: 'Qwen 0.5B',       size: '400MB',  ram: 1,  tier: 'any',    desc: 'Fastest — any machine',        earning: '1.2x' },
-          { id: 'qwen2.5:1.5b',   name: 'Qwen 1.5B',       size: '1GB',    ram: 2,  tier: 'laptop', desc: 'Good balance, 4GB+ RAM',        earning: '2x' },
-          { id: 'llama3.2:1b',    name: 'Llama 3.2 1B',    size: '1.3GB',  ram: 2,  tier: 'laptop', desc: 'Meta, very fast',               earning: '2x' },
-          { id: 'phi3:mini',      name: 'Phi-3 Mini 3.8B', size: '2.3GB',  ram: 4,  tier: 'laptop', desc: 'Microsoft, strong for size',     earning: '3x' },
-          { id: 'mistral:7b',     name: 'Mistral 7B',      size: '4.1GB',  ram: 6,  tier: 'gpu8',   desc: 'Classic reliable',              earning: '4x' },
-          { id: 'llama3.1:8b',    name: 'Llama 3.1 8B',    size: '4.7GB',  ram: 6,  tier: 'gpu8',   desc: 'Meta flagship',                 earning: '4x' },
-          { id: 'qwen2.5:7b',     name: 'Qwen 7B',         size: '4.7GB',  ram: 6,  tier: 'gpu8',   desc: 'Top tier 7B',                   earning: '4x' },
-          { id: 'gemma2:9b',      name: 'Gemma2 9B',       size: '5.4GB',  ram: 7,  tier: 'gpu8',   desc: 'Google, excellent quality',     earning: '4.5x' },
-          { id: 'deepseek-r1:8b', name: 'DeepSeek-R1 8B',  size: '5GB',    ram: 6,  tier: 'gpu8',   desc: 'Reasoning specialist',          earning: '4x' },
-          { id: 'qwen2.5:14b',    name: 'Qwen 14B',        size: '9GB',    ram: 12, tier: 'gpu16',  desc: 'Best 14B model',                earning: '6x' },
-          { id: 'qwen2.5:32b',    name: 'Qwen 32B',        size: '19GB',   ram: 24, tier: 'gpu24',  desc: 'Default BTCPC model, high demand', earning: '10x' },
-          { id: 'llama3.1:70b',   name: 'Llama 3.1 70B',   size: '40GB',   ram: 48, tier: 'gpu48',  desc: 'Maximum quality',               earning: '17x' },
+          // ── Sub-2GB (any hardware) ──────────────────────────────────────────
+          { id: 'qwen3:0.6b',       name: 'Qwen3 0.6B',        size: '523MB',  ram: 1,  tier: 'any',    desc: 'Alibaba — fastest, any device',               earning: '1x' },
+          { id: 'qwen3.5:0.8b',     name: 'Qwen3.5 0.8B',      size: '1GB',    ram: 1,  tier: 'any',    desc: 'Alibaba latest — multimodal capable',           earning: '1x' },
+          { id: 'gemma3:1b',        name: 'Gemma3 1B',          size: '1GB',    ram: 2,  tier: 'any',    desc: 'Google — vision capable, runs anywhere',        earning: '1.2x' },
+          { id: 'qwen3:1.7b',       name: 'Qwen3 1.7B',        size: '1.4GB',  ram: 2,  tier: 'any',    desc: 'Alibaba — strong reasoning for size',           earning: '1.5x' },
+          { id: 'deepseek-r1:1.5b', name: 'DeepSeek-R1 1.5B',  size: '1.1GB',  ram: 2,  tier: 'any',    desc: 'Reasoning distill — surprisingly capable',      earning: '1.5x' },
+          // ── 2–6GB (laptop / 8GB RAM) ───────────────────────────────────────
+          { id: 'qwen3:4b',         name: 'Qwen3 4B',          size: '3GB',    ram: 4,  tier: 'laptop', desc: 'Alibaba — best 4B on the market',               earning: '2.5x' },
+          { id: 'qwen3.5:4b',       name: 'Qwen3.5 4B',        size: '3.2GB',  ram: 4,  tier: 'laptop', desc: 'Alibaba latest gen, multimodal',                earning: '2.5x' },
+          { id: 'gemma3:4b',        name: 'Gemma3 4B',         size: '3.3GB',  ram: 4,  tier: 'laptop', desc: 'Google — vision + text, fast',                  earning: '2.5x' },
+          { id: 'phi4:14b',         name: 'Phi-4 14B',         size: '9.1GB',  ram: 10, tier: 'laptop', desc: 'Microsoft — strong reasoning, low latency',     earning: '5x' },
+          { id: 'qwen3:8b',         name: 'Qwen3 8B',          size: '5.2GB',  ram: 6,  tier: 'laptop', desc: 'Alibaba — top 8B, thinking mode',               earning: '4x' },
+          { id: 'qwen3.5:9b',       name: 'Qwen3.5 9B',        size: '5.8GB',  ram: 6,  tier: 'laptop', desc: 'Alibaba latest — text + image, 128K context',   earning: '4x' },
+          { id: 'glm4:9b',          name: 'GLM-4 9B',          size: '5.5GB',  ram: 6,  tier: 'laptop', desc: 'Zhipu AI — 26 languages, multilingual standout', earning: '4x' },
+          { id: 'gemma3:12b',       name: 'Gemma3 12B',        size: '8.1GB',  ram: 8,  tier: 'laptop', desc: 'Google — vision capable, strong quality',       earning: '4.5x' },
+          { id: 'deepseek-r1:7b',   name: 'DeepSeek-R1 7B',    size: '4.7GB',  ram: 6,  tier: 'laptop', desc: 'Reasoning specialist — chain of thought',       earning: '4x' },
+          { id: 'mistral:7b',       name: 'Mistral 7B',        size: '4.1GB',  ram: 6,  tier: 'laptop', desc: 'Mistral — reliable classic, fast inference',    earning: '4x' },
+          { id: 'llama3.2:3b',      name: 'Llama 3.2 3B',      size: '2GB',    ram: 4,  tier: 'laptop', desc: 'Meta — solid small model',                      earning: '2x' },
+          // ── 8–24GB (GPU 8–16GB VRAM) ───────────────────────────────────────
+          { id: 'qwen3:14b',        name: 'Qwen3 14B',         size: '9.3GB',  ram: 12, tier: 'gpu16',  desc: 'Alibaba — excellent balance of speed/quality',  earning: '6x' },
+          { id: 'qwen3.5:27b',      name: 'Qwen3.5 27B',       size: '17GB',   ram: 20, tier: 'gpu24',  desc: 'Alibaba latest — large multimodal',             earning: '9x' },
+          { id: 'mistral-small:24b',name: 'Mistral Small 24B', size: '14GB',   ram: 16, tier: 'gpu16',  desc: 'Mistral — fast at 24B, production grade',       earning: '8x' },
+          { id: 'deepseek-r1:14b',  name: 'DeepSeek-R1 14B',   size: '9GB',    ram: 12, tier: 'gpu16',  desc: 'Reasoning distill — strong math/code',          earning: '6x' },
+          { id: 'deepseek-r1:32b',  name: 'DeepSeek-R1 32B',   size: '20GB',   ram: 24, tier: 'gpu24',  desc: 'Reasoning — near frontier quality',             earning: '10x' },
+          { id: 'gemma3:27b',       name: 'Gemma3 27B',        size: '17GB',   ram: 20, tier: 'gpu24',  desc: 'Google — best open vision+text at this size',   earning: '9x' },
+          { id: 'qwen3:32b',        name: 'Qwen3 32B',         size: '20GB',   ram: 24, tier: 'gpu24',  desc: 'Alibaba — flagship dense model',                earning: '10x' },
+          { id: 'qwen3.5:35b',      name: 'Qwen3.5 35B',       size: '22GB',   ram: 24, tier: 'gpu24',  desc: 'Alibaba latest large — high demand',            earning: '11x' },
+          // ── 24GB+ (GPU 24–80GB VRAM) ───────────────────────────────────────
+          { id: 'llama3.3:70b',     name: 'Llama 3.3 70B',     size: '43GB',   ram: 48, tier: 'gpu48',  desc: 'Meta — state of the art dense 70B',             earning: '17x' },
+          { id: 'deepseek-r1:70b',  name: 'DeepSeek-R1 70B',   size: '43GB',   ram: 48, tier: 'gpu48',  desc: 'Reasoning at 70B — near GPT-4 on benchmarks',  earning: '17x' },
+          { id: 'qwen3.5:122b',     name: 'Qwen3.5 122B',      size: '74GB',   ram: 80, tier: 'gpu80',  desc: 'Alibaba — massive multimodal, top quality',     earning: '28x' },
         ];
 
         var webllmModels = models; // original WebLLM list
