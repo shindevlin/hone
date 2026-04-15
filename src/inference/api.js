@@ -437,6 +437,21 @@ async function authenticateBearer(req, res, next) {
     return next();
   }
 
+  // Node-operator paths: accept standard JWT (logged-in desktop user pulling models)
+  const jwtAllowedPaths = ['/v1/node/pull-model'];
+  if (jwtAllowedPaths.some(p => req.path.startsWith(p))) {
+    try {
+      const jwtLib = require('jsonwebtoken');
+      const decoded = jwtLib.verify(token, process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET);
+      req.jwtUser = decoded.username || decoded.id;
+      return next();
+    } catch (_) {
+      return res.status(401).json({
+        error: { message: 'Valid login JWT required to pull models.', type: 'authentication_error', code: 'invalid_token' }
+      });
+    }
+  }
+
   return res.status(401).json({
     error: {
       message: 'Valid btcpc_ API key required for inference. Register at /api/projects/register.',
