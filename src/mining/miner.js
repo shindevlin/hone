@@ -1313,10 +1313,17 @@ async function startMiner() {
       // Sign the finalized block so peers can verify it came from the authorized miner
       let blockSignature = null;
       const activeKeyForSign = process.env.BTCPC_ACTIVE_KEY;
-      if (activeKeyForSign && bd.block_hash) {
+      if (activeKeyForSign) {
         try {
           const messageAuth = require('../p2p/messageAuth');
-          const blockHeaderData = { epoch_number: epochNumber, block_hash: bd.block_hash, state_root: bd.state_root || '' };
+          // Must match verifier's blockHeaderData in protocol.js
+          const blockHeaderData = {
+            epoch_number: epochNumber,
+            consensus_hash: winner.consensus_hash || '',
+            state_root: bd.state_root || '',
+            proposer: MINER_ACCOUNT,
+            timestamp: bd.timestamp || 0,
+          };
           const sig = messageAuth.signMessage(blockHeaderData, activeKeyForSign);
           blockSignature = sig.signature;
         } catch (_) {}
