@@ -1665,6 +1665,73 @@ function stopAll() {
   }
 }
 
+// ─── Model download + file load buttons ───
+var modelDownloadURLs = {
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC': 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/',
+  'SmolLM2-360M-Instruct-q4f16_1-MLC': 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/'
+};
+
+var dlBtn = document.getElementById('mine-download-btn');
+var loadBtn = document.getElementById('mine-load-file-btn');
+var fileInput = document.getElementById('mine-file-input');
+
+if (dlBtn) {
+  dlBtn.addEventListener('click', function() {
+    var model = document.getElementById('mine-model-select').value;
+    var baseURL = modelDownloadURLs[model];
+    if (baseURL) {
+      // WebLLM models have multiple files — open the HuggingFace page so user can download all
+      var hfPage = baseURL.replace('/resolve/main/', '').replace('https://huggingface.co/', 'https://huggingface.co/');
+      window.open(hfPage + '/tree/main', '_blank');
+      dlBtn.textContent = 'Opening HuggingFace...';
+      setTimeout(function() { dlBtn.textContent = 'Download Model File'; }, 3000);
+    } else {
+      dlBtn.textContent = 'Model URL not found';
+    }
+  });
+}
+
+if (loadBtn && fileInput) {
+  loadBtn.addEventListener('click', function() {
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', async function() {
+    var file = fileInput.files[0];
+    if (!file) return;
+    loadBtn.textContent = 'Loading ' + file.name + '...';
+    try {
+      // Read file and pass to WebLLM engine if available
+      if (window.btcpcEngine && window.btcpcEngine.loadFromFile) {
+        await window.btcpcEngine.loadFromFile(file);
+        loadBtn.textContent = 'Model loaded from file!';
+        loadBtn.style.borderColor = '#22c55e';
+      } else {
+        // Store in IndexedDB for WebLLM to find
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var data = e.target.result;
+          var request = indexedDB.open('btcpc-model-cache', 1);
+          request.onupgradeneeded = function(ev) {
+            ev.target.result.createObjectStore('models');
+          };
+          request.onsuccess = function(ev) {
+            var db = ev.target.result;
+            var tx = db.transaction('models', 'readwrite');
+            tx.objectStore('models').put(data, file.name);
+            tx.oncomplete = function() {
+              loadBtn.textContent = 'Saved: ' + file.name + ' (' + (data.byteLength / 1048576).toFixed(0) + 'MB)';
+              loadBtn.style.borderColor = '#22c55e';
+            };
+          };
+        };
+        reader.readAsArrayBuffer(data);
+      }
+    } catch (err) {
+      loadBtn.textContent = 'Error: ' + err.message;
+    }
+  });
+}
+
 // ─── Reset daily earnings at midnight ───
 function checkDayReset() {
   const today = new Date().toDateString();
