@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTCPC Genesis Countdown</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0e17; color: #e2e8f0; font-family: 'Courier New', monospace; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.countdown { text-align: center; }
+h1 { color: #f7931a; font-size: 24px; margin-bottom: 8px; letter-spacing: 2px; }
+.subtitle { color: #64748b; font-size: 14px; margin-bottom: 40px; }
+.timer { display: flex; gap: 20px; justify-content: center; margin-bottom: 40px; }
+.unit { text-align: center; }
+.num { font-size: 64px; font-weight: bold; color: #f7931a; line-height: 1; }
+.label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
+.live { display: none; text-align: center; }
+.live h2 { color: #22c55e; font-size: 36px; margin-bottom: 16px; }
+.live .epoch { color: #f7931a; font-size: 48px; font-weight: bold; }
+.info { max-width: 500px; text-align: center; color: #64748b; font-size: 12px; line-height: 1.8; margin-top: 20px; }
+.info a { color: #f7931a; }
+.pulse { animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body>
+<div class="countdown" id="countdown">
+  <h1>BTCPC GENESIS</h1>
+  <div class="subtitle">Bitcoin Proof of Compute — v3.0</div>
+  <div class="timer">
+    <div class="unit"><div class="num" id="hours">--</div><div class="label">Hours</div></div>
+    <div class="unit"><div class="num" id="minutes">--</div><div class="label">Minutes</div></div>
+    <div class="unit"><div class="num" id="seconds">--</div><div class="label">Seconds</div></div>
+  </div>
+  <div class="info">
+    Midnight California &bull; April 15, 2026<br>
+    All nodes launch simultaneously from atomic clock<br><br>
+    <a href="/app">Open the App</a> &bull; <a href="/globe">Live Globe</a> &bull; <a href="/install">Install a Node</a>
+  </div>
+</div>
+<div class="live" id="live">
+  <h2>GENESIS IS LIVE</h2>
+  <div>Epoch</div>
+  <div class="epoch pulse" id="live-epoch">0</div>
+  <div class="info" style="margin-top:20px;">
+    <a href="/globe">Watch the Network</a> &bull; <a href="/app">Start Earning</a> &bull; <a href="/dashboard">Dashboard</a>
+  </div>
+</div>
+<script>
+var GENESIS = 1776236400000;
+function tick() {
+  var now = Date.now();
+  var diff = GENESIS - now;
+  if (diff <= 0) {
+    document.getElementById('countdown').style.display = 'none';
+    document.getElementById('live').style.display = 'block';
+    document.getElementById('live-epoch').textContent = Math.floor((now - GENESIS) / 30000);
+    return;
+  }
+  var h = Math.floor(diff / 3600000);
+  var m = Math.floor((diff % 3600000) / 60000);
+  var s = Math.floor((diff % 60000) / 1000);
+  document.getElementById('hours').textContent = String(h).padStart(2, '0');
+  document.getElementById('minutes').textContent = String(m).padStart(2, '0');
+  document.getElementById('seconds').textContent = String(s).padStart(2, '0');
+}
+setInterval(tick, 1000);
+tick();
+</script>
+</body>
+</html>

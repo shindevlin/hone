@@ -24,7 +24,7 @@ const https = require("https");
 const http = require("http");
 
 const SDK_VERSION = "3.0.0";
-const GENESIS_TIMESTAMP = 1776193200000; // 2026-04-14T13:30:00.000Z
+const GENESIS_TIMESTAMP = 1776236400000; // 2026-04-15T07:00:00.000Z (midnight California)
 const EPOCH_DURATION_MS = 30000;
 
 // Auto-discover order

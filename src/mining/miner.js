@@ -1161,7 +1161,7 @@ async function startMiner() {
   let currentEpoch;
   if (genesis.alreadyExisted) {
     // Genesis: April 14 2026 7:30 AM Mountain Time (04:30 UTC April 13)
-    const genesisTime = 1776193200000;
+    const genesisTime = 1776236400000;
     const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
 
     const chainHeight = stateStore.getChainHeight();
@@ -1223,7 +1223,7 @@ async function startMiner() {
   // Self-tick fallback: if no EPOCH_START arrives within 2 epochs, derive
   // the current epoch from genesis and mine it. Prevents stalling when the
   // local clock's P2P messages don't reach the miner process.
-  const GENESIS_TIME = 1776193200000;
+  const GENESIS_TIME = 1776236400000;
   console.log(`[BTCPC] Self-tick timer registered (interval: ${EPOCH_DURATION_MS * 2}ms)`);
   setInterval(() => {
     const now = Date.now();
