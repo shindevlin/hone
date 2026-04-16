@@ -1174,7 +1174,8 @@ function handleBlockProposal(peer, msg, ctx) {
   }
   peer.claimed_proposer = data.proposer;
 
-  // Vuln 5: verify proposal_signature against proposer's active key.
+  // Vuln 5: verify proposal_signature.
+  // Accepts device-key signatures (multi-device) OR the proposer's active key (single-device fallback).
   if (data.proposal_signature) {
     var proposalData = {
       epoch_number: data.epoch_number,
@@ -1183,9 +1184,16 @@ function handleBlockProposal(peer, msg, ctx) {
       total_work: data.total_work || 0,
       timestamp: data.timestamp || 0,
     };
-    var sigOk = messageAuth.verifyAccountSignature(data.proposer, proposalData, data.proposal_signature, "active");
+    var sigOk = messageAuth.verifyDeviceOrAccountSignature(
+      data.proposer,
+      data.device_id || null,
+      proposalData,
+      data.proposal_signature
+    );
     if (!sigOk) {
-      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
+      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer +
+        (data.device_id ? ' (device ' + data.device_id.slice(0,12) + '...)' : '') +
+        " for epoch " + data.epoch_number);
       return;
     }
   } else {

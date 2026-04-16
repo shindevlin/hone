@@ -56,6 +56,98 @@ function sendAlert(severity, message, details) {
 let running = false;
 let miningInterval = null;
 
+// ── Device key (auto-provisioned, unique per physical machine) ────────────
+let _devicePrivKey = null; // hex — used to sign proposals
+let _devicePubKey  = null; // hex — sent as device_id in proposals
+
+/**
+ * Load or generate this device's unique keypair and ensure it is registered
+ * on-chain as a delegate for MINER_ACCOUNT. Fully automatic — no user action.
+ *
+ * @param {string|null} ownerActiveKeyPriv — BTCPC_ACTIVE_KEY env var (hex)
+ */
+async function _ensureDeviceKey(ownerActiveKeyPriv) {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const crypto = require('crypto');
+  const { secp256k1 } = require('@noble/curves/secp256k1');
+  const secp = require('secp256k1'); // npm secp256k1 for privateKeyVerify
+
+  // Key lives in ~/.btcpc/device-<account>.key so multiple accounts can coexist
+  const keyDir = path.join(os.homedir(), '.btcpc');
+  const keyFile = path.join(keyDir, 'device-' + MINER_ACCOUNT + '.key');
+
+  // Load or generate
+  let privHex;
+  try {
+    privHex = fs.readFileSync(keyFile, 'utf8').trim();
+    if (!/^[0-9a-f]{64}$/i.test(privHex)) throw new Error('bad format');
+  } catch (_) {
+    // Generate a new random device key
+    let privBuf;
+    do { privBuf = crypto.randomBytes(32); } while (!secp.privateKeyVerify(privBuf));
+    privHex = privBuf.toString('hex');
+    try {
+      fs.mkdirSync(keyDir, { recursive: true });
+      fs.writeFileSync(keyFile, privHex, { mode: 0o600 });
+    } catch (e) {
+      console.warn('[BTCPC Device] Could not save device key:', e.message);
+    }
+  }
+
+  const pubBytes  = secp256k1.getPublicKey(Buffer.from(privHex, 'hex'), true);
+  const pubHex    = Buffer.from(pubBytes).toString('hex');
+  _devicePrivKey  = privHex;
+  _devicePubKey   = pubHex;
+
+  console.log(`[BTCPC Device] Device key: ${pubHex.slice(0, 16)}...`);
+
+  // Register on-chain if not already known in stateStore
+  if (stateStore.isDeviceAuthorized(pubHex, MINER_ACCOUNT)) {
+    console.log('[BTCPC Device] Already registered on-chain — ready to mine.');
+    return;
+  }
+
+  if (!ownerActiveKeyPriv) {
+    // No active key available — fall back to signing proposals with active key
+    console.warn('[BTCPC Device] No BTCPC_ACTIVE_KEY — device key registration skipped. Proposals will use account key.');
+    _devicePrivKey = ownerActiveKeyPriv;
+    _devicePubKey  = null;
+    return;
+  }
+
+  // Build hardware fingerprint (best-effort anti-Sybil, never blocks startup)
+  let hardwareHash = null;
+  try {
+    const cpus  = os.cpus().map(c => c.model).join(',');
+    const mem   = os.totalmem().toString();
+    const host  = os.hostname();
+    const arch  = os.arch();
+    // Try to include GPU fingerprint if the SIK system is available
+    let gpuHash = '';
+    try {
+      const sikModule = require('../silicon');
+      const sik = await sikModule.getSIK();
+      if (sik && sik.sik_hash) gpuHash = sik.sik_hash;
+    } catch (_) {}
+    hardwareHash = crypto.createHash('sha256')
+      .update([cpus, mem, host, arch, pubHex, gpuHash].join('|'))
+      .digest('hex');
+  } catch (_) {}
+
+  // Submit DEVICE_AUTHORIZE entry (gossiped to peers, included in next block)
+  try {
+    const epoch = await ledger.getCurrentEpoch().catch(() => 0);
+    await ledger.recordDeviceAuthorize(MINER_ACCOUNT, pubHex, hardwareHash, 'mine', epoch);
+    console.log(`[BTCPC Device] Registered device ${pubHex.slice(0, 16)}... for ${MINER_ACCOUNT} — ready to mine.`);
+  } catch (regErr) {
+    console.warn('[BTCPC Device] Could not register device key:', regErr.message, '— falling back to account key.');
+    _devicePrivKey = ownerActiveKeyPriv;
+    _devicePubKey  = null;
+  }
+}
+
 // ── Finalization scheduling ──
 // Finalization waits until ALL active miners have submitted proofs for the epoch.
 // The LAST miner to submit triggers finalization (they see all proofs).
@@ -1136,16 +1228,20 @@ async function startMiner() {
     console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
-  // Bootstrap: if BTCPC_ACTIVE_KEY is set but the miner account has no active
-  // public key in stateStore, inject it locally so block proposal signatures
-  // are verifiable by peers on this same machine (they share the .env).
+  // ── Device key setup (auto, zero-touch) ────────────────────────────────
+  // Each physical device gets its own unique keypair. The owner's active key
+  // authorizes each device on-chain once. After that, proposals are signed
+  // with the device key. natoshi never has to do anything manually.
   const activeKeyPriv = process.env.BTCPC_ACTIVE_KEY;
+
+  // Bootstrap: ensure the account's active public key is in stateStore for
+  // peers that verify via the old path (EPOCH_FINALIZED still uses account key).
   if (activeKeyPriv) {
     try {
+      const { secp256k1 } = require('@noble/curves/secp256k1');
       const minerAccount = stateStore.getAccount(MINER_ACCOUNT);
       const hasActiveKey = minerAccount && minerAccount.public_keys && minerAccount.public_keys.active;
       if (!hasActiveKey) {
-        const { secp256k1 } = require('@noble/curves/secp256k1');
         const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(activeKeyPriv, 'hex'), true);
         const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
         stateStore.bootstrapAccountKey(MINER_ACCOUNT, 'active', activePubKey);
@@ -1155,6 +1251,9 @@ async function startMiner() {
       console.warn(`[BTCPC] Could not bootstrap active key: ${keyRegErr.message}`);
     }
   }
+
+  // Auto-provision device key — generates and registers on first startup.
+  await _ensureDeviceKey(activeKeyPriv);
 
   running = true;
 
@@ -1409,9 +1508,10 @@ async function startMiner() {
         protocol: protocolModule,
       });
 
-      // Sign proposal with active key (block proposals are active-tier operations)
-      const activeKey = process.env.BTCPC_ACTIVE_KEY;
-      if (activeKey) {
+      // Sign proposal with device key (preferred) or account active key (fallback).
+      // device_id is included so peers can look up the on-chain delegation.
+      const signingKey = _devicePrivKey || process.env.BTCPC_ACTIVE_KEY;
+      if (signingKey) {
         try {
           const messageAuth = require('../p2p/messageAuth');
           const proposalSignData = {
@@ -1421,13 +1521,15 @@ async function startMiner() {
             total_work: proposal.total_work || 0,
             timestamp: proposal.timestamp || 0,
           };
-          const sig = messageAuth.signMessage(proposalSignData, activeKey);
+          const sig = messageAuth.signMessage(proposalSignData, signingKey);
           proposal.proposal_signature = sig.signature;
+          // Include device_id so verifiers can check the on-chain delegation
+          if (_devicePubKey) proposal.device_id = _devicePubKey;
         } catch (sigErr) {
           console.warn(`[BTCPC] Failed to sign block proposal: ${sigErr.message}`);
         }
       } else {
-        console.warn('[BTCPC] No BTCPC_ACTIVE_KEY — block proposal will be unsigned (rejected by peers)');
+        console.warn('[BTCPC] No signing key available — block proposal will be unsigned (rejected by peers)');
       }
 
       const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);

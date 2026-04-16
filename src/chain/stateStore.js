@@ -26,6 +26,10 @@ var balances = new Map();
 // Balance/staked/delegated/nonce live in stateManager SMT; we mirror them here for fast reads.
 var accounts = new Map();
 
+// Device key registry: device_pubkey → { owner, scope, hardware_hash, authorized_epoch, last_ip }
+// Allows many physical devices to sign proposals on behalf of one account.
+var deviceKeys = new Map();
+
 // Token metadata: symbol → { name, symbol, supply, decimals, type, creator, created_epoch }
 var tokens = new Map();
 
@@ -1498,6 +1502,27 @@ function applyEntry(entry) {
       }
       break;
 
+    case "DEVICE_AUTHORIZE":
+      // Register a device public key as an authorized signer for an account.
+      // entry.to = owner account, entry.device_data = { device_pubkey, scope, hardware_hash }
+      if (to && entry.device_data && entry.device_data.device_pubkey) {
+        var dd = entry.device_data;
+        deviceKeys.set(dd.device_pubkey, {
+          owner: to,
+          scope: dd.scope || 'mine',
+          hardware_hash: dd.hardware_hash || null,
+          authorized_epoch: entry.epoch || 0,
+        });
+      }
+      break;
+
+    case "DEVICE_REVOKE":
+      // Remove a device key authorization.
+      if (entry.device_data && entry.device_data.device_pubkey) {
+        deviceKeys.delete(entry.device_data.device_pubkey);
+      }
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -1642,6 +1667,35 @@ function getAccountCount() {
  * before the key system existed (e.g., genesis accounts). Does not write a
  * ledger entry — local trust only, derived from BTCPC_ACTIVE_KEY env var.
  */
+/**
+ * Look up the owner account for a device public key.
+ * Returns { owner, scope, hardware_hash, authorized_epoch } or null.
+ */
+function getDeviceOwner(devicePubkey) {
+  return deviceKeys.get(devicePubkey) || null;
+}
+
+/**
+ * Get all device public keys authorized for an account.
+ */
+function getAccountDevices(username) {
+  var result = [];
+  for (var entry of deviceKeys) {
+    if (entry[1].owner === username) {
+      result.push({ device_pubkey: entry[0], ...entry[1] });
+    }
+  }
+  return result;
+}
+
+/**
+ * Check whether a device pubkey is registered on-chain for the given owner.
+ */
+function isDeviceAuthorized(devicePubkey, owner) {
+  var rec = deviceKeys.get(devicePubkey);
+  return rec ? rec.owner === owner : false;
+}
+
 function bootstrapAccountKey(username, keyRole, publicKey) {
   var acct = accounts.get(username);
   if (!acct) return;
@@ -2473,6 +2527,7 @@ function resetAll() {
   projectRevenueSplits.clear();
   earnings.clear();
   seenEntries.clear();
+  deviceKeys.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
 }
@@ -2499,6 +2554,10 @@ module.exports = {
   getAllAccounts: getAllAccounts,
   getAccountCount: getAccountCount,
   bootstrapAccountKey: bootstrapAccountKey,
+  // Device key delegation
+  getDeviceOwner: getDeviceOwner,
+  getAccountDevices: getAccountDevices,
+  isDeviceAuthorized: isDeviceAuthorized,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,

@@ -134,6 +134,8 @@ const MEMPOOL_ALLOWED_TYPES = [
   "PROJECT_CREATE",
   "DELEGATE",
   "UNDELEGATE",
+  "DEVICE_AUTHORIZE",
+  "DEVICE_REVOKE",
 ];
 
 /**
@@ -149,6 +151,39 @@ const BLOCK_ONLY_TYPES = [
   "IOT_REWARD",
 ];
 
+/**
+ * Verify a proposal/block signature that was made by a device key.
+ * Accepts either:
+ *   (a) a device key that is registered on-chain as a delegate for proposer, OR
+ *   (b) the proposer's own active key (backwards-compat, single-device mode).
+ *
+ * @param {string} proposer   — BTCPC account name (e.g. 'natoshisakamoto')
+ * @param {string} deviceId   — hex device public key that signed (may equal proposer's active key)
+ * @param {Object} data       — message data that was signed
+ * @param {string} signature  — hex ECDSA signature
+ * @returns {boolean}
+ */
+function verifyDeviceOrAccountSignature(proposer, deviceId, data, signature) {
+  var stateStore = require('../chain/stateStore');
+
+  // Path A: device key registered on-chain as a delegate
+  if (deviceId) {
+    var rec = stateStore.getDeviceOwner(deviceId);
+    if (rec && rec.owner === proposer) {
+      return verifyMessage(data, signature, deviceId);
+    }
+  }
+
+  // Path B: no device key, or device not yet registered — fall back to proposer's active key
+  var account = stateStore.getAccount(proposer);
+  if (!account || !account.public_keys) return false;
+  var activePub = account.public_keys.active;
+  if (!activePub) return false;
+  // If deviceId provided but not registered, still accept if deviceId == active pubkey
+  if (deviceId && deviceId !== activePub) return false;
+  return verifyMessage(data, signature, activePub);
+}
+
 module.exports = {
   REQUIRE_SIGNATURES,
   SIGNATURE_REQUIRED_TYPES,
@@ -157,6 +192,7 @@ module.exports = {
   signMessage,
   verifyMessage,
   verifyAccountSignature,
+  verifyDeviceOrAccountSignature,
   MEMPOOL_ALLOWED_TYPES,
   BLOCK_ONLY_TYPES,
 };

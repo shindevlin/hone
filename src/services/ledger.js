@@ -1869,6 +1869,46 @@ async function recordKeyRotate(username, newPublicKeys, authorizedBy, epoch) {
   }));
 }
 
+/**
+ * Register a device public key as an authorized signer for an account.
+ * Called automatically on first device startup — natoshi never has to do this manually.
+ *
+ * @param {string} ownerAccount   — e.g. 'natoshisakamoto'
+ * @param {string} devicePubkey   — hex-encoded compressed secp256k1 public key of this device
+ * @param {string} hardwareHash   — hardware fingerprint hash (best-effort anti-Sybil)
+ * @param {string} scope          — 'mine' | 'clock' | 'all'
+ * @param {number} epoch
+ */
+async function recordDeviceAuthorize(ownerAccount, devicePubkey, hardwareHash, scope, epoch) {
+  if (!ownerAccount) throw new Error('ownerAccount required');
+  if (!devicePubkey || typeof devicePubkey !== 'string') throw new Error('devicePubkey required');
+
+  return _persist(_entry({
+    type: 'DEVICE_AUTHORIZE',
+    to: ownerAccount,
+    epoch: epoch || 0,
+    device_data: {
+      device_pubkey: devicePubkey,
+      scope: scope || 'mine',
+      hardware_hash: hardwareHash || null,
+      timestamp: Date.now(),
+    },
+  }));
+}
+
+/**
+ * Revoke a device key (e.g. device lost/stolen).
+ */
+async function recordDeviceRevoke(ownerAccount, devicePubkey, epoch) {
+  if (!ownerAccount || !devicePubkey) throw new Error('ownerAccount and devicePubkey required');
+  return _persist(_entry({
+    type: 'DEVICE_REVOKE',
+    to: ownerAccount,
+    epoch: epoch || 0,
+    device_data: { device_pubkey: devicePubkey, timestamp: Date.now() },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -1954,6 +1994,9 @@ module.exports = {
   recordCrossChainActivity,
   // Key rotation (security)
   recordKeyRotate,
+  // Device key delegation (v3.2) — auto-called on first device startup
+  recordDeviceAuthorize,
+  recordDeviceRevoke,
   // Amber Pill geo-pioneer NFT (v2.18)
   recordAmberPillMint,
 };
