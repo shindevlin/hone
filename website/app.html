@@ -564,6 +564,12 @@
           { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, tier: 'gpu48', desc: 'Maximum quality, multi-GPU', earning: '17x' },
         ];
 
+        var desktopMode = new URLSearchParams(location.search).get('desktop') === '1'
+          || navigator.userAgent.includes('Electron')
+          || location.hostname === 'localhost'
+          || location.hostname === '127.0.0.1'
+          || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname);
+
         // Detect device capabilities
         var deviceRAM = navigator.deviceMemory || 4; // GB, defaults to 4 if not available
         var hasWebGPU = !!navigator.gpu;
@@ -578,12 +584,6 @@
             (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
             (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
         }
-
-        var desktopMode = new URLSearchParams(location.search).get('desktop') === '1'
-          || navigator.userAgent.includes('Electron')
-          || location.hostname === 'localhost'
-          || location.hostname === '127.0.0.1'
-          || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname);
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
         // BTCPC is model-agnostic — work value scales with verified parameter count.

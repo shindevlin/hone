@@ -69,6 +69,25 @@ app.use("/v1", (req, res) => {
   req.pipe(proxyReq);
 });
 
+// Proxy /node/* to the BTCPC API (epoch info, node list, etc.)
+app.use("/node", (req, res) => {
+  const options = {
+    hostname: "127.0.0.1",
+    port: API_PORT,
+    path: "/api/node" + req.url,
+    method: req.method,
+    headers: req.headers,
+  };
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on("error", (err) => {
+    if (!res.headersSent) res.status(502).json({ error: "API unreachable: " + err.message });
+  });
+  req.pipe(proxyReq);
+});
+
 // Proxy /public/* to the BTCPC API for browser clock nodes
 app.use("/public", (req, res) => {
   const options = {

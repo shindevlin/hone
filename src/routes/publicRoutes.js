@@ -167,20 +167,33 @@ router.get('/network', async (req, res) => {
     const path = require('path');
     const nodeRegistry = require('../chain/nodeRegistry');
 
-    // Read latest block from disk (source of truth for chain state)
+    // Read latest block from disk (source of truth for chain state).
+    // Prefer index.json (updated every epoch) over block-*.bin files (pruned after finality).
     const blocksDir = path.join(process.cwd(), 'data', 'blocks');
     let latestEpoch = 0;
     let latestMtimeMs = 0;
     try {
-      const files = fs.readdirSync(blocksDir).filter(f => f.startsWith('block-') && f.endsWith('.bin'));
-      if (files.length > 0) {
-        files.sort();
-        const last = files[files.length - 1];
-        latestEpoch = parseInt(last.replace('block-', '').replace('.bin', ''), 10);
-        const stat = fs.statSync(path.join(blocksDir, last));
-        latestMtimeMs = stat.mtimeMs;
+      const indexPath = path.join(blocksDir, 'index.json');
+      const indexStat = fs.statSync(indexPath);
+      const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+      const keys = Object.keys(indexData).map(Number).sort((a, b) => a - b);
+      if (keys.length > 0) {
+        latestEpoch = keys[keys.length - 1];
+        latestMtimeMs = indexStat.mtimeMs;
       }
-    } catch (_) {}
+    } catch (_) {
+      // Fallback to block files if index missing
+      try {
+        const files = fs.readdirSync(blocksDir).filter(f => f.startsWith('block-') && f.endsWith('.bin'));
+        if (files.length > 0) {
+          files.sort();
+          const last = files[files.length - 1];
+          latestEpoch = parseInt(last.replace('block-', '').replace('.bin', ''), 10);
+          const stat = fs.statSync(path.join(blocksDir, last));
+          latestMtimeMs = stat.mtimeMs;
+        }
+      } catch (_2) {}
+    }
 
     // Registered nodes from the P2P-synchronized registry (source of truth)
     let registered = [];
