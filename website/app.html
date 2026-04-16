@@ -1420,7 +1420,15 @@
   </div>
 
 <script src="/inference-crypto.js" onerror="console.warn('inference-crypto.js not loaded')"></script>
-<script src="/inference-engine.js" onerror="console.warn('inference-engine.js not loaded')"></script>
+<script>
+// Desktop mode (Tauri/localhost) uses Ollama — skip loading WebLLM/WebGPU engine entirely.
+if (!document.documentElement.hasAttribute('data-desktop')) {
+  var _ie = document.createElement('script');
+  _ie.src = '/inference-engine.js';
+  _ie.onerror = function() { console.warn('inference-engine.js not loaded'); };
+  document.head.appendChild(_ie);
+}
+</script>
 <script src="/miner.js" onerror="console.warn('miner.js not loaded')"></script>
 
 <script>
