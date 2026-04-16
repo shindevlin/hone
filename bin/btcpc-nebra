@@ -241,8 +241,8 @@ async function submitSensorReading(sensorId, value, metadata) {
   try {
     const account = sensorId.split('/')[0];
     const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
-    if (resp.status !== 201) {
-      const body = resp.data || {};
+    if (resp.status !== 201 && resp.status !== 200) {
+      const body = resp.body || {};
       // Duplicate reading in same epoch is normal — suppress it
       if (resp.status === 422 && body.error && /duplicate/i.test(body.error)) return;
       console.warn('[btcpc-nebra] Reading submission failed for', sensorId, 'HTTP', resp.status, body.error || '');

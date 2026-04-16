@@ -152,6 +152,9 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
 
     var metadata = {};
     if (body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)) {
+      if (body.metadata.type !== undefined) metadata.type = sanitizeString(body.metadata.type, 32) || null;
+      if (body.metadata.unit !== undefined) metadata.unit = sanitizeString(body.metadata.unit, 32) || null;
+      if (body.metadata.source !== undefined) metadata.source = sanitizeString(body.metadata.source, 64) || null;
       if (body.metadata.latitude !== undefined) metadata.latitude = Number(body.metadata.latitude);
       if (body.metadata.longitude !== undefined) metadata.longitude = Number(body.metadata.longitude);
       if (body.metadata.altitude !== undefined) metadata.altitude = Number(body.metadata.altitude);
@@ -166,6 +169,16 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
       const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
       return res.status(201).json({ success: true, reading: reading });
     } catch (err) {
+      if (/duplicate reading/i.test(err.message)) {
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          sensor_id: sensorId,
+          epoch: epoch,
+          message: err.message,
+        });
+      }
+
       // Auto-register sensor on first reading (self-heal — never 404)
       if (/not found/i.test(err.message)) {
         try {
@@ -179,6 +192,15 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
           const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
           return res.status(201).json({ success: true, reading: reading, auto_registered: true });
         } catch (regErr) {
+          if (/duplicate reading/i.test(regErr.message)) {
+            return res.status(200).json({
+              success: true,
+              duplicate: true,
+              sensor_id: sensorId,
+              epoch: epoch,
+              message: regErr.message,
+            });
+          }
           return res.status(422).json({ error: regErr.message });
         }
       }
