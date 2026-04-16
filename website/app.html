@@ -2926,6 +2926,10 @@ try {
           const sa = document.getElementById('settings-account');
           if (sa) sa.textContent = account || localStorage.getItem('btcpc-sensor-account') || '';
         }
+        // Trigger Node tab refresh when Node tab is opened
+        if (tab === 'node' && typeof window._nodeRefresh === 'function') {
+          window._nodeRefresh();
+        }
       });
     });
 
@@ -3124,7 +3128,8 @@ initDashboard = async function() {
   await origInitDashboard();
   const settingsAcct = document.getElementById('settings-account');
   if (settingsAcct) settingsAcct.textContent = account;
-  tabBar.style.display = 'block';
+  var _tabBar = document.getElementById('tab-bar');
+  if (_tabBar) _tabBar.style.display = 'block';
   initChat();
 };
 
