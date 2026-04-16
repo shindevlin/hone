@@ -52,6 +52,26 @@ var children      = {};
 var shuttingDown  = false;
 var startedAt     = Date.now();
 
+function roleEnv(role) {
+  var env = Object.assign({}, process.env, { BTCPC_ROLE: role });
+
+  // In the all-in-one desktop node, each long-lived role must own a distinct
+  // socket. Otherwise API and miner race for 6942 and one silently loses its
+  // P2P listener while the UI still thinks "all nodes" are running.
+  if (role === "clock") env.P2P_PORT = process.env.BTCPC_CLOCK_P2P_PORT || "6943";
+  else if (role === "api") env.P2P_PORT = process.env.BTCPC_API_P2P_PORT || "6944";
+  else if (role === "miner") env.P2P_PORT = process.env.BTCPC_MINER_P2P_PORT || "6942";
+
+  // The API should serve HTTP and relay P2P messages in btcpc-all. Epoch
+  // production/finality belongs to miner+clock, otherwise the API's wall-clock
+  // loop can drift from disk height and emit misleading idle/finality records.
+  if (role === "api" && process.env.BTCPC_EPOCH_ENABLED === undefined) {
+    env.BTCPC_EPOCH_ENABLED = "false";
+  }
+
+  return env;
+}
+
 function prefix(role, line) {
   return "[" + role + "] " + line;
 }
@@ -89,12 +109,7 @@ function launch(role, script) {
 
   var child = spawn("node", args, {
     cwd: REPO_ROOT,
-    env: Object.assign({}, process.env, {
-      BTCPC_ROLE: role,
-      // Each role needs distinct default ports to avoid collisions when
-      // two processes try to bind the same socket inside the container.
-      P2P_PORT: role === "clock" ? "6943" : (process.env.P2P_PORT || "6942"),
-    }),
+    env: roleEnv(role),
     stdio: ["ignore", "pipe", "pipe"],
   });
 

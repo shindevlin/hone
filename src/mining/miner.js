@@ -577,7 +577,8 @@ async function applyFinalization(epochNumber, proposal) {
   epoch.settled_jobs = proposal.settled_jobs || 0;
   stateStore.setEpoch(epochNumber, epoch);
 
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${proposal.reward_number} | ${rewards.length} reward(s) | ${(proposal.block_reward || 0).toFixed(4)} BTCPC`);
+  const rewardNumber = proposal.reward_number !== undefined ? proposal.reward_number : epochNumber;
+  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${rewardNumber} | ${rewards.length} reward(s) | ${(proposal.block_reward || 0).toFixed(4)} BTCPC`);
 
   // ── Write block to disk — source of truth ──
   try {

@@ -80,21 +80,23 @@ async function checkAndUpdate() {
       return;
     }
 
-    // Count commits behind
+    // Count commits behind. If hashes differ but HEAD is not behind origin/main,
+    // the checkout is divergent or locally ahead. Do not restart or hard-reset:
+    // source installs may have local operator edits, and a zero-commit "update"
+    // causes btcpc-all to restart forever without changing code.
     var behindCount = run("git rev-list HEAD..origin/main --count");
+    if (parseInt(behindCount, 10) <= 0) {
+      log("remote differs but local is not behind (" + localHead.slice(0, 8) + " vs " + remoteHead.slice(0, 8) + ") — skipping auto-update");
+      return;
+    }
     log("update available: " + localHead.slice(0, 8) + " → " + remoteHead.slice(0, 8) + " (" + behindCount + " commits)");
 
     // Pull
     try {
       run("git pull origin main --ff-only");
-    } catch (_) {
-      try {
-        run("git reset --hard origin/main");
-        log("hard reset to origin/main");
-      } catch (e2) {
-        log("reset failed: " + e2.message);
-        return;
-      }
+    } catch (e) {
+      log("fast-forward update failed: " + e.message);
+      return;
     }
 
     // Install dependencies only if package.json changed

@@ -73,16 +73,42 @@ router.get('/machine-status', async (req, res) => {
     const totalMem = Math.round(os.totalmem() / 1024 / 1024);
 
     // Detect running btcpc processes by scanning /proc/*/cmdline
-    const btcpcBins = ['btcpc-mine','btcpc-clock','btcpc-storage','btcpc-chain-monitor',
-      'btcpc-auto-update','btcpc-gnss-bridge','btcpc-gnss-relay','btcpc-nebra',
-      'btcpc-all','btcpc-gateway','btcpc-verifier'];
+    const btcpcRoles = {
+      'src/index.js': 'api',
+      'btcpc-mine': 'mine',
+      'btcpc-clock': 'clock',
+      'btcpc-storage': 'storage',
+      'btcpc-chain-monitor': 'chain-monitor',
+      'btcpc-auto-update': 'auto-update',
+      'btcpc-gnss-bridge': 'gnss-bridge',
+      'btcpc-gnss-relay': 'gnss-relay',
+      'btcpc-nebra': 'nebra',
+      'btcpc-all': 'all',
+      'btcpc-gateway': 'gateway',
+      'btcpc-verifier': 'verifier',
+    };
+    const btcpcBins = Object.keys(btcpcRoles);
     const running = [];
+    function matchesBtcpcProcess(parts, binName) {
+      if (!parts.length) return false;
+      if (parts[0] === binName || path.basename(parts[0]) === binName) return true;
+
+      // Node-launched roles appear as: node bin/btcpc-mine. Do not scan every
+      // argument, or paths like /mnt/btcpc-storage get misreported as daemons.
+      const exe = path.basename(parts[0]);
+      if (exe === 'node' || exe === 'nodejs') {
+        return parts.slice(1, 3).some(part => part === binName || path.basename(part) === binName);
+      }
+
+      return false;
+    }
     try {
       const procs = fs.readdirSync('/proc').filter(f => /^\d+$/.test(f));
       for (const pid of procs) {
         try {
           const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').trim();
-          const match = btcpcBins.find(b => cmd.includes(b));
+          const parts = cmd.split(/\s+/).filter(Boolean);
+          const match = btcpcBins.find(b => matchesBtcpcProcess(parts, b));
           if (match) {
             // Get memory usage from /proc/PID/status
             let rss = 0;
@@ -91,7 +117,7 @@ router.get('/machine-status', async (req, res) => {
               const m = status.match(/VmRSS:\s*(\d+)/);
               if (m) rss = Math.round(parseInt(m[1]) / 1024);
             } catch (_) {}
-            running.push({ role: match.replace('btcpc-', ''), pid: parseInt(pid), rss_mb: rss });
+            running.push({ role: btcpcRoles[match], pid: parseInt(pid), rss_mb: rss });
           }
         } catch (_) {}
       }

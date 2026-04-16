@@ -59,17 +59,107 @@
 
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
-    /* Desktop app — use the full window width */
-    [data-desktop] .screen { max-width: 800px; }
-    [data-desktop] .screen.active { display: grid; grid-template-columns: 1fr; }
-    [data-desktop] #screen-setup.active { display: flex; flex-direction: column; align-items: center; }
-    [data-desktop] #screen-setup .setup-hero { max-width: 440px; width: 100%; }
-    [data-desktop] #screen-setup form, [data-desktop] #screen-setup .input-group,
+    .screen.active { display: block; }
+
+    /* ── Desktop app layout ──────────────────────────────────────────────── */
+    /* Hide website nav and mobile chrome */
+    [data-desktop] #nav-bar { display: none !important; }
+    [data-desktop] #tab-bar { display: none !important; }
+    [data-desktop] body { padding-top: 0; padding-left: 220px; display: block; min-height: 100vh; }
+
+    /* Login / setup screens: centered, no sidebar */
+    [data-desktop] #screen-setup.active,
+    [data-desktop] #screen-mnemonic.active {
+      display: flex; flex-direction: column; align-items: center;
+      max-width: 100%; padding: 60px 16px; min-height: 100vh;
+    }
+    [data-desktop] #screen-setup .setup-hero,
+    [data-desktop] #screen-setup form,
+    [data-desktop] #screen-setup .input-group,
     [data-desktop] #screen-setup .btn { max-width: 440px; width: 100%; }
-    [data-desktop] #screen-dash { grid-template-columns: 1fr 1fr; gap: 0; }
-    [data-desktop] #screen-mine .mine-option { max-width: 600px; }
+
+    /* Dashboard: full width to the right of the sidebar */
+    [data-desktop] #screen-dash.active {
+      display: block; max-width: none; padding: 0; padding-bottom: 0; margin: 0;
+      min-height: 100vh;
+    }
+    /* Hide the mobile dashboard header chrome */
+    [data-desktop] .dash-header,
+    [data-desktop] #chrome-banner { display: none !important; }
+    [data-desktop] #screen-dash > div:not(.tab-panel):not(#panel-sensors):not(#panel-mine):not(#panel-node):not(#panel-chat):not(#panel-data):not(#panel-settings):not(#bg-dl-banner) {
+      display: none !important;
+    }
+
+    /* Tab panels: full width, proper padding */
+    [data-desktop] .tab-panel { display: none; max-width: none; padding: 0; }
+    [data-desktop] .tab-panel.active { display: block; padding: 32px 40px; min-height: 100vh; }
+
+    /* Model list: 2-column grid */
     [data-desktop] #model-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     [data-desktop] #model-list > div { margin-bottom: 0; }
+    [data-desktop] #screen-mine .mine-option { max-width: 720px; }
+
+    /* Desktop sidebar */
+    #desktop-sidebar {
+      display: none;
+    }
+    [data-desktop] #desktop-sidebar {
+      display: flex; flex-direction: column;
+      position: fixed; left: 0; top: 0; bottom: 0; width: 220px;
+      background: #0d1117; border-right: 1px solid rgba(247,147,26,0.12);
+      z-index: 50; overflow-y: auto;
+    }
+    .sb-logo {
+      display: flex; align-items: center; gap: 10px;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(247,147,26,0.1);
+    }
+    .sb-logo img { width: 32px; height: 32px; border-radius: 8px; }
+    .sb-logo span { font-size: 16px; font-weight: 700; color: var(--orange); letter-spacing: 1px; }
+    .sb-account {
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .sb-account .sb-name {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-account .sb-bal {
+      font-size: 18px; font-weight: 700; color: var(--orange); margin-top: 2px;
+    }
+    .sb-account .sb-bal-lbl { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .sb-roles {
+      display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 18px 0;
+    }
+    .sb-role {
+      font-size: 10px; padding: 2px 7px; border-radius: 8px; font-weight: 600;
+    }
+    .sb-nav { flex: 1; padding: 12px 0; }
+    .sb-nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 18px; font-size: 13px; font-weight: 500;
+      color: var(--muted); cursor: pointer; border: none; background: none;
+      font-family: inherit; width: 100%; text-align: left;
+      border-left: 3px solid transparent; transition: all 0.15s;
+    }
+    .sb-nav-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+    .sb-nav-item.active { color: var(--orange); border-left-color: var(--orange); background: rgba(247,147,26,0.08); }
+    .sb-nav-item .sb-icon { font-size: 15px; width: 20px; text-align: center; }
+    .sb-epoch {
+      margin: 0 12px 12px; padding: 10px 12px;
+      background: rgba(247,147,26,0.06); border: 1px solid rgba(247,147,26,0.15);
+      border-radius: 8px; font-size: 11px;
+    }
+    .sb-epoch .sb-ep-num { font-size: 16px; font-weight: 700; color: var(--orange); }
+    .sb-epoch .sb-ep-bar {
+      height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; margin: 6px 0 4px;
+    }
+    .sb-epoch .sb-ep-fill {
+      height: 100%; background: var(--orange); border-radius: 2px; transition: width 1s linear;
+    }
+    .sb-version {
+      padding: 10px 18px; font-size: 10px; color: rgba(100,116,139,0.6);
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
     .screen.active { display: block; }
     /* Hide login screen when auto-login will fire */
     [data-autologin='1'] #screen-setup.active { display: none !important; }
@@ -345,6 +435,43 @@
     <a href="/install">Install</a>
     <a href="/meshtastic" style="color:#c8ccd4;text-decoration:none;">Meshtastic</a>
     <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  </div>
+
+  <!-- Desktop sidebar — only visible when data-desktop is set -->
+  <div id="desktop-sidebar">
+    <div class="sb-logo">
+      <img src="/btcpc-logo.jpeg" alt="BTCPC">
+      <span>BTCPC</span>
+    </div>
+    <div class="sb-account">
+      <div class="sb-name" id="sb-account-name">—</div>
+      <div class="sb-bal" id="sb-balance">—</div>
+      <div class="sb-bal-lbl">BTCPC balance</div>
+      <div class="sb-roles" id="sb-roles" style="margin-top:8px;"></div>
+    </div>
+    <nav class="sb-nav" id="sb-nav">
+      <button class="sb-nav-item active" data-tab="sensors"><span class="sb-icon">📡</span>Sensors</button>
+      <button class="sb-nav-item" data-tab="mine"><span class="sb-icon">⛏</span>Mine</button>
+      <button class="sb-nav-item" data-tab="node"><span class="sb-icon">🖥</span>Node</button>
+      <button class="sb-nav-item" data-tab="chat"><span class="sb-icon">💬</span>Chat</button>
+      <button class="sb-nav-item" data-tab="data"><span class="sb-icon">📊</span>Data</button>
+      <button class="sb-nav-item" data-tab="settings"><span class="sb-icon">⚙</span>Settings</button>
+    </nav>
+    <div class="sb-epoch" id="sb-epoch" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:10px;color:var(--muted);">EPOCH</span>
+        <span class="sb-ep-num" id="sb-epoch-num">—</span>
+      </div>
+      <div class="sb-ep-bar"><div class="sb-ep-fill" id="sb-epoch-fill" style="width:0%"></div></div>
+      <div style="font-size:10px;color:var(--muted);display:flex;justify-content:space-between;">
+        <span id="sb-epoch-elapsed">—</span>
+        <span id="sb-epoch-remain">—</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px;">
+        reward <span id="sb-reward" style="color:var(--orange);">—</span> BTCPC
+      </div>
+    </div>
+    <div class="sb-version" id="sb-version">v3.1</div>
   </div>
 
   <!-- Auto-login splash (shown instead of login form when session exists) -->
@@ -1450,9 +1577,12 @@
           if (jwt && account) {
             document.getElementById('node-my-stats').style.display = 'block';
             try {
-              var balResp = await fetch('/api/wallet/balance?account=' + encodeURIComponent(account));
+              var balResp = await fetch('/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
               var bal = await balResp.json();
-              document.getElementById('node-my-balance').textContent = (bal.balance || 0).toFixed(4) + ' BTCPC';
+              var btcpcBal = bal && bal.balance && typeof bal.balance === 'object'
+                ? (bal.balance.BTCPC || 0)
+                : (bal.balance || bal.btcpc || 0);
+              document.getElementById('node-my-balance').textContent = parseFloat(btcpcBal).toFixed(4) + ' BTCPC';
             } catch(_) {}
             try {
               var modResp = await fetch('/v1/models', { headers: { 'Authorization': 'Bearer ' + jwt } });
@@ -1535,6 +1665,21 @@
                 p.role + (p.rss_mb ? ' ' + p.rss_mb + 'M' : '') +
                 '</span>';
             }).join('');
+
+            var roles = {};
+            d.processes.forEach(function(p) { roles[p.role] = true; });
+            var localMiners = roles.mine || roles.miner ? 1 : 0;
+            var localClocks = roles.clock ? 1 : 0;
+            var localStorage = roles.storage ? 1 : 0;
+            var localGateways = roles.gateway || roles.nebra ? 1 : 0;
+            var localNodes = localMiners + localClocks + localStorage + localGateways;
+            if (localNodes > 0) {
+              document.getElementById('node-stat-nodes').textContent = String(localNodes);
+              document.getElementById('node-stat-miners').textContent = String(localMiners);
+              document.getElementById('node-stat-clocks').textContent = String(localClocks);
+              document.getElementById('node-storage').textContent = String(localStorage);
+              document.getElementById('node-gateways').textContent = String(localGateways);
+            }
           }
 
           // Ollama models
@@ -3619,6 +3764,150 @@ if (account) {
 </script>
 
 <script>
+// ── Desktop sidebar ───────────────────────────────────────────────────────────
+(function() {
+  if (!document.documentElement.hasAttribute('data-desktop')) return;
+
+  var EPOCH_MS = 30000;
+  var GENESIS_TS = 1776236400000;
+
+  // ── Wire sidebar nav to main tab bar ──────────────────────────────────────
+  var sbNav = document.getElementById('sb-nav');
+  if (sbNav) {
+    sbNav.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-tab]');
+      if (!btn) return;
+      var tab = btn.dataset.tab;
+      // Mirror click on the hidden bottom tab bar
+      var realBtn = document.querySelector('#tab-bar [data-tab="' + tab + '"]');
+      if (realBtn) realBtn.click();
+      // Update sidebar active state
+      sbNav.querySelectorAll('.sb-nav-item').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    });
+  }
+
+  // Keep sidebar active item in sync when tab panels change
+  var observer = new MutationObserver(function() {
+    var active = document.querySelector('.tab-panel.active');
+    if (!active || !sbNav) return;
+    var tab = active.id.replace('panel-', '');
+    sbNav.querySelectorAll('.sb-nav-item').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+  });
+  var dash = document.getElementById('screen-dash');
+  if (dash) observer.observe(dash, { attributes: true, subtree: true, attributeFilter: ['class'] });
+
+  // ── Populate account + balance ────────────────────────────────────────────
+  function updateAccount() {
+    var acct = window.account || localStorage.getItem('btcpc-sensor-account') || '';
+    var nameEl = document.getElementById('sb-account-name');
+    if (nameEl && acct) nameEl.textContent = acct;
+
+    // Try to load balance
+    if (acct) {
+      var jwt = localStorage.getItem('btcpc-jwt');
+      if (!jwt) return;
+      fetch('/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var bal = d && d.balance && typeof d.balance === 'object'
+            ? d.balance.BTCPC
+            : (d.balance !== undefined ? d.balance : (d.btcpc !== undefined ? d.btcpc : null));
+          var el = document.getElementById('sb-balance');
+          if (el && bal !== null) el.textContent = parseFloat(bal).toFixed(4) + ' BTCPC';
+        })
+        .catch(function() {});
+    }
+  }
+
+  // ── Roles ─────────────────────────────────────────────────────────────────
+  function updateRoles() {
+    var rolesEl = document.getElementById('sb-roles');
+    if (!rolesEl) return;
+    var roles = [];
+    var clockEl = document.getElementById('role-clock');
+    var sensorsEl = document.getElementById('role-sensors');
+    var mineEl = document.getElementById('role-mine');
+    if (clockEl && clockEl.style.display !== 'none' && /Clock/i.test(clockEl.textContent)) {
+      roles.push({ label: 'Clock', color: '#22c55e' });
+    }
+    if (sensorsEl && sensorsEl.style.display !== 'none') {
+      roles.push({ label: 'Sensors', color: '#f7931a' });
+    }
+    if (mineEl) {
+      var mining = /Off/i.test(mineEl.textContent) ? false : true;
+      roles.push({ label: mining ? 'Mining' : 'Mining: Off', color: mining ? '#22c55e' : '#4b5563' });
+    }
+    rolesEl.innerHTML = roles.map(function(r) {
+      return '<span class="sb-role" style="background:' + r.color + '22;color:' + r.color + ';border:1px solid ' + r.color + '44;">' + r.label + '</span>';
+    }).join('');
+  }
+
+  // ── Epoch ticker ──────────────────────────────────────────────────────────
+  function updateEpochBar() {
+    var numEl = document.getElementById('sb-epoch-num');
+    var fillEl = document.getElementById('sb-epoch-fill');
+    var elEl = document.getElementById('sb-epoch-elapsed');
+    var remEl = document.getElementById('sb-epoch-remain');
+    var rewEl = document.getElementById('sb-reward');
+    var epochCard = document.getElementById('sb-epoch');
+    if (!numEl) return;
+
+    var now = Date.now();
+    var epochNum = Math.floor((now - GENESIS_TS) / EPOCH_MS);
+    var epochStart = GENESIS_TS + epochNum * EPOCH_MS;
+    var elapsed = Math.round((now - epochStart) / 1000);
+    var remain = Math.round((epochStart + EPOCH_MS - now) / 1000);
+    var pct = Math.min(100, ((now - epochStart) / EPOCH_MS) * 100);
+
+    numEl.textContent = '#' + epochNum;
+    if (fillEl) fillEl.style.width = pct.toFixed(1) + '%';
+    if (elEl) elEl.textContent = elapsed + 's';
+    if (remEl) remEl.textContent = remain + 's left';
+    if (epochCard) epochCard.style.display = 'block';
+
+    // Pull reward from node panel if available
+    var rewardEl = document.getElementById('node-block-reward');
+    if (rewEl && rewardEl && rewardEl.textContent && rewardEl.textContent !== '—') {
+      rewEl.textContent = rewardEl.textContent;
+    }
+  }
+
+  // ── Version ───────────────────────────────────────────────────────────────
+  fetch('/public/network').then(function(r) { return r.json(); }).then(function(d) {
+    var el = document.getElementById('sb-version');
+    if (el && d.epoch) el.textContent = 'epoch ' + d.epoch + ' · v' + (window.BTCPC_VERSION || '3.1');
+  }).catch(function() {});
+
+  // ── Init + periodic updates ────────────────────────────────────────────────
+  function init() {
+    updateAccount();
+    updateRoles();
+    updateEpochBar();
+  }
+
+  // Run immediately and after dashboard loads
+  if (document.readyState === 'complete') {
+    setTimeout(init, 100);
+  } else {
+    window.addEventListener('load', function() { setTimeout(init, 100); });
+  }
+  // Periodic refresh
+  setInterval(updateEpochBar, 1000);
+  setInterval(function() { updateAccount(); updateRoles(); }, 15000);
+
+  // Also update when initDashboard runs (account becomes available)
+  var _origInit = window.initDashboard;
+  if (typeof _origInit === 'function') {
+    window.initDashboard = async function() {
+      await _origInit.apply(this, arguments);
+      setTimeout(init, 200);
+    };
+  }
+})();
+
 // ── Tauri desktop integration ─────────────────────────────────────────────────
 // Wire up events emitted from the Rust backend (tauri-plugin events).
 // window.__TAURI__ is only present inside BTCPC Desktop (Tauri).

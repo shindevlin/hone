@@ -86,6 +86,10 @@ async function checkAndStage() {
     }
 
     const behindCount = run('git rev-list HEAD..origin/main --count');
+    if (parseInt(behindCount, 10) <= 0) {
+      log(`Remote differs but local is not behind (${localHash.slice(0, 8)} vs ${remoteHash.slice(0, 8)}) — skipping auto-update`);
+      return null;
+    }
     log(`${behindCount} new commit(s) available`);
 
     const commitLog = run('git log HEAD..origin/main --oneline');

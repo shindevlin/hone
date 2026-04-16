@@ -20,6 +20,7 @@
 
 var crypto = require("crypto");
 var stateStore = require("./stateStore");
+var nodeRegistry = require("./nodeRegistry");
 
 // Reward split (whitepaper canonical)
 // 6-pool reward distribution per whitepaper
@@ -107,11 +108,30 @@ function buildProposal(options) {
     });
   }
 
+  // Desktop/all-in-one bootstrap safety: if heartbeat gossip arrives late but
+  // the local proposer account is permissioned, keep the clock pool active.
+  // This prevents a healthy solo genesis node from showing "0 clock(s)" while
+  // the separate btcpc-clock role is running and connected.
+  if (activeClocks.indexOf(proposerAccount) === -1) {
+    var proposerNode = nodeRegistry.getNode(proposerAccount);
+    if (proposerNode && (proposerNode.permissioned || proposerNode.stake >= MIN_CLOCK_STAKE)) {
+      activeClocks.push(proposerAccount);
+    }
+  }
+
   // ── Filter clocks by minimum stake (skip during bootstrap) ──
   if (epochNumber >= BOOTSTRAP_EPOCHS) {
     activeClocks = activeClocks.filter(function (clock) {
       var pool = stateStore.getStakePool(clock);
-      return pool && pool.total_staked >= MIN_CLOCK_STAKE;
+      if (pool && pool.total_staked >= MIN_CLOCK_STAKE) return true;
+
+      // Genesis/desktop nodes can be permissioned in nodeRegistry before an
+      // on-chain stake pool exists. Treat those as eligible so clock work is
+      // rewarded instead of silently recycling the clock pool forever.
+      var nodeInfo = nodeRegistry.getNode(clock);
+      if (!nodeInfo) return false;
+      if (nodeInfo.stake && nodeInfo.stake >= MIN_CLOCK_STAKE) return true;
+      return !!nodeInfo.permissioned;
     });
   }
 
@@ -173,8 +193,15 @@ function buildProposal(options) {
     for (var miner of miners) {
       var pool = stateStore.getStakePool(miner);
       var staked = (pool && pool.total_staked) || 0;
+      var nodeInfo = null;
+      try {
+        nodeInfo = require("../chain/nodeRegistry").getNode(miner);
+        if (nodeInfo && nodeInfo.stake > staked) staked = nodeInfo.stake;
+      } catch (_) {}
       var weight;
-      if (staked >= MIN_MINER_STAKE) {
+      if (nodeInfo && nodeInfo.permissioned) {
+        weight = 1;
+      } else if (staked >= MIN_MINER_STAKE) {
         weight = Math.min(Math.sqrt(staked / MIN_MINER_STAKE), 10);
       } else if (epochNumber < BOOTSTRAP_EPOCHS) {
         weight = 0.25; // bootstrap grace: 25% rate for unstaked miners

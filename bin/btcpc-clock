@@ -508,6 +508,7 @@ function start() {
     }
     var hb = createMessage("CLOCK_HEARTBEAT", hbData);
     broadcast(hb);
+    console.log("[CLOCK] Heartbeat broadcast for epoch " + currentEpoch + " (" + CLOCK_ACCOUNT + ")");
   }, 60000);
 
   // Status logging
