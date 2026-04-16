@@ -55,6 +55,105 @@ router.use((req, res, next) => {
 });
 
 /**
+ * GET /public/machine-status — live status of this machine's btcpc processes.
+ * No auth required — intended for the desktop app's Node tab.
+ */
+router.get('/machine-status', async (req, res) => {
+  try {
+    const os = require('os');
+    const fs = require('fs');
+    const path = require('path');
+    const axios = require('axios');
+
+    // Hostname + uptime
+    const hostname = os.hostname();
+    const uptimeSec = Math.round(os.uptime());
+    const loadAvg = os.loadavg()[0].toFixed(2);
+    const freeMem = Math.round(os.freemem() / 1024 / 1024);
+    const totalMem = Math.round(os.totalmem() / 1024 / 1024);
+
+    // Detect running btcpc processes by scanning /proc/*/cmdline
+    const btcpcBins = ['btcpc-mine','btcpc-clock','btcpc-storage','btcpc-chain-monitor',
+      'btcpc-auto-update','btcpc-gnss-bridge','btcpc-gnss-relay','btcpc-nebra',
+      'btcpc-all','btcpc-gateway','btcpc-verifier'];
+    const running = [];
+    try {
+      const procs = fs.readdirSync('/proc').filter(f => /^\d+$/.test(f));
+      for (const pid of procs) {
+        try {
+          const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').trim();
+          const match = btcpcBins.find(b => cmd.includes(b));
+          if (match) {
+            // Get memory usage from /proc/PID/status
+            let rss = 0;
+            try {
+              const status = fs.readFileSync('/proc/' + pid + '/status', 'utf8');
+              const m = status.match(/VmRSS:\s*(\d+)/);
+              if (m) rss = Math.round(parseInt(m[1]) / 1024);
+            } catch (_) {}
+            running.push({ role: match.replace('btcpc-', ''), pid: parseInt(pid), rss_mb: rss });
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Ollama models currently loaded
+    let models = [];
+    let ollamaRunning = false;
+    try {
+      const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+      const tagsResp = await axios.get(ollamaUrl + '/api/tags', { timeout: 3000 });
+      models = (tagsResp.data.models || []).map(m => ({
+        name: m.name,
+        size_gb: m.size ? (m.size / 1e9).toFixed(1) : null,
+        modified: m.modified_at,
+      }));
+      ollamaRunning = true;
+    } catch (_) {}
+
+    // Connected P2P peers
+    let peers = [];
+    try {
+      const p2p = require('../p2p/network');
+      if (typeof p2p.getPeers === 'function') {
+        const peerMap = p2p.getPeers();
+        peers = Array.from(peerMap.values()).map(p => ({
+          address: p.address || '?',
+          connected: p.ws && p.ws.readyState === 1,
+          nodeId: p.nodeId ? p.nodeId.slice(0, 12) + '...' : null,
+        }));
+      }
+    } catch (_) {}
+
+    // Chain height from block files
+    let chainHeight = 0;
+    try {
+      const blocksDir = path.join(process.cwd(), 'data', 'blocks');
+      const files = fs.readdirSync(blocksDir).filter(f => f.startsWith('block-') && f.endsWith('.bin'));
+      if (files.length > 0) {
+        files.sort();
+        chainHeight = parseInt(files[files.length - 1].replace('block-', '').replace('.bin', ''), 10);
+      }
+    } catch (_) {}
+
+    res.json({
+      hostname,
+      uptime_sec: uptimeSec,
+      load_avg: parseFloat(loadAvg),
+      mem_free_mb: freeMem,
+      mem_total_mb: totalMem,
+      processes: running,
+      ollama: { running: ollamaRunning, models },
+      peers,
+      chain_height: chainHeight,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /public/network — public network status for browser clock UI
  *
  * Reports the height of the chain and whether the network is producing

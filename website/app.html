@@ -1370,6 +1370,27 @@
           <div style="color:var(--muted);">Browser clocks: <span id="node-browser-clocks" style="color:var(--text);">—</span></div>
         </div>
       </div>
+
+      <!-- Machine Status — live process list for this node (desktop/local only) -->
+      <div id="machine-status-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="label" id="machine-hostname" style="font-size:13px;">This Machine</span>
+          <span id="machine-mem" style="font-size:10px;color:var(--muted);"></span>
+        </div>
+        <!-- Running processes -->
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;">Running processes</div>
+        <div id="machine-processes" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;"></div>
+        <!-- Ollama models -->
+        <div id="machine-models-wrap" style="display:none;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;">Ollama models loaded</div>
+          <div id="machine-models" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;"></div>
+        </div>
+        <!-- Connected peers -->
+        <div id="machine-peers-wrap" style="display:none;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;">Connected peers</div>
+          <div id="machine-peers" style="font-size:10px;line-height:1.7;"></div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -1479,6 +1500,79 @@
       }
 
       window._nodeRefresh = refreshNode;
+
+      // ── Machine Status ──────────────────────────────────────────────────
+      async function refreshMachineStatus() {
+        var card = document.getElementById('machine-status-card');
+        if (!card) return;
+        try {
+          var resp = await fetch('/public/machine-status');
+          if (!resp.ok) return;
+          var d = await resp.json();
+          if (d.error) return;
+
+          card.style.display = 'block';
+
+          // Hostname + memory
+          var hn = document.getElementById('machine-hostname');
+          if (hn) hn.textContent = d.hostname || 'This Machine';
+          var mem = document.getElementById('machine-mem');
+          if (mem) mem.textContent = d.mem_free_mb + ' MB free / ' + d.mem_total_mb + ' MB · load ' + d.load_avg;
+
+          // Processes — show as colored pill badges
+          var procs = document.getElementById('machine-processes');
+          if (procs && d.processes) {
+            var roleColors = {
+              mine: '#f7931a', clock: '#22c55e', storage: '#3b82f6',
+              all: '#8b5cf6', gateway: '#06b6d4', monitor: '#64748b',
+              'auto-update': '#64748b', 'gnss-bridge': '#64748b',
+              'gnss-relay': '#64748b', nebra: '#64748b',
+              'update-source': '#64748b',
+            };
+            procs.innerHTML = d.processes.map(function(p) {
+              var col = roleColors[p.role] || '#64748b';
+              return '<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:' + col + '22;border:1px solid ' + col + '55;color:' + col + ';">' +
+                p.role + (p.rss_mb ? ' ' + p.rss_mb + 'M' : '') +
+                '</span>';
+            }).join('');
+          }
+
+          // Ollama models
+          var mwrap = document.getElementById('machine-models-wrap');
+          var mlist = document.getElementById('machine-models');
+          if (mwrap && mlist && d.ollama && d.ollama.models && d.ollama.models.length > 0) {
+            mwrap.style.display = 'block';
+            mlist.innerHTML = d.ollama.models.map(function(m) {
+              return '<span style="padding:2px 7px;border-radius:4px;font-size:10px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e;">' +
+                m.name + (m.size_gb ? ' ' + m.size_gb + 'GB' : '') +
+                '</span>';
+            }).join('');
+          } else if (mwrap) {
+            mwrap.style.display = 'none';
+          }
+
+          // Peers
+          var pwrap = document.getElementById('machine-peers-wrap');
+          var plist = document.getElementById('machine-peers');
+          if (pwrap && plist && d.peers && d.peers.length > 0) {
+            pwrap.style.display = 'block';
+            plist.innerHTML = d.peers.map(function(p) {
+              var dot = p.connected ? '<span style="color:#22c55e;">●</span>' : '<span style="color:#ef4444;">●</span>';
+              return dot + ' <span style="color:var(--text);">' + p.address + '</span>';
+            }).join('<br>');
+          } else if (pwrap) {
+            pwrap.style.display = 'none';
+          }
+        } catch(_) {}
+      }
+
+      // Hook machine status into the node tab refresh
+      var _origRefresh = refreshNode;
+      window._nodeRefresh = function() {
+        _origRefresh();
+        refreshMachineStatus();
+      };
+      refreshNode = window._nodeRefresh;
 
       // Auto-refresh when Node tab is active
       var tabBar = document.getElementById('tab-bar');
