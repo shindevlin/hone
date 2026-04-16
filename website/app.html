@@ -746,8 +746,8 @@
 
           if (desktopMode) {
             // Desktop: pull each model via the BTCPC API → Ollama
+            // JWT is optional — used for the node proxy only; Ollama direct pull works without auth
             var jwt = localStorage.getItem('btcpc-jwt');
-            if (!jwt) { dlBtn.textContent = 'Log in first'; setTimeout(function(){dlBtn.textContent='Pull Selected (Ollama)';},2000); return; }
             dlBtn.disabled = true;
 
             // Pull status area — large visible feedback box
@@ -774,9 +774,11 @@
               var ollamaFallback = false;
               for (var pi = 0; pi < pullEndpoints.length; pi++) {
                 try {
+                  var pullHeaders = { 'Content-Type': 'application/json' };
+                  if (jwt) pullHeaders['Authorization'] = 'Bearer ' + jwt;
                   var tryResp = await fetch(pullEndpoints[pi], {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+                    headers: pullHeaders,
                     body: JSON.stringify({ model: modelId })
                   });
                   if (tryResp.status !== 404) { resp = tryResp; break; }
