@@ -247,6 +247,31 @@ describe("stateStore with memory backend (existing behavior)", () => {
     expect(bal).toBeCloseTo(24.306, 3);
   });
 
+  test("getTokenBalances returns BTCPC display amounts, not raw units", () => {
+    stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "miner1", epoch: 1 });
+    stateStore.applyEntry({
+      type: "MINING_REWARD",
+      to: "miner1",
+      amount: 24.3055555556,
+      token: "BTCPC",
+      epoch: 1,
+    });
+
+    expect(stateStore.getTokenBalances("miner1").BTCPC).toBeCloseTo(24.3055555556, 10);
+  });
+
+  test("hydrateFromFinality converts account BTCPC balances into internal units", () => {
+    stateStore.hydrateFromFinality({
+      finality_epoch: 100,
+      accounts: {
+        miner1: { balance: 26324.8611112036, staked: 0, delegated: 0, nonce: 0 },
+      },
+    });
+
+    expect(stateStore.getBalance("miner1", "BTCPC")).toBeCloseTo(26324.8611112036, 10);
+    expect(stateStore.getTokenBalances("miner1").BTCPC).toBeCloseTo(26324.8611112036, 10);
+  });
+
   test("applyEntry TRANSFER moves funds between accounts", () => {
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "alice", epoch: 1 });
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "bob", epoch: 1 });

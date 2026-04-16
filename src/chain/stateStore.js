@@ -1612,7 +1612,7 @@ function getTokenBalances(username) {
   for (var entry of balances) {
     if (entry[0].indexOf(prefix) === 0) {
       var tok = entry[0].slice(prefix.length);
-      if (entry[1] !== 0) result[tok] = entry[1];
+      if (entry[1] !== 0) result[tok] = fromUnits(entry[1]);
     }
   }
   return result;
@@ -2409,7 +2409,7 @@ function hydrateFromFinality(snapshot) {
       var s = snapshot.accounts[u];
       _ensureAccount(u);
       if (typeof s.balance === "number") {
-        balances.set(_balanceKey(u, "BTCPC"), _round(s.balance));
+        balances.set(_balanceKey(u, "BTCPC"), toUnits(s.balance));
       }
       if (typeof s.staked === "number" && s.staked > 0) {
         stakes.set(u, { total_staked: s.staked, purpose: null, first_stake_epoch: 0 });
