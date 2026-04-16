@@ -49,6 +49,26 @@ app.use("/api", (req, res) => {
   }
 });
 
+// Proxy /v1/* to the BTCPC inference API (pull-model, models, etc.)
+app.use("/v1", (req, res) => {
+  const options = {
+    hostname: "127.0.0.1",
+    port: API_PORT,
+    path: "/v1" + req.url,
+    method: req.method,
+    headers: req.headers,
+  };
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on("error", (err) => {
+    if (!res.headersSent) res.status(502).json({ error: "API unreachable: " + err.message });
+  });
+  // Stream the request body through (needed for POST /v1/node/pull-model)
+  req.pipe(proxyReq);
+});
+
 // Proxy /public/* to the BTCPC API for browser clock nodes
 app.use("/public", (req, res) => {
   const options = {

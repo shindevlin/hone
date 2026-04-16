@@ -22,6 +22,11 @@
       if (localStorage.getItem('btcpc-sensor-account')) {
         document.documentElement.setAttribute('data-autologin', '1');
       }
+      // Mark desktop mode early so CSS can widen the layout
+      if (new URLSearchParams(location.search).get('desktop') === '1' ||
+          navigator.userAgent.indexOf('Electron') !== -1) {
+        document.documentElement.setAttribute('data-desktop', '1');
+      }
     })();
   </script>
   <style>
@@ -54,6 +59,17 @@
 
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
+    /* Desktop app — use the full window width */
+    [data-desktop] .screen { max-width: 800px; }
+    [data-desktop] .screen.active { display: grid; grid-template-columns: 1fr; }
+    [data-desktop] #screen-setup.active { display: flex; flex-direction: column; align-items: center; }
+    [data-desktop] #screen-setup .setup-hero { max-width: 440px; width: 100%; }
+    [data-desktop] #screen-setup form, [data-desktop] #screen-setup .input-group,
+    [data-desktop] #screen-setup .btn { max-width: 440px; width: 100%; }
+    [data-desktop] #screen-dash { grid-template-columns: 1fr 1fr; gap: 0; }
+    [data-desktop] #screen-mine .mine-option { max-width: 600px; }
+    [data-desktop] #model-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    [data-desktop] #model-list > div { margin-bottom: 0; }
     .screen.active { display: block; }
     /* Hide login screen when auto-login will fire */
     [data-autologin='1'] #screen-setup.active { display: none !important; }
@@ -177,6 +193,7 @@
     #tab-bar .tab-inner {
       display: flex; justify-content: space-evenly; width: 100%; max-width: 480px; margin: 0 auto;
     }
+    [data-desktop] #tab-bar .tab-inner { max-width: 800px; }
     #tab-bar button {
       flex: 1; min-width: 0; background: none; border: none; color: var(--muted); font-family: inherit;
       font-size: 10px; padding: 6px 2px 2px; cursor: pointer; display: flex;
@@ -551,10 +568,16 @@
         var deviceRAM = navigator.deviceMemory || 4; // GB, defaults to 4 if not available
         var hasWebGPU = !!navigator.gpu;
         var specEl = document.getElementById('device-specs');
-        specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' +
-          deviceRAM + 'GB RAM' +
-          (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
-          (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
+        if (desktopMode) {
+          specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' + deviceRAM + 'GB RAM' +
+            ' • <span style="color:#22c55e;">Ollama inference ✓</span>' +
+            '<br><span style="color:var(--muted);">WebGPU not needed — models run locally via Ollama.</span>';
+        } else {
+          specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' +
+            deviceRAM + 'GB RAM' +
+            (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
+            (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
+        }
 
         var desktopMode = new URLSearchParams(location.search).get('desktop') === '1'
           || navigator.userAgent.includes('Electron')
@@ -736,6 +759,203 @@
         var dlBtn = document.getElementById('mine-download-selected');
         dlBtn.textContent = desktopMode ? 'Pull Selected (Ollama)' : 'Download Selected';
 
+        // ── Ollama pull helpers ────────────────────────────────────────────────
+
+        // Ensure Ollama is running. Returns true if running after this call.
+        async function ensureOllama(pullStatus) {
+          try {
+            var ping = await fetch('http://localhost:11434/', { signal: AbortSignal.timeout(2000) });
+            if (ping.ok || ping.status < 500) return true;
+          } catch(_) {}
+          // Not running — try to start via Tauri
+          if (typeof window.__TAURI__ !== 'undefined') {
+            pullStatus.innerHTML = '<span style="color:#f7931a;">Starting Ollama...</span>';
+            try {
+              var result = await window.__TAURI__.core.invoke('start_ollama');
+              if (result.ok) return true;
+              if (result.reason === 'not_installed') {
+                pullStatus.innerHTML =
+                  '<div style="color:#ef4444;">Ollama is not installed.<br>' +
+                  '<a href="https://ollama.com" target="_blank" style="color:#f7931a;">Download from ollama.com</a></div>';
+                return false;
+              }
+            } catch(_) {}
+          }
+          pullStatus.innerHTML = '<div style="color:#ef4444;">Ollama is not running.<br><span style="color:var(--muted);font-size:11px;">Install BTCPC Desktop to manage Ollama automatically.</span></div>';
+          return false;
+        }
+
+        // Stream a pull from Ollama. Calls onProgress({status, completed, total}) for each NDJSON line.
+        // Returns { ok, ollamaFallback, error }.
+        async function streamPull(modelId, jwt, onProgress) {
+          var resp = null;
+          var ollamaFallback = false;
+
+          // 1. Try BTCPC node (port 3000 direct, then /v1 through serve.js proxy)
+          var endpoints = [
+            { url: 'http://localhost:3000/v1/node/pull-model', auth: true },
+            { url: '/v1/node/pull-model', auth: true },
+          ];
+          for (var i = 0; i < endpoints.length; i++) {
+            try {
+              var headers = { 'Content-Type': 'application/json' };
+              if (jwt && endpoints[i].auth) headers['Authorization'] = 'Bearer ' + jwt;
+              var r = await fetch(endpoints[i].url, {
+                method: 'POST', headers: headers,
+                body: JSON.stringify({ model: modelId })
+              });
+              if (r.status !== 404 && r.status !== 502) { resp = r; break; }
+            } catch(_) {}
+          }
+
+          // 2. Fallback: Ollama API directly
+          if (!resp) {
+            try {
+              resp = await fetch('http://localhost:11434/api/pull', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: modelId, stream: true })
+              });
+              ollamaFallback = true;
+            } catch(e) {
+              return { ok: false, error: 'Cannot reach Ollama: ' + e.message };
+            }
+          }
+
+          if (!resp || !resp.ok) {
+            var errMsg = resp ? 'HTTP ' + resp.status : 'No response';
+            try {
+              var errBody = await resp.text();
+              errMsg = JSON.parse(errBody).error?.message || errMsg;
+            } catch(_) {}
+            return { ok: false, error: errMsg };
+          }
+
+          // Read NDJSON stream — buffer partial lines across chunks
+          var reader = resp.body.getReader();
+          var decoder = new TextDecoder();
+          var lineBuffer = '';
+          try {
+            while (true) {
+              var chunk = await reader.read();
+              if (chunk.done) break;
+              lineBuffer += decoder.decode(chunk.value, { stream: true });
+              var lines = lineBuffer.split('\n');
+              lineBuffer = lines.pop(); // keep the last (possibly incomplete) fragment
+              for (var l = 0; l < lines.length; l++) {
+                var line = lines[l].trim();
+                if (!line) continue;
+                try {
+                  var ev = JSON.parse(line);
+                  if (ev.error) return { ok: false, error: ev.error };
+                  if (ev.status) {
+                    onProgress(ev);
+                    if (ev.status === 'success') return { ok: true, ollamaFallback: ollamaFallback };
+                  }
+                } catch(_) {}
+              }
+            }
+          } catch(e) {
+            return { ok: false, error: e.message || 'Stream error' };
+          }
+          return { ok: true, ollamaFallback: ollamaFallback };
+        }
+
+        // Verify Ollama has the model loaded and show confirmation.
+        async function verifyAndShow(modelId, jwt, pullStatus, ollamaFallback) {
+          var pb = document.getElementById('pull-progress-' + modelId.replace(/[^a-z0-9]/g,'_'));
+          if (pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
+
+          if (ollamaFallback || !jwt) {
+            pullStatus.innerHTML =
+              '<div style="color:#22c55e;font-weight:700;margin-bottom:4px;">✓ ' + modelId + ' ready</div>' +
+              '<div style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/ — start mining to use it.</div>';
+            return;
+          }
+          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready — verifying digest...</span>';
+          try {
+            var info = await fetch('http://localhost:3000/v1/node/model-info?model=' + encodeURIComponent(modelId), {
+              headers: { 'Authorization': 'Bearer ' + jwt }
+            }).then(function(r) { return r.json(); });
+            if (info.digest) {
+              pullStatus.innerHTML =
+                '<div style="color:#22c55e;font-weight:700;margin-bottom:4px;">✓ ' + modelId + ' ready</div>' +
+                '<div style="color:var(--muted);font-size:11px;margin-bottom:2px;">SHA256: <span style="color:#f7931a;">' + info.blob_hash + '</span></div>' +
+                '<div style="color:var(--muted);font-size:11px;">' + info.storage_dir + '</div>';
+            } else {
+              pullStatus.innerHTML = '<div style="color:#22c55e;font-weight:700;">✓ ' + modelId + ' ready</div>';
+            }
+          } catch(_) {
+            pullStatus.innerHTML = '<div style="color:#22c55e;font-weight:700;">✓ ' + modelId + ' ready</div>';
+          }
+        }
+
+        // ── Background download queue ─────────────────────────────────────────
+
+        var bgQueue = [];
+        var bgRunning = false;
+
+        function updateBgBanner() {
+          var banner = document.getElementById('bg-dl-banner');
+          if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'bg-dl-banner';
+            banner.style.cssText =
+              'position:fixed;bottom:72px;left:50%;transform:translateX(-50%);' +
+              'background:#1a1f2e;border:1px solid var(--border);border-radius:8px;' +
+              'padding:8px 14px;font-size:11px;font-family:monospace;z-index:900;' +
+              'display:flex;align-items:center;gap:10px;max-width:340px;width:90%;' +
+              'box-shadow:0 4px 16px rgba(0,0,0,0.5);';
+            document.body.appendChild(banner);
+          }
+          if (bgQueue.length === 0 && !bgRunning) {
+            banner.style.display = 'none';
+            return;
+          }
+          var label = bgRunning
+            ? 'Downloading ' + bgRunning + '…'
+            : 'Queued: ' + bgQueue.length + ' model(s)';
+          var remain = bgQueue.length + (bgRunning ? 1 : 0);
+          banner.style.display = 'flex';
+          banner.innerHTML =
+            '<span style="color:#f7931a;flex:1;">⬇ ' + label + '</span>' +
+            '<span style="color:var(--muted);">' + remain + ' left</span>';
+        }
+
+        async function runBgQueue(jwt) {
+          while (bgQueue.length > 0) {
+            var modelId = bgQueue.shift();
+            bgRunning = modelId;
+            updateBgBanner();
+
+            var pb = document.getElementById('pull-progress-' + modelId.replace(/[^a-z0-9]/g,'_'));
+            if (pb) { pb.textContent = 'queued...'; pb.style.color = '#64748b'; pb.style.display = 'inline'; }
+
+            var result = await streamPull(modelId, jwt, function(ev) {
+              if (!pb) return;
+              var pct = (ev.completed && ev.total) ? ' ' + Math.round(ev.completed/ev.total*100) + '%' : '';
+              pb.textContent = ev.status + pct;
+              pb.style.color = '#f7931a';
+            });
+
+            if (result.ok) {
+              if (pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
+            } else {
+              if (pb) { pb.textContent = 'Error'; pb.style.color = '#ef4444'; }
+            }
+            bgRunning = false;
+            updateBgBanner();
+          }
+        }
+
+        function scheduleBackground(modelIds, jwt) {
+          bgQueue.push.apply(bgQueue, modelIds);
+          updateBgBanner();
+          if (!bgRunning) runBgQueue(jwt);
+        }
+
+        // ── Button handler ────────────────────────────────────────────────────
+
         dlBtn.addEventListener('click', async function() {
           var checked = document.querySelectorAll('.model-cb:checked');
           if (checked.length === 0) {
@@ -745,12 +965,15 @@
           }
 
           if (desktopMode) {
-            // Desktop: pull each model via the BTCPC API → Ollama
-            // JWT is optional — used for the node proxy only; Ollama direct pull works without auth
+            var modelIds = Array.from(checked).map(function(c) { return c.dataset.id; });
+            var firstModel = modelIds[0];
+            var rest = modelIds.slice(1);
             var jwt = localStorage.getItem('btcpc-jwt');
-            dlBtn.disabled = true;
 
-            // Pull status area — large visible feedback box
+            dlBtn.disabled = true;
+            dlBtn.textContent = 'Starting...';
+
+            // Pull status panel for the first model
             var pullStatus = document.getElementById('pull-status-box');
             if (!pullStatus) {
               pullStatus = document.createElement('div');
@@ -759,154 +982,52 @@
               dlBtn.parentNode.insertBefore(pullStatus, dlBtn.nextSibling);
             }
             pullStatus.style.display = 'block';
-            pullStatus.textContent = '';
 
-            for (var i = 0; i < checked.length; i++) {
-              var modelId = checked[i].dataset.id;
-              var pbId = 'pull-progress-' + modelId.replace(/[^a-z0-9]/g,'_');
-              var pb = document.getElementById(pbId);
-              if (pb) { pb.style.display = 'inline'; pb.textContent = 'Starting...'; }
-              dlBtn.textContent = 'Pulling ' + modelId + '...';
-              pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span> — connecting to Ollama...';
-              // Try BTCPC node first (proxies to Ollama + records digest)
-              var pullEndpoints = ['http://localhost:3000/v1/node/pull-model', '/v1/node/pull-model'];
-              var resp = null;
-              var ollamaFallback = false;
-              for (var pi = 0; pi < pullEndpoints.length; pi++) {
-                try {
-                  var pullHeaders = { 'Content-Type': 'application/json' };
-                  if (jwt) pullHeaders['Authorization'] = 'Bearer ' + jwt;
-                  var tryResp = await fetch(pullEndpoints[pi], {
-                    method: 'POST',
-                    headers: pullHeaders,
-                    body: JSON.stringify({ model: modelId })
-                  });
-                  if (tryResp.status !== 404) { resp = tryResp; break; }
-                } catch(_) {}
-              }
-              // Fallback: call Ollama directly (same NDJSON stream format)
-              if (!resp) {
-                pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span> — node offline, pulling via Ollama directly...';
-                try {
-                  var ollamaResp = await fetch('http://localhost:11434/api/pull', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: modelId, stream: true })
-                  });
-                  resp = ollamaResp;
-                  ollamaFallback = true;
-                } catch(_) {}
-              }
-              if (!resp) {
-                if (desktopMode) {
-                  pullStatus.innerHTML =
-                    '<div style="color:#f7931a;margin-bottom:8px;">Ollama needs to start before downloading models.</div>' +
-                    '<button id="start-ollama-btn" style="background:#f7931a;color:#000;border:none;padding:8px 18px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">Start Ollama</button>';
-                  if (pb) { pb.textContent = 'Ollama not running'; pb.style.color = '#f7931a'; }
-                  var startBtn = document.getElementById('start-ollama-btn');
-                  if (startBtn) {
-                    startBtn.addEventListener('click', async function() {
-                      startBtn.textContent = 'Starting...';
-                      startBtn.disabled = true;
-                      try {
-                        var { invoke } = window.__TAURI__.core;
-                        var result = await invoke('start_ollama');
-                        if (result.ok) {
-                          pullStatus.innerHTML = '<span style="color:#22c55e;">✓ Ollama started — click Pull again to download your models.</span>';
-                        } else if (result.reason === 'not_installed') {
-                          pullStatus.innerHTML = '<div style="color:#ef4444;">Ollama is not installed on this computer.<br><span style="color:var(--muted);font-size:11px;">Download it from ollama.com</span></div>';
-                        } else {
-                          pullStatus.innerHTML = '<div style="color:#ef4444;">Could not start Ollama.<br><span style="color:var(--muted);font-size:11px;">' + (result.reason || 'Unknown error') + '</span></div>';
-                        }
-                      } catch(e) {
-                        pullStatus.innerHTML = '<span style="color:#ef4444;">Something went wrong. Try restarting BTCPC Desktop.</span>';
-                      }
-                    });
-                  }
-                } else {
-                  pullStatus.innerHTML = '<div style="color:#ef4444;">Could not connect to Ollama.<br><span style="color:var(--muted);font-size:11px;">Install the BTCPC Desktop app to manage Ollama automatically.</span></div>';
-                }
-                if (pb) { pb.textContent = 'Ollama not running'; pb.style.color = '#ef4444'; }
-                continue;
-              }
-              try {
-                if (!resp.ok) {
-                  var errBody = await resp.text();
-                  var errMsg = 'HTTP ' + resp.status;
-                  try { errMsg = JSON.parse(errBody).error.message || errMsg; } catch(_) {}
-                  if (pb) { pb.textContent = 'Error: ' + errMsg; pb.style.color = '#ef4444'; }
-                  pullStatus.innerHTML = '<span style="color:#ef4444;">Error ' + resp.status + ': ' + errMsg + '</span>';
-                  continue;
-                }
-                var reader = resp.body.getReader();
-                var decoder = new TextDecoder();
-                while (true) {
-                  var chunk = await reader.read();
-                  if (chunk.done) break;
-                  var lines = decoder.decode(chunk.value).trim().split('\n');
-                  for (var l = 0; l < lines.length; l++) {
-                    if (!lines[l].trim()) continue;
-                    try {
-                      var ev = JSON.parse(lines[l]);
-                      if (ev.error) {
-                        pullStatus.innerHTML = '<span style="color:#ef4444;">Ollama error: ' + ev.error + '</span>';
-                        if (pb) { pb.textContent = 'Error: ' + ev.error; pb.style.color = '#ef4444'; }
-                      } else if (ev.status) {
-                        var pct = (ev.completed && ev.total) ? ' — ' + Math.round(ev.completed/ev.total*100) + '%' : '';
-                        var mb = (ev.completed) ? ' (' + (ev.completed/1024/1024).toFixed(0) + ' MB)' : '';
-                        pullStatus.innerHTML = '<span style="color:#f7931a;">' + modelId + '</span>  ' + ev.status + pct + mb;
-                        if (pb) pb.textContent = ev.status + pct;
-                        if (ev.status === 'success') {
-                          if (pb) { pb.textContent = '✓ Ready'; pb.style.color = '#22c55e'; }
-                          if (ollamaFallback) {
-                            // Node wasn't running — can't fetch digest, but model is ready
-                            pullStatus.innerHTML =
-                              '<div style="color:#22c55e;margin-bottom:4px;">✓ ' + modelId + ' ready</div>' +
-                              '<div style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/<br>' +
-                              'Start your BTCPC node to begin mining with this model.</div>';
-                          } else {
-                            // Fetch digest for security verification
-                            pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' downloaded — fetching digest...</span>';
-                            try {
-                              var infoResp = await fetch('http://localhost:3000/v1/node/model-info?model=' + encodeURIComponent(modelId), {
-                                headers: { 'Authorization': 'Bearer ' + jwt }
-                              });
-                              var info = await infoResp.json();
-                              if (info.digest) {
-                                pullStatus.innerHTML =
-                                  '<div style="color:#22c55e;margin-bottom:6px;">✓ ' + modelId + ' ready</div>' +
-                                  '<div style="color:var(--muted);margin-bottom:4px;">📁 Stored in: <span style="color:var(--text);">' + info.storage_dir + '</span></div>' +
-                                  '<div style="color:var(--muted);margin-bottom:6px;">🔑 SHA256: <span style="color:#f7931a;word-break:break-all;">' + info.blob_hash + '</span></div>' +
-                                  '<div style="color:#64748b;font-size:10px;border-top:1px solid var(--border);padding-top:6px;">For security, verify this hash matches the official Ollama registry before mining.<br>' +
-                                  'Run: <span style="color:var(--text);">' + (info.verify_cmd || 'sha256sum ' + info.blob_path) + '</span></div>';
-                              } else {
-                                pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span><br><span style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/</span>';
-                              }
-                            } catch(_) {
-                              pullStatus.innerHTML = '<span style="color:#22c55e;">✓ ' + modelId + ' ready</span><br><span style="color:var(--muted);font-size:11px;">Stored in ~/.ollama/models/blobs/</span>';
-                            }
-                          }
-                        }
-                      }
-                    } catch(_) {}
-                  }
-                }
-              } catch(e) {
-                var msg = e.message || 'Network error';
-                if (pb) { pb.textContent = 'Error: ' + msg; pb.style.color = '#ef4444'; }
-                pullStatus.innerHTML = '<span style="color:#ef4444;">Error: ' + msg + '</span>';
-              }
+            // Step 1: Make sure Ollama is running
+            var ollamaOk = await ensureOllama(pullStatus);
+            if (!ollamaOk) {
+              dlBtn.disabled = false;
+              dlBtn.textContent = 'Pull Selected (Ollama)';
+              return;
             }
+
+            // Step 2: Pull first model in foreground
+            var pb = document.getElementById('pull-progress-' + firstModel.replace(/[^a-z0-9]/g,'_'));
+            if (pb) { pb.style.display = 'inline'; pb.textContent = 'Starting...'; pb.style.color = '#f7931a'; }
+            dlBtn.textContent = 'Pulling ' + firstModel + '...';
+            pullStatus.innerHTML = '<span style="color:#f7931a;">' + firstModel + '</span> — connecting...';
+
+            var result = await streamPull(firstModel, jwt, function(ev) {
+              var pct = (ev.completed && ev.total) ? ' — ' + Math.round(ev.completed/ev.total*100) + '%' : '';
+              var mb  = ev.completed ? ' (' + (ev.completed/1024/1024).toFixed(0) + ' MB)' : '';
+              pullStatus.innerHTML = '<span style="color:#f7931a;">' + firstModel + '</span>  ' + ev.status + pct + mb;
+              if (pb) pb.textContent = ev.status + pct;
+            });
+
+            if (!result.ok) {
+              pullStatus.innerHTML = '<span style="color:#ef4444;">Error: ' + (result.error || 'Pull failed') + '</span>';
+              if (pb) { pb.textContent = 'Error'; pb.style.color = '#ef4444'; }
+              dlBtn.disabled = false;
+              dlBtn.textContent = 'Pull Selected (Ollama)';
+              return;
+            }
+
+            // Step 3: Verify Ollama has it
+            await verifyAndShow(firstModel, jwt, pullStatus, result.ollamaFallback);
+
             dlBtn.disabled = false;
             dlBtn.textContent = 'Pull Selected (Ollama)';
+
+            // Step 4: Queue remaining models for background download
+            if (rest.length > 0) scheduleBackground(rest, jwt);
+
           } else {
             // PWA: WebLLM pre-cache via service worker / WebLLM engine
             if (window.btcpcEngine && window.btcpcEngine.preload) {
-              checked.forEach(function(cb) { window.btcpcEngine.preload(cb.dataset.id); });
+              Array.from(checked).forEach(function(cb) { window.btcpcEngine.preload(cb.dataset.id); });
               dlBtn.textContent = 'Caching ' + checked.length + ' model(s)...';
             } else {
-              // Fallback: open HuggingFace page for manual download
-              checked.forEach(function(cb) { window.open('https://huggingface.co/mlc-ai/' + cb.dataset.id, '_blank'); });
+              Array.from(checked).forEach(function(cb) { window.open('https://huggingface.co/mlc-ai/' + cb.dataset.id, '_blank'); });
               dlBtn.textContent = 'Opening HuggingFace...';
             }
             setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 3000);
@@ -3124,6 +3245,8 @@ function checkWifiForDownload() {
 }
 
 mineToggleBtn.addEventListener('click', async () => {
+  var isDesktop = document.documentElement.hasAttribute('data-desktop');
+
   if (miningActive) {
     // Stop mining
     miningActive = false;
@@ -3139,8 +3262,8 @@ mineToggleBtn.addEventListener('click', async () => {
   mineToggleBtn.textContent = 'Starting...';
 
   try {
-    // 1. Check WebGPU
-    if (window.btcpcEngine && !window.btcpcEngine.isWebGPUSupported()) {
+    // 1. Check WebGPU — only needed in PWA mode; desktop uses Ollama
+    if (!isDesktop && window.btcpcEngine && !window.btcpcEngine.isWebGPUSupported()) {
       mineModelText.textContent = 'WebGPU not supported \u2014 try Chrome 113+';
       mineToggleBtn.textContent = 'Start Mining';
       mineToggleBtn.disabled = false;
@@ -3156,8 +3279,8 @@ mineToggleBtn.addEventListener('click', async () => {
       return;
     }
 
-    // 3. Load model if needed
-    if (!mineModelLoaded && window.btcpcEngine) {
+    // 3. Load WebLLM model if needed (PWA only — desktop uses Ollama, already running)
+    if (!isDesktop && !mineModelLoaded && window.btcpcEngine) {
       if (!checkWifiForDownload()) {
         mineModelText.textContent = 'Waiting for WiFi to download model';
         mineToggleBtn.textContent = 'Start Mining';
@@ -3172,6 +3295,9 @@ mineToggleBtn.addEventListener('click', async () => {
       mineProgressWrap.style.display = 'none';
       const modelName = DEFAULT_MINE_MODEL.split('-q')[0].replace(/-/g, ' ');
       mineModelText.textContent = 'Ready: ' + modelName;
+    }
+    if (isDesktop && !mineModelText.textContent.startsWith('Ready')) {
+      mineModelText.textContent = 'Ready — Ollama handles inference';
     }
 
     // 4. Connect to relay
@@ -3188,7 +3314,7 @@ mineToggleBtn.addEventListener('click', async () => {
     var errMsg = e.message || 'failed to start';
     if (/cache|storage|quota|internal/i.test(errMsg)) {
       mineModelText.textContent = 'Storage error — try Chrome instead of Brave (Brave blocks large model downloads). Or go to brave://settings/shields and disable shields for btcpc.net';
-    } else if (/webgpu|gpu/i.test(errMsg)) {
+    } else if (!isDesktop && /webgpu|gpu/i.test(errMsg)) {
       mineModelText.textContent = 'WebGPU not supported on this browser. Try Chrome 121+';
     } else {
       mineModelText.textContent = 'Error: ' + errMsg;
