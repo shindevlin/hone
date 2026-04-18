@@ -637,7 +637,9 @@ async function applyFinalization(epochNumber, proposal) {
       compute_proofs: epochProofs.map(p => ({
         node_id: p.node_id, prompt_hash: p.prompt_hash,
         result_hash: p.result_hash, model: p.model,
-        tokens_generated: p.tokens_generated, work_value: p.work_value
+        tokens_generated: p.tokens_generated, work_value: p.work_value,
+        tools_used: p.tools_used || null,
+        tool_trace_hash: p.tool_trace_hash || null,
       })),
       mining_proofs: miningProofs.map(p => ({
         miner: p.miner, reward_earned: p.reward_earned,

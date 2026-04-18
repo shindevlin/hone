@@ -156,6 +156,7 @@ const amberPillRoutes = require("./routes/amberPillRoutes");
 const { sensorsRouter, gatewaysRouter } = require("./routes/sensorRoutes");
 const { router: sensorDataRouter } = require("./routes/sensorDataRoutes");
 const explorerRoutes = require("./routes/explorerRoutes");
+const toolRoutes = require("./routes/toolRoutes");
 app.use("/api/user", userRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/faucet", faucetRoutes);
@@ -180,6 +181,7 @@ app.use("/api/onboard", onboardLimiter, (req, res, next) => {
 });
 app.use("/api/bot", botRoutes);
 app.use(explorerRoutes);
+app.use(toolRoutes);
 app.use(inferenceApi);
 app.use(encryptedInference);
 

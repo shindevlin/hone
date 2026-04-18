@@ -490,6 +490,8 @@ async function handlePayload(msg) {
   const model = data.model || "qwen3.5:27b";
   const maxTokens = data.max_tokens || 1024;
   const temperature = data.temperature || 0.7;
+  const toolTraceHash = data.tool_trace_hash || null;
+  const toolsUsed = data.tools_used || null;
 
   // ── Encrypted inference: ECDH decrypt prompt, will re-encrypt result ──
   let sharedSecret = null;
@@ -580,6 +582,8 @@ async function handlePayload(msg) {
         model_weight_factor: weightFactor,
         work_value: workValue,
         job_id: requestId,
+        tool_trace_hash: toolTraceHash,
+        tools_used: toolsUsed,
         completed_at: new Date().toISOString()
       });
     }
@@ -611,6 +615,8 @@ async function handlePayload(msg) {
       epoch_number: currentEpoch,
       elapsed_ms: elapsed,
       work_proof: { prompt_hash: promptHash, result_hash: resultHash },
+      tool_trace_hash: toolTraceHash,
+      tools_used: toolsUsed,
     }, p2p.NODE_ID);
     p2p.broadcast(reveal);
 

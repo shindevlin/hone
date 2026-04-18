@@ -674,12 +674,35 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
-  // ── MCP: Call user-specified tool servers to gather context ──
-  // Users bring their own servers — no registration, no approval.
-  // Pass inline: mcp_servers: [{ url, tools }]
-  // Or use saved: use_saved_mcp: true (loads from user profile)
-  // Or both — inline servers merge with saved ones.
-  // Validate inline MCP server URLs — block internal addresses (SSRF prevention)
+  // ── Tool execution: requester-side MCP + BTCPC builtins ──
+  // Tools run on the REQUESTER'S machine. Results become enriched context
+  // sent to the miner. The miner only does inference — never executes tools.
+  //
+  // Sources (merged):
+  //   1. BTCPC builtin tools (calculator, hash, web_fetch, etc.) — direct call, no HTTP
+  //   2. Inline mcp_servers: [{ url, tools }] — external MCP servers the caller runs
+  //   3. Saved MCP servers from user profile (use_saved_mcp: true)
+  //
+  // SSRF: external MCP URLs block private/loopback ranges.
+  // Builtins bypass SSRF — they're local in-process calls.
+
+  // 1. BTCPC builtin tool calls
+  const builtinToolNames = ['calculator', 'hash', 'btcpc_fs_read', 'epoch_info', 'web_fetch'];
+  const requestedBuiltins = Array.isArray(tools) ? tools.filter(t => builtinToolNames.includes(t)) : [];
+  const builtinResults = [];
+  if (requestedBuiltins.length > 0) {
+    const mcpServer = require('../mcp/btcpcMcpServer');
+    for (const toolName of requestedBuiltins) {
+      try {
+        const output = await mcpServer.callTool(toolName, tool_context || {});
+        builtinResults.push({ tool: toolName, output, kind: 'builtin' });
+      } catch (e) {
+        builtinResults.push({ tool: toolName, output: { error: e.message }, kind: 'builtin' });
+      }
+    }
+  }
+
+  // 2. External MCP servers — SSRF-safe
   let allServers = [];
   if (mcp_servers) {
     var blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254', '10.', '192.168.', '172.16.', '172.17.'];
@@ -689,11 +712,11 @@ router.post('/v1/inference/submit', async (req, res) => {
         if (blocked.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) continue;
         if (!['http:', 'https:'].includes(parsed.protocol)) continue;
         allServers.push(ms);
-      } catch (_) {} // skip invalid URLs
+      } catch (_) {}
     }
   }
 
-  // Load user's saved MCP servers if requested
+  // 3. Saved MCP servers from user profile
   if (use_saved_mcp && req.project) {
     try {
       const User = require('../models/User');
@@ -711,16 +734,12 @@ router.post('/v1/inference/submit', async (req, res) => {
   }
 
   let mcpResults = [];
-  if (allServers.length > 0 && tools && Array.isArray(tools)) {
+  const externalToolNames = Array.isArray(tools) ? tools.filter(t => !builtinToolNames.includes(t)) : [];
+  if (allServers.length > 0 && externalToolNames.length > 0) {
     const toolCalls = [];
-
-    for (const toolName of tools) {
-      // Find which server provides this tool
-      const server = allServers.find(s =>
-        s.tools && s.tools.includes(toolName)
-      );
+    for (const toolName of externalToolNames) {
+      const server = allServers.find(s => s.tools && s.tools.includes(toolName));
       if (!server || !server.url) continue;
-
       toolCalls.push(
         axios.post(server.url, {
           jsonrpc: '2.0',
@@ -730,18 +749,33 @@ router.post('/v1/inference/submit', async (req, res) => {
         }, { timeout: 15000 })
         .then(r => ({
           tool: toolName,
-          result: r.data?.result?.content?.[0]?.text || JSON.stringify(r.data?.result || r.data),
-          server: server.url
+          output: r.data?.result?.content?.[0]?.text || JSON.stringify(r.data?.result || r.data),
+          kind: 'mcp',
+          server: server.url,
         }))
         .catch(err => ({
           tool: toolName,
-          result: `[Error: ${err.message}]`,
-          server: server.url
+          output: { error: err.message },
+          kind: 'mcp',
+          server: server.url,
         }))
       );
     }
-
     mcpResults = await Promise.all(toolCalls);
+  }
+
+  // Merge all tool call results + build tool_trace_hash for on-chain proof
+  const allToolResults = [...builtinResults, ...mcpResults];
+  let toolTraceHash = null;
+  const toolsUsed = allToolResults.map(r => r.tool);
+  if (allToolResults.length > 0) {
+    const { hashToolTrace } = require('../mcp/toolRegistry');
+    toolTraceHash = hashToolTrace(allToolResults.map(r => ({
+      tool: r.tool,
+      input: tool_context || {},
+      output: r.output,
+      trace_cid: r.output && r.output.trace_cid ? r.output.trace_cid : undefined,
+    })));
   }
 
   // ── RAG: Build context from explicit context + MCP tool results ──
@@ -762,9 +796,10 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
-  // Add MCP tool results as context
-  for (const mcpResult of mcpResults) {
-    contextParts.push(`[Tool: ${mcpResult.tool}]\n${mcpResult.result}`);
+  // Add all tool results as context (builtins + external MCP)
+  for (const tr of allToolResults) {
+    const text = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+    contextParts.push(`[Tool: ${tr.tool}]\n${text}`);
   }
 
   // Inject combined context as system message
@@ -858,7 +893,9 @@ router.post('/v1/inference/submit', async (req, res) => {
       maxTokens: max_tokens,
       temperature,
       maxFee: fee,
-      projectId: req.project?._id
+      projectId: req.project?._id,
+      toolTraceHash,
+      toolsUsed,
     });
 
     res.status(202).json({
@@ -867,7 +904,8 @@ router.post('/v1/inference/submit', async (req, res) => {
       model: selectedModel,
       local: false,
       rag: contextParts.length > 0,
-      mcp_tools_called: mcpResults.length > 0 ? mcpResults.map(r => r.tool) : undefined,
+      tools_called: toolsUsed.length > 0 ? toolsUsed : undefined,
+      tool_trace_hash: toolTraceHash || undefined,
       message: 'Request submitted to the network. Poll GET /v1/inference/' + job.job_id + ' for the result.'
     });
   } catch (err) {

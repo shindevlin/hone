@@ -2442,6 +2442,76 @@ program
   });
 
 // ---------------------------------------------------------------------------
+// Engine commands — all route through commandRouter
+// Usage: btcpc-cli <engine> [action] [args...]
+// ---------------------------------------------------------------------------
+
+const { route: routeCommand } = require("../src/commands/commandRouter");
+
+function engineCmd(engine) {
+  return async (...rawArgs) => {
+    // commander passes (arg1, arg2, ..., commandObject) — drop the last one
+    const parts = rawArgs.slice(0, -1);
+    const apiBase = process.env.API_URL || ("http://localhost:" + (process.env.BTCPC_API_PORT || process.env.PORT || 4242));
+    const account = process.env.BTCPC_MINER || process.env.BTCPC_ACCOUNT || "";
+    const input = "/btcpc " + engine + " " + parts.join(" ");
+    try {
+      const result = await routeCommand(input, { account, apiBase });
+      // Strip markdown bold markers for terminal output
+      console.log(result.text.replace(/\*\*/g, ""));
+    } catch (e) {
+      console.error("error:", e.message);
+      process.exit(1);
+    }
+  };
+}
+
+program
+  .command("mine [action] [args...]")
+  .description("Mining engine — mine status|model|start|stop|proof|proofs|earnings")
+  .action(engineCmd("mine"));
+
+program
+  .command("verify [action] [args...]")
+  .description("Verifier engine — verify proof|challenge|proposals|status")
+  .action(engineCmd("verify"));
+
+program
+  .command("clock [action] [args...]")
+  .description("Clock consensus — clock status|seal|peers")
+  .action(engineCmd("clock"));
+
+program
+  .command("store [action] [args...]")
+  .description("BTCPC-FS storage — store put|get|list|pin|info")
+  .action(engineCmd("store"));
+
+program
+  .command("sensor [action] [args...]")
+  .description("Sensor data market — sensor list|register|submit|purchase|earnings|readings")
+  .action(engineCmd("sensor"));
+
+program
+  .command("tool [action] [args...]")
+  .description("MCP / CLI tools — tool list|register|mcp|test|nodes")
+  .action(engineCmd("tool"));
+
+program
+  .command("infer [args...]")
+  .description("Tool-augmented inference — infer <prompt> [--model name] [--tools t1,t2]")
+  .action(engineCmd("infer"));
+
+program
+  .command("node-info [action] [args...]")
+  .description("Node registration — node register|status|heartbeat|capabilities")
+  .action(engineCmd("node"));
+
+program
+  .command("chain [action] [args...]")
+  .description("Chain info — chain status|blocks|epoch|supply|peers|fork")
+  .action(engineCmd("chain"));
+
+// ---------------------------------------------------------------------------
 
 program.parse(process.argv);
 

@@ -138,7 +138,7 @@ function initP2PRouter() {
  * @param {Object} options
  * @returns {Promise<Object>} { job_id, status }
  */
-async function submitInference({ model, messages, maxTokens, temperature, maxFee, projectId }) {
+async function submitInference({ model, messages, maxTokens, temperature, maxFee, projectId, toolTraceHash, toolsUsed }) {
   const jobId = 'req_' + crypto.randomBytes(16).toString('hex');
 
   // Build prompt for P2P broadcast
@@ -191,6 +191,8 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
     prompt_hash: promptHash,
     project_id: projectId || null,
     cost: estimatedCost,
+    tool_trace_hash: toolTraceHash || null,
+    tools_used: toolsUsed && toolsUsed.length > 0 ? toolsUsed : null,
     expires_at: new Date(Date.now() + 600000).toISOString()
   };
   jobStore.set(jobId, job);
@@ -216,7 +218,9 @@ async function submitInference({ model, messages, maxTokens, temperature, maxFee
       prompt,
       model: model || 'qwen3.5:27b',
       max_tokens: maxTokens || 1024,
-      temperature: temperature || 0.7
+      temperature: temperature || 0.7,
+      tool_trace_hash: toolTraceHash || null,
+      tools_used: toolsUsed && toolsUsed.length > 0 ? toolsUsed : null,
     }, p2p.NODE_ID);
     p2p.broadcast(payload);
   }, 500);
