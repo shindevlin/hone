@@ -10,6 +10,7 @@ Restart=on-failure
 RestartSec=15
 Environment=NODE_ENV=production
 EnvironmentFile=/home/ubuntclaw/repos/btcpc/.env
+Environment=P2P_PORT=6943
 
 [Install]
 WantedBy=default.target

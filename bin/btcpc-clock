@@ -37,7 +37,7 @@ var messageAuth = require("../src/p2p/messageAuth");
 // ─── Configuration ───────────────────────────────────────────────
 
 var CLOCK_ACCOUNT = process.env.BTCPC_CLOCK_ACCOUNT || process.env.BTCPC_MINER || "clock-" + crypto.randomBytes(4).toString("hex");
-var P2P_PORT = parseInt(process.env.P2P_PORT) || 6943;
+var P2P_PORT = parseInt(process.env.BTCPC_CLOCK_P2P_PORT || process.env.P2P_PORT) || 6943;
 var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
 var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
