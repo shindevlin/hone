@@ -84,17 +84,31 @@ function durationStr(ms) {
   return m + "m " + (s % 60) + "s";
 }
 
+const blockStore = require("../src/chain/blockStore");
+
+let _stateLoaded = false;
+function _loadStateFromDisk() {
+  if (_stateLoaded) return;
+  _stateLoaded = true;
+  try {
+    const latestFin = blockStore.getLatestFinalityNumber();
+    if (latestFin >= 0) {
+      const fin = blockStore.readFinality(latestFin);
+      if (fin && fin.snapshot) stateStore.hydrateFromFinality(fin.snapshot);
+    }
+  } catch (_) {}
+}
+
 async function connect() {
+  _loadStateFromDisk();
   const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    console.error("error: MONGODB_URI not set in .env");
-    process.exit(1);
+  if (uri && process.env.BTCPC_MONGO_MODE === "enabled") {
+    try { await mongoose.connect(uri); } catch (_) {}
   }
-  await mongoose.connect(uri);
 }
 
 async function disconnect() {
-  await mongoose.disconnect();
+  try { await mongoose.disconnect(); } catch (_) {}
 }
 
 async function getLatestEpoch() {
@@ -223,14 +237,7 @@ program
     try {
       await connect();
 
-      const username = account || "shindevlin";
-      const user = await User.findOne({ username });
-      if (!user) {
-        console.error("error: account '" + username + "' not found");
-        await disconnect();
-        process.exit(1);
-      }
-
+      const username = account || process.env.BTCPC_MINER || "shindevlin";
       const balance = stateStore.getBalance(username, "BTCPC");
       const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
       const stakedTotal = stakePool ? (stakePool.staked_amount || 0) : 0;
