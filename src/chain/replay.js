@@ -95,6 +95,14 @@ async function replayFromDisk(options) {
             entry.type === "MINING_REWARD") {
           try { nodeRegistry.processLedgerEntry(entry); } catch (_) {}
         }
+        // Index sensor readings so purchase rewards can find the owner later
+        if (entry.type === "SENSOR_READING") {
+          try {
+            var sr = require("./sensorRewards");
+            sr.indexReading(entry);
+          } catch (_) {}
+          // Note: rewardSettlement.recordSensorReading() is called from stateStore.applyEntries()
+        }
       }
     }
 

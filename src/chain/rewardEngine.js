@@ -8,19 +8,23 @@
  * Every pool scales with real evidence of value delivered — not just participation.
  *
  * Reward pools (from emissionSchedule blockReward):
- *   60%  Mining/Compute  — proportional to work_value (model_weight × tokens)
+ *   55%  Mining/Compute  — proportional to work_value (model_weight × tokens)
  *   10%  Verifier        — equal split among active verifiers
  *    5%  Clock           — proportional to verified heartbeats in window
  *   15%  Storage         — proportional to capacity_gb × queries_served
- *   10%  IoT/Sensor      — zero base; triggered by data purchase events
- *    8%  Service         — equal split among service hosts (future)
+ *    7%  Sensor base     — equal split among sensors that submitted readings this epoch
+ *                          Makes it worth coming online even before data is purchased.
+ *                          Purchase rewards come on top via sensorRewards.processPurchase().
+ *    6%  Service         — equal split among service hosts (future)
+ *    2%  Protocol reserve → btcpc_recycle always
  *   recycled → btcpc_recycle when any pool has no participants
  *
  * Design principles:
  *   - Pools with no participants → btcpc_recycle (never burned)
- *   - Zero base for sensor data — rewards on purchase, not submission
- *   - Compute proof must include model_hash + result_hash to be counted
- *   - Storage proof must include cids + capacity_gb (empty = no reward)
+ *   - Sensor base reward: small but enough to incentivize coming online
+ *   - Sensor purchase reward: separate, triggered by data query payment
+ *   - Compute proof must include result_hash to be counted
+ *   - Storage proof must include capacity_gb > 0 or cids_count > 0
  *   - All amounts rounded to 10 decimal places for determinism
  */
 
@@ -28,14 +32,13 @@ const RECYCLE_ACCOUNT = "btcpc_recycle";
 
 // Pool percentages — must sum to 1.0
 const POOL = {
-  mining:   0.60,
+  mining:   0.55,
   verifier: 0.10,
   clock:    0.05,
   storage:  0.15,
-  sensor:   0.00, // zero base — earned on purchase via sensorDataRoutes
-  service:  0.08,
-  // remaining 0.02 always goes to recycle as protocol reserve
-  reserve:  0.02,
+  sensor:   0.07, // base participation reward — equal split among active sensors this epoch
+  service:  0.06,
+  reserve:  0.02, // always → btcpc_recycle
 };
 
 function round(n) {
@@ -48,10 +51,11 @@ function round(n) {
  * @param {object} input
  * @param {number} input.epochNumber
  * @param {number} input.blockReward      — total emission for this epoch (from emissionSchedule)
- * @param {Array}  input.computeProofs    — [{ node_id, work_value, model, tokens_generated, model_hash, result_hash }]
+ * @param {Array}  input.computeProofs    — [{ node_id, work_value, model, tokens_generated, result_hash }]
  * @param {Array}  input.verifiers        — [accountName, ...]
  * @param {Array}  input.clockNodes       — [{ account, heartbeats }]
  * @param {Array}  input.storageHosts     — [{ account, capacity_gb, queries_served, cids_count }]
+ * @param {Array}  input.activeSensors    — [{ account, readings_count }] sensors that submitted readings this epoch
  * @param {Array}  input.serviceHosts     — [accountName, ...]
  *
  * @returns {object} { rewards, recycled, summary }
@@ -67,6 +71,7 @@ function computeRewards(input) {
     verifiers = [],
     clockNodes = [],
     storageHosts = [],
+    activeSensors = [],
     serviceHosts = [],
   } = input;
 
@@ -158,10 +163,29 @@ function computeRewards(input) {
     }
   }
 
-  // ── Sensor pool: zero base, purchase-triggered via sensorDataRoutes ──────────
-  // Sensor rewards are emitted as SENSOR_REWARD entries when data is purchased,
-  // funded from the btcpc_recycle pool rather than the epoch emission.
-  // Nothing to distribute here.
+  // ── Sensor pool (7%): base participation — equal split among active sensors ──
+  // Sensors that submitted ≥1 reading this epoch get a small base reward.
+  // This makes it worth coming online even before anyone purchases the data.
+  // Purchase rewards are separate — triggered by sensorRewards.processPurchase().
+  const sensorPool = round(blockReward * POOL.sensor);
+  const activeSensorList = (activeSensors || []).filter(s => s.account && (s.readings_count || 0) > 0);
+  if (activeSensorList.length === 0) {
+    recycled += sensorPool;
+  } else {
+    // Weight by readings_count — more readings submitted = slightly higher share
+    // (capped: a sensor submitting 100 readings doesn't earn 100× one submitting 1)
+    const totalReadings = activeSensorList.reduce((s, x) => s + Math.min(x.readings_count, 10), 0);
+    for (const sensor of activeSensorList) {
+      const weight = Math.min(sensor.readings_count, 10) / totalReadings;
+      const share = round(sensorPool * weight);
+      if (share > 0) {
+        rewards.push({
+          to: sensor.account, amount: share, type: "SENSOR_EPOCH_REWARD",
+          meta: { readings: sensor.readings_count, sensor_ids: sensor.sensor_ids || [] }
+        });
+      }
+    }
+  }
 
   // ── Service pool (8%): equal split ──────────────────────────────────────────
   const servicePool = round(blockReward * POOL.service);
@@ -193,6 +217,7 @@ function computeRewards(input) {
     verifiers: activeVerifiers.length,
     clocks: activeClocks.length,
     storage_hosts: activeStorage.length,
+    active_sensors: activeSensorList.length,
     service_hosts: activeServices.length,
   };
 

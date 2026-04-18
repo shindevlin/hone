@@ -223,6 +223,9 @@ function _runRewardEngine(currentEpoch, finalizedProofs) {
   const clockMap = clockActivity.get(currentEpoch) || new Map();
   const clockNodes = Array.from(clockMap.entries()).map(([account, heartbeats]) => ({ account, heartbeats }));
 
+  // Collect active sensors — sensors that submitted SENSOR_READING entries in recent epochs
+  const activeSensors = _getActiveSensors(currentEpoch);
+
   let result;
   try {
     result = computeRewards({
@@ -232,6 +235,7 @@ function _runRewardEngine(currentEpoch, finalizedProofs) {
       verifiers: [],
       clockNodes,
       storageHosts,
+      activeSensors,
       serviceHosts: [],
     });
   } catch (err) {
@@ -253,6 +257,7 @@ function _runRewardEngine(currentEpoch, finalizedProofs) {
     " | verified_proofs=" + finalizedProofs.length +
     " | clocks=" + clockNodes.length +
     " | storage=" + storageHosts.length +
+    " | sensors=" + activeSensors.length +
     " | recycled=" + result.summary.recycled.toFixed(4) +
     " | hash=" + reward_hash.slice(0, 12) + "...");
 
@@ -299,6 +304,40 @@ function _getStorageHosts(currentEpoch) {
   return Array.from(hosts.values());
 }
 
+// Active sensor readings per epoch — aggregated from block ledger entries
+// Map<`${account}:${epoch}`, { account, epoch, readings_count, sensor_ids: Set }>
+const sensorActivity = new Map();
+
+/**
+ * Record a SENSOR_READING ledger entry for epoch-reward tracking.
+ * Called from blockProposal / replay when SENSOR_READING entries are processed.
+ */
+function recordSensorReading(account, epochNumber, sensorId) {
+  if (!account || !epochNumber) return;
+  const key = account + ":" + epochNumber;
+  const existing = sensorActivity.get(key) || { account, epoch: epochNumber, readings_count: 0, sensor_ids: new Set() };
+  existing.readings_count += 1;
+  if (sensorId) existing.sensor_ids.add(sensorId);
+  sensorActivity.set(key, existing);
+}
+
+/**
+ * Return sensors active in the current epoch (readings submitted this epoch).
+ * Sensors submitting in the current epoch get the base participation reward.
+ */
+function _getActiveSensors(currentEpoch) {
+  const result = [];
+  for (const [, rec] of sensorActivity) {
+    if (rec.epoch !== currentEpoch) continue;
+    result.push({
+      account: rec.account,
+      readings_count: rec.readings_count,
+      sensor_ids: Array.from(rec.sensor_ids),
+    });
+  }
+  return result;
+}
+
 function _hasStorageActivity(epoch) {
   for (const [, p] of storageProofs) {
     if (p.epoch >= epoch - 3 && p.epoch <= epoch) return true;
@@ -321,6 +360,9 @@ function _pruneOld(currentEpoch) {
   for (const [key, proof] of storageProofs) {
     if (proof.epoch < cutoff) storageProofs.delete(key);
   }
+  for (const [key, rec] of sensorActivity) {
+    if (rec.epoch < cutoff) sensorActivity.delete(key);
+  }
 }
 
 function getPendingProofs() { return Array.from(pendingProofs.values()); }
@@ -333,6 +375,7 @@ module.exports = {
   submitChallenge,
   submitStorageProof,
   recordClockParticipation,
+  recordSensorReading,
   tickEpoch,
   scoreFork,
   getPendingProofs,

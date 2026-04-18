@@ -1313,6 +1313,12 @@ function applyEntry(entry) {
           srdSensor.total_readings = (srdSensor.total_readings || 0) + 1;
           sensors.set(srdData.sensor_id, srdSensor);
         }
+        // Register for epoch base reward tracking (lazy require avoids circular dep)
+        try {
+          var _settle = require("./rewardSettlement");
+          var _srdOwner = srdData.sensor_id.includes("/") ? srdData.sensor_id.split("/")[0] : (entry.from || null);
+          if (_srdOwner) _settle.recordSensorReading(_srdOwner, entry.epoch || 0, srdData.sensor_id);
+        } catch (_) {}
       }
       break;
 
