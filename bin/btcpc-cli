@@ -877,17 +877,15 @@ walletCmd
   .description("Show public keys for a BTCPC account (never displays private keys)")
   .action(async (username) => {
     try {
-      await connect();
-
-      const user = await User.findOne({ username: username });
-      if (!user) {
-        console.error("error: account '" + username + "' not found");
-        await disconnect();
+      // Keys come from stateStore (blockchain) — no Mongo needed
+      const accountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
+      if (!accountState) {
+        console.error("error: account '" + username + "' not found on chain");
         process.exit(1);
       }
 
-      const accountState = stateStore.getAccount ? stateStore.getAccount(username) : null;
       const walletAddress = accountState?.chain_addresses?.btcpc || null;
+      const pubkeys = accountState?.public_keys || {};
 
       console.log("");
       console.log("BTCPC Keys: " + username);
@@ -896,12 +894,11 @@ walletCmd
       if (walletAddress) {
         console.log("  Address:          " + walletAddress);
       }
-      console.log("  Owner (public):   " + (user.ownerPublicKey || "not set"));
-      console.log("  Active (public):  " + (user.activePublicKey || "not set"));
-      console.log("  Posting (public): " + (user.postingPublicKey || "not set"));
-      console.log("  Memo (public):    " + (user.memoPublicKey || "not set"));
+      console.log("  Owner (public):   " + (pubkeys.owner || "not set"));
+      console.log("  Active (public):  " + (pubkeys.active || "not set"));
+      console.log("  Posting (public): " + (pubkeys.posting || "not set"));
+      console.log("  Memo (public):    " + (pubkeys.memo || "not set"));
       console.log("");
-      console.log("  Auth Profile:     " + (user.authProfile || "none"));
       console.log("  2FA Enabled:      " + (user.twoFactorEnabled ? "yes" : "no"));
       console.log("  2FA Public Key:   " + (user.twoFactorPublicKey || "none"));
       console.log("");
@@ -1199,37 +1196,34 @@ walletCmd
         process.exit(1);
       }
 
-      await connect();
-
-      // Verify sender
-      const sender = await User().findOne({ username: senderName });
-      if (!sender) {
-        console.error("error: sender account '" + senderName + "' not found");
-        await disconnect();
+      // Verify sender exists on chain (stateStore is source of truth — no Mongo)
+      await stateStore.replayIfNeeded ? stateStore.replayIfNeeded() : null;
+      const senderAcct = stateStore.getAccount ? stateStore.getAccount(senderName) : null;
+      if (!senderAcct) {
+        console.error("error: sender account '" + senderName + "' not found on chain");
         process.exit(1);
       }
 
-      // Verify active key matches
+      // Verify active key matches chain-registered key
       const secp256k1 = require("secp256k1");
       const activePub = Buffer.from(secp256k1.publicKeyCreate(Buffer.from(activeKey, "hex"), true)).toString("hex");
-      if (sender.activePublicKey && activePub !== sender.activePublicKey) {
-        console.error("error: active key does not match this account");
-        await disconnect();
+      const chainActiveKey = senderAcct.public_keys && senderAcct.public_keys.active;
+      if (chainActiveKey && activePub !== chainActiveKey) {
+        console.error("error: active key does not match chain-registered key for '" + senderName + "'");
         process.exit(1);
       }
 
-      // Balance from stateStore
+      // Balance from stateStore (chain)
       const balance = stateStore.getBalance(senderName, "BTCPC");
       if (balance < amount) {
         console.error("error: insufficient balance. Have " + balance.toFixed(10) + ", need " + amount.toFixed(10));
-        await disconnect();
         process.exit(1);
       }
 
-      // Find recipient — tokens sent to username directly
-      const recipient = await User.findOne({ username: to });
-      if (!recipient) {
-        console.log("  '" + to + "' is not registered. Tokens will be held at this username.");
+      // Recipient existence check from chain — forward-send allowed if unregistered
+      const recipientAcct = stateStore.getAccount ? stateStore.getAccount(to) : null;
+      if (!recipientAcct) {
+        console.log("  '" + to + "' is not yet registered on chain. Tokens will be held at this username.");
         console.log("  When '" + to + "' registers, they will own these tokens.");
       }
 
@@ -1320,16 +1314,12 @@ walletCmd
         process.exit(1);
       }
 
-      await connect();
-
-      const user = await User().findOne({ username: name });
-      if (!user) {
-        console.error("error: account '" + name + "' not found");
-        await disconnect();
+      // Chain is source of truth — no Mongo
+      const walletAccountState = stateStore.getAccount ? stateStore.getAccount(name) : null;
+      if (!walletAccountState) {
+        console.error("error: account '" + name + "' not found on chain");
         process.exit(1);
       }
-
-      const walletAccountState = stateStore.getAccount ? stateStore.getAccount(name) : null;
       const chainAddresses = walletAccountState?.chain_addresses || {};
       const btcpcBal = stateStore.getBalance(name, "BTCPC");
 
@@ -1341,8 +1331,6 @@ walletCmd
       }
       if (btcpcBal > 0) console.log("             " + btcpcBal.toFixed(10) + " BTCPC");
       console.log("");
-
-      await disconnect();
     } catch (err) {
       console.error("error: " + err.message);
       process.exit(1);
@@ -1896,31 +1884,28 @@ program
         process.exit(1);
       }
 
-      // Use default account (shindevlin) for CLI delegation
-      const defaultUser = await User.findOne({ username: "shindevlin" });
-      if (!defaultUser) {
-        console.error("error: default account 'shindevlin' not found");
-        await disconnect();
+      // Delegator from BTCPC_MINER env or default — chain is source of truth
+      const delegatorAccount = process.env.BTCPC_MINER || "shindevlin";
+      if (!stateStore.hasAccount || !stateStore.hasAccount(delegatorAccount)) {
+        console.error("error: account '" + delegatorAccount + "' not found on chain");
         process.exit(1);
       }
 
-      if (defaultUser.username === minerUsername) {
+      if (delegatorAccount === minerUsername) {
         console.error("error: cannot delegate to yourself");
-        await disconnect();
         process.exit(1);
       }
 
-      const btcpcBalance = stateStore.getBalance(defaultUser.username, "BTCPC");
+      const btcpcBalance = stateStore.getBalance(delegatorAccount, "BTCPC");
       if (btcpcBalance < delegateAmount) {
         console.error("error: insufficient BTCPC balance (" + formatBTCPC(btcpcBalance) + " available)");
-        await disconnect();
         process.exit(1);
       }
 
       const epoch = await ledger.getCurrentEpoch();
-      await ledger.recordDelegate(defaultUser.username, minerUsername, delegateAmount, "mining", epoch);
+      await ledger.recordDelegate(delegatorAccount, minerUsername, delegateAmount, "mining", epoch);
 
-      const existingDel = stateStore.getDelegation ? stateStore.getDelegation(defaultUser.username + '|' + minerUsername) : null;
+      const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegatorAccount + '|' + minerUsername) : null;
       const totalDelegated = existingDel ? (existingDel.amount || 0) + delegateAmount : delegateAmount;
 
       console.log("");
@@ -1928,6 +1913,7 @@ program
       console.log("=====================");
       console.log("");
       console.log("  Delegated:           " + formatBTCPC(delegateAmount) + " BTCPC");
+      console.log("  From:                " + delegatorAccount);
       console.log("  To miner:            " + minerUsername);
       console.log("  Total delegated:     " + formatBTCPC(totalDelegated) + " BTCPC");
       console.log("  Wallet balance:      " + formatBTCPC(btcpcBalance - delegateAmount) + " BTCPC");
@@ -1958,21 +1944,9 @@ program
       }
 
       const minerUsername = opts.from;
-      const minerUser = await User.findOne({ username: minerUsername });
-      if (!minerUser) {
-        console.error("error: miner '" + minerUsername + "' not found");
-        await disconnect();
-        process.exit(1);
-      }
+      const undelegatorAccount = process.env.BTCPC_MINER || "shindevlin";
 
-      const defaultUser = await User.findOne({ username: "shindevlin" });
-      if (!defaultUser) {
-        console.error("error: default account 'shindevlin' not found");
-        await disconnect();
-        process.exit(1);
-      }
-
-      const delegKey = defaultUser.username + '|' + minerUsername;
+      const delegKey = undelegatorAccount + '|' + minerUsername;
       const delegation = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
 
       if (!delegation || (delegation.amount || 0) <= 0) {
@@ -1992,7 +1966,7 @@ program
       unlockDate.setDate(unlockDate.getDate() + 7);
 
       const undelegateEpoch = await ledger.getCurrentEpoch();
-      await ledger.recordUndelegate(minerUsername, defaultUser.username, undelegateAmount, undelegateEpoch, 'CLI undelegate');
+      await ledger.recordUndelegate(minerUsername, undelegatorAccount, undelegateAmount, undelegateEpoch, 'CLI undelegate');
 
       console.log("");
       console.log("Undelegation Started");

@@ -96,22 +96,19 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
     }
 
-    // Resolve recipient username — try User lookup by username first, then address
+    // Resolve recipient — stateStore is the source of truth (blockchain-only)
     let recipientName = null;
-    // Check if toAddress looks like a username (no BTCPC prefix)
     if (!toAddress.startsWith('BTCPC')) {
-      const recipientByUsername = await User.findOne({ username: toAddress });
-      if (recipientByUsername) recipientName = recipientByUsername.username;
+      // Treat as username; confirm account exists on chain
+      const acct = stateStore.getAccount ? stateStore.getAccount(toAddress) : null;
+      if (acct) recipientName = toAddress;
     }
     if (!recipientName) {
-      // Try address-based lookup: strip BTCPC prefix and find by ownerPublicKey address hash
-      // For now, treat address as username if stateStore has it
-      const possibleUsername = toAddress.startsWith('BTCPC') ? null : toAddress;
-      if (possibleUsername) {
-        const acct = stateStore.getAccount ? stateStore.getAccount(possibleUsername) : null;
-        if (acct) recipientName = possibleUsername;
-      }
-      if (!recipientName) {
+      // Unknown — allow forward-sending: tokens held at username until they register
+      // (BTCPC account names are reserved on first send, no Mongo lookup required)
+      if (!toAddress.startsWith('BTCPC') && toAddress.length >= 3) {
+        recipientName = toAddress; // tokens will land when account registers on chain
+      } else {
         return res.status(404).json({ error: 'Recipient not found. Use a username or registered address.' });
       }
     }

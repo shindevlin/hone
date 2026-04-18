@@ -1,5 +1,4 @@
 "use strict";
-const User = require('../models/User');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
 const nodeRegistry = require('../chain/nodeRegistry');
@@ -30,26 +29,21 @@ async function delegate(req, res) {
       return res.status(400).json({ error: 'Miner account is required' });
     }
 
-    const delegatorUser = await User.findById(req.user.id);
-    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
+    // req.user.username set by auth middleware from secretStore/chain — no Mongo needed
+    const delegatorName = req.user.username;
+    if (!delegatorName) return res.status(401).json({ error: 'Account not resolved from token' });
 
-    // Resolve miner user
-    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
-      ? await User.findById(miner)
-      : await User.findOne({ username: miner });
-    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
-
-    // Verify miner has a registered node
-    if (!nodeRegistry.isRegistered(minerUser.username)) {
+    // Resolve miner — stateStore is source of truth
+    const minerName = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
+    if (!minerName) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
+    if (!nodeRegistry.isRegistered(minerName)) {
       return res.status(400).json({ error: 'Target account is not a registered miner' });
     }
 
-    // Cannot delegate to self
-    if (delegatorUser.username === minerUser.username) {
+    if (delegatorName === minerName) {
       return res.status(400).json({ error: 'Cannot delegate to yourself' });
     }
 
-    const delegatorName = delegatorUser.username;
     const btcpcBalance = stateStore.getBalance(delegatorName, 'BTCPC');
     if (btcpcBalance < amount) {
       return res.status(400).json({ error: 'Insufficient BTCPC balance' });
@@ -57,10 +51,10 @@ async function delegate(req, res) {
 
     // Record on permanent ledger
     const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordDelegate(delegatorName, minerUser.username, amount, 'mining', epoch);
+    await ledger.recordDelegate(delegatorName, minerName, amount, 'mining', epoch);
 
     // Get updated delegation from stateStore
-    const delegKey = delegatorName + '|' + minerUser.username;
+    const delegKey = delegatorName + '|' + minerName;
     const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
     const newAmount = existingDel ? (existingDel.amount || 0) + amount : amount;
 
@@ -68,7 +62,7 @@ async function delegate(req, res) {
       success: true,
       delegation: {
         delegator: delegatorName,
-        miner: minerUser.username,
+        miner: minerName,
         amount: newAmount,
         delegated_at: new Date(),
         status: 'active'
@@ -91,15 +85,12 @@ async function undelegate(req, res) {
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
     if (!miner) return res.status(400).json({ error: 'Miner account is required' });
 
-    const delegatorUser = await User.findById(req.user.id);
-    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
+    const delegatorName2 = req.user.username;
+    if (!delegatorName2) return res.status(401).json({ error: 'Account not resolved from token' });
+    const minerName2 = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
+    if (!minerName2) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
 
-    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
-      ? await User.findById(miner)
-      : await User.findOne({ username: miner });
-    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
-
-    const delegKey = delegatorUser.username + '|' + minerUser.username;
+    const delegKey = delegatorName2 + '|' + minerName2;
     const existingDel = stateStore.getDelegation ? stateStore.getDelegation(delegKey) : null;
     if (!existingDel || (existingDel.amount || 0) <= 0) {
       return res.status(404).json({ error: 'No active delegation to this miner' });
@@ -120,8 +111,8 @@ async function undelegate(req, res) {
     res.status(200).json({
       success: true,
       undelegation: {
-        delegator: delegatorUser.username,
-        miner: minerUser.username,
+        delegator: delegatorName2,
+        miner: minerName2,
         amount,
         undelegate_requested_at: now,
         undelegate_available_at: unlockDate
@@ -137,9 +128,8 @@ async function undelegate(req, res) {
  */
 async function withdrawDelegation(req, res) {
   try {
-    const delegatorUser = await User.findById(req.user.id);
-    if (!delegatorUser) return res.status(404).json({ error: 'User not found' });
-    const delegatorName = delegatorUser.username;
+    const delegatorName = req.user.username;
+    if (!delegatorName) return res.status(401).json({ error: 'Account not resolved from token' });
 
     const now = new Date();
     let totalWithdrawn = 0;
@@ -184,9 +174,8 @@ async function withdrawDelegation(req, res) {
  */
 async function getDelegations(req, res) {
   try {
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const username = user.username;
+    const username = req.user.username;
+    if (!username) return res.status(401).json({ error: 'Account not resolved from token' });
 
     // Read delegations from stateStore
     const allDelegations = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
@@ -221,16 +210,14 @@ async function getMinerDelegations(req, res) {
     if (typeof req.params.miner !== 'string') return res.status(400).json({ error: 'invalid miner' });
     const miner = req.params.miner.slice(0, 24);
 
-    const minerUser = miner.match(/^[0-9a-fA-F]{24}$/)
-      ? await User.findById(miner)
-      : await User.findOne({ username: miner });
-    if (!minerUser) return res.status(404).json({ error: 'Miner account not found' });
+    const minerTarget = miner.match(/^[0-9a-fA-F]{24}$/) ? null : miner;
+    if (!minerTarget) return res.status(400).json({ error: 'Miner must be a BTCPC account name' });
 
     const allDelegations = stateStore.getAllDelegations ? stateStore.getAllDelegations() : {};
     const minerDelegations = [];
 
     for (const [key, del] of Object.entries(allDelegations)) {
-      if (key.endsWith('|' + minerUser.username)) {
+      if (key.endsWith('|' + minerTarget)) {
         minerDelegations.push({
           delegator: key.split('|')[0],
           amount: del.amount || 0,
@@ -243,7 +230,7 @@ async function getMinerDelegations(req, res) {
 
     res.status(200).json({
       success: true,
-      miner: minerUser.username,
+      miner: minerTarget,
       total_delegated: totalDelegated,
       delegator_count: minerDelegations.length,
       delegations: minerDelegations
