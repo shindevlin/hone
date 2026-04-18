@@ -189,6 +189,24 @@ program
       console.log("  Next adjustment:     epoch " + formatNumber(nextAdjustmentEpoch) + " (" + formatNumber(epochsUntilAdjustment) + " epochs)");
       console.log("");
 
+      // Agentic engine status
+      try {
+        const engineMonitor = require("../src/installer/engine-monitor");
+        const engines = engineMonitor.summary();
+        if (engines.length > 0) {
+          console.log("  AI Agent Engines");
+          console.log("  ----------------");
+          for (const e of engines) {
+            const skill = e.skill_registered ? "skill ✓" : "skill not registered (run btcpc-install)";
+            const inv = e.invocations > 0
+              ? `${e.invocations} calls, ${e.success_rate}% ok`
+              : "no calls yet";
+            console.log("  " + e.label.padEnd(22) + skill + "  |  " + inv);
+          }
+          console.log("");
+        }
+      } catch (_) {}
+
       await disconnect();
     } catch (err) {
       console.error("error:", err.message);

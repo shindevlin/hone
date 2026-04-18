@@ -272,13 +272,9 @@ fi
 echo
 ok "Installation complete!"
 echo
-say "Launching the setup wizard..."
-say "(this will ask whether to mine, run a clock, and create your account)"
+say "Launching the BTCPC intelligent installer..."
+say "(will detect your AI engines and ask what you want to run)"
 echo
 sleep 1
 cd "$INSTALL_DIR"
-while true; do
-  node bin/btcpc-setup
-  say "Setup wizard exited. Restarting in 30 seconds..."
-  sleep 30
-done
+node bin/btcpc-install

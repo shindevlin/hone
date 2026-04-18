@@ -1,0 +1,53 @@
+{
+  "name": "btcpc",
+  "version": "1.0.0",
+  "description": "Bitcoin Proof of Compute — manage your BTCPC nodes, wallet, and earnings",
+  "author": "Shin Devlin <shin@btcpc.network>",
+  "tools": [
+    {
+      "name": "btcpc_balance",
+      "description": "Show BTCPC balance for an account",
+      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli balance ${account}",
+      "parameters": {
+        "account": { "type": "string", "description": "BTCPC account name", "required": false }
+      }
+    },
+    {
+      "name": "btcpc_status",
+      "description": "Show status of all running BTCPC nodes on this device",
+      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli status"
+    },
+    {
+      "name": "btcpc_mine_start",
+      "description": "Start the BTCPC inference miner",
+      "exec": "systemctl --user start btcpc-miner"
+    },
+    {
+      "name": "btcpc_mine_stop",
+      "description": "Stop the BTCPC inference miner",
+      "exec": "systemctl --user stop btcpc-miner"
+    },
+    {
+      "name": "btcpc_send",
+      "description": "Send BTCPC tokens to another account",
+      "exec": "node ${BTCPC_DIR}/bin/btcpc-cli transfer ${to} ${amount}",
+      "parameters": {
+        "to":     { "type": "string", "description": "Recipient account name", "required": true },
+        "amount": { "type": "number", "description": "Amount of BTCPC to send", "required": true }
+      }
+    },
+    {
+      "name": "btcpc_logs",
+      "description": "Show recent BTCPC node logs",
+      "exec": "journalctl --user -u btcpc-miner -n 50 --no-pager"
+    },
+    {
+      "name": "btcpc_install",
+      "description": "Run the BTCPC node setup wizard",
+      "exec": "node ${BTCPC_DIR}/bin/btcpc-install"
+    }
+  ],
+  "env": {
+    "BTCPC_DIR": "~/.btcpc/repo"
+  }
+}
