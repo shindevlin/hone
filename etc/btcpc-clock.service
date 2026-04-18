@@ -1,0 +1,15 @@
+[Unit]
+Description=BTCPC Clock Node
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/btcpc
+ExecStart=/usr/bin/node bin/btcpc-clock
+Restart=on-failure
+RestartSec=15
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/btcpc/.env
+
+[Install]
+WantedBy=default.target

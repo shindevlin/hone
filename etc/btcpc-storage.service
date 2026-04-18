@@ -1,0 +1,15 @@
+[Unit]
+Description=BTCPC Storage Host
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntclaw/repos/btcpc
+ExecStart=/usr/bin/node bin/btcpc-storage
+Restart=on-failure
+RestartSec=30
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntclaw/repos/btcpc/.env
+
+[Install]
+WantedBy=default.target
