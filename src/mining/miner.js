@@ -725,18 +725,9 @@ async function mineEpoch(epochNumber) {
 
   console.log(`\n[BTCPC] ${ts} -- Epoch ${epochNumber} mining started`);
 
-  // Get miner references — Phase F: stateStore first, Mongo fallback.
-  // On a Mongo-disabled node the User model returns null; that's fine
-  // because the miner account is tracked via stateStore + nodeRegistry.
-  let user = null;
-  try {
-    user = await User.findOne({ username: MINER_ACCOUNT });
-  } catch (_) {
-    // Mongo disabled — that's ok
-  }
-  // If neither Mongo nor stateStore knows the account, the miner was
-  // just registered in startMiner() via ledger.recordAccountCreate.
-  // The account exists in stateStore even if User.findOne returns null.
+  // Miner account is tracked via stateStore (blockchain source of truth).
+  // Mongo is not consulted — it may not be running.
+  let user = null; // kept for compatibility with node{} object below
 
   // Phase E: Node/Wallet models deleted — use nodeRegistry and stateStore
   const nodeEntry = nodeRegistry.getNode(MINER_ACCOUNT);
@@ -1153,25 +1144,22 @@ async function startMiner() {
   const genesis = await createGenesisBlock();
 
   // Ensure this miner's account exists (auto-register on first run).
-  // Phase F: Mongo is optional. Check stateStore first (the canonical
-  // source of truth), then Mongo as fallback, then create from scratch
-  // via ledger.recordAccountCreate (which goes through the cross-process
-  // queue + P2P mempool gossip — no Mongo needed).
-  let minerAccountExists = stateStore.hasAccount
+  // Blockchain is the canonical source of truth — stateStore only.
+  // Mongo is never consulted for account existence.
+  const existingAccount = stateStore.hasAccount
     ? stateStore.hasAccount(MINER_ACCOUNT)
     : !!stateStore.getAccount(MINER_ACCOUNT);
 
-  // Fallback to Mongo if stateStore doesn't know the account yet
-  // (e.g., replay hasn't caught up). Wrapped in try/catch because
-  // Mongo may be disabled (Phase F).
-  let minerUser = null;
-  if (!minerAccountExists) {
+  // Also treat account as missing if it exists but has no owner public key
+  // (legacy account created before Phase E — needs re-registration).
+  let minerAccountExists = existingAccount;
+  if (existingAccount) {
     try {
-      minerUser = await User.findOne({ username: MINER_ACCOUNT });
-      if (minerUser) minerAccountExists = true;
-    } catch (_) {
-      // Mongo disabled or unreachable — that's fine, stateStore is primary
-    }
+      const acct = stateStore.getAccount(MINER_ACCOUNT);
+      if (!acct || !acct.public_keys || !acct.public_keys.owner) {
+        minerAccountExists = false; // re-register to fill missing keys
+      }
+    } catch (_) {}
   }
 
   if (!minerAccountExists) {

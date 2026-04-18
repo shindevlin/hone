@@ -165,8 +165,30 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
 
     const epoch = await getCurrentEpoch();
 
+    // Optional: run requester-side tools to enrich the reading before submission
+    // e.g. tools: ['calculator'] to convert units, 'hash' to fingerprint raw data
+    let toolTraceHash = null;
+    let toolsUsed = [];
+    if (body.tools && Array.isArray(body.tools) && body.tools.length > 0) {
+      try {
+        const { executeTools } = require('../mcp/toolExecutor');
+        const toolResult = await executeTools({
+          tools: body.tools,
+          toolContext: { value: numeric, sensor_id: sensorId, metadata, epoch, ...body.tool_context },
+          mcpServers: body.mcp_servers,
+        });
+        toolTraceHash = toolResult.toolTraceHash;
+        toolsUsed = toolResult.toolsUsed;
+        // If a tool returned a transformed value, allow overriding (explicit opt-in only)
+        if (body.use_tool_value && toolResult.results[0] && toolResult.results[0].output && toolResult.results[0].output.result !== undefined) {
+          const transformed = Number(toolResult.results[0].output.result);
+          if (Number.isFinite(transformed)) metadata.tool_transformed_value = transformed;
+        }
+      } catch (_) {}
+    }
+
     try {
-      const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
+      const reading = sensorRegistry.submitReading(sensorId, numeric, { ...metadata, tool_trace_hash: toolTraceHash || undefined, tools_used: toolsUsed.length > 0 ? toolsUsed : undefined }, epoch);
       return res.status(201).json({ success: true, reading: reading });
     } catch (err) {
       if (/duplicate reading/i.test(err.message)) {

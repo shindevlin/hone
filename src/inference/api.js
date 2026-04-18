@@ -674,109 +674,13 @@ router.post('/v1/inference/submit', async (req, res) => {
     }
   }
 
-  // ── Tool execution: requester-side MCP + BTCPC builtins ──
-  // Tools run on the REQUESTER'S machine. Results become enriched context
-  // sent to the miner. The miner only does inference — never executes tools.
-  //
-  // Sources (merged):
-  //   1. BTCPC builtin tools (calculator, hash, web_fetch, etc.) — direct call, no HTTP
-  //   2. Inline mcp_servers: [{ url, tools }] — external MCP servers the caller runs
-  //   3. Saved MCP servers from user profile (use_saved_mcp: true)
-  //
-  // SSRF: external MCP URLs block private/loopback ranges.
-  // Builtins bypass SSRF — they're local in-process calls.
-
-  // 1. BTCPC builtin tool calls
-  const builtinToolNames = ['calculator', 'hash', 'btcpc_fs_read', 'epoch_info', 'web_fetch'];
-  const requestedBuiltins = Array.isArray(tools) ? tools.filter(t => builtinToolNames.includes(t)) : [];
-  const builtinResults = [];
-  if (requestedBuiltins.length > 0) {
-    const mcpServer = require('../mcp/btcpcMcpServer');
-    for (const toolName of requestedBuiltins) {
-      try {
-        const output = await mcpServer.callTool(toolName, tool_context || {});
-        builtinResults.push({ tool: toolName, output, kind: 'builtin' });
-      } catch (e) {
-        builtinResults.push({ tool: toolName, output: { error: e.message }, kind: 'builtin' });
-      }
-    }
-  }
-
-  // 2. External MCP servers — SSRF-safe
-  let allServers = [];
-  if (mcp_servers) {
-    var blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254', '10.', '192.168.', '172.16.', '172.17.'];
-    for (var ms of mcp_servers) {
-      try {
-        var parsed = new URL(ms.url);
-        if (blocked.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) continue;
-        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
-        allServers.push(ms);
-      } catch (_) {}
-    }
-  }
-
-  // 3. Saved MCP servers from user profile
-  if (use_saved_mcp && req.project) {
-    try {
-      const User = require('../models/User');
-      const Project = require('../models/Project');
-      const project = await Project.findById(req.project._id);
-      if (project) {
-        const user = await User.findOne({ username: project.owner });
-        if (user && user.mcpServers && user.mcpServers.length > 0) {
-          allServers = allServers.concat(user.mcpServers.map(s => ({
-            url: s.url, tools: s.tools, name: s.name
-          })));
-        }
-      }
-    } catch (_) {}
-  }
-
-  let mcpResults = [];
-  const externalToolNames = Array.isArray(tools) ? tools.filter(t => !builtinToolNames.includes(t)) : [];
-  if (allServers.length > 0 && externalToolNames.length > 0) {
-    const toolCalls = [];
-    for (const toolName of externalToolNames) {
-      const server = allServers.find(s => s.tools && s.tools.includes(toolName));
-      if (!server || !server.url) continue;
-      toolCalls.push(
-        axios.post(server.url, {
-          jsonrpc: '2.0',
-          method: 'tools/call',
-          params: { name: toolName, arguments: tool_context || {} },
-          id: crypto.randomUUID()
-        }, { timeout: 15000 })
-        .then(r => ({
-          tool: toolName,
-          output: r.data?.result?.content?.[0]?.text || JSON.stringify(r.data?.result || r.data),
-          kind: 'mcp',
-          server: server.url,
-        }))
-        .catch(err => ({
-          tool: toolName,
-          output: { error: err.message },
-          kind: 'mcp',
-          server: server.url,
-        }))
-      );
-    }
-    mcpResults = await Promise.all(toolCalls);
-  }
-
-  // Merge all tool call results + build tool_trace_hash for on-chain proof
-  const allToolResults = [...builtinResults, ...mcpResults];
-  let toolTraceHash = null;
-  const toolsUsed = allToolResults.map(r => r.tool);
-  if (allToolResults.length > 0) {
-    const { hashToolTrace } = require('../mcp/toolRegistry');
-    toolTraceHash = hashToolTrace(allToolResults.map(r => ({
-      tool: r.tool,
-      input: tool_context || {},
-      output: r.output,
-      trace_cid: r.output && r.output.trace_cid ? r.output.trace_cid : undefined,
-    })));
-  }
+  // ── Tool execution: requester-side via shared toolExecutor ──────────────────
+  const { executeTools } = require('../mcp/toolExecutor');
+  const { results: allToolResults, toolTraceHash, toolsUsed, contextText: toolContextText } = await executeTools({
+    tools,
+    toolContext: tool_context,
+    mcpServers: mcp_servers,
+  });
 
   // ── RAG: Build context from explicit context + MCP tool results ──
   let augmentedMessages = [...messages];
@@ -797,10 +701,7 @@ router.post('/v1/inference/submit', async (req, res) => {
   }
 
   // Add all tool results as context (builtins + external MCP)
-  for (const tr of allToolResults) {
-    const text = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
-    contextParts.push(`[Tool: ${tr.tool}]\n${text}`);
-  }
+  if (toolContextText) contextParts.push(toolContextText);
 
   // Inject combined context as system message
   if (contextParts.length > 0) {
@@ -1479,6 +1380,22 @@ router.post('/v1/agent/turn', async (req, res) => {
       agentSession.addTurn(session_id, 'user', userMessage);
     }
 
+    // Execute any BTCPC tools before building the prompt (requester-side)
+    const agentToolNames = req.body.tools || [];
+    const agentToolContext = req.body.tool_context || {};
+    const agentMcpServers = req.body.mcp_servers || [];
+    let agentToolTraceHash = null;
+    let agentToolsUsed = [];
+    if (agentToolNames.length > 0) {
+      const { executeTools: execT } = require('../mcp/toolExecutor');
+      const toolExecResult = await execT({ tools: agentToolNames, toolContext: agentToolContext, mcpServers: agentMcpServers });
+      agentToolTraceHash = toolExecResult.toolTraceHash;
+      agentToolsUsed = toolExecResult.toolsUsed;
+      if (toolExecResult.contextText) {
+        agentSession.addTurn(session_id, 'system', '[Tool results]\n' + toolExecResult.contextText);
+      }
+    }
+
     // Build Ollama request
     const messages = agentSession.buildMessages(session_id, null); // history already has the new user turn
     const ollamaModel = process.env.BTCPC_MODEL || 'qwen2.5:0.5b';
@@ -1539,6 +1456,8 @@ router.post('/v1/agent/turn', async (req, res) => {
       role: 'assistant',
       content: content,
       tool_calls: p2pToolCalls || undefined,
+      tools_used: agentToolsUsed.length > 0 ? agentToolsUsed : undefined,
+      tool_trace_hash: agentToolTraceHash || undefined,
       model: ollamaModel,
       turn_count: session.history.length,
     };

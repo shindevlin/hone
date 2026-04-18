@@ -66,12 +66,12 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - If `~/.btcpc/secrets.json` is corrupt JSON → rename to `secrets.json.bak.<ts>`, start fresh with empty store, log
   - Currently throws `failed to read secrets.json`
 
-- [ ] **`bin/btcpc-mine` Mongo connection**
+- [x] **`bin/btcpc-mine` Mongo connection**
   - Already non-fatal after Phase F, but verify the warning is silent (logged once, not every loop)
 
 ## P2 — Account / wallet self-heal
 
-- [ ] **First-run account creation auto-heal**
+- [x] **First-run account creation auto-heal**
   - When the user starts a node with `BTCPC_MINER=somename` and `somename` doesn't exist on chain → auto-call `recordAccountCreate` via the cross-process queue + P2P gossip (already exists in `bin/btcpc-mine` lines 1074-1100, but needs to handle the empty-public-keys legacy case from `feedback_blockchain_source_of_truth.md`)
   - The account auto-create today only happens if MongoDB has no existing User row. Should also fire if `stateStore.getAccount(name).public_keys.owner` is empty (legacy account with missing keys), and re-broadcast via mempool gossip
 
@@ -79,7 +79,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Currently prompts for the mnemonic (or `--pubkeys`). Add a `--from-cli` flag that reads keys from CLI args so it can be invoked from a setup wizard without interaction.
   - Combined with the above auto-heal, the .bat/.ps1 installer can call `btcpc-rekey <username> --from-cli --owner-pk <hex>` ... if the user runs `wallet recover` first on a cold machine and pastes the result.
 
-- [ ] **`src/wallet/accountManager.js` recovery flow**
+- [x] **`src/wallet/accountManager.js` recovery flow**
   - `recoverAccount(mnemonic)` calls `User().findOne({ ownerPublicKey })` which returns null on a fresh machine. Switch to stateStore-first lookup with pre-Phase-E Mongo fallback.
 
 ## P3 — Node lifecycle self-heal

@@ -163,19 +163,38 @@ async function recoverAccount(mnemonic) {
   const addrHash = crypto.createHash("sha256").update(Buffer.from(keys.owner.publicKey, "hex")).digest();
   const address = "BTCPC" + addrHash.subarray(0, 20).toString("hex");
 
-  // Try to find the account on-chain by owner public key
-  const user = await User().findOne({ ownerPublicKey: keys.owner.publicKey });
+  // Find the account by owner public key — stateStore is the source of truth.
+  // Mongo is not consulted (may not be running; blockchain is canonical).
+  let username = null;
+  try {
+    const stateStore = require("../chain/stateStore");
+    const allAccounts = stateStore.getAllAccounts ? stateStore.getAllAccounts() : [];
+    for (const acct of allAccounts) {
+      if (acct.public_keys && acct.public_keys.owner === keys.owner.publicKey) {
+        username = acct.name || acct.username || acct.account;
+        break;
+      }
+    }
+  } catch (_) {}
+
+  // Mongo fallback only if stateStore didn't find it (pre-Phase-E nodes may not have replayed)
+  if (!username) {
+    try {
+      const user = await User().findOne({ ownerPublicKey: keys.owner.publicKey });
+      if (user) username = user.username;
+    } catch (_) {}
+  }
 
   return {
-    found: !!user,
-    username: user ? user.username : null,
-    address: address,
+    found: !!username,
+    username,
+    address,
     publicKeys: {
       owner: keys.owner.publicKey,
       active: keys.active.publicKey,
       posting: keys.posting.publicKey,
-      memo: keys.memo.publicKey
-    }
+      memo: keys.memo.publicKey,
+    },
   };
 }
 
