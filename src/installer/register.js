@@ -14,6 +14,14 @@ const os   = require("os");
 // Engines where we know how to register a skill/command
 const ADAPTERS = [
   {
+    id: "zeroclaw",
+    label: "ZeroClaw",
+    check: () => spawnSync(process.env.HOME + "/.cargo/bin/zeroclaw", ["--version"], { encoding: "utf8" }).status === 0
+               || spawnSync("zeroclaw", ["--version"], { encoding: "utf8" }).status === 0,
+    register: () => _installZeroClawSkill(),
+    hint: "zeroclaw agent  →  'show my btcpc balance'",
+  },
+  {
     id: "hermes",
     label: "Hermes Agent",
     check: () => hermes.isAvailable(),
@@ -73,6 +81,20 @@ function _writeAutoGenTool() {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "btcpc.py"), _autogenPy(), "utf8");
   return true;
+}
+
+function _installZeroClawSkill() {
+  const skillSrc = path.resolve(__dirname, "skills/zeroclaw-skill");
+  const zc = process.env.HOME + "/.cargo/bin/zeroclaw";
+  const bin = fs.existsSync(zc) ? zc : "zeroclaw";
+  const r = spawnSync(bin, ["skills", "install", skillSrc], { encoding: "utf8" });
+  if (r.status === 0) {
+    console.log("  ✓ BTCPC skill installed in ZeroClaw");
+    console.log("  Try: zeroclaw agent  then ask about your balance");
+    return true;
+  }
+  console.warn("  ⚠ ZeroClaw skill install failed:", r.stderr?.trim());
+  return false;
 }
 
 function _crewaiPy() {

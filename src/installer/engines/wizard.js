@@ -51,7 +51,25 @@ async function run() {
     if (!want) { say("Got it, skipping.\n"); continue; }
 
     const success = await _setupNode(node, hw, username);
-    if (success) { chosen.push(node); ok(`${node.name} configured.\n`); }
+    if (success) {
+      chosen.push(node);
+      ok(`${node.name} configured.`);
+      if (node.systemd) {
+        const autostart = await tools.ask_confirm(
+          `Start ${node.name} automatically every time this device reboots?`, true
+        );
+        if (autostart) {
+          const { execSync } = require("child_process");
+          try {
+            execSync(`systemctl --user enable ${node.systemd}`, { stdio: "pipe" });
+            ok(`${node.name} will autostart on reboot.`);
+          } catch (e) {
+            say(`Could not enable autostart: ${e.message}`);
+          }
+        }
+      }
+      console.log();
+    }
   }
 
   hr();

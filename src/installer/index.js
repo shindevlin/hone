@@ -22,6 +22,14 @@ function say(msg) { console.log(`${ORANGE}[btcpc]${RESET} ${msg}`); }
 // Three are shown upfront; user can pick "more" to see the full list.
 const ALL_ENGINES = [
   {
+    id: "zeroclaw",
+    label: "ZeroClaw",
+    desc: "Rust — fastest, smallest, hardware integration, local-first",
+    install: () => _shellInstall("curl -fsSL https://get.zeroclaw.ai | bash"),
+    homepage: "https://zeroclaw.ai",
+    featured: true,
+  },
+  {
     id: "hermes",
     label: "Hermes Agent",
     desc: "Nous Research — self-improving, 40+ tools, any device",
@@ -35,14 +43,6 @@ const ALL_ENGINES = [
     desc: "Lightweight, SOUL.md personality, any LLM backend",
     install: () => openclaw.install(),
     homepage: "https://github.com/openclaw/openclaw",
-    featured: true,
-  },
-  {
-    id: "crewai",
-    label: "CrewAI",
-    desc: "Role-based agents, Python, widely used",
-    install: () => _pipInstall("crewai"),
-    homepage: "https://crewai.com",
     featured: true,
   },
   {
@@ -249,6 +249,12 @@ except ImportError:
 
 subprocess.run(["node", BTCPC_DIR + "/bin/btcpc-install", "--wizard"], check=False)
 `;
+}
+
+function _shellInstall(cmd) {
+  const { spawnSync } = require("child_process");
+  const r = spawnSync("bash", ["-c", cmd], { stdio: "inherit", timeout: 300000 });
+  return r.status === 0;
 }
 
 function _pipInstall(pkg) {

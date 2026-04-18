@@ -1,0 +1,35 @@
+[skill]
+name = "btcpc"
+version = "1.0.0"
+description = "Bitcoin Proof of Compute — manage nodes, wallet, and earnings from your AI assistant"
+author = "Shin Devlin <shin@btcpc.network>"
+
+[[tools]]
+name = "btcpc_balance"
+description = "Show BTCPC token balance"
+command = "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli balance"
+
+[[tools]]
+name = "btcpc_status"
+description = "Show status of all BTCPC nodes on this device"
+command = "node /home/ubuntclaw/repos/btcpc/bin/btcpc-cli status"
+
+[[tools]]
+name = "btcpc_mine_start"
+description = "Start the BTCPC inference miner to earn tokens"
+command = "systemctl --user start btcpc-miner"
+
+[[tools]]
+name = "btcpc_mine_stop"
+description = "Stop the BTCPC inference miner"
+command = "systemctl --user stop btcpc-miner"
+
+[[tools]]
+name = "btcpc_logs"
+description = "Show recent BTCPC miner logs"
+command = "journalctl --user -u btcpc-miner -n 30 --no-pager"
+
+[[tools]]
+name = "btcpc_install"
+description = "Run the BTCPC node setup wizard"
+command = "node /home/ubuntclaw/repos/btcpc/bin/btcpc-install"
