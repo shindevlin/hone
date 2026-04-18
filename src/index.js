@@ -224,7 +224,7 @@ const { startEpochLoop } = require('./services/epochManager');
 const p2pNetwork = require('./p2p/network');
 const { loadFromDatabase } = require('./p2p/chainSync');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.BTCPC_API_PORT || process.env.PORT || 3000;
 connectDB().then(async () => {
   // Phase B: replay blocks into stateStore at startup so shadow reads have data
   try {

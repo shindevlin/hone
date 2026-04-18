@@ -39,7 +39,7 @@ let heartbeatTimer = null;
  * Start the WebSocket server to accept incoming peer connections.
  */
 function startServer(port) {
-  const listenPort = port || parseInt(process.env.P2P_PORT) || DEFAULT_PORT;
+  const listenPort = port || parseInt(process.env.BTCPC_API_P2P_PORT || process.env.P2P_PORT) || DEFAULT_PORT;
 
   wss = new WebSocket.Server({ port: listenPort });
 
