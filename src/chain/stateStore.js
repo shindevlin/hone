@@ -1845,6 +1845,29 @@ function getComputeProofs(epochNumber) {
   return computeProofsByEpoch.get(epochNumber) || [];
 }
 
+/**
+ * Collect compute proofs from a window of epochs [epochNumber - lookback, epochNumber].
+ * Fire-and-forget inference completes asynchronously and may be credited to epoch N+1
+ * or N+2 when the miner is busy. This sweeps the window to capture all recent work.
+ * Deduplicates by result_hash so no proof is credited twice.
+ */
+function getRecentComputeProofs(epochNumber, lookback) {
+  lookback = lookback || 3;
+  var seen = new Set();
+  var proofs = [];
+  for (var e = epochNumber; e >= Math.max(0, epochNumber - lookback); e--) {
+    var list = computeProofsByEpoch.get(e) || [];
+    for (var p of list) {
+      var key = (p.result_hash || '') + '|' + (p.node_id || '');
+      if (!seen.has(key)) {
+        seen.add(key);
+        proofs.push(p);
+      }
+    }
+  }
+  return proofs;
+}
+
 function getMinerCount() {
   // Count distinct miners who have earned a mining reward in the last 100 epochs
   var miners = new Set();
@@ -2583,6 +2606,7 @@ module.exports = {
   getRecentEpochs: getRecentEpochs,
   getMiningProofs: getMiningProofs,
   getComputeProofs: getComputeProofs,
+  getRecentComputeProofs: getRecentComputeProofs,
   getMinerCount: getMinerCount,
   // Projects
   getProject: getProject,

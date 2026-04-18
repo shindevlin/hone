@@ -293,6 +293,21 @@ connectDB().then(async () => {
       p2pNetwork.connectToSeeds();
       console.log('[BTCPC] P2P network layer started');
 
+      // Initialize fork resolver — self-heals back to main chain if we diverge
+      const forkResolver = require('./chain/forkResolver');
+      const blockStore = require('./chain/blockStore');
+      const stateStore = require('./chain/stateStore');
+      const ledger = require('./services/ledger');
+      const settlement = require('./chain/rewardSettlement');
+      forkResolver.init({ blockStore, stateStore, ledger, settlement });
+      forkResolver.on('heal_started', (e) => console.log('[BTCPC ForkResolver] Healing — rolled back to epoch', e.commonAncestor));
+      forkResolver.on('heal_complete', (e) => console.log('[BTCPC ForkResolver] Healed — replayed', e.replayed, 'blocks'));
+      forkResolver.on('need_full_resync', (e) => console.warn('[BTCPC ForkResolver] Full resync needed from', e.peer, '—', e.reason));
+      // Wire clock connectivity into isolation detection
+      const clockConsensus = require('./chain/clockConsensus');
+      clockConsensus.setPeerSource(() => p2pNetwork.getPeers());
+      console.log('[BTCPC] Fork resolver and clock consensus initialized');
+
       // Initialize P2P inference router (listens for results)
       const { initP2PRouter } = require('./inference/p2pRouter');
       initP2PRouter();

@@ -600,7 +600,10 @@ async function applyFinalization(epochNumber, proposal) {
 
     // Phase D: compute proofs live exclusively in stateStore (added live
     // via addComputeProof in the mining loop, hydrated on replay).
-    const epochProofs = stateStore.getComputeProofs(epochNumber);
+    // Sweep last 3 epochs — fire-and-forget inference may complete in N+1 or N+2.
+    const epochProofs = stateStore.getRecentComputeProofs
+      ? stateStore.getRecentComputeProofs(epochNumber, 3)
+      : stateStore.getComputeProofs(epochNumber);
     const proofHashes = epochProofs.map(p => blockStore.hashComputeProof(p));
     const cpMerkleRoot = Block.computeMerkleRoot(proofHashes);
 

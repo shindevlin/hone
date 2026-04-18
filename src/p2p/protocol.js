@@ -556,6 +556,23 @@ function handleBlock(peer, msg, ctx) {
 
   console.log("[BTCPC P2P] Received valid block: epoch " + (block.epoch_number || "?"));
 
+  // Fork check — if our hash at this height differs from the peer's, trigger self-heal
+  try {
+    const forkResolver = require("../chain/forkResolver");
+    if (!forkResolver.isHealInProgress()) {
+      const peerHash = block.computeHash ? block.computeHash() : (block.hash || "");
+      const { forked } = forkResolver.checkForFork(block.epoch_number, peerHash);
+      if (forked) {
+        console.warn("[BTCPC P2P] Fork detected at epoch " + block.epoch_number + " from " + (peer.nodeId || peer.address || "?").slice(0, 12));
+        // onPeerBlock handles full resolution asynchronously — does not block gossip
+        const fullData = data.header_hex
+          ? { block, payload: { ledger_entries: data.ledger_entries || [], compute_proofs: data.compute_proofs || [] } }
+          : { block, payload: {} };
+        forkResolver.onPeerBlock(fullData, peer.address || peer.nodeId, null).catch(() => {});
+      }
+    }
+  } catch (_) {}
+
   // Rebroadcast to other peers (gossip)
   ctx.broadcast(msg, peer.address);
 }
