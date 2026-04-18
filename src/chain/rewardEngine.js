@@ -29,6 +29,7 @@
  */
 
 const RECYCLE_ACCOUNT = "btcpc_recycle";
+const { computeToolMultiplier } = require("../mcp/toolRegistry");
 
 // Pool percentages — must sum to 1.0
 const POOL = {
@@ -83,18 +84,24 @@ function computeRewards(input) {
   const validProofs = computeProofs.filter(p =>
     p.node_id && (p.work_value > 0) && p.result_hash
   );
-  const totalWork = validProofs.reduce((s, p) => s + (p.work_value || 0), 0);
+  // Apply tool multiplier to each proof's effective work value
+  const validProofsWithMult = validProofs.map(p => ({
+    ...p,
+    effective_work: round((p.work_value || 0) * computeToolMultiplier(p.tools_used || [])),
+  }));
+  const totalWork = validProofsWithMult.reduce((s, p) => s + p.effective_work, 0);
 
   if (validProofs.length === 0 || totalWork === 0) {
     recycled += miningPool;
   } else {
     // Aggregate by miner (one miner may have multiple proofs this epoch)
     const byMiner = new Map();
-    for (const p of validProofs) {
-      const cur = byMiner.get(p.node_id) || { work: 0, models: new Set(), tokens: 0 };
-      cur.work += p.work_value;
+    for (const p of validProofsWithMult) {
+      const cur = byMiner.get(p.node_id) || { work: 0, models: new Set(), tokens: 0, tools: new Set() };
+      cur.work += p.effective_work;
       cur.tokens += p.tokens_generated || 0;
       if (p.model) cur.models.add(p.model);
+      for (const t of (p.tools_used || [])) cur.tools.add(t);
       byMiner.set(p.node_id, cur);
     }
     for (const [account, m] of byMiner) {
@@ -102,7 +109,11 @@ function computeRewards(input) {
       if (share > 0) {
         rewards.push({
           to: account, amount: share, type: "MINING_REWARD",
-          meta: { work_value: round(m.work), tokens: m.tokens, models: Array.from(m.models) }
+          meta: {
+            work_value: round(m.work), tokens: m.tokens,
+            models: Array.from(m.models),
+            tools: Array.from(m.tools),
+          }
         });
       }
     }
@@ -212,7 +223,7 @@ function computeRewards(input) {
     block_reward: blockReward,
     total_distributed: round(rewards.filter(r => r.to !== RECYCLE_ACCOUNT).reduce((s, r) => s + r.amount, 0)),
     recycled: round(recycled),
-    miners: validProofs.length,
+    miners: validProofsWithMult.length,
     total_work: round(totalWork),
     verifiers: activeVerifiers.length,
     clocks: activeClocks.length,

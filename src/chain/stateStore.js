@@ -1529,6 +1529,14 @@ function applyEntry(entry) {
       }
       break;
 
+    case "TOOL_CAPABILITY_REGISTER":
+      // Forward to toolRegistry (lazy require avoids circular dep)
+      try {
+        var _toolReg = require("../mcp/toolRegistry");
+        _toolReg.registerFromEntry(entry);
+      } catch (_) {}
+      break;
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;

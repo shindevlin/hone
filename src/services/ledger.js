@@ -1909,6 +1909,45 @@ async function recordDeviceRevoke(ownerAccount, devicePubkey, epoch) {
   }));
 }
 
+/**
+ * Register tool capabilities for a node.
+ * Entry type: TOOL_CAPABILITY_REGISTER
+ *
+ * tools: [{ name, kind: 'builtin'|'cli'|'mcp', description, command?, mcp_url?, deterministic? }]
+ */
+async function recordToolCapabilityRegister(nodeId, tools, epoch) {
+  if (!nodeId) throw new Error('nodeId required');
+  return _persist(_entry({
+    type: 'TOOL_CAPABILITY_REGISTER',
+    from: nodeId,
+    epoch: epoch || 0,
+    tool_data: { tools: tools || [], registered_at: Date.now() },
+  }));
+}
+
+/**
+ * Commit a tool trace to BTCPC-FS for non-deterministic tool results.
+ * Entry type: TOOL_TRACE_COMMIT
+ *
+ * proof_id:        the compute proof this trace belongs to
+ * tool_trace_hash: sha256 of the tool call log
+ * trace_cids:      [{ tool, cid }] — each non-deterministic call committed separately
+ */
+async function recordToolTraceCommit(account, proofId, toolTraceHash, traceCids, epoch) {
+  if (!account || !proofId) throw new Error('account and proofId required');
+  return _persist(_entry({
+    type: 'TOOL_TRACE_COMMIT',
+    from: account,
+    epoch: epoch || 0,
+    tool_data: {
+      proof_id: proofId,
+      tool_trace_hash: toolTraceHash,
+      trace_cids: traceCids || [],
+      committed_at: Date.now(),
+    },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -1999,4 +2038,7 @@ module.exports = {
   recordDeviceRevoke,
   // Amber Pill geo-pioneer NFT (v2.18)
   recordAmberPillMint,
+  // Native tool use + MCP (v3.2)
+  recordToolCapabilityRegister,
+  recordToolTraceCommit,
 };
