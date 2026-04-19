@@ -152,7 +152,7 @@
       "public_keys": {
         "owner": "03995aa423f62fb1ed8eb3afb7a448146e41f0582db5ed21b66468029fa0100186",
         "active": "022daa36a765063c2223c258d2b82ef6a8576e35e6cd504846eea16817f1708e47",
-        "posting": "028697b530f33e57eb5e0bdc61abfa9ef38558a64482ca42db40d747bdee6b1b6e",
+        "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b",
         "memo": "032275afd505ab97b0f0ced711ee475402d6f2434653edf011a544bfe0a578e876"
       },
       "chain_addresses": {},
