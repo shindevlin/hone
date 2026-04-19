@@ -81,32 +81,40 @@ let _devicePrivKey = null; // hex — used to sign proposals
 let _devicePubKey  = null; // hex — sent as device_id in proposals
 
 /**
- * Set up the signing identity for this miner from BTCPC_ACTIVE_KEY.
+ * Set up the signing identity for this miner.
  *
- * Design: all machines mining as the same account use the same BTCPC_ACTIVE_KEY.
- * No per-machine key generation. Peers verify proposals against the account's
- * registered active public key (Path B in messageAuth.verifyDeviceOrAccountSignature).
- * Put BTCPC_ACTIVE_KEY=<hex_priv> in the .env on every machine you want to mine as
- * this account.
+ * Preferred: BTCPC_POSTING_KEY — the posting key can't move funds, so a compromised
+ * mining machine can't drain the wallet. Use the same posting key on every machine
+ * you want to mine as this account.
  *
- * @param {string|null} ownerActiveKeyPriv — BTCPC_ACTIVE_KEY env var (hex)
+ * Fallback: BTCPC_ACTIVE_KEY — accepted for backwards compatibility. Miners should
+ * switch to the posting key.
+ *
+ * Peers verify via messageAuth.verifyDeviceOrAccountSignature which checks posting
+ * key first (Path B), then active key (Path C).
  */
-async function _ensureDeviceKey(ownerActiveKeyPriv) {
-  if (!ownerActiveKeyPriv) {
-    console.warn('[BTCPC] No BTCPC_ACTIVE_KEY set — block proposals will be unsigned and rejected by peers.');
-    console.warn('[BTCPC] Add BTCPC_ACTIVE_KEY=<64-hex-chars> to your .env to mine as ' + MINER_ACCOUNT + '.');
+async function _ensureDeviceKey() {
+  const signingPriv = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
+  const keyLabel    = process.env.BTCPC_POSTING_KEY ? 'posting' : 'active';
+
+  if (!signingPriv) {
+    console.warn('[BTCPC] No BTCPC_POSTING_KEY set — block proposals will be unsigned and rejected by peers.');
+    console.warn('[BTCPC] Add BTCPC_POSTING_KEY=<64-hex-chars> to your .env to mine as ' + MINER_ACCOUNT + '.');
     return;
   }
 
   const { secp256k1 } = require('@noble/curves/secp256k1');
   try {
-    const pubBytes = secp256k1.getPublicKey(Buffer.from(ownerActiveKeyPriv, 'hex'), true);
+    const pubBytes = secp256k1.getPublicKey(Buffer.from(signingPriv, 'hex'), true);
     const pubHex   = Buffer.from(pubBytes).toString('hex');
-    _devicePrivKey = ownerActiveKeyPriv;
+    _devicePrivKey = signingPriv;
     _devicePubKey  = pubHex;
-    console.log(`[BTCPC] Signing proposals as ${MINER_ACCOUNT} (pubkey ${pubHex.slice(0, 16)}...)`);
+    console.log(`[BTCPC] Signing proposals as ${MINER_ACCOUNT} using ${keyLabel} key (${pubHex.slice(0, 16)}...)`);
+    if (keyLabel === 'active') {
+      console.warn('[BTCPC] Using active (spending) key to sign proposals. Switch to BTCPC_POSTING_KEY for better security.');
+    }
   } catch (err) {
-    console.warn('[BTCPC] BTCPC_ACTIVE_KEY is not a valid secp256k1 private key:', err.message);
+    console.warn('[BTCPC] Signing key is not a valid secp256k1 private key:', err.message);
   }
 }
 
@@ -1212,8 +1220,7 @@ async function startMiner() {
     }
   }
 
-  // Auto-provision device key — generates and registers on first startup.
-  await _ensureDeviceKey(activeKeyPriv);
+  await _ensureDeviceKey();
 
   running = true;
 

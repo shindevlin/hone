@@ -190,12 +190,22 @@ function verifyDeviceOrAccountSignature(proposer, deviceId, data, signature) {
     }
   }
 
-  // Path B: no device key, or device not yet registered — fall back to proposer's active key
   var account = stateStore.getAccount(proposer);
   if (!account || !account.public_keys) return false;
+
+  // Path B: posting key — the correct key for mining operations (can't move funds).
+  // Try this first so miners never need their spending key on a hot machine.
+  var postingPub = account.public_keys.posting;
+  if (postingPub) {
+    if (!deviceId || deviceId === postingPub) {
+      if (verifyMessage(data, signature, postingPub)) return true;
+    }
+  }
+
+  // Path C: active key fallback — accepted for backwards compatibility but
+  // miners should rotate to BTCPC_POSTING_KEY.
   var activePub = account.public_keys.active;
   if (!activePub) return false;
-  // If deviceId provided but not registered, still accept if deviceId == active pubkey
   if (deviceId && deviceId !== activePub) return false;
   return verifyMessage(data, signature, activePub);
 }
