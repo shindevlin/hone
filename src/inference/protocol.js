@@ -24,6 +24,14 @@ const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 const escrow = require("../services/escrow");
 
+// ── Sharding modules (lazy-required to avoid circular deps) ──
+// Loaded on first use only
+let _ensembleCoordinator = null;
+function getEnsembleCoordinator() {
+  if (!_ensembleCoordinator) _ensembleCoordinator = require('./ensembleCoordinator');
+  return _ensembleCoordinator;
+}
+
 // ── Constants ──
 const CLAIM_WINDOW_MS = 15000;      // 15s for nodes to claim
 const COMMIT_TIMEOUT_MS = 120000;   // 2min for nodes to commit results
@@ -45,9 +53,17 @@ async function createInferenceRequest({
   promptHash,
   maxFee,
   redundancy,
+  mode,
+  ensembleMinSize,
+  ensembleDeadlineMs,
 }) {
   const requestId = crypto.randomBytes(16).toString("hex");
   const fee = maxFee || 10;
+
+  // Normalize mode: default to 'solo' if not specified
+  const reqMode = mode === 'ensemble' ? 'ensemble'
+    : mode === 'pipeline' ? 'pipeline'
+    : 'solo';
 
   // Lock funds in escrow
   await escrow.lockFunds(requestId, requesterId, fee);
@@ -61,8 +77,9 @@ async function createInferenceRequest({
     prompt_hash: promptHash,
     max_fee: fee,
     redundancy: redundancy || MIN_REDUNDANCY,
+    mode: reqMode,
     timestamp: Date.now(),
-    status: "open",
+    status: reqMode === 'solo' ? "open" : "broadcasting",
     claims: [],
     assignments: [],
     commits: [],
@@ -70,6 +87,29 @@ async function createInferenceRequest({
   };
 
   activeRequests.set(requestId, request);
+
+  // ── Mode A: Ensemble ──
+  // Skip claim/assign dance; register a coordinator job so contributions
+  // can be tracked. The caller must broadcast INFERENCE_PAYLOAD to all peers.
+  if (reqMode === 'ensemble') {
+    const minSize = ensembleMinSize || 3;
+    const deadline = ensembleDeadlineMs || (Date.now() + COMMIT_TIMEOUT_MS);
+    getEnsembleCoordinator().createEnsembleJob(
+      requestId,
+      model || "qwen3.5:27b",
+      promptHash,
+      minSize,
+      deadline
+    );
+    console.log(`[BTCPC Inference] Ensemble job created: ${requestId.slice(0, 12)} minSize=${minSize}`);
+  }
+
+  // ── Mode B: Pipeline ──
+  // The shard group coordinator handles routing; recorded here for tracking.
+  if (reqMode === 'pipeline') {
+    console.log(`[BTCPC Inference] Pipeline request created: ${requestId.slice(0, 12)} model=${model}`);
+  }
+
   return request;
 }
 
@@ -290,10 +330,80 @@ async function revealResult(requestId, nodeId, encryptedResult, resultHash) {
 /**
  * Phase 7: Determine consensus and deliver result.
  * Matching hashes = correct answer. Non-matching = slashed.
+ *
+ * For ensemble mode, this is called when the ensemble coordinator has declared
+ * consensus (or after deadline). `ensembleOutcome` carries the pre-computed
+ * consensus result from ensembleCoordinator.submitContribution().
  */
-async function finalizeRequest(requestId) {
+async function finalizeRequest(requestId, ensembleOutcome) {
   const request = activeRequests.get(requestId);
   if (!request) return { error: "Request not found" };
+
+  // ── Ensemble finalization path ──
+  if (request.mode === 'ensemble' && ensembleOutcome) {
+    const ec = getEnsembleCoordinator();
+    const job = ec.getJob(requestId);
+    const consensusNodes = ensembleOutcome.consensusNodes || [];
+    const totalFee = request.max_fee;
+
+    // Equal split among consensus nodes
+    const perNodeShare = consensusNodes.length > 0
+      ? totalFee / consensusNodes.length
+      : 0;
+
+    const payouts = consensusNodes.map((nodeId) => ({
+      node_id: nodeId,
+      amount: perNodeShare,
+      rank: 1,
+    }));
+
+    request.status = "finalized";
+    request.consensus_hash = ensembleOutcome.result ? ensembleOutcome.result.result_hash : null;
+    request.honest_nodes = consensusNodes;
+    request.dishonest_nodes = [];
+    request.payouts = payouts;
+
+    const result = {
+      type: "INFERENCE_RESULT",
+      request_id: requestId,
+      mode: "ensemble",
+      consensus_hash: request.consensus_hash,
+      result_text: ensembleOutcome.result ? ensembleOutcome.result.result_text : null,
+      honest_nodes: consensusNodes,
+      dishonest_nodes: [],
+      payouts,
+      timestamp: Date.now(),
+    };
+
+    try {
+      await escrow.releaseFunds(requestId, payouts);
+    } catch (err) {
+      console.error("[BTCPC Escrow] Ensemble release error:", err.message);
+    }
+
+    setImmediate(async () => {
+      try {
+        const currentEpoch = 0;
+        for (const payout of payouts) {
+          await ledger.recordInferenceCharge(
+            request.requester_id,
+            payout.node_id,
+            payout.amount,
+            currentEpoch,
+            requestId
+          );
+        }
+      } catch (err) {
+        console.error('[BTCPC Inference] Ensemble charge record error:', err.message);
+      }
+    });
+
+    persistRequest(request).catch((err) =>
+      console.error("[BTCPC Inference] Persist error:", err.message)
+    );
+
+    return result;
+  }
 
   // Count matching hashes
   const hashCounts = {};

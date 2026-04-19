@@ -120,6 +120,15 @@ const MESSAGE_TYPES = {
   // Peer relay — nodes announce their known peers so the network
   // doesn't depend on a single Cloudflare relay for discovery
   PEER_ANNOUNCE: "PEER_ANNOUNCE",
+  // Shard inference (Mode B — pipeline)
+  SHARD_REGISTER: "SHARD_REGISTER",      // node announces a model layer shard
+  SHARD_GROUP_FORM: "SHARD_GROUP_FORM",  // broadcast when a full group is assembled
+  SHARD_ACTIVATE: "SHARD_ACTIVATE",      // activation tensor passed shard→shard
+  SHARD_RESULT: "SHARD_RESULT",          // final shard reports inference completion
+  // Ensemble inference (Mode A — majority-vote)
+  ENSEMBLE_CLAIM: "ENSEMBLE_CLAIM",      // node announces it will contribute
+  ENSEMBLE_RESULT: "ENSEMBLE_RESULT",    // node submits its result hash
+  ENSEMBLE_CONSENSUS: "ENSEMBLE_CONSENSUS", // consensus achieved, broadcast winner
 };
 
 // ---------------------------------------------------------------------------
@@ -431,6 +440,23 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.PEER_ANNOUNCE:
       handlePeerAnnounce(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.SHARD_REGISTER:
+      handleShardRegister(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.SHARD_ACTIVATE:
+    case MESSAGE_TYPES.SHARD_RESULT:
+      // Relay shard pipeline messages to all peers
+      ctx.broadcast(msg, peer.address);
+      break;
+    case MESSAGE_TYPES.ENSEMBLE_RESULT:
+      handleEnsembleResult(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.ENSEMBLE_CLAIM:
+    case MESSAGE_TYPES.ENSEMBLE_CONSENSUS:
+    case MESSAGE_TYPES.SHARD_GROUP_FORM:
+      // Relay ensemble coordination messages to all peers
+      ctx.broadcast(msg, peer.address);
       break;
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
@@ -2190,6 +2216,111 @@ function handleToolResult(peer, msg, ctx) {
   } catch (_) { /* agentSession not loaded */ }
 
   // Not consumed locally — relay to other peers
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Shard Registry handler — Mode B (pipeline)
+// ---------------------------------------------------------------------------
+
+/**
+ * SHARD_REGISTER — A node announces a model layer shard.
+ * Stores the registration and, if all layers are covered, broadcasts
+ * SHARD_GROUP_FORM so all peers know a full pipeline is available.
+ */
+function handleShardRegister(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.node_id || !data.model_name) return;
+
+  try {
+    var shardRegistry = require("../inference/shardRegistry");
+    var result = shardRegistry.registerShard(data);
+
+    console.log("[BTCPC Shard] Registered shard: " + data.node_id.slice(0, 12) +
+      " model=" + data.model_name +
+      " layers=[" + data.layer_start + ".." + data.layer_end + "/" + data.total_layers + "]" +
+      " engine=" + (data.engine || "ollama"));
+
+    if (result.groupResult && result.groupResult.formed) {
+      var group = result.groupResult.group;
+      console.log("[BTCPC Shard] Group formed for " + group.model_name +
+        " group_id=" + group.group_id +
+        " shards=" + group.shards.length +
+        " total_params=" + group.total_params);
+
+      // Broadcast SHARD_GROUP_FORM so all peers know this pipeline is ready
+      var groupMsg = createMessage(MESSAGE_TYPES.SHARD_GROUP_FORM, {
+        group_id: group.group_id,
+        model_name: group.model_name,
+        total_params: group.total_params,
+        shards: group.shards.map(function (s) {
+          return {
+            node_id: s.node_id,
+            layer_start: s.layer_start,
+            layer_end: s.layer_end,
+            param_count: s.param_count,
+            rpc_endpoint: s.rpc_endpoint,
+            engine: s.engine,
+          };
+        }),
+        coordinator: group.coordinator,
+        formed_at: group.formed_at,
+      }, ctx.NODE_ID);
+      ctx.broadcast(groupMsg);
+    }
+  } catch (err) {
+    console.error("[BTCPC Shard] handleShardRegister error:", err.message);
+  }
+
+  // Relay the registration to all peers
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+// Ensemble handler — Mode A (majority-vote)
+// ---------------------------------------------------------------------------
+
+/**
+ * ENSEMBLE_RESULT — A node submits its inference result for an ensemble job.
+ * If consensus is reached, broadcast ENSEMBLE_CONSENSUS to all peers.
+ */
+function handleEnsembleResult(peer, msg, ctx) {
+  var data = msg.data || {};
+  if (!data.request_id || !data.node_id || !data.result_hash) return;
+
+  try {
+    var ensembleCoordinator = require("../inference/ensembleCoordinator");
+    var outcome = ensembleCoordinator.submitContribution(
+      data.request_id,
+      data.node_id,
+      data.result_hash,
+      data.result_text || null,
+      data.tokens || 0,
+      data.model_hash || null
+    );
+
+    console.log("[BTCPC Ensemble] Contribution from " + data.node_id.slice(0, 12) +
+      " request=" + data.request_id.slice(0, 12) +
+      " status=" + outcome.status);
+
+    if (outcome.consensusAchieved) {
+      console.log("[BTCPC Ensemble] Consensus on request " + data.request_id.slice(0, 12) +
+        " nodes=" + outcome.consensusNodes.join(",").slice(0, 40));
+
+      var consensusMsg = createMessage(MESSAGE_TYPES.ENSEMBLE_CONSENSUS, {
+        request_id: data.request_id,
+        consensus_hash: outcome.result ? outcome.result.result_hash : null,
+        consensus_nodes: outcome.consensusNodes,
+        result_text: outcome.result ? outcome.result.result_text : null,
+        timestamp: Date.now(),
+      }, ctx.NODE_ID);
+      ctx.broadcast(consensusMsg);
+    }
+  } catch (err) {
+    console.error("[BTCPC Ensemble] handleEnsembleResult error:", err.message);
+  }
+
+  // Relay to all peers
   ctx.broadcast(msg, peer.address);
 }
 

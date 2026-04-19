@@ -139,6 +139,15 @@ const MEMPOOL_ALLOWED_TYPES = [
   "TOOL_CAPABILITY_REGISTER",
   "TOOL_TRACE_COMMIT",
   "INFERENCE_CHARGE",
+  // Shard inference (Mode B — pipeline)
+  "SHARD_REGISTER",
+  "SHARD_GROUP_FORM",
+  "SHARD_ACTIVATE",
+  "SHARD_RESULT",
+  // Ensemble inference (Mode A — majority-vote)
+  "ENSEMBLE_CLAIM",
+  "ENSEMBLE_RESULT",
+  "ENSEMBLE_CONSENSUS",
 ];
 
 /**
