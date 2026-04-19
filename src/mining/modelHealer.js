@@ -83,10 +83,10 @@ async function getParamCount(model) {
 async function pullModel(modelName) {
   console.log(`[model-healer] Pulling ${modelName} from Ollama registry...`);
   try {
-    // Use a long timeout — large models can take minutes to download
+    // stream:false makes Ollama respond with a single JSON object when complete
     await axios.post(
       `${OLLAMA_URL}/api/pull`,
-      { name: modelName },
+      { name: modelName, stream: false },
       { timeout: 600000 } // 10 minutes
     );
     console.log(`[model-healer] Pull complete: ${modelName}`);

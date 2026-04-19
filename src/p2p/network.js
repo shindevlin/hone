@@ -22,13 +22,37 @@ const MAX_PEERS = 50;
 const HEARTBEAT_INTERVAL_MS = 30000;
 const MAX_RECONNECT_DELAY_MS = 300000; // 5 minutes
 
-// The Cloudflare relay speaks plain JSON — Noise_XX is skipped for relay connections.
+// Relay URLs — supports multiple for redundancy via BTCPC_RELAY_URLS (comma-separated).
+// Falls back to BTCPC_RELAY_URL (single) or the built-in Cloudflare relay.
+// The Cloudflare relay speaks plain JSON — Noise_XX is skipped for all relay connections.
+const RELAY_URLS = (function () {
+  const multi = process.env.BTCPC_RELAY_URLS;
+  if (multi) return multi.split(",").map(function (u) { return u.trim(); }).filter(Boolean);
+  const single = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+  return single ? [single] : [];
+})();
+
 function isRelayAddress(address) {
   if (!address) return false;
-  const relayUrl = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
-  if (address === relayUrl) return true;
+  for (var i = 0; i < RELAY_URLS.length; i++) {
+    if (RELAY_URLS[i] === address) return true;
+  }
+  // Cloudflare Workers fallback match — catches any workers.dev URL even if not in list
   if (address.includes("workers.dev")) return true;
   return false;
+}
+
+/**
+ * Connect to all configured relay URLs. Call this instead of connectToPeer(relayUrl)
+ * so that all relays in BTCPC_RELAY_URLS are tried; surviving relays maintain
+ * connectivity if others go down.
+ */
+function connectToRelays() {
+  if (RELAY_URLS.length === 0) return;
+  console.log("[BTCPC P2P] Connecting to " + RELAY_URLS.length + " relay(s)");
+  for (var i = 0; i < RELAY_URLS.length; i++) {
+    connectToPeer(RELAY_URLS[i]);
+  }
 }
 
 /**
@@ -509,6 +533,7 @@ module.exports = {
   stopServer,
   connectToPeer,
   connectToSeeds,
+  connectToRelays,
   broadcast,
   send,
   onMessage,
@@ -516,6 +541,7 @@ module.exports = {
   getConnectedCount,
   getNodeId,
   NODE_ID,
+  RELAY_URLS,
   peers,
   getKnownPeerKeys: transport.getKnownPeerKeys,
 };

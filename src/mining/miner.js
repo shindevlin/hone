@@ -1065,10 +1065,8 @@ async function startMiner() {
     console.log(`[BTCPC] P2P network started on port ${process.env.P2P_PORT || 6942}`);
     console.log(`[BTCPC] Node ID: ${p2p.NODE_ID}`);
 
-    // Connect to public relay (works through any NAT)
-    const relayUrl = process.env.BTCPC_RELAY_URL || 'wss://btcpc-relay.shindevlin.workers.dev/ws';
-    p2p.connectToPeer(relayUrl);
-    console.log(`[BTCPC] Connecting to relay: ${relayUrl}`);
+    // Connect to all configured relays (BTCPC_RELAY_URLS or BTCPC_RELAY_URL)
+    p2p.connectToRelays();
 
     // Start inference handler — listen for jobs on P2P
     startInferenceHandler();

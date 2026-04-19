@@ -41,6 +41,12 @@ var P2P_PORT = parseInt(process.env.BTCPC_CLOCK_P2P_PORT || process.env.P2P_PORT
 var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
 var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+// Multi-relay: BTCPC_RELAY_URLS overrides BTCPC_RELAY_URL when set
+var RELAY_URLS = (function () {
+  var multi = process.env.BTCPC_RELAY_URLS;
+  if (multi) return multi.split(",").map(function (u) { return u.trim(); }).filter(Boolean);
+  return RELAY_URL ? [RELAY_URL] : [];
+})();
 var EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
 var POSTING_KEY = process.env.BTCPC_POSTING_KEY || null;
 var ACTIVE_KEY = process.env.BTCPC_ACTIVE_KEY || null;
@@ -439,7 +445,8 @@ function start() {
 
   // Connect to seed peers
   SEED_PEERS.forEach(connectToPeer);
-  if (RELAY_URL) connectToPeer(RELAY_URL);
+  // Connect to all configured relays for redundancy
+  RELAY_URLS.forEach(connectToPeer);
 
   running = true;
 
