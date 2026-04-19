@@ -42,7 +42,6 @@ async function createGenesisBlock() {
 
   if (existingEpoch || blockStore.hasBlock(0) || hasFinalitySnap) {
     console.log('[BTCPC] Genesis block already exists');
-    const user = await User.findOne({ username: GENESIS_MINER });
     const epochData = existingEpoch || {
       epoch_number: 0,
       started_at: new Date(0),
@@ -51,7 +50,7 @@ async function createGenesisBlock() {
     };
     return {
       epoch: epochData,
-      user,
+      user: null,
       wallet: null,
       node: null,
       alreadyExisted: true
@@ -61,14 +60,18 @@ async function createGenesisBlock() {
   console.log('[BTCPC] Creating genesis block...');
   console.log(`[BTCPC] Genesis message: "${GENESIS_MESSAGE}"`);
 
-  // Create the genesis miner account using saved mnemonic if available
-  let user = await User.findOne({ username: GENESIS_MINER });
-  if (!user) {
+  // Create the genesis miner account — stateStore is source of truth; Mongo is optional
+  const mongoEnabled = process.env.BTCPC_MONGO_MODE === 'enabled';
+  let user = null;
+  if (mongoEnabled) {
+    user = await User.findOne({ username: GENESIS_MINER });
+  }
+  if (!user && !stateStore.hasAccount(GENESIS_MINER)) {
     const { createAccount } = require('../wallet/accountManager');
     const savedMnemonic = process.env.BTCPC_MNEMONIC || null;
     try {
       const account = await createAccount(GENESIS_MINER, savedMnemonic, `${GENESIS_MINER}-genesis`);
-      user = await User.findOne({ username: GENESIS_MINER });
+      if (mongoEnabled) user = await User.findOne({ username: GENESIS_MINER });
       console.log(`[BTCPC] Genesis miner account created: ${GENESIS_MINER} (${account.address})`);
       if (savedMnemonic) console.log(`[BTCPC] Using saved mnemonic from BTCPC_MNEMONIC`);
       console.log(`[BTCPC] Wallets: ${JSON.stringify(account.chainWallets)}`);
@@ -79,10 +82,14 @@ async function createGenesisBlock() {
       console.log(`[BTCPC] Genesis miner announced to permanent ledger`);
     } catch (err) {
       console.error(`[BTCPC] Failed to create genesis account: ${err.message}`);
-      // Fallback: create minimal User doc only
-      const passwordHash = crypto.createHash('sha256').update(`${GENESIS_MINER}-genesis-${Date.now()}`).digest('hex');
-      user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@btcpc.network`, password: passwordHash, isActive: true });
-      await user.save();
+      if (mongoEnabled) {
+        // Fallback: create minimal User doc only when Mongo is available
+        try {
+          const passwordHash = crypto.createHash('sha256').update(`${GENESIS_MINER}-genesis-${Date.now()}`).digest('hex');
+          user = new User({ username: GENESIS_MINER, email: `${GENESIS_MINER}@btcpc.network`, password: passwordHash, isActive: true });
+          await user.save();
+        } catch (_) {}
+      }
     }
   }
 
@@ -142,26 +149,28 @@ async function createGenesisBlock() {
     console.error(`[BTCPC] Failed to read whitepaper for genesis dream: ${err.message}`);
   }
 
-  // Reserve top names — owned by shindevlin, sellable later
-  let reservedCount = 0;
-  try {
-    const reservedNames = JSON.parse(fs.readFileSync(RESERVED_NAMES_PATH, 'utf8'));
-    for (const name of reservedNames) {
-      const existing = await User.findOne({ username: name });
-      if (!existing && name !== GENESIS_MINER) {
-        const rUser = new User({
-          username: name,
-          email: `${name}@reserved.btcpc.network`,
-          password: crypto.createHash('sha256').update(`reserved-${name}-genesis`).digest('hex'),
-          isActive: false  // inactive until claimed/sold
-        });
-        await rUser.save();
-        reservedCount++;
+  // Reserve top names — Mongo only, skip when unavailable (chain is source of truth)
+  if (mongoEnabled) {
+    let reservedCount = 0;
+    try {
+      const reservedNames = JSON.parse(fs.readFileSync(RESERVED_NAMES_PATH, 'utf8'));
+      for (const name of reservedNames) {
+        const existing = await User.findOne({ username: name });
+        if (!existing && name !== GENESIS_MINER) {
+          const rUser = new User({
+            username: name,
+            email: `${name}@reserved.btcpc.network`,
+            password: crypto.createHash('sha256').update(`reserved-${name}-genesis`).digest('hex'),
+            isActive: false  // inactive until claimed/sold
+          });
+          await rUser.save();
+          reservedCount++;
+        }
       }
+      console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
+    } catch (err) {
+      console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
     }
-    console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
-  } catch (err) {
-    console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
   }
 
   // ── Write genesis block to disk — the source of truth ──

@@ -35,12 +35,20 @@ let mongoEnabled = false;
 
 async function connectMongo() {
   const mongoMode = (process.env.BTCPC_MONGO_MODE || '').toLowerCase();
-  if (mongoMode === 'disabled') {
-    console.log('[BTCPC] MongoDB: DISABLED via BTCPC_MONGO_MODE=disabled');
+  if (mongoMode !== 'enabled') {
+    // Not explicitly enabled — disable Mongoose buffering so any accidental
+    // model calls fail immediately instead of hanging for 10s then crashing.
+    mongoose.set('bufferCommands', false);
+    if (mongoMode === 'disabled') {
+      console.log('[BTCPC] MongoDB: DISABLED via BTCPC_MONGO_MODE=disabled');
+    } else {
+      console.log('[BTCPC] MongoDB: not enabled (set BTCPC_MONGO_MODE=enabled to use)');
+    }
     return;
   }
   if (!MONGODB_URI) {
-    console.warn('[BTCPC] MongoDB: enabled but unreachable — MONGODB_URI not set, falling back to stateStore');
+    mongoose.set('bufferCommands', false);
+    console.warn('[BTCPC] MongoDB: BTCPC_MONGO_MODE=enabled but MONGODB_URI not set — falling back to stateStore');
     return;
   }
   try {
@@ -48,7 +56,8 @@ async function connectMongo() {
     mongoEnabled = true;
     console.log('[BTCPC] MongoDB: enabled and connected');
   } catch (err) {
-    console.warn(`[BTCPC] MongoDB: enabled but unreachable — falling back to stateStore (${err.message})`);
+    mongoose.set('bufferCommands', false);
+    console.warn(`[BTCPC] MongoDB: unreachable — falling back to stateStore (${err.message})`);
   }
 }
 

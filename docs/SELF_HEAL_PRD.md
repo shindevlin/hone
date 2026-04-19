@@ -67,7 +67,11 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Currently throws `failed to read secrets.json`
 
 - [x] **`bin/btcpc-mine` Mongo connection**
-  - Already non-fatal after Phase F, but verify the warning is silent (logged once, not every loop)
+  - Was crashing with `users.findOne() buffering timed out` when BTCPC_MONGO_MODE unset but MONGODB_URI present
+  - Fix: `bufferCommands: false` set immediately when Mongo not enabled — any accidental model call fails fast instead of hanging
+  - Fix: `genesisBlock.js` all `User.findOne()` / `user.save()` guarded by `mongoEnabled` check
+  - Fix: `p2p/network.js` EADDRINUSE → auto-retries on next 5 ports instead of crashing
+  - Done in commit: self-heal: miner no longer crashes without Mongo
 
 ## P2 — Account / wallet self-heal
 

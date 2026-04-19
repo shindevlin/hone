@@ -41,7 +41,27 @@ let heartbeatTimer = null;
 function startServer(port) {
   const listenPort = port || parseInt(process.env.BTCPC_API_P2P_PORT || process.env.P2P_PORT) || DEFAULT_PORT;
 
-  wss = new WebSocket.Server({ port: listenPort });
+  function _bindServer(tryPort, retriesLeft) {
+    wss = new WebSocket.Server({ port: tryPort });
+    wss.once("error", function (err) {
+      if (err.code === "EADDRINUSE" && retriesLeft > 0) {
+        console.warn("[BTCPC P2P] Port " + tryPort + " in use, retrying on " + (tryPort + 1));
+        wss.close();
+        _bindServer(tryPort + 1, retriesLeft - 1);
+      } else {
+        console.error("[BTCPC P2P] Server error:", err.message);
+      }
+    });
+    wss.once("listening", function () {
+      console.log("[BTCPC P2P] Server listening on port " + tryPort);
+      console.log("[BTCPC P2P] Node ID: " + NODE_ID);
+      // Re-attach ongoing error handler after bind succeeds
+      wss.on("error", function (err) {
+        console.error("[BTCPC P2P] Server error:", err.message);
+      });
+    });
+  }
+  _bindServer(listenPort, 5);
 
   wss.on("connection", function (ws, req) {
     // Strip IPv4-mapped IPv6 prefix (::ffff:) — not a valid WebSocket URL
@@ -76,9 +96,6 @@ function startServer(port) {
   for (var savedAddr of knownPeers) {
     connectToPeer(savedAddr);
   }
-
-  console.log("[BTCPC P2P] Server listening on port " + listenPort);
-  console.log("[BTCPC P2P] Node ID: " + NODE_ID);
 
   return wss;
 }
