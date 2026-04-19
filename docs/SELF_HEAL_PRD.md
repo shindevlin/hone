@@ -102,6 +102,13 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 ## P4 — Network self-heal
 
+- [x] **`src/p2p/network.js` relay communication**
+  - Cloudflare relay speaks plain JSON but nodes sent Noise_XX encrypted binary — all relay messages silently dropped
+  - Added `isRelayAddress()` (matches `workers.dev` + `BTCPC_RELAY_URL`), `noiseEnabled` flag per peer
+  - Relay connections skip Noise handshake, send/receive plain JSON directly
+  - Direct peer connections still use full Noise_XX
+  - Done in commit: self-heal: relay connections bypass Noise_XX, use plain JSON (v3.1.60)
+
 - [ ] **`src/p2p/network.js` reconnect backoff**
   - Currently reconnects on disconnect, but verify the backoff resets on success
   - If ALL seed peers + relay are down, retry forever with 30-60s backoff (don't give up)
