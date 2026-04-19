@@ -79,21 +79,24 @@ test("work value uses ENSEMBLE_BONUS_MULTIPLIER for consensus, PARTIAL for non-c
   expect(computeEnsembleWorkValue(id, "Z", params)).toBe(0);
 });
 
-test("tokens clamped to max_tokens — over-reporting node earns no extra", () => {
+test("actual tokens drive payout — more tokens = more reward (natural compute incentive)", () => {
   const id = rid();
+  // max_tokens=512 is a generation hint only; payout uses actual tokens
   createEnsembleJob(id, "qwen3:4b", "ph7", 2, Date.now() + 60000, 512, 0);
 
-  // nodeA reports 1000 tokens but max_tokens=512 → clamped to 512
-  submitContribution(id, "A", "hhhh", "txt", 1000, "mh");
-  submitContribution(id, "B", "hhhh", "txt", 512, "mh");
+  // nodeA generates more tokens (longer response) than nodeB
+  submitContribution(id, "A", "hhhh", "txt", 800, "mh");
+  submitContribution(id, "B", "hhhh", "txt", 300, "mh");
 
   expect(getJob(id).status).toBe("consensus");
   const params = 4e9;
   const workA = computeEnsembleWorkValue(id, "A", params);
   const workB = computeEnsembleWorkValue(id, "B", params);
-  // Both should be clamped to 512
-  expect(workA).toBe(512 * params * ENSEMBLE_BONUS_MULTIPLIER);
-  expect(workA).toBe(workB);
+
+  // Larger output = more reward — payout is NOT capped at max_tokens
+  expect(workA).toBe(800 * params * ENSEMBLE_BONUS_MULTIPLIER);
+  expect(workB).toBe(300 * params * ENSEMBLE_BONUS_MULTIPLIER);
+  expect(workA).toBeGreaterThan(workB);
 });
 
 test("non-existent job returns not_found", () => {

@@ -23,8 +23,8 @@ const ENSEMBLE_PARTIAL_MULTIPLIER = 0.5; // contributed but didn't match consens
 //   model:           string,
 //   prompt_hash:     string,
 //   min_size:        number,
-//   max_tokens:      number,   // all nodes generate exactly this many tokens → equal work
-//   temperature:     number,   // 0 = greedy/deterministic → matching result_hash possible
+//   max_tokens:      number,   // Ollama generation limit (latency hint) — does NOT cap payout
+//   temperature:     number,   // 0 = greedy/deterministic → result_hash can match across nodes
 //   deadline:        number,   // epoch ms
 //   contributions:   Map<nodeId, { result_hash, result_text, tokens, model_hash, submitted_at }>,
 //   status:          'pending' | 'consensus' | 'partial_win' | 'expired',
@@ -32,12 +32,15 @@ const ENSEMBLE_PARTIAL_MULTIPLIER = 0.5; // contributed but didn't match consens
 //   consensus_nodes: string[],
 // }
 //
-// Why max_tokens + temperature:
-//   Without max_tokens, nodes that generate more tokens earn proportionally more reward
-//   for the same job — unfair. Fixed token count = equal compute = equal base pay.
+// Why temperature matters:
 //   temperature=0 (greedy decoding) makes generation deterministic given the same model
-//   weights, so result_hash can actually match across nodes. temperature>0 = stochastic
-//   output = hashes will almost never agree = consensus impossible.
+//   weights, so result_hash can actually match across nodes running the same model.
+//   temperature>0 = stochastic = hashes rarely match = consensus harder to declare.
+//
+// Why max_tokens is a hint, not a cap:
+//   Larger jobs (longer responses, bigger models) naturally earn more — tokens × param_count
+//   reflects real compute. max_tokens tells Ollama when to stop generating (latency control
+//   for the requester) but payouts are based on actual tokens produced, not the limit.
 const jobs = new Map();
 
 const DEFAULT_ENSEMBLE_MAX_TOKENS = 512;
@@ -97,15 +100,14 @@ function submitContribution(requestId, nodeId, resultHash, resultText, tokens, m
     return { status: "expired", consensusAchieved: false, consensusNodes: [], result: null };
   }
 
-  // Clamp reported tokens to max_tokens — prevents a misbehaving node from
-  // inflating its work value by reporting more tokens than allowed by the job.
-  const clampedTokens = Math.min(tokens || 0, job.max_tokens);
-
-  // Store / overwrite this node's contribution
+  // Store / overwrite this node's contribution with actual tokens generated.
+  // Reward = tokens × param_count naturally reflects real compute performed —
+  // more tokens or a bigger model earns more. max_tokens on the job is a latency
+  // hint to Ollama (generation stops there) but does not cap the payout.
   job.contributions.set(nodeId, {
     result_hash: resultHash,
     result_text: resultText,
-    tokens: clampedTokens,
+    tokens: tokens || 0,
     model_hash: modelHash || null,
     submitted_at: Date.now(),
   });
