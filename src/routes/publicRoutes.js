@@ -81,7 +81,7 @@ router.get('/machine-status', async (req, res) => {
       'btcpc-chain-monitor': 'chain-monitor',
       'btcpc-auto-update': 'auto-update',
       'btcpc-gnss-bridge': 'gnss-bridge',
-      'btcpc-gnss-relay': 'gnss-relay',
+      // 'btcpc-gnss-relay' deprecated — replaced by btcpc-gnss-bridge (HTTP poll, no root required)
       'btcpc-nebra': 'nebra',
       'btcpc-all': 'all',
       'btcpc-gateway': 'gateway',

@@ -64,13 +64,19 @@ Response: {
 - Type: gps, unit: gnss_correction
 - Earns from 10% IoT pool
 
-### btcpc-gnss-relay (runs on natoshi PC, requires sudo)
+### btcpc-gnss-relay (DEPRECATED — do not use)
+
+> Replaced by **btcpc-gnss-bridge**, which HTTP-polls the Hyfix device over
+> WiFi and requires no root access. The ARP-spoof/tcpdump approach below is
+> kept for historical reference only.
+
 - ARP spoofs to intercept RTCM3 UDP stream from Hyfix to GEODNET
 - Forwards copies to multiple NTRIP casters:
   - RTK Direct (ntrip.rtkdirect.com:2101)
   - onocoy (servers.onocoy.com:2121, needs TLS)
 - Records RTCM frame metadata on BTCPC chain
 - **NOTE**: ARP spoofing only works on same layer-2 segment. WiFi↔ethernet bridge may not work.
+- **Requires sudo** — use btcpc-gnss-bridge instead.
 
 ### Environment Variables (.env on natoshi)
 ```

@@ -2,6 +2,16 @@
 "use strict";
 
 /**
+ * DEPRECATED — use bin/btcpc-gnss-bridge instead.
+ *
+ * btcpc-gnss-bridge polls the Hyfix device over WiFi via HTTP (no root
+ * required). This relay's ARP-spoof/tcpdump approach requires sudo and
+ * only works on a layer-2 segment; it is no longer maintained.
+ *
+ * This file is kept for historical reference only. Do NOT run it in
+ * production.
+ *
+ * ────────────────────────────────────────────────────────────────────
  * btcpc-gnss-relay — RTCM3 stream interceptor + multi-caster
  * Shin Devlin
  *
