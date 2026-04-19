@@ -56,6 +56,8 @@ async function createInferenceRequest({
   mode,
   ensembleMinSize,
   ensembleDeadlineMs,
+  maxTokens,
+  temperature,
 }) {
   const requestId = crypto.randomBytes(16).toString("hex");
   const fee = maxFee || 10;
@@ -64,6 +66,13 @@ async function createInferenceRequest({
   const reqMode = mode === 'ensemble' ? 'ensemble'
     : mode === 'pipeline' ? 'pipeline'
     : 'solo';
+
+  // Ensemble defaults: fixed token count + deterministic generation.
+  // max_tokens ensures equal compute (and equal pay) across all ensemble nodes.
+  // temperature=0 (greedy) makes output deterministic given the same model,
+  // which is required for result_hash to match across nodes.
+  const ensembleMaxTokens = maxTokens != null ? maxTokens : 512;
+  const ensembleTemperature = temperature != null ? temperature : 0;
 
   // Lock funds in escrow
   await escrow.lockFunds(requestId, requesterId, fee);
@@ -78,6 +87,8 @@ async function createInferenceRequest({
     max_fee: fee,
     redundancy: redundancy || MIN_REDUNDANCY,
     mode: reqMode,
+    max_tokens: reqMode === 'ensemble' ? ensembleMaxTokens : (maxTokens || null),
+    temperature: reqMode === 'ensemble' ? ensembleTemperature : (temperature != null ? temperature : null),
     timestamp: Date.now(),
     status: reqMode === 'solo' ? "open" : "broadcasting",
     claims: [],
@@ -99,9 +110,11 @@ async function createInferenceRequest({
       model || "qwen3.5:27b",
       promptHash,
       minSize,
-      deadline
+      deadline,
+      ensembleMaxTokens,
+      ensembleTemperature
     );
-    console.log(`[BTCPC Inference] Ensemble job created: ${requestId.slice(0, 12)} minSize=${minSize}`);
+    console.log(`[BTCPC Inference] Ensemble job created: ${requestId.slice(0, 12)} minSize=${minSize} max_tokens=${ensembleMaxTokens} temperature=${ensembleTemperature}`);
   }
 
   // ── Mode B: Pipeline ──

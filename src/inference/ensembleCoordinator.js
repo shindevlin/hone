@@ -23,13 +23,25 @@ const ENSEMBLE_PARTIAL_MULTIPLIER = 0.5; // contributed but didn't match consens
 //   model:           string,
 //   prompt_hash:     string,
 //   min_size:        number,
-//   deadline:        number,       // epoch ms
+//   max_tokens:      number,   // all nodes generate exactly this many tokens → equal work
+//   temperature:     number,   // 0 = greedy/deterministic → matching result_hash possible
+//   deadline:        number,   // epoch ms
 //   contributions:   Map<nodeId, { result_hash, result_text, tokens, model_hash, submitted_at }>,
 //   status:          'pending' | 'consensus' | 'partial_win' | 'expired',
 //   consensus_hash:  null | string,
 //   consensus_nodes: string[],
 // }
+//
+// Why max_tokens + temperature:
+//   Without max_tokens, nodes that generate more tokens earn proportionally more reward
+//   for the same job — unfair. Fixed token count = equal compute = equal base pay.
+//   temperature=0 (greedy decoding) makes generation deterministic given the same model
+//   weights, so result_hash can actually match across nodes. temperature>0 = stochastic
+//   output = hashes will almost never agree = consensus impossible.
 const jobs = new Map();
+
+const DEFAULT_ENSEMBLE_MAX_TOKENS = 512;
+const DEFAULT_ENSEMBLE_TEMPERATURE = 0; // deterministic
 
 /**
  * Create a new ensemble job.
@@ -38,14 +50,18 @@ const jobs = new Map();
  * @param {string} promptHash
  * @param {number} minSize        — minimum matching nodes to declare consensus
  * @param {number} deadlineMs     — absolute epoch ms deadline
+ * @param {number} [maxTokens]    — max tokens each node generates (default 512)
+ * @param {number} [temperature]  — sampling temperature (default 0 = deterministic)
  * @returns {object}              — the created job
  */
-function createEnsembleJob(requestId, model, promptHash, minSize, deadlineMs) {
+function createEnsembleJob(requestId, model, promptHash, minSize, deadlineMs, maxTokens, temperature) {
   const job = {
     request_id: requestId,
     model: model,
     prompt_hash: promptHash,
     min_size: minSize || 3,
+    max_tokens: maxTokens != null ? maxTokens : DEFAULT_ENSEMBLE_MAX_TOKENS,
+    temperature: temperature != null ? temperature : DEFAULT_ENSEMBLE_TEMPERATURE,
     deadline: deadlineMs || (Date.now() + 120000),
     contributions: new Map(),
     status: "pending",
@@ -81,11 +97,15 @@ function submitContribution(requestId, nodeId, resultHash, resultText, tokens, m
     return { status: "expired", consensusAchieved: false, consensusNodes: [], result: null };
   }
 
+  // Clamp reported tokens to max_tokens — prevents a misbehaving node from
+  // inflating its work value by reporting more tokens than allowed by the job.
+  const clampedTokens = Math.min(tokens || 0, job.max_tokens);
+
   // Store / overwrite this node's contribution
   job.contributions.set(nodeId, {
     result_hash: resultHash,
     result_text: resultText,
-    tokens: tokens || 0,
+    tokens: clampedTokens,
     model_hash: modelHash || null,
     submitted_at: Date.now(),
   });

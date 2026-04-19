@@ -141,11 +141,19 @@ const PROMPT_POOL = [
 /**
  * Send a prompt to Ollama and return work proof data.
  * Retries with exponential backoff if Ollama is busy.
+ *
+ * @param {string} model
+ * @param {string} [customPrompt]
+ * @param {object} [opts]
+ * @param {number} [opts.temperature=0.7]  — use 0 for ensemble (deterministic)
+ * @param {number} [opts.maxTokens=512]    — use fixed value for ensemble (equal work)
  */
-async function generateWork(model, customPrompt) {
+async function generateWork(model, customPrompt, opts) {
   model = model || DEFAULT_MODEL;
   const prompt = customPrompt || PROMPT_POOL[Math.floor(Math.random() * PROMPT_POOL.length)];
   const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
+  const temperature = (opts && opts.temperature != null) ? opts.temperature : 0.7;
+  const maxTokens = (opts && opts.maxTokens != null) ? opts.maxTokens : 512;
 
   let attempt = 0;
   const maxAttempts = 5;
@@ -157,8 +165,8 @@ async function generateWork(model, customPrompt) {
         prompt: prompt,
         stream: false,
         options: {
-          temperature: 0.7,
-          num_predict: 512
+          temperature: temperature,
+          num_predict: maxTokens
         }
       }, {
         timeout: 120000

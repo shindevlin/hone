@@ -61,7 +61,8 @@ test("expireOldJobs marks past-deadline jobs expired", () => {
 
 test("work value uses ENSEMBLE_BONUS_MULTIPLIER for consensus, PARTIAL for non-consensus", () => {
   const id = rid();
-  createEnsembleJob(id, "mistral:7b", "ph4", 3, Date.now() + 60000);
+  const maxTok = 512;
+  createEnsembleJob(id, "mistral:7b", "ph4", 3, Date.now() + 60000, maxTok, 0);
 
   submitContribution(id, "C", "eeee", "txt", 100, "mh");
   submitContribution(id, "A", "dddd", "txt", 200, "mh");
@@ -76,6 +77,23 @@ test("work value uses ENSEMBLE_BONUS_MULTIPLIER for consensus, PARTIAL for non-c
   expect(computeEnsembleWorkValue(id, "D", params)).toBe(120 * params * ENSEMBLE_BONUS_MULTIPLIER);
   expect(computeEnsembleWorkValue(id, "C", params)).toBe(100 * params * ENSEMBLE_PARTIAL_MULTIPLIER);
   expect(computeEnsembleWorkValue(id, "Z", params)).toBe(0);
+});
+
+test("tokens clamped to max_tokens — over-reporting node earns no extra", () => {
+  const id = rid();
+  createEnsembleJob(id, "qwen3:4b", "ph7", 2, Date.now() + 60000, 512, 0);
+
+  // nodeA reports 1000 tokens but max_tokens=512 → clamped to 512
+  submitContribution(id, "A", "hhhh", "txt", 1000, "mh");
+  submitContribution(id, "B", "hhhh", "txt", 512, "mh");
+
+  expect(getJob(id).status).toBe("consensus");
+  const params = 4e9;
+  const workA = computeEnsembleWorkValue(id, "A", params);
+  const workB = computeEnsembleWorkValue(id, "B", params);
+  // Both should be clamped to 512
+  expect(workA).toBe(512 * params * ENSEMBLE_BONUS_MULTIPLIER);
+  expect(workA).toBe(workB);
 });
 
 test("non-existent job returns not_found", () => {
