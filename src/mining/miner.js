@@ -81,90 +81,32 @@ let _devicePrivKey = null; // hex — used to sign proposals
 let _devicePubKey  = null; // hex — sent as device_id in proposals
 
 /**
- * Load or generate this device's unique keypair and ensure it is registered
- * on-chain as a delegate for MINER_ACCOUNT. Fully automatic — no user action.
+ * Set up the signing identity for this miner from BTCPC_ACTIVE_KEY.
+ *
+ * Design: all machines mining as the same account use the same BTCPC_ACTIVE_KEY.
+ * No per-machine key generation. Peers verify proposals against the account's
+ * registered active public key (Path B in messageAuth.verifyDeviceOrAccountSignature).
+ * Put BTCPC_ACTIVE_KEY=<hex_priv> in the .env on every machine you want to mine as
+ * this account.
  *
  * @param {string|null} ownerActiveKeyPriv — BTCPC_ACTIVE_KEY env var (hex)
  */
 async function _ensureDeviceKey(ownerActiveKeyPriv) {
-  const fs = require('fs');
-  const path = require('path');
-  const os = require('os');
-  const crypto = require('crypto');
-  const { secp256k1 } = require('@noble/curves/secp256k1');
-  const secp = require('secp256k1'); // npm secp256k1 for privateKeyVerify
-
-  // Key lives in ~/.btcpc/device-<account>.key so multiple accounts can coexist
-  const keyDir = path.join(os.homedir(), '.btcpc');
-  const keyFile = path.join(keyDir, 'device-' + MINER_ACCOUNT + '.key');
-
-  // Load or generate
-  let privHex;
-  try {
-    privHex = fs.readFileSync(keyFile, 'utf8').trim();
-    if (!/^[0-9a-f]{64}$/i.test(privHex)) throw new Error('bad format');
-  } catch (_) {
-    // Generate a new random device key
-    let privBuf;
-    do { privBuf = crypto.randomBytes(32); } while (!secp.privateKeyVerify(privBuf));
-    privHex = privBuf.toString('hex');
-    try {
-      fs.mkdirSync(keyDir, { recursive: true });
-      fs.writeFileSync(keyFile, privHex, { mode: 0o600 });
-    } catch (e) {
-      console.warn('[BTCPC Device] Could not save device key:', e.message);
-    }
-  }
-
-  const pubBytes  = secp256k1.getPublicKey(Buffer.from(privHex, 'hex'), true);
-  const pubHex    = Buffer.from(pubBytes).toString('hex');
-  _devicePrivKey  = privHex;
-  _devicePubKey   = pubHex;
-
-  console.log(`[BTCPC Device] Device key: ${pubHex.slice(0, 16)}...`);
-
-  // Register on-chain if not already known in stateStore
-  if (stateStore.isDeviceAuthorized(pubHex, MINER_ACCOUNT)) {
-    console.log('[BTCPC Device] Already registered on-chain — ready to mine.');
-    return;
-  }
-
   if (!ownerActiveKeyPriv) {
-    // No active key available — fall back to signing proposals with active key
-    console.warn('[BTCPC Device] No BTCPC_ACTIVE_KEY — device key registration skipped. Proposals will use account key.');
-    _devicePrivKey = ownerActiveKeyPriv;
-    _devicePubKey  = null;
+    console.warn('[BTCPC] No BTCPC_ACTIVE_KEY set — block proposals will be unsigned and rejected by peers.');
+    console.warn('[BTCPC] Add BTCPC_ACTIVE_KEY=<64-hex-chars> to your .env to mine as ' + MINER_ACCOUNT + '.');
     return;
   }
 
-  // Build hardware fingerprint (best-effort anti-Sybil, never blocks startup)
-  let hardwareHash = null;
+  const { secp256k1 } = require('@noble/curves/secp256k1');
   try {
-    const cpus  = os.cpus().map(c => c.model).join(',');
-    const mem   = os.totalmem().toString();
-    const host  = os.hostname();
-    const arch  = os.arch();
-    // Try to include GPU fingerprint if the SIK system is available
-    let gpuHash = '';
-    try {
-      const sikModule = require('../silicon');
-      const sik = await sikModule.getSIK();
-      if (sik && sik.sik_hash) gpuHash = sik.sik_hash;
-    } catch (_) {}
-    hardwareHash = crypto.createHash('sha256')
-      .update([cpus, mem, host, arch, pubHex, gpuHash].join('|'))
-      .digest('hex');
-  } catch (_) {}
-
-  // Submit DEVICE_AUTHORIZE entry (gossiped to peers, included in next block)
-  try {
-    const epoch = await ledger.getCurrentEpoch().catch(() => 0);
-    await ledger.recordDeviceAuthorize(MINER_ACCOUNT, pubHex, hardwareHash, 'mine', epoch);
-    console.log(`[BTCPC Device] Registered device ${pubHex.slice(0, 16)}... for ${MINER_ACCOUNT} — ready to mine.`);
-  } catch (regErr) {
-    console.warn('[BTCPC Device] Could not register device key:', regErr.message, '— falling back to account key.');
+    const pubBytes = secp256k1.getPublicKey(Buffer.from(ownerActiveKeyPriv, 'hex'), true);
+    const pubHex   = Buffer.from(pubBytes).toString('hex');
     _devicePrivKey = ownerActiveKeyPriv;
-    _devicePubKey  = null;
+    _devicePubKey  = pubHex;
+    console.log(`[BTCPC] Signing proposals as ${MINER_ACCOUNT} (pubkey ${pubHex.slice(0, 16)}...)`);
+  } catch (err) {
+    console.warn('[BTCPC] BTCPC_ACTIVE_KEY is not a valid secp256k1 private key:', err.message);
   }
 }
 
