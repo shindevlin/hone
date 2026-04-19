@@ -33,6 +33,7 @@
 var path = require("path");
 var fs   = require("fs");
 var { spawn } = require("child_process");
+var cb   = require("../src/supervisor/circuitBreaker");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 
@@ -51,6 +52,8 @@ var PENDING_FILE  = path.join(REPO_ROOT, ".btcpc-update-pending");
 var children      = {};
 var shuttingDown  = false;
 var startedAt     = Date.now();
+// Circuit breaker state: Map<role, number[]> of recent crash timestamps
+var cbState       = new Map();
 
 function roleEnv(role) {
   var env = Object.assign({}, process.env, { BTCPC_ROLE: role });
@@ -123,9 +126,24 @@ function launch(role, script) {
 
     if (shuttingDown) return;
 
-    // If a role crashes repeatedly in quick succession, back off longer
-    // to avoid thrashing the log stream and hammering the chain.
     var uptime = Date.now() - entry.lastStart;
+
+    // If the role ran for a healthy stretch, clear its crash history so a
+    // brief future bad streak doesn't inherit stale counts.
+    if (uptime > 5 * 60 * 1000) cb.reset(cbState, role);
+
+    // Circuit breaker: stop restarting a role that thrashes repeatedly.
+    var tripped = cb.recordCrash(cbState, role);
+    if (tripped) {
+      console.error(
+        "[supervisor] CIRCUIT BREAKER tripped for '" + role + "' — " +
+        cb.recentCrashCount(cbState, role) + " crashes in the last hour. " +
+        "Dropping role, other roles continue."
+      );
+      return;
+    }
+
+    // Exponential backoff capped at 60s; resets on long-lived uptime (handled above).
     var delay = BACKOFF_MS;
     if (uptime < 30000) delay = Math.min(BACKOFF_MS * Math.pow(2, Math.min(entry.restarts, 6)), 60000);
     console.log("[supervisor] restarting " + role + " in " + (delay / 1000) + "s");

@@ -91,9 +91,12 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 ## P3 — Node lifecycle self-heal
 
-- [ ] **`bin/btcpc-all` supervisor**
-  - Already auto-restarts crashed children with backoff. Verify the backoff doesn't grow unbounded if a child crashes 100 times (current cap is 60s, looks ok)
-  - Add a circuit breaker: if a role has crashed > 20 times in 1 hour, drop the role from the active set and keep the others running, log a warning
+- [x] **`bin/btcpc-all` supervisor**
+  - Backoff cap verified at 60s (`Math.min(..., 60000)`) — does not grow unbounded
+  - Circuit breaker added: if a role crashes > 20 times in 1 hour, it is dropped from the active set; all other roles continue; warning logged
+  - Healthy long-uptime runs (>5 min) reset the crash counter so brief future bad streaks start fresh
+  - Logic extracted to `src/supervisor/circuitBreaker.js`; 10 unit tests in `tests/supervisorCircuitBreaker.test.js`
+  - Done in commit: self-heal: btcpc-all circuit breaker drops thrashing roles (v3.1.68)
 
 - [x] **`bin/btcpc-storage` HTTP server bind failure**
   - On `EADDRINUSE` (port 4243 taken), currently calls `process.exit(1)`. Should auto-pick an available port (4244, 4245, ...) and log
