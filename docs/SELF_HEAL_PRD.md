@@ -45,13 +45,13 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 ## P1 — Miner / chain self-heal
 
-- [ ] **`src/mining/miner.js` model verification (#45 self-healing)**
+- [x] **`src/mining/miner.js` model verification (#45 self-healing)**
   - On `verifyModel(MODEL)` failure → `ollama pull <MODEL>`, then re-verify
   - Still fails → iterate through `ollama list` and pick the first locally-available model that DOES verify
   - Still fails → pull a known-good fallback model from a small list (`qwen3:4b`, `llama3.2:1b`)
   - Still fails → log a warning, broadcast `MINER_IDLE` with `reason: 'no_verifiable_model'`, KEEP the node alive (don't crash, don't `process.exit`)
   - When `BTCPC_MODEL` is unset → auto-pick the largest verified model from `ollama list`
-  - Add tests covering each fallback step
+  - Done in commit: self-heal: model verification fallback chain + 21 tests (modelHealer.js)
 
 - [x] **`src/mining/miner.js` Ollama unreachable**
   - On `ollama list` HTTP failure → poll Ollama at `http://localhost:11434` every 10s
