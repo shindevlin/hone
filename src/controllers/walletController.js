@@ -54,6 +54,7 @@ async function getBalance(req, res) {
     const btcpcBalance = stateStore.getBalance(username, 'BTCPC');
     const tokenBalances = stateStore.getTokenBalances ? stateStore.getTokenBalances(username) : { BTCPC: btcpcBalance };
     if (tokenBalances.BTCPC === undefined) tokenBalances.BTCPC = btcpcBalance;
+    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(username, 'BTCPC') : 0;
 
     // Generate deterministic address from username for display
     const address = 'BTCPC' + crypto.createHash('sha256').update(username).digest('hex').slice(0, 40);
@@ -62,7 +63,9 @@ async function getBalance(req, res) {
       success: true,
       address,
       chain: 'btcpc',
-      balance: tokenBalances
+      balance: tokenBalances,
+      delegated_balance: delegatedBalance,
+      delegated_note: delegatedBalance > 0 ? 'Delegated tokens are inference-only and cannot be transferred.' : undefined,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

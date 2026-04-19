@@ -419,6 +419,23 @@ async function recordDelegate(from, to, amount, purpose, epoch) {
 }
 
 /**
+ * Record an inference charge — deducts from requester's delegated balance first,
+ * then owned balance. Payment goes to miner/pool (to).
+ */
+async function recordInferenceCharge(from, to, amount, epoch, requestId) {
+  const entry = _entry({
+    type: 'INFERENCE_CHARGE',
+    from,
+    to,
+    token: 'BTCPC',
+    amount,
+    epoch,
+    memo: requestId ? 'inference:' + requestId : undefined,
+  });
+  return _persist(entry);
+}
+
+/**
  * Record undelegation on the ledger.
  */
 async function recordUndelegate(from, to, amount, epoch, memo) {
@@ -1959,6 +1976,7 @@ module.exports = {
   recordUnstake,
   recordDelegate,
   recordUndelegate,
+  recordInferenceCharge,
   recordEscrowLock,
   recordEscrowRelease,
   recordEscrowRefund,

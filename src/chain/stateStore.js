@@ -39,8 +39,13 @@ var nfts = new Map();
 // Staking pool state: username → { total_staked, purpose, first_stake_epoch }
 var stakes = new Map();
 
-// Delegations: "from|to" → { amount, purpose, epoch }
+// Delegations: "from|to" → { amount, purpose, epoch, source: 'owned'|'delegated' }
 var delegations = new Map();
+
+// Delegated-received balances: "username|token" → units
+// Tracks how much delegated (inference-only) balance an account holds.
+// Separate from balances — cannot be transferred or used in escrow.
+var delegatedReceived = new Map();
 
 // Escrows: requestId → { payer, amount, status, locked_epoch, released_to }
 var escrows = new Map();
@@ -217,6 +222,23 @@ function _debit(username, token, amount) {
   return true;
 }
 
+function _creditDelegated(username, token, amount) {
+  if (!username || !amount) return;
+  var key = _balanceKey(username, token);
+  var current = delegatedReceived.get(key) || 0;
+  delegatedReceived.set(key, current + toUnits(amount));
+}
+
+function _debitDelegated(username, token, amount) {
+  if (!username || !amount) return false;
+  var key = _balanceKey(username, token);
+  var current = delegatedReceived.get(key) || 0;
+  var units = toUnits(amount);
+  if (current < units) return false;
+  delegatedReceived.set(key, current - units);
+  return true;
+}
+
 function _ensureAccount(username, metadata) {
   if (!username) return;
   if (!accounts.has(username)) {
@@ -372,8 +394,21 @@ function applyEntry(entry) {
     case "TRANSFER":
       // Integer-unit validation: amount must convert to a positive integer
       if (toUnits(amount) <= 0) break;
-      if (!_debit(from, token, amount)) break; // insufficient balance
+      if (!_debit(from, token, amount)) break; // insufficient balance — delegated balance NOT eligible
       _credit(to, token, amount);
+      break;
+
+    case "INFERENCE_CHARGE":
+      // Deduct inference fee from delegated balance first, then owned balance.
+      // to = miner/pool that receives payment; from = requester
+      if (toUnits(amount) <= 0) break;
+      var chargeToken = token || "BTCPC";
+      var chargedFromDelegated = _debitDelegated(from, chargeToken, amount);
+      if (!chargedFromDelegated) {
+        // fall back to owned balance
+        _debit(from, chargeToken, amount);
+      }
+      _credit(to, chargeToken, amount);
       break;
 
     case "MINING_REWARD":
@@ -433,21 +468,46 @@ function applyEntry(entry) {
       }
       break;
 
-    case "DELEGATE":
-      _debit(from, "BTCPC", amount);
-      if (from && to) {
+    case "DELEGATE": {
+      // Multi-layer delegation: draw from owned balance first, then delegated balance.
+      // recipient always receives into their delegatedReceived pool (inference-only).
+      var delegSource = 'owned';
+      var ownedOk = _debit(from, "BTCPC", amount);
+      if (!ownedOk) {
+        // from doesn't have enough owned — try re-delegating from their received pool
+        var delegOk = _debitDelegated(from, "BTCPC", amount);
+        if (delegOk) delegSource = 'delegated';
+        // if neither succeeds, the entry is a no-op (silently rejected)
+      }
+      if (from && to && (ownedOk || delegSource === 'delegated')) {
+        _creditDelegated(to, "BTCPC", amount);
         var dkey = from + "|" + to;
-        var d = delegations.get(dkey) || { amount: 0, purpose: entry.memo, epoch: entry.epoch };
+        var d = delegations.get(dkey) || { amount: 0, purpose: (entry.delegation_data && entry.delegation_data.purpose) || entry.memo, epoch: entry.epoch, source: delegSource };
         d.amount = _round(d.amount + amount);
+        d.source = delegSource;
         delegations.set(dkey, d);
       }
       break;
+    }
 
-    case "UNDELEGATE":
-      _credit(to, "BTCPC", amount);
-      if (entry.delegation_data) {
-        var dkey2 = entry.delegation_data.delegator + "|" + entry.delegation_data.miner;
+    case "UNDELEGATE": {
+      // Return tokens: if delegation was sourced from owned balance → restore to owned.
+      // If sourced from delegated pool (re-delegation) → restore to delegator's delegatedReceived.
+      var ddata = entry.delegation_data || {};
+      var delegator2 = ddata.delegator || from;
+      var miner2 = ddata.miner || to;
+      var returnTo = ddata.return_to || to; // who gets tokens back
+      if (from && to) {
+        var dkey2 = delegator2 + "|" + miner2;
         var d2 = delegations.get(dkey2);
+        var delegSrc2 = (d2 && d2.source) || 'owned';
+        if (delegSrc2 === 'delegated') {
+          _creditDelegated(returnTo, "BTCPC", amount);
+        } else {
+          _credit(returnTo, "BTCPC", amount);
+        }
+        // Debit the undelegated amount from recipient's delegatedReceived
+        _debitDelegated(miner2, "BTCPC", amount);
         if (d2) {
           d2.amount = _round(d2.amount - amount);
           if (d2.amount <= 0) delegations.delete(dkey2);
@@ -455,6 +515,7 @@ function applyEntry(entry) {
         }
       }
       break;
+    }
 
     case "ESCROW_LOCK":
       _debit(from, "BTCPC", amount);
@@ -1643,6 +1704,7 @@ function getAccount(username) {
     chain_addresses: acc.chain_addresses || {},
     heartbeat_epoch: acc.heartbeat_epoch || 0,
     balance: getBalance(username, "BTCPC"),
+    delegated_balance: getDelegatedBalance(username, "BTCPC"),
     staked: (stakes.get(username) || { total_staked: 0 }).total_staked,
     // v2.10.2: multi-capability node registration fields
     node_types: acc.node_types || undefined,
@@ -1768,6 +1830,11 @@ function getAllStakePools() {
     result.push({ username: entry[0], ...entry[1] });
   }
   return result;
+}
+
+function getDelegatedBalance(username, token) {
+  var key = _balanceKey(username, token || "BTCPC");
+  return fromUnits(delegatedReceived.get(key) || 0);
 }
 
 function getDelegation(from, to) {
@@ -2536,6 +2603,7 @@ function resetAll() {
   nfts.clear();
   stakes.clear();
   delegations.clear();
+  delegatedReceived.clear();
   escrows.clear();
   epochs.clear();
   projects.clear();
@@ -2609,6 +2677,7 @@ module.exports = {
   getDelegationsByDelegator: getDelegationsByDelegator,
   getDelegationsByRecipient: getDelegationsByRecipient,
   getTotalStaked: getTotalStaked,
+  getDelegatedBalance: getDelegatedBalance,
   // Escrow
   getEscrow: getEscrow,
   getEscrowsByPayer: getEscrowsByPayer,

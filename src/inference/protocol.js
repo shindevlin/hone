@@ -378,6 +378,22 @@ async function finalizeRequest(requestId) {
     console.error("[BTCPC Escrow] Release error:", err.message);
   }
 
+  // Record inference charge on-chain — deducts from requester's delegated balance first
+  setImmediate(async () => {
+    try {
+      const ledger = require('../services/ledger');
+      const currentEpoch = request.assignments[0]?.epoch || 0;
+      const requester = request.requester_account || request.requester_id;
+      if (requester && totalFee > 0) {
+        for (const payout of payouts) {
+          await ledger.recordInferenceCharge(requester, payout.node_id, payout.amount, currentEpoch, requestId);
+        }
+      }
+    } catch (err) {
+      console.error('[BTCPC Inference] Charge record error:', err.message);
+    }
+  });
+
   // Persist to DB
   persistRequest(request).catch((err) =>
     console.error("[BTCPC Inference] Persist error:", err.message)
