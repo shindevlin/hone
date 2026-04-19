@@ -59,6 +59,7 @@ var genesisTimestamp = 1776236400000;
 var peers = new Map();
 var seenMessages = new Set();
 var running = false;
+var peerZeroSince = null;
 
 // ─── P2P Layer ───────────────────────────────────────────────────
 
@@ -525,6 +526,19 @@ function start() {
       if (p.ws && p.ws.readyState === WebSocket.OPEN) connectedPeers++;
     });
     console.log("[CLOCK] Status: epoch " + currentEpoch + " | peers " + connectedPeers + " | nodes " + nodeRegistry.getNodeCount() + " | blocks " + (blockStore.getLatestBlockNumber() + 1));
+
+    // If no peers for 5+ minutes, force-reconnect to all relays and seeds
+    if (connectedPeers === 0) {
+      peerZeroSince = peerZeroSince || Date.now();
+      if (Date.now() - peerZeroSince > 300000) {
+        console.warn("[CLOCK] peers=0 for 5+ minutes — force-reconnecting to relays and seeds");
+        RELAY_URLS.forEach(connectToPeer);
+        SEED_PEERS.forEach(connectToPeer);
+        peerZeroSince = Date.now(); // reset so we don't spam reconnects every 60s
+      }
+    } else {
+      peerZeroSince = null;
+    }
   }, 60000);
 }
 

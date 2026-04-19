@@ -53,18 +53,21 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - When `BTCPC_MODEL` is unset → auto-pick the largest verified model from `ollama list`
   - Add tests covering each fallback step
 
-- [ ] **`src/mining/miner.js` Ollama unreachable**
+- [x] **`src/mining/miner.js` Ollama unreachable**
   - On `ollama list` HTTP failure → poll Ollama at `http://localhost:11434` every 10s
   - If Ollama isn't installed → log "Ollama unavailable, running as clock-only contributor", continue without inference work
   - Never `process.exit(1)` from the miner
+  - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
-- [ ] **`src/services/blobStore.js` directory errors**
+- [x] **`src/services/blobStore.js` directory errors**
   - Any `mkdirSync` / `writeFileSync` / `readFileSync` failure should auto-retry with `mkdir -p` first, then a backoff retry
   - Never throw to the caller — return null and log
+  - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
-- [ ] **`src/services/secretStore.js` corruption recovery**
+- [x] **`src/services/secretStore.js` corruption recovery**
   - If `~/.btcpc/secrets.json` is corrupt JSON → rename to `secrets.json.bak.<ts>`, start fresh with empty store, log
   - Currently throws `failed to read secrets.json`
+  - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
 - [x] **`bin/btcpc-mine` Mongo connection**
   - Was crashing with `users.findOne() buffering timed out` when BTCPC_MONGO_MODE unset but MONGODB_URI present
@@ -92,13 +95,15 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Already auto-restarts crashed children with backoff. Verify the backoff doesn't grow unbounded if a child crashes 100 times (current cap is 60s, looks ok)
   - Add a circuit breaker: if a role has crashed > 20 times in 1 hour, drop the role from the active set and keep the others running, log a warning
 
-- [ ] **`bin/btcpc-storage` HTTP server bind failure**
+- [x] **`bin/btcpc-storage` HTTP server bind failure**
   - On `EADDRINUSE` (port 4243 taken), currently calls `process.exit(1)`. Should auto-pick an available port (4244, 4245, ...) and log
   - Heartbeat failure should not crash — already wrapped in try/catch, verify
+  - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
-- [ ] **`bin/btcpc-clock` peer-zero state**
+- [x] **`bin/btcpc-clock` peer-zero state**
   - When `peers === 0` for more than 5 minutes, force-reconnect to the seed list and the relay
   - Currently the clock will sit at peers=0 forever if the initial connection drops (we hit this in production today — clock had peers=0 for 9+ days)
+  - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
 ## P4 — Network self-heal
 

@@ -48,39 +48,54 @@ function ensureDirForCid(cid) {
 
 function putBlob(buffer) {
   if (!Buffer.isBuffer(buffer)) {
-    throw new Error("putBlob requires a Buffer");
+    console.error("[blobStore] putBlob requires a Buffer");
+    return null;
   }
   if (buffer.length === 0) {
-    throw new Error("blob is empty");
+    console.error("[blobStore] putBlob: blob is empty");
+    return null;
   }
   if (buffer.length > MAX_BLOB_BYTES) {
-    throw new Error("blob exceeds max size of " + MAX_BLOB_BYTES + " bytes");
+    console.error("[blobStore] putBlob: blob exceeds max size of " + MAX_BLOB_BYTES + " bytes");
+    return null;
   }
 
-  var cid = computeCid(buffer);
-  var finalPath = blobPath(cid);
+  try {
+    var cid = computeCid(buffer);
+    var finalPath = blobPath(cid);
 
-  if (fs.existsSync(finalPath)) {
-    return { cid: cid, size: buffer.length, existed: true };
+    if (fs.existsSync(finalPath)) {
+      return { cid: cid, size: buffer.length, existed: true };
+    }
+
+    var dir = path.dirname(finalPath);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+    var tmpPath = finalPath + ".tmp." + process.pid + "." + Date.now();
+    fs.writeFileSync(tmpPath, buffer, { mode: 0o644 });
+    fs.renameSync(tmpPath, finalPath);
+
+    return { cid: cid, size: buffer.length, existed: false };
+  } catch (e) {
+    console.error("[blobStore] putBlob error: " + e.message);
+    return null;
   }
-
-  ensureDirForCid(cid);
-  var tmpPath = finalPath + ".tmp." + process.pid + "." + Date.now();
-  fs.writeFileSync(tmpPath, buffer, { mode: 0o644 });
-  fs.renameSync(tmpPath, finalPath);
-
-  return { cid: cid, size: buffer.length, existed: false };
 }
 
 function getBlob(cid) {
   if (!isValidCid(cid)) {
-    throw new Error("invalid CID: " + cid);
+    console.error("[blobStore] getBlob: invalid CID: " + cid);
+    return null;
   }
-  var p = blobPath(cid);
-  if (!fs.existsSync(p)) {
-    throw new Error("blob not found: " + cid);
+  try {
+    var p = blobPath(cid);
+    if (!fs.existsSync(p)) {
+      return null;
+    }
+    return fs.readFileSync(p);
+  } catch (e) {
+    console.error("[blobStore] getBlob error for " + cid + ": " + e.message);
+    return null;
   }
-  return fs.readFileSync(p);
 }
 
 function hasBlob(cid) {
@@ -98,10 +113,15 @@ function statBlob(cid) {
 
 function deleteBlob(cid) {
   if (!isValidCid(cid)) return false;
-  var p = blobPath(cid);
-  if (!fs.existsSync(p)) return false;
-  fs.unlinkSync(p);
-  return true;
+  try {
+    var p = blobPath(cid);
+    if (!fs.existsSync(p)) return false;
+    fs.unlinkSync(p);
+    return true;
+  } catch (e) {
+    console.error("[blobStore] deleteBlob error for " + cid + ": " + e.message);
+    return false;
+  }
 }
 
 function listBlobs() {
@@ -146,19 +166,26 @@ function totalBytesStored() {
 
 function readBlobRange(cid, start, length) {
   if (!isValidCid(cid)) {
-    throw new Error("invalid CID: " + cid);
+    console.error("[blobStore] readBlobRange: invalid CID: " + cid);
+    return null;
   }
-  var p = blobPath(cid);
-  if (!fs.existsSync(p)) {
-    throw new Error("blob not found: " + cid);
-  }
-  var buf = Buffer.alloc(length);
-  var fd = fs.openSync(p, "r");
   try {
-    var bytesRead = fs.readSync(fd, buf, 0, length, start);
-    return buf.slice(0, bytesRead);
-  } finally {
-    fs.closeSync(fd);
+    var p = blobPath(cid);
+    if (!fs.existsSync(p)) {
+      console.error("[blobStore] readBlobRange: blob not found: " + cid);
+      return null;
+    }
+    var buf = Buffer.alloc(length);
+    var fd = fs.openSync(p, "r");
+    try {
+      var bytesRead = fs.readSync(fd, buf, 0, length, start);
+      return buf.slice(0, bytesRead);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) {
+    console.error("[blobStore] readBlobRange error for " + cid + ": " + e.message);
+    return null;
   }
 }
 

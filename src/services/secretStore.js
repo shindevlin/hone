@@ -102,7 +102,12 @@ async function load() {
       }
       return state;
     } catch (e) {
-      throw new Error("Corrupted secrets.json at " + SECRETS_PATH + ": " + e.message);
+      var bakPath = SECRETS_PATH + ".bak." + Date.now();
+      try { fs.renameSync(SECRETS_PATH, bakPath); } catch (_) {}
+      console.error("[secretStore] Corrupt secrets.json — backed up to " + bakPath + ", starting fresh");
+      state = _empty();
+      await save();
+      return state;
     }
   }
 

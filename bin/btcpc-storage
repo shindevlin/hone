@@ -163,20 +163,8 @@ function main() {
   log("host=" + HOST_ACCOUNT + " port=" + PORT + " capacity=" + CAPACITY_GB + "GB regions=" + (REGIONS.join(",") || "any"));
 
   var server = http.createServer(handleRequest);
-  server.listen(PORT, function () {
-    log("HTTP server listening on :" + PORT + " (GET /blobs/:cid, /health, /stats)");
-  });
-  server.on("error", function (e) {
-    if (e.code === "EADDRINUSE") {
-      err("port " + PORT + " already in use — storage host cannot start");
-      process.exit(1);
-    }
-    err("server error: " + e.message);
-  });
 
-  // Send the first heartbeat immediately so the chain sees us online
-  sendHeartbeat();
-  var interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  var interval;
 
   function shutdown(signal) {
     log("received " + signal + ", shutting down");
@@ -190,6 +178,26 @@ function main() {
 
   process.on("SIGINT", function () { shutdown("SIGINT"); });
   process.on("SIGTERM", function () { shutdown("SIGTERM"); });
+
+  function _tryListen(tryPort, retriesLeft) {
+    server.listen(tryPort, function () {
+      log("HTTP server listening on :" + tryPort + " (GET /blobs/:cid, /health, /stats)");
+      // Send the first heartbeat immediately so the chain sees us online
+      sendHeartbeat();
+      interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    });
+    server.once("error", function (e) {
+      if (e.code === "EADDRINUSE" && retriesLeft > 0) {
+        log("port " + tryPort + " in use, retrying on " + (tryPort + 1));
+        server.close();
+        _tryListen(tryPort + 1, retriesLeft - 1);
+      } else {
+        err("could not bind to any port: " + e.message);
+        // don't exit — log and keep process alive for graceful shutdown
+      }
+    });
+  }
+  _tryListen(PORT, 5);
 }
 
 main();

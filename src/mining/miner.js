@@ -56,6 +56,26 @@ function sendAlert(severity, message, details) {
 let running = false;
 let miningInterval = null;
 
+// ── Ollama reachability — background poll, never blocks P2P startup ──────────
+let ollamaReachable = false;
+
+async function ensureOllamaReachable() {
+  const url = (process.env.OLLAMA_URL || 'http://localhost:11434') + '/api/tags';
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await axios.get(url, { timeout: 5000 });
+      console.log('[BTCPC] Ollama reachable');
+      ollamaReachable = true;
+      return true;
+    } catch (e) {
+      if (attempt === 1) {
+        console.warn('[BTCPC] Ollama unreachable — will retry every 10s. Running as clock-only contributor until it responds.');
+      }
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
+}
+
 // ── Device key (auto-provisioned, unique per physical machine) ────────────
 let _devicePrivKey = null; // hex — used to sign proposals
 let _devicePubKey  = null; // hex — sent as device_id in proposals
@@ -784,6 +804,12 @@ async function mineEpoch(epochNumber) {
   // External API inference jobs are counted on top of this baseline work.
   const syntheticCount = WORK_ITEMS_PER_EPOCH;
 
+  // Guard: skip inference if Ollama isn't reachable yet
+  if (!ollamaReachable) {
+    console.log('[BTCPC] Ollama not yet reachable — skipping inference this epoch');
+    return;
+  }
+
   // Resolve working model — auto-heals via pull + fallback chain; never crashes
   const workingModel = await resolveWorkingModel(MODEL);
   if (!workingModel) {
@@ -1248,6 +1274,10 @@ async function startMiner() {
   await _ensureDeviceKey(activeKeyPriv);
 
   running = true;
+
+  // Launch Ollama reachability poll in background — never blocks P2P or epoch work.
+  // Sets ollamaReachable=true when Ollama responds; inference is skipped until then.
+  ensureOllamaReachable().catch(() => {});
 
   // Seed the protocol's epoch cache so heartbeats arriving before the first
   // proposal fires get filed under the right epoch
