@@ -22,6 +22,15 @@ const MAX_PEERS = 50;
 const HEARTBEAT_INTERVAL_MS = 30000;
 const MAX_RECONNECT_DELAY_MS = 300000; // 5 minutes
 
+// The Cloudflare relay speaks plain JSON — Noise_XX is skipped for relay connections.
+function isRelayAddress(address) {
+  if (!address) return false;
+  const relayUrl = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+  if (address === relayUrl) return true;
+  if (address.includes("workers.dev")) return true;
+  return false;
+}
+
 /**
  * Peer connection tracking.
  * Map<address, { ws, nodeId, chainHeight, status, reconnectAttempts, reconnectTimer }>
@@ -170,6 +179,13 @@ function connectToPeer(address) {
       console.log("[BTCPC P2P] Connected to " + address);
       setupPeerSocket(ws, address, "outbound");
 
+      if (isRelayAddress(address)) {
+        // Relay speaks plain JSON — skip Noise, send BTCPC handshake directly
+        sendHandshake(ws);
+        knownPeers.add(address);
+        return;
+      }
+
       // Noise_XX handshake — initiator sends first message
       transport.startHandshake(ws, transport.getStaticKeypair(), address).then(function () {
         // Handshake complete — send BTCPC protocol handshake and pin peer
@@ -219,6 +235,7 @@ function setupPeerSocket(ws, address, direction) {
     reconnectAttempts: 0,
     reconnectTimer: null,
     lastSeen: Date.now(),
+    noiseEnabled: !isRelayAddress(address),
     // Vuln 5: track the claimed proposer for this connection.
     // If a connection sends BLOCK_PROPOSAL with two different proposer names it's spoofing.
     claimed_proposer: null,
@@ -234,6 +251,18 @@ function setupPeerSocket(ws, address, direction) {
 
   ws.on("message", function (data) {
     peer.lastSeen = Date.now();
+
+    if (!peer.noiseEnabled) {
+      // Relay connection — plain JSON messages
+      try {
+        const raw = typeof data === "string" ? data : data.toString("utf8");
+        const msg = JSON.parse(raw);
+        handleIncoming(peer, msg);
+      } catch (err) {
+        console.error("[BTCPC P2P] Bad relay message from " + address + ":", err.message);
+      }
+      return;
+    }
 
     // Route through Noise handshake while in progress
     if (transport.isHandshaking(ws)) {
@@ -284,10 +313,28 @@ function sendHandshake(ws) {
 // ---------------------------------------------------------------------------
 
 /**
- * Send a message object to a single WebSocket (Noise-encrypted).
+ * Send a message object to a single WebSocket.
+ * Relay connections use plain JSON; direct peer connections use Noise-encrypted binary.
  */
 function send(ws, msg) {
-  if (ws.readyState === WebSocket.OPEN && transport.isReady(ws)) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+
+  // Look up whether this ws belongs to a relay connection
+  var noiseEnabled = true;
+  for (var [, p] of peers) {
+    if (p.ws === ws) { noiseEnabled = p.noiseEnabled; break; }
+  }
+
+  if (!noiseEnabled) {
+    try {
+      ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
+    } catch (err) {
+      console.error("[BTCPC P2P] Relay send error:", err.message);
+    }
+    return;
+  }
+
+  if (transport.isReady(ws)) {
     try {
       transport.send(ws, msg);
     } catch (err) {
@@ -297,13 +344,22 @@ function send(ws, msg) {
 }
 
 /**
- * Broadcast a message to all connected peers (Noise-encrypted).
+ * Broadcast a message to all connected peers.
+ * Relay connections use plain JSON; direct peers use Noise-encrypted binary.
  * Optionally exclude a specific peer address.
  */
 function broadcast(message, excludeAddress) {
   for (const [addr, peer] of peers) {
     if (addr === excludeAddress) continue;
-    if (peer.ws && peer.ws.readyState === WebSocket.OPEN && transport.isReady(peer.ws)) {
+    if (!peer.ws || peer.ws.readyState !== WebSocket.OPEN) continue;
+
+    if (!peer.noiseEnabled) {
+      try {
+        peer.ws.send(typeof message === "string" ? message : JSON.stringify(message));
+      } catch (err) {
+        console.error("[BTCPC P2P] Relay broadcast error to " + addr + ":", err.message);
+      }
+    } else if (transport.isReady(peer.ws)) {
       try {
         transport.send(peer.ws, message);
       } catch (err) {
