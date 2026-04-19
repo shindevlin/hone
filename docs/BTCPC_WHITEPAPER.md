@@ -752,9 +752,165 @@ wherever and however it happens.
 
 ---
 
-## 8. Oracle Feeds
+---
 
-### 8.1 Generic Off-Chain Data Ingestion
+## 8. Scientific Compute
+
+### 8.1 Scientific Compute as a First-Class Workload
+
+BTCPC supports long-running distributed inference jobs targeting domains where
+computation directly generates scientific value: protein structure prediction,
+small-molecule drug discovery, genomic variant analysis, and climate simulation.
+These workloads are structurally different from real-time chat inference. They
+are batch-oriented, tolerant of high latency, and produce outputs that can be
+permanently archived and attributed.
+
+The protocol treats scientific compute as a distinct latency class. Jobs in this
+class are queued, not streamed. There is no time-out for a slow node — a
+shard group working on a week-long folding run is as legitimate as one completing
+a sub-second chat inference. Fee and reward accounting reflect this: the unit of
+value is `tokens × shard_param_count`, not response time.
+
+Any Ollama-compatible model may serve scientific jobs. Shard groups allow models
+whose parameter count exceeds any single machine's VRAM to be assembled across
+multiple nodes. A 70B protein-folding model, for example, can be split across
+four machines each holding 17.5B parameters; each machine earns proportionally
+to the layers it holds.
+
+### 8.2 Distributed Shard Pipeline for Large Models
+
+Layer splitting follows the same mechanics described in §2 (Consensus). For
+scientific workloads the runtime difference is that the pipeline may persist for
+hours or days rather than seconds. Each node holds a contiguous block of
+transformer layers; activation tensors are passed forward between nodes after
+each layer block completes.
+
+**Route optimization.** Nodes measure round-trip latency to their peers and
+broadcast `NODE_LATENCY` messages. The shard registry uses these measurements
+to order the pipeline so that each activation handoff travels the lowest-latency
+hop available. For the scientific latency class, latency tolerance is inherently
+high — a 10ms vs 100ms hop difference is irrelevant at multi-hour job scales —
+which means global node participation is practical. A node in São Paulo can sit
+in the middle of a shard group whose other nodes are in Frankfurt and Seoul
+without meaningfully slowing the job.
+
+**Work value.** Each shard node earns based on the layers it holds:
+
+```
+work_value(node) = tokens_processed × shard_param_count(node)
+```
+
+A node holding 35B of a 70B model earns exactly half the base work value of
+the full-model case. Nodes with no shard assignment earn nothing from that job.
+
+### 8.3 Open Science Discount
+
+Requesters who designate their results as open-source — permanently stored on
+the BTCPC chain, owned by no one, readable by anyone — receive a **40% reduction
+in fees**. This is not a subsidy paid by the protocol treasury. It is funded from
+`btcpc_recycle`: the discount lowers the requester's payment, while miners who
+process open-science jobs earn a **25% bonus** on top of their standard work
+value. The spread is covered by the recycled fee pool.
+
+The economic effect: open science is cheaper to submit than proprietary science,
+and more profitable to mine. The network is financially incentivized to prioritize
+open research.
+
+Results are stored permanently on-chain as `SCIENTIFIC_RESULT` ledger entries.
+The entry records the job title, type, model, requester account, input hash, and
+result hash. For large results — defined as more than 50 KB of raw output — the
+result bytes are stored in BTCPC-FS and the on-chain entry holds the
+content-addressed CID. The chain itself holds the proof of existence and
+attribution; the blob store holds the bytes.
+
+### 8.4 On-Chain Scientific Record
+
+Every completed open-source job inscribes a permanent record with the following
+fields:
+
+- **job_id** — deterministic hex identifier
+- **title** — human-readable description supplied by the requester
+- **type** — job domain (see §8.5)
+- **model** — Ollama model name and parameter count at time of execution
+- **requester** — BTCPC account name permanently linked to the discovery
+- **input_hash** — SHA-256 of the input data (sequence, SMILES string, grid
+  parameters, or other domain-specific encoding)
+- **result_hash** — SHA-256 of the result bytes, regardless of storage location
+- **result_blob_cid** — BTCPC-FS CID if the result exceeded the inline threshold
+- **epoch** — block at which the result was finalized
+
+Records are immutable once written. No operator, validator, or governance vote
+can delete or alter a `SCIENTIFIC_RESULT` entry. The BTCPC chain does not
+interpret the science — it timestamps and attributes it. Whether the result is
+a correct protein fold or a false lead in drug discovery is outside the
+protocol's scope; the chain only guarantees that the computation happened,
+who paid for it, and what came out.
+
+### 8.5 Job Types
+
+**protein_folding** — Input is an amino acid sequence (FASTA or one-letter code).
+Output is a predicted 3-D structure, typically encoded as a PDB file or coordinate
+tensor. Protein structure determines biological function; knowing the fold of a
+novel variant enables targeted drug design and viral escape prediction.
+
+**drug_discovery** — Input is a SMILES string or molecular graph encoding a
+candidate small molecule. Output includes binding affinity predictions, ADMET
+property estimates (absorption, distribution, metabolism, excretion, toxicity),
+and selectivity scores against a target protein. A single drug candidate screen
+may involve millions of molecules; BTCPC makes it practical to distribute those
+screens across thousands of independent nodes.
+
+**climate_modeling** — Input is a grid of initial atmospheric or oceanic state
+variables. Output is a forward simulation of that state over a specified time
+horizon. Climate models are among the most computationally intensive scientific
+workloads in existence; distributing them across heterogeneous hardware requires
+a coordination layer that tolerates node failures and partial results, which the
+BTCPC shard pipeline provides.
+
+**genomics** — Input is a raw sequencing read set or variant call file. Output
+includes alignment, variant annotation, population stratification, or expression
+quantification depending on the pipeline. Genomic workloads are highly
+parallelizable and have clear value: a single exome interpretation can change a
+diagnosis for a patient with a rare disease.
+
+**materials_science** — Input is an atomic structure specification (CIF, POSCAR,
+or equivalent). Output includes density functional theory energy calculations,
+phonon dispersion curves, or defect formation energy landscapes. Materials
+discovery underlies batteries, solar cells, semiconductors, and catalysts.
+
+**general** — Any long-running inference job that does not fit the above
+categories. The protocol does not restrict scientific compute to these domains;
+`general` is a catch-all for novel workloads. Work value and economics are
+identical to domain-specific types.
+
+### 8.6 Economics
+
+**Standard job (closed results).** The requester pays the full quoted fee. The
+fee is distributed to shard nodes proportional to their work value
+(`tokens × shard_param_count`). No discount applies; results belong to the
+requester and are not stored on chain unless the requester separately calls
+`recordScientificResult`.
+
+**Open-science job.** The requester pays 60% of the quoted fee (40% discount).
+Nodes earn 125% of their standard work value (25% bonus). The differential is
+funded by `btcpc_recycle` — consistent with the protocol rule that fees never
+burn, they recirculate. Results are written permanently to the chain as described
+in §8.4.
+
+**Fee denomination.** All fees are quoted and paid in BTCPC. Current price
+discovery happens through the DEX bridge (§10). There is no minimum job size
+and no minimum node count — a single CPU machine can hold one or two transformer
+layers of a small model and earn proportionally.
+
+**No floors, no ceilings.** A requester who sets `max_fee = 0` will not attract
+nodes unless the job is open-source and the recycled pool makes the bonus
+sufficient. Market-clearing fees emerge naturally: nodes that find the bonus
+insufficient simply do not claim the job, and the requester must raise the fee.
+This is the same mechanism as the broader inference market.
+
+## 9. Oracle Feeds
+
+### 9.1 Generic Off-Chain Data Ingestion
 
 The oracle layer extends the sensor reading pipeline to any off-chain data source,
 not just physical hardware. Price feeds, weather data, sports scores, and any other
@@ -763,7 +919,7 @@ API-sourced data can be submitted as oracle readings.
 Oracle reporters are permissionless: any node that registers as an oracle provider
 and maintains the minimum stake can submit readings for any registered feed.
 
-### 8.2 Median Consensus
+### 9.2 Median Consensus
 
 Oracle feeds use the same median consensus mechanism as sensor readings:
 
@@ -773,7 +929,7 @@ Oracle feeds use the same median consensus mechanism as sensor readings:
    reputation dip (no slashing — reputation is the enforcement mechanism)
 4. The finalized median is recorded on-chain
 
-### 8.3 Reputation-Based Quality Control
+### 9.3 Reputation-Based Quality Control
 
 Repeated outlier submissions drive down a reporter's reputation score below the
 minimum threshold, after which their submissions are ignored until they recover.
@@ -784,9 +940,9 @@ via reputation decay.
 
 ---
 
-## 9. Cross-Chain Bridge
+## 10. Cross-Chain Bridge
 
-### 9.1 Lock-and-Recycle, Not Burn-and-Mint
+### 10.1 Lock-and-Recycle, Not Burn-and-Mint
 
 The BTCPC bridge connects native BTCPC to wrapped wBTCPC on destination chains
 (Base, Arbitrum, Ethereum, Bitcoin) via a **lock-and-recycle** mechanism. There
@@ -807,7 +963,7 @@ the bridge reserve address.
 3. Source-chain bridge contract releases the locked BTCPC back to the user
 4. No burning occurs
 
-### 9.2 Supply Cap per Chain
+### 10.2 Supply Cap per Chain
 
 Each destination chain has a hard cap of **4,200,000 wBTCPC** pre-minted in the
 contract constructor. This is the only mint operation that ever occurs. The contract
@@ -818,7 +974,7 @@ The maximum wBTCPC circulating on any destination chain at any given time equals
 cumulative BTCPC native locked into the source bridge for that destination, capped at
 4,200,000. This maintains a strict 1:1 backing relationship.
 
-### 9.3 Bridge Liquidity: Permissionless LPs
+### 10.3 Bridge Liquidity: Permissionless LPs
 
 The bridge reserve is funded by permissionless LPs who lock BTCPC native into the
 source-chain contract with a variable time commitment (30 to 1,460 days). Funders
@@ -832,7 +988,7 @@ This is the same veCRV-style commitment weighting used by Curve Finance. Weight
 decreases naturally as the lock approaches expiration, preventing permanent
 concentration. The LP roster rotates organically as locks expire and new LPs enter.
 
-### 9.4 Bridge Fees
+### 10.4 Bridge Fees
 
 | Direction | Volume | Fee |
 |-----------|--------|-----|
@@ -846,7 +1002,7 @@ distributed to active LPs pro-rata by current weight. The asymmetric
 wrap/unwrap fee structure creates a bias toward keeping wBTCPC circulating on
 destination chains rather than constant round-trips.
 
-### 9.5 Withdrawal Queue
+### 10.5 Withdrawal Queue
 
 After a lock period expires, an LP requests withdrawal and enters a FIFO queue.
 Position 1 in the queue is funded by:
@@ -859,7 +1015,7 @@ LPs in queue continue earning fees until their position is filled. This hybrid
 queue model prevents stalls under normal operation and avoids the ponzi-adjacent
 dynamics of pure auto-redemption schemes.
 
-### 9.6 Destination Chains
+### 10.6 Destination Chains
 
 | Chain | wBTCPC Supply | Contract Type |
 |-------|--------------|---------------|
@@ -870,9 +1026,9 @@ dynamics of pure auto-redemption schemes.
 
 ---
 
-## 10. Four-Tier Finality
+## 11. Four-Tier Finality
 
-### 10.1 Architecture
+### 11.1 Architecture
 
 BTCPC state is anchored to external chains for independent verification. Anchoring
 is additive — BTCPC's consensus continues working even if every external anchor
@@ -889,7 +1045,7 @@ Each tier is roughly 10x rarer than the one below it. Tier 2 is cheap enough to 
 continuously. Tier 4 (the Bitcoin Deep Seal) is meaningful because it anchors the
 chain's state root into the most censorship-resistant and final ledger in existence.
 
-### 10.2 Demand-Driven Submission
+### 11.2 Demand-Driven Submission
 
 Anchor submitters are permissionless. Any node can submit a state root to the finality
 contracts and collect the anchor reward from the accumulated `anchor_reserve`. Bridge
@@ -899,7 +1055,7 @@ When the reserve is empty and bridge volume is low, anchors may be skipped. The 
 continues working. When bridge volume spikes, the reserve fills quickly and anchors
 resume at full cadence.
 
-### 10.3 Merkle Batching
+### 11.3 Merkle Batching
 
 Each anchor write commits a Merkle root over multiple epoch anchors (typically 100).
 Bridges and clients verify specific epochs via off-chain Merkle proofs. This reduces
@@ -910,7 +1066,7 @@ single 128 KB blob, costing approximately $1–3 per anchor batch. Blob data is
 available for 18 days on Ethereum; permanent storage is provided by BTCPC-FS mirror
 nodes that store the full anchor history as on-chain blobs.
 
-### 10.4 Bitcoin Deep Seal
+### 11.4 Bitcoin Deep Seal
 
 Bitcoin anchoring uses OP_RETURN to inscribe the BTCPC state root hash (~32 bytes)
 into a Bitcoin transaction. The rich anchor blob (account counts, epoch statistics,
@@ -920,7 +1076,7 @@ dogfooding the chain's own storage layer.
 Each Deep Seal mints a Soulbound NFT to the `btcpc_genesis_seals` system account as
 a publicly browsable historical artifact. These are the chain's milestones.
 
-### 10.5 Cost Baseline
+### 11.5 Cost Baseline
 
 Annual anchoring cost at current gas prices with all optimizations:
 
@@ -937,9 +1093,9 @@ one you don't spend."
 
 ---
 
-## 11. State Management
+## 12. State Management
 
-### 11.1 Blockchain as Source of Truth
+### 12.1 Blockchain as Source of Truth
 
 Block files on disk are the canonical source of truth. The full chain state can always
 be reconstructed by replaying all blocks from genesis. No external database is
@@ -967,7 +1123,7 @@ difficulty                 (uint32)
 miner_id                   (32 bytes)
 ```
 
-### 11.2 In-Memory stateStore
+### 12.2 In-Memory stateStore
 
 The stateStore module is an in-memory cache of the current chain state, rebuilt from
 block files on startup via `replayFromDisk()`. All reads by controllers, routes, the
@@ -979,7 +1135,7 @@ event type — the same shape whether they come from replay, from local ledger r
 or from P2P gossip sync. Determinism is guaranteed: same sequence of entries produces
 the same state.
 
-### 11.3 Sparse Merkle Tree
+### 12.3 Sparse Merkle Tree
 
 The stateManager maintains a Sparse Merkle Tree (SMT) that tracks account state. The
 SMT root is the `state_root` recorded in every block header. Two nodes that have
@@ -989,7 +1145,7 @@ processed the same entries will have identical SMT roots. This root is used for:
 - Finality snapshot integrity checks
 - Cross-chain anchor submissions
 
-### 11.4 Finality Snapshots and Fast Sync
+### 12.4 Finality Snapshots and Fast Sync
 
 Every N epochs, the state is compacted into a finality snapshot: a full serialization
 of all accounts, balances, and essential metadata at that epoch. New nodes can:
@@ -1003,7 +1159,7 @@ Old blocks remain available for historical queries but are not required for cons
 participation. This design allows the chain to grow indefinitely while keeping join
 time bounded.
 
-### 11.5 Cross-Process Ledger Queue
+### 12.5 Cross-Process Ledger Queue
 
 In multi-process deployments (e.g., API server + miner + P2P node as separate processes),
 ledger entries are shared via `data/pending-entries.jsonl`. Each process appends its
@@ -1012,9 +1168,9 @@ building a block. This queue is wiped after each successful block write.
 
 ---
 
-## 12. Tokenomics Summary
+## 13. Tokenomics Summary
 
-### 12.1 Native Token
+### 13.1 Native Token
 
 | Property | Value |
 |----------|-------|
@@ -1027,7 +1183,7 @@ building a block. This queue is wiped after each successful block write.
 | Emission timeline | ~3 years to exhaust 42M cap |
 | Post-emission rewards | From `btcpc_recycle` + fee market |
 
-### 12.2 User-Created Tokens
+### 13.2 User-Created Tokens
 
 BTCPC enforces a chain-wide token standard for all user-created tokens:
 
@@ -1047,7 +1203,7 @@ Token creation fees route entirely to `btcpc_recycle`:
 
 NFT collection creation fee: 10 BTCPC → `btcpc_recycle`.
 
-### 12.3 Commerce Platform Fees
+### 13.3 Commerce Platform Fees
 
 Order platform fee (1% of order total):
 
@@ -1060,7 +1216,7 @@ Store opening (bonding curve, paid in wrapped stables):
 - 50% → `btcpc_recycle`
 - 50% → `btcpc_treasury` (protocol development fund)
 
-### 12.4 Stake Requirements
+### 13.4 Stake Requirements
 
 | Role | Minimum Stake | Slashable Condition |
 |------|--------------|---------------------|
@@ -1080,7 +1236,7 @@ stake withdrawals.
 
 ---
 
-## 13. Privacy Roadmap
+## 14. Privacy Roadmap
 
 BTCPC's current architecture is fully transparent: all transactions, balances, and
 account activity are visible on-chain. The following privacy capabilities are planned
@@ -1107,9 +1263,9 @@ exposing their IP address.
 
 ---
 
-## 14. Governance
+## 15. Governance
 
-### 14.1 Genesis Phase
+### 15.1 Genesis Phase
 
 BTCPC is currently in its genesis phase. Founder-operated by Shin Devlin. Protocol
 parameters (epoch duration, block cap bounds, reward pool splits, fee rates) are set
@@ -1122,7 +1278,7 @@ The genesis operator can change parameters. The genesis operator cannot change t
 fundamental "no pre-mine, no founder allocation" structure — these are architectural
 constants, not governance parameters.
 
-### 14.2 Progressive Decentralization
+### 15.2 Progressive Decentralization
 
 The path from genesis to full decentralization:
 
@@ -1138,7 +1294,7 @@ Parameter changes will eventually require:
 - Stake-weighted vote (simple majority or supermajority depending on parameter type)
 - 14-epoch time-lock before execution (to allow last-chance vetoes)
 
-### 14.3 The Design Goal
+### 15.3 The Design Goal
 
 BTCPC was not built to be run. It was built to let go of. Every architectural decision
 — permissionless clocks, demand-driven anchoring, no admin keys on bridge contracts,
@@ -1149,7 +1305,7 @@ chain should be able to operate without its creators.
 
 ---
 
-## 15. Conclusion
+## 16. Conclusion
 
 The blockchain industry spent its first decade asking "what can we put on a chain?"
 The answer was mostly: tokens, speculation, and games.

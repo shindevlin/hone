@@ -129,6 +129,10 @@ const MESSAGE_TYPES = {
   ENSEMBLE_CLAIM: "ENSEMBLE_CLAIM",      // node announces it will contribute
   ENSEMBLE_RESULT: "ENSEMBLE_RESULT",    // node submits its result hash
   ENSEMBLE_CONSENSUS: "ENSEMBLE_CONSENSUS", // consensus achieved, broadcast winner
+  // Scientific compute engine (v3.2)
+  SCIENTIFIC_JOB:    "SCIENTIFIC_JOB",    // broadcast a new scientific job to the network
+  SCIENTIFIC_RESULT: "SCIENTIFIC_RESULT", // completed scientific job result
+  NODE_LATENCY:      "NODE_LATENCY",      // peer-to-peer latency measurement for route optimization
 };
 
 // ---------------------------------------------------------------------------
@@ -458,6 +462,29 @@ function handleMessage(peer, msg, ctx) {
       // Relay ensemble coordination messages to all peers
       ctx.broadcast(msg, peer.address);
       break;
+    case MESSAGE_TYPES.SCIENTIFIC_JOB:
+      // Scientific jobs are handled by the engine — just relay to peers
+      console.log("[BTCPC P2P] SCIENTIFIC_JOB received from " + (msg.nodeId || "?").slice(0, 12));
+      ctx.broadcast(msg, peer.address);
+      break;
+    case MESSAGE_TYPES.SCIENTIFIC_RESULT:
+      // Relay completed scientific results to all peers
+      console.log("[BTCPC P2P] SCIENTIFIC_RESULT received from " + (msg.nodeId || "?").slice(0, 12));
+      ctx.broadcast(msg, peer.address);
+      break;
+    case MESSAGE_TYPES.NODE_LATENCY: {
+      // Record inter-node latency for shard route optimization
+      var _latData = msg.data || {};
+      try {
+        var _sciEngine = require("../scientific/scientificComputeEngine");
+        if (_latData.from_node && _latData.to_node && typeof _latData.latency_ms === "number") {
+          _sciEngine.recordLatency(_latData.from_node, _latData.to_node, _latData.latency_ms);
+        }
+      } catch (_latErr) {
+        // Scientific engine not loaded — silently ignore
+      }
+      break;
+    }
     default:
       console.log("[BTCPC P2P] Unknown message type: " + msg.type + " from " + (msg.nodeId || "?").slice(0, 12));
   }

@@ -148,6 +148,10 @@ const MEMPOOL_ALLOWED_TYPES = [
   "ENSEMBLE_CLAIM",
   "ENSEMBLE_RESULT",
   "ENSEMBLE_CONSENSUS",
+  // Scientific compute engine (v3.2)
+  "SCIENTIFIC_JOB",
+  "SCIENTIFIC_RESULT",
+  "NODE_LATENCY",
 ];
 
 /**

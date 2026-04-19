@@ -1927,6 +1927,50 @@ async function recordDeviceRevoke(ownerAccount, devicePubkey, epoch) {
 }
 
 /**
+ * Record a completed scientific compute result on the ledger.
+ * Entry type: SCIENTIFIC_RESULT
+ *
+ * Called automatically by the scientific compute engine for open-source jobs.
+ * The on-chain entry permanently links requester, model, input hash, result hash,
+ * and (for large results) the BTCPC-FS CID.
+ *
+ * @param {string}  jobId
+ * @param {string}  requester      — BTCPC account name
+ * @param {string}  model          — Ollama model used
+ * @param {string}  inputHash      — SHA-256 of input_data
+ * @param {string}  resultHash     — SHA-256 of result bytes
+ * @param {string}  resultBlobCid  — BTCPC-FS CID if result was too large for inline (or null)
+ * @param {boolean} openSource     — always true when called from completeJob
+ * @param {number}  fee            — actual fee paid after discount
+ * @param {number}  epoch
+ * @param {string}  title          — human-readable job title
+ * @param {string}  jobType        — 'protein_folding' | 'drug_discovery' | etc.
+ */
+async function recordScientificResult(jobId, requester, model, inputHash, resultHash, resultBlobCid, openSource, fee, epoch, title, jobType) {
+  const entry = _entry({
+    type: 'SCIENTIFIC_RESULT',
+    from: requester,
+    to: 'btcpc_science',
+    token: 'BTCPC',
+    amount: fee || 0,
+    epoch: epoch || 0,
+    signed_by: requester,
+    memo: title || jobId,
+    timestamp: Date.now(),
+    scientific_data: {
+      job_id: jobId,
+      model,
+      type: jobType || 'general',
+      input_hash: inputHash,
+      result_hash: resultHash,
+      result_blob_cid: resultBlobCid || null,
+      open_source: openSource || false,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Register tool capabilities for a node.
  * Entry type: TOOL_CAPABILITY_REGISTER
  *
@@ -2059,4 +2103,6 @@ module.exports = {
   // Native tool use + MCP (v3.2)
   recordToolCapabilityRegister,
   recordToolTraceCommit,
+  // Scientific compute (v3.2)
+  recordScientificResult,
 };
