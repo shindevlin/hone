@@ -180,3 +180,85 @@ describe('ledger file-queue bridge (v2.13.1)', () => {
     expect(fs.existsSync(PENDING_FILE)).toBe(false);
   });
 });
+
+describe('crash-mid-drain recovery (.draining-* stale files)', () => {
+  function drainPath(pid, ts) {
+    return path.join(ISOLATED_DATA_DIR, 'pending-entries.jsonl.draining-' + pid + '-' + ts);
+  }
+
+  function writeEntry(filePath, obj) {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(obj) + '\n');
+  }
+
+  beforeEach(() => {
+    // Wipe normal pending file and any leftover drain files
+    try { fs.unlinkSync(PENDING_FILE); } catch (_) {}
+    try {
+      fs.readdirSync(ISOLATED_DATA_DIR)
+        .filter(f => f.startsWith('pending-entries.jsonl.draining-'))
+        .forEach(f => fs.unlinkSync(path.join(ISOLATED_DATA_DIR, f)));
+    } catch (_) {}
+    ledger.flushPendingEntries();
+  });
+
+  it('recovers entries from a single stale drain file', () => {
+    writeEntry(drainPath(99999, 1234567890), {
+      type: 'FAUCET', to: 'crash-ghost', token: 'BTCPC', amount: 5, epoch: 20, timestamp: Date.now(),
+    });
+
+    expect(fs.existsSync(PENDING_FILE)).toBe(false);
+
+    const flushed = ledger.flushPendingEntries();
+    expect(flushed.some(e => e.to === 'crash-ghost')).toBe(true);
+    // Stale file must be cleaned up
+    expect(fs.existsSync(drainPath(99999, 1234567890))).toBe(false);
+  });
+
+  it('recovers entries from multiple stale drain files (multiple crashed processes)', () => {
+    writeEntry(drainPath(11111, 100), { type: 'FAUCET', to: 'ghost-a', token: 'BTCPC', amount: 1, epoch: 21, timestamp: Date.now() });
+    writeEntry(drainPath(22222, 200), { type: 'FAUCET', to: 'ghost-b', token: 'BTCPC', amount: 2, epoch: 21, timestamp: Date.now() });
+
+    const flushed = ledger.flushPendingEntries();
+    const recipients = flushed.map(e => e.to);
+    expect(recipients).toContain('ghost-a');
+    expect(recipients).toContain('ghost-b');
+    expect(fs.existsSync(drainPath(11111, 100))).toBe(false);
+    expect(fs.existsSync(drainPath(22222, 200))).toBe(false);
+  });
+
+  it('skips corrupt lines in a stale drain file, keeps valid ones', () => {
+    const p = drainPath(33333, 300);
+    const good = JSON.stringify({ type: 'FAUCET', to: 'good-ghost', token: 'BTCPC', amount: 3, epoch: 22, timestamp: Date.now() });
+    if (!fs.existsSync(ISOLATED_DATA_DIR)) fs.mkdirSync(ISOLATED_DATA_DIR, { recursive: true });
+    fs.writeFileSync(p, '{corrupt\n' + good + '\n');
+
+    const flushed = ledger.flushPendingEntries();
+    expect(flushed.some(e => e.to === 'good-ghost')).toBe(true);
+    expect(fs.existsSync(p)).toBe(false);
+  });
+
+  it('combines stale drain entries with entries from the normal pending file', () => {
+    // Stale drain file from crashed old process
+    writeEntry(drainPath(44444, 400), { type: 'FAUCET', to: 'old-process', token: 'BTCPC', amount: 1, epoch: 23, timestamp: Date.now() });
+    // Fresh normal pending file written by a running process
+    if (!fs.existsSync(ISOLATED_DATA_DIR)) fs.mkdirSync(ISOLATED_DATA_DIR, { recursive: true });
+    fs.writeFileSync(PENDING_FILE,
+      JSON.stringify({ type: 'FAUCET', to: 'new-process', token: 'BTCPC', amount: 2, epoch: 23, timestamp: Date.now() }) + '\n'
+    );
+
+    const flushed = ledger.flushPendingEntries();
+    const recipients = flushed.map(e => e.to);
+    expect(recipients).toContain('old-process');
+    expect(recipients).toContain('new-process');
+    expect(fs.existsSync(PENDING_FILE)).toBe(false);
+    expect(fs.existsSync(drainPath(44444, 400))).toBe(false);
+  });
+
+  it('no-op when no stale drain files and no pending file', () => {
+    const flushed = ledger.flushPendingEntries();
+    expect(Array.isArray(flushed)).toBe(true);
+    expect(flushed.length).toBe(0);
+  });
+});

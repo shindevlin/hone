@@ -20,7 +20,10 @@ const NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("he
 const DEFAULT_PORT = 6942;
 const MAX_PEERS = 50;
 const HEARTBEAT_INTERVAL_MS = 30000;
-const MAX_RECONNECT_DELAY_MS = 300000; // 5 minutes
+// 60s cap: when all seeds + relays are down we still retry every minute.
+// Backoff resets on successful connect — setupPeerSocket creates a fresh peer
+// object with reconnectAttempts: 0, overwriting any previous entry.
+const MAX_RECONNECT_DELAY_MS = 60000; // 1 minute
 
 // Relay URLs — supports multiple for redundancy via BTCPC_RELAY_URLS (comma-separated).
 // Falls back to BTCPC_RELAY_URL (single) or the built-in Cloudflare relay.
@@ -265,7 +268,9 @@ function setupPeerSocket(ws, address, direction) {
     claimed_proposer: null,
   };
 
-  // Carry over reconnect attempts from previous entry
+  // Clear any pending reconnect timer for this address (new connection won).
+  // reconnectAttempts resets to 0 via the fresh peer object above — backoff
+  // always starts over after a successful connect.
   if (peers.has(address)) {
     const old = peers.get(address);
     if (old.reconnectTimer) clearTimeout(old.reconnectTimer);

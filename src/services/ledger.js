@@ -112,8 +112,40 @@ function _appendPendingToDisk(entry) {
   }
 }
 
-function _readAndClearPendingFile() {
+// If a process crashed between renameSync and unlinkSync it leaves a
+// .draining-<pid>-<ts> file on disk. Recover those entries so they're
+// not silently lost.
+function _recoverStaleDrainFiles() {
   var entries = [];
+  try {
+    var dir = _dataDir();
+    if (!fs.existsSync(dir)) return entries;
+    var files = fs.readdirSync(dir).filter(function (f) {
+      return f.startsWith('pending-entries.jsonl.draining-');
+    });
+    for (var i = 0; i < files.length; i++) {
+      var p = path.join(dir, files[i]);
+      try {
+        var raw = fs.readFileSync(p, 'utf8');
+        fs.unlinkSync(p);
+        raw.split('\n').forEach(function (line) {
+          line = line.trim();
+          if (!line) return;
+          try { entries.push(JSON.parse(line)); } catch (_) {}
+        });
+      } catch (e) {
+        console.warn('[BTCPC ledger] Could not recover stale drain file ' + files[i] + ': ' + e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('[BTCPC ledger] Stale drain file scan failed: ' + e.message);
+  }
+  return entries;
+}
+
+function _readAndClearPendingFile() {
+  // Recover entries from .draining-* files left by any previously crashed process.
+  var entries = _recoverStaleDrainFiles();
   try {
     var pendingFile = _pendingFile();
     if (!fs.existsSync(pendingFile)) return entries;

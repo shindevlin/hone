@@ -117,12 +117,18 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Direct peer connections still use full Noise_XX
   - Done in commit: self-heal: relay connections bypass Noise_XX, use plain JSON (v3.1.60)
 
-- [ ] **`src/p2p/network.js` reconnect backoff**
-  - Currently reconnects on disconnect, but verify the backoff resets on success
-  - If ALL seed peers + relay are down, retry forever with 30-60s backoff (don't give up)
+- [x] **`src/p2p/network.js` reconnect backoff**
+  - Backoff verified to reset on success: `setupPeerSocket` creates a new peer object with `reconnectAttempts: 0`, overwriting any stale count
+  - Max cap reduced from 300s → 60s so nodes retry every minute even when all seeds + relays are down (they already retried forever — just too infrequently)
+  - Done in commit: self-heal: P4 network backoff cap 60s + ledger crash-mid-drain recovery (v3.1.69)
 
-- [ ] **`src/services/ledger.js` cross-process queue corruption**
-  - If `pending-entries.jsonl` is corrupt mid-line, the corrupt line is silently skipped (good). Verify the rename-then-read pattern handles a crash mid-write without losing entries.
+- [x] **`src/services/ledger.js` cross-process queue corruption**
+  - Rename-then-read is safe for concurrent appends (POSIX atomic rename + appendFileSync)
+  - Fixed gap: crash between `renameSync` and `unlinkSync` left `.draining-<pid>-<ts>` files that were never recovered
+  - Added `_recoverStaleDrainFiles()`: on each drain call, scans data dir for leftover `.draining-*` files from crashed processes, reads and deletes them before processing the normal pending file
+  - Corrupt lines in stale drain files are skipped (same as main file)
+  - 5 test cases added to `tests/ledgerFileQueue.test.js`
+  - Done in commit: self-heal: P4 network backoff cap 60s + ledger crash-mid-drain recovery (v3.1.69)
 
 ## P5 — Documentation
 
