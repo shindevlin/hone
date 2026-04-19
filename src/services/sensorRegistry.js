@@ -137,6 +137,7 @@ function registerSensor(owner, sensorId, spec, options) {
     record.lora_gateway = spec.lora_gateway || record.lora_gateway || null;
     record.hardware_model = spec.hardware_model || record.hardware_model || null;
     record.firmware_version = spec.firmware_version || record.firmware_version || null;
+    record.allow_precise_location = spec.allow_precise_location === true ? true : (record.allow_precise_location || false);
     record.last_updated_epoch = epoch;
     record.status = "active";
   } else {
@@ -150,6 +151,7 @@ function registerSensor(owner, sensorId, spec, options) {
       lora_gateway: spec.lora_gateway || null,
       hardware_model: spec.hardware_model || null,
       firmware_version: spec.firmware_version || null,
+      allow_precise_location: spec.allow_precise_location === true,
       status: "active",
       created_epoch: epoch,
       last_updated_epoch: epoch,

@@ -112,6 +112,7 @@ sensorsRouter.post('/', async (req, res) => {
     if (body.lora_gateway !== undefined) spec.lora_gateway = sanitizeString(body.lora_gateway, 128) || null;
     if (body.hardware_model !== undefined) spec.hardware_model = sanitizeString(body.hardware_model, 128) || null;
     if (body.firmware_version !== undefined) spec.firmware_version = sanitizeString(body.firmware_version, 32) || null;
+    if (body.allow_precise_location !== undefined) spec.allow_precise_location = body.allow_precise_location === true;
 
     const options = { epoch: await getCurrentEpoch() };
 

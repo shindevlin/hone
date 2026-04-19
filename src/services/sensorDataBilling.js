@@ -199,6 +199,19 @@ function calculatePricePerReading(query, context) {
   return roundAmount(base * ageMultiplier * resolutionMultiplier * volumeMultiplier * enterpriseMultiplier);
 }
 
+function blurCoordinates(reading) {
+  if (!reading || typeof reading !== "object") return reading;
+  var meta = reading.metadata;
+  if (!meta || typeof meta !== "object") return reading;
+  if (typeof meta.latitude !== "number" && typeof meta.longitude !== "number") return reading;
+  return Object.assign({}, reading, {
+    metadata: Object.assign({}, meta, {
+      latitude: typeof meta.latitude === "number" ? Math.round(meta.latitude * 100) / 100 : meta.latitude,
+      longitude: typeof meta.longitude === "number" ? Math.round(meta.longitude * 100) / 100 : meta.longitude,
+    }),
+  });
+}
+
 function extractOwner(reading) {
   if (!reading || typeof reading !== "object") return "unknown";
   if (typeof reading.owner === "string" && reading.owner.trim()) return reading.owner.trim();
@@ -306,6 +319,28 @@ async function settleSensorDataPayment(input, options) {
 
   if (shouldUseEscrow) {
     await escrow.lockFunds(queryId, payer, quote.max_cost);
+  }
+
+  if (readings.length === 0) {
+    var fullRefundAmount = quote.max_cost;
+    if (shouldUseEscrow) {
+      await ledger.recordEscrowRefund(payer, queryId, fullRefundAmount, epoch);
+    } else if (fullRefundAmount > 0) {
+      await ledger.recordTransfer("btcpc_treasury", payer, fullRefundAmount, "BTCPC", null, epoch, "Sensor data refund — no data");
+    }
+    return {
+      query_id: queryId,
+      payer: payer,
+      quote: quote,
+      total_fee: 0,
+      charged: 0,
+      refunded: true,
+      refund: fullRefundAmount,
+      transfers: [],
+      payouts: calculatePayouts([], 0, options),
+      sensor_count: 0,
+      block_height: stateStore && typeof stateStore.getChainHeight === "function" ? stateStore.getChainHeight() : null,
+    };
   }
 
   var payouts = calculatePayouts(readings, settledFee, options);
@@ -464,8 +499,32 @@ async function executePaidSensorQuery(queryBody, options) {
   }
 
   if (allReadings.length === 0) {
-    throw new Error("No readings found in the requested range (epochs " + fromEpoch + "–" + toEpoch + ")");
+    return {
+      query: {
+        sensor_id: sensorId, owner: owner, type: typeFilter, region: region,
+        from_epoch: fromEpoch, to_epoch: toEpoch, resolution: resolution,
+        sensors_matched: matchingSensors.length,
+      },
+      readings: [],
+      reading_count: 0,
+      charged: 0,
+      refunded: true,
+      payment: null,
+      analysis: null,
+    };
   }
+
+  // Build a lookup of sensor allow_precise_location flags
+  var preciseAllowed = {};
+  for (var pi = 0; pi < matchingSensors.length; pi++) {
+    var ps = matchingSensors[pi];
+    preciseAllowed[ps.sensor_id] = ps.allow_precise_location === true;
+  }
+
+  // Blur GPS coordinates for sensors that have not opted in to precise location sharing
+  allReadings = allReadings.map(function (r) {
+    return preciseAllowed[r.sensor_id] ? r : blurCoordinates(r);
+  });
 
   // Quote based on actual readings returned
   var ageHours = ((currentEpoch - fromEpoch) * 30) / 3600;
@@ -550,4 +609,5 @@ module.exports = {
   normalizeQuery,
   extractOwner,
   estimateReadingCount,
+  blurCoordinates,
 };
