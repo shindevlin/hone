@@ -3,9 +3,10 @@
 /**
  * BTCPC Model Registry
  *
- * GET /api/models/registry        — JSON listing of all supported models + status
- * GET /api/models/:id             — metadata for one model
- * GET /api/models/:id/*           — fetch a model file
+ * GET  /api/models/registry        — JSON listing of all supported models + status
+ * GET  /api/models/:id             — metadata for one model
+ * POST /api/models/fetch           — chain pulls model from HuggingFace itself (admin auth)
+ * GET  /api/models/:id/*           — fetch a model file
  *
  * Download routing (most-efficient-first):
  *   1. Active storage hosts that hold the CID → 302 redirect (client downloads
@@ -19,11 +20,37 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 const path = require('path');
 const blobStore = require('../services/blobStore');
 const stateStore = require('../chain/stateStore');
+const { authenticateToken } = require('../middlewares/auth');
+const ledger = require('../services/ledger');
 
 const REGISTRY_PATH = path.resolve(__dirname, '../../data/model-registry.json');
+
+const DEFAULT_DURATION_EPOCHS = 10000;
+
+// Canonical HuggingFace source for each supported model.
+const MODEL_CATALOG = {
+  'smollm2-360m': {
+    hf_repo: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'vocab.json',
+      'merges.txt', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen2.5-0.5b': {
+    hf_repo: 'onnx-community/Qwen2.5-0.5B-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'vocab.json',
+      'merges.txt', 'added_tokens.json', 'onnx/model_q4.onnx',
+    ],
+  },
+};
 
 function loadRegistry() {
   try {
@@ -33,11 +60,36 @@ function loadRegistry() {
   }
 }
 
+function saveRegistry(reg) {
+  fs.writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2) + '\n');
+}
+
+function fetchUrl(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode)) {
+        let loc = res.headers.location;
+        if (loc && loc.startsWith('/')) {
+          const u = new URL(url);
+          loc = u.origin + loc;
+        }
+        return fetchUrl(loc).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
 // CORS open — model files must be downloadable by any origin (browser inference)
 router.use(function(req, res, next) {
   res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Range, Content-Type');
+  res.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Range, Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
@@ -60,6 +112,80 @@ function bestHostUrl(cid) {
     return null;
   }
 }
+
+/**
+ * POST /api/models/fetch
+ * Chain pulls model files from HuggingFace directly — no client download needed.
+ * Body: { model_id: 'smollm2-360m' }  (omit to fetch all pending/unknown models)
+ * Auth required. Runs asynchronously; responds immediately with job status.
+ */
+router.post('/fetch', authenticateToken, express.json(), async function(req, res) {
+  const uploader = req.user && req.user.username;
+  if (!uploader) return res.status(401).json({ error: 'unauthenticated' });
+
+  const registry = loadRegistry();
+  const requested = req.body && req.body.model_id
+    ? [req.body.model_id]
+    : Object.keys(MODEL_CATALOG);
+
+  const unknown = requested.filter((id) => !MODEL_CATALOG[id]);
+  if (unknown.length) {
+    return res.status(400).json({
+      error: 'unknown model(s)',
+      unknown,
+      available: Object.keys(MODEL_CATALOG),
+    });
+  }
+
+  // Respond immediately — fetch runs in background
+  res.json({
+    status: 'fetching',
+    models: requested,
+    message: 'Chain is pulling model files from HuggingFace. Poll GET /api/models/registry for status.',
+  });
+
+  // Background pull
+  (async () => {
+    for (const modelId of requested) {
+      const catalog = MODEL_CATALOG[modelId];
+      const entry = registry[modelId] || { files: {} };
+      const files = { ...(entry.files || {}) };
+      let changed = false;
+
+      for (const file of catalog.files) {
+        if (files[file]) continue; // already on-chain
+        const hfUrl = `https://huggingface.co/${catalog.hf_repo}/resolve/main/${file}`;
+        let buf;
+        try {
+          buf = await fetchUrl(hfUrl);
+        } catch (err) {
+          console.warn(`[model-fetch] ${modelId}/${file} download failed: ${err.message}`);
+          continue;
+        }
+        const result = blobStore.putBlob(buf);
+        try {
+          const epoch = await ledger.getCurrentEpoch();
+          await ledger.recordBlobStoreCommit(uploader, result.cid, result.size, [uploader], DEFAULT_DURATION_EPOCHS, 0, epoch);
+        } catch (_) {}
+        files[file] = result.cid;
+        changed = true;
+        console.log(`[model-fetch] ${modelId}/${file} → ${result.cid.slice(0, 12)}... (${result.existed ? 'existed' : 'new'})`);
+      }
+
+      if (changed || !entry.status || entry.status === 'pending') {
+        const reg2 = loadRegistry(); // re-read in case of concurrent writes
+        reg2[modelId] = {
+          ...reg2[modelId],
+          files,
+          status: Object.keys(files).length > 0 ? 'active' : 'pending',
+          uploaded_at: new Date().toISOString(),
+        };
+        saveRegistry(reg2);
+      }
+    }
+    console.log('[model-fetch] Done.');
+  })().catch((err) => console.error('[model-fetch] error:', err.message));
+});
 
 /** GET /api/models/registry */
 router.get('/registry', function(req, res) {

@@ -5,8 +5,18 @@
     "format": "onnx",
     "transformers_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
     "size_mb": 220,
-    "status": "pending",
-    "files": {}
+    "status": "active",
+    "files": {
+      "config.json": "74c6493e7352434a031c0e2bd55a015ef90ac25d549ca1dcc7972a6731459456",
+      "generation_config.json": "3a6555a034b32bf2fc6d35cc16207dc95c8af520b2d45febe48a1ad6cb46ff63",
+      "tokenizer.json": "7d27c493c729a66ecefc837280b05d948b1ed50d130eebdbf911b1b36cf38ed7",
+      "tokenizer_config.json": "7b85619980209ca801effcd87e5df7084a21abc3d8b8d27003a6b4ffcce170ef",
+      "special_tokens_map.json": "2b7379f3ae813529281a5c602bc5a11c1d4e0a99107aaa597fe936c1e813ca52",
+      "vocab.json": "82b84012e3add4d01d12ba14442026e49b8cbbaead1f79ecf3d919784f82dc79",
+      "merges.txt": "0b54e8aa4e53d5383e2e4bc635a56b43f9647f7b13832d5d9ecd8f82dac4f510",
+      "onnx/model_q4.onnx": "77b81bc8d2cb60c23a3399acba67dfa241d073764a4d1bdcce479747fb794aa6"
+    },
+    "uploaded_at": "2026-04-20T23:03:52.703Z"
   },
   "qwen2.5-0.5b": {
     "name": "Qwen2.5 0.5B Instruct",
@@ -14,7 +24,18 @@
     "format": "onnx",
     "transformers_id": "Qwen/Qwen2.5-0.5B-Instruct",
     "size_mb": 380,
-    "status": "pending",
-    "files": {}
+    "status": "active",
+    "files": {
+      "config.json": "880c93c0b3ad8f989428075fac085714ac59e1357016b66d5231f6ec43150bd2",
+      "generation_config.json": "c6445c8e382597c80740bcb3185eef270fd1bbb3ebafba1bc89ead3feec6b509",
+      "tokenizer.json": "29503e9663ee5b7f65e04bb44f7225f2607fcd7995d7803632f42156db47ecfe",
+      "tokenizer_config.json": "602785d17a2a33a9759c444647ce405931ce3821135bcea16847d596b2112f58",
+      "special_tokens_map.json": "bd1a530e68d3e09aa7a45be45eff6f3f6930f6111d227ac57fb75073adf954ec",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "merges.txt": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "added_tokens.json": "a32bc0d990603eb93fd389dc164fe6fbfc442db2ab3a65e4a99a249433ab11f6",
+      "onnx/model_q4.onnx": "02dac8a9a02d49b97c81cc12e90c27e56efae218bfa01513a21fa892a2bdefd3"
+    },
+    "uploaded_at": "2026-04-20T23:05:12.538Z"
   }
 }

@@ -30,40 +30,50 @@ if (!JWT) {
   process.exit(1);
 }
 
-// HuggingFace file lists per model (ONNX quantized variants)
+// HuggingFace onnx-community repos + exact file lists.
+// Only the q4 quantized model variant — smallest for phone CPU inference.
 const MODEL_FILES = {
   'smollm2-360m': {
-    hf_repo: 'HuggingFaceTB/SmolLM2-360M-Instruct',
+    hf_repo: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
     files: [
+      'config.json',
+      'generation_config.json',
       'tokenizer.json',
       'tokenizer_config.json',
       'special_tokens_map.json',
-      'config.json',
-      'generation_config.json',
+      'vocab.json',
+      'merges.txt',
       'onnx/model_q4.onnx',
-      'onnx/model_q4.onnx_data',
     ],
   },
   'qwen2.5-0.5b': {
-    hf_repo: 'Qwen/Qwen2.5-0.5B-Instruct',
+    hf_repo: 'onnx-community/Qwen2.5-0.5B-Instruct-ONNX',
     files: [
+      'config.json',
+      'generation_config.json',
       'tokenizer.json',
       'tokenizer_config.json',
       'special_tokens_map.json',
-      'config.json',
-      'generation_config.json',
+      'vocab.json',
+      'merges.txt',
+      'added_tokens.json',
       'onnx/model_q4.onnx',
-      'onnx/model_q4.onnx_data',
     ],
   },
 };
 
-function fetchUrl(url) {
+function fetchUrl(url, baseUrl) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, { headers: { 'User-Agent': 'btcpc-model-uploader/1.0' } }, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
-        return fetchUrl(res.headers.location).then(resolve).catch(reject);
+        let loc = res.headers.location;
+        // Resolve relative redirects against the origin of the request URL
+        if (loc && loc.startsWith('/')) {
+          const u = new URL(url);
+          loc = u.origin + loc;
+        }
+        return fetchUrl(loc, url).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
@@ -96,10 +106,11 @@ async function uploadBlob(buffer, jwt) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
+        const body = Buffer.concat(chunks).toString();
         try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString()));
+          resolve(JSON.parse(body));
         } catch (e) {
-          reject(new Error('Invalid JSON response from blob upload'));
+          reject(new Error('Upload HTTP ' + res.statusCode + ': ' + body.slice(0, 200)));
         }
       });
     });
@@ -118,20 +129,14 @@ async function processModel(modelId, modelDef, registryEntry) {
       continue;
     }
     // transformers.js resolves files from the Xenova mirror (pre-converted ONNX)
-    const hfUrl = `https://huggingface.co/Xenova/${hf_repo.split('/')[1]}/resolve/main/${file}`;
+    const hfUrl = `https://huggingface.co/${hf_repo}/resolve/main/${file}`;
     process.stdout.write(`  [download] ${file} ... `);
     let buf;
     try {
       buf = await fetchUrl(hfUrl);
     } catch (err) {
-      // Try alternate Xenova model naming
-      const altUrl = `https://huggingface.co/Xenova/${modelId}/resolve/main/${file}`;
-      try {
-        buf = await fetchUrl(altUrl);
-      } catch (err2) {
-        console.log(`SKIP (not found on HuggingFace: ${err2.message})`);
-        continue;
-      }
+      console.log(`SKIP (${err.message})`);
+      continue;
     }
     process.stdout.write(`${(buf.length / 1024 / 1024).toFixed(1)}MB  `);
     const result = await uploadBlob(buf, JWT);
