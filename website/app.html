@@ -1663,7 +1663,7 @@
       async function refreshNode() {
         try {
           // 1. Network stats (always available — works against any node)
-          var netResp = await fetch('/public/network');
+          var netResp = await fetch(API_BASE + '/public/network');
           var net = await netResp.json();
 
           var dot = document.getElementById('node-conn-dot');
@@ -1710,7 +1710,7 @@
           if (jwt && account) {
             document.getElementById('node-my-stats').style.display = 'block';
             try {
-              var balResp = await fetch('/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              var balResp = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
               var bal = await balResp.json();
               var btcpcBal = bal && bal.balance && typeof bal.balance === 'object'
                 ? (bal.balance.BTCPC || 0)
@@ -1769,7 +1769,7 @@
         var card = document.getElementById('machine-status-card');
         if (!card) return;
         try {
-          var resp = await fetch('/public/machine-status');
+          var resp = await fetch(API_BASE + '/public/machine-status');
           if (!resp.ok) return;
           var d = await resp.json();
           if (d.error) return;
@@ -1980,7 +1980,10 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
 
 <script>
 // ─── Config ───
-const API_BASE = location.origin;
+// In Capacitor (https://localhost), there is no local node — use the public one.
+const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const REMOTE_BASE = 'https://btcpc.net';
+const API_BASE = IS_NATIVE ? REMOTE_BASE : location.origin;
 const EPOCH_INTERVAL = 30000; // 30 seconds
 const BTCPC_PER_READING = 0.000042; // estimated per sensor per epoch
 
@@ -2173,7 +2176,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
   try {
     // Step 1: Try to LOGIN first (existing account)
-    const loginResp = await fetch('/public/login', {
+    const loginResp = await fetch(API_BASE + '/public/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: val, password: pwd })
@@ -2190,7 +2193,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     } else if (loginData.error && /not found|no account|unknown/i.test(loginData.error)) {
       // Account doesn't exist — CREATE it
       btn.textContent = 'Creating account...';
-      const createResp = await fetch('/public/signup', {
+      const createResp = await fetch(API_BASE + '/public/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: val, password: pwd })
@@ -3060,7 +3063,7 @@ document.getElementById('btn-change-pw').addEventListener('click', async () => {
     return;
   }
   try {
-    const resp = await fetch('/public/change-password', {
+    const resp = await fetch(API_BASE + '/public/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: account, old_password: oldPw, new_password: newPw })
@@ -3200,7 +3203,7 @@ function getDeviceType() {
 function sendDeviceHeartbeat() {
   if (!account) return;
   var activeSensors = Object.keys(sensorStates).filter(k => sensorStates[k]).length;
-  fetch('/public/device-heartbeat', {
+  fetch(API_BASE + '/public/device-heartbeat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -3219,7 +3222,7 @@ function sendDeviceHeartbeat() {
 
 function loadMyDevices() {
   if (!account) return;
-  fetch('/public/my-devices?account=' + encodeURIComponent(account))
+  fetch(API_BASE + '/public/my-devices?account=' + encodeURIComponent(account))
     .then(r => r.json())
     .then(data => {
       var el = document.getElementById('my-devices-list');
@@ -3525,7 +3528,7 @@ initDashboard = async function() {
     reqStatus.style.display = 'none';
     try {
       var acct = localStorage.getItem('btcpc-account') || 'anonymous';
-      var resp = await fetch('/public/model-request', {
+      var resp = await fetch(API_BASE + '/public/model-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: model, account: acct }),
@@ -3560,7 +3563,7 @@ async function loadNetworkDemand() {
   var listEl = document.getElementById('network-demand-list');
   if (!listEl) return;
   try {
-    var resp = await fetch('/public/model-demand');
+    var resp = await fetch(API_BASE + '/public/model-demand');
     var data = await resp.json();
     var demand = data.demand || [];
     if (demand.length === 0) {
@@ -3877,7 +3880,7 @@ if (account) {
     try {
       var body = buildQueryBody();
       body.estimated_readings = parseInt(document.getElementById('data-limit').value) || 100;
-      var resp = await fetch('/api/sensor-data/quote', {
+      var resp = await fetch(API_BASE + '/api/sensor-data/quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
         body: JSON.stringify(body)
@@ -3954,7 +3957,7 @@ if (account) {
     document.getElementById('data-results').style.display = 'none';
     try {
       var body = buildQueryBody();
-      var resp = await fetch('/api/sensor-data/query', {
+      var resp = await fetch(API_BASE + '/api/sensor-data/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
         body: JSON.stringify(body)
@@ -4041,7 +4044,7 @@ if (account) {
     if (acct) {
       var jwt = localStorage.getItem('btcpc-jwt');
       if (!jwt) return;
-      fetch('/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } })
+      fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } })
         .then(function(r) { return r.json(); })
         .then(function(d) {
           var bal = d && d.balance && typeof d.balance === 'object'
@@ -4108,7 +4111,7 @@ if (account) {
   }
 
   // ── Version ───────────────────────────────────────────────────────────────
-  fetch('/public/network').then(function(r) { return r.json(); }).then(function(d) {
+  fetch(API_BASE + '/public/network').then(function(r) { return r.json(); }).then(function(d) {
     var el = document.getElementById('sb-version');
     if (el && d.epoch) el.textContent = 'epoch ' + d.epoch + ' · v' + (window.BTCPC_VERSION || '3.1');
   }).catch(function() {});
