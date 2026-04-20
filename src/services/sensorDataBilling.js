@@ -42,13 +42,13 @@ const DEFAULT_RATE_CARD = {
     { min_readings: 0, multiplier: 1.0 },
   ],
   splits_bps: {
-    sensor_operators: 7000,
-    protocol: 2000,
+    sensor_operators: 6000,
+    relay_nodes: 2500,
+    btcpc_treasury: 500,
     recycle: 1000,
   },
   protocol_accounts: [
-    { account: "shindevlin", share_bps: 5000 },
-    { account: "natoshisakamoto", share_bps: 5000 },
+    { account: "btcpc_treasury", share_bps: 10000 },
   ],
   minimum_fee: 0,
 };
@@ -222,12 +222,41 @@ function extractOwner(reading) {
   return "unknown";
 }
 
+/**
+ * Compute witness-scaled relay split (bps) and the corresponding extra recycle (bps).
+ * witnesses: Set or array of relay account names for the sensor+epoch.
+ *
+ *   1 witness  → relay gets 1200 bps (12%), remaining 1300 bps → recycle
+ *   2 witnesses → relay gets 2000 bps (20%) split equally, remaining 500 bps → recycle
+ *   3+ witnesses → relay gets 2500 bps (25%) split equally, 0 extra → recycle
+ *   0 witnesses (direct submit) → relay gets 0, full 2500 bps → recycle
+ */
+function _relayBps(witnessCount) {
+  if (!witnessCount || witnessCount <= 0) return { relay_total_bps: 0, extra_recycle_bps: 2500 };
+  if (witnessCount === 1) return { relay_total_bps: 1200, extra_recycle_bps: 1300 };
+  if (witnessCount === 2) return { relay_total_bps: 2000, extra_recycle_bps: 500 };
+  return { relay_total_bps: 2500, extra_recycle_bps: 0 };
+}
+
 function calculatePayouts(readings, totalFee, options) {
   var fee = Math.max(0, Number(totalFee) || 0);
   var list = Array.isArray(readings) ? readings.filter(Boolean) : [];
   var rateCard = options && options.rate_card ? options.rate_card : DEFAULT_RATE_CARD;
   var splits = options && options.splits_bps ? options.splits_bps : DEFAULT_RATE_CARD.splits_bps;
   var protocolAccounts = options && options.protocol_accounts ? options.protocol_accounts : DEFAULT_RATE_CARD.protocol_accounts;
+
+  // Witness-scaled relay: caller can pass witnesses as a Set or array of relay account names
+  var witnessAccounts = [];
+  if (options && options.witnesses) {
+    if (options.witnesses instanceof Set) {
+      witnessAccounts = Array.from(options.witnesses);
+    } else if (Array.isArray(options.witnesses)) {
+      witnessAccounts = options.witnesses.slice();
+    }
+  }
+  var relayResult = _relayBps(witnessAccounts.length);
+  var relayTotalBps = relayResult.relay_total_bps;
+  var extraRecycleBps = relayResult.extra_recycle_bps;
 
   var owners = new Map();
   for (var i = 0; i < list.length; i++) {
@@ -238,8 +267,12 @@ function calculatePayouts(readings, totalFee, options) {
   }
 
   var sensorPool = roundAmount(fee * ((splits.sensor_operators || 0) / 10000));
-  var protocolPool = roundAmount(fee * ((splits.protocol || 0) / 10000));
-  var recyclePool = roundAmount(fee * ((splits.recycle || 0) / 10000));
+  // btcpc_treasury gets a fixed 500 bps cut regardless of relay
+  var treasuryPool = roundAmount(fee * ((splits.btcpc_treasury || 0) / 10000));
+  // Relay pool: witness-scaled; unused relay → extra recycle
+  var relayPool = roundAmount(fee * (relayTotalBps / 10000));
+  var extraRecyclePool = roundAmount(fee * (extraRecycleBps / 10000));
+  var recyclePool = roundAmount(fee * ((splits.recycle || 0) / 10000) + extraRecyclePool);
 
   var ownerEntries = Array.from(owners.values());
   var totalOwnerReadings = ownerEntries.reduce(function (sum, entry) { return sum + entry.readings; }, 0);
@@ -259,6 +292,7 @@ function calculatePayouts(readings, totalFee, options) {
     };
   });
 
+  // Treasury goes to btcpc_treasury (protocol fee)
   var protocolPayouts = [];
   var totalProtocolBps = protocolAccounts.reduce(function (sum, item) { return sum + (item.share_bps || 0); }, 0) || 10000;
   for (var j = 0; j < protocolAccounts.length; j++) {
@@ -266,13 +300,33 @@ function calculatePayouts(readings, totalFee, options) {
     var pct = (account.share_bps || 0) / totalProtocolBps;
     protocolPayouts.push({
       account: account.account,
-      amount: roundAmount(protocolPool * pct),
+      amount: roundAmount(treasuryPool * pct),
       kind: "protocol",
     });
   }
 
+  // Relay payouts: split equally among witness accounts
+  var relayPayouts = [];
+  if (witnessAccounts.length > 0 && relayPool > 0) {
+    var perRelay = roundAmount(relayPool / witnessAccounts.length);
+    for (var k = 0; k < witnessAccounts.length; k++) {
+      relayPayouts.push({
+        account: witnessAccounts[k],
+        amount: perRelay,
+        kind: "relay",
+      });
+    }
+    // Distribute any per-relay rounding remainder into recycle
+    var relayDistributed = roundAmount(perRelay * witnessAccounts.length);
+    var relayRoundingRem = roundAmount(relayPool - relayDistributed);
+    if (relayRoundingRem !== 0) {
+      recyclePool = roundAmount(recyclePool + relayRoundingRem);
+    }
+  }
+
   var subtotal = ownerPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0)
     + protocolPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0)
+    + relayPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0)
     + recyclePool;
 
   var roundingDelta = roundAmount(fee - subtotal);
@@ -284,15 +338,19 @@ function calculatePayouts(readings, totalFee, options) {
     total_fee: fee,
     rate_card: rateCard,
     sensor_pool: sensorPool,
-    protocol_pool: protocolPool,
+    relay_pool: relayPool,
+    protocol_pool: treasuryPool,
     recycle_pool: recyclePool,
     owner_payouts: ownerPayouts,
     protocol_payouts: protocolPayouts,
+    relay_payouts: relayPayouts,
+    witness_count: witnessAccounts.length,
     total_readings: list.length,
     total_owner_readings: totalOwnerReadings,
     total_payout: roundAmount(
       ownerPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0) +
       protocolPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0) +
+      relayPayouts.reduce(function (sum, p) { return sum + p.amount; }, 0) +
       recyclePool
     ),
   };
@@ -359,6 +417,15 @@ async function settleSensorDataPayment(input, options) {
       if (protocolPayout.amount > 0) {
         await ledger.recordEscrowRelease(protocolPayout.account, queryId, protocolPayout.amount, epoch, "Sensor data protocol share");
         transfers.push({ to: protocolPayout.account, amount: protocolPayout.amount, kind: "protocol" });
+      }
+    }
+    if (payouts.relay_payouts && payouts.relay_payouts.length > 0) {
+      for (var r = 0; r < payouts.relay_payouts.length; r++) {
+        var relayPayout = payouts.relay_payouts[r];
+        if (relayPayout.amount > 0) {
+          await ledger.recordEscrowRelease(relayPayout.account, queryId, relayPayout.amount, epoch, "Sensor relay reward");
+          transfers.push({ to: relayPayout.account, amount: relayPayout.amount, kind: "relay" });
+        }
       }
     }
     if (payouts.recycle_pool > 0) {
@@ -537,6 +604,18 @@ async function executePaidSensorQuery(queryBody, options) {
     throw new Error("Insufficient balance: need " + quote.max_cost.toFixed(10) + " BTCPC, have " + (balance || 0).toFixed(10));
   }
 
+  // Collect witnesses across all matching sensors for the queried epoch range
+  var allWitnesses = new Set();
+  if (stateStore && typeof stateStore.getWitnesses === "function") {
+    for (var wi = 0; wi < matchingSensors.length; wi++) {
+      var wSensor = matchingSensors[wi];
+      for (var we = fromEpoch; we <= toEpoch; we++) {
+        var wSet = stateStore.getWitnesses(wSensor.sensor_id, we);
+        for (var wAcc of wSet) allWitnesses.add(wAcc);
+      }
+    }
+  }
+
   // Settle payment
   var currentEpochNum = await ledger.getCurrentEpoch();
   var receipt = await settleSensorDataPayment({
@@ -545,7 +624,7 @@ async function executePaidSensorQuery(queryBody, options) {
     quote: quote,
     readings: allReadings,
     actual_fee: quote.max_cost,
-  }, { ledger: ledger, stateStore: stateStore, epoch: currentEpochNum });
+  }, { ledger: ledger, stateStore: stateStore, epoch: currentEpochNum, witnesses: allWitnesses });
 
   var queryResult = {
     query: {
@@ -610,4 +689,5 @@ module.exports = {
   extractOwner,
   estimateReadingCount,
   blurCoordinates,
+  _relayBps,
 };

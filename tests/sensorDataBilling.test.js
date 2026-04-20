@@ -69,19 +69,21 @@ describe("sensor data billing", () => {
       1.0
     );
 
-    expect(payouts.sensor_pool).toBeCloseTo(0.7, 10);
-    expect(payouts.protocol_pool).toBeCloseTo(0.2, 10);
-    expect(payouts.recycle_pool).toBeCloseTo(0.1, 10);
+    // New splits: sensor_operators 60%, relay_nodes up to 25%, btcpc_treasury 5%, recycle 10%
+    // No witnesses → relay_pool=0, extra 25% goes to recycle → total recycle = 10%+25% = 35%
+    expect(payouts.sensor_pool).toBeCloseTo(0.6, 10);
+    expect(payouts.protocol_pool).toBeCloseTo(0.05, 10);
+    expect(payouts.recycle_pool).toBeCloseTo(0.35, 10);
+    expect(payouts.relay_pool).toBeCloseTo(0.0, 10);
     expect(payouts.owner_payouts).toHaveLength(2);
 
     const byOwner = Object.fromEntries(
       payouts.owner_payouts.map((item) => [item.owner, item.amount])
     );
-    expect(byOwner.alice).toBeCloseTo(0.4666666667, 10);
-    expect(byOwner.bob).toBeCloseTo(0.2333333333, 10);
+    expect(byOwner.alice).toBeCloseTo(0.4, 10);
+    expect(byOwner.bob).toBeCloseTo(0.2, 10);
     expect(payouts.protocol_payouts).toEqual([
-      expect.objectContaining({ account: "shindevlin", amount: 0.1 }),
-      expect.objectContaining({ account: "natoshisakamoto", amount: 0.1 }),
+      expect.objectContaining({ account: "btcpc_treasury", amount: 0.05 }),
     ]);
     expect(payouts.total_payout).toBeCloseTo(1.0, 10);
   });
@@ -92,14 +94,17 @@ describe("sensor data billing", () => {
       0.03
     );
 
-    expect(payouts.owner_payouts[0].amount).toBeCloseTo(0.021, 10);
-    expect(payouts.protocol_payouts[0].amount).toBeCloseTo(0.003, 10);
-    expect(payouts.protocol_payouts[1].amount).toBeCloseTo(0.003, 10);
-    expect(payouts.recycle_pool).toBeCloseTo(0.003, 10);
+    // 0.03 * 60% = 0.018 sensor; 0.03 * 5% = 0.0015 treasury; 0.03 * 35% = 0.0105 recycle (10%+25% no witnesses)
+    expect(payouts.owner_payouts[0].amount).toBeCloseTo(0.018, 10);
+    expect(payouts.protocol_payouts[0].amount).toBeCloseTo(0.0015, 10);
+    expect(payouts.recycle_pool).toBeCloseTo(0.0105, 10);
     expect(payouts.total_payout).toBeCloseTo(0.03, 10);
   });
 
   test("settleSensorDataPayment locks quote max, releases proportional payouts, and refunds overquote", async () => {
+    // settled_fee = min(actual_fee=6, max_cost=10) = 6
+    // sensor_pool = 6 * 60% = 3.6; treasury = 6 * 5% = 0.3; recycle = 6 * 35% = 2.1 (no witnesses)
+    // alice: 2/3 of 3.6 = 2.4; bob: 1/3 of 3.6 = 1.2
     const result = await billing.settleSensorDataPayment(
       {
         payer: "buyer",
@@ -125,11 +130,10 @@ describe("sensor data billing", () => {
     );
 
     expect(escrow.lockFunds).toHaveBeenCalledWith("req-1", "buyer", 10);
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("alice", "req-1", 2.8, 88, "Sensor data payout");
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("bob", "req-1", 1.4, 88, "Sensor data payout");
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("shindevlin", "req-1", 0.6, 88, "Sensor data protocol share");
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("natoshisakamoto", "req-1", 0.6, 88, "Sensor data protocol share");
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("btcpc_recycle", "req-1", 0.6, 88, "Sensor data recycle share");
+    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("alice", "req-1", 2.4, 88, "Sensor data payout");
+    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("bob", "req-1", 1.2, 88, "Sensor data payout");
+    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("btcpc_treasury", "req-1", 0.3, 88, "Sensor data protocol share");
+    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("btcpc_recycle", "req-1", 2.1, 88, "Sensor data recycle share");
     expect(ledger.recordEscrowRefund).toHaveBeenCalledWith("buyer", "req-1", 4, 88);
     expect(result.total_fee).toBe(6);
     expect(result.refund).toBe(4);
@@ -273,8 +277,9 @@ describe("sensor data billing", () => {
       }
     );
 
+    // 4 * 60% = 2.4 sensor (carol gets all); 4 * 5% = 0.2 treasury; 4 * 35% = 1.4 recycle (no witnesses)
     expect(escrow.lockFunds).toHaveBeenCalledWith("req-normal", "buyer", 4);
-    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("carol", "req-normal", 2.8, 88, "Sensor data payout");
+    expect(ledger.recordEscrowRelease).toHaveBeenCalledWith("carol", "req-normal", 2.4, 88, "Sensor data payout");
     expect(result.total_fee).toBe(4);
     expect(result.refund).toBe(0);
     expect(result.refunded).toBeUndefined();

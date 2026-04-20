@@ -32,11 +32,13 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const { authenticateToken } = require('../middlewares/auth');
 const sensorRegistry = require('../services/sensorRegistry');
 const gatewayRegistry = require('../services/loraGatewayRegistry');
 const blobStore = require('../services/blobStore');
 const ledger = require('../services/ledger');
+const stateStore = require('../chain/stateStore');
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
@@ -165,6 +167,13 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
     }
 
     const epoch = await getCurrentEpoch();
+
+    // Optional relay_account — the node that physically received the signal
+    var relayAccount = null;
+    if (body.relay_account && typeof body.relay_account === 'string') {
+      relayAccount = sanitizeString(body.relay_account, 64) || null;
+    }
+    if (relayAccount) metadata.relay_account = relayAccount;
 
     // Optional: run requester-side tools to enrich the reading before submission
     // e.g. tools: ['calculator'] to convert units, 'hash' to fingerprint raw data
@@ -506,4 +515,89 @@ gatewaysRouter.get('/:id', async (req, res) => {
   res.json({ gateway, stats, current_epoch: currentEpoch });
 });
 
-module.exports = { sensorsRouter, gatewaysRouter };
+// ─────────────────────────────────────────────────────────────────
+// Devices router — IoT device key registration (v3.2)
+// ─────────────────────────────────────────────────────────────────
+
+const devicesRouter = express.Router();
+
+/**
+ * POST /api/devices/register
+ * Register an IoT device's public key on chain.
+ * The owner authorizes with their posting key (cannot move funds).
+ *
+ * Body: { owner, device_id, device_pubkey, posting_key_sig }
+ *   owner          — BTCPC account name
+ *   device_id      — "<owner>/<device-name>" (e.g. "josh/flipper-abc123")
+ *   device_pubkey  — hex-encoded compressed secp256k1 public key of the device
+ *   posting_key_sig — owner's posting-key signature over device_id + device_pubkey
+ */
+devicesRouter.post('/register', async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    const owner = sanitizeString(body.owner, 64);
+    if (!owner) return res.status(400).json({ error: 'owner required' });
+
+    const deviceId = sanitizeString(body.device_id, 128);
+    if (!deviceId) return res.status(400).json({ error: 'device_id required' });
+
+    // device_id must be "<owner>/<device-name>"
+    if (!deviceId.startsWith(owner + '/')) {
+      return res.status(400).json({ error: 'device_id must start with owner/ (e.g. ' + owner + '/flipper-abc123)' });
+    }
+
+    const devicePubkey = sanitizeString(body.device_pubkey, 256);
+    if (!devicePubkey) return res.status(400).json({ error: 'device_pubkey required' });
+
+    const postingKeySig = sanitizeString(body.posting_key_sig, 512);
+    if (!postingKeySig) return res.status(400).json({ error: 'posting_key_sig required' });
+
+    // Verify the posting key signature — the owner must have a posting key registered
+    const ownerAccount = stateStore.getAccount(owner);
+    if (!ownerAccount) {
+      return res.status(404).json({ error: 'owner account not found on chain' });
+    }
+    const postingPubkey = ownerAccount.public_keys && ownerAccount.public_keys.posting;
+    if (!postingPubkey) {
+      return res.status(422).json({ error: 'owner has no registered posting key' });
+    }
+
+    // Verify: posting key signed over (device_id + device_pubkey)
+    var sigOk = false;
+    try {
+      // secp256k1 verify via Node.js crypto (DER or raw hex sig)
+      const verify = crypto.createVerify('SHA256');
+      verify.update(Buffer.from(deviceId + devicePubkey, 'utf8'));
+      sigOk = verify.verify(
+        { key: Buffer.from(postingPubkey, 'hex'), format: 'der', type: 'spki' },
+        Buffer.from(postingKeySig, 'hex')
+      );
+    } catch (_) {
+      // Sig verification failed or malformed key — treat as invalid
+      sigOk = false;
+    }
+
+    if (!sigOk) {
+      return res.status(403).json({ error: 'posting_key_sig verification failed' });
+    }
+
+    const epoch = await getCurrentEpoch();
+
+    const entry = ledger.recordDeviceKeyRegister(owner, deviceId, devicePubkey, postingKeySig, epoch);
+
+    return res.status(201).json({
+      success: true,
+      device: {
+        device_id: deviceId,
+        owner: owner,
+        device_pubkey: devicePubkey,
+        registered_epoch: epoch,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = { sensorsRouter, gatewaysRouter, devicesRouter };

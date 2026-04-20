@@ -1959,6 +1959,37 @@ async function recordDeviceRevoke(ownerAccount, devicePubkey, epoch) {
 }
 
 /**
+ * Register an IoT device key on chain (v3.2).
+ * Authorized by the owner's posting key — posting cannot move funds.
+ *
+ * @param {string} owner               — BTCPC account name
+ * @param {string} deviceId            — "<owner>/<device-name>" (e.g. "josh/flipper-abc123")
+ * @param {string} devicePubkey        — hex-encoded compressed secp256k1 public key of the device
+ * @param {string} postingKeySignature — owner's posting-key signature over deviceId + devicePubkey
+ * @param {number} epoch
+ */
+function recordDeviceKeyRegister(owner, deviceId, devicePubkey, postingKeySignature, epoch) {
+  if (!owner) throw new Error('owner required');
+  if (!deviceId) throw new Error('deviceId required');
+  if (!devicePubkey) throw new Error('devicePubkey required');
+  if (!postingKeySignature) throw new Error('postingKeySignature required');
+
+  const entry = _entry({
+    type: 'DEVICE_KEY_REGISTER',
+    from: owner,
+    epoch: epoch || 0,
+    device_key_data: {
+      device_id: deviceId,
+      owner: owner,
+      device_pubkey: devicePubkey,
+      posting_key_sig: postingKeySignature,
+      registered_epoch: epoch || 0,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a completed scientific compute result on the ledger.
  * Entry type: SCIENTIFIC_RESULT
  *
@@ -2130,6 +2161,8 @@ module.exports = {
   // Device key delegation (v3.2) — auto-called on first device startup
   recordDeviceAuthorize,
   recordDeviceRevoke,
+  // IoT device key registration (v3.2) — posting-key-authorized
+  recordDeviceKeyRegister,
   // Amber Pill geo-pioneer NFT (v2.18)
   recordAmberPillMint,
   // Native tool use + MCP (v3.2)

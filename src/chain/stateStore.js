@@ -30,6 +30,11 @@ var accounts = new Map();
 // Allows many physical devices to sign proposals on behalf of one account.
 var deviceKeys = new Map();
 
+// IoT device key registry (v3.2): device_id → { device_id, owner, device_pubkey, registered_epoch }
+// device_id = "<owner>/<device-name>" (e.g. "josh/flipper-abc123")
+// Authorized by the owner's posting key (cannot move funds).
+var iotDeviceKeys = new Map();
+
 // Token metadata: symbol → { name, symbol, supply, decimals, type, creator, created_epoch }
 var tokens = new Map();
 
@@ -134,6 +139,10 @@ var gateways = new Map();
 
 // gatewayHeartbeats: gateway_id → { epochs: Set<number>, last_heartbeat_epoch, total_heartbeats }
 var gatewayHeartbeats = new Map();
+
+// witnessMap: "<sensorId>|<epoch>" → Set of relay_account strings
+// Tracks unique relay nodes that submitted a reading for a given sensor+epoch.
+var witnessMap = new Map();
 
 // ─────────────────────────────────────────────────────────────────
 // Bridge state (v2.16-alpha)
@@ -292,6 +301,8 @@ function _entryKey(entry) {
   } else if (entry.type === "STORAGE_HEARTBEAT") {
     // Heartbeats are per-host-per-epoch; dedupe on that key.
     domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "DEVICE_KEY_REGISTER") {
+    domainId = "dkr:" + (entry.device_key_data && entry.device_key_data.device_id || "");
   } else if (entry.type === "SENSOR_REGISTER") {
     domainId = "sr:" + (entry.sensor_data && entry.sensor_data.sensor_id || "");
   } else if (entry.type === "SENSOR_READING") {
@@ -1365,8 +1376,16 @@ function applyEntry(entry) {
           value: srdData.value,
           metadata: srdData.metadata || {},
           submitted_at: entry.timestamp || Date.now(),
+          relay_account: srdData.relay_account || null,
         });
         sensorReadings.set(srdKey, srdList);
+        // Track witnesses (relay nodes) per sensor+epoch
+        if (srdData.relay_account && typeof srdData.relay_account === "string") {
+          var wKey = srdData.sensor_id + "|" + (entry.epoch || 0);
+          var wSet = witnessMap.get(wKey);
+          if (!wSet) { wSet = new Set(); witnessMap.set(wKey, wSet); }
+          wSet.add(srdData.relay_account);
+        }
         // Update sensor's last_reading_epoch
         var srdSensor = sensors.get(srdData.sensor_id);
         if (srdSensor) {
@@ -1590,6 +1609,23 @@ function applyEntry(entry) {
       }
       break;
 
+    // ─────────────────────────────────────────────────────────────────
+    // IoT device key registration (v3.2)
+    // Authorized by the owner's posting key — cannot move funds.
+    // device_id = "<owner>/<device-name>"
+    // ─────────────────────────────────────────────────────────────────
+    case "DEVICE_KEY_REGISTER":
+      if (entry.device_key_data && entry.device_key_data.device_id) {
+        var dkrd = entry.device_key_data;
+        iotDeviceKeys.set(dkrd.device_id, {
+          device_id: dkrd.device_id,
+          owner: dkrd.owner || from,
+          device_pubkey: dkrd.device_pubkey,
+          registered_epoch: entry.epoch || 0,
+        });
+      }
+      break;
+
     case "TOOL_CAPABILITY_REGISTER":
       // Forward to toolRegistry (lazy require avoids circular dep)
       try {
@@ -1770,6 +1806,35 @@ function getAccountDevices(username) {
 function isDeviceAuthorized(devicePubkey, owner) {
   var rec = deviceKeys.get(devicePubkey);
   return rec ? rec.owner === owner : false;
+}
+
+/**
+ * Get an IoT device key record by device_id.
+ * Returns { device_id, owner, device_pubkey, registered_epoch } or null.
+ */
+function getDeviceKey(deviceId) {
+  return iotDeviceKeys.get(deviceId) || null;
+}
+
+/**
+ * Get all IoT device keys registered by a given owner.
+ * Returns an array of { device_id, owner, device_pubkey, registered_epoch }.
+ */
+function getDevicesByOwner(owner) {
+  var result = [];
+  for (var entry of iotDeviceKeys) {
+    if (entry[1].owner === owner) result.push(entry[1]);
+  }
+  return result;
+}
+
+/**
+ * Get the set of relay accounts (witnesses) that submitted a reading
+ * for a given sensor+epoch. Returns a Set (may be empty).
+ */
+function getWitnesses(sensorId, epoch) {
+  var key = sensorId + "|" + (epoch || 0);
+  return witnessMap.get(key) || new Set();
 }
 
 function bootstrapAccountKey(username, keyRole, publicKey) {
@@ -2623,6 +2688,7 @@ function resetAll() {
   snapshots.clear();
   sensors.clear();
   sensorReadings.clear();
+  witnessMap.clear();
   gateways.clear();
   gatewayHeartbeats.clear();
   bridgeWraps.clear();
@@ -2633,6 +2699,7 @@ function resetAll() {
   earnings.clear();
   seenEntries.clear();
   deviceKeys.clear();
+  iotDeviceKeys.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
 }
@@ -2663,6 +2730,11 @@ module.exports = {
   getDeviceOwner: getDeviceOwner,
   getAccountDevices: getAccountDevices,
   isDeviceAuthorized: isDeviceAuthorized,
+  // IoT device key registry (v3.2)
+  getDeviceKey: getDeviceKey,
+  getDevicesByOwner: getDevicesByOwner,
+  // Witness map for relay-scaled rewards (v3.2)
+  getWitnesses: getWitnesses,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,
