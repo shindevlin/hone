@@ -2207,6 +2207,81 @@ async function recordToolTraceCommit(account, proofId, toolTraceHash, traceCids,
   }));
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Name Auctions (v3.6)
+// ─────────────────────────────────────────────────────────────────
+
+const DEFAULT_AUCTION_DURATION_EPOCHS = 20160; // ~7 days at 30s epochs
+
+async function recordNameAuctionOpen(seller, name, startPriceUsd, minBidIncrementUsd, auctionEndEpoch, epoch) {
+  if (!seller) throw new Error('seller required');
+  if (!name) throw new Error('name required');
+  if (typeof startPriceUsd !== 'number' || startPriceUsd < 0) throw new Error('startPriceUsd must be a non-negative number');
+  if (typeof minBidIncrementUsd !== 'number' || minBidIncrementUsd < 0) throw new Error('minBidIncrementUsd must be a non-negative number');
+  const ep = epoch || 0;
+  const endEpoch = auctionEndEpoch || (ep + DEFAULT_AUCTION_DURATION_EPOCHS);
+  return _persist(_entry({
+    type: 'NAME_AUCTION_OPEN',
+    from: seller,
+    epoch: ep,
+    auction_data: {
+      name,
+      seller,
+      start_price_usd: startPriceUsd,
+      min_bid_increment_usd: minBidIncrementUsd,
+      auction_end_epoch: endEpoch,
+    },
+  }));
+}
+
+async function recordNameAuctionBid(name, bidder, bidUsd, chain, txHash, btcpcAccount, btcpcPubkeys, epoch) {
+  if (!name) throw new Error('name required');
+  if (!bidder) throw new Error('bidder required');
+  if (typeof bidUsd !== 'number' || bidUsd <= 0) throw new Error('bidUsd must be a positive number');
+  if (!chain) throw new Error('chain required');
+  if (!txHash) throw new Error('txHash required');
+  return _persist(_entry({
+    type: 'NAME_AUCTION_BID',
+    from: bidder,
+    epoch: epoch || 0,
+    auction_data: {
+      name,
+      bidder,
+      bid_usd: bidUsd,
+      chain,
+      tx_hash: txHash,
+      btcpc_account: btcpcAccount || bidder,
+      btcpc_pubkeys: btcpcPubkeys || {},
+    },
+  }));
+}
+
+async function recordNameAuctionSettle(name, sellerSig, epoch) {
+  if (!name) throw new Error('name required');
+  return _persist(_entry({
+    type: 'NAME_AUCTION_SETTLE',
+    from: 'shindevlin',
+    epoch: epoch || 0,
+    auction_data: {
+      name,
+      seller_sig: sellerSig || null,
+    },
+  }));
+}
+
+async function recordNameAuctionCancel(name, sellerSig, epoch) {
+  if (!name) throw new Error('name required');
+  return _persist(_entry({
+    type: 'NAME_AUCTION_CANCEL',
+    from: 'shindevlin',
+    epoch: epoch || 0,
+    auction_data: {
+      name,
+      seller_sig: sellerSig || null,
+    },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -2310,4 +2385,10 @@ module.exports = {
   recordToolTraceCommit,
   // Scientific compute (v3.2)
   recordScientificResult,
+  // Name Auctions (v3.6)
+  recordNameAuctionOpen,
+  recordNameAuctionBid,
+  recordNameAuctionSettle,
+  recordNameAuctionCancel,
+  DEFAULT_AUCTION_DURATION_EPOCHS,
 };

@@ -145,6 +145,19 @@ var gatewayHeartbeats = new Map();
 var witnessMap = new Map();
 
 // ─────────────────────────────────────────────────────────────────
+// Name Auctions (v3.6)
+// nameAuctions: name → AuctionRecord
+// AuctionRecord: {
+//   name, seller, start_price_usd, min_bid_increment_usd,
+//   auction_end_epoch, open_epoch,
+//   bids: [ { bidder, bid_usd, chain, tx_hash, btcpc_account, btcpc_pubkeys, bid_epoch } ],
+//   status: "open" | "settled" | "cancelled",
+//   winner: null | bidder,
+// }
+// ─────────────────────────────────────────────────────────────────
+var nameAuctions = new Map();
+
+// ─────────────────────────────────────────────────────────────────
 // Device Stake & Rent (v3.5) — pooled staker model
 // deviceStakerPools: device_id → Map<staker_account, StakerRecord>
 // StakerRecord: { staker, stake_amount, original_stake, tribute_paid,
@@ -409,6 +422,16 @@ function _entryKey(entry) {
      entry.type === "BLOB_CHALLENGE_TIMEOUT")
   ) {
     domainId = "bc:" + entry.type + ":" + entry.challenge_data.challenge_id;
+  } else if (
+    entry.auction_data && entry.auction_data.name &&
+    (entry.type === "NAME_AUCTION_OPEN" ||
+     entry.type === "NAME_AUCTION_BID" ||
+     entry.type === "NAME_AUCTION_SETTLE" ||
+     entry.type === "NAME_AUCTION_CANCEL")
+  ) {
+    // Auctions: unique per name + type + bidder (for bids) + epoch
+    var auctionBidder = (entry.type === "NAME_AUCTION_BID" && entry.auction_data.bidder) ? ":" + entry.auction_data.bidder + ":" + (entry.auction_data.bid_usd || 0) : "";
+    domainId = "na:" + entry.type + ":" + entry.auction_data.name + auctionBidder + ":" + (entry.epoch || 0);
   } else if (entry.blob_data && entry.blob_data.cid) {
     // Serve proofs can repeat per-epoch per-host; include bytes_served
     // + timestamp so multiple proofs in one epoch aren't deduped.
@@ -2032,6 +2055,93 @@ function applyEntry(entry) {
       break;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Name Auctions (v3.6)
+    // ─────────────────────────────────────────────────────────────────
+    case "NAME_AUCTION_OPEN": {
+      var naoName = entry.auction_data && entry.auction_data.name;
+      if (!naoName) break;
+      // Only allow one open auction per name at a time
+      var naoExisting = nameAuctions.get(naoName);
+      if (naoExisting && naoExisting.status === "open") break;
+      var naoData = entry.auction_data;
+      nameAuctions.set(naoName, {
+        name: naoName,
+        seller: naoData.seller || "shindevlin",
+        start_price_usd: naoData.start_price_usd || 0,
+        min_bid_increment_usd: naoData.min_bid_increment_usd || 1,
+        auction_end_epoch: naoData.auction_end_epoch || 0,
+        open_epoch: entry.epoch || 0,
+        bids: [],
+        status: "open",
+        winner: null,
+      });
+      break;
+    }
+
+    case "NAME_AUCTION_BID": {
+      var nabData = entry.auction_data;
+      if (!nabData || !nabData.name) break;
+      var nabAuction = nameAuctions.get(nabData.name);
+      if (!nabAuction || nabAuction.status !== "open") break;
+      var nabBidUsd = nabData.bid_usd || 0;
+      // Validate: bid must exceed current top + min increment
+      var nabTopBid = nabAuction.bids.length > 0
+        ? nabAuction.bids[nabAuction.bids.length - 1].bid_usd
+        : nabAuction.start_price_usd - nabAuction.min_bid_increment_usd;
+      if (nabBidUsd < nabTopBid + nabAuction.min_bid_increment_usd) break;
+      nabAuction.bids.push({
+        bidder: nabData.bidder,
+        bid_usd: nabBidUsd,
+        chain: nabData.chain,
+        tx_hash: nabData.tx_hash,
+        btcpc_account: nabData.btcpc_account,
+        btcpc_pubkeys: nabData.btcpc_pubkeys || {},
+        bid_epoch: entry.epoch || 0,
+      });
+      // Keep bids sorted by bid_usd ascending (highest bid is last)
+      nabAuction.bids.sort(function(a, b) { return a.bid_usd - b.bid_usd; });
+      nameAuctions.set(nabData.name, nabAuction);
+      break;
+    }
+
+    case "NAME_AUCTION_SETTLE": {
+      var nasData = entry.auction_data;
+      if (!nasData || !nasData.name) break;
+      var nasAuction = nameAuctions.get(nasData.name);
+      if (!nasAuction || nasAuction.status !== "open") break;
+      if (nasAuction.bids.length === 0) break;
+      // Winner is highest bidder (last after sort)
+      var nasWinningBid = nasAuction.bids[nasAuction.bids.length - 1];
+      nasAuction.status = "settled";
+      nasAuction.winner = nasWinningBid.bidder;
+      nasAuction.settled_epoch = entry.epoch || 0;
+      nameAuctions.set(nasData.name, nasAuction);
+      // Apply KEY_ROTATE logic: update the name account's public_keys to winner's keys
+      if (nasWinningBid.btcpc_pubkeys && accounts.has(nasData.name)) {
+        var nasAcct = accounts.get(nasData.name);
+        if (!nasAcct.public_keys) nasAcct.public_keys = {};
+        var nasKeys = nasWinningBid.btcpc_pubkeys;
+        if (nasKeys.owner)   nasAcct.public_keys.owner   = nasKeys.owner;
+        if (nasKeys.active)  nasAcct.public_keys.active  = nasKeys.active;
+        if (nasKeys.posting) nasAcct.public_keys.posting = nasKeys.posting;
+        if (nasKeys.memo)    nasAcct.public_keys.memo    = nasKeys.memo;
+        accounts.set(nasData.name, nasAcct);
+      }
+      break;
+    }
+
+    case "NAME_AUCTION_CANCEL": {
+      var nacData = entry.auction_data;
+      if (!nacData || !nacData.name) break;
+      var nacAuction = nameAuctions.get(nacData.name);
+      if (!nacAuction || nacAuction.status !== "open") break;
+      nacAuction.status = "cancelled";
+      nacAuction.cancelled_epoch = entry.epoch || 0;
+      nameAuctions.set(nacData.name, nacAuction);
+      break;
+    }
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -2940,6 +3050,61 @@ function getAllBridgeFunders(chainId) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Name Auction getters (v3.6)
+// ─────────────────────────────────────────────────────────────────
+
+function getAuction(name) {
+  return nameAuctions.get(name) || null;
+}
+
+function getOpenAuctions() {
+  var result = [];
+  for (var rec of nameAuctions.values()) {
+    if (rec.status === "open") result.push(rec);
+  }
+  result.sort(function(a, b) { return a.auction_end_epoch - b.auction_end_epoch; });
+  return result;
+}
+
+function getAuctionHistory() {
+  var result = [];
+  for (var rec of nameAuctions.values()) {
+    if (rec.status === "settled" || rec.status === "cancelled") result.push(rec);
+  }
+  result.sort(function(a, b) { return (b.settled_epoch || b.cancelled_epoch || 0) - (a.settled_epoch || a.cancelled_epoch || 0); });
+  return result;
+}
+
+/**
+ * Names owned by shindevlin with no open or settled auction.
+ * These are available to be auctioned.
+ */
+function getAvailableReservedNames() {
+  var unavailable = new Set();
+  for (var rec of nameAuctions.values()) {
+    if (rec.status === "open" || rec.status === "settled") {
+      unavailable.add(rec.name);
+    }
+  }
+  var result = [];
+  for (var entry of accounts.entries()) {
+    var acctName = entry[0];
+    // Skip protocol accounts and shindevlin itself
+    if (acctName === "shindevlin" || acctName === "btcpc_recycle" || acctName === "btcpc") continue;
+    // Owned by shindevlin means: created by shindevlin (no public keys yet = reserved placeholder)
+    // We check: account exists, not yet auctioned (open/settled)
+    if (!unavailable.has(acctName)) {
+      var acct = entry[1];
+      // Reserved names are held by shindevlin — no active keys or keys matching shindevlin's genesis setup
+      var hasNoOwnerKey = !acct.public_keys || !acct.public_keys.active;
+      if (hasNoOwnerKey) result.push(acctName);
+    }
+  }
+  result.sort();
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Slashing getters
 // ─────────────────────────────────────────────────────────────────
 
@@ -3306,6 +3471,7 @@ function resetAll() {
   seenEntries.clear();
   deviceKeys.clear();
   iotDeviceKeys.clear();
+  nameAuctions.clear();
   deviceStakerPools.clear();
   deviceAutoStake.clear();
   childrenMap.clear();
@@ -3450,6 +3616,11 @@ module.exports = {
   // Bridge (v2.16-alpha)
   getBridgeFunder: getBridgeFunder,
   getAllBridgeFunders: getAllBridgeFunders,
+  // Name Auctions (v3.6)
+  getAuction: getAuction,
+  getOpenAuctions: getOpenAuctions,
+  getAuctionHistory: getAuctionHistory,
+  getAvailableReservedNames: getAvailableReservedNames,
   // Cross-chain monitor (v2.17)
   getCrossChainActivity: getCrossChainActivity,
   getRecentCrossChainActivity: getRecentCrossChainActivity,
