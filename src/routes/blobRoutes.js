@@ -83,6 +83,34 @@ router.post(
   }
 );
 
+/**
+ * POST /api/blobs/stream — streaming upload for large files (no memory limit).
+ * Body: raw binary stream. Auth required via ?token= or Authorization header.
+ */
+router.post(
+  '/stream',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const uploader = req.user && req.user.username;
+      if (!uploader) return res.status(401).json({ error: 'unauthenticated' });
+      const result = await blobStore.putBlobStream(req);
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordBlobStoreCommit(uploader, result.cid, result.size, [uploader], DEFAULT_DURATION_EPOCHS, 0, epoch);
+      res.status(result.existed ? 200 : 201).json({
+        cid: result.cid,
+        size: result.size,
+        existed: result.existed,
+        committed: true,
+        retrieval_url: '/api/blobs/' + result.cid,
+        gateway_url: '/fs/' + result.cid,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 /** GET /api/blobs/:cid — stream the blob */
 router.get('/:cid', (req, res) => {
   try {

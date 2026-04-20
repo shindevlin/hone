@@ -196,6 +196,45 @@ function hashBlobRange(cid, start, length) {
   return crypto.createHash("sha256").update(chunk).digest("hex");
 }
 
+// Streaming upload — writes body stream directly to disk, no memory limit.
+// Returns Promise<{cid, size, existed}> or rejects on error.
+function putBlobStream(readableStream) {
+  return new Promise(function(resolve, reject) {
+    var tmpPath = path.join(BLOB_ROOT, '.tmp.' + process.pid + '.' + Date.now());
+    fs.mkdirSync(BLOB_ROOT, { recursive: true, mode: 0o755 });
+    var out = fs.createWriteStream(tmpPath, { mode: 0o644 });
+    var hash = crypto.createHash('sha256');
+    var size = 0;
+
+    readableStream.on('data', function(chunk) {
+      size += chunk.length;
+      hash.update(chunk);
+      out.write(chunk);
+    });
+
+    readableStream.on('end', function() {
+      out.end(function() {
+        var cid = hash.digest('hex');
+        var finalPath = blobPath(cid);
+        if (fs.existsSync(finalPath)) {
+          fs.unlinkSync(tmpPath);
+          return resolve({ cid: cid, size: size, existed: true });
+        }
+        var dir = path.dirname(finalPath);
+        fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+        fs.renameSync(tmpPath, finalPath);
+        resolve({ cid: cid, size: size, existed: false });
+      });
+    });
+
+    readableStream.on('error', function(err) {
+      out.destroy();
+      try { fs.unlinkSync(tmpPath); } catch(_) {}
+      reject(err);
+    });
+  });
+}
+
 module.exports = {
   BLOB_ROOT: BLOB_ROOT,
   MAX_BLOB_BYTES: MAX_BLOB_BYTES,
@@ -212,4 +251,5 @@ module.exports = {
   totalBytesStored: totalBytesStored,
   readBlobRange: readBlobRange,
   hashBlobRange: hashBlobRange,
+  putBlobStream: putBlobStream,
 };

@@ -839,13 +839,12 @@
             ' • <span style="color:#22c55e;">Ollama inference ✓</span>' +
             '<br><span style="color:var(--muted);">WebGPU not needed — models run locally via Ollama.</span>';
         } else {
-          var noGpuNote = isCapacitor
-            ? '<br><span style="color:#ef4444;">On-device mining not available — WebGPU not supported in app WebView. Use btcpc.net in Chrome for phone mining.</span>'
-            : '<br>Mining requires WebGPU (Chrome 121+ on modern devices)';
           specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' +
             deviceRAM + 'GB RAM' +
-            (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
-            (!hasWebGPU ? noGpuNote : '');
+            (hasWebGPU
+              ? ' • <span style="color:#22c55e;">WebGPU ✓</span>'
+              : ' • <span style="color:#f7931a;">CPU inference via WASM ✓</span>') +
+            '<br><span style="color:var(--muted);">Models served from BTCPC network. Download once, mine forever.</span>';
         }
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
@@ -884,13 +883,19 @@
           { id: 'qwen3.5:122b',     name: 'Qwen3.5 122B',      size: '74GB',   ram: 80, tier: 'gpu80',  desc: 'Alibaba — massive multimodal, top quality',     earning: '28x' },
         ];
 
-        var webllmModels = models; // original WebLLM list
+        // CPU models — served from BTCPC chain, no WebGPU required
+        var cpuModels = [
+          { id: 'smollm2-360m',  name: 'SmolLM2 360M', size: '~220MB', ram: 0.5, tier: 'phone', desc: 'Fast, runs on any phone', earning: '1x',   chain_id: 'smollm2-360m' },
+          { id: 'qwen2.5-0.5b', name: 'Qwen2.5 0.5B',  size: '~380MB', ram: 0.8, tier: 'phone', desc: 'Best quality, small phones', earning: '1.2x', chain_id: 'qwen2.5-0.5b' },
+        ];
 
-        var activeModels = desktopMode ? ollamaModels : webllmModels;
-        var HF_BASE = 'https://huggingface.co/mlc-ai/';
-        if (!desktopMode) {
+        var webllmModels = models;
+        // No WebGPU and not desktop → use CPU models from chain
+        var activeModels = desktopMode ? ollamaModels : (hasWebGPU ? webllmModels : cpuModels);
+        if (!desktopMode && hasWebGPU) {
           activeModels.forEach(function(m) {
-            if (!m.url) m.url = HF_BASE + m.id + '/resolve/main/' + m.id + '-q4f16_1.wasm';
+            // WebGPU models: served from BTCPC chain under /api/models/<chain_id>/
+            if (!m.chain_id) m.chain_id = m.id.replace(/-MLC$/, '').toLowerCase();
           });
         }
 
@@ -2043,12 +2048,29 @@
 
 <script src="/inference-crypto.js" onerror="console.warn('inference-crypto.js not loaded')"></script>
 <script>
-// Desktop mode (Tauri/localhost) uses Ollama — skip loading WebLLM/WebGPU engine entirely.
+// Desktop mode uses Ollama — skip WebLLM/transformers.js entirely.
 if (!document.documentElement.hasAttribute('data-desktop')) {
-  var _ie = document.createElement('script');
-  _ie.src = '/inference-engine.js';
-  _ie.onerror = function() { console.warn('inference-engine.js not loaded'); };
-  document.head.appendChild(_ie);
+  var _hasWebGPU = !!navigator.gpu;
+  if (_hasWebGPU) {
+    // WebGPU available: load WebLLM engine
+    var _ie = document.createElement('script');
+    _ie.src = '/inference-engine.js';
+    _ie.onerror = function() { console.warn('inference-engine.js not loaded'); };
+    document.head.appendChild(_ie);
+  } else {
+    // No WebGPU: load transformers.js for CPU/WASM inference
+    var _tm = document.createElement('script');
+    _tm.type = 'module';
+    _tm.textContent = [
+      'import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.2/dist/transformers.min.js";',
+      'env.remoteHost = "' + (IS_NATIVE ? 'https://btcpc.net' : location.origin) + '/api/models/";',
+      'env.remotePathTemplate = "{model}/";',
+      'env.allowLocalModels = false;',
+      'window.btcpcCPUInference = { pipeline, env, ready: true };',
+      'console.log("[BTCPC] transformers.js loaded, routing models from BTCPC chain");',
+    ].join('\n');
+    document.head.appendChild(_tm);
+  }
 }
 </script>
 <script src="/miner.js" onerror="console.warn('miner.js not loaded')"></script>
@@ -3195,9 +3217,12 @@ function stopAll() {
 }
 
 // ─── Model download + file load buttons ───
+// All model files are served from the BTCPC chain — never from external sites.
 var modelDownloadURLs = {
-  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC': 'https://huggingface.co/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/',
-  'SmolLM2-360M-Instruct-q4f16_1-MLC': 'https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/'
+  'smollm2-360m':  API_BASE + '/api/models/smollm2-360m/',
+  'qwen2.5-0.5b':  API_BASE + '/api/models/qwen2.5-0.5b/',
+  'SmolLM2-360M-Instruct-q4f16_1-MLC': API_BASE + '/api/models/smollm2-360m/',
+  'Qwen2.5-0.5B-Instruct-q4f16_1-MLC': API_BASE + '/api/models/qwen2.5-0.5b/',
 };
 
 var dlBtn = document.getElementById('mine-download-btn');
@@ -3825,12 +3850,38 @@ mineToggleBtn.addEventListener('click', async () => {
   mineToggleBtn.textContent = 'Starting...';
 
   try {
-    // 1. Check WebGPU — only needed in PWA mode; desktop uses Ollama
-    if (!isDesktop && window.btcpcEngine && !window.btcpcEngine.isWebGPUSupported()) {
-      mineModelText.textContent = 'WebGPU not supported \u2014 try Chrome 113+';
-      mineToggleBtn.textContent = 'Start Mining';
-      mineToggleBtn.disabled = false;
-      return;
+    // 1. PWA with no WebGPU → use transformers.js CPU inference
+    if (!isDesktop && !navigator.gpu) {
+      if (!window.btcpcCPUInference || !window.btcpcCPUInference.ready) {
+        mineModelText.textContent = 'Loading CPU inference engine...';
+        await new Promise(function(resolve) { setTimeout(resolve, 1500); });
+        if (!window.btcpcCPUInference) {
+          mineModelText.textContent = 'CPU inference engine failed to load';
+          mineToggleBtn.textContent = 'Start Mining'; mineToggleBtn.disabled = false; return;
+        }
+      }
+      const selectedModel = document.querySelector('.model-cb:checked');
+      const cpuModelId = selectedModel ? selectedModel.dataset.chainId || selectedModel.dataset.id : 'smollm2-360m';
+      mineModelText.textContent = 'Downloading model from BTCPC network...';
+      mineProgressWrap.style.display = 'block';
+      try {
+        const pipelineFn = window.btcpcCPUInference.pipeline;
+        window._btcpcCPUPipeline = await pipelineFn('text-generation', cpuModelId, {
+          progress_callback: function(p) {
+            if (p.status === 'progress' && p.progress != null) {
+              mineProgressBar.style.width = p.progress.toFixed(0) + '%';
+              mineModelText.textContent = 'Downloading ' + (p.file || 'model') + ' — ' + p.progress.toFixed(0) + '%';
+            }
+          }
+        });
+        mineProgressWrap.style.display = 'none';
+        mineModelText.textContent = cpuModelId + ' ready (CPU)';
+        mineModelLoaded = true;
+      } catch (cpuErr) {
+        mineProgressWrap.style.display = 'none';
+        mineModelText.textContent = 'Model download failed: ' + cpuErr.message;
+        mineToggleBtn.textContent = 'Start Mining'; mineToggleBtn.disabled = false; return;
+      }
     }
 
     // 2. Check battery
