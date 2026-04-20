@@ -29,6 +29,7 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelUuid;
@@ -421,6 +422,12 @@ public class LocalRelayService extends Service {
     // -----------------------------------------------------------------------
 
     private void startBleScan() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "BLUETOOTH_SCAN permission not granted — skipping BLE scan. Grant from app settings to enable Flipper BLE relay.");
+                return;
+            }
+        }
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         if (bm == null) return;
         BluetoothAdapter adapter = bm.getAdapter();

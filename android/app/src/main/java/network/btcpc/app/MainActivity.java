@@ -1,20 +1,45 @@
 package network.btcpc.app;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "BTCPCMain";
+    private static final int REQ_BLE_PERMS = 101;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BTCPCSensorsPlugin.class);
         super.onCreate(savedInstanceState);
+        requestBlePermissionsIfNeeded();
+    }
+
+    private void requestBlePermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            String[] needed = {
+                android.Manifest.permission.BLUETOOTH_SCAN,
+                android.Manifest.permission.BLUETOOTH_CONNECT
+            };
+            boolean anyMissing = false;
+            for (String p : needed) {
+                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                    anyMissing = true;
+                    break;
+                }
+            }
+            if (anyMissing) {
+                ActivityCompat.requestPermissions(this, needed, REQ_BLE_PERMS);
+            }
+        }
     }
 
     @Override
