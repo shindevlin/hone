@@ -143,6 +143,136 @@ describe('isAuthorizedBy', () => {
   });
 });
 
+describe('WALLET_UNNEST applyEntry', () => {
+  test('promotes a nested wallet into a native account with recipient keys', () => {
+    stateStore.applyEntry({
+      type: 'WALLET_CREATE_CHILD',
+      from: 'shindevlin',
+      to: 'shindevlin/bob',
+      epoch: 1,
+      wallet_data: { parent: 'shindevlin', child_name: 'bob', nested_name: 'bob' },
+    });
+    stateStore.applyEntry({
+      type: 'WALLET_UNNEST',
+      from: 'shindevlin',
+      to: 'bob',
+      epoch: 2,
+      wallet_data: {
+        parent: 'shindevlin',
+        nested_name: 'bob',
+        nested_wallet: 'shindevlin/bob',
+        native_name: 'bob',
+        public_keys: {
+          owner: 'owner-pub',
+          active: 'active-pub',
+          posting: 'posting-pub',
+          memo: 'memo-pub',
+        },
+        chain_addresses: { btcpc: 'BTCPCbob' },
+      },
+    });
+
+    expect(stateStore.hasAccount('bob')).toBe(true);
+    expect(stateStore.hasAccount('shindevlin/bob')).toBe(false);
+    expect(stateStore.getParent('shindevlin/bob')).toBeNull();
+    expect(stateStore.getChildren('shindevlin')).not.toContain('shindevlin/bob');
+    expect(stateStore.getAccount('bob').public_keys.owner).toBe('owner-pub');
+    expect(stateStore.getAccount('bob').chain_addresses.btcpc).toBe('BTCPCbob');
+  });
+
+  test('allows one and two letter reserved names to un-nest', () => {
+    stateStore.applyEntry({
+      type: 'WALLET_CREATE_CHILD',
+      from: 'shindevlin',
+      to: 'shindevlin/a',
+      epoch: 1,
+      wallet_data: { parent: 'shindevlin', child_name: 'a', nested_name: 'a' },
+    });
+    stateStore.applyEntry({
+      type: 'WALLET_UNNEST',
+      from: 'shindevlin',
+      to: 'a',
+      epoch: 2,
+      wallet_data: {
+        parent: 'shindevlin',
+        nested_name: 'a',
+        nested_wallet: 'shindevlin/a',
+        native_name: 'a',
+        public_keys: { owner: 'owner-a' },
+        chain_addresses: {},
+      },
+    });
+
+    expect(stateStore.hasAccount('a')).toBe(true);
+    expect(stateStore.getAccount('a').public_keys.owner).toBe('owner-a');
+  });
+});
+
+describe('ACCOUNT_ALIAS_ASSIGN applyEntry', () => {
+  test('assigns a reserved nested wallet as a transferable account alias', () => {
+    stateStore.applyEntry({
+      type: 'WALLET_CREATE_CHILD',
+      from: 'shindevlin',
+      to: 'shindevlin/joshua',
+      epoch: 1,
+      wallet_data: { parent: 'shindevlin', child_name: 'joshua', nested_name: 'joshua' },
+    });
+    stateStore.applyEntry({
+      type: 'ACCOUNT_ALIAS_ASSIGN',
+      from: 'shindevlin',
+      to: 'joshua',
+      epoch: 2,
+      alias_data: {
+        parent: 'shindevlin',
+        nested_name: 'joshua',
+        nested_wallet: 'shindevlin/joshua',
+        alias: 'joshua',
+        target_account: 'josh',
+        transferable: true,
+      },
+    });
+
+    expect(stateStore.getAliasTarget('joshua')).toBe('josh');
+    expect(stateStore.resolveAccountName('joshua')).toBe('josh');
+    expect(stateStore.getAliases('josh')).toContain('joshua');
+    expect(stateStore.hasAccount('shindevlin/joshua')).toBe(false);
+  });
+
+  test('transfers an assigned alias to another account', () => {
+    stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'alice', epoch: 0, account_data: { public_keys: {}, chain_addresses: {} } });
+    stateStore.applyEntry({
+      type: 'WALLET_CREATE_CHILD',
+      from: 'shindevlin',
+      to: 'shindevlin/bob',
+      epoch: 1,
+      wallet_data: { parent: 'shindevlin', child_name: 'bob', nested_name: 'bob' },
+    });
+    stateStore.applyEntry({
+      type: 'ACCOUNT_ALIAS_ASSIGN',
+      from: 'shindevlin',
+      to: 'bob',
+      epoch: 2,
+      alias_data: {
+        parent: 'shindevlin',
+        nested_wallet: 'shindevlin/bob',
+        alias: 'bob',
+        target_account: 'josh',
+      },
+    });
+    stateStore.applyEntry({
+      type: 'ACCOUNT_ALIAS_TRANSFER',
+      from: 'bob',
+      to: 'alice',
+      epoch: 3,
+      alias_data: { alias: 'bob', from_account: 'josh', to_account: 'alice' },
+    });
+
+    expect(stateStore.getAliasTarget('bob')).toBe('alice');
+    expect(stateStore.getAliases('josh')).not.toContain('bob');
+    expect(stateStore.getAliases('alice')).toContain('bob');
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────────────────
 // getParent / getChildren
 // ──────────────────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { createAccount } = require('../wallet/accountManager');
+const { createAccountForUser } = require('../services/accountCreation');
 const { rejectObjectInputs, validAccountName, blockedAccountNameReason, sanitizeString, sanitizeTelegramId } = require('../middlewares/validate');
 
 // D.5-gamma: secretStore is the local-first auth source. Mongo is a
@@ -131,18 +131,34 @@ async function registerUser(req, res) {
     if (typeof password !== 'string' || password.length < 8 || password.length > 200) {
       return res.status(400).json({ error: 'password must be 8-200 characters' });
     }
-    const result = await createAccount(username, null, password);
+    const result = await createAccountForUser({
+      username,
+      password,
+      requirePassword: true,
+      claimFaucet: true,
+    });
+    const token = jwt.sign(
+      { username: result.username, src: 'register' },
+      process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
 
     res.status(201).json({
       success: true,
       username: result.username,
       mnemonic: result.mnemonic,
-      wallets: result.chainWallets,
-      publicKeys: result.publicKeys,
-      warning: "SAVE YOUR MNEMONIC. This is the only time it will be shown."
+      token,
+      wallet_export: result.wallet_export,
+      wallet_rows: result.wallet_rows,
+      public_keys: result.public_keys,
+      role_private_keys: result.role_private_keys,
+      wallet_balance: result.wallet_balance,
+      delegated_balance: result.delegated_balance,
+      faucet_note: result.faucet_note,
+      warning: "SAVE YOUR MNEMONIC AND PRIVATE KEYS. This is the only time they will be shown."
     });
   } catch (err) {
-    res.status(err.message.includes('already exists') ? 400 : 500).json({ error: err.message });
+    res.status(err.statusCode || (err.message.includes('already exists') ? 400 : 500)).json({ error: err.message });
   }
 }
 

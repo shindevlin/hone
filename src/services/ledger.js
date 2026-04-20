@@ -290,6 +290,104 @@ async function recordWalletCreateChild(parent, childName, postingKeySig, epoch) 
 }
 
 /**
+ * Promote a nested wallet such as "shindevlin/bob" into native account "bob".
+ * The native account is created with the recipient's public keys; private keys
+ * and mnemonic stay with the recipient.
+ */
+async function recordWalletUnnest(parent, nestedName, nativeName, newPublicKeys, chainAddresses, ownerKeySig, epoch) {
+  if (!parent) throw new Error('Parent account required');
+  if (!nestedName) throw new Error('Nested wallet name required');
+  if (!nativeName) throw new Error('Native account name required');
+  if (String(nestedName).indexOf('/') !== -1) throw new Error('Nested wallet name must not contain "/"');
+  if (String(nativeName).indexOf('/') !== -1) throw new Error('Native account name must not contain "/"');
+  if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(String(nativeName))) throw new Error('Invalid native account name');
+  if (!newPublicKeys || typeof newPublicKeys !== 'object') throw new Error('Recipient public keys required');
+
+  const nestedWallet = parent + '/' + nestedName;
+  if (!stateStore.hasAccount(parent)) throw new Error('Parent account not found: ' + parent);
+  if (!stateStore.hasAccount(nestedWallet)) throw new Error('Nested wallet not found: ' + nestedWallet);
+  if (stateStore.getParent(nestedWallet) !== parent) throw new Error('Nested wallet parent mismatch');
+  if (stateStore.hasAccount(nativeName)) throw new Error('Native account already exists: ' + nativeName);
+
+  return _persist(_entry({
+    type: 'WALLET_UNNEST',
+    from: parent,
+    to: nativeName,
+    epoch: epoch || 0,
+    signature: ownerKeySig || null,
+    signed_by: 'owner',
+    wallet_data: {
+      parent,
+      nested_name: nestedName,
+      nested_wallet: nestedWallet,
+      native_name: nativeName,
+      public_keys: newPublicKeys,
+      chain_addresses: chainAddresses || {},
+    },
+  }));
+}
+
+/**
+ * Assign a reserved nested wallet name as an alias to an existing account.
+ * Example: shindevlin/joshua -> josh, so transfers to either name resolve to josh.
+ */
+async function recordAccountAliasAssign(parent, nestedName, targetAccount, ownerKeySig, epoch) {
+  if (!parent) throw new Error('Parent account required');
+  if (!nestedName) throw new Error('Nested wallet name required');
+  if (!targetAccount) throw new Error('Target account required');
+  if (String(nestedName).indexOf('/') !== -1) throw new Error('Nested wallet name must not contain "/"');
+
+  const nestedWallet = parent + '/' + nestedName;
+  if (!stateStore.hasAccount(parent)) throw new Error('Parent account not found: ' + parent);
+  if (!stateStore.hasAccount(nestedWallet)) throw new Error('Nested wallet not found: ' + nestedWallet);
+  if (stateStore.getParent(nestedWallet) !== parent) throw new Error('Nested wallet parent mismatch');
+  if (!stateStore.hasAccount(targetAccount)) throw new Error('Target account not found: ' + targetAccount);
+  if (stateStore.hasAccount(nestedName)) throw new Error('Alias is already a native account: ' + nestedName);
+  if (stateStore.getAliasTarget && stateStore.getAliasTarget(nestedName)) throw new Error('Alias already assigned: ' + nestedName);
+
+  return _persist(_entry({
+    type: 'ACCOUNT_ALIAS_ASSIGN',
+    from: parent,
+    to: nestedName,
+    epoch: epoch || 0,
+    signature: ownerKeySig || null,
+    signed_by: 'owner',
+    alias_data: {
+      parent,
+      nested_name: nestedName,
+      nested_wallet: nestedWallet,
+      alias: nestedName,
+      target_account: targetAccount,
+      transferable: true,
+    },
+  }));
+}
+
+async function recordAccountAliasTransfer(alias, fromAccount, toAccount, ownerKeySig, epoch) {
+  if (!alias) throw new Error('Alias required');
+  if (!fromAccount) throw new Error('From account required');
+  if (!toAccount) throw new Error('To account required');
+  if (!stateStore.getAliasTarget || stateStore.getAliasTarget(alias) !== fromAccount) {
+    throw new Error('Alias is not assigned to from account');
+  }
+  if (!stateStore.hasAccount(toAccount)) throw new Error('To account not found: ' + toAccount);
+
+  return _persist(_entry({
+    type: 'ACCOUNT_ALIAS_TRANSFER',
+    from: alias,
+    to: toAccount,
+    epoch: epoch || 0,
+    signature: ownerKeySig || null,
+    signed_by: 'owner',
+    alias_data: {
+      alias,
+      from_account: fromAccount,
+      to_account: toAccount,
+    },
+  }));
+}
+
+/**
  * Record a transfer on the ledger. ALL transfers go through here.
  * Validates via mempool (double-spend protection), then applies to stateStore.
  */
@@ -2117,6 +2215,9 @@ module.exports = {
   recordFaucet,
   // Nested wallets (v3.3)
   recordWalletCreateChild,
+  recordWalletUnnest,
+  recordAccountAliasAssign,
+  recordAccountAliasTransfer,
   recordTokenCreate,
   recordStake,
   recordUnstake,

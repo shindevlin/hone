@@ -19,6 +19,7 @@ const { getJob: getInferenceJob } = require('../inference/p2pRouter');
 const { getBlockReward } = require('../services/emissionSchedule');
 const secretStore = require('../services/secretStore');
 const { authenticateToken } = require('../middlewares/auth');
+const { createAccountForUser } = require('../services/accountCreation');
 
 // In-memory peer registry (Phase E bridge — PeerRegistry model removed)
 // username → { address, gpu, last_seen, node_id }
@@ -118,49 +119,14 @@ router.post('/create', async (req, res) => {
       if (linked) return res.status(400).json({ error: `Telegram already linked to ${linked.username}` });
     }
 
-    // Create the account
-    const { createAccount } = require('../wallet/accountManager');
-    const keyManager = require('../wallet/keyManager');
-    const accountPassword = password || crypto.randomBytes(32).toString('hex');
-    const account = await createAccount(username, null, accountPassword);
-
-    // Derive full keys from mnemonic
-    const keys = await keyManager.mnemonicToKeys(account.mnemonic);
-    const chainWallets = await keyManager.deriveChainWallets(account.mnemonic);
-
-    // Link telegram if provided
-    if (telegramId) {
-      const user = await User.findOne({ username });
-      if (user) {
-        user.telegramId = String(telegramId);
-        user.telegramUsername = telegramUsername || null;
-        await user.save();
-      }
-    }
-
-    // Store password in secretStore if provided
-    let passwordSet = false;
-    if (password) {
-      try {
-        await ensureSecretStore();
-        if (!secretStore.hasUser(username)) {
-          await secretStore.createUser(username, {
-            password,
-            telegram_id: telegramId ? String(telegramId) : null,
-            owner_public_key: account.publicKeys.owner,
-            active_public_key: account.publicKeys.active,
-            posting_public_key: account.publicKeys.posting,
-            memo_public_key: account.publicKeys.memo,
-          });
-        } else {
-          await secretStore.updateUser(username, { password });
-        }
-        passwordSet = true;
-      } catch (_) {}
-    }
-
-    // Record on permanent ledger
-    await ledger.recordAccountCreate(username, account.publicKeys, account.chainWallets, 0);
+    const account = await createAccountForUser({
+      username,
+      password: password || null,
+      telegramId: telegramId ? String(telegramId) : null,
+      telegramUsername,
+      requirePassword: false,
+      claimFaucet: true,
+    });
 
     // Announce to P2P
     const p2p = require('../p2p/network');
@@ -168,55 +134,35 @@ router.post('/create', async (req, res) => {
     try {
       const announceMsg = createMessage('ACCOUNT_ANNOUNCE', {
         username,
-        public_keys: account.publicKeys,
-        chain_addresses: account.chainWallets,
+        public_keys: account.public_keys,
+        chain_addresses: account.chain_addresses,
         epoch: 0
       }, p2p.NODE_ID);
       p2p.broadcast(announceMsg);
-    } catch (_) {}
-
-    // Auto-claim 1 BTCPC from faucet for new account
-    let faucetClaimed = false;
-    try {
-      const epoch = await ledger.getCurrentEpoch();
-      await ledger.recordTransfer('btcpc_treasury', username, 1, 'BTCPC', null, epoch, 'New account faucet claim');
-      faucetClaimed = true;
     } catch (_) {}
 
     // Build quiz words for mnemonic verification
     const mnemonicWords = account.mnemonic.split(' ');
     const quizWords = buildQuizWords(mnemonicWords);
 
-    // Resolve chain wallet addresses
-    const evmAddr = chainWallets.evm ? (chainWallets.evm.address || chainWallets.evm) : null;
-    const solanaAddr = chainWallets.solana ? (chainWallets.solana.address || chainWallets.solana) : null;
-    const bitcoinAddr = chainWallets.bitcoin ? (chainWallets.bitcoin.address || chainWallets.bitcoin) : null;
-    const tonAddr = chainWallets.ton ? (chainWallets.ton.address || chainWallets.ton) : null;
-
     res.json({
       success: true,
       username,
       mnemonic: account.mnemonic,
-      mnemonic_warning: 'SAVE YOUR MNEMONIC NOW. It will never be shown again.',
-      password_set: passwordSet,
-      faucet_claimed: faucetClaimed,
-      balance: faucetClaimed ? 1 : 0,
-      btcpc_address: account.address,
-      addresses: {
-        btcpc: account.address,
-        evm: evmAddr,
-        solana: solanaAddr,
-        bitcoin: bitcoinAddr,
-        ton: tonAddr,
-        ton_link: chainWallets.ton ? chainWallets.ton.linkAddress : null,
-        hive: username,
-      },
-      public_keys: {
-        owner: account.publicKeys.owner,
-        active: account.publicKeys.active,
-        posting: account.publicKeys.posting,
-        memo: account.publicKeys.memo,
-      },
+      mnemonic_warning: 'SAVE YOUR MNEMONIC AND PRIVATE KEYS NOW. They will never be shown again.',
+      wallet_export: account.wallet_export,
+      wallet_rows: account.wallet_rows,
+      password_set: !!password,
+      faucet_claimed: account.faucet_claimed,
+      balance: account.wallet_balance,
+      wallet_balance: account.wallet_balance,
+      delegated_balance: account.delegated_balance,
+      faucet_note: account.faucet_note,
+      btcpc_address: account.chain_addresses.btcpc,
+      public_keys: account.public_keys,
+      role_private_keys: account.role_private_keys,
+      chain_addresses: account.chain_addresses,
+      chain_wallets: account.chain_wallets,
       quiz_words: quizWords,
     });
   } catch (err) {
@@ -402,11 +348,12 @@ router.post('/onboard', async (req, res) => {
     const existingProject = await Project.findOne({ owner: username, repo: source });
     if (existingProject) return res.status(400).json({ error: 'Onboarding project already exists for this username' });
 
-    const { createAccount } = require('../wallet/accountManager');
-    const randomPassword = crypto.randomBytes(32).toString('hex');
-    const account = await createAccount(username, null, randomPassword);
-
-    await ledger.recordAccountCreate(username, account.publicKeys, account.chainWallets, 0);
+    const account = await createAccountForUser({
+      username,
+      password: crypto.randomBytes(32).toString('hex'),
+      requirePassword: false,
+      claimFaucet: true,
+    });
 
     const apiKey = 'btcpc_' + crypto.randomBytes(32).toString('hex');
     const project = new Project({
@@ -415,20 +362,18 @@ router.post('/onboard', async (req, res) => {
       owner: username,
       repo: source,
       apiKey,
-      walletAddress: account.address,
-      balance: 1,
+      walletAddress: account.chain_addresses.btcpc,
+      balance: 0,
       verified: true,
       verifiedAt: new Date()
     });
     await project.save();
 
-    const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordTransfer('btcpc_treasury', username, 1, 'BTCPC', null, epoch, 'OpenClaw onboarding bonus');
-
     res.status(201).json({
       username,
       api_key: apiKey,
-      balance: 1,
+      balance: 0,
+      delegated_balance: account.delegated_balance,
       models_url: '/v1/models',
       chat_url: '/v1/chat/completions'
     });

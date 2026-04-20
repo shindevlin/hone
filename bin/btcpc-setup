@@ -853,7 +853,7 @@ async function pickModels(hw) {
 
 // ─── Config Generation ───────────────────────────────────────────
 
-function generateConfig(hw, selectedRoles, limits, accountName, bestModel) {
+function generateConfig(hw, selectedRoles, limits, accountName, bestModel, postingKey) {
   var nodeId = crypto.randomBytes(16).toString("hex");
   var account = accountName || process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT || "miner-" + nodeId.slice(0, 8);
 
@@ -871,6 +871,10 @@ function generateConfig(hw, selectedRoles, limits, accountName, bestModel) {
     "BTCPC_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws",
     "BTCPC_MONGO_MODE=disabled",
   ];
+
+  if (postingKey) {
+    lines.push("BTCPC_POSTING_KEY=" + postingKey);
+  }
 
   // Resource limits
   if (limits.maxCpuPct) {
@@ -1041,62 +1045,59 @@ async function main() {
   // ── Step 5: Account Setup ──
   console.log("");
   var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
+  var postingKey = process.env.BTCPC_POSTING_KEY || "";
   if (!accountName) {
-    accountName = SETUP_OPTIONS.username || await ask("Choose a username for this node (3-20 chars, lowercase):");
+    var accountMode = (await ask("Do you already have a BTCPC account? [y/N]", "n")).trim().toLowerCase();
+    var hasAccount = accountMode === "y" || accountMode === "yes";
+    accountName = SETUP_OPTIONS.username || await ask("BTCPC username for this node (3-20 chars, lowercase):");
     if (!accountName || accountName.length < 3) {
       accountName = "miner-" + crypto.randomBytes(4).toString("hex");
       log("Using auto-generated name: " + accountName);
     }
 
-    // Create the BTCPC account
-    console.log("");
-    log("Creating BTCPC account: " + accountName);
-    try {
-      var mongoose = require("mongoose");
-      require("dotenv").config({ path: path.join(REPO_DIR, ".env") });
-      var mongoUri = process.env.MONGODB_URI || "mongodb://root:example@localhost:27017/btcpc?authSource=admin";
-      await mongoose.connect(mongoUri);
-
-      var { createAccount } = require(path.join(REPO_DIR, "src/wallet/accountManager"));
-      var keyManager = require(path.join(REPO_DIR, "src/wallet/keyManager"));
-
-      var account = await createAccount(accountName, null, accountName + "-setup");
-      var keys = await keyManager.mnemonicToKeys(account.mnemonic);
-
-      console.log("");
-      console.log("  ============================================");
-      console.log("  SAVE THIS NOW — we do NOT store your keys");
-      console.log("  ============================================");
-      console.log("");
-      console.log("  Username:  " + accountName);
-      console.log("  Mnemonic:  " + account.mnemonic);
-      console.log("");
-      console.log("  Owner key:   " + keys.owner.privateKey);
-      console.log("  Active key:  " + keys.active.privateKey);
-      console.log("  Posting key: " + keys.posting.privateKey);
-      console.log("  Memo key:    " + keys.memo.privateKey);
-      console.log("");
-      console.log("  BTCPC address: " + account.address);
-      console.log("  ============================================");
-      console.log("");
-
-      log("Write down your mnemonic. If you lose it, your account is gone forever.");
-      await ask("Press Enter when you've saved your mnemonic...", "");
-
-      // Record on ledger
-      var ledger = require(path.join(REPO_DIR, "src/services/ledger"));
-      await ledger.recordAccountCreate(accountName, account.publicKeys, account.chainWallets || {}, 0);
-      log("Account recorded on permanent ledger");
-
-      await mongoose.disconnect();
-    } catch (err) {
-      if (err.message && err.message.includes("duplicate")) {
-        log("Account '" + accountName + "' already exists — using it");
-      } else {
-        warn("Account creation failed: " + err.message);
-        log("You can create an account later via: node bin/btcpc-cli wallet create " + accountName);
+    if (hasAccount) {
+      if (selectedRoles.indexOf("miner") !== -1 || selectedRoles.indexOf("both") !== -1) {
+        postingKey = await ask("Paste the BTCPC posting private key for mining (64 hex chars). Leave blank to configure later:", "");
+        if (postingKey && !/^[0-9a-fA-F]{64}$/.test(postingKey)) {
+          warn("Posting key was not 64 hex chars; leaving BTCPC_POSTING_KEY unset.");
+          postingKey = "";
+        }
       }
-      try { await require("mongoose").disconnect(); } catch (_) {}
+      log("Using existing account: " + accountName);
+    } else {
+      console.log("");
+      log("Creating BTCPC account: " + accountName);
+      try {
+        var { createAccountForUser } = require(path.join(REPO_DIR, "src/services/accountCreation"));
+        var password = await ask("Create an account password (8+ chars):", accountName + "-setup");
+        var account = await createAccountForUser({
+          username: accountName,
+          password: password,
+          requirePassword: true,
+          claimFaucet: true,
+        });
+
+        console.log("");
+        console.log("  ============================================");
+        console.log("  SAVE THIS NOW - WE DO NOT STORE YOUR KEYS");
+        console.log("  ============================================");
+        console.log("");
+        console.log(account.wallet_export);
+        console.log("");
+        console.log("  ============================================");
+        console.log("");
+
+        postingKey = account.role_private_keys.posting;
+        log("Write down the full wallet export. If you lose it, your account is gone forever.");
+        await ask("Press Enter when you've saved your wallet export...", "");
+      } catch (err) {
+        if (err.message && err.message.includes("already exists")) {
+          log("Account '" + accountName + "' already exists — using it");
+        } else {
+          warn("Account creation failed: " + err.message);
+          log("You can create an account later on the website or via the bot.");
+        }
+      }
     }
   } else {
     log("Using existing account: " + accountName);
@@ -1154,7 +1155,7 @@ async function main() {
   console.log("");
 
   var configPath = path.join(REPO_DIR, ".env");
-  var config = generateConfig(hw, selectedRoles, limits, accountName, bestModel);
+  var config = generateConfig(hw, selectedRoles, limits, accountName, bestModel, postingKey);
   fs.writeFileSync(configPath, config);
   log("Config written to " + configPath);
 
@@ -1165,6 +1166,7 @@ async function main() {
   // Load the config into current process
   process.env.BTCPC_MINER = accountName;
   process.env.BTCPC_CLOCK_ACCOUNT = accountName;
+  if (postingKey) process.env.BTCPC_POSTING_KEY = postingKey;
   process.env.BTCPC_ROLES = selectedRoles.join(",");
   if (limits.maxCpuPct) process.env.BTCPC_MAX_CPU_PCT = String(limits.maxCpuPct);
   if (limits.maxRamGB) process.env.BTCPC_MAX_RAM_GB = String(limits.maxRamGB);

@@ -15,6 +15,7 @@ const rateLimit = require('express-rate-limit');
 const {
   rejectObjectInputs, sanitizeString, validAccountName,
 } = require('../middlewares/validate');
+const { createAccountForUser } = require('../services/accountCreation');
 
 // In-memory tracker of active browser-clock heartbeats.
 // Map<clientId, { account, lastHeartbeat, ip }>
@@ -43,6 +44,22 @@ const clockLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Heartbeat too frequent. Wait 30s between heartbeats.' },
+});
+
+const publicAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again later.' },
+});
+
+const publicSignupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many account creation attempts. Try again later.' },
 });
 
 // CORS for browser access
@@ -444,76 +461,48 @@ router.get('/leaderboard', async (_req, res) => {
  * Body: { username, password }
  * Returns: { success, username, mnemonic, public_keys, balance }
  */
-router.post('/signup', async (req, res) => {
+router.post('/signup', publicSignupLimiter, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || typeof username !== 'string' || username.length < 3) {
       return res.status(400).json({ error: 'username must be at least 3 characters' });
     }
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      return res.status(400).json({ error: 'password must be at least 6 characters' });
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
     }
-    const clean = username.trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9._-]{1,18}[a-z0-9]$/.test(clean)) {
-      return res.status(400).json({ error: 'username: letters, numbers, hyphens, 3-20 chars' });
-    }
+    const result = await createAccountForUser({
+      username,
+      password,
+      requirePassword: false,
+      claimFaucet: true,
+    });
 
-    const stateStore = require('../chain/stateStore');
-    if (stateStore.getAccount(clean)) {
-      return res.status(409).json({ error: 'account already exists' });
-    }
-
-    const keyManager = require('../wallet/keyManager');
-    const secretStore = require('../services/secretStore');
-    const ledger = require('../services/ledger');
-
-    // Generate keys
-    const mnemonic = keyManager.generateMnemonic();
-    const keys = await keyManager.mnemonicToKeys(mnemonic);
-    const pubKeys = {
-      owner: keys.owner.publicKey,
-      active: keys.active.publicKey,
-      posting: keys.posting.publicKey,
-      memo: keys.memo.publicKey,
-    };
-
-    // Save to secretStore
-    try { secretStore.load(); } catch (_) {}
-    await secretStore.createUser(clean, { password: password, public_keys: pubKeys });
-
-    // Register on chain
-    await ledger.recordAccountCreate(clean, { public_keys: pubKeys }, stateStore.getChainHeight());
-
-    // Auto-claim faucet
-    let balance = 0;
-    try {
-      const { getBalance } = stateStore;
-      const faucetBal = getBalance('btcpc_treasury', 'BTCPC');
-      if (faucetBal >= 0.01) {
-        const epoch = stateStore.getChainHeight();
-        const amt = epoch <= 1000 ? 1 : epoch <= 10000 ? 0.1 : 0.01;
-        await ledger.recordTransfer('btcpc_treasury', clean, amt, 'BTCPC', null, epoch, 'Welcome faucet');
-        balance = amt;
-      }
-    } catch (_) {}
-
-    // Derive cross-chain addresses
-    let chainWallets = {};
-    try {
-      chainWallets = await keyManager.deriveChainWallets(mnemonic);
-    } catch (_) {}
+    const jwt = require('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET;
+    const token = jwtSecret
+      ? jwt.sign({ username: result.username, src: 'public' }, jwtSecret, { expiresIn: '30d' })
+      : null;
 
     res.json({
       success: true,
-      username: clean,
-      mnemonic: mnemonic,
-      mnemonic_warning: 'SAVE YOUR MNEMONIC NOW. It will never be shown again.',
-      public_keys: pubKeys,
-      chain_wallets: chainWallets,
-      balance: balance,
+      username: result.username,
+      mnemonic: result.mnemonic,
+      mnemonic_warning: 'SAVE YOUR MNEMONIC AND PRIVATE KEYS NOW. They will never be shown again.',
+      token,
+      wallet_export: result.wallet_export,
+      wallet_rows: result.wallet_rows,
+      public_keys: result.public_keys,
+      role_private_keys: result.role_private_keys,
+      wallet_balance: result.wallet_balance,
+      balance: result.wallet_balance,
+      delegated_balance: result.delegated_balance,
+      faucet_claimed: result.faucet_claimed,
+      faucet_note: result.faucet_note,
+      chain_addresses: result.chain_addresses,
+      chain_wallets: result.chain_wallets,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
@@ -521,13 +510,13 @@ router.post('/signup', async (req, res) => {
  * POST /public/login — authenticate from PWA (no bot key needed)
  * Body: { username, password }
  */
-router.post('/login', async (req, res) => {
+router.post('/login', publicAuthLimiter, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'username and password required' });
 
     const secretStore = require('../services/secretStore');
-    try { secretStore.load(); } catch (_) {}
+    try { await secretStore.load(); } catch (_) {}
 
     // Check if user exists first
     const clean = username.trim().toLowerCase();
@@ -555,18 +544,18 @@ router.post('/login', async (req, res) => {
  * POST /public/change-password
  * Body: { username, old_password, new_password }
  */
-router.post('/change-password', async (req, res) => {
+router.post('/change-password', publicAuthLimiter, async (req, res) => {
   try {
     const { username, old_password, new_password } = req.body || {};
     if (!username || !old_password || !new_password) {
       return res.status(400).json({ error: 'username, old_password, and new_password required' });
     }
-    if (new_password.length < 6) {
-      return res.status(400).json({ error: 'new password must be at least 6 characters' });
+    if (new_password.length < 8) {
+      return res.status(400).json({ error: 'new password must be at least 8 characters' });
     }
 
     const secretStore = require('../services/secretStore');
-    try { secretStore.load(); } catch (_) {}
+    try { await secretStore.load(); } catch (_) {}
 
     const clean = username.trim().toLowerCase();
     const user = secretStore.getUser(clean);

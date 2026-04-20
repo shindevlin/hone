@@ -20,12 +20,17 @@ jest.mock('../src/wallet/accountManager', () => ({
   createAccount: jest.fn()
 }));
 
+jest.mock('../src/services/accountCreation', () => ({
+  createAccountForUser: jest.fn(),
+}));
+
 jest.mock('jsonwebtoken', () => ({
   sign: jest.fn(() => 'signed-jwt-token')
 }));
 
 const User = require('../src/models/User');
 const { createAccount } = require('../src/wallet/accountManager');
+const { createAccountForUser } = require('../src/services/accountCreation');
 const jwt = require('jsonwebtoken');
 const {
   registerUser,
@@ -57,11 +62,20 @@ describe('authController', () => {
   });
 
   test('registerUser creates an account and returns the one-time mnemonic payload', async () => {
-    createAccount.mockResolvedValue({
+    createAccountForUser.mockResolvedValue({
+      success: true,
       username: 'alice',
       mnemonic: 'test mnemonic words',
-      chainWallets: { btcpc: 'BTCPCabc' },
-      publicKeys: { owner: 'owner-key' }
+      wallet_export: 'wallet export',
+      wallet_rows: [],
+      public_keys: { owner: 'owner-key' },
+      role_private_keys: { owner: 'owner-private' },
+      chain_addresses: { btcpc: 'BTCPCabc' },
+      chain_wallets: {},
+      wallet_balance: 0,
+      delegated_balance: 1,
+      faucet_claimed: true,
+      faucet_note: 'delegated',
     });
 
     const req = { body: { username: 'alice', password: 'pw-123456' } };
@@ -69,12 +83,18 @@ describe('authController', () => {
 
     await registerUser(req, res);
 
-    expect(createAccount).toHaveBeenCalledWith('alice', null, 'pw-123456');
+    expect(createAccountForUser).toHaveBeenCalledWith(expect.objectContaining({
+      username: 'alice',
+      password: 'pw-123456',
+      requirePassword: true,
+      claimFaucet: true,
+    }));
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       username: 'alice',
-      mnemonic: 'test mnemonic words'
+      mnemonic: 'test mnemonic words',
+      wallet_export: 'wallet export',
     }));
   });
 

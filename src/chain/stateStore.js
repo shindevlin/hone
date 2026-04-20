@@ -145,14 +145,27 @@ var gatewayHeartbeats = new Map();
 var witnessMap = new Map();
 
 // ─────────────────────────────────────────────────────────────────
-// Device yield staking (v3.4)
-// deviceYieldStakes: device_id → { staker, stake_amount, stake_epoch }
-// Tracks the current top yield staker for each IoT device.
-// The top staker earns 30% of that device's sensor income each epoch.
-// Device owner always earns 60%. 10% → btcpc_recycle.
-// Tribute: when a new staker enters, 5% of their stake goes to the owner.
+// Device Stake & Rent (v3.5) — pooled staker model
+// deviceStakerPools: device_id → Map<staker_account, StakerRecord>
+// StakerRecord: { staker, stake_amount, original_stake, tribute_paid,
+//                 slot, rent_mode, entry_epoch, rent_paid_total }
+// Up to 10 stakers per device, ranked by stake_amount descending (slot 1 = highest).
+// Yield split per epoch per device: 70% owner, 20% staker pool, 10% recycle.
+// Slot multipliers weight each staker's share of the 20% pool.
+// deviceAutoStake: device_id → auto_stake_pct (0-50)
 // ─────────────────────────────────────────────────────────────────
-var deviceYieldStakes = new Map();
+var deviceStakerPools = new Map(); // device_id → Map<staker_account, StakerRecord>
+var deviceAutoStake = new Map();   // device_id → pct (0-50)
+
+var SLOT_MULTIPLIERS = [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
+
+// Recompute slot rankings (1-10) for all stakers in a pool, sorted by stake_amount desc.
+function _recomputeSlots(pool) {
+  var sorted = Array.from(pool.values()).sort(function(a, b) { return b.stake_amount - a.stake_amount; });
+  for (var i = 0; i < sorted.length; i++) {
+    sorted[i].slot = i + 1;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Bridge state (v2.16-alpha)
@@ -207,6 +220,8 @@ var slashRecords = new Map();
 // ─────────────────────────────────────────────────────────────────
 var childrenMap = new Map(); // parent → Set<childAccountName>
 var parentMap = new Map();   // childAccountName → parent
+var aliasMap = new Map();    // alias account name → canonical account name
+var accountAliases = new Map(); // canonical account name → Set<alias account names>
 
 // ─────────────────────────────────────────────────────────────────
 // btcpc_recycle Phase 2 endowment state (v3.3)
@@ -481,6 +496,108 @@ function applyEntry(entry) {
       var wccSiblings = childrenMap.get(wccParent) || new Set();
       wccSiblings.add(wccChild);
       childrenMap.set(wccParent, wccSiblings);
+      break;
+    }
+
+    case "WALLET_UNNEST": {
+      var wuData = entry.wallet_data || {};
+      var wuParent = wuData.parent || from;
+      var wuNestedName = wuData.nested_name || wuData.child_name;
+      var wuNested = wuData.nested_wallet || (wuParent && wuNestedName ? wuParent + "/" + wuNestedName : "");
+      var wuNative = wuData.native_name || to;
+      if (!wuParent || !wuNested || !wuNative) break;
+      if (String(wuNative).indexOf("/") !== -1) break;
+      if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(String(wuNative))) break;
+      if (!accounts.has(wuNested)) break;
+      if (accounts.has(wuNative)) break;
+      if (parentMap.get(wuNested) !== wuParent) break;
+
+      _ensureAccount(wuNative, {
+        epoch: entry.epoch,
+        public_keys: wuData.public_keys || {},
+        chain_addresses: wuData.chain_addresses || {},
+      });
+
+      for (var wuBalEntry of Array.from(balances.entries())) {
+        if (wuBalEntry[0].indexOf(wuNested + "|") === 0) {
+          var wuToken = wuBalEntry[0].slice((wuNested + "|").length);
+          var wuNativeKey = _balanceKey(wuNative, wuToken);
+          balances.set(wuNativeKey, (balances.get(wuNativeKey) || 0) + wuBalEntry[1]);
+          balances.delete(wuBalEntry[0]);
+        }
+      }
+      for (var wuDelEntry of Array.from(delegatedReceived.entries())) {
+        if (wuDelEntry[0].indexOf(wuNested + "|") === 0) {
+          var wuDelToken = wuDelEntry[0].slice((wuNested + "|").length);
+          var wuDelNativeKey = _balanceKey(wuNative, wuDelToken);
+          delegatedReceived.set(wuDelNativeKey, (delegatedReceived.get(wuDelNativeKey) || 0) + wuDelEntry[1]);
+          delegatedReceived.delete(wuDelEntry[0]);
+        }
+      }
+      if (stakes.has(wuNested)) {
+        stakes.set(wuNative, stakes.get(wuNested));
+        stakes.delete(wuNested);
+      }
+
+      accounts.delete(wuNested);
+      parentMap.delete(wuNested);
+      var wuSiblings = childrenMap.get(wuParent);
+      if (wuSiblings) {
+        wuSiblings.delete(wuNested);
+        childrenMap.set(wuParent, wuSiblings);
+      }
+      break;
+    }
+
+    case "ACCOUNT_ALIAS_ASSIGN": {
+      var aaData = entry.alias_data || {};
+      var aaParent = aaData.parent || from;
+      var aaAlias = aaData.alias || to;
+      var aaTarget = aaData.target_account;
+      var aaNested = aaData.nested_wallet || (aaParent && aaAlias ? aaParent + "/" + aaAlias : "");
+      if (!aaParent || !aaAlias || !aaTarget || !aaNested) break;
+      if (String(aaAlias).indexOf("/") !== -1) break;
+      if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(String(aaAlias))) break;
+      if (!accounts.has(aaTarget)) break;
+      if (accounts.has(aaAlias)) break;
+      if (aliasMap.has(aaAlias)) break;
+      if (!accounts.has(aaNested)) break;
+      if (parentMap.get(aaNested) !== aaParent) break;
+
+      aliasMap.set(aaAlias, aaTarget);
+      var aaAliases = accountAliases.get(aaTarget) || new Set();
+      aaAliases.add(aaAlias);
+      accountAliases.set(aaTarget, aaAliases);
+
+      accounts.delete(aaNested);
+      parentMap.delete(aaNested);
+      var aaSiblings = childrenMap.get(aaParent);
+      if (aaSiblings) {
+        aaSiblings.delete(aaNested);
+        childrenMap.set(aaParent, aaSiblings);
+      }
+      break;
+    }
+
+    case "ACCOUNT_ALIAS_TRANSFER": {
+      var atData = entry.alias_data || {};
+      var atAlias = atData.alias || from;
+      var atFrom = atData.from_account || aliasMap.get(atAlias);
+      var atTo = atData.to_account || to;
+      if (!atAlias || !atFrom || !atTo) break;
+      if (!aliasMap.has(atAlias)) break;
+      if (aliasMap.get(atAlias) !== atFrom) break;
+      if (!accounts.has(atTo)) break;
+
+      aliasMap.set(atAlias, atTo);
+      var atFromAliases = accountAliases.get(atFrom);
+      if (atFromAliases) {
+        atFromAliases.delete(atAlias);
+        accountAliases.set(atFrom, atFromAliases);
+      }
+      var atToAliases = accountAliases.get(atTo) || new Set();
+      atToAliases.add(atAlias);
+      accountAliases.set(atTo, atToAliases);
       break;
     }
 
@@ -1741,16 +1858,18 @@ function applyEntry(entry) {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Device yield staking (v3.4)
+    // Device Stake & Rent (v3.5) — pooled staker model
     // ─────────────────────────────────────────────────────────────────
 
     case "DEVICE_YIELD_STAKE": {
-      // yield_stake_data: { device_id, staker, stake_amount, owner }
+      // fields: { device_id, staker, stake_amount, rent_mode, owner, entry_epoch }
       var dysData = entry.yield_stake_data || {};
       var dysDeviceId = dysData.device_id;
       var dysStaker = dysData.staker || from;
       var dysStakeAmount = _round(dysData.stake_amount || amount || 0);
       var dysOwner = dysData.owner;
+      var dysRentMode = (dysData.rent_mode === "stake") ? "stake" : "earnings";
+      var dysEntryEpoch = dysData.entry_epoch || entry.epoch || 0;
 
       if (!dysDeviceId || !dysStaker || dysStakeAmount <= 0) break;
 
@@ -1758,48 +1877,158 @@ function applyEntry(entry) {
       var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
       if (!dysDebitOk) break; // insufficient balance
 
-      // Tribute: 5% of stake_amount to owner (unless staker === owner)
+      // Tribute: 1% of stake_amount to owner immediately (unless staker === owner)
       var dysTribute = 0;
       if (dysOwner && dysStaker !== dysOwner) {
-        dysTribute = _round(dysStakeAmount * 0.05);
+        dysTribute = _round(dysStakeAmount * 0.01);
         if (dysTribute > 0) _credit(dysOwner, "BTCPC", dysTribute);
       }
 
-      // Refund previous top staker (net stake = original stake minus tribute already paid)
-      var dysExisting = deviceYieldStakes.get(dysDeviceId);
-      if (dysExisting) {
-        var dysRefund = dysExisting.net_stake || dysExisting.stake_amount;
-        if (dysRefund > 0) _credit(dysExisting.staker, "BTCPC", dysRefund);
+      // Get or create pool for this device
+      if (!deviceStakerPools.has(dysDeviceId)) {
+        deviceStakerPools.set(dysDeviceId, new Map());
       }
+      var dysPool = deviceStakerPools.get(dysDeviceId);
 
-      // Record new top staker; net_stake = stake_amount - tribute
-      var dysNetStake = _round(dysStakeAmount - dysTribute);
-      deviceYieldStakes.set(dysDeviceId, {
-        staker: dysStaker,
-        stake_amount: dysStakeAmount,
-        net_stake: dysNetStake,
-        tribute_paid: dysTribute,
-        stake_epoch: entry.epoch || 0,
-      });
+      // If staker already has a position, add to existing stake (no additional tribute)
+      if (dysPool.has(dysStaker)) {
+        var dysExistingRecord = dysPool.get(dysStaker);
+        dysExistingRecord.stake_amount = _round(dysExistingRecord.stake_amount + dysStakeAmount - dysTribute);
+        dysExistingRecord.tribute_paid = _round(dysExistingRecord.tribute_paid + dysTribute);
+        dysExistingRecord.rent_mode = dysRentMode;
+      } else {
+        // New staker: check if pool has capacity or can bump lowest
+        var dysNetStake = _round(dysStakeAmount - dysTribute);
+        if (dysPool.size < 10) {
+          dysPool.set(dysStaker, {
+            staker: dysStaker,
+            stake_amount: dysNetStake,
+            original_stake: dysStakeAmount,
+            tribute_paid: dysTribute,
+            slot: dysPool.size + 1,
+            rent_mode: dysRentMode,
+            entry_epoch: dysEntryEpoch,
+            rent_paid_total: 0,
+          });
+        } else {
+          // Find lowest staker (slot 10)
+          var dysLowest = null;
+          for (var dysRec of dysPool.values()) {
+            if (!dysLowest || dysRec.stake_amount < dysLowest.stake_amount) {
+              dysLowest = dysRec;
+            }
+          }
+          // Only bump if new stake > lowest
+          if (dysLowest && dysNetStake > dysLowest.stake_amount) {
+            // Return lowest staker's remaining stake
+            if (dysLowest.stake_amount > 0) _credit(dysLowest.staker, "BTCPC", dysLowest.stake_amount);
+            dysPool.delete(dysLowest.staker);
+            dysPool.set(dysStaker, {
+              staker: dysStaker,
+              stake_amount: dysNetStake,
+              original_stake: dysStakeAmount,
+              tribute_paid: dysTribute,
+              slot: 10,
+              rent_mode: dysRentMode,
+              entry_epoch: dysEntryEpoch,
+              rent_paid_total: 0,
+            });
+          }
+          // else: insufficient stake to enter pool — no-op (funds already debited, refund)
+          else if (dysLowest) {
+            // Refund the new staker since they couldn't enter
+            _credit(dysStaker, "BTCPC", dysStakeAmount);
+            if (dysTribute > 0 && dysOwner) _debit(dysOwner, "BTCPC", dysTribute);
+          }
+        }
+      }
+      _recomputeSlots(dysPool);
       break;
     }
 
     case "DEVICE_YIELD_UNSTAKE": {
-      // yield_stake_data: { device_id, staker, returned_amount }
+      // fields: { device_id, staker }
       var dyuData = entry.yield_stake_data || {};
       var dyuDeviceId = dyuData.device_id;
       var dyuStaker = dyuData.staker || from;
-      var dyuReturnedAmount = _round(dyuData.returned_amount || amount || 0);
 
       if (!dyuDeviceId || !dyuStaker) break;
 
-      var dyuExisting = deviceYieldStakes.get(dyuDeviceId);
-      if (!dyuExisting || dyuExisting.staker !== dyuStaker) break;
+      var dyuPool = deviceStakerPools.get(dyuDeviceId);
+      if (!dyuPool) break;
+      var dyuRecord = dyuPool.get(dyuStaker);
+      if (!dyuRecord) break;
 
-      // Return the net stake to staker
-      var dyuRefund = dyuReturnedAmount > 0 ? dyuReturnedAmount : dyuExisting.net_stake;
-      if (dyuRefund > 0) _credit(dyuStaker, "BTCPC", dyuRefund);
-      deviceYieldStakes.delete(dyuDeviceId);
+      // Return remaining stake_amount to staker
+      if (dyuRecord.stake_amount > 0) _credit(dyuStaker, "BTCPC", dyuRecord.stake_amount);
+      dyuPool.delete(dyuStaker);
+      if (dyuPool.size === 0) deviceStakerPools.delete(dyuDeviceId);
+      else _recomputeSlots(dyuPool);
+      break;
+    }
+
+    case "DEVICE_YIELD_RENT": {
+      // fields: { device_id, staker, rent_amount, from_earnings, from_stake, owner }
+      // Applied each epoch by rewardEngine to deduct rent from staker's stake balance
+      // and credit the device owner.
+      var dyrData = entry.yield_stake_data || {};
+      var dyrDeviceId = dyrData.device_id;
+      var dyrStaker = dyrData.staker;
+      var dyrRentAmount = _round(dyrData.rent_amount || 0);
+      var dyrFromStake = _round(dyrData.from_stake || 0);
+      var dyrOwner = dyrData.owner;
+
+      if (!dyrDeviceId || !dyrStaker || dyrRentAmount <= 0) break;
+
+      var dyrPool = deviceStakerPools.get(dyrDeviceId);
+      if (!dyrPool) break;
+      var dyrRecord = dyrPool.get(dyrStaker);
+      if (!dyrRecord) break;
+
+      // Deduct from stake balance
+      if (dyrFromStake > 0) {
+        dyrRecord.stake_amount = _round(Math.max(0, dyrRecord.stake_amount - dyrFromStake));
+        dyrRecord.rent_paid_total = _round(dyrRecord.rent_paid_total + dyrRentAmount);
+      }
+      // Credit owner
+      if (dyrOwner && dyrRentAmount > 0) _credit(dyrOwner, "BTCPC", dyrRentAmount);
+
+      // Evict if stake depleted
+      if (dyrRecord.stake_amount <= 0) {
+        dyrPool.delete(dyrStaker);
+        if (dyrPool.size === 0) deviceStakerPools.delete(dyrDeviceId);
+        else _recomputeSlots(dyrPool);
+      }
+      break;
+    }
+
+    case "DEVICE_YIELD_RENT_MODE_SET": {
+      // fields: { device_id, staker, rent_mode }
+      var dyrmData = entry.yield_stake_data || {};
+      var dyrmDeviceId = dyrmData.device_id;
+      var dyrmStaker = dyrmData.staker || from;
+      var dyrmMode = (dyrmData.rent_mode === "stake") ? "stake" : "earnings";
+
+      if (!dyrmDeviceId || !dyrmStaker) break;
+
+      var dyrmPool = deviceStakerPools.get(dyrmDeviceId);
+      if (!dyrmPool) break;
+      var dyrmRecord = dyrmPool.get(dyrmStaker);
+      if (!dyrmRecord) break;
+      dyrmRecord.rent_mode = dyrmMode;
+      break;
+    }
+
+    case "DEVICE_YIELD_AUTO_STAKE_SET": {
+      // fields: { device_id, owner, auto_stake_pct }
+      var dyasData = entry.yield_stake_data || {};
+      var dyasDeviceId = dyasData.device_id;
+      var dyasPct = typeof dyasData.auto_stake_pct === "number"
+        ? Math.min(50, Math.max(0, dyasData.auto_stake_pct))
+        : 0;
+
+      if (!dyasDeviceId) break;
+      deviceAutoStake.set(dyasDeviceId, dyasPct);
       break;
     }
 
@@ -2484,41 +2713,58 @@ function getChallengesForCid(cid) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Device yield staking getters (v3.4)
+// Device Stake & Rent getters (v3.5)
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Get the current top yield staker record for a device.
- * Returns { staker, stake_amount, net_stake, tribute_paid, stake_epoch } or null.
+ * Get all StakerRecords for a device, sorted by stake_amount descending (slot 1 first).
+ * Returns an array of StakerRecord objects.
  */
-function getDeviceYieldStake(deviceId) {
-  return deviceYieldStakes.get(deviceId) || null;
+function getDeviceStakerPool(deviceId) {
+  var pool = deviceStakerPools.get(deviceId);
+  if (!pool || pool.size === 0) return [];
+  return Array.from(pool.values()).sort(function(a, b) { return b.stake_amount - a.stake_amount; });
 }
 
 /**
- * Get all devices where the given account is the current top yield staker.
- * Returns an array of { device_id, ...stakeRecord }.
+ * Get a Set of all staker account names currently in a device's pool.
+ * Used for free sensor data access check.
  */
-function getTopYieldStakerForAccount(account) {
+function getAllStakersForDevice(deviceId) {
+  var pool = deviceStakerPools.get(deviceId);
+  if (!pool) return new Set();
+  return new Set(pool.keys());
+}
+
+/**
+ * Returns true if account is currently staked on the given device.
+ */
+function isStakerOnDevice(account, deviceId) {
+  var pool = deviceStakerPools.get(deviceId);
+  return pool ? pool.has(account) : false;
+}
+
+/**
+ * Get all devices where account has an active stake.
+ * Returns [{ device_id, slot, stake_amount, rent_mode }]
+ */
+function getStakedDevicesForAccount(account) {
   var result = [];
-  for (var entry of deviceYieldStakes) {
-    if (entry[1].staker === account) {
-      result.push(Object.assign({ device_id: entry[0] }, entry[1]));
+  for (var entry of deviceStakerPools) {
+    var pool = entry[1];
+    if (pool.has(account)) {
+      var rec = pool.get(account);
+      result.push({ device_id: entry[0], slot: rec.slot, stake_amount: rec.stake_amount, rent_mode: rec.rent_mode });
     }
   }
   return result;
 }
 
 /**
- * Get all current device yield stakes.
- * Returns an array of { device_id, ...stakeRecord }.
+ * Get the auto-stake percentage configured for a device owner (0-50).
  */
-function getAllDeviceYieldStakes() {
-  var result = [];
-  for (var entry of deviceYieldStakes) {
-    result.push(Object.assign({ device_id: entry[0] }, entry[1]));
-  }
-  return result;
+function getDeviceAutoStakePct(deviceId) {
+  return deviceAutoStake.get(deviceId) || 0;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2799,6 +3045,23 @@ function isAuthorizedBy(account, signingAccount) {
   return parentMap.get(account) === signingAccount;
 }
 
+function getAliasTarget(alias) {
+  if (!alias) return null;
+  return aliasMap.get(alias) || null;
+}
+
+function resolveAccountName(name) {
+  if (!name) return null;
+  if (accounts.has(name)) return name;
+  return aliasMap.get(name) || null;
+}
+
+function getAliases(account) {
+  var s = accountAliases.get(account);
+  if (!s) return [];
+  return Array.from(s);
+}
+
 // ─────────────────────────────────────────────────────────────────
 // btcpc_recycle Phase 2 endowment getters/setters (v3.3)
 // ─────────────────────────────────────────────────────────────────
@@ -3043,9 +3306,12 @@ function resetAll() {
   seenEntries.clear();
   deviceKeys.clear();
   iotDeviceKeys.clear();
-  deviceYieldStakes.clear();
+  deviceStakerPools.clear();
+  deviceAutoStake.clear();
   childrenMap.clear();
   parentMap.clear();
+  aliasMap.clear();
+  accountAliases.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
   recycleRate = null;
@@ -3079,6 +3345,11 @@ module.exports = {
   getAllAccounts: getAllAccounts,
   getAccountCount: getAccountCount,
   bootstrapAccountKey: bootstrapAccountKey,
+  resolveAccountName: resolveAccountName,
+  getAliasTarget: getAliasTarget,
+  getAliases: getAliases,
+  getChildren: getChildren,
+  getParent: getParent,
   // Device key delegation
   getDeviceOwner: getDeviceOwner,
   getAccountDevices: getAccountDevices,
@@ -3088,10 +3359,13 @@ module.exports = {
   getDevicesByOwner: getDevicesByOwner,
   // Witness map for relay-scaled rewards (v3.2)
   getWitnesses: getWitnesses,
-  // Device yield staking (v3.4)
-  getDeviceYieldStake: getDeviceYieldStake,
-  getTopYieldStakerForAccount: getTopYieldStakerForAccount,
-  getAllDeviceYieldStakes: getAllDeviceYieldStakes,
+  // Device Stake & Rent (v3.5)
+  getDeviceStakerPool: getDeviceStakerPool,
+  getAllStakersForDevice: getAllStakersForDevice,
+  isStakerOnDevice: isStakerOnDevice,
+  getStakedDevicesForAccount: getStakedDevicesForAccount,
+  getDeviceAutoStakePct: getDeviceAutoStakePct,
+  SLOT_MULTIPLIERS: SLOT_MULTIPLIERS,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,

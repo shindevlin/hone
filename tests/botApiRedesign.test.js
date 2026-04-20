@@ -72,6 +72,7 @@ jest.mock('../src/models/Project', () => ({
 jest.mock('../src/services/ledger', () => ({
   recordAccountCreate: jest.fn(async () => {}),
   recordTransfer: jest.fn(async () => {}),
+  recordDelegate: jest.fn(async () => {}),
   getCurrentEpoch: jest.fn(async () => 0),
 }));
 
@@ -286,7 +287,7 @@ describe('Bot API redesign — conversational wallet + password auth', () => {
       body: { username: 'walletuser5' },
     });
     expect(res.status).toBe(200);
-    const addr = res.body.addresses;
+    const addr = res.body.chain_addresses;
     expect(addr).toBeDefined();
     expect(addr.btcpc).toBeTruthy();
     expect(addr.hive).toBe('walletuser5');
@@ -412,7 +413,7 @@ describe('Bot API redesign — conversational wallet + password auth', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.username).toBe('addruser1');
-    const addr = res.body.addresses;
+    const addr = res.body.addresses || res.body.chain_addresses;
     expect(addr).toBeDefined();
     expect(Object.keys(addr)).toEqual(expect.arrayContaining(['btcpc', 'evm', 'solana', 'bitcoin', 'ton', 'hive']));
   });

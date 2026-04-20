@@ -95,7 +95,8 @@ function validHexString(val, maxLen) {
 
 function validAddress(val) {
   if (!isPlainString(val)) return false;
-  return val.length >= 10 && val.length <= 200 && /^[a-zA-Z0-9_]+$/.test(val);
+  if (/^BTCPC[a-fA-F0-9]{40}$/.test(val)) return true;
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,19}$/.test(val);
 }
 
 function validUrl(val) {

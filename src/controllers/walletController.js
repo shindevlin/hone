@@ -1,11 +1,11 @@
 "use strict";
 const crypto = require('crypto');
-const User = require('../models/User');
 const ledger = require('../services/ledger');
 const p2p = require('../p2p/network');
 const { createTransactionMessage } = require('../p2p/protocol');
 const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validAddress, validChain } = require('../middlewares/validate');
+const { resolveUserFromAuth } = require('../services/userResolver');
 
 /**
  * Create Wallet for Authenticated User
@@ -23,7 +23,7 @@ async function createWallet(req, res) {
     }
     if (!validChain(chain)) return res.status(400).json({ error: 'unsupported chain' });
 
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Address is derived from username (BTCPC chain uses username as identity)
@@ -47,7 +47,7 @@ async function createWallet(req, res) {
  */
 async function getBalance(req, res) {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const username = user.username;
@@ -89,7 +89,7 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'invalid address format' });
     }
 
-    const senderUser = await User.findById(req.user.id);
+    const senderUser = await resolveUserFromAuth(req.user);
     if (!senderUser) return res.status(404).json({ error: 'Sender not found' });
     const senderName = senderUser.username;
 
@@ -105,6 +105,10 @@ async function transfer(req, res) {
       // Treat as username; confirm account exists on chain
       const acct = stateStore.getAccount ? stateStore.getAccount(toAddress) : null;
       if (acct) recipientName = toAddress;
+    }
+    if (!recipientName) {
+      const aliasTarget = stateStore.resolveAccountName ? stateStore.resolveAccountName(toAddress) : null;
+      if (aliasTarget) recipientName = aliasTarget;
     }
     if (!recipientName) {
       // Unknown — allow forward-sending: tokens held at username until they register
@@ -163,7 +167,7 @@ async function transfer(req, res) {
  */
 async function getTransactionHistory(req, res) {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Return recent ledger entries for this user from stateStore

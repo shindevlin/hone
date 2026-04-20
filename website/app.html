@@ -57,6 +57,81 @@
     .brand-mark { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; box-shadow: 0 0 14px rgba(247,147,26,0.35); }
     #nav-bar a.active { color: var(--orange); }
 
+    /* SovAI Summit welcome */
+    #sovai-welcome {
+      position: fixed; inset: 0; z-index: 100;
+      display: none; align-items: center; justify-content: center;
+      padding: 18px; background: rgba(2, 14, 9, 0.78);
+    }
+    #sovai-welcome.active { display: flex; }
+    .sovai-panel {
+      width: min(560px, 100%);
+      border: 1px solid #c9a96e;
+      border-radius: 8px;
+      background: #0a3d2a;
+      color: #f0ece4;
+      font-family: Tahoma, Arial, sans-serif;
+      overflow: hidden;
+      box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+    }
+    .sovai-hero {
+      min-height: 150px;
+      background-image:
+        linear-gradient(180deg, rgba(10,61,42,0.12), rgba(10,61,42,0.92)),
+        url('https://sovaisummit.com/wp-content/uploads/2026/02/Hero_Dark_Green-scaled.png');
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: flex-end;
+      padding: 22px;
+    }
+    .sovai-eyebrow {
+      color: #9dcc52;
+      font-size: 12px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .sovai-title {
+      color: #f0ece4;
+      font-size: 28px;
+      line-height: 1.1;
+      font-weight: 800;
+      margin: 0;
+    }
+    .sovai-body {
+      padding: 18px 22px 22px;
+      border-top: 1px solid rgba(201,169,110,0.45);
+      background: rgba(0,0,0,0.18);
+    }
+    .sovai-body p {
+      color: #f0ece4;
+      font-size: 14px;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .sovai-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .sovai-actions button {
+      border-radius: 6px;
+      border: 1px solid #c9a96e;
+      padding: 11px 12px;
+      font-family: Tahoma, Arial, sans-serif;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .sovai-primary { background: #9dcc52; color: #0a3d2a; }
+    .sovai-secondary { background: transparent; color: #f0ece4; }
+    .sovai-dismiss {
+      grid-column: 1 / -1;
+      background: rgba(0,0,0,0.18);
+      color: #f0ece4;
+    }
+
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
     .screen.active { display: block; }
@@ -485,6 +560,25 @@
     <span>Resuming session...</span>
   </div>
 
+  <div id="sovai-welcome" role="dialog" aria-modal="true" aria-labelledby="sovai-title">
+    <div class="sovai-panel">
+      <div class="sovai-hero">
+        <div>
+          <div class="sovai-eyebrow">SovAI Summit 2026</div>
+          <h2 class="sovai-title" id="sovai-title">Welcome, sovereign AI builders.</h2>
+        </div>
+      </div>
+      <div class="sovai-body">
+        <p>BTCPC turns useful compute, sensors, and storage into sovereign AI infrastructure. Create a wallet, run a node, and earn tokens by helping build the only truly sovereign AI in existence.</p>
+        <div class="sovai-actions">
+          <button class="sovai-primary" id="sovai-create">Create Wallet</button>
+          <button class="sovai-secondary" id="sovai-node">Run a Node</button>
+          <button class="sovai-dismiss" id="sovai-dismiss">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Screen: Setup -->
   <div id="screen-setup" class="screen active">
     <div class="setup-hero">
@@ -495,6 +589,7 @@
     <div class="input-group">
       <label>BTCPC Username</label>
       <input type="text" id="input-account" placeholder="e.g. daniel" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <div style="color:#94a3b8;font-size:12px;line-height:1.5;margin-top:6px;">Create a wallet with an available name now. Premium names can be assigned later as public name assets on the same wallet.</div>
     </div>
     <div class="input-group">
       <label>Password</label>
@@ -518,15 +613,20 @@
         <div id="mnemonic-words" style="font-size:16px;line-height:2;color:#f7931a;font-weight:bold;letter-spacing:1px;word-spacing:8px;text-align:center;padding:12px;background:#0a0e17;border-radius:4px;"></div>
       </div>
       <div style="margin-bottom:16px;">
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">Complete wallet export</div>
+        <textarea id="wallet-export" readonly style="width:100%;min-height:260px;background:#0a0e17;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-family:monospace;font-size:11px;line-height:1.45;padding:10px;resize:vertical;"></textarea>
+        <button class="btn btn-secondary" id="btn-copy-wallet-export" style="margin-top:8px;">Copy Wallet Export</button>
+      </div>
+      <div style="margin-bottom:16px;">
         <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Account</div>
         <div id="mnemonic-account" style="color:#22c55e;font-size:14px;"></div>
         <div id="mnemonic-balance" style="color:#f7931a;font-size:12px;margin-top:4px;">1 BTCPC granted from faucet</div>
       </div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;cursor:pointer;">
         <input type="checkbox" id="mnemonic-confirm" style="accent-color:#f7931a;width:20px;height:20px;">
-        <span style="font-size:13px;">I saved my 12 words somewhere safe</span>
+        <span style="font-size:13px;">I saved my recovery phrase and private keys somewhere safe</span>
       </label>
-      <button class="btn btn-primary" id="btn-mnemonic-continue" disabled style="opacity:0.5;">Start Earning</button>
+      <button class="btn btn-primary" id="btn-mnemonic-continue" disabled style="opacity:0.5;">Open Dashboard</button>
     </div>
   </div>
 
@@ -1932,6 +2032,35 @@ function showScreen(id) {
   document.getElementById(id).classList.add('active');
 }
 
+// ─── SovAI Summit Welcome ───
+(function initSovaiWelcome() {
+  const modal = document.getElementById('sovai-welcome');
+  if (!modal) return;
+  const dismissedKey = 'btcpc-sovai-summit-welcome-dismissed';
+  if (!localStorage.getItem(dismissedKey)) modal.classList.add('active');
+  function close() {
+    localStorage.setItem(dismissedKey, '1');
+    modal.classList.remove('active');
+  }
+  const createBtn = document.getElementById('sovai-create');
+  const nodeBtn = document.getElementById('sovai-node');
+  const dismissBtn = document.getElementById('sovai-dismiss');
+  if (createBtn) createBtn.addEventListener('click', () => {
+    close();
+    showScreen('screen-setup');
+    const accountInput = document.getElementById('input-account');
+    if (accountInput) accountInput.focus();
+  });
+  if (nodeBtn) nodeBtn.addEventListener('click', () => {
+    close();
+    window.open('/setup.html', '_blank', 'noopener');
+  });
+  if (dismissBtn) dismissBtn.addEventListener('click', close);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) close();
+  });
+})();
+
 // ─── Setup ───
 document.getElementById('btn-start').addEventListener('click', async () => {
   const val = document.getElementById('input-account').value.trim().toLowerCase();
@@ -1945,8 +2074,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     document.getElementById('input-account').focus();
     return;
   }
-  if (!pwd || pwd.length < 6) {
-    errEl.textContent = 'Password must be at least 6 characters';
+  if (!pwd || pwd.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters';
     errEl.style.display = 'block';
     document.getElementById('input-password').focus();
     return;
@@ -1991,22 +2120,23 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
         document.getElementById('mnemonic-words').textContent = createData.mnemonic;
         document.getElementById('mnemonic-account').textContent = val;
+        document.getElementById('wallet-export').value = createData.wallet_export || createData.mnemonic;
 
-        // Auto-claim faucet
-        try {
-          await fetch('/api/faucet/claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account: val })
-          });
-          document.getElementById('mnemonic-balance').textContent = '1 BTCPC granted from faucet';
-        } catch (_) {
-          document.getElementById('mnemonic-balance').textContent = 'Faucet unavailable — earn from sensors';
+        var walletBalance = Number(createData.wallet_balance || createData.balance || 0);
+        var delegatedBalance = Number(createData.delegated_balance || 0);
+        if (delegatedBalance > 0) {
+          document.getElementById('mnemonic-balance').textContent = walletBalance + ' BTCPC wallet balance, ' + delegatedBalance + ' delegated for inference';
+        } else {
+          document.getElementById('mnemonic-balance').textContent = walletBalance + ' BTCPC wallet balance';
         }
 
         showScreen('screen-mnemonic');
       } else {
-        errEl.textContent = createData.error || 'Account creation failed';
+        if (createData.reserved || /reserved/i.test(createData.error || '')) {
+          errEl.textContent = 'That name is reserved. Create an available wallet name now; BTCPC HQ can assign the reserved name to this wallet later.';
+        } else {
+          errEl.textContent = createData.error || 'Account creation failed';
+        }
         errEl.style.display = 'block';
       }
     } else {
@@ -2036,6 +2166,21 @@ if (mnemonicConfirm && mnemonicContinue) {
   });
   mnemonicContinue.addEventListener('click', () => {
     initDashboard();
+  });
+}
+
+const copyWalletExport = document.getElementById('btn-copy-wallet-export');
+if (copyWalletExport) {
+  copyWalletExport.addEventListener('click', async () => {
+    const exportEl = document.getElementById('wallet-export');
+    exportEl.select();
+    try {
+      await navigator.clipboard.writeText(exportEl.value);
+      copyWalletExport.textContent = 'Copied';
+      setTimeout(() => { copyWalletExport.textContent = 'Copy Wallet Export'; }, 1200);
+    } catch (_) {
+      document.execCommand('copy');
+    }
   });
 }
 

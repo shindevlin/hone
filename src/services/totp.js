@@ -212,10 +212,14 @@ async function verifyBackupCode(account, code) {
  * If user has TOTP disabled, passes through.
  */
 function requireTOTP(req, res, next) {
-  const userId = req.user && req.user.id;
-  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const authUser = req.user;
+  if (!authUser || (!authUser.id && !authUser.username)) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
 
-  User.findById(userId).then(user => {
+  const { resolveUserFromAuth, loadSecretStore } = require('./userResolver');
+
+  resolveUserFromAuth(authUser).then(async user => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (!user.totpEnabled) return next(); // TOTP not enabled, skip
 
@@ -239,10 +243,17 @@ function requireTOTP(req, res, next) {
 
     // Check backup codes
     const normalized = String(code).trim().toLowerCase();
-    const idx = user.totpBackupCodes.indexOf(normalized);
+    const backupCodes = user.totpBackupCodes || [];
+    const idx = backupCodes.indexOf(normalized);
     if (idx !== -1) {
-      user.totpBackupCodes.splice(idx, 1);
-      user.save().then(() => next());
+      backupCodes.splice(idx, 1);
+      if (user.source === 'secretStore') {
+        const ss = await loadSecretStore();
+        await ss.updateUser(user.username, { totp_backup_codes: backupCodes });
+        return next();
+      }
+      user.record.totpBackupCodes = backupCodes;
+      user.record.save().then(() => next());
       return;
     }
 

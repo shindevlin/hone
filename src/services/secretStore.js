@@ -164,8 +164,10 @@ async function createUser(username, fields) {
   }
 
   var userId = fields.user_id || crypto.randomUUID();
+  var publicKeys = fields.public_keys || {};
   state.users[username] = {
     user_id: userId,
+    username: username,
     email: fields.email || null,
     password_hash: passwordHash,
     totp_secret: fields.totp_secret || null,
@@ -175,10 +177,10 @@ async function createUser(username, fields) {
     auth_profile: fields.auth_profile || (passwordHash ? "password" : "none"),
     telegram_id: fields.telegram_id || null,
     telegram_username: fields.telegram_username || null,
-    owner_public_key: fields.owner_public_key || null,
-    active_public_key: fields.active_public_key || null,
-    posting_public_key: fields.posting_public_key || null,
-    memo_public_key: fields.memo_public_key || null,
+    owner_public_key: fields.owner_public_key || publicKeys.owner || null,
+    active_public_key: fields.active_public_key || publicKeys.active || null,
+    posting_public_key: fields.posting_public_key || publicKeys.posting || null,
+    memo_public_key: fields.memo_public_key || publicKeys.memo || null,
     two_factor_public_key: fields.two_factor_public_key || null,
     mcp_servers: fields.mcp_servers || [],
     last_login: null,

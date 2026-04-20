@@ -12,11 +12,11 @@ const blockStore = require('../chain/blockStore');
 const stateManager = require('../chain/stateManager');
 const stateStore = require('../chain/stateStore');
 const nodeRegistry = require('../chain/nodeRegistry');
+const { getReservedNamesForShin } = require('../services/reservedNames');
 
 const GENESIS_MESSAGE = "The Answer to the Ultimate Question of Life, the Universe, and Everything";
 const GENESIS_MINER = "shindevlin";
 const GENESIS_STATE_HASH = '0'.repeat(64);
-const RESERVED_NAMES_PATH = path.resolve(__dirname, '../../data/reserved-names.json');
 const WHITEPAPER_PATH = path.resolve(__dirname, '../../docs/BTCPC_WHITEPAPER.md');
 
 /**
@@ -149,12 +149,21 @@ async function createGenesisBlock() {
     console.error(`[BTCPC] Failed to read whitepaper for genesis dream: ${err.message}`);
   }
 
-  // Reserve top names — Mongo only, skip when unavailable (chain is source of truth)
-  if (mongoEnabled) {
-    let reservedCount = 0;
-    try {
-      const reservedNames = JSON.parse(fs.readFileSync(RESERVED_NAMES_PATH, 'utf8'));
-      for (const name of reservedNames) {
+  // Reserve premium names as nested zero-balance wallets under Shin.
+  // They can later be promoted to native top-level accounts via WALLET_UNNEST
+  // using the recipient's public keys.
+  let reservedCount = 0;
+  try {
+    const reservedNames = getReservedNamesForShin();
+    const ledger = require('../services/ledger');
+    for (const name of reservedNames) {
+      const nestedAccount = GENESIS_MINER + '/' + name;
+      if (!stateStore.hasAccount(nestedAccount)) {
+        await ledger.recordWalletCreateChild(GENESIS_MINER, name, null, 0);
+        reservedCount++;
+      }
+
+      if (mongoEnabled) {
         const existing = await User.findOne({ username: name });
         if (!existing && name !== GENESIS_MINER) {
           const rUser = new User({
@@ -164,13 +173,12 @@ async function createGenesisBlock() {
             isActive: false  // inactive until claimed/sold
           });
           await rUser.save();
-          reservedCount++;
         }
       }
-      console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
-    } catch (err) {
-      console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
     }
+    console.log(`[BTCPC] Reserved ${reservedCount} premium account names for shindevlin`);
+  } catch (err) {
+    console.log(`[BTCPC] Could not load reserved names: ${err.message}`);
   }
 
   // ── Write genesis block to disk — the source of truth ──

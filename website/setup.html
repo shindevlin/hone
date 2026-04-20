@@ -236,8 +236,8 @@
         <div class="option-desc">Generate a fresh account with a 12-word recovery phrase. Save it offline.</div>
       </label>
       <label class="option" data-account="import">
-        <div class="option-title">Import Existing Account</div>
-        <div class="option-desc">Restore from a 12-word mnemonic phrase.</div>
+        <div class="option-title">Use Existing Account</div>
+        <div class="option-desc">For mining nodes, enter only your username and posting private key. Do not put owner or active keys on a node.</div>
       </label>
       <label class="option" data-account="telegram">
         <div class="option-title">Connect Telegram Account</div>
@@ -253,8 +253,9 @@
         <input type="text" id="username" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
       </div>
       <div id="import-form" style="display:none;">
-        <p>Paste your 12-word recovery phrase.</p>
-        <textarea id="mnemonic-input" placeholder="word1 word2 word3 ..."></textarea>
+        <p>Mining requires the posting key only. Staking is done on the website.</p>
+        <input type="text" id="existing-username" placeholder="existing username" maxlength="20" autocomplete="off">
+        <textarea id="posting-key-input" placeholder="BTCPC posting private key (64 hex chars)"></textarea>
       </div>
       <div id="telegram-form" style="display:none;">
         <p>Enter your existing BTCPC username (you'll verify via Telegram).</p>
@@ -263,6 +264,7 @@
       <div id="mnemonic-display" style="display:none;">
         <div class="warning"><strong>WRITE THIS DOWN.</strong> This is the only way to recover your account. Anyone with these words has full control. Never share or store digitally.</div>
         <div class="mnemonic-box" id="mnemonic-words"></div>
+        <textarea id="wallet-export" readonly style="width:100%;min-height:260px;margin-top:12px;background:#0a0e17;border:1px solid rgba(148,163,184,.25);border-radius:8px;color:#e2e8f0;font-family:monospace;font-size:11px;line-height:1.45;padding:10px;"></textarea>
         <div class="checkbox-row">
           <input type="checkbox" id="confirmed-backup">
           <label for="confirmed-backup">I have written down my recovery phrase</label>
@@ -294,6 +296,8 @@
       accountChoice: null,
       username: null,
       mnemonic: null,
+      postingKey: null,
+      walletExport: null,
     };
 
     function showStep(n) {
@@ -365,15 +369,25 @@
           try {
             document.getElementById('btn-next').textContent = 'Creating...';
             document.getElementById('btn-next').disabled = true;
-            var res = await fetch('/api/onboard', {
+            var password = prompt('Create an account password (8+ chars). Save it separately from your wallet export.');
+            if (!password || password.length < 8) {
+              alert('Password must be at least 8 characters.');
+              document.getElementById('btn-next').textContent = 'Next';
+              document.getElementById('btn-next').disabled = false;
+              return;
+            }
+            var res = await fetch('/public/signup', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: u, source: 'wizard' }),
+              body: JSON.stringify({ username: u, password: password }),
             });
             var data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to create account');
             state.mnemonic = data.mnemonic;
+            state.walletExport = data.wallet_export || data.mnemonic;
+            state.postingKey = data.role_private_keys && data.role_private_keys.posting;
             document.getElementById('mnemonic-words').textContent = data.mnemonic;
+            document.getElementById('wallet-export').value = state.walletExport;
             document.getElementById('create-form').style.display = 'none';
             document.getElementById('mnemonic-display').style.display = 'block';
             document.getElementById('btn-next').textContent = 'Next';
@@ -394,13 +408,18 @@
           return;
         }
         if (state.accountChoice === 'import') {
-          var m = document.getElementById('mnemonic-input').value.trim().split(/\s+/);
-          if (m.length !== 12 && m.length !== 24) {
-            alert('Recovery phrase must be 12 or 24 words.');
+          var existing = document.getElementById('existing-username').value.trim().toLowerCase();
+          var postingKey = document.getElementById('posting-key-input').value.trim();
+          if (!/^[a-z0-9][a-z0-9._-]{2,19}$/.test(existing)) {
+            alert('Enter a valid existing username.');
             return;
           }
-          state.mnemonic = m.join(' ');
-          state.username = 'imported'; // Will be derived from mnemonic
+          if ((state.mode === 'miner' || state.mode === 'both') && !/^[0-9a-fA-F]{64}$/.test(postingKey)) {
+            alert('Mining nodes require a 64-character BTCPC posting private key.');
+            return;
+          }
+          state.username = existing;
+          state.postingKey = postingKey;
           showStep(5);
         }
         if (state.accountChoice === 'telegram') {
@@ -418,7 +437,7 @@
             body: JSON.stringify({
               username: state.username,
               mode: state.mode,
-              mnemonic: state.mnemonic,
+              posting_key: state.postingKey,
             }),
           });
           if (res.ok) {

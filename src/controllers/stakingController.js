@@ -1,8 +1,10 @@
 "use strict";
-const User = require('../models/User');
+const crypto = require('crypto');
+const secp256k1 = require('secp256k1');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
-const { sanitizeAmount } = require('../middlewares/validate');
+const { sanitizeAmount, sanitizeString } = require('../middlewares/validate');
+const { resolveUserFromAuth } = require('../services/userResolver');
 
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
@@ -10,6 +12,48 @@ const UNLOCK_PERIOD_DAYS = 7;
 // In-memory unstake requests: username → { amount, requestedAt, availableAt }
 // Persisted via ledger UNSTAKE_REQUEST entries; stateStore holds the canonical state.
 const unstakeRequests = new Map();
+
+function activeKeyChallenge(action, username, amount) {
+  return ['BTCPC_STAKE', action, username, amount || ''].join(':');
+}
+
+function verifyActiveKeySignature(username, action, amount, body) {
+  const account = stateStore.getAccount ? stateStore.getAccount(username) : null;
+  const activePub = account && account.public_keys && account.public_keys.active;
+  if (!activePub) {
+    return { ok: false, status: 422, error: 'account has no active key registered on chain' };
+  }
+
+  const expectedChallenge = activeKeyChallenge(action, username, amount);
+  const challenge = sanitizeString(body.active_challenge, 200);
+  const signature = sanitizeString(body.active_signature, 512);
+
+  if (!challenge || !signature) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'active key signature required',
+      expected_challenge: expectedChallenge,
+    };
+  }
+  if (challenge !== expectedChallenge) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'active_challenge mismatch',
+      expected_challenge: expectedChallenge,
+    };
+  }
+
+  try {
+    const msg = crypto.createHash('sha256').update(challenge).digest();
+    const valid = secp256k1.ecdsaVerify(Buffer.from(signature, 'hex'), msg, Buffer.from(activePub, 'hex'));
+    if (!valid) return { ok: false, status: 401, error: 'active key signature invalid' };
+    return { ok: true };
+  } catch (_) {
+    return { ok: false, status: 400, error: 'invalid active key signature format' };
+  }
+}
 
 /**
  * Stake BTCPC — move tokens from wallet balance to staked balance.
@@ -28,9 +72,12 @@ async function stake(req, res) {
       return res.status(400).json({ error: `Minimum stake is ${MINIMUM_STAKE} BTCPC` });
     }
 
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const username = user.username;
+
+    const authz = verifyActiveKeySignature(username, 'stake', amount, req.body);
+    if (!authz.ok) return res.status(authz.status).json(authz);
 
     const btcpcBalance = stateStore.getBalance(username, 'BTCPC');
     if (btcpcBalance < amount) {
@@ -64,9 +111,12 @@ async function stake(req, res) {
  */
 async function unstake(req, res) {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const username = user.username;
+
+    const authz = verifyActiveKeySignature(username, 'unstake', '', req.body || {});
+    if (!authz.ok) return res.status(authz.status).json(authz);
 
     const stakePool = stateStore.getStakePool ? stateStore.getStakePool(username) : null;
     if (!stakePool || (stakePool.total_staked || 0) <= 0) {
@@ -102,9 +152,12 @@ async function unstake(req, res) {
  */
 async function withdrawStake(req, res) {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const username = user.username;
+
+    const authz = verifyActiveKeySignature(username, 'withdraw', '', req.body || {});
+    if (!authz.ok) return res.status(authz.status).json(authz);
 
     const request = unstakeRequests.get(username);
     if (!request) {
@@ -141,7 +194,7 @@ async function withdrawStake(req, res) {
  */
 async function getStakingInfo(req, res) {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const username = user.username;
 
@@ -202,5 +255,6 @@ module.exports = {
   unstake,
   withdrawStake,
   getStakingInfo,
-  getNetworkStaking
+  getNetworkStaking,
+  activeKeyChallenge
 };

@@ -25,6 +25,7 @@ process.chdir(REPO_ROOT);
 const replay = require(path.join(REPO_ROOT, "src/chain/replay"));
 const stateStore = require(path.join(REPO_ROOT, "src/chain/stateStore"));
 const blockStore = require(path.join(REPO_ROOT, "src/chain/blockStore"));
+const { RESERVED_OWNER, getReservedNamesForShin } = require(path.join(REPO_ROOT, "src/services/reservedNames"));
 
 const OUTPUT_PATH = path.join(REPO_ROOT, "data", "genesis-migration.json");
 const WHITEPAPER_PATH = path.join(REPO_ROOT, "docs", "BTCPC_WHITEPAPER.md");
@@ -142,6 +143,8 @@ async function run() {
   console.log("\n[3/5] Building genesis entries...");
   const genesisEntries = [];
   const now = new Date().toISOString();
+  const existingAccountNames = new Set(accounts.map(function (acct) { return acct.username; }));
+  const existingSystemNames = new Set(systemAccountEntries.map(function (acct) { return acct.username; }));
 
   // ACCOUNT_CREATE entries — one per user account, preserving all keys.
   // Shape matches what stateStore.applyEntry expects:
@@ -162,6 +165,38 @@ async function run() {
         chain_addresses: acct.chain_addresses,
       },
     });
+  }
+
+  // Reserved names are represented as nested wallets under Shin, not as
+  // native top-level accounts. A later WALLET_UNNEST promotes one reservation
+  // to its native name with the recipient's public keys.
+  let reservedNestedCount = 0;
+  if (existingAccountNames.has(RESERVED_OWNER) || stateStore.hasAccount(RESERVED_OWNER)) {
+    const reservedNames = getReservedNamesForShin();
+    const existingNested = new Set();
+    for (const name of reservedNames) {
+      const nestedWallet = RESERVED_OWNER + "/" + name;
+      if (existingAccountNames.has(name) || existingSystemNames.has(name)) continue;
+      if (existingAccountNames.has(nestedWallet) || existingNested.has(nestedWallet)) continue;
+      genesisEntries.push({
+        type: "WALLET_CREATE_CHILD",
+        from: RESERVED_OWNER,
+        to: nestedWallet,
+        amount: 0,
+        token: "BTCPC",
+        epoch: 0,
+        timestamp: now,
+        signed_by: "btcpc_genesis",
+        memo: "genesis migration v3.4 — reserve premium name as nested wallet for shindevlin",
+        wallet_data: {
+          parent: RESERVED_OWNER,
+          child_name: name,
+          nested_name: name,
+        },
+      });
+      existingNested.add(nestedWallet);
+      reservedNestedCount++;
+    }
   }
 
   // GENESIS_MINT entries — one per user account, preserving exact balance.
@@ -247,6 +282,8 @@ async function run() {
     migration_timestamp: now,
     accounts: accounts,
     system_accounts: systemAccountEntries,
+    reserved_nested_wallets_owner: RESERVED_OWNER,
+    reserved_nested_wallets_count: reservedNestedCount,
     genesis_entries: genesisEntries,
     total_supply_migrated: parseFloat(totalSupplyMigrated.toFixed(10)),
     whitepaper_path: "docs/BTCPC_WHITEPAPER.md",
@@ -266,6 +303,7 @@ async function run() {
   console.log("  Source chain height:  epoch " + chainHeight);
   console.log("  User accounts:        " + accounts.length);
   console.log("  System accounts:      " + systemAccountEntries.length);
+  console.log("  Reserved nested:      " + reservedNestedCount);
   console.log("  Genesis entries:      " + genesisEntries.length);
   console.log("  Total BTCPC:          " + totalSupplyMigrated.toFixed(4));
   console.log("  Output:               data/genesis-migration.json");
