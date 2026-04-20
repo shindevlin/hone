@@ -23,3 +23,10 @@ cache/
 
 # Added by code-review-graph
 .code-review-graph/
+
+# Build outputs — distributed via GitHub Releases, not repo
+website/BTCPC-android-release.apk
+website/BTCPC-desktop-linux.AppImage
+website/btcpc-desktop-linux.deb
+android/btcpc-release.keystore
+android/app/build/
