@@ -27,6 +27,7 @@ const stateStore = require('../chain/stateStore');
 const nodeRegistry = require('../chain/nodeRegistry');
 const mempool = require('../p2p/mempool');
 
+const finalityAnchoring = require('../chain/finalityAnchoring');
 const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const resourceManager = require('../services/resourceManager');
@@ -645,6 +646,11 @@ async function applyFinalization(epochNumber, proposal) {
 
       blockStore.writeFinality(block, snapshot);
       console.log(`[BTCPC] Finality block ${epochNumber} written | ${snapshot.account_count} accounts | commitment: ${snapshot.rolling_commitment.slice(0, 16)}...`);
+
+      // Four-tier finality anchoring — fire async, non-blocking
+      finalityAnchoring.anchorIfDue(epochNumber, snapshot).catch(function (err) {
+        console.warn('[BTCPC][anchor] anchorIfDue error (non-fatal):', err.message);
+      });
 
       // Lucid Pruning — remove block files before this finality block
       const pruned = blockStore.pruneBeforeFinality(epochNumber);
