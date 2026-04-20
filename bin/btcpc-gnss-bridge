@@ -17,6 +17,7 @@
  *   BTCPC_GNSS_MINER_KEY — the miner key set during Hyfix setup
  *   BTCPC_GNSS_INTERVAL  — poll interval in ms (default: 30000)
  *   BTCPC_MINER          — BTCPC account to earn rewards
+ *   BTCPC_API_PORT       — local API port (default: 4242)
  */
 
 var path = require("path");
@@ -29,30 +30,35 @@ var GNSS_PORT = 80;
 var MINER_KEY = process.env.BTCPC_GNSS_MINER_KEY || "btcpcshin2026";
 var POLL_INTERVAL = parseInt(process.env.BTCPC_GNSS_INTERVAL) || 30000;
 var MINER_ACCOUNT = process.env.BTCPC_MINER || "shindevlin";
+var API_HOST = "127.0.0.1";
+var API_PORT = parseInt(process.env.BTCPC_API_PORT) || 4242;
 
+// Best-effort in-process modules (only available when running inside main process context)
 var ledger, stateStore, sensorRegistry;
 try {
   ledger = require("../src/services/ledger");
   stateStore = require("../src/chain/stateStore");
   sensorRegistry = require("../src/services/sensorRegistry");
 } catch (e) {
-  // Running standalone without full BTCPC — just log data
+  // Running standalone — HTTP path is the durable submission path
 }
 
 var loginCookie = null;
 var sensorRegistered = false;
 var readingCount = 0;
 var sensorId = MINER_ACCOUNT + "/gnss-base";
+// URL-encoded sensor ID for API paths (sensorId contains a "/" which must be encoded)
+var sensorIdEncoded = encodeURIComponent(sensorId);
 
 function log(msg) { console.log("[gnss-bridge] " + msg); }
 function warn(msg) { console.warn("[gnss-bridge] WARN: " + msg); }
 
 // ─── HTTP helpers ────────────────────────────────────────────────
 
-function httpGet(host, port, path, cookie) {
+function httpGet(host, port, urlPath, cookie) {
   return new Promise(function (resolve, reject) {
     var opts = {
-      hostname: host, port: port, path: path,
+      hostname: host, port: port, path: urlPath,
       method: "GET", timeout: 5000,
       headers: cookie ? { Cookie: "USER=" + cookie } : {}
     };
@@ -67,11 +73,11 @@ function httpGet(host, port, path, cookie) {
   });
 }
 
-function httpPost(host, port, path, body, contentType) {
+function httpPost(host, port, urlPath, body, contentType) {
   return new Promise(function (resolve, reject) {
     var opts = {
-      hostname: host, port: port, path: path,
-      method: "POST", timeout: 5000,
+      hostname: host, port: port, path: urlPath,
+      method: "POST", timeout: 8000,
       headers: {
         "Content-Type": contentType || "application/x-www-form-urlencoded",
         "Content-Length": Buffer.byteLength(body)
@@ -85,6 +91,33 @@ function httpPost(host, port, path, body, contentType) {
     req.on("error", reject);
     req.on("timeout", function () { req.destroy(); reject(new Error("timeout")); });
     req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * POST JSON to the local BTCPC API.
+ * Returns { status, body } or throws on network error.
+ */
+function apiPost(urlPath, payload) {
+  var bodyStr = JSON.stringify(payload);
+  return new Promise(function (resolve, reject) {
+    var opts = {
+      hostname: API_HOST, port: API_PORT, path: urlPath,
+      method: "POST", timeout: 8000,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(bodyStr)
+      }
+    };
+    var req = http.request(opts, function (res) {
+      var data = "";
+      res.on("data", function (chunk) { data += chunk; });
+      res.on("end", function () { resolve({ status: res.statusCode, body: data }); });
+    });
+    req.on("error", reject);
+    req.on("timeout", function () { req.destroy(); reject(new Error("timeout")); });
+    req.write(bodyStr);
     req.end();
   });
 }
@@ -111,40 +144,64 @@ async function login() {
 
 async function ensureSensorRegistered() {
   if (sensorRegistered) return;
-  if (!sensorRegistry) return;
 
+  var spec = {
+    type: "gps",
+    unit: "gnss_correction",
+    decimals: 8,
+    region: "sv-san-salvador",
+    hardware_model: "Hyfix MobileCM MCMv3",
+    firmware_version: "MCMv3-2.2.1",
+  };
+
+  // Fast path: in-process sensorRegistry (only works inside main process)
+  if (sensorRegistry) {
+    try {
+      var existing = sensorRegistry.getSensor(sensorId);
+      if (existing) {
+        sensorRegistered = true;
+        log("sensor already registered (in-process): " + sensorId);
+      } else {
+        sensorRegistry.registerSensor(MINER_ACCOUNT, sensorId, spec);
+        sensorRegistered = true;
+        log("sensor registered in-process: " + sensorId);
+      }
+    } catch (e) {
+      if (!/already/i.test(e.message)) {
+        warn("in-process sensor registration failed: " + e.message);
+      } else {
+        sensorRegistered = true;
+      }
+    }
+  }
+
+  // Durable path: HTTP POST to local API (auto-registers if not found)
+  // The readings endpoint auto-registers on first submission (not-found self-heal),
+  // but we also try explicit registration here so metadata is set correctly.
   try {
-    var existing = sensorRegistry.getSensor(sensorId);
-    if (existing) {
+    var payload = {
+      account: MINER_ACCOUNT,
+      name: "gnss-base",
+      type: spec.type,
+      unit: spec.unit,
+      decimals: spec.decimals,
+      region: spec.region,
+      hardware_model: spec.hardware_model,
+      firmware_version: spec.firmware_version,
+    };
+    var res = await apiPost("/api/sensors", payload);
+    if (res.status === 201) {
       sensorRegistered = true;
-      log("sensor already registered: " + sensorId);
-      return;
+      log("sensor registered via API: " + sensorId);
+    } else if (res.status === 409) {
+      // Already registered — that's fine
+      sensorRegistered = true;
+      log("sensor already registered on chain: " + sensorId);
+    } else {
+      warn("API sensor registration returned " + res.status + ": " + res.body.slice(0, 200));
     }
-
-    sensorRegistry.registerSensor(MINER_ACCOUNT, sensorId, {
-      type: "gps",
-      unit: "gnss_correction",
-      decimals: 8,
-      region: "sv-san-salvador",
-      hardware_model: "Hyfix MobileCM MCMv3",
-      firmware_version: "MCMv3-2.2.1",
-    });
-
-    // Also record on chain via ledger if available
-    if (ledger && typeof ledger.recordSensorRegister === "function") {
-      await ledger.recordSensorRegister(MINER_ACCOUNT, sensorId, {
-        type: "gps",
-        unit: "gnss_correction",
-        decimals: 8,
-        region: "sv-san-salvador",
-        hardware_model: "Hyfix MobileCM MCMv3",
-      }, 0);
-    }
-
-    sensorRegistered = true;
-    log("sensor registered on chain: " + sensorId);
   } catch (e) {
-    warn("sensor registration failed: " + e.message);
+    warn("API sensor registration failed (will retry on next reading): " + e.message);
   }
 }
 
@@ -190,6 +247,17 @@ async function submitReading(status) {
   readingCount++;
 
   var value = status.upDateRate ? parseFloat(status.upDateRate) : 0;
+  var metadata = {
+    ns_status: status.nsStatus,
+    update_rate: parseFloat(status.upDateRate) || 0,
+    gnss_data_rate: parseFloat(status.gnssDataRate) || 0,
+    wifi_strength: parseInt(status.wifiStrength) || 0,
+    uptime: status.uptime,
+    gnss_type: status.gnss,
+    firmware: status.fwVer,
+    timestamp: status.ts,
+    source: "hyfix-mobilecm",
+  };
 
   log(
     "#" + readingCount +
@@ -200,26 +268,60 @@ async function submitReading(status) {
     " uptime=" + status.uptime
   );
 
-  // Submit to sensor registry
+  // Fast path: in-process sensorRegistry (best-effort, may be a no-op in standalone mode)
   if (sensorRegistry) {
     try {
-      sensorRegistry.submitReading(sensorId, value, {
-        ns_status: status.nsStatus,
-        update_rate: parseFloat(status.upDateRate) || 0,
-        gnss_data_rate: parseFloat(status.gnssDataRate) || 0,
-        wifi_strength: parseInt(status.wifiStrength) || 0,
-        uptime: status.uptime,
-        gnss_type: status.gnss,
-        firmware: status.fwVer,
-        timestamp: status.ts,
-      }, readingCount);
+      sensorRegistry.submitReading(sensorId, value, metadata, readingCount);
     } catch (e) {
       // Duplicate reading for same epoch — that's fine
-      if (!/already/.test(e.message)) warn("submit error: " + e.message);
+      if (!/already|duplicate/i.test(e.message)) {
+        warn("in-process submit error: " + e.message);
+      }
     }
   }
 
-  // Also record via ledger for chain persistence
+  // Durable path: HTTP POST to local BTCPC API
+  // POST /api/sensors/:id/readings  body: { account, value, metadata }
+  // The endpoint accepts body.account without requiring a JWT Bearer token.
+  try {
+    var apiPath = "/api/sensors/" + sensorIdEncoded + "/readings";
+    var payload = {
+      account: MINER_ACCOUNT,
+      value: value,
+      metadata: {
+        type: "gps",
+        unit: "gnss_correction",
+        source: "hyfix-mobilecm",
+        latitude: metadata.latitude,
+        longitude: metadata.longitude,
+        altitude: metadata.altitude,
+        battery_pct: undefined,
+        signal_strength_dbm: metadata.wifi_strength || undefined,
+        gateway_id: undefined,
+      },
+    };
+    var res = await apiPost(apiPath, payload);
+    if (res.status === 201) {
+      var parsed = {};
+      try { parsed = JSON.parse(res.body); } catch (_) {}
+      log("reading submitted to chain #" + readingCount +
+        (parsed.auto_registered ? " (auto-registered sensor)" : ""));
+    } else if (res.status === 200) {
+      // Duplicate — same epoch already has a reading, that's fine
+      log("reading already recorded for this epoch #" + readingCount + " (duplicate OK)");
+    } else {
+      warn("API reading submission returned " + res.status + ": " + res.body.slice(0, 300));
+      // If sensor wasn't registered yet, reset the flag so we try again
+      if (res.status === 422 || res.status === 404) {
+        sensorRegistered = false;
+      }
+    }
+  } catch (e) {
+    warn("API reading submission failed: " + e.message +
+      " (is btcpc-api running on port " + API_PORT + "?)");
+  }
+
+  // Legacy: also call ledger directly if available (belt-and-suspenders)
   if (ledger && typeof ledger.recordSensorReading === "function") {
     try {
       await ledger.recordSensorReading(sensorId, value, {
@@ -228,7 +330,12 @@ async function submitReading(status) {
         gnss_data_rate: parseFloat(status.gnssDataRate) || 0,
         wifi_strength: parseInt(status.wifiStrength) || 0,
       }, readingCount);
-    } catch (_) {}
+    } catch (e) {
+      // Ledger call is best-effort — HTTP path is the durable path
+      if (!/duplicate|already/i.test(e.message)) {
+        warn("ledger direct call failed (non-fatal): " + e.message);
+      }
+    }
   }
 }
 
@@ -239,6 +346,7 @@ async function main() {
   log("device: " + GNSS_HOST + ":" + GNSS_PORT);
   log("account: " + MINER_ACCOUNT);
   log("sensor: " + sensorId);
+  log("api: http://" + API_HOST + ":" + API_PORT);
   log("poll interval: " + (POLL_INTERVAL / 1000) + "s");
   log("");
 
@@ -250,6 +358,8 @@ async function main() {
 
   // Polling loop
   setInterval(async function () {
+    // Re-attempt sensor registration if it failed previously
+    if (!sensorRegistered) await ensureSensorRegistered();
     var s = await pollStatus();
     if (s) await submitReading(s);
   }, POLL_INTERVAL);

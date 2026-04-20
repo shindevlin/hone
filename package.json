@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "3.1.74",
+  "version": "3.1.75",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
@@ -57,6 +57,7 @@
     "morgan": "^1.10.0",
     "qrcode": "^1.5.4",
     "secp256k1": "^5.0.1",
+    "serialport": "^13.0.0",
     "speakeasy": "^2.0.0",
     "winston": "^3.11.0",
     "ws": "^8.20.0"
