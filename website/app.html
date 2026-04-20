@@ -1415,7 +1415,7 @@
           </div>
           <div>
             <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Sensor ID (optional)</label>
-            <input type="text" id="data-sensor-id" placeholder="e.g. shindevlin/nebra-1" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+            <input type="text" id="data-sensor-id" placeholder="e.g. shindevlin/lora-1" style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
           </div>
         </div>
 
@@ -1756,7 +1756,7 @@
               document.getElementById('node-my-balance').textContent = parseFloat(btcpcBal).toFixed(4) + ' BTCPC';
             } catch(_) {}
             try {
-              var modResp = await fetch('/v1/models', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              var modResp = await fetch(API_BASE + '/v1/models', { headers: { 'Authorization': 'Bearer ' + jwt } });
               var modData = await modResp.json();
               var names = (modData.data || []).map(function(m){ return m.id; }).join(', ') || 'None loaded';
               document.getElementById('node-my-models').textContent = names;
@@ -1796,7 +1796,7 @@
           var label2 = document.getElementById('node-conn-label');
           dot2.style.background = '#6b7280';
           label2.style.color = 'var(--muted)';
-          label2.textContent = 'Cannot reach node at ' + location.hostname;
+          label2.textContent = 'Cannot reach node — ' + (err && err.message ? err.message : 'network error');
         }
       }
 
@@ -1828,7 +1828,7 @@
               all: '#8b5cf6', gateway: '#06b6d4', monitor: '#64748b',
               'auto-update': '#64748b', 'gnss-bridge': '#64748b',
               // 'gnss-relay' deprecated — replaced by gnss-bridge
-              nebra: '#64748b',
+              lora: '#64748b', nebra: '#64748b',
               'update-source': '#64748b',
             };
             procs.innerHTML = d.processes.map(function(p) {
@@ -1843,7 +1843,7 @@
             var localMiners = roles.mine || roles.miner ? 1 : 0;
             var localClocks = roles.clock ? 1 : 0;
             var localStorage = roles.storage ? 1 : 0;
-            var localGateways = roles.gateway || roles.nebra ? 1 : 0;
+            var localGateways = roles.gateway || roles.lora || roles.nebra ? 1 : 0;
             var localNodes = localMiners + localClocks + localStorage + localGateways;
             if (localNodes > 0) {
               document.getElementById('node-stat-nodes').textContent = String(localNodes);
