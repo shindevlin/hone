@@ -207,6 +207,24 @@
       "token_balances": {
         "BTCPC": 0
       }
+    },
+    {
+      "username": "btcpc",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {
+        "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b"
+      }
+    },
+    {
+      "username": "btcpc_recycle",
+      "balance": 0,
+      "token_balances": {
+        "BTCPC": 0
+      },
+      "public_keys": {}
     }
   ],
   "genesis_entries": [
@@ -504,6 +522,53 @@
       "account_data": {
         "public_keys": {},
         "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "btcpc",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.3 — btcpc root namespace account",
+      "account_data": {
+        "public_keys": {
+          "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b"
+        },
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "ACCOUNT_CREATE",
+      "from": "btcpc_genesis",
+      "to": "btcpc_recycle",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.3 — keyless protocol contract, no keys ever",
+      "account_data": {
+        "public_keys": {},
+        "chain_addresses": {}
+      }
+    },
+    {
+      "type": "WALLET_CREATE_CHILD",
+      "from": "btcpc",
+      "to": "btcpc/treasury",
+      "amount": 0,
+      "token": "BTCPC",
+      "epoch": 0,
+      "timestamp": "2026-04-12T19:54:40.093Z",
+      "signed_by": "btcpc_genesis",
+      "memo": "genesis migration v3.3 — wire btcpc_treasury as child btcpc/treasury",
+      "wallet_data": {
+        "parent": "btcpc",
+        "child_name": "treasury"
       }
     }
   ],

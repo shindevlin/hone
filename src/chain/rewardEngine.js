@@ -29,6 +29,7 @@
  */
 
 const RECYCLE_ACCOUNT = "btcpc_recycle";
+const TOTAL_SUPPLY = 42000000; // 42M BTCPC hard cap
 const { computeToolMultiplier } = require("../mcp/toolRegistry");
 
 // Pool percentages — must sum to 1.0
@@ -58,11 +59,13 @@ function round(n) {
  * @param {Array}  input.storageHosts     — [{ account, capacity_gb, queries_served, cids_count }]
  * @param {Array}  input.activeSensors    — [{ account, readings_count }] sensors that submitted readings this epoch
  * @param {Array}  input.serviceHosts     — [accountName, ...]
+ * @param {object} [input.stateStore]     — injected for Phase 2 checks (optional, falls back to live require)
  *
- * @returns {object} { rewards, recycled, summary }
+ * @returns {object} { rewards, recycled, summary, phase2 }
  *   rewards: [{ to, amount, type, meta }]  — all non-zero reward entries
  *   recycled: number                        — amount routed to btcpc_recycle
  *   summary: object                         — stats for logging/explorer
+ *   phase2: boolean                         — true if this epoch ran under Phase 2
  */
 function computeRewards(input) {
   const {
@@ -76,11 +79,35 @@ function computeRewards(input) {
     serviceHosts = [],
   } = input;
 
+  // ── Phase 2 check: post-supply endowment ───────────────────────────────────
+  // When total distributed supply has reached 42M, blockReward comes from
+  // btcpc_recycle balance × r (computed at activation), not from mining schedule.
+  let effectiveBlockReward = blockReward;
+  let isPhase2Epoch = false;
+  try {
+    const ss = input.stateStore || require("./stateStore");
+    if (ss.isPhase2()) {
+      isPhase2Epoch = true;
+      const recycleBalance = ss.getBalance(RECYCLE_ACCOUNT, "BTCPC");
+      if (!ss.isPhase2Activated()) {
+        // First Phase 2 epoch: compute r = last Phase 1 blockReward / recycleBalance
+        // r targets parity with the last Phase 1 epoch reward
+        const r = recycleBalance > 0 ? round(blockReward / recycleBalance) : 0;
+        ss.setRecycleRate(r, epochNumber);
+      }
+      const r = ss.getRecycleRate() || 0;
+      const recycleBalance2 = ss.getBalance(RECYCLE_ACCOUNT, "BTCPC");
+      effectiveBlockReward = round(recycleBalance2 * r);
+    }
+  } catch (_) {
+    // stateStore not available in test isolation — use blockReward as-is
+  }
+
   const rewards = [];
   let recycled = 0;
 
-  // ── Mining pool (60%): proportional to work_value ──────────────────────────
-  const miningPool = round(blockReward * POOL.mining);
+  // ── Mining pool (55%): proportional to work_value ──────────────────────────
+  const miningPool = round(effectiveBlockReward * POOL.mining);
   const validProofs = computeProofs.filter(p =>
     p.node_id && (p.work_value > 0) && p.result_hash
   );
@@ -120,7 +147,7 @@ function computeRewards(input) {
   }
 
   // ── Verifier pool (10%): equal split ────────────────────────────────────────
-  const verifierPool = round(blockReward * POOL.verifier);
+  const verifierPool = round(effectiveBlockReward * POOL.verifier);
   const activeVerifiers = (verifiers || []).filter(v => typeof v === "string" && v.length > 0);
   if (activeVerifiers.length === 0) {
     recycled += verifierPool;
@@ -132,7 +159,7 @@ function computeRewards(input) {
   }
 
   // ── Clock pool (5%): proportional to heartbeat count ────────────────────────
-  const clockPool = round(blockReward * POOL.clock);
+  const clockPool = round(effectiveBlockReward * POOL.clock);
   const activeClocks = (clockNodes || []).filter(c => c.account && (c.heartbeats || 0) > 0);
   const totalHeartbeats = activeClocks.reduce((s, c) => s + c.heartbeats, 0);
   if (activeClocks.length === 0) {
@@ -147,7 +174,7 @@ function computeRewards(input) {
   }
 
   // ── Storage pool (15%): proportional to capacity_gb (zero if no CIDs) ───────
-  const storagePool = round(blockReward * POOL.storage);
+  const storagePool = round(effectiveBlockReward * POOL.storage);
   // Only hosts with actual stored data (cids_count > 0 OR capacity_gb > 0) earn
   const activeStorage = (storageHosts || []).filter(h => h.account && (h.capacity_gb > 0 || h.cids_count > 0));
   const totalCapacity = activeStorage.reduce((s, h) => s + (h.capacity_gb || 0.001), 0);
@@ -178,7 +205,7 @@ function computeRewards(input) {
   // Sensors that submitted ≥1 reading this epoch get a small base reward.
   // This makes it worth coming online even before anyone purchases the data.
   // Purchase rewards are separate — triggered by sensorRewards.processPurchase().
-  const sensorPool = round(blockReward * POOL.sensor);
+  const sensorPool = round(effectiveBlockReward * POOL.sensor);
   const activeSensorList = (activeSensors || []).filter(s => s.account && (s.readings_count || 0) > 0);
   if (activeSensorList.length === 0) {
     recycled += sensorPool;
@@ -198,8 +225,8 @@ function computeRewards(input) {
     }
   }
 
-  // ── Service pool (8%): equal split ──────────────────────────────────────────
-  const servicePool = round(blockReward * POOL.service);
+  // ── Service pool (6%): equal split ──────────────────────────────────────────
+  const servicePool = round(effectiveBlockReward * POOL.service);
   const activeServices = (serviceHosts || []).filter(h => typeof h === "string" && h.length > 0);
   if (activeServices.length === 0) {
     recycled += servicePool;
@@ -211,7 +238,7 @@ function computeRewards(input) {
   }
 
   // ── Protocol reserve (2%): always to btcpc_recycle ──────────────────────────
-  recycled += round(blockReward * POOL.reserve);
+  recycled += round(effectiveBlockReward * POOL.reserve);
 
   // Recycle entry
   if (recycled > 0) {
@@ -221,6 +248,8 @@ function computeRewards(input) {
   const summary = {
     epoch: epochNumber,
     block_reward: blockReward,
+    effective_block_reward: effectiveBlockReward,
+    phase2: isPhase2Epoch,
     total_distributed: round(rewards.filter(r => r.to !== RECYCLE_ACCOUNT).reduce((s, r) => s + r.amount, 0)),
     recycled: round(recycled),
     miners: validProofsWithMult.length,
@@ -232,7 +261,21 @@ function computeRewards(input) {
     service_hosts: activeServices.length,
   };
 
-  return { rewards, recycled, summary };
+  return { rewards, recycled, summary, phase2: isPhase2Epoch };
+}
+
+/**
+ * Check whether the chain is in Phase 2 (post-supply endowment mode).
+ * Convenience wrapper around stateStore.isPhase2().
+ * @param {object} [ss] — optional stateStore override (for testing)
+ */
+function isPhase2(ss) {
+  try {
+    var store = ss || require("./stateStore");
+    return store.isPhase2();
+  } catch (_) {
+    return false;
+  }
 }
 
 /**
@@ -267,6 +310,8 @@ module.exports = {
   computeRewards,
   extractStorageHosts,
   buildClockNodes,
+  isPhase2,
   POOL,
   RECYCLE_ACCOUNT,
+  TOTAL_SUPPLY,
 };

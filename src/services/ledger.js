@@ -253,6 +253,43 @@ async function recordAccountCreate(username, publicKeys, chainAddresses, epoch) 
 }
 
 /**
+ * Record creation of a child wallet under a parent.
+ * Authorization: parent's posting key must sign the request.
+ * Child account name will be "parent/childName".
+ *
+ * @param {string} parent        — parent account name
+ * @param {string} childName     — short name (no "/" allowed)
+ * @param {string} postingKeySig — signature from parent's posting key
+ * @param {number} epoch         — current epoch
+ */
+async function recordWalletCreateChild(parent, childName, postingKeySig, epoch) {
+  if (!parent) throw new Error('Parent account required');
+  if (!childName) throw new Error('Child name required');
+  if (String(childName).indexOf('/') !== -1) throw new Error('Child name must not contain "/"');
+
+  const childAccount = parent + '/' + childName;
+
+  // Validate parent exists
+  if (!stateStore.hasAccount(parent)) throw new Error('Parent account not found: ' + parent);
+  // Reject if child already exists
+  if (stateStore.hasAccount(childAccount)) throw new Error('Child account already exists: ' + childAccount);
+
+  const entry = _entry({
+    type: 'WALLET_CREATE_CHILD',
+    from: parent,
+    to: childAccount,
+    epoch: epoch || 0,
+    signature: postingKeySig || null,
+    signed_by: 'posting',
+    wallet_data: {
+      parent,
+      child_name: childName,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a transfer on the ledger. ALL transfers go through here.
  * Validates via mempool (double-spend protection), then applies to stateStore.
  */
@@ -2078,6 +2115,8 @@ module.exports = {
   recordMiningReward,
   recordProjectRevenueSplit,
   recordFaucet,
+  // Nested wallets (v3.3)
+  recordWalletCreateChild,
   recordTokenCreate,
   recordStake,
   recordUnstake,
