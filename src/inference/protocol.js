@@ -74,6 +74,21 @@ async function createInferenceRequest({
   const ensembleMaxTokens = maxTokens != null ? maxTokens : 512;
   const ensembleTemperature = temperature != null ? temperature : 0;
 
+  // Model availability gate: model must be running on ≥ MIN_MODEL_MINERS distinct nodes.
+  // Prevents private-model farming (colluder runs model only on their own hardware).
+  const MIN_MODEL_MINERS = 3;
+  try {
+    const modelRegistry = require('../services/modelRegistry');
+    const avail = await modelRegistry.checkModelAvailability(model || 'qwen3.5:27b');
+    if (avail.miners < MIN_MODEL_MINERS) {
+      throw new Error(`Model "${model}" is only available on ${avail.miners} node(s). Minimum ${MIN_MODEL_MINERS} independent miners required to earn rewards. This prevents private-model farming.`);
+    }
+  } catch (err) {
+    if (err.message && err.message.startsWith('Model "')) throw err;
+    // modelRegistry unavailable — fail open in development, log warning
+    console.warn('[BTCPC Inference] Model availability check skipped:', err.message);
+  }
+
   // Lock funds in escrow
   await escrow.lockFunds(requestId, requesterId, fee);
 
@@ -135,13 +150,18 @@ async function claimRequest(requestId, nodeId, sikHash, price) {
   if (!request) return { error: "Request not found" };
   if (request.status !== "open") return { error: "Request no longer open" };
 
+  // Self-challenge guard: requester cannot be their own prover
+  const nodeStr = nodeId.toString();
+  if (request.requester_id && (nodeStr === request.requester_id || nodeStr === (request.requester_account || ''))) {
+    return { error: "Self-challenge not allowed: requester cannot be the inference provider" };
+  }
+
   // Verify node is registered (no Mongo)
   const nodeRegistry = require('../chain/nodeRegistry');
   const nodeEntry = nodeRegistry.getNode(nodeId);
   if (!nodeEntry) return { error: 'Node not registered' };
 
   // Check if node is already busy with active inference
-  const nodeStr = nodeId.toString();
   let activeClaims = 0;
   for (const [, req] of activeRequests) {
     if (req.status === "assigned" || req.status === "committing") {
@@ -359,12 +379,16 @@ async function finalizeRequest(requestId, ensembleOutcome) {
     const consensusNodes = ensembleOutcome.consensusNodes || [];
     const totalFee = request.max_fee;
 
-    // Equal split among consensus nodes
-    const perNodeShare = consensusNodes.length > 0
-      ? totalFee / consensusNodes.length
+    // Filter out requester from payout (self-challenge guard for ensemble)
+    const requesterAccount = request.requester_account || request.requester_id || '';
+    const eligibleNodes = consensusNodes.filter(function(nid) { return nid !== requesterAccount; });
+
+    // Equal split among eligible consensus nodes
+    const perNodeShare = eligibleNodes.length > 0
+      ? totalFee / eligibleNodes.length
       : 0;
 
-    const payouts = consensusNodes.map((nodeId) => ({
+    const payouts = eligibleNodes.map((nodeId) => ({
       node_id: nodeId,
       amount: perNodeShare,
       rank: 1,
