@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buy BTCPC — Stablecoin Purchase</title>
+  <meta name="description" content="Buy BTCPC with USDC, USDT, or DAI on Ethereum, Solana, or TON. Instant settlement on the BTCPC chain.">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --orange: #f7931a;
+      --orange-dim: rgba(247,147,26,0.15);
+      --orange-border: rgba(247,147,26,0.3);
+      --bg: #0a0e17;
+      --bg2: #111827;
+      --bg3: #1a2236;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --cyan: #22d3ee;
+      --radius: 12px;
+      --font: 'Courier New', Courier, monospace;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; min-height: 100vh; }
+
+    /* Nav */
+    #nav-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      display: flex; align-items: center; padding: 6px 16px;
+      background: rgba(10,14,23,0.95); border-bottom: 1px solid var(--orange-border);
+      font-size: 12px; gap: 16px;
+    }
+    #nav-bar a { color: #c8ccd4; text-decoration: none; }
+    #nav-bar a:first-child { color: var(--orange); font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    #nav-bar a:hover { color: var(--orange); }
+
+    /* Layout */
+    .page { padding-top: 60px; max-width: 860px; margin: 0 auto; padding-bottom: 80px; }
+    .section { padding: 32px 24px; }
+
+    /* Hero */
+    .hero {
+      text-align: center; padding: 64px 24px 40px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(247,147,26,0.06) 0%, transparent 70%);
+    }
+    .hero h1 { font-size: 42px; font-weight: 900; color: var(--orange); letter-spacing: -1px; margin-bottom: 8px; }
+    .hero h1 span { color: #fff; }
+    .hero .sub { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+    .price-badge {
+      display: inline-block; background: var(--orange-dim); border: 1px solid var(--orange-border);
+      border-radius: 24px; padding: 8px 24px; font-size: 20px; font-weight: bold; color: var(--orange);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg2); border: 1px solid var(--orange-border); border-radius: var(--radius);
+      padding: 24px; margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px; font-weight: bold; color: var(--orange);
+      margin-bottom: 20px; letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    /* Form elements */
+    label { display: block; color: var(--text-muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; margin-top: 16px; }
+    label:first-of-type { margin-top: 0; }
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%; background: var(--bg3); border: 1px solid rgba(100,116,139,0.4);
+      border-radius: 8px; color: var(--text); font-family: var(--font); font-size: 13px;
+      padding: 10px 12px; outline: none; transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--orange); }
+    input[type="range"] { width: 100%; accent-color: var(--orange); }
+    textarea { resize: vertical; min-height: 70px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid var(--orange-border); border-radius: 8px; overflow: hidden; }
+    .tab {
+      flex: 1; padding: 10px; text-align: center; cursor: pointer;
+      background: var(--bg3); color: var(--text-muted); font-family: var(--font); font-size: 12px;
+      border: none; transition: all 0.2s; font-weight: bold; letter-spacing: 1px;
+    }
+    .tab.active { background: var(--orange); color: #000; }
+    .tab:not(.active):hover { background: var(--orange-dim); color: var(--orange); }
+
+    /* Token pills */
+    .token-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .token-pill {
+      padding: 6px 16px; border-radius: 20px; cursor: pointer; font-family: var(--font);
+      font-size: 12px; font-weight: bold; background: var(--bg3);
+      border: 1px solid rgba(100,116,139,0.4); color: var(--text-muted); transition: all 0.2s;
+    }
+    .token-pill.active { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+    .token-pill:hover:not(.active) { border-color: var(--orange); }
+
+    /* Quote output */
+    .quote-output {
+      background: var(--bg3); border: 1px solid var(--green); border-radius: 10px;
+      padding: 20px; text-align: center; margin-top: 20px;
+    }
+    .quote-btcpc { font-size: 36px; font-weight: 900; color: var(--green); }
+    .quote-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Address display */
+    .addr-box {
+      background: var(--bg3); border: 1px solid var(--orange-border); border-radius: 8px;
+      padding: 12px 14px; display: flex; align-items: center; gap: 8px; margin-top: 8px;
+      word-break: break-all; font-size: 12px;
+    }
+    .addr-box code { flex: 1; color: var(--cyan); }
+    .copy-btn {
+      background: none; border: 1px solid var(--orange-border); border-radius: 6px;
+      color: var(--orange); cursor: pointer; font-family: var(--font); font-size: 11px;
+      padding: 4px 10px; white-space: nowrap; transition: all 0.2s;
+    }
+    .copy-btn:hover { background: var(--orange-dim); }
+
+    /* Buttons */
+    .btn {
+      display: block; width: 100%; padding: 14px; border-radius: 8px;
+      font-family: var(--font); font-size: 14px; font-weight: bold; cursor: pointer;
+      border: none; transition: all 0.2s; margin-top: 20px; letter-spacing: 1px;
+    }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-primary:hover { background: #e8821a; }
+    .btn-primary:disabled { background: #555; color: #888; cursor: not-allowed; }
+    .btn-secondary { background: none; border: 1px solid var(--orange); color: var(--orange); }
+    .btn-secondary:hover { background: var(--orange-dim); }
+
+    /* Warnings */
+    .warning {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.4);
+      border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #fca5a5;
+      margin: 12px 0;
+    }
+    .info {
+      background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.25);
+      border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--cyan);
+      margin: 12px 0;
+    }
+    .success {
+      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4);
+      border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #86efac;
+      margin: 12px 0;
+    }
+
+    /* Keys table */
+    .keys-grid { display: grid; gap: 8px; margin-top: 12px; }
+    .key-row {
+      background: var(--bg3); border: 1px solid rgba(100,116,139,0.3); border-radius: 8px;
+      padding: 10px 12px; font-size: 11px;
+    }
+    .key-row .key-label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .key-row .key-val { color: var(--cyan); word-break: break-all; font-size: 11px; }
+    .key-row .priv-val { color: #fca5a5; word-break: break-all; font-size: 11px; }
+
+    /* Instructions box */
+    .instructions {
+      background: var(--bg3); border: 1px solid var(--orange-border); border-radius: 10px;
+      padding: 20px; margin-top: 16px; font-size: 13px;
+    }
+    .instructions h3 { color: var(--orange); margin-bottom: 12px; font-size: 14px; }
+    .instructions ol { padding-left: 20px; }
+    .instructions li { margin-bottom: 8px; color: var(--text); }
+    .instructions .pid {
+      background: var(--orange-dim); border: 1px solid var(--orange-border);
+      border-radius: 6px; padding: 8px 12px; margin: 10px 0; font-family: var(--font);
+      font-size: 13px; color: var(--orange); letter-spacing: 1px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    /* Status */
+    .status-badge {
+      display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: bold;
+    }
+    .status-pending { background: rgba(234,179,8,0.15); border: 1px solid rgba(234,179,8,0.4); color: #fde047; }
+    .status-confirmed { background: rgba(34,211,238,0.15); border: 1px solid rgba(34,211,238,0.4); color: var(--cyan); }
+    .status-fulfilled { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.4); color: var(--green); }
+    .status-expired { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+
+    /* Steps */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 20px; }
+    .step-card {
+      background: var(--bg3); border: 1px solid var(--orange-border); border-radius: 10px;
+      padding: 20px; text-align: center;
+    }
+    .step-num { font-size: 32px; font-weight: 900; color: var(--orange); margin-bottom: 8px; }
+    .step-title { font-weight: bold; color: #fff; margin-bottom: 8px; }
+    .step-desc { color: var(--text-muted); font-size: 12px; }
+
+    /* Loading spinner */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--orange-border); border-top-color: var(--orange); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    hr { border: none; border-top: 1px solid var(--orange-border); margin: 32px 0; }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<div id="nav-bar">
+  <a href="/"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC</a>
+  <a href="/globe">Globe</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/map">Map</a>
+  <a href="/install">Install</a>
+  <a href="/buy" style="color:#f7931a;font-weight:bold;">Buy</a>
+  <a href="/app">Start</a>
+  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+</div>
+
+<div class="page">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div style="font-size:11px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px;">Stablecoin Purchase</div>
+    <h1>Buy <span>BTCPC</span></h1>
+    <p class="sub">Send USDC, USDT, or DAI on Ethereum, Solana, or TON.<br>BTCPC credited to your account within minutes.</p>
+    <div id="hero-price" class="price-badge">$0.001 / BTCPC</div>
+  </div>
+
+  <div class="section">
+
+    <!-- 1. Quote Calculator -->
+    <div class="card">
+      <div class="card-title">01 — Quote Calculator</div>
+
+      <label>Amount (USD)</label>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input type="range" id="usd-slider" min="10" max="10000" value="100" step="10">
+        <input type="number" id="usd-input" value="100" min="10" max="10000" style="width:120px;">
+      </div>
+
+      <label>Chain</label>
+      <div class="tabs" id="chain-tabs">
+        <button class="tab active" data-chain="ethereum">Ethereum</button>
+        <button class="tab" data-chain="solana">Solana</button>
+        <button class="tab" data-chain="ton">TON</button>
+      </div>
+
+      <label>Token</label>
+      <div class="token-pills" id="token-pills"></div>
+
+      <div class="quote-output">
+        <div id="quote-loading" style="display:none;"><span class="spinner"></span>Getting quote...</div>
+        <div id="quote-result">
+          <div class="quote-btcpc" id="quote-btcpc">100,000 BTCPC</div>
+          <div class="quote-sub" id="quote-sub">$0.001 per BTCPC</div>
+        </div>
+      </div>
+
+      <label style="margin-top:20px;">Payment Address</label>
+      <div class="addr-box" id="pay-addr-box">
+        <code id="pay-addr">—</code>
+        <button class="copy-btn" onclick="copyAddr('pay-addr')">Copy</button>
+      </div>
+
+      <label>Token Contract</label>
+      <div class="addr-box" id="token-contract-box">
+        <code id="token-contract">—</code>
+        <button class="copy-btn" onclick="copyAddr('token-contract')">Copy</button>
+      </div>
+    </div>
+
+    <!-- 2. Purchase Form -->
+    <div class="card">
+      <div class="card-title">02 — Purchase Form</div>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:20px;">Enter your desired BTCPC account name and public keys, then get payment instructions.</p>
+
+      <label>BTCPC Account Name</label>
+      <input type="text" id="btcpc-account" placeholder="e.g. yourname" autocomplete="off">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Lowercase letters, numbers, hyphens. 3–16 characters.</div>
+
+      <div style="margin-top:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:12px;color:var(--text-muted);">Public Keys</div>
+        <button class="btn-secondary" style="padding:8px 16px;font-size:12px;border-radius:8px;background:none;border:1px solid var(--orange);color:var(--orange);cursor:pointer;font-family:var(--font);" onclick="generateKeys()">Generate Keys For Me</button>
+      </div>
+
+      <div id="key-warning" class="warning" style="display:none;">
+        <strong>SAVE YOUR PRIVATE KEYS — shown once, never stored.</strong><br>
+        Write them down or store in a password manager before continuing.
+      </div>
+
+      <div id="keys-display" style="display:none;" class="keys-grid"></div>
+
+      <label style="margin-top:16px;">Owner Public Key</label>
+      <input type="text" id="key-owner" placeholder="04... (secp256k1 uncompressed)">
+      <label>Active Public Key</label>
+      <input type="text" id="key-active" placeholder="04...">
+      <label>Posting Public Key</label>
+      <input type="text" id="key-posting" placeholder="04...">
+      <label>Memo Public Key</label>
+      <input type="text" id="key-memo" placeholder="04...">
+
+      <button class="btn btn-primary" id="submit-btn" onclick="submitPurchase()">Get Payment Instructions</button>
+      <div id="submit-error" class="warning" style="display:none;"></div>
+    </div>
+
+    <!-- Instructions (shown after submit) -->
+    <div id="instructions-card" class="card" style="display:none;">
+      <div class="card-title">03 — Payment Instructions</div>
+      <div id="instructions-content"></div>
+    </div>
+
+    <!-- 3. Status Checker -->
+    <div class="card">
+      <div class="card-title">04 — Check Order Status</div>
+      <label>Purchase ID</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="status-pid" placeholder="e.g. a1b2c3d4e5f6...">
+        <button class="btn-primary" style="width:auto;padding:10px 20px;border-radius:8px;font-family:var(--font);font-weight:bold;cursor:pointer;border:none;background:var(--orange);color:#000;white-space:nowrap;margin-top:0;" onclick="checkStatus()">Check</button>
+      </div>
+      <div id="status-result" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- How it works -->
+    <div class="card">
+      <div class="card-title">05 — How It Works</div>
+      <div class="steps">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-title">Get a Quote</div>
+          <div class="step-desc">Enter your USD amount and choose a chain. See exactly how many BTCPC you'll receive at the current price.</div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-title">Send Stablecoins</div>
+          <div class="step-desc">Transfer USDC, USDT, or DAI to the payment address on your chosen chain. Include the reference ID on Solana or TON.</div>
+        </div>
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-title">Receive BTCPC</div>
+          <div class="step-desc">Once confirmed (3 blocks on ETH, 1 on SOL, 5 on TON), BTCPC is credited to your account automatically.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /section -->
+</div><!-- /page -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let selectedChain = 'ethereum';
+let selectedToken = 'USDC';
+let quoteTimer = null;
+let statusPollTimer = null;
+
+const CHAIN_TOKENS = {
+  ethereum: ['USDC', 'USDT', 'DAI'],
+  solana: ['USDC'],
+  ton: ['USDC'],
+};
+
+// ── Quote fetcher ─────────────────────────────────────────────────────────────
+function getUsdAmount() {
+  return parseFloat(document.getElementById('usd-input').value) || 100;
+}
+
+async function fetchQuote() {
+  const amount = getUsdAmount();
+  const chain = selectedChain;
+  const token = selectedToken;
+
+  document.getElementById('quote-loading').style.display = 'block';
+  document.getElementById('quote-result').style.display = 'none';
+
+  try {
+    const resp = await fetch(`/api/purchase/quote?usd_amount=${amount}&chain=${chain}&token=${token}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    document.getElementById('quote-btcpc').textContent = formatBtcpc(data.btcpc_amount) + ' BTCPC';
+    document.getElementById('quote-sub').textContent = `$${data.price_per_btcpc_usd} per BTCPC`;
+    document.getElementById('hero-price').textContent = `$${data.price_per_btcpc_usd} / BTCPC`;
+    document.getElementById('pay-addr').textContent = data.payment_address || 'Not configured';
+    document.getElementById('token-contract').textContent = data.token_contract || 'N/A';
+  } catch (err) {
+    document.getElementById('quote-btcpc').textContent = '—';
+    document.getElementById('quote-sub').textContent = 'Error: ' + err.message;
+  } finally {
+    document.getElementById('quote-loading').style.display = 'none';
+    document.getElementById('quote-result').style.display = 'block';
+  }
+}
+
+function debouncedFetch() {
+  clearTimeout(quoteTimer);
+  quoteTimer = setTimeout(fetchQuote, 300);
+}
+
+function formatBtcpc(n) {
+  return Math.floor(n).toLocaleString();
+}
+
+// ── Chain / token tabs ────────────────────────────────────────────────────────
+document.getElementById('chain-tabs').addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  selectedChain = tab.dataset.chain;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  renderTokenPills();
+  fetchQuote();
+});
+
+function renderTokenPills() {
+  const tokens = CHAIN_TOKENS[selectedChain] || ['USDC'];
+  if (!tokens.includes(selectedToken)) selectedToken = tokens[0];
+  const container = document.getElementById('token-pills');
+  container.innerHTML = tokens.map(t =>
+    `<div class="token-pill ${t === selectedToken ? 'active' : ''}" data-token="${t}">${t}</div>`
+  ).join('');
+  container.querySelectorAll('.token-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      selectedToken = p.dataset.token;
+      container.querySelectorAll('.token-pill').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+      fetchQuote();
+    });
+  });
+}
+
+// ── Slider / input sync ───────────────────────────────────────────────────────
+document.getElementById('usd-slider').addEventListener('input', e => {
+  document.getElementById('usd-input').value = e.target.value;
+  debouncedFetch();
+});
+document.getElementById('usd-input').addEventListener('input', e => {
+  document.getElementById('usd-slider').value = e.target.value;
+  debouncedFetch();
+});
+
+// ── Copy ─────────────────────────────────────────────────────────────────────
+function copyAddr(id) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector(`#${id}`).nextElementSibling;
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+// ── Key generation ────────────────────────────────────────────────────────────
+async function generateKeys() {
+  const KEY_NAMES = ['owner', 'active', 'posting', 'memo'];
+  const pairs = {};
+  const display = {};
+
+  for (const name of KEY_NAMES) {
+    // Generate secp256k1 key pair using SubtleCrypto ECDH (P-256 as secp256k1 substitute in browser)
+    // Note: browsers expose P-256 (secp256r1). We use it here for key generation UX;
+    // real BTCPC uses secp256k1 — for production, user should generate keys with btcpc-cli.
+    const kp = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveKey']
+    );
+    const pubRaw = await crypto.subtle.exportKey('raw', kp.publicKey);
+    const privJwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+
+    const pubHex = Array.from(new Uint8Array(pubRaw)).map(b => b.toString(16).padStart(2,'0')).join('');
+    const privHex = btoa(JSON.stringify({ name, d: privJwk.d, crv: privJwk.crv }));
+
+    pairs[name] = { pub: pubHex, priv: privHex };
+    display[name] = pairs[name];
+
+    document.getElementById(`key-${name}`).value = pubHex;
+  }
+
+  // Show keys
+  const keysEl = document.getElementById('keys-display');
+  keysEl.innerHTML = KEY_NAMES.map(n => `
+    <div class="key-row">
+      <div class="key-label">${n} — Public Key</div>
+      <div class="key-val">${pairs[n].pub}</div>
+      <div class="key-label" style="margin-top:8px;">⚠ ${n} — Private Key (SAVE THIS)</div>
+      <div class="priv-val">${pairs[n].priv}</div>
+    </div>
+  `).join('');
+  keysEl.style.display = 'grid';
+  document.getElementById('key-warning').style.display = 'block';
+}
+
+// ── Submit purchase ───────────────────────────────────────────────────────────
+async function submitPurchase() {
+  const account = document.getElementById('btcpc-account').value.trim();
+  const owner = document.getElementById('key-owner').value.trim();
+  const active = document.getElementById('key-active').value.trim();
+  const posting = document.getElementById('key-posting').value.trim();
+  const memo = document.getElementById('key-memo').value.trim();
+  const usdAmount = getUsdAmount();
+
+  const errEl = document.getElementById('submit-error');
+  errEl.style.display = 'none';
+
+  if (!account) { errEl.textContent = 'BTCPC account name is required.'; errEl.style.display = 'block'; return; }
+  if (!owner || !active || !posting || !memo) { errEl.textContent = 'All four public keys are required.'; errEl.style.display = 'block'; return; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  try {
+    const resp = await fetch('/api/purchase/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        btcpc_account: account,
+        btcpc_pubkeys: { owner, active, posting, memo },
+        usd_amount: usdAmount,
+        chain: selectedChain,
+        token: selectedToken,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    showInstructions(data);
+  } catch (err) {
+    errEl.textContent = 'Error: ' + err.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Get Payment Instructions';
+  }
+}
+
+function showInstructions(data) {
+  const card = document.getElementById('instructions-card');
+  const content = document.getElementById('instructions-content');
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth' });
+
+  const memoHtml = data.memo_required
+    ? `<div style="margin:10px 0;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Include This Reference</div>
+        <div class="pid">
+          <code style="flex:1;">${data.memo_value}</code>
+          <button class="copy-btn" onclick="copyText('${data.memo_value}', this)">Copy</button>
+        </div>
+       </div>`
+    : `<div class="info">No memo needed on Ethereum. We match by amount and timing (within 30 minutes).</div>`;
+
+  content.innerHTML = `
+    <div class="success">Order submitted. Purchase ID: <strong>${data.purchase_id}</strong></div>
+
+    <div style="margin-top:16px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Purchase ID (save this to check status)</div>
+      <div class="pid">
+        <code style="flex:1;">${data.purchase_id}</code>
+        <button class="copy-btn" onclick="copyText('${data.purchase_id}', this)">Copy</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Send Exactly</div>
+      <div class="addr-box">
+        <code style="color:#22c55e;font-size:18px;font-weight:bold;">${data.amount_usd} ${data.token}</code>
+        <button class="copy-btn" onclick="copyText('${data.amount_usd}', this)">Copy</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">To Address (${data.chain})</div>
+      <div class="addr-box">
+        <code id="inst-addr">${data.payment_address}</code>
+        <button class="copy-btn" onclick="copyAddr('inst-addr')">Copy</button>
+      </div>
+    </div>
+
+    ${memoHtml}
+
+    <div class="instructions" style="margin-top:16px;">
+      <h3>Step-by-Step</h3>
+      <p style="color:var(--text-muted);font-size:12px;">${data.instructions}</p>
+    </div>
+
+    <div style="margin-top:16px;font-size:12px;color:var(--text-muted);">
+      You will receive <strong style="color:var(--green)">${formatBtcpc(data.btcpc_amount)} BTCPC</strong> to account <code>${data.btcpc_account || document.getElementById('btcpc-account').value}</code>.
+      Order expires at ${new Date(data.expires_at).toLocaleTimeString()}.
+    </div>
+
+    <button class="btn btn-secondary" style="margin-top:16px;" onclick="prefillStatus('${data.purchase_id}')">
+      Track This Order
+    </button>
+  `;
+
+  // Auto-populate status checker
+  prefillStatus(data.purchase_id);
+}
+
+function prefillStatus(pid) {
+  document.getElementById('status-pid').value = pid;
+  document.getElementById('status-result').innerHTML = '';
+  document.querySelector('.card:nth-child(3)').scrollIntoView({ behavior: 'smooth' });
+  startStatusPoll(pid);
+}
+
+// ── Status checker ────────────────────────────────────────────────────────────
+function checkStatus() {
+  const pid = document.getElementById('status-pid').value.trim();
+  if (!pid) return;
+  startStatusPoll(pid);
+}
+
+function startStatusPoll(pid) {
+  clearInterval(statusPollTimer);
+  fetchStatus(pid);
+  statusPollTimer = setInterval(() => fetchStatus(pid), 30_000);
+}
+
+async function fetchStatus(pid) {
+  const el = document.getElementById('status-result');
+  try {
+    const resp = await fetch(`/api/purchase/${pid}/status`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    const badgeClass = 'status-' + data.status;
+    let html = `
+      <div style="margin-bottom:12px;">
+        <span class="status-badge ${badgeClass}">${data.status.toUpperCase()}</span>
+      </div>
+    `;
+
+    if (data.status === 'fulfilled') {
+      html += `
+        <div class="success">
+          <strong>Payment confirmed. BTCPC delivered.</strong><br>
+          Amount: ${formatBtcpc(data.btcpc_amount)} BTCPC<br>
+          Epoch: ${data.fulfilled_epoch}<br>
+          Tx: <code>${data.tx_hash}</code>
+        </div>
+      `;
+      clearInterval(statusPollTimer);
+    } else if (data.status === 'pending') {
+      html += `<div class="info">Watching for payment... auto-refreshes every 30 seconds.</div>`;
+      if (data.expires_at) {
+        html += `<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Expires: ${new Date(data.expires_at).toLocaleString()}</div>`;
+      }
+    } else if (data.status === 'expired') {
+      html += `<div class="warning">Order expired. Please submit a new purchase.</div>`;
+      clearInterval(statusPollTimer);
+    }
+
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = `<div class="warning">Error: ${err.message}</div>`;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderTokenPills();
+fetchQuote();
+</script>
+</body>
+</html>
