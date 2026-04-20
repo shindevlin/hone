@@ -2022,6 +2022,7 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
 // Use protocol+hostname: always reliable regardless of Capacitor bridge timing.
 const IS_NATIVE = (location.protocol === 'https:' && location.hostname === 'localhost');
 const REMOTE_BASE = 'https://btcpc.net';
+const BTCPC_APP_VERSION = '3.1.90';
 const API_BASE = IS_NATIVE ? REMOTE_BASE : location.origin;
 const EPOCH_INTERVAL = 30000; // 30 seconds
 const BTCPC_PER_READING = 0.000042; // estimated per sensor per epoch
@@ -4230,6 +4231,45 @@ if (account) {
   listen('ollama-not-running', function() {
     window.showOllamaStartPrompt();
   });
+
+  // ── Android in-app update check (Capacitor only) ──────────────────────────
+  if (IS_NATIVE) {
+    (function checkAndroidUpdate() {
+      fetch('https://api.github.com/repos/shindevlin/btcpc/releases/latest', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var tag = (data.tag_name || '').replace(/^v/, '');
+          if (!tag) return;
+          var current = BTCPC_APP_VERSION.split('.').map(Number);
+          var latest  = tag.split('.').map(Number);
+          var isNewer = false;
+          for (var i = 0; i < 3; i++) {
+            if ((latest[i] || 0) > (current[i] || 0)) { isNewer = true; break; }
+            if ((latest[i] || 0) < (current[i] || 0)) break;
+          }
+          if (!isNewer) return;
+          var apkAsset = (data.assets || []).find(function(a) { return a.name.endsWith('.apk'); });
+          var apkUrl = apkAsset ? apkAsset.browser_download_url : data.html_url;
+          var banner = document.getElementById('android-update-banner');
+          if (banner) return; // already shown
+          banner = document.createElement('div');
+          banner.id = 'android-update-banner';
+          banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#f7931a;color:#000;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;font-family:monospace;font-size:13px;font-weight:700;';
+          banner.innerHTML =
+            '<span>BTCPC v' + tag + ' available</span>' +
+            '<div style="display:flex;gap:8px;">' +
+            '<a id="android-update-dl" href="' + apkUrl + '" target="_blank" style="background:#000;color:#f7931a;border:none;padding:6px 14px;border-radius:4px;font-weight:700;font-size:13px;text-decoration:none;">Download</a>' +
+            '<button id="android-update-dismiss" style="background:rgba(0,0,0,0.2);color:#000;border:none;padding:6px 10px;border-radius:4px;font-weight:700;font-size:13px;cursor:pointer;">✕</button>' +
+            '</div>';
+          document.body.prepend(banner);
+          document.getElementById('android-update-dismiss').addEventListener('click', function() {
+            banner.remove();
+            sessionStorage.setItem('btcpc-update-dismissed', tag);
+          });
+        })
+        .catch(function() {}); // silently ignore if offline
+    })();
+  }
 
   // Rust backend found a newer version on GitHub
   listen('update-available', function(event) {
