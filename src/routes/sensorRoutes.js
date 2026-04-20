@@ -733,22 +733,30 @@ devicesRouter.post('/:id/rotate-key', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Device yield staking routes (v3.4)
+// Device Stake & Rent routes (v3.5)
 // ─────────────────────────────────────────────────────────────────
 
+var SLOT_MULTIPLIERS = [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
+
+function computeRentFloor(device30dayEarnings) {
+  var monthlyFloor = Math.max(device30dayEarnings * 0.07, 50);
+  return monthlyFloor / 86400; // per-epoch floor (86400 epochs/month @ 30s)
+}
+
+function resolveOwner(deviceId) {
+  var deviceRecord = stateStore.getDeviceKey(deviceId);
+  var sensorRecord = stateStore.getSensor ? stateStore.getSensor(deviceId) : null;
+  return (deviceRecord && deviceRecord.owner) ||
+         (sensorRecord && sensorRecord.owner) ||
+         (deviceId.includes('/') ? deviceId.split('/')[0] : null);
+}
+
 /**
- * POST /api/devices/:id/yield-stake
- * Stake on a device to earn yield. The top staker earns 30% of sensor income.
- * Body: { staker, stake_amount }
- *
- * Rules:
- *   - staker must have sufficient balance
- *   - stake_amount must be > current top stake (if any)
- *   - 5% tribute goes to device owner immediately (non-refundable), except
- *     if staker === owner (no tribute)
- *   - Previous top staker is refunded their net stake
+ * POST /api/devices/:id/stake
+ * Stake on a device to earn yield.
+ * Body: { staker, stake_amount, rent_bid, rent_mode }
  */
-devicesRouter.post('/:id/yield-stake', async (req, res) => {
+devicesRouter.post('/:id/stake', async (req, res) => {
   try {
     const deviceId = decodeId(req.params.id);
     if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
@@ -762,40 +770,44 @@ devicesRouter.post('/:id/yield-stake', async (req, res) => {
       return res.status(400).json({ error: 'stake_amount must be a positive number' });
     }
 
-    // Resolve device owner from IoT device registry or sensor registry
-    const deviceRecord = stateStore.getDeviceKey(deviceId);
-    const sensorRecord = stateStore.getSensor(deviceId);
-    const owner = (deviceRecord && deviceRecord.owner) ||
-                  (sensorRecord && sensorRecord.owner) ||
-                  (deviceId.includes('/') ? deviceId.split('/')[0] : null);
+    const rentBid = parseFloat(body.rent_bid);
+    if (!Number.isFinite(rentBid) || rentBid < 0) {
+      return res.status(400).json({ error: 'rent_bid must be a non-negative number' });
+    }
 
+    const rentMode = body.rent_mode === 'stake' ? 'stake' : 'earnings';
+
+    const owner = resolveOwner(deviceId);
     if (!owner) {
       return res.status(404).json({ error: 'device not found — register it first via /api/devices/register or /api/sensors' });
     }
 
-    // Check new stake > current top stake
-    const currentStake = stateStore.getDeviceYieldStake(deviceId);
-    if (currentStake && stakeAmount <= currentStake.stake_amount) {
-      return res.status(409).json({
-        error: 'stake_amount must exceed current top stake',
-        current_top_stake: currentStake.stake_amount,
-        required_minimum: currentStake.stake_amount + 0.0000000001,
-      });
+    // Compute rent floor
+    const pool = stateStore.getDeviceStakerPool(deviceId);
+    const rentFloor = computeRentFloor(0); // no earnings data available in HTTP layer; floor = 50 BTCPC/month
+    if (rentBid < rentFloor) {
+      return res.status(400).json({ error: 'rent_bid below floor', floor_per_epoch: rentFloor });
     }
 
-    // Check staker balance
+    // Check balance
     const stakerBalance = stateStore.getBalance(staker, 'BTCPC');
-    if (staker !== owner && stakerBalance < stakeAmount) {
-      return res.status(422).json({
-        error: 'insufficient balance',
-        balance: stakerBalance,
-        required: stakeAmount,
-      });
+    if (stakerBalance < stakeAmount) {
+      return res.status(422).json({ error: 'insufficient balance', balance: stakerBalance, required: stakeAmount });
+    }
+
+    // If pool is full (10), require rent_bid > lowest current rent_bid to bump
+    if (pool.length >= 10) {
+      const lowest = pool[pool.length - 1];
+      if (rentBid <= lowest.rent_bid || (rentBid === lowest.rent_bid && stakeAmount <= lowest.stake_amount)) {
+        return res.status(409).json({
+          error: 'pool is full; rent_bid must exceed current slot 10 rent_bid to claim a slot',
+          current_slot10_rent_bid: lowest.rent_bid,
+        });
+      }
     }
 
     const epoch = await getCurrentEpoch();
-    const tributeAmount = (staker !== owner) ? parseFloat((stakeAmount * 0.05).toFixed(10)) : 0;
-    const netStake = parseFloat((stakeAmount - tributeAmount).toFixed(10));
+    const tributeAmount = (staker !== owner) ? parseFloat((stakeAmount * 0.01).toFixed(10)) : 0;
 
     const entry = {
       type: 'DEVICE_YIELD_STAKE',
@@ -809,25 +821,26 @@ devicesRouter.post('/:id/yield-stake', async (req, res) => {
         device_id: deviceId,
         staker: staker,
         stake_amount: stakeAmount,
+        rent_bid: rentBid,
+        rent_mode: rentMode,
         owner: owner,
-        tribute: tributeAmount,
-        net_stake: netStake,
+        entry_epoch: epoch,
       },
       memo: 'device_yield_stake:' + deviceId,
     };
 
     try {
       stateStore.applyEntry(entry);
-      // Persist on chain via ledger if available
       try {
         const ledgerMod = require('../services/ledger');
-        if (typeof ledgerMod.recordEntry === 'function') {
-          await ledgerMod.recordEntry(entry);
-        }
+        if (typeof ledgerMod.recordEntry === 'function') await ledgerMod.recordEntry(entry);
       } catch (_) {}
     } catch (err) {
       return res.status(422).json({ error: err.message });
     }
+
+    const newPool = stateStore.getDeviceStakerPool(deviceId);
+    const myRecord = newPool.find(function (r) { return r.staker === staker; });
 
     return res.status(201).json({
       success: true,
@@ -836,9 +849,10 @@ devicesRouter.post('/:id/yield-stake', async (req, res) => {
       owner: owner,
       stake_amount: stakeAmount,
       tribute_paid: tributeAmount,
-      net_stake: netStake,
+      rent_bid: rentBid,
+      rent_mode: rentMode,
+      slot: myRecord ? myRecord.slot : null,
       epoch: epoch,
-      previous_staker: currentStake ? currentStake.staker : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -846,12 +860,11 @@ devicesRouter.post('/:id/yield-stake', async (req, res) => {
 });
 
 /**
- * POST /api/devices/:id/yield-unstake
- * Voluntarily withdraw yield stake. Only the current top staker can call this.
+ * POST /api/devices/:id/unstake
+ * Withdraw stake. Returns remaining stake_amount.
  * Body: { staker }
- * Returns the net stake (original stake minus 5% tribute already paid).
  */
-devicesRouter.post('/:id/yield-unstake', async (req, res) => {
+devicesRouter.post('/:id/unstake', async (req, res) => {
   try {
     const deviceId = decodeId(req.params.id);
     if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
@@ -860,16 +873,14 @@ devicesRouter.post('/:id/yield-unstake', async (req, res) => {
     const staker = sanitizeString(body.staker, 64);
     if (!staker) return res.status(400).json({ error: 'staker required' });
 
-    const currentStake = stateStore.getDeviceYieldStake(deviceId);
-    if (!currentStake) {
-      return res.status(404).json({ error: 'no active yield stake for this device' });
-    }
-    if (currentStake.staker !== staker) {
-      return res.status(403).json({ error: 'only the current top staker can unstake' });
+    const pool = stateStore.getDeviceStakerPool(deviceId);
+    const record = pool.find(function (r) { return r.staker === staker; });
+    if (!record) {
+      return res.status(404).json({ error: 'no active stake for this staker on this device' });
     }
 
     const epoch = await getCurrentEpoch();
-    const returnedAmount = currentStake.net_stake || currentStake.stake_amount;
+    const returnedAmount = record.stake_amount;
 
     const entry = {
       type: 'DEVICE_YIELD_UNSTAKE',
@@ -879,11 +890,7 @@ devicesRouter.post('/:id/yield-unstake', async (req, res) => {
       token: 'BTCPC',
       epoch: epoch,
       timestamp: Date.now(),
-      yield_stake_data: {
-        device_id: deviceId,
-        staker: staker,
-        returned_amount: returnedAmount,
-      },
+      yield_stake_data: { device_id: deviceId, staker: staker },
       memo: 'device_yield_unstake:' + deviceId,
     };
 
@@ -891,62 +898,160 @@ devicesRouter.post('/:id/yield-unstake', async (req, res) => {
       stateStore.applyEntry(entry);
       try {
         const ledgerMod = require('../services/ledger');
-        if (typeof ledgerMod.recordEntry === 'function') {
-          await ledgerMod.recordEntry(entry);
-        }
+        if (typeof ledgerMod.recordEntry === 'function') await ledgerMod.recordEntry(entry);
       } catch (_) {}
     } catch (err) {
       return res.status(422).json({ error: err.message });
     }
 
-    return res.json({
-      success: true,
-      device_id: deviceId,
-      staker: staker,
-      returned_amount: returnedAmount,
-      epoch: epoch,
-    });
+    return res.json({ success: true, device_id: deviceId, staker: staker, returned_amount: returnedAmount, epoch: epoch });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * GET /api/devices/:id/yield-stake
- * Get current top staker info for a device. Public endpoint.
+ * POST /api/devices/:id/rent-mode
+ * Change rent payment mode.
+ * Body: { staker, rent_mode }
  */
-devicesRouter.get('/:id/yield-stake', async (req, res) => {
+devicesRouter.post('/:id/rent-mode', async (req, res) => {
   try {
     const deviceId = decodeId(req.params.id);
     if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
 
-    const stake = stateStore.getDeviceYieldStake(deviceId);
-    const currentEpoch = await getCurrentEpoch();
+    const body = req.body || {};
+    const staker = sanitizeString(body.staker, 64);
+    if (!staker) return res.status(400).json({ error: 'staker required' });
+    const rentMode = body.rent_mode === 'stake' ? 'stake' : 'earnings';
 
-    if (!stake) {
-      return res.json({
-        device_id: deviceId,
-        staker: null,
-        stake_amount: 0,
-        stake_epoch: null,
-        estimated_daily_yield: 0,
-        current_epoch: currentEpoch,
-      });
+    const pool = stateStore.getDeviceStakerPool(deviceId);
+    if (!pool.find(function (r) { return r.staker === staker; })) {
+      return res.status(404).json({ error: 'no active stake for this staker on this device' });
     }
 
-    // Estimate daily yield: rough estimate based on 30s epochs
-    // 2880 epochs/day × 7% sensor pool / active sensors (approximation)
-    const estimated_daily_yield = null; // requires live pool data; callers should compute from explorer
+    const epoch = await getCurrentEpoch();
+    const entry = {
+      type: 'DEVICE_YIELD_RENT_MODE',
+      from: staker,
+      to: staker,
+      amount: 0,
+      token: 'BTCPC',
+      epoch: epoch,
+      timestamp: Date.now(),
+      yield_stake_data: { device_id: deviceId, staker: staker, rent_mode: rentMode },
+      memo: 'device_rent_mode:' + deviceId,
+    };
+
+    stateStore.applyEntry(entry);
+    try {
+      const ledgerMod = require('../services/ledger');
+      if (typeof ledgerMod.recordEntry === 'function') await ledgerMod.recordEntry(entry);
+    } catch (_) {}
+
+    return res.json({ success: true, device_id: deviceId, staker: staker, rent_mode: rentMode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/devices/:id/auto-stake
+ * Set auto-stake percentage (owner only).
+ * Body: { owner, auto_stake_pct }
+ */
+devicesRouter.post('/:id/auto-stake', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const body = req.body || {};
+    const owner = sanitizeString(body.owner, 64);
+    if (!owner) return res.status(400).json({ error: 'owner required' });
+
+    const resolvedOwner = resolveOwner(deviceId);
+    if (resolvedOwner && resolvedOwner !== owner) {
+      return res.status(403).json({ error: 'only the device owner can set auto-stake' });
+    }
+
+    const pct = Math.max(0, Math.min(50, parseFloat(body.auto_stake_pct) || 0));
+
+    const epoch = await getCurrentEpoch();
+    const entry = {
+      type: 'DEVICE_YIELD_AUTO_STAKE',
+      from: owner,
+      to: owner,
+      amount: 0,
+      token: 'BTCPC',
+      epoch: epoch,
+      timestamp: Date.now(),
+      yield_stake_data: { device_id: deviceId, owner: owner, pct: pct },
+      memo: 'device_auto_stake:' + deviceId,
+    };
+
+    stateStore.applyEntry(entry);
+    try {
+      const ledgerMod = require('../services/ledger');
+      if (typeof ledgerMod.recordEntry === 'function') await ledgerMod.recordEntry(entry);
+    } catch (_) {}
+
+    return res.json({ success: true, device_id: deviceId, owner: owner, auto_stake_pct: pct });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/devices/:id/stakers
+ * Get staker pool for a device. Public.
+ */
+devicesRouter.get('/:id/stakers', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const pool = stateStore.getDeviceStakerPool(deviceId);
+    const SMULT = SLOT_MULTIPLIERS;
+    const rentFloor = computeRentFloor(0);
+
+    // Compute total weighted for yield estimates
+    const totalWeighted = pool.reduce(function (s, r) {
+      return s + (SMULT[(r.slot - 1)] || 0) * r.stake_amount;
+    }, 0);
+
+    // Build 10-slot array
+    var slots = [];
+    for (var i = 1; i <= 10; i++) {
+      var record = pool.find(function (r) { return r.slot === i; });
+      if (record) {
+        var mult = SMULT[i - 1];
+        var stakerYieldPct = totalWeighted > 0 ? (mult * record.stake_amount / totalWeighted) : 0;
+        // Staker pool = 20% of device epoch earn (approximate using rent_bid × 30 as monthly proxy)
+        var estMonthlyYield = stakerYieldPct * (record.rent_bid * 86400 * 0.20 / 0.07); // rough
+        var estMonthlyRent = record.rent_bid * 86400;
+        slots.push({
+          slot: i,
+          staker: record.staker,
+          stake_amount: record.stake_amount,
+          rent_bid: record.rent_bid,
+          rent_mode: record.rent_mode,
+          entry_epoch: record.entry_epoch,
+          rent_paid_total: record.rent_paid_total,
+          est_monthly_yield: parseFloat(estMonthlyYield.toFixed(4)),
+          est_monthly_rent: parseFloat(estMonthlyRent.toFixed(4)),
+          est_monthly_net: parseFloat((estMonthlyYield - estMonthlyRent).toFixed(4)),
+        });
+      } else {
+        slots.push({ slot: i, staker: null, available: true });
+      }
+    }
 
     return res.json({
       device_id: deviceId,
-      staker: stake.staker,
-      stake_amount: stake.stake_amount,
-      net_stake: stake.net_stake,
-      tribute_paid: stake.tribute_paid,
-      stake_epoch: stake.stake_epoch,
-      estimated_daily_yield: estimated_daily_yield,
-      current_epoch: currentEpoch,
+      slots: slots,
+      staker_count: pool.length,
+      floor_rent_per_epoch: rentFloor,
+      device_30day_earnings: 0, // requires live chain data
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -954,27 +1059,47 @@ devicesRouter.get('/:id/yield-stake', async (req, res) => {
 });
 
 /**
- * GET /api/devices/yield-stakes?staker=:account
- * Returns all devices where account is current top staker.
+ * GET /api/devices/staked?account=:name
+ * Returns all devices where account is a staker.
  */
-devicesRouter.get('/yield-stakes', async (req, res) => {
+devicesRouter.get('/staked', async (req, res) => {
   try {
-    const stakerAccount = req.query.staker ? sanitizeString(req.query.staker, 64) : null;
+    const account = req.query.account ? sanitizeString(req.query.account, 64) : null;
+    if (!account) return res.status(400).json({ error: 'account query param required' });
 
-    let stakes;
-    if (stakerAccount) {
-      stakes = stateStore.getTopYieldStakerForAccount(stakerAccount);
-    } else {
-      stakes = stateStore.getAllDeviceYieldStakes();
-    }
-
-    // Sort by stake_amount desc
-    stakes = stakes.slice().sort(function (a, b) { return (b.stake_amount || 0) - (a.stake_amount || 0); });
-
-    return res.json({ stakes: stakes, count: stakes.length });
+    const devices = stateStore.getStakedDevicesForAccount(account);
+    return res.json({ account: account, devices: devices, count: devices.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Legacy yield-stake endpoints (kept for backward compat)
+devicesRouter.post('/:id/yield-stake', async (req, res) => {
+  req.body = req.body || {};
+  if (!req.body.rent_bid) req.body.rent_bid = computeRentFloor(0);
+  return devicesRouter.stack.find(function (l) { return l.route && l.route.path === '/:id/stake'; })
+    ? res.status(308).json({ redirect: req.path.replace('yield-stake', 'stake'), message: 'use /stake instead' })
+    : res.status(410).json({ error: 'use POST /api/devices/:id/stake' });
+});
+
+devicesRouter.post('/:id/yield-unstake', async (req, res) => {
+  res.status(308).json({ redirect: req.path.replace('yield-unstake', 'unstake'), message: 'use /unstake instead' });
+});
+
+devicesRouter.get('/:id/yield-stake', async (req, res) => {
+  const deviceId = decodeId(req.params.id);
+  if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+  const pool = stateStore.getDeviceStakerPool(deviceId);
+  res.json({ device_id: deviceId, pool_size: pool.length, stakers: pool });
+});
+
+devicesRouter.get('/yield-stakes', async (req, res) => {
+  const stakerAccount = req.query.staker ? sanitizeString(req.query.staker, 64) : null;
+  let stakes = stakerAccount
+    ? stateStore.getStakedDevicesForAccount(stakerAccount)
+    : stateStore.getAllDeviceYieldStakes();
+  return res.json({ stakes: stakes, count: stakes.length });
 });
 
 module.exports = { sensorsRouter, gatewaysRouter, devicesRouter };

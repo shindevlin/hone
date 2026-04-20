@@ -228,24 +228,58 @@ function computeRewards(input) {
       const share = round(sensorPool * weight);
       if (share <= 0) continue;
 
-      // Check for active yield staker on each sensor_id in this sensor's sensor_ids
+      // Check for active staker pool on each sensor_id in this sensor's sensor_ids
       // sensor.account is the owner; sensor.sensor_ids is the list of device_ids
       const sensorIds = sensor.sensor_ids || [];
       // For each sensor_id, determine per-device share, apply staking split
-      if (sensorIds.length > 0 && _ss && typeof _ss.getDeviceYieldStake === "function") {
+      if (sensorIds.length > 0 && _ss && typeof _ss.getDeviceStakerPool === "function") {
         const perDevice = round(share / sensorIds.length);
         for (const sid of sensorIds) {
-          const yieldStake = _ss.getDeviceYieldStake(sid);
-          if (yieldStake && yieldStake.staker) {
-            // 60/30/10 split
-            const ownerShare = round(perDevice * 0.60);
-            const stakerShare = round(perDevice * 0.30);
-            const recycleShare = round(perDevice - ownerShare - stakerShare);
-            if (ownerShare > 0) rewards.push({ to: sensor.account, amount: ownerShare, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, yield_staking: true, split: "owner_60" } });
-            if (stakerShare > 0) rewards.push({ to: yieldStake.staker, amount: stakerShare, type: "SENSOR_YIELD_REWARD", meta: { sensor_id: sid, device_owner: sensor.account, split: "staker_30" } });
+          const pool = _ss.getDeviceStakerPool(sid);
+          const SMULT = (_ss.SLOT_MULTIPLIERS) || [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
+          if (pool && pool.length > 0) {
+            // 70/20/10 split
+            const ownerBase = round(perDevice * 0.70);
+            const stakerPool = round(perDevice * 0.20);
+            const recycleShare = round(perDevice - ownerBase - stakerPool);
+
+            // Weighted staker pool
+            const totalWeighted = pool.reduce(function (s, r) {
+              return s + (SMULT[(r.slot - 1)] || 0) * r.stake_amount;
+            }, 0);
+
+            let rentCollected = 0;
+            for (const staker of pool) {
+              const mult = SMULT[(staker.slot - 1)] || 0;
+              const stakerYield = totalWeighted > 0 ? round((mult * staker.stake_amount / totalWeighted) * stakerPool) : 0;
+              const rentDue = staker.rent_bid || 0;
+
+              if (staker.rent_mode === "stake") {
+                // Full yield to wallet, rent deducted from stake via DEVICE_YIELD_RENT entry
+                if (stakerYield > 0) rewards.push({ to: staker.staker, amount: stakerYield, type: "SENSOR_YIELD_REWARD", meta: { sensor_id: sid, device_owner: sensor.account, slot: staker.slot, rent_mode: "stake" } });
+                if (rentDue > 0) {
+                  rewards.push({ type: "DEVICE_YIELD_RENT", to: sensor.account, amount: rentDue, meta: { sensor_id: sid, staker: staker.staker, rent_from_stake: rentDue }, yield_stake_data: { device_id: sid, staker: staker.staker, rent_amount: rentDue, owner: sensor.account } });
+                  rentCollected += rentDue;
+                }
+              } else {
+                // earnings mode: yield covers rent first
+                const yieldToWallet = Math.max(0, stakerYield - rentDue);
+                const rentFromStake = Math.max(0, rentDue - stakerYield);
+                if (yieldToWallet > 0) rewards.push({ to: staker.staker, amount: round(yieldToWallet), type: "SENSOR_YIELD_REWARD", meta: { sensor_id: sid, device_owner: sensor.account, slot: staker.slot, rent_mode: "earnings" } });
+                if (rentFromStake > 0) {
+                  rewards.push({ type: "DEVICE_YIELD_RENT", to: sensor.account, amount: round(rentFromStake), meta: { sensor_id: sid, staker: staker.staker, rent_from_stake: rentFromStake }, yield_stake_data: { device_id: sid, staker: staker.staker, rent_amount: round(rentFromStake), owner: sensor.account } });
+                }
+                // Rent covered by yield goes directly to owner
+                const rentFromYield = round(Math.min(rentDue, stakerYield));
+                if (rentFromYield > 0) rentCollected += rentFromYield;
+              }
+            }
+
+            if (ownerBase > 0) rewards.push({ to: sensor.account, amount: ownerBase, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, yield_staking: true, split: "owner_70" } });
+            if (rentCollected > 0) rewards.push({ to: sensor.account, amount: round(rentCollected), type: "SENSOR_RENT_COLLECTED", meta: { sensor_id: sid } });
             recycled += recycleShare;
           } else {
-            // 90/10 split
+            // 90/10 split (no stakers)
             const ownerShare = round(perDevice * 0.90);
             const recycleShare = round(perDevice - ownerShare);
             if (ownerShare > 0) rewards.push({ to: sensor.account, amount: ownerShare, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, split: "owner_90" } });

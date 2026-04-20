@@ -104,6 +104,22 @@ router.post("/query", authenticateToken, async (req, res) => {
 
   try {
     const account = (req.user && req.user.username) || body.account || body.payer || null;
+
+    // Free access for stakers — staking on a device grants free data queries
+    const sensorId = body.sensor_id || body.device_id || body.sensor || null;
+    if (sensorId && account) {
+      let _ss = null;
+      try { _ss = require("../chain/stateStore"); } catch (_) {}
+      if (_ss && typeof _ss.isStakerOnDevice === "function" && _ss.isStakerOnDevice(account, sensorId)) {
+        // Run the query without billing
+        if (typeof billing.executeSensorQuery === "function") {
+          const result = await billing.executeSensorQuery(body);
+          return res.json({ success: true, result, free_access: true, reason: "staker" });
+        }
+        // If executeSensorQuery not available, fall through to paid path
+      }
+    }
+
     const result = await billing.executePaidSensorQuery(body, { account, user: req.user || null, req });
     return res.json({ success: true, result });
   } catch (err) {

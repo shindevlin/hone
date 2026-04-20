@@ -171,14 +171,8 @@ var deviceStakerPools = new Map(); // device_id → Map<staker_account, StakerRe
 var deviceAutoStake = new Map();   // device_id → pct (0-50)
 
 var SLOT_MULTIPLIERS = [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
+var MAX_STAKERS = 10;
 
-// Recompute slot rankings (1-10) for all stakers in a pool, sorted by stake_amount desc.
-function _recomputeSlots(pool) {
-  var sorted = Array.from(pool.values()).sort(function(a, b) { return b.stake_amount - a.stake_amount; });
-  for (var i = 0; i < sorted.length; i++) {
-    sorted[i].slot = i + 1;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────
 // Bridge state (v2.16-alpha)
@@ -1881,17 +1875,18 @@ function applyEntry(entry) {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Device Stake & Rent (v3.5) — pooled staker model
+    // Device Stake & Rent (v3.5) — pooled rent-auction model
     // ─────────────────────────────────────────────────────────────────
 
     case "DEVICE_YIELD_STAKE": {
-      // fields: { device_id, staker, stake_amount, rent_mode, owner, entry_epoch }
+      // yield_stake_data: { device_id, staker, stake_amount, rent_bid, rent_mode, owner, entry_epoch }
       var dysData = entry.yield_stake_data || {};
       var dysDeviceId = dysData.device_id;
       var dysStaker = dysData.staker || from;
       var dysStakeAmount = _round(dysData.stake_amount || amount || 0);
       var dysOwner = dysData.owner;
-      var dysRentMode = (dysData.rent_mode === "stake") ? "stake" : "earnings";
+      var dysRentBid = _round(dysData.rent_bid || 0);
+      var dysRentMode = dysData.rent_mode === "stake" ? "stake" : "earnings";
       var dysEntryEpoch = dysData.entry_epoch || entry.epoch || 0;
 
       if (!dysDeviceId || !dysStaker || dysStakeAmount <= 0) break;
@@ -1900,7 +1895,7 @@ function applyEntry(entry) {
       var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
       if (!dysDebitOk) break; // insufficient balance
 
-      // Tribute: 1% of stake_amount to owner immediately (unless staker === owner)
+      // Tribute: 1% of stake_amount to owner (unless staker === owner)
       var dysTribute = 0;
       if (dysOwner && dysStaker !== dysOwner) {
         dysTribute = _round(dysStakeAmount * 0.01);
@@ -1913,64 +1908,44 @@ function applyEntry(entry) {
       }
       var dysPool = deviceStakerPools.get(dysDeviceId);
 
-      // If staker already has a position, add to existing stake (no additional tribute)
-      if (dysPool.has(dysStaker)) {
-        var dysExistingRecord = dysPool.get(dysStaker);
-        dysExistingRecord.stake_amount = _round(dysExistingRecord.stake_amount + dysStakeAmount - dysTribute);
-        dysExistingRecord.tribute_paid = _round(dysExistingRecord.tribute_paid + dysTribute);
-        dysExistingRecord.rent_mode = dysRentMode;
-      } else {
-        // New staker: check if pool has capacity or can bump lowest
-        var dysNetStake = _round(dysStakeAmount - dysTribute);
-        if (dysPool.size < 10) {
-          dysPool.set(dysStaker, {
-            staker: dysStaker,
-            stake_amount: dysNetStake,
-            original_stake: dysStakeAmount,
-            tribute_paid: dysTribute,
-            slot: dysPool.size + 1,
-            rent_mode: dysRentMode,
-            entry_epoch: dysEntryEpoch,
-            rent_paid_total: 0,
-          });
-        } else {
-          // Find lowest staker (slot 10)
-          var dysLowest = null;
-          for (var dysRec of dysPool.values()) {
-            if (!dysLowest || dysRec.stake_amount < dysLowest.stake_amount) {
-              dysLowest = dysRec;
-            }
-          }
-          // Only bump if new stake > lowest
-          if (dysLowest && dysNetStake > dysLowest.stake_amount) {
-            // Return lowest staker's remaining stake
-            if (dysLowest.stake_amount > 0) _credit(dysLowest.staker, "BTCPC", dysLowest.stake_amount);
-            dysPool.delete(dysLowest.staker);
-            dysPool.set(dysStaker, {
-              staker: dysStaker,
-              stake_amount: dysNetStake,
-              original_stake: dysStakeAmount,
-              tribute_paid: dysTribute,
-              slot: 10,
-              rent_mode: dysRentMode,
-              entry_epoch: dysEntryEpoch,
-              rent_paid_total: 0,
-            });
-          }
-          // else: insufficient stake to enter pool — no-op (funds already debited, refund)
-          else if (dysLowest) {
-            // Refund the new staker since they couldn't enter
-            _credit(dysStaker, "BTCPC", dysStakeAmount);
-            if (dysTribute > 0 && dysOwner) _debit(dysOwner, "BTCPC", dysTribute);
-          }
-        }
+      // Add/update staker record
+      dysPool.set(dysStaker, {
+        staker: dysStaker,
+        stake_amount: dysStakeAmount,
+        original_stake: dysStakeAmount,
+        tribute_paid: dysTribute,
+        slot: 0, // recomputed below
+        rent_bid: dysRentBid,
+        rent_mode: dysRentMode,
+        entry_epoch: dysEntryEpoch,
+        rent_paid_total: 0,
+      });
+
+      // If pool > MAX_STAKERS, evict the lowest rent_bid staker
+      if (dysPool.size > MAX_STAKERS) {
+        var dysArr = Array.from(dysPool.values()).sort(function (a, b) {
+          if (a.rent_bid !== b.rent_bid) return a.rent_bid - b.rent_bid; // ascending
+          return a.stake_amount - b.stake_amount;
+        });
+        var dysEvicted = dysArr[0];
+        // Return their remaining stake_amount
+        if (dysEvicted.stake_amount > 0) _credit(dysEvicted.staker, "BTCPC", _round(dysEvicted.stake_amount));
+        dysPool.delete(dysEvicted.staker);
       }
-      _recomputeSlots(dysPool);
+
+      // Recompute slot rankings: sort desc by rent_bid, tie-break stake_amount desc
+      var dysSorted = Array.from(dysPool.values()).sort(function (a, b) {
+        if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+        return b.stake_amount - a.stake_amount;
+      });
+      for (var _si = 0; _si < dysSorted.length; _si++) {
+        dysSorted[_si].slot = _si + 1;
+      }
       break;
     }
 
     case "DEVICE_YIELD_UNSTAKE": {
-      // fields: { device_id, staker }
+      // yield_stake_data: { device_id, staker }
       var dyuData = entry.yield_stake_data || {};
       var dyuDeviceId = dyuData.device_id;
       var dyuStaker = dyuData.staker || from;
@@ -1978,167 +1953,91 @@ function applyEntry(entry) {
       if (!dyuDeviceId || !dyuStaker) break;
 
       var dyuPool = deviceStakerPools.get(dyuDeviceId);
-      if (!dyuPool) break;
-      var dyuRecord = dyuPool.get(dyuStaker);
-      if (!dyuRecord) break;
+      if (!dyuPool || !dyuPool.has(dyuStaker)) break;
 
+      var dyuRecord = dyuPool.get(dyuStaker);
       // Return remaining stake_amount to staker
-      if (dyuRecord.stake_amount > 0) _credit(dyuStaker, "BTCPC", dyuRecord.stake_amount);
+      if (dyuRecord.stake_amount > 0) _credit(dyuStaker, "BTCPC", _round(dyuRecord.stake_amount));
       dyuPool.delete(dyuStaker);
-      if (dyuPool.size === 0) deviceStakerPools.delete(dyuDeviceId);
-      else _recomputeSlots(dyuPool);
+
+      // Recompute slots
+      var dyuSorted = Array.from(dyuPool.values()).sort(function (a, b) {
+        if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+        return b.stake_amount - a.stake_amount;
+      });
+      for (var _dyui = 0; _dyui < dyuSorted.length; _dyui++) {
+        dyuSorted[_dyui].slot = _dyui + 1;
+      }
       break;
     }
 
     case "DEVICE_YIELD_RENT": {
-      // fields: { device_id, staker, rent_amount, from_earnings, from_stake, owner }
-      // Applied each epoch by rewardEngine to deduct rent from staker's stake balance
-      // and credit the device owner.
+      // yield_stake_data: { device_id, staker, rent_amount, owner }
       var dyrData = entry.yield_stake_data || {};
       var dyrDeviceId = dyrData.device_id;
       var dyrStaker = dyrData.staker;
       var dyrRentAmount = _round(dyrData.rent_amount || 0);
-      var dyrFromStake = _round(dyrData.from_stake || 0);
       var dyrOwner = dyrData.owner;
 
       if (!dyrDeviceId || !dyrStaker || dyrRentAmount <= 0) break;
 
       var dyrPool = deviceStakerPools.get(dyrDeviceId);
-      if (!dyrPool) break;
-      var dyrRecord = dyrPool.get(dyrStaker);
-      if (!dyrRecord) break;
+      if (!dyrPool || !dyrPool.has(dyrStaker)) break;
 
-      // Deduct from stake balance
-      if (dyrFromStake > 0) {
-        dyrRecord.stake_amount = _round(Math.max(0, dyrRecord.stake_amount - dyrFromStake));
-        dyrRecord.rent_paid_total = _round(dyrRecord.rent_paid_total + dyrRentAmount);
+      var dyrRecord = dyrPool.get(dyrStaker);
+
+      if (dyrRecord.rent_mode === "stake") {
+        dyrRecord.stake_amount = _round(dyrRecord.stake_amount - dyrRentAmount);
+      } else {
+        dyrRecord.stake_amount = _round(dyrRecord.stake_amount - dyrRentAmount);
       }
-      // Credit owner
+
+      dyrRecord.rent_paid_total = _round((dyrRecord.rent_paid_total || 0) + dyrRentAmount);
+
+      // Credit owner by rent_amount
       if (dyrOwner && dyrRentAmount > 0) _credit(dyrOwner, "BTCPC", dyrRentAmount);
 
       // Evict if stake depleted
       if (dyrRecord.stake_amount <= 0) {
         dyrPool.delete(dyrStaker);
-        if (dyrPool.size === 0) deviceStakerPools.delete(dyrDeviceId);
-        else _recomputeSlots(dyrPool);
+        // Recompute slots
+        var dyrSorted = Array.from(dyrPool.values()).sort(function (a, b) {
+          if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+          return b.stake_amount - a.stake_amount;
+        });
+        for (var _dyri = 0; _dyri < dyrSorted.length; _dyri++) {
+          dyrSorted[_dyri].slot = _dyri + 1;
+        }
       }
       break;
     }
 
-    case "DEVICE_YIELD_RENT_MODE_SET": {
-      // fields: { device_id, staker, rent_mode }
+    case "DEVICE_YIELD_RENT_MODE": {
+      // yield_stake_data: { device_id, staker, rent_mode }
       var dyrmData = entry.yield_stake_data || {};
       var dyrmDeviceId = dyrmData.device_id;
-      var dyrmStaker = dyrmData.staker || from;
-      var dyrmMode = (dyrmData.rent_mode === "stake") ? "stake" : "earnings";
+      var dyrmStaker = dyrmData.staker;
+      var dyrmMode = dyrmData.rent_mode === "stake" ? "stake" : "earnings";
 
       if (!dyrmDeviceId || !dyrmStaker) break;
 
       var dyrmPool = deviceStakerPools.get(dyrmDeviceId);
-      if (!dyrmPool) break;
-      var dyrmRecord = dyrmPool.get(dyrmStaker);
-      if (!dyrmRecord) break;
-      dyrmRecord.rent_mode = dyrmMode;
+      if (!dyrmPool || !dyrmPool.has(dyrmStaker)) break;
+
+      dyrmPool.get(dyrmStaker).rent_mode = dyrmMode;
       break;
     }
 
-    case "DEVICE_YIELD_AUTO_STAKE_SET": {
-      // fields: { device_id, owner, auto_stake_pct }
+    case "DEVICE_YIELD_AUTO_STAKE": {
+      // yield_stake_data: { device_id, owner, pct }
       var dyasData = entry.yield_stake_data || {};
       var dyasDeviceId = dyasData.device_id;
-      var dyasPct = typeof dyasData.auto_stake_pct === "number"
-        ? Math.min(50, Math.max(0, dyasData.auto_stake_pct))
-        : 0;
+      var dyasOwner = dyasData.owner;
+      var dyasPct = Math.max(0, Math.min(50, Number(dyasData.pct) || 0));
 
-      if (!dyasDeviceId) break;
-      deviceAutoStake.set(dyasDeviceId, dyasPct);
-      break;
-    }
+      if (!dyasDeviceId || !dyasOwner) break;
 
-    // ─────────────────────────────────────────────────────────────────
-    // Name Auctions (v3.6)
-    // ─────────────────────────────────────────────────────────────────
-    case "NAME_AUCTION_OPEN": {
-      var naoName = entry.auction_data && entry.auction_data.name;
-      if (!naoName) break;
-      // Only allow one open auction per name at a time
-      var naoExisting = nameAuctions.get(naoName);
-      if (naoExisting && naoExisting.status === "open") break;
-      var naoData = entry.auction_data;
-      nameAuctions.set(naoName, {
-        name: naoName,
-        seller: naoData.seller || "shindevlin",
-        start_price_usd: naoData.start_price_usd || 0,
-        min_bid_increment_usd: naoData.min_bid_increment_usd || 1,
-        auction_end_epoch: naoData.auction_end_epoch || 0,
-        open_epoch: entry.epoch || 0,
-        bids: [],
-        status: "open",
-        winner: null,
-      });
-      break;
-    }
-
-    case "NAME_AUCTION_BID": {
-      var nabData = entry.auction_data;
-      if (!nabData || !nabData.name) break;
-      var nabAuction = nameAuctions.get(nabData.name);
-      if (!nabAuction || nabAuction.status !== "open") break;
-      var nabBidUsd = nabData.bid_usd || 0;
-      // Validate: bid must exceed current top + min increment
-      var nabTopBid = nabAuction.bids.length > 0
-        ? nabAuction.bids[nabAuction.bids.length - 1].bid_usd
-        : nabAuction.start_price_usd - nabAuction.min_bid_increment_usd;
-      if (nabBidUsd < nabTopBid + nabAuction.min_bid_increment_usd) break;
-      nabAuction.bids.push({
-        bidder: nabData.bidder,
-        bid_usd: nabBidUsd,
-        chain: nabData.chain,
-        tx_hash: nabData.tx_hash,
-        btcpc_account: nabData.btcpc_account,
-        btcpc_pubkeys: nabData.btcpc_pubkeys || {},
-        bid_epoch: entry.epoch || 0,
-      });
-      // Keep bids sorted by bid_usd ascending (highest bid is last)
-      nabAuction.bids.sort(function(a, b) { return a.bid_usd - b.bid_usd; });
-      nameAuctions.set(nabData.name, nabAuction);
-      break;
-    }
-
-    case "NAME_AUCTION_SETTLE": {
-      var nasData = entry.auction_data;
-      if (!nasData || !nasData.name) break;
-      var nasAuction = nameAuctions.get(nasData.name);
-      if (!nasAuction || nasAuction.status !== "open") break;
-      if (nasAuction.bids.length === 0) break;
-      // Winner is highest bidder (last after sort)
-      var nasWinningBid = nasAuction.bids[nasAuction.bids.length - 1];
-      nasAuction.status = "settled";
-      nasAuction.winner = nasWinningBid.bidder;
-      nasAuction.settled_epoch = entry.epoch || 0;
-      nameAuctions.set(nasData.name, nasAuction);
-      // Apply KEY_ROTATE logic: update the name account's public_keys to winner's keys
-      if (nasWinningBid.btcpc_pubkeys && accounts.has(nasData.name)) {
-        var nasAcct = accounts.get(nasData.name);
-        if (!nasAcct.public_keys) nasAcct.public_keys = {};
-        var nasKeys = nasWinningBid.btcpc_pubkeys;
-        if (nasKeys.owner)   nasAcct.public_keys.owner   = nasKeys.owner;
-        if (nasKeys.active)  nasAcct.public_keys.active  = nasKeys.active;
-        if (nasKeys.posting) nasAcct.public_keys.posting = nasKeys.posting;
-        if (nasKeys.memo)    nasAcct.public_keys.memo    = nasKeys.memo;
-        accounts.set(nasData.name, nasAcct);
-      }
-      break;
-    }
-
-    case "NAME_AUCTION_CANCEL": {
-      var nacData = entry.auction_data;
-      if (!nacData || !nacData.name) break;
-      var nacAuction = nameAuctions.get(nacData.name);
-      if (!nacAuction || nacAuction.status !== "open") break;
-      nacAuction.status = "cancelled";
-      nacAuction.cancelled_epoch = entry.epoch || 0;
-      nameAuctions.set(nacData.name, nacAuction);
+      deviceAutoStake.set(dyasDeviceId, { owner: dyasOwner, pct: dyasPct });
       break;
     }
 
@@ -2827,18 +2726,17 @@ function getChallengesForCid(cid) {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Get all StakerRecords for a device, sorted by stake_amount descending (slot 1 first).
- * Returns an array of StakerRecord objects.
+ * Get sorted staker pool for a device (slot 1 first).
+ * Returns array of StakerRecord sorted by slot ASC.
  */
 function getDeviceStakerPool(deviceId) {
   var pool = deviceStakerPools.get(deviceId);
   if (!pool || pool.size === 0) return [];
-  return Array.from(pool.values()).sort(function(a, b) { return b.stake_amount - a.stake_amount; });
+  return Array.from(pool.values()).slice().sort(function (a, b) { return a.slot - b.slot; });
 }
 
 /**
- * Get a Set of all staker account names currently in a device's pool.
- * Used for free sensor data access check.
+ * Get set of all staker account names for a device.
  */
 function getAllStakersForDevice(deviceId) {
   var pool = deviceStakerPools.get(deviceId);
@@ -2847,16 +2745,17 @@ function getAllStakersForDevice(deviceId) {
 }
 
 /**
- * Returns true if account is currently staked on the given device.
+ * Returns true if account is a staker on the given device.
  */
 function isStakerOnDevice(account, deviceId) {
   var pool = deviceStakerPools.get(deviceId);
-  return pool ? pool.has(account) : false;
+  if (!pool) return false;
+  return pool.has(account);
 }
 
 /**
- * Get all devices where account has an active stake.
- * Returns [{ device_id, slot, stake_amount, rent_mode }]
+ * Get all devices where account is a staker.
+ * Returns array of { device_id, slot, stake_amount, rent_bid, rent_mode }.
  */
 function getStakedDevicesForAccount(account) {
   var result = [];
@@ -2864,17 +2763,50 @@ function getStakedDevicesForAccount(account) {
     var pool = entry[1];
     if (pool.has(account)) {
       var rec = pool.get(account);
-      result.push({ device_id: entry[0], slot: rec.slot, stake_amount: rec.stake_amount, rent_mode: rec.rent_mode });
+      result.push({
+        device_id: entry[0],
+        slot: rec.slot,
+        stake_amount: rec.stake_amount,
+        rent_bid: rec.rent_bid,
+        rent_mode: rec.rent_mode,
+      });
     }
   }
   return result;
 }
 
 /**
- * Get the auto-stake percentage configured for a device owner (0-50).
+ * Get the auto-stake percentage for a device (0 if not set).
  */
 function getDeviceAutoStakePct(deviceId) {
-  return deviceAutoStake.get(deviceId) || 0;
+  var rec = deviceAutoStake.get(deviceId);
+  return rec ? rec.pct : 0;
+}
+
+// Legacy shims — kept so old references don't hard-crash during chain replay
+function getDeviceYieldStake(deviceId) {
+  // Return first staker as a compatibility shim (or null)
+  var pool = getDeviceStakerPool(deviceId);
+  if (pool.length === 0) return null;
+  var r = pool[0];
+  return { staker: r.staker, stake_amount: r.stake_amount, net_stake: r.stake_amount, tribute_paid: r.tribute_paid, stake_epoch: r.entry_epoch };
+}
+
+function getTopYieldStakerForAccount(account) {
+  return getStakedDevicesForAccount(account).map(function (d) {
+    return Object.assign({ device_id: d.device_id }, d);
+  });
+}
+
+function getAllDeviceYieldStakes() {
+  var result = [];
+  for (var entry of deviceStakerPools) {
+    var pool = entry[1];
+    for (var rec of pool.values()) {
+      result.push(Object.assign({ device_id: entry[0] }, rec));
+    }
+  }
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3471,7 +3403,6 @@ function resetAll() {
   seenEntries.clear();
   deviceKeys.clear();
   iotDeviceKeys.clear();
-  nameAuctions.clear();
   deviceStakerPools.clear();
   deviceAutoStake.clear();
   childrenMap.clear();
@@ -3532,6 +3463,10 @@ module.exports = {
   getStakedDevicesForAccount: getStakedDevicesForAccount,
   getDeviceAutoStakePct: getDeviceAutoStakePct,
   SLOT_MULTIPLIERS: SLOT_MULTIPLIERS,
+  // Legacy shims (v3.4 compat)
+  getDeviceYieldStake: getDeviceYieldStake,
+  getTopYieldStakerForAccount: getTopYieldStakerForAccount,
+  getAllDeviceYieldStakes: getAllDeviceYieldStakes,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,

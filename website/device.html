@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Device</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.6; }
+    a { color: #f7931a; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    #nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; padding: 6px 16px; background: rgba(10,14,23,0.95); border-bottom: 1px solid rgba(247,147,26,0.3); font-size: 12px; gap: 16px; }
+    .nav-logo { color: #f7931a; font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    .nav-link { color: #c8ccd4; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 80px 16px 48px; }
+    h1 { color: #f7931a; font-size: 22px; margin-bottom: 8px; }
+    h2 { color: #f7931a; font-size: 16px; margin: 28px 0 10px; border-bottom: 1px solid rgba(247,147,26,0.2); padding-bottom: 6px; }
+    .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(247,147,26,0.15); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    label { display: block; color: #8892a0; font-size: 12px; margin-bottom: 4px; margin-top: 12px; }
+    input, select { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(247,147,26,0.25); border-radius: 6px; padding: 8px 10px; color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 13px; outline: none; }
+    input:focus, select:focus { border-color: #f7931a; }
+    button { background: #f7931a; color: #000; border: none; padding: 9px 22px; border-radius: 6px; font-weight: bold; font-family: 'Courier New', monospace; font-size: 13px; cursor: pointer; margin-top: 12px; }
+    button:hover { background: #e8841a; }
+    button.secondary { background: rgba(247,147,26,0.12); color: #f7931a; border: 1px solid rgba(247,147,26,0.4); }
+    button.danger { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
+    .msg { margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+    .msg.ok { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
+    .msg.err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; }
+    .msg.info { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { color: #8892a0; font-weight: normal; text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(247,147,26,0.15); }
+    td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+    tr:hover td { background: rgba(247,147,26,0.04); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-earnings { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-stake { background: rgba(147,51,234,0.15); color: #a855f7; border: 1px solid rgba(147,51,234,0.3); }
+    .badge-free { background: rgba(247,147,26,0.15); color: #f7931a; border: 1px solid rgba(247,147,26,0.3); }
+    .badge-active { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-dormant { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+    .badge-unavail { background: rgba(100,116,139,0.15); color: #64748b; border: 1px solid rgba(100,116,139,0.2); }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 8px; }
+    .stat-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(247,147,26,0.12); border-radius: 8px; padding: 14px; }
+    .stat-label { color: #64748b; font-size: 11px; margin-bottom: 4px; }
+    .stat-value { color: #f7931a; font-size: 18px; font-weight: bold; }
+    .slot-avail { color: #334155; font-style: italic; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+    .calc-preview { background: rgba(247,147,26,0.06); border: 1px solid rgba(247,147,26,0.2); border-radius: 6px; padding: 12px; margin-top: 12px; font-size: 12px; }
+    .calc-row { display: flex; justify-content: space-between; padding: 3px 0; }
+    .calc-row .val { color: #f7931a; }
+    .calc-row.net .val { color: #22c55e; }
+    .calc-row.neg .val { color: #ef4444; }
+    #bar-chart { width: 100%; height: 80px; display: flex; align-items: flex-end; gap: 2px; margin-top: 10px; }
+    .bar { flex: 1; background: rgba(247,147,26,0.5); border-radius: 2px 2px 0 0; min-height: 2px; position: relative; cursor: pointer; }
+    .bar:hover { background: #f7931a; }
+    .bar-tip { display: none; position: absolute; bottom: 105%; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid rgba(247,147,26,0.4); border-radius: 4px; padding: 4px 8px; font-size: 10px; white-space: nowrap; z-index: 10; color: #c8ccd4; }
+    .bar:hover .bar-tip { display: block; }
+    .info-row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+    .info-item { }
+    .info-item .key { color: #64748b; font-size: 11px; }
+    .info-item .val { color: #c8ccd4; }
+    #mode-toggle { display: flex; gap: 10px; margin-top: 10px; }
+    #mode-toggle button { margin: 0; padding: 6px 14px; font-size: 12px; }
+    #mode-toggle button.active { background: #f7931a; color: #000; }
+    #mode-toggle button:not(.active) { background: transparent; color: #f7931a; border: 1px solid rgba(247,147,26,0.4); }
+    .slot-rank { display: inline-block; width: 20px; text-align: center; color: #64748b; }
+    .slot-rank.s1 { color: #f7931a; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div id="nav-bar">
+  <a href="/" class="nav-logo">
+    <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">
+    BTCPC
+  </a>
+  <a href="/globe" class="nav-link">Globe</a>
+  <a href="/dashboard" class="nav-link">Dashboard</a>
+  <a href="/device-dashboard" class="nav-link">Devices</a>
+  <a href="/explorer" class="nav-link">Explorer</a>
+</div>
+
+<div class="container">
+  <div id="loading" style="color:#64748b;margin-top:40px;">Loading device...</div>
+  <div id="content" style="display:none;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+      <span id="device-icon" style="font-size:36px;"></span>
+      <div>
+        <h1 id="device-title"></h1>
+        <div class="info-row" id="device-meta" style="margin-top:6px;margin-bottom:0;"></div>
+      </div>
+      <div style="margin-left:auto;" id="device-status-badge"></div>
+    </div>
+
+    <!-- Earnings panel -->
+    <div class="section">
+      <div class="stat-grid" id="earn-stats"></div>
+      <div id="bar-chart"></div>
+      <div style="font-size:11px;color:#334155;margin-top:4px;">30-day epoch earnings (estimated)</div>
+    </div>
+
+    <!-- Rent floor -->
+    <div class="section" id="rent-floor-section">
+      <div style="font-size:12px;color:#8892a0;">Minimum rent bid (floor):</div>
+      <div style="font-size:20px;color:#f7931a;margin-top:4px;" id="rent-floor-display">—</div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px;" id="rent-floor-monthly">— per month</div>
+    </div>
+
+    <!-- Staker leaderboard -->
+    <h2>Staker Slots</h2>
+    <div class="section" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th>Slot</th>
+            <th>Account</th>
+            <th>Stake</th>
+            <th>Rent Bid/epoch</th>
+            <th>Mode</th>
+            <th>Est. Monthly Yield</th>
+            <th>Est. Monthly Rent</th>
+            <th>Est. Net</th>
+          </tr>
+        </thead>
+        <tbody id="staker-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Stake calculator -->
+    <h2>Stake Calculator</h2>
+    <div class="section">
+      <div class="two-col">
+        <div>
+          <label>Stake Amount (BTCPC)</label>
+          <input type="number" id="calc-stake" placeholder="e.g. 500" min="0.00000001" step="any">
+          <label>Rent Bid (BTCPC per epoch)</label>
+          <input type="number" id="calc-rent" placeholder="e.g. 0.001" min="0" step="any">
+          <div id="mode-toggle">
+            <button id="btn-earnings" class="active" onclick="setMode('earnings')">Earnings First</button>
+            <button id="btn-stake" onclick="setMode('stake')">Stake Mode</button>
+          </div>
+        </div>
+        <div>
+          <div class="calc-preview" id="calc-preview" style="display:none;">
+            <div class="calc-row"><span>Slot you would land:</span> <span class="val" id="calc-slot">—</span></div>
+            <div class="calc-row"><span>Est. Monthly Yield:</span> <span class="val" id="calc-yield">—</span></div>
+            <div class="calc-row"><span>Est. Monthly Rent:</span> <span class="val" id="calc-rent-cost">—</span></div>
+            <div class="calc-row net"><span>Est. Net (your mode):</span> <span class="val" id="calc-net">—</span></div>
+            <div class="calc-row" style="margin-top:8px;"><span>Entry tribute (1%):</span> <span class="val" id="calc-tribute">—</span></div>
+            <div style="margin-top:10px;padding:8px;background:rgba(247,147,26,0.08);border-radius:4px;font-size:11px;color:#f7931a;">
+              ✓ You get free access to this device's sensor data while staked
+            </div>
+          </div>
+          <div id="calc-error" class="msg err" style="display:none;"></div>
+        </div>
+      </div>
+      <div>
+        <label>Your Account Name</label>
+        <input type="text" id="stake-account" placeholder="yourname">
+        <button onclick="submitStake()">Stake on this Device</button>
+        <div id="stake-msg"></div>
+      </div>
+    </div>
+
+    <!-- My position -->
+    <h2>My Position</h2>
+    <div class="section">
+      <label>Account Name</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="my-account" placeholder="yourname" style="flex:1;">
+        <button onclick="lookupMyPosition()" style="margin-top:0;">Look Up</button>
+      </div>
+      <div id="my-position-content" style="margin-top:16px;display:none;">
+        <div id="my-position-info"></div>
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <button class="secondary" onclick="changeRentMode()">Change Rent Mode</button>
+          <button class="danger" onclick="unstake()">Unstake</button>
+        </div>
+        <div id="my-action-msg"></div>
+      </div>
+      <div id="my-not-staked" style="display:none;color:#64748b;margin-top:12px;font-size:12px;">You are not staked on this device.</div>
+    </div>
+
+  </div><!-- /content -->
+</div>
+
+<script>
+var deviceId = null;
+var poolData = null;
+var calcMode = 'earnings';
+
+var TYPE_ICONS = {
+  gnss: '📡', gps: '📡',
+  lora: '📻', lorawan: '📻',
+  subghz: '📡',
+  temp: '🌡️', temperature: '🌡️',
+  weather: '🌤️', climate: '🌤️',
+  gpio: '🔌',
+};
+
+function typeIcon(t) {
+  if (!t) return '🏷️';
+  var l = t.toLowerCase();
+  for (var k in TYPE_ICONS) { if (l.includes(k)) return TYPE_ICONS[k]; }
+  return '🏷️';
+}
+
+function fmt(n, d) {
+  if (!Number.isFinite(n)) return '—';
+  return n.toFixed(d !== undefined ? d : 4);
+}
+
+function fmtBig(n) { return fmt(n, 2); }
+
+function setMode(m) {
+  calcMode = m;
+  document.getElementById('btn-earnings').className = m === 'earnings' ? 'active' : '';
+  document.getElementById('btn-stake').className = m === 'stake' ? 'active' : '';
+  updateCalc();
+}
+
+function getParams() {
+  var p = new URLSearchParams(window.location.search);
+  return p.get('id') || p.get('device_id') || '';
+}
+
+async function loadDevice() {
+  deviceId = decodeURIComponent(getParams());
+  if (!deviceId) {
+    document.getElementById('loading').textContent = 'No device id in URL (?id=owner/name)';
+    return;
+  }
+  document.title = 'BTCPC Device — ' + deviceId;
+
+  // Load sensor info
+  var sensorRes = null;
+  try {
+    var r = await fetch('/api/sensors/' + encodeURIComponent(deviceId));
+    if (r.ok) sensorRes = await r.json();
+  } catch (_) {}
+
+  // Load staker pool
+  var stakersRes = null;
+  try {
+    var r2 = await fetch('/api/devices/' + encodeURIComponent(deviceId) + '/stakers');
+    if (r2.ok) stakersRes = await r2.json();
+  } catch (_) {}
+
+  poolData = stakersRes;
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = '';
+
+  // Header
+  var s = (sensorRes && sensorRes.sensor) || {};
+  document.getElementById('device-icon').textContent = typeIcon(s.type);
+  document.getElementById('device-title').textContent = deviceId;
+
+  var meta = document.getElementById('device-meta');
+  meta.innerHTML = [
+    s.type ? '<div class="info-item"><div class="key">Type</div><div class="val">' + s.type + '</div></div>' : '',
+    s.region ? '<div class="info-item"><div class="key">Region</div><div class="val">' + s.region + '</div></div>' : '',
+    s.owner ? '<div class="info-item"><div class="key">Owner</div><div class="val">' + s.owner + '</div></div>' : '',
+  ].join('');
+
+  var statusBadge = document.getElementById('device-status-badge');
+  var status = (sensorRes && sensorRes.sensor && sensorRes.sensor.status) || 'unknown';
+  var cls = status === 'active' ? 'badge-active' : status === 'dormant' ? 'badge-dormant' : 'badge-unavail';
+  statusBadge.innerHTML = '<span class="badge ' + cls + '">' + status + '</span>';
+
+  // Earnings panel (placeholder bars)
+  document.getElementById('earn-stats').innerHTML = [
+    '<div class="stat-box"><div class="stat-label">30-Day Earnings</div><div class="stat-value" id="earn-30d">—</div></div>',
+    '<div class="stat-box"><div class="stat-label">Stakers</div><div class="stat-value">' + (stakersRes ? stakersRes.staker_count : 0) + '/10</div></div>',
+    '<div class="stat-box"><div class="stat-label">Top Rent Bid</div><div class="stat-value" id="top-rent">—</div></div>',
+  ].join('');
+
+  // Draw placeholder bar chart
+  var chart = document.getElementById('bar-chart');
+  chart.innerHTML = '';
+  var maxH = 60;
+  for (var i = 0; i < 30; i++) {
+    var h = Math.random() * maxH + 4;
+    var bar = document.createElement('div');
+    bar.className = 'bar';
+    bar.style.height = h + 'px';
+    bar.innerHTML = '<div class="bar-tip">Day ' + (30 - i) + '<br>— BTCPC</div>';
+    chart.appendChild(bar);
+  }
+
+  // Rent floor
+  var floorPerEpoch = (stakersRes && stakersRes.floor_rent_per_epoch) || (50 / 86400);
+  document.getElementById('rent-floor-display').textContent = fmt(floorPerEpoch, 8) + ' BTCPC/epoch';
+  document.getElementById('rent-floor-monthly').textContent = fmt(floorPerEpoch * 86400, 4) + ' BTCPC/month';
+
+  // Staker table
+  renderStakerTable(stakersRes);
+
+  // Top rent
+  if (stakersRes && stakersRes.slots) {
+    var filled = stakersRes.slots.filter(function (sl) { return sl.staker; });
+    if (filled.length > 0) {
+      var topRent = Math.max.apply(null, filled.map(function (sl) { return sl.rent_bid || 0; }));
+      document.getElementById('top-rent').textContent = fmt(topRent, 8);
+    }
+  }
+}
+
+function renderStakerTable(stakersRes) {
+  var tbody = document.getElementById('staker-table-body');
+  tbody.innerHTML = '';
+  var slots = (stakersRes && stakersRes.slots) || Array.from({length:10}, function (_, i) { return {slot: i+1, available: true}; });
+  for (var i = 0; i < slots.length; i++) {
+    var sl = slots[i];
+    var tr = document.createElement('tr');
+    var rankCls = sl.slot === 1 ? ' s1' : '';
+    if (sl.staker) {
+      var modeBadge = sl.rent_mode === 'stake'
+        ? '<span class="badge badge-stake">Stake</span>'
+        : '<span class="badge badge-earnings">Earnings</span>';
+      var net = (sl.est_monthly_yield || 0) - (sl.est_monthly_rent || 0);
+      var netCls = net >= 0 ? 'color:#22c55e' : 'color:#ef4444';
+      tr.innerHTML = [
+        '<td><span class="slot-rank' + rankCls + '">#' + sl.slot + '</span></td>',
+        '<td>' + sl.staker + '</td>',
+        '<td>' + fmt(sl.stake_amount, 4) + '</td>',
+        '<td>' + fmt(sl.rent_bid, 8) + '</td>',
+        '<td>' + modeBadge + '</td>',
+        '<td>' + fmt(sl.est_monthly_yield, 4) + '</td>',
+        '<td>' + fmt(sl.est_monthly_rent, 4) + '</td>',
+        '<td style="' + netCls + '">' + fmt(net, 4) + '</td>',
+      ].join('');
+    } else {
+      tr.innerHTML = [
+        '<td><span class="slot-rank">#' + sl.slot + '</span></td>',
+        '<td colspan="7" class="slot-avail">— Available —</td>',
+      ].join('');
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function updateCalc() {
+  var stakeVal = parseFloat(document.getElementById('calc-stake').value);
+  var rentVal = parseFloat(document.getElementById('calc-rent').value);
+  var preview = document.getElementById('calc-preview');
+  var errEl = document.getElementById('calc-error');
+
+  errEl.style.display = 'none';
+  if (!Number.isFinite(stakeVal) || stakeVal <= 0 || !Number.isFinite(rentVal) || rentVal < 0) {
+    preview.style.display = 'none';
+    return;
+  }
+
+  var floorPerEpoch = (poolData && poolData.floor_rent_per_epoch) || (50 / 86400);
+  if (rentVal < floorPerEpoch) {
+    errEl.textContent = 'Rent bid below floor (' + fmt(floorPerEpoch, 8) + ' BTCPC/epoch)';
+    errEl.style.display = '';
+    preview.style.display = 'none';
+    return;
+  }
+
+  var SMULT = [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
+  var slots = (poolData && poolData.slots) || [];
+  var filled = slots.filter(function (sl) { return sl.staker; });
+
+  // Determine which slot we'd land
+  var simulatedPool = filled.slice();
+  // Add our entry
+  simulatedPool.push({ staker: '__calc__', stake_amount: stakeVal, rent_bid: rentVal });
+  simulatedPool.sort(function (a, b) {
+    if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+    return b.stake_amount - a.stake_amount;
+  });
+  if (simulatedPool.length > 10) simulatedPool = simulatedPool.slice(0, 10);
+  var myIdx = simulatedPool.findIndex(function (r) { return r.staker === '__calc__'; });
+  var mySlot = myIdx >= 0 ? myIdx + 1 : null;
+
+  if (mySlot === null) {
+    document.getElementById('calc-slot').textContent = 'Not in pool (rent too low)';
+    preview.style.display = '';
+    document.getElementById('calc-yield').textContent = '0';
+    document.getElementById('calc-rent-cost').textContent = fmt(rentVal * 86400, 4) + '/month';
+    document.getElementById('calc-net').textContent = '—';
+    document.getElementById('calc-tribute').textContent = fmt(stakeVal * 0.01, 4);
+    return;
+  }
+
+  // Compute total weighted
+  var totalWeighted = 0;
+  for (var i = 0; i < simulatedPool.length; i++) {
+    totalWeighted += (SMULT[i] || 0) * simulatedPool[i].stake_amount;
+  }
+  var myMult = SMULT[mySlot - 1] || 0;
+  var myWeight = myMult * stakeVal;
+  // staker pool = 20% of device epoch income. We estimate using rent total as a proxy.
+  var totalRent = simulatedPool.reduce(function (s, r) { return s + (r.rent_bid || 0); }, 0);
+  var epochStakerPool = totalRent > 0 ? totalRent / 0.20 * 0.20 : 0; // placeholder
+  var myEpochYield = totalWeighted > 0 ? (myWeight / totalWeighted) * epochStakerPool : 0;
+  var myMonthlyYield = myEpochYield * 86400;
+  var myMonthlyRent = rentVal * 86400;
+
+  var netEarnings = calcMode === 'stake' ? myMonthlyYield : Math.max(0, myMonthlyYield - myMonthlyRent);
+  var netLabel = calcMode === 'stake'
+    ? fmt(myMonthlyYield, 4) + ' yield (rent from stake)'
+    : fmt(netEarnings, 4) + ' (after rent)';
+
+  preview.style.display = '';
+  document.getElementById('calc-slot').textContent = '#' + mySlot;
+  document.getElementById('calc-yield').textContent = fmt(myMonthlyYield, 4) + ' BTCPC/month';
+  document.getElementById('calc-rent-cost').textContent = fmt(myMonthlyRent, 4) + ' BTCPC/month';
+  document.getElementById('calc-net').textContent = netLabel;
+  document.getElementById('calc-tribute').textContent = fmt(stakeVal * 0.01, 4) + ' BTCPC (one-time)';
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('calc-stake').addEventListener('input', updateCalc);
+  document.getElementById('calc-rent').addEventListener('input', updateCalc);
+  loadDevice();
+});
+
+async function submitStake() {
+  var staker = document.getElementById('stake-account').value.trim();
+  var stakeVal = parseFloat(document.getElementById('calc-stake').value);
+  var rentVal = parseFloat(document.getElementById('calc-rent').value);
+  var msgEl = document.getElementById('stake-msg');
+  msgEl.className = 'msg info';
+  msgEl.textContent = 'Submitting...';
+  msgEl.style.display = '';
+
+  if (!staker) { msgEl.className = 'msg err'; msgEl.textContent = 'Account name required'; return; }
+  if (!Number.isFinite(stakeVal) || stakeVal <= 0) { msgEl.className = 'msg err'; msgEl.textContent = 'Enter a valid stake amount'; return; }
+  if (!Number.isFinite(rentVal) || rentVal < 0) { msgEl.className = 'msg err'; msgEl.textContent = 'Enter a valid rent bid'; return; }
+
+  try {
+    var r = await fetch('/api/devices/' + encodeURIComponent(deviceId) + '/stake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staker: staker, stake_amount: stakeVal, rent_bid: rentVal, rent_mode: calcMode }),
+    });
+    var data = await r.json();
+    if (r.ok && data.success) {
+      msgEl.className = 'msg ok';
+      msgEl.textContent = 'Staked! Slot #' + data.slot + '. Tribute paid: ' + fmt(data.tribute_paid, 4) + ' BTCPC';
+      loadDevice();
+    } else {
+      msgEl.className = 'msg err';
+      msgEl.textContent = (data.error && data.error.message) || data.error || 'Unknown error';
+    }
+  } catch (e) {
+    msgEl.className = 'msg err';
+    msgEl.textContent = e.message;
+  }
+}
+
+async function lookupMyPosition() {
+  var account = document.getElementById('my-account').value.trim();
+  var contentEl = document.getElementById('my-position-content');
+  var notStakedEl = document.getElementById('my-not-staked');
+  contentEl.style.display = 'none';
+  notStakedEl.style.display = 'none';
+
+  if (!account) return;
+
+  try {
+    var r = await fetch('/api/devices/' + encodeURIComponent(deviceId) + '/stakers');
+    if (!r.ok) return;
+    var data = await r.json();
+    var mySlot = (data.slots || []).find(function (sl) { return sl.staker === account; });
+    if (!mySlot) {
+      notStakedEl.style.display = '';
+      return;
+    }
+    var modeBadge = mySlot.rent_mode === 'stake'
+      ? '<span class="badge badge-stake">Stake</span>'
+      : '<span class="badge badge-earnings">Earnings</span>';
+    document.getElementById('my-position-info').innerHTML = [
+      '<div class="stat-grid">',
+      '<div class="stat-box"><div class="stat-label">Slot</div><div class="stat-value">#' + mySlot.slot + '</div></div>',
+      '<div class="stat-box"><div class="stat-label">Stake</div><div class="stat-value">' + fmt(mySlot.stake_amount, 4) + '</div></div>',
+      '<div class="stat-box"><div class="stat-label">Rent Bid/epoch</div><div class="stat-value">' + fmt(mySlot.rent_bid, 8) + '</div></div>',
+      '<div class="stat-box"><div class="stat-label">Mode</div><div class="stat-value">' + modeBadge + '</div></div>',
+      '</div>',
+      '<div style="margin-top:8px;padding:8px;background:rgba(247,147,26,0.08);border-radius:4px;font-size:11px;color:#f7931a;">✓ Free access to this device\'s sensor data</div>',
+    ].join('');
+    contentEl.dataset.account = account;
+    contentEl.dataset.rentMode = mySlot.rent_mode;
+    contentEl.style.display = '';
+  } catch (e) {}
+}
+
+async function changeRentMode() {
+  var contentEl = document.getElementById('my-position-content');
+  var account = contentEl.dataset.account;
+  var currentMode = contentEl.dataset.rentMode;
+  var newMode = currentMode === 'stake' ? 'earnings' : 'stake';
+  var msgEl = document.getElementById('my-action-msg');
+
+  try {
+    var r = await fetch('/api/devices/' + encodeURIComponent(deviceId) + '/rent-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staker: account, rent_mode: newMode }),
+    });
+    var data = await r.json();
+    if (r.ok && data.success) {
+      msgEl.className = 'msg ok'; msgEl.textContent = 'Rent mode changed to: ' + newMode;
+    } else {
+      msgEl.className = 'msg err'; msgEl.textContent = data.error || 'Error';
+    }
+    msgEl.style.display = '';
+  } catch (e) { msgEl.className = 'msg err'; msgEl.textContent = e.message; msgEl.style.display = ''; }
+}
+
+async function unstake() {
+  var contentEl = document.getElementById('my-position-content');
+  var account = contentEl.dataset.account;
+  var msgEl = document.getElementById('my-action-msg');
+
+  if (!confirm('Unstake from this device? Your remaining stake will be returned.')) return;
+
+  try {
+    var r = await fetch('/api/devices/' + encodeURIComponent(deviceId) + '/unstake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staker: account }),
+    });
+    var data = await r.json();
+    if (r.ok && data.success) {
+      msgEl.className = 'msg ok'; msgEl.textContent = 'Unstaked. ' + fmt(data.returned_amount, 4) + ' BTCPC returned.';
+      contentEl.style.display = 'none';
+      loadDevice();
+    } else {
+      msgEl.className = 'msg err'; msgEl.textContent = data.error || 'Error';
+    }
+    msgEl.style.display = '';
+  } catch (e) { msgEl.className = 'msg err'; msgEl.textContent = e.message; msgEl.style.display = ''; }
+}
+</script>
+</body>
+</html>

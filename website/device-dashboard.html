@@ -121,10 +121,11 @@
     <!-- Section 2: Yield Staking Market -->
     <!-- ─────────────────────────────────────────────── -->
     <div class="section">
-      <div class="section-title">2. Yield Staking Market</div>
+      <div class="section-title">2. Stake & Rent Market</div>
       <p style="color:#64748b;font-size:12px;margin-bottom:16px;">
-        Top staker on a device earns <strong style="color:#f7931a;">30%</strong> of that device's sensor income each epoch.
-        Device owner always earns <strong style="color:#f7931a;">60%</strong>. Tribute: <strong style="color:#f7931a;">5%</strong> of your stake goes to the owner on entry (non-refundable).
+        Up to 10 stakers per device. <strong style="color:#f7931a;">70%</strong> → owner, <strong style="color:#f7931a;">20%</strong> → staker pool (weighted by slot multiplier), <strong style="color:#f7931a;">10%</strong> → recycle.
+        Tribute: <strong style="color:#f7931a;">1%</strong> on entry. Highest rent bid wins slot 1.
+        Stakers get free access to that device's sensor data.
       </p>
 
       <!-- My stakes filter -->
@@ -141,9 +142,9 @@
               <th>Device ID</th>
               <th>Owner</th>
               <th>Type</th>
-              <th>Top Staker</th>
-              <th>Current Stake</th>
-              <th>Est. Daily Yield</th>
+              <th>Slots</th>
+              <th>Top Rent Bid</th>
+              <th>Min Rent Floor</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -154,10 +155,10 @@
       </div>
 
       <div id="my-stakes-section" style="display:none;">
-        <h2 style="margin-top:20px;">My Yield Positions</h2>
+        <h2 style="margin-top:20px;">My Stake Positions</h2>
         <table>
           <thead>
-            <tr><th>Device ID</th><th>Stake Amount</th><th>Net Stake</th><th>Tribute Paid</th><th>Since Epoch</th><th>Action</th></tr>
+            <tr><th>Device ID</th><th>Slot</th><th>Stake</th><th>Rent Bid/epoch</th><th>Mode</th><th>Action</th></tr>
           </thead>
           <tbody id="my-stakes-body"></tbody>
         </table>
@@ -180,9 +181,9 @@
 
       <div class="tribute-info" id="tribute-info">
         <div class="row-flex"><span>Stake Amount:</span> <strong id="ti-stake">—</strong></div>
-        <div class="row-flex"><span>Tribute (5% to owner):</span> <strong id="ti-tribute" style="color:#f7931a;">—</strong></div>
+        <div class="row-flex"><span>Tribute (1% to owner):</span> <strong id="ti-tribute" style="color:#f7931a;">—</strong></div>
         <div class="row-flex"><span>Net Stake at Risk:</span> <strong id="ti-net">—</strong></div>
-        <div style="margin-top:8px;color:#64748b;font-size:11px;">Tribute is non-refundable — it is the cost of holding the yield position.</div>
+        <div style="margin-top:8px;color:#64748b;font-size:11px;">Tribute is non-refundable. Rent bid must be set in the device page for full slot selection.</div>
       </div>
 
       <button onclick="submitStake()" id="stake-submit-btn">Stake</button>
@@ -254,10 +255,10 @@
       showMsg('claim-msg', 'Stake amount must be > 0.', 'err'); return;
     }
     try {
-      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/yield-stake', {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/stake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staker: account, stake_amount: stakeAmt }),
+        body: JSON.stringify({ staker: account, stake_amount: stakeAmt, rent_bid: 50/86400, rent_mode: 'earnings' }),
       });
       var d = await r.json();
       if (r.ok) {
@@ -299,52 +300,59 @@
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // Section 2: Yield Market
+  // Section 2: Stake & Rent Market
   // ─────────────────────────────────────────────────────────────────
+  var _myAccount = '';
+
   async function loadAllStakes() {
     document.getElementById('my-stakes-section').style.display = 'none';
     var tbody = document.getElementById('yield-market-body');
     tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px;">Loading...</td></tr>';
+    _myAccount = document.getElementById('my-account-filter').value.trim();
     try {
-      // Load all sensors + all yield stakes
-      var [sensorsRes, stakesRes] = await Promise.all([
-        fetch(API + '/api/sensors?limit=200'),
-        fetch(API + '/api/devices/yield-stakes'),
-      ]);
+      var sensorsRes = await fetch(API + '/api/sensors?limit=200');
       var sensorsData = await sensorsRes.json();
-      var stakesData = await stakesRes.json();
-
-      var stakeMap = {};
-      (stakesData.stakes || []).forEach(function(s) { stakeMap[s.device_id] = s; });
-
       var sensors = sensorsData.sensors || [];
-      // Sort by current top stake desc
-      sensors.sort(function(a, b) {
-        var sa = stakeMap[a.sensor_id] ? stakeMap[a.sensor_id].stake_amount : 0;
-        var sb = stakeMap[b.sensor_id] ? stakeMap[b.sensor_id].stake_amount : 0;
-        return sb - sa;
-      });
 
       if (sensors.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px;">No devices registered yet.</td></tr>';
         return;
       }
 
+      // Fetch staker pools for each sensor (in parallel, up to first 20)
+      var poolMap = {};
+      await Promise.all(sensors.slice(0, 20).map(async function(s) {
+        try {
+          var r = await fetch(API + '/api/devices/' + encodeURIComponent(s.sensor_id) + '/stakers');
+          if (r.ok) poolMap[s.sensor_id] = await r.json();
+        } catch (_) {}
+      }));
+
       tbody.innerHTML = sensors.map(function(s) {
-        var ys = stakeMap[s.sensor_id];
-        var topStaker = ys ? ys.staker : null;
-        var stakeAmt = ys ? parseFloat(ys.stake_amount).toFixed(4) : '0.0000';
-        var stakerBadge = topStaker
-          ? '<span class="badge badge-staked">' + topStaker + '</span>'
-          : '<span class="badge badge-none">none</span>';
-        var actionBtn = '<button class="secondary" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="openStakeModal(\'' + s.sensor_id + '\',\'' + (s.owner||'') + '\',' + (ys?ys.stake_amount:0) + ')">Stake</button>';
+        var pool = poolMap[s.sensor_id];
+        var stakerCount = pool ? pool.staker_count : 0;
+        var slotsBadge = stakerCount > 0
+          ? '<span class="badge badge-staked">' + stakerCount + '/10 slots</span>'
+          : '<span class="badge badge-none">0/10</span>';
+        var topRentBid = '—';
+        var floorRent = pool ? parseFloat(pool.floor_rent_per_epoch||0).toFixed(8) : '—';
+        if (pool && pool.slots) {
+          var filled = pool.slots.filter(function(sl) { return sl.staker; });
+          if (filled.length > 0) {
+            topRentBid = parseFloat(Math.max.apply(null, filled.map(function(sl){return sl.rent_bid||0;}))).toFixed(8);
+          }
+        }
+        var isStaked = _myAccount && pool && pool.slots && pool.slots.some(function(sl) { return sl.staker === _myAccount; });
+        var freeBadge = isStaked ? '<span class="badge badge-staked" title="You get free sensor data access">Free data</span> ' : '';
+        var deviceLink = '<a href="/device?id=' + encodeURIComponent(s.sensor_id) + '" style="font-family:monospace;">' + s.sensor_id + '</a>';
+        var actionBtn = '<a href="/device?id=' + encodeURIComponent(s.sensor_id) + '"><button class="secondary" style="margin-top:0;padding:4px 12px;font-size:11px;">View / Stake</button></a>';
         return '<tr>' +
-          '<td style="font-family:monospace;">' + s.sensor_id + '</td>' +
+          '<td>' + freeBadge + deviceLink + '</td>' +
           '<td>' + (s.owner||'—') + '</td>' +
           '<td><span class="badge badge-active">' + (s.type||'—') + '</span></td>' +
-          '<td>' + stakerBadge + '</td>' +
-          '<td>' + stakeAmt + ' BTCPC</td>' +
-          '<td style="color:#64748b;">—</td>' +
+          '<td>' + slotsBadge + '</td>' +
+          '<td>' + topRentBid + '</td>' +
+          '<td>' + floorRent + '</td>' +
           '<td>' + actionBtn + '</td>' +
           '</tr>';
       }).join('');
@@ -356,23 +364,27 @@
   async function loadMyStakes() {
     var account = document.getElementById('my-account-filter').value.trim();
     if (!account) { alert('Enter your account name first.'); return; }
+    _myAccount = account;
     try {
-      var r = await fetch(API + '/api/devices/yield-stakes?staker=' + encodeURIComponent(account));
+      var r = await fetch(API + '/api/devices/staked?account=' + encodeURIComponent(account));
       var d = await r.json();
       var section = document.getElementById('my-stakes-section');
       var tbody = document.getElementById('my-stakes-body');
       section.style.display = 'block';
-      if (!d.stakes || d.stakes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center;padding:16px;">No active yield positions for ' + account + '</td></tr>';
+      if (!d.devices || d.devices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center;padding:16px;">No active stake positions for ' + account + '</td></tr>';
         return;
       }
-      tbody.innerHTML = d.stakes.map(function(s) {
+      tbody.innerHTML = d.devices.map(function(s) {
+        var modeBadge = s.rent_mode === 'stake'
+          ? '<span class="badge" style="background:rgba(147,51,234,0.15);color:#a855f7;border:1px solid rgba(147,51,234,0.3);">Stake</span>'
+          : '<span class="badge" style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">Earnings</span>';
         return '<tr>' +
-          '<td style="font-family:monospace;">' + s.device_id + '</td>' +
-          '<td>' + parseFloat(s.stake_amount).toFixed(4) + ' BTCPC</td>' +
-          '<td>' + parseFloat(s.net_stake||s.stake_amount).toFixed(4) + ' BTCPC</td>' +
-          '<td>' + parseFloat(s.tribute_paid||0).toFixed(4) + ' BTCPC</td>' +
-          '<td>' + (s.stake_epoch||'—') + '</td>' +
+          '<td style="font-family:monospace;"><a href="/device?id=' + encodeURIComponent(s.device_id) + '">' + s.device_id + '</a></td>' +
+          '<td>#' + (s.slot||'—') + '</td>' +
+          '<td>' + parseFloat(s.stake_amount||0).toFixed(4) + ' BTCPC</td>' +
+          '<td>' + parseFloat(s.rent_bid||0).toFixed(8) + '</td>' +
+          '<td>' + modeBadge + '</td>' +
           '<td><button class="danger" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="unstake(\'' + s.device_id + '\',\'' + account + '\')">Unstake</button></td>' +
           '</tr>';
       }).join('');
@@ -406,7 +418,7 @@
     var stakeAmt = parseFloat(document.getElementById('modal-stake-amount').value) || 0;
     var staker = document.getElementById('modal-staker').value.trim();
     var isOwner = staker && staker === _modalOwner;
-    var tribute = isOwner ? 0 : parseFloat((stakeAmt * 0.05).toFixed(10));
+    var tribute = isOwner ? 0 : parseFloat((stakeAmt * 0.01).toFixed(10));
     var net = parseFloat((stakeAmt - tribute).toFixed(10));
     document.getElementById('ti-stake').textContent = stakeAmt.toFixed(4) + ' BTCPC';
     document.getElementById('ti-tribute').textContent = isOwner ? '0 (owner — no tribute)' : tribute.toFixed(4) + ' BTCPC';
@@ -423,17 +435,17 @@
     }
     document.getElementById('stake-submit-btn').disabled = true;
     try {
-      var r = await fetch(API + '/api/devices/' + encodeURIComponent(_modalDeviceId) + '/yield-stake', {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(_modalDeviceId) + '/stake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staker: staker, stake_amount: stakeAmt }),
+        body: JSON.stringify({ staker: staker, stake_amount: stakeAmt, rent_bid: 50/86400, rent_mode: 'earnings' }),
       });
       var d = await r.json();
-      if (r.ok) {
-        showMsg('modal-msg', 'Staked! Tribute: ' + parseFloat(d.tribute_paid||0).toFixed(4) + ' BTCPC. Net at risk: ' + parseFloat(d.net_stake).toFixed(4) + ' BTCPC.', 'ok');
+      if (r.ok && d.success) {
+        showMsg('modal-msg', 'Staked! Slot #' + d.slot + '. Tribute: ' + parseFloat(d.tribute_paid||0).toFixed(4) + ' BTCPC.', 'ok');
         setTimeout(function() { closeModal(); loadAllStakes(); }, 1800);
       } else {
-        showMsg('modal-msg', d.error || 'Stake failed.', 'err');
+        showMsg('modal-msg', (d.error && d.error.message) || d.error || 'Stake failed.', 'err');
       }
     } catch (e) {
       showMsg('modal-msg', 'Network error: ' + e.message, 'err');
@@ -445,16 +457,16 @@
   // Unstake
   // ─────────────────────────────────────────────────────────────────
   async function unstake(deviceId, staker) {
-    if (!confirm('Unstake from ' + deviceId + '? Your net stake will be returned.')) return;
+    if (!confirm('Unstake from ' + deviceId + '? Your remaining stake will be returned.')) return;
     try {
-      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/yield-unstake', {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/unstake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staker: staker }),
       });
       var d = await r.json();
-      if (r.ok) {
-        alert('Unstaked! Returned: ' + parseFloat(d.returned_amount).toFixed(4) + ' BTCPC');
+      if (r.ok && d.success) {
+        alert('Unstaked! Returned: ' + parseFloat(d.returned_amount||0).toFixed(4) + ' BTCPC');
         loadMyStakes();
         loadAllStakes();
       } else {
