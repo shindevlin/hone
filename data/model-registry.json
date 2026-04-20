@@ -132,7 +132,43 @@
     "format": "gguf",
     "transformers_id": "Mantis2024/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW",
     "size_mb": 5800,
-    "ollama_id": "dirty-muse-writer:9b",
+    "status": "pending",
+    "files": {}
+  },
+  "mythomax-l2-13b": {
+    "name": "MythoMax L2 13B",
+    "description": "Classic uncensored 13B — strong creative/roleplay, very popular.",
+    "format": "gguf",
+    "transformers_id": "Gryphe/MythoMax-L2-13b",
+    "size_mb": 8100,
+    "status": "pending",
+    "files": {}
+  },
+  "dolphin-mixtral-8x7b": {
+    "name": "Dolphin Mixtral 8x7B",
+    "description": "Dolphin 2.7 on Mixtral MoE — uncensored, 141B total / 12B active.",
+    "format": "gguf",
+    "transformers_id": "cognitivecomputations/dolphin-2.7-mixtral-8x7b",
+    "size_mb": 26400,
+    "status": "pending",
+    "files": {}
+  },
+  "wizardlm-2-8x22b": {
+    "name": "WizardLM-2 8x22B",
+    "description": "Microsoft WizardLM-2 MoE — 141B total, one of the strongest open instruct models.",
+    "format": "gguf",
+    "transformers_id": "microsoft/WizardLM-2-8x22B",
+    "size_mb": 76400,
+    "split_files": 2,
+    "status": "pending",
+    "files": {}
+  },
+  "goliath-120b": {
+    "name": "Goliath 120B",
+    "description": "120B merged monster — Llama2 70B + Euryale merge, uncensored and powerful.",
+    "format": "gguf",
+    "transformers_id": "alpindale/goliath-120b",
+    "size_mb": 49600,
     "status": "pending",
     "files": {}
   }

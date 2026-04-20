@@ -112,21 +112,45 @@ const MODEL_CATALOG = {
     ],
   },
   // ── GGUF models (for Ollama GPU miners) ───────────────────────────────────
-  // These are large single-file downloads streamed directly into the blob store.
-  // Miners pull the GGUF from chain and import into Ollama via modelfile.
+  // Large single-file or split downloads streamed directly into the blob store.
+  // Miners pull the GGUF parts from chain, import into Ollama via modelfile.
+  // Split files: llama.cpp loads them natively when all parts are present.
   'dirty-muse-writer': {
     hf_repo: 'mradermacher/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW-GGUF',
     format: 'gguf',
-    // Single Q4_K_M GGUF — balanced quality/size, ~5.8GB
-    files: [
-      'Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW.Q4_K_M.gguf',
-    ],
-    // Config/tokenizer pulled from the base model
+    files: ['Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW.Q4_K_M.gguf'],
     base_repo: 'Mantis2024/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW',
-    base_files: [
-      'config.json', 'tokenizer.json', 'tokenizer_config.json',
-      'special_tokens_map.json', 'tokenizer.model',
-    ],
+    base_files: ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model'],
+  },
+  'mythomax-l2-13b': {
+    hf_repo: 'mradermacher/MythoMax-L2-13b-GGUF',
+    format: 'gguf',
+    files: ['MythoMax-L2-13b.Q4_K_M.gguf'],
+    base_repo: 'Gryphe/MythoMax-L2-13b',
+    base_files: ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model'],
+  },
+  'dolphin-mixtral-8x7b': {
+    hf_repo: 'TheBloke/dolphin-2.7-mixtral-8x7b-GGUF',
+    format: 'gguf',
+    files: ['dolphin-2.7-mixtral-8x7b.Q4_K_M.gguf'],
+    base_repo: 'cognitivecomputations/dolphin-2.7-mixtral-8x7b',
+    base_files: ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model'],
+  },
+  'wizardlm-2-8x22b': {
+    hf_repo: 'mradermacher/WizardLM-2-8x22B-GGUF',
+    format: 'gguf',
+    // IQ4_XS split — best quality that fits (~76GB total, gpu80 tier)
+    files: ['WizardLM-2-8x22B.IQ4_XS.gguf.part1of2', 'WizardLM-2-8x22B.IQ4_XS.gguf.part2of2'],
+    base_repo: 'microsoft/WizardLM-2-8x22B',
+    base_files: ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model'],
+  },
+  'goliath-120b': {
+    hf_repo: 'TheBloke/goliath-120b-GGUF',
+    format: 'gguf',
+    // Q2_K — only single-file variant available, ~49.6GB, gpu80 tier
+    files: ['goliath-120b.Q2_K.gguf'],
+    base_repo: 'alpindale/goliath-120b',
+    base_files: ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.model'],
   },
 };
 
