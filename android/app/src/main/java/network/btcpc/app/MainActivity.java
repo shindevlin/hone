@@ -27,6 +27,8 @@ public class MainActivity extends BridgeActivity {
         // doesn't fire onPause before startForeground() can be called
         requestBlePermissionsIfNeeded();
         requestSensorPermissionsIfNeeded();
+        // Replace Capacitor's default WebChromeClient so getUserMedia() can pass through
+        getBridge().getWebView().setWebChromeClient(new BTCPCWebChromeClient(getBridge()));
     }
 
     private void requestBlePermissionsIfNeeded() {
