@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "BTCPCMain";
     private static final int REQ_BLE_PERMS = 101;
+    private static final int REQ_SENSOR_PERMS = 102;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -25,6 +26,7 @@ public class MainActivity extends BridgeActivity {
         // Request BLE permissions after service is running so the permission dialog
         // doesn't fire onPause before startForeground() can be called
         requestBlePermissionsIfNeeded();
+        requestSensorPermissionsIfNeeded();
     }
 
     private void requestBlePermissionsIfNeeded() {
@@ -43,6 +45,20 @@ public class MainActivity extends BridgeActivity {
             if (anyMissing) {
                 ActivityCompat.requestPermissions(this, needed, REQ_BLE_PERMS);
             }
+        }
+    }
+
+    private void requestSensorPermissionsIfNeeded() {
+        String[] needed = { android.Manifest.permission.RECORD_AUDIO };
+        boolean anyMissing = false;
+        for (String p : needed) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                anyMissing = true;
+                break;
+            }
+        }
+        if (anyMissing) {
+            ActivityCompat.requestPermissions(this, needed, REQ_SENSOR_PERMS);
         }
     }
 

@@ -437,13 +437,29 @@ async function authenticateBearer(req, res, next) {
     return next();
   }
 
-  // Node-operator paths: accept standard JWT (logged-in desktop user pulling models)
-  const jwtAllowedPaths = ['/v1/node/pull-model', '/v1/node/model-info', '/v1/agent'];
+  // JWT-allowed paths: node operators + mobile app users (chat/completions via JWT)
+  const jwtAllowedPaths = ['/v1/node/pull-model', '/v1/node/model-info', '/v1/agent', '/v1/chat/completions'];
   if (jwtAllowedPaths.some(p => req.path.startsWith(p))) {
     try {
       const jwtLib = require('jsonwebtoken');
       const decoded = jwtLib.verify(token, process.env.JWT_SECRET || process.env.BTCPC_JWT_SECRET);
-      req.jwtUser = decoded.username || decoded.id;
+      const jwtUsername = decoded.username || decoded.id;
+      req.jwtUser = jwtUsername;
+      // Give JWT users a project facade so billing pipeline works
+      const stateStore = require('../chain/stateStore');
+      const bal = stateStore.getBalance ? stateStore.getBalance(jwtUsername, 'BTCPC') : 0;
+      req.project = {
+        _source: 'jwt',
+        name: jwtUsername + '/mobile-app',
+        owner: jwtUsername,
+        wallet_address: jwtUsername,
+        balance: bal,
+        verified: true,
+        isActive: true,
+        totalSpent: 0,
+        totalRequests: 0,
+        save: async function () {}
+      };
       return next();
     } catch (_) {
       return res.status(401).json({

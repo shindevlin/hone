@@ -60,6 +60,11 @@
     <!-- Sensor / activity -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <!-- Microphone (noise level sensor) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- NFC (tag scanner sensor) -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
     <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

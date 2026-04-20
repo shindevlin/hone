@@ -839,10 +839,13 @@
             ' • <span style="color:#22c55e;">Ollama inference ✓</span>' +
             '<br><span style="color:var(--muted);">WebGPU not needed — models run locally via Ollama.</span>';
         } else {
+          var noGpuNote = isCapacitor
+            ? '<br><span style="color:#ef4444;">On-device mining not available — WebGPU not supported in app WebView. Use btcpc.net in Chrome for phone mining.</span>'
+            : '<br>Mining requires WebGPU (Chrome 121+ on modern devices)';
           specEl.innerHTML = '<strong style="color:var(--orange);">Your device:</strong> ' +
             deviceRAM + 'GB RAM' +
             (hasWebGPU ? ' • <span style="color:#22c55e;">WebGPU ✓</span>' : ' • <span style="color:#ef4444;">No WebGPU ✗</span>') +
-            (!hasWebGPU ? '<br>Mining requires WebGPU (Chrome 121+ on modern devices)' : '');
+            (!hasWebGPU ? noGpuNote : '');
         }
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
@@ -1283,14 +1286,17 @@
 
           } else {
             // PWA: WebLLM pre-cache via service worker / WebLLM engine
-            if (window.btcpcEngine && window.btcpcEngine.preload) {
+            if (!hasWebGPU) {
+              dlBtn.textContent = 'WebGPU not available on this device';
+              setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 4000);
+            } else if (window.btcpcEngine && window.btcpcEngine.preload) {
               Array.from(checked).forEach(function(cb) { window.btcpcEngine.preload(cb.dataset.id); });
               dlBtn.textContent = 'Caching ' + checked.length + ' model(s)...';
+              setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 3000);
             } else {
-              Array.from(checked).forEach(function(cb) { window.open('https://huggingface.co/mlc-ai/' + cb.dataset.id, '_blank'); });
-              dlBtn.textContent = 'Opening HuggingFace...';
+              dlBtn.textContent = 'Engine not ready — try again in a moment';
+              setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 3000);
             }
-            setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 3000);
           }
         });
       })();
@@ -1307,9 +1313,41 @@
     <!-- Tab: Chat -->
     <div id="panel-chat" class="tab-panel">
       <div id="chat-messages"></div>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-        <span style="font-size:11px;color:var(--muted);white-space:nowrap;">Model:</span>
-        <input type="text" id="chat-model-input" placeholder="e.g. qwen3:4b, llama3.2:3b" style="flex:1;padding:5px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;outline:none;" required>
+      <!-- hidden input still used by sendChat() -->
+      <input type="hidden" id="chat-model-input" value="qwen3:0.6b">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;" id="chat-model-radios">
+        <script>
+        (function(){
+          var chatModels = [
+            { id:'qwen3:0.6b',   label:'Qwen3 0.6B',  note:'fast' },
+            { id:'qwen3:4b',     label:'Qwen3 4B',    note:'balanced' },
+            { id:'qwen3:8b',     label:'Qwen3 8B',    note:'quality' },
+            { id:'llama3.2:3b',  label:'Llama 3.2 3B', note:'meta' },
+            { id:'gemma3:4b',    label:'Gemma3 4B',   note:'google' },
+          ];
+          chatModels.forEach(function(m, i) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.model = m.id;
+            btn.style.cssText = 'padding:5px 10px;border-radius:20px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s;' +
+              (i===0 ? 'background:rgba(247,147,26,0.2);border:1px solid #f7931a;color:#f7931a;' :
+                       'background:rgba(247,147,26,0.05);border:1px solid var(--border);color:var(--muted);');
+            btn.innerHTML = m.label + ' <span style="font-size:9px;opacity:0.7">(' + m.note + ')</span>';
+            btn.onclick = function() {
+              document.getElementById('chat-model-input').value = m.id;
+              document.querySelectorAll('#chat-model-radios button').forEach(function(b) {
+                b.style.background = 'rgba(247,147,26,0.05)';
+                b.style.border = '1px solid var(--border)';
+                b.style.color = 'var(--muted)';
+              });
+              this.style.background = 'rgba(247,147,26,0.2)';
+              this.style.border = '1px solid #f7931a';
+              this.style.color = '#f7931a';
+            };
+            document.getElementById('chat-model-radios').appendChild(btn);
+          });
+        })();
+        </script>
       </div>
       <div class="chat-input-row">
         <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
@@ -1671,7 +1709,7 @@
           if (net.alive) {
             dot.style.background = '#22c55e';
             label.style.color = '#22c55e';
-            label.textContent = 'Local node connected · epoch age ' + net.epoch_age_seconds + 's';
+            label.textContent = 'btcpc.net · epoch age ' + net.epoch_age_seconds + 's';
           } else {
             dot.style.background = '#ef4444';
             label.style.color = '#ef4444';
@@ -1687,7 +1725,7 @@
           document.getElementById('node-browser-clocks').textContent = net.browser_clocks || '0';
 
           // 2. Epoch info
-          var epResp = await fetch('/node/epoch/current');
+          var epResp = await fetch(API_BASE + '/node/epoch/current');
           var epData = await epResp.json();
           if (epData.success && epData.epoch) {
             var ep = epData.epoch;
@@ -1737,7 +1775,7 @@
             for (var i = 0; i < 8; i++) {
               var n = epNum - i;
               if (n < 0) break;
-              var bResp = await fetch('/node/epoch/' + n);
+              var bResp = await fetch(API_BASE + '/node/epoch/' + n);
               var bData = await bResp.json();
               if (bData.success && bData.epoch) {
                 var b = bData.epoch;
@@ -2671,7 +2709,10 @@ async function startSensor(id, silent) {
           }
         };
       } catch (e) {
-        liveValues.noise = 'Permission denied';
+        const nativeApp = (location.protocol === 'https:' && location.hostname === 'localhost');
+        liveValues.noise = e.name === 'NotAllowedError'
+          ? (nativeApp ? 'Tap Allow when Android asks for Microphone — or go to Settings > Apps > BTCPC > Permissions' : 'Microphone permission denied')
+          : 'Microphone not available on this device';
         sensorStates.noise = false;
         localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('noise');
