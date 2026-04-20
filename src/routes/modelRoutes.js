@@ -87,6 +87,30 @@ const MODEL_CATALOG = {
       'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
     ],
   },
+  'qwen3-0.6b': {
+    hf_repo: 'onnx-community/Qwen3-0.6B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen3-1.7b': {
+    hf_repo: 'onnx-community/Qwen3-1.7B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen3-4b': {
+    hf_repo: 'onnx-community/Qwen3-4B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4f16.onnx',
+    ],
+  },
 };
 
 function loadRegistry() {

@@ -36,28 +36,77 @@ const MODEL_FILES = {
   'smollm2-360m': {
     hf_repo: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
     files: [
-      'config.json',
-      'generation_config.json',
-      'tokenizer.json',
-      'tokenizer_config.json',
-      'special_tokens_map.json',
-      'vocab.json',
-      'merges.txt',
-      'onnx/model_q4.onnx',
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'vocab.json',
+      'merges.txt', 'onnx/model_q4.onnx',
     ],
   },
   'qwen2.5-0.5b': {
     hf_repo: 'onnx-community/Qwen2.5-0.5B-Instruct-ONNX',
     files: [
-      'config.json',
-      'generation_config.json',
-      'tokenizer.json',
-      'tokenizer_config.json',
-      'special_tokens_map.json',
-      'vocab.json',
-      'merges.txt',
-      'added_tokens.json',
-      'onnx/model_q4.onnx',
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'vocab.json',
+      'merges.txt', 'added_tokens.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'llama-3.2-1b': {
+    hf_repo: 'onnx-community/Llama-3.2-1B-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'llama-3.2-3b': {
+    hf_repo: 'onnx-community/Llama-3.2-3B-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'phi-3.5-mini': {
+    hf_repo: 'onnx-community/Phi-3.5-mini-instruct-onnx-web',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'tokenizer.model', 'genai_config.json', 'onnx/model_q4f16.onnx',
+    ],
+  },
+  'deepseek-r1-1.5b': {
+    hf_repo: 'onnx-community/DeepSeek-R1-Distill-Qwen-1.5B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'gemma-3-1b': {
+    hf_repo: 'onnx-community/gemma-3-1b-it-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen3-0.6b': {
+    hf_repo: 'onnx-community/Qwen3-0.6B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen3-1.7b': {
+    hf_repo: 'onnx-community/Qwen3-1.7B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4.onnx',
+    ],
+  },
+  'qwen3-4b': {
+    hf_repo: 'onnx-community/Qwen3-4B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'vocab.json', 'merges.txt', 'onnx/model_q4f16.onnx',
     ],
   },
 };

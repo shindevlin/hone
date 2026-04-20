@@ -875,6 +875,7 @@
           { id: 'deepseek-r1:14b',  name: 'DeepSeek-R1 14B',   size: '9GB',    ram: 12, tier: 'gpu16',  desc: 'Reasoning distill — strong math/code',          earning: '6x' },
           { id: 'deepseek-r1:32b',  name: 'DeepSeek-R1 32B',   size: '20GB',   ram: 24, tier: 'gpu24',  desc: 'Reasoning — near frontier quality',             earning: '10x' },
           { id: 'gemma3:27b',       name: 'Gemma3 27B',        size: '17GB',   ram: 20, tier: 'gpu24',  desc: 'Google — best open vision+text at this size',   earning: '9x' },
+          { id: 'qwen3:30b-a3b',    name: 'Qwen3 30B-A3B',     size: '18GB',   ram: 16, tier: 'gpu16',  desc: 'MoE: 30B total, 3B active — fits 16GB VRAM, paid on 30B params', earning: '10x' },
           { id: 'qwen3:32b',        name: 'Qwen3 32B',         size: '20GB',   ram: 24, tier: 'gpu24',  desc: 'Alibaba — flagship dense model',                earning: '10x' },
           { id: 'qwen3.5:35b',      name: 'Qwen3.5 35B',       size: '22GB',   ram: 24, tier: 'gpu24',  desc: 'Alibaba latest large — high demand',            earning: '11x' },
           // ── 24GB+ (GPU 24–80GB VRAM) ───────────────────────────────────────
@@ -890,7 +891,10 @@
           { id: 'llama-3.2-1b',   name: 'Llama 3.2 1B',      size: '~700MB',  ram: 1.2, tier: 'phone',  desc: 'Meta, fast and capable',          earning: '1.5x', chain_id: 'llama-3.2-1b' },
           { id: 'deepseek-r1-1.5b', name: 'DeepSeek R1 1.5B', size: '~900MB',  ram: 1.5, tier: 'phone',  desc: 'Reasoning specialist',            earning: '1.8x', chain_id: 'deepseek-r1-1.5b' },
           { id: 'gemma-3-1b',     name: 'Gemma 3 1B',        size: '~700MB',  ram: 1.2, tier: 'phone',  desc: 'Google, great quality for size',  earning: '1.5x', chain_id: 'gemma-3-1b' },
+          { id: 'qwen3-0.6b',      name: 'Qwen3 0.6B',        size: '~400MB',  ram: 0.7, tier: 'phone',  desc: 'Alibaba Qwen3, thinking mode',    earning: '1.2x', chain_id: 'qwen3-0.6b' },
+          { id: 'qwen3-1.7b',     name: 'Qwen3 1.7B',        size: '~1GB',    ram: 1.5, tier: 'phone',  desc: 'Qwen3 reasoning + thinking mode', earning: '1.8x', chain_id: 'qwen3-1.7b' },
           { id: 'llama-3.2-3b',   name: 'Llama 3.2 3B',      size: '~1.8GB',  ram: 2.5, tier: 'tablet', desc: 'Meta 3B, balanced quality/speed', earning: '2x',   chain_id: 'llama-3.2-3b' },
+          { id: 'qwen3-4b',       name: 'Qwen3 4B',          size: '~2.5GB',  ram: 3.5, tier: 'tablet', desc: 'Best Qwen3, strong reasoning',    earning: '2.5x', chain_id: 'qwen3-4b' },
           { id: 'phi-3.5-mini',   name: 'Phi-3.5 Mini 3.8B', size: '~2.2GB',  ram: 3.5, tier: 'tablet', desc: 'Microsoft, best-in-class small',  earning: '2.5x', chain_id: 'phi-3.5-mini' },
         ];
 
