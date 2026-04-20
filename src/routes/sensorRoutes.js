@@ -732,4 +732,249 @@ devicesRouter.post('/:id/rotate-key', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────
+// Device yield staking routes (v3.4)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/devices/:id/yield-stake
+ * Stake on a device to earn yield. The top staker earns 30% of sensor income.
+ * Body: { staker, stake_amount }
+ *
+ * Rules:
+ *   - staker must have sufficient balance
+ *   - stake_amount must be > current top stake (if any)
+ *   - 5% tribute goes to device owner immediately (non-refundable), except
+ *     if staker === owner (no tribute)
+ *   - Previous top staker is refunded their net stake
+ */
+devicesRouter.post('/:id/yield-stake', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const body = req.body || {};
+    const staker = sanitizeString(body.staker, 64);
+    if (!staker) return res.status(400).json({ error: 'staker required' });
+
+    const stakeAmount = parseFloat(body.stake_amount);
+    if (!Number.isFinite(stakeAmount) || stakeAmount <= 0) {
+      return res.status(400).json({ error: 'stake_amount must be a positive number' });
+    }
+
+    // Resolve device owner from IoT device registry or sensor registry
+    const deviceRecord = stateStore.getDeviceKey(deviceId);
+    const sensorRecord = stateStore.getSensor(deviceId);
+    const owner = (deviceRecord && deviceRecord.owner) ||
+                  (sensorRecord && sensorRecord.owner) ||
+                  (deviceId.includes('/') ? deviceId.split('/')[0] : null);
+
+    if (!owner) {
+      return res.status(404).json({ error: 'device not found — register it first via /api/devices/register or /api/sensors' });
+    }
+
+    // Check new stake > current top stake
+    const currentStake = stateStore.getDeviceYieldStake(deviceId);
+    if (currentStake && stakeAmount <= currentStake.stake_amount) {
+      return res.status(409).json({
+        error: 'stake_amount must exceed current top stake',
+        current_top_stake: currentStake.stake_amount,
+        required_minimum: currentStake.stake_amount + 0.0000000001,
+      });
+    }
+
+    // Check staker balance
+    const stakerBalance = stateStore.getBalance(staker, 'BTCPC');
+    if (staker !== owner && stakerBalance < stakeAmount) {
+      return res.status(422).json({
+        error: 'insufficient balance',
+        balance: stakerBalance,
+        required: stakeAmount,
+      });
+    }
+
+    const epoch = await getCurrentEpoch();
+    const tributeAmount = (staker !== owner) ? parseFloat((stakeAmount * 0.05).toFixed(10)) : 0;
+    const netStake = parseFloat((stakeAmount - tributeAmount).toFixed(10));
+
+    const entry = {
+      type: 'DEVICE_YIELD_STAKE',
+      from: staker,
+      to: owner,
+      amount: stakeAmount,
+      token: 'BTCPC',
+      epoch: epoch,
+      timestamp: Date.now(),
+      yield_stake_data: {
+        device_id: deviceId,
+        staker: staker,
+        stake_amount: stakeAmount,
+        owner: owner,
+        tribute: tributeAmount,
+        net_stake: netStake,
+      },
+      memo: 'device_yield_stake:' + deviceId,
+    };
+
+    try {
+      stateStore.applyEntry(entry);
+      // Persist on chain via ledger if available
+      try {
+        const ledgerMod = require('../services/ledger');
+        if (typeof ledgerMod.recordEntry === 'function') {
+          await ledgerMod.recordEntry(entry);
+        }
+      } catch (_) {}
+    } catch (err) {
+      return res.status(422).json({ error: err.message });
+    }
+
+    return res.status(201).json({
+      success: true,
+      device_id: deviceId,
+      staker: staker,
+      owner: owner,
+      stake_amount: stakeAmount,
+      tribute_paid: tributeAmount,
+      net_stake: netStake,
+      epoch: epoch,
+      previous_staker: currentStake ? currentStake.staker : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/devices/:id/yield-unstake
+ * Voluntarily withdraw yield stake. Only the current top staker can call this.
+ * Body: { staker }
+ * Returns the net stake (original stake minus 5% tribute already paid).
+ */
+devicesRouter.post('/:id/yield-unstake', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const body = req.body || {};
+    const staker = sanitizeString(body.staker, 64);
+    if (!staker) return res.status(400).json({ error: 'staker required' });
+
+    const currentStake = stateStore.getDeviceYieldStake(deviceId);
+    if (!currentStake) {
+      return res.status(404).json({ error: 'no active yield stake for this device' });
+    }
+    if (currentStake.staker !== staker) {
+      return res.status(403).json({ error: 'only the current top staker can unstake' });
+    }
+
+    const epoch = await getCurrentEpoch();
+    const returnedAmount = currentStake.net_stake || currentStake.stake_amount;
+
+    const entry = {
+      type: 'DEVICE_YIELD_UNSTAKE',
+      from: staker,
+      to: staker,
+      amount: returnedAmount,
+      token: 'BTCPC',
+      epoch: epoch,
+      timestamp: Date.now(),
+      yield_stake_data: {
+        device_id: deviceId,
+        staker: staker,
+        returned_amount: returnedAmount,
+      },
+      memo: 'device_yield_unstake:' + deviceId,
+    };
+
+    try {
+      stateStore.applyEntry(entry);
+      try {
+        const ledgerMod = require('../services/ledger');
+        if (typeof ledgerMod.recordEntry === 'function') {
+          await ledgerMod.recordEntry(entry);
+        }
+      } catch (_) {}
+    } catch (err) {
+      return res.status(422).json({ error: err.message });
+    }
+
+    return res.json({
+      success: true,
+      device_id: deviceId,
+      staker: staker,
+      returned_amount: returnedAmount,
+      epoch: epoch,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/devices/:id/yield-stake
+ * Get current top staker info for a device. Public endpoint.
+ */
+devicesRouter.get('/:id/yield-stake', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const stake = stateStore.getDeviceYieldStake(deviceId);
+    const currentEpoch = await getCurrentEpoch();
+
+    if (!stake) {
+      return res.json({
+        device_id: deviceId,
+        staker: null,
+        stake_amount: 0,
+        stake_epoch: null,
+        estimated_daily_yield: 0,
+        current_epoch: currentEpoch,
+      });
+    }
+
+    // Estimate daily yield: rough estimate based on 30s epochs
+    // 2880 epochs/day × 7% sensor pool / active sensors (approximation)
+    const estimated_daily_yield = null; // requires live pool data; callers should compute from explorer
+
+    return res.json({
+      device_id: deviceId,
+      staker: stake.staker,
+      stake_amount: stake.stake_amount,
+      net_stake: stake.net_stake,
+      tribute_paid: stake.tribute_paid,
+      stake_epoch: stake.stake_epoch,
+      estimated_daily_yield: estimated_daily_yield,
+      current_epoch: currentEpoch,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/devices/yield-stakes?staker=:account
+ * Returns all devices where account is current top staker.
+ */
+devicesRouter.get('/yield-stakes', async (req, res) => {
+  try {
+    const stakerAccount = req.query.staker ? sanitizeString(req.query.staker, 64) : null;
+
+    let stakes;
+    if (stakerAccount) {
+      stakes = stateStore.getTopYieldStakerForAccount(stakerAccount);
+    } else {
+      stakes = stateStore.getAllDeviceYieldStakes();
+    }
+
+    // Sort by stake_amount desc
+    stakes = stakes.slice().sort(function (a, b) { return (b.stake_amount || 0) - (a.stake_amount || 0); });
+
+    return res.json({ stakes: stakes, count: stakes.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = { sensorsRouter, gatewaysRouter, devicesRouter };

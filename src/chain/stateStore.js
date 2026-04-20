@@ -145,6 +145,16 @@ var gatewayHeartbeats = new Map();
 var witnessMap = new Map();
 
 // ─────────────────────────────────────────────────────────────────
+// Device yield staking (v3.4)
+// deviceYieldStakes: device_id → { staker, stake_amount, stake_epoch }
+// Tracks the current top yield staker for each IoT device.
+// The top staker earns 30% of that device's sensor income each epoch.
+// Device owner always earns 60%. 10% → btcpc_recycle.
+// Tribute: when a new staker enters, 5% of their stake goes to the owner.
+// ─────────────────────────────────────────────────────────────────
+var deviceYieldStakes = new Map();
+
+// ─────────────────────────────────────────────────────────────────
 // Bridge state (v2.16-alpha)
 // ─────────────────────────────────────────────────────────────────
 // bridgeWraps: "user|chainId|epoch" → { user, chainId, amount, fee }
@@ -176,6 +186,15 @@ var miningProofsByEpoch = new Map();
 
 // Compute proofs indexed by epoch
 var computeProofsByEpoch = new Map();
+
+// ─────────────────────────────────────────────────────────────────
+// Four-tier finality anchor log (v3.2)
+// ─────────────────────────────────────────────────────────────────
+// anchorLog: ring buffer of the last ANCHOR_LOG_CAP L2/ETH/BTC anchor
+// entries written by finalityAnchoring.js.
+// Entry shape: { type, epoch, state_root, anchor_level, anchored_at, ... }
+var anchorLog = [];
+var ANCHOR_LOG_CAP = 100;
 
 // Slashing records: username → [ { epoch, offenseType, tier, amount, evidence } ]
 var slashRecords = new Map();
@@ -337,6 +356,10 @@ function _entryKey(entry) {
     var wccParentId = (entry.wallet_data && entry.wallet_data.parent) || entry.from || "";
     var wccChildId = (entry.wallet_data && entry.wallet_data.child_name) || "";
     domainId = "wcc:" + wccParentId + "/" + wccChildId;
+  } else if (entry.type === "DEVICE_YIELD_STAKE") {
+    domainId = "dys:" + (entry.yield_stake_data && entry.yield_stake_data.device_id || "") + ":" + (entry.from || "") + ":" + (entry.epoch || 0) + ":" + (entry.amount || 0);
+  } else if (entry.type === "DEVICE_YIELD_UNSTAKE") {
+    domainId = "dyu:" + (entry.yield_stake_data && entry.yield_stake_data.device_id || "") + ":" + (entry.from || "") + ":" + (entry.epoch || 0);
   } else if (entry.type === "DEVICE_KEY_REGISTER") {
     domainId = "dkr:" + (entry.device_key_data && entry.device_key_data.device_id || "");
   } else if (entry.type === "SENSOR_REGISTER") {
@@ -1697,6 +1720,89 @@ function applyEntry(entry) {
       } catch (_) {}
       break;
 
+    // ── Four-tier finality anchors (v3.2) ──────────────────────────
+    case "L2_ANCHOR":
+    case "ETH_ANCHOR":
+    case "BTC_ANCHOR": {
+      var _al = {
+        type: entry.type,
+        epoch: entry.epoch,
+        state_root: entry.state_root || null,
+        anchor_level: entry.anchor_level || null,
+        anchored_at: entry.anchored_at || 0,
+      };
+      if (entry.calldata_hex) _al.calldata_hex = entry.calldata_hex;
+      if (entry.op_return_hex) _al.op_return_hex = entry.op_return_hex;
+      anchorLog.push(_al);
+      if (anchorLog.length > ANCHOR_LOG_CAP) {
+        anchorLog.splice(0, anchorLog.length - ANCHOR_LOG_CAP);
+      }
+      break;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Device yield staking (v3.4)
+    // ─────────────────────────────────────────────────────────────────
+
+    case "DEVICE_YIELD_STAKE": {
+      // yield_stake_data: { device_id, staker, stake_amount, owner }
+      var dysData = entry.yield_stake_data || {};
+      var dysDeviceId = dysData.device_id;
+      var dysStaker = dysData.staker || from;
+      var dysStakeAmount = _round(dysData.stake_amount || amount || 0);
+      var dysOwner = dysData.owner;
+
+      if (!dysDeviceId || !dysStaker || dysStakeAmount <= 0) break;
+
+      // Debit the staker's balance by the full stake amount
+      var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
+      if (!dysDebitOk) break; // insufficient balance
+
+      // Tribute: 5% of stake_amount to owner (unless staker === owner)
+      var dysTribute = 0;
+      if (dysOwner && dysStaker !== dysOwner) {
+        dysTribute = _round(dysStakeAmount * 0.05);
+        if (dysTribute > 0) _credit(dysOwner, "BTCPC", dysTribute);
+      }
+
+      // Refund previous top staker (net stake = original stake minus tribute already paid)
+      var dysExisting = deviceYieldStakes.get(dysDeviceId);
+      if (dysExisting) {
+        var dysRefund = dysExisting.net_stake || dysExisting.stake_amount;
+        if (dysRefund > 0) _credit(dysExisting.staker, "BTCPC", dysRefund);
+      }
+
+      // Record new top staker; net_stake = stake_amount - tribute
+      var dysNetStake = _round(dysStakeAmount - dysTribute);
+      deviceYieldStakes.set(dysDeviceId, {
+        staker: dysStaker,
+        stake_amount: dysStakeAmount,
+        net_stake: dysNetStake,
+        tribute_paid: dysTribute,
+        stake_epoch: entry.epoch || 0,
+      });
+      break;
+    }
+
+    case "DEVICE_YIELD_UNSTAKE": {
+      // yield_stake_data: { device_id, staker, returned_amount }
+      var dyuData = entry.yield_stake_data || {};
+      var dyuDeviceId = dyuData.device_id;
+      var dyuStaker = dyuData.staker || from;
+      var dyuReturnedAmount = _round(dyuData.returned_amount || amount || 0);
+
+      if (!dyuDeviceId || !dyuStaker) break;
+
+      var dyuExisting = deviceYieldStakes.get(dyuDeviceId);
+      if (!dyuExisting || dyuExisting.staker !== dyuStaker) break;
+
+      // Return the net stake to staker
+      var dyuRefund = dyuReturnedAmount > 0 ? dyuReturnedAmount : dyuExisting.net_stake;
+      if (dyuRefund > 0) _credit(dyuStaker, "BTCPC", dyuRefund);
+      deviceYieldStakes.delete(dyuDeviceId);
+      break;
+    }
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -2077,6 +2183,15 @@ function getRecentComputeProofs(epochNumber, lookback) {
   return proofs;
 }
 
+/**
+ * Return the last up-to-100 anchor log entries (L2/ETH/BTC anchors).
+ * Anchors are written by finalityAnchoring.js and also stored here
+ * when applyEntry processes L2_ANCHOR / ETH_ANCHOR / BTC_ANCHOR entries.
+ */
+function getRecentAnchors() {
+  return anchorLog.slice();
+}
+
 function getMinerCount() {
   // Count distinct miners who have earned a mining reward in the last 100 epochs
   var miners = new Set();
@@ -2364,6 +2479,44 @@ function getChallengesForCid(cid) {
   var result = [];
   for (var entry of blobChallenges) {
     if (entry[1].cid === cid) result.push(entry[1]);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Device yield staking getters (v3.4)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get the current top yield staker record for a device.
+ * Returns { staker, stake_amount, net_stake, tribute_paid, stake_epoch } or null.
+ */
+function getDeviceYieldStake(deviceId) {
+  return deviceYieldStakes.get(deviceId) || null;
+}
+
+/**
+ * Get all devices where the given account is the current top yield staker.
+ * Returns an array of { device_id, ...stakeRecord }.
+ */
+function getTopYieldStakerForAccount(account) {
+  var result = [];
+  for (var entry of deviceYieldStakes) {
+    if (entry[1].staker === account) {
+      result.push(Object.assign({ device_id: entry[0] }, entry[1]));
+    }
+  }
+  return result;
+}
+
+/**
+ * Get all current device yield stakes.
+ * Returns an array of { device_id, ...stakeRecord }.
+ */
+function getAllDeviceYieldStakes() {
+  var result = [];
+  for (var entry of deviceYieldStakes) {
+    result.push(Object.assign({ device_id: entry[0] }, entry[1]));
   }
   return result;
 }
@@ -2872,6 +3025,7 @@ function resetAll() {
   blobChallengeStats.clear();
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
+  anchorLog.splice(0);
   slashRecords.clear();
   services.clear();
   snapshots.clear();
@@ -2889,6 +3043,7 @@ function resetAll() {
   seenEntries.clear();
   deviceKeys.clear();
   iotDeviceKeys.clear();
+  deviceYieldStakes.clear();
   childrenMap.clear();
   parentMap.clear();
   chainHeight = -1;
@@ -2933,6 +3088,10 @@ module.exports = {
   getDevicesByOwner: getDevicesByOwner,
   // Witness map for relay-scaled rewards (v3.2)
   getWitnesses: getWitnesses,
+  // Device yield staking (v3.4)
+  getDeviceYieldStake: getDeviceYieldStake,
+  getTopYieldStakerForAccount: getTopYieldStakerForAccount,
+  getAllDeviceYieldStakes: getAllDeviceYieldStakes,
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,
@@ -3020,6 +3179,8 @@ module.exports = {
   // Cross-chain monitor (v2.17)
   getCrossChainActivity: getCrossChainActivity,
   getRecentCrossChainActivity: getRecentCrossChainActivity,
+  // Four-tier finality anchor log (v3.2)
+  getRecentAnchors: getRecentAnchors,
   // Integer arithmetic
   toUnits: toUnits,
   fromUnits: fromUnits,

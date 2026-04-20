@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Device Dashboard — Register & Yield Staking</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.6; }
+    a { color: #f7931a; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    #nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; padding: 6px 16px; background: rgba(10,14,23,0.95); border-bottom: 1px solid rgba(247,147,26,0.3); font-size: 12px; gap: 16px; }
+    .nav-logo { color: #f7931a; font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    .nav-link { color: #c8ccd4; }
+    .nav-link.active { color: #f7931a; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 80px 16px 48px; }
+    h1 { color: #f7931a; font-size: 22px; margin-bottom: 8px; }
+    h2 { color: #f7931a; font-size: 16px; margin: 32px 0 12px; border-bottom: 1px solid rgba(247,147,26,0.2); padding-bottom: 6px; }
+    .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(247,147,26,0.15); border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+    .section-title { color: #f7931a; font-size: 15px; font-weight: bold; margin-bottom: 16px; }
+    label { display: block; color: #8892a0; font-size: 12px; margin-bottom: 4px; margin-top: 12px; }
+    input, select { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(247,147,26,0.25); border-radius: 6px; padding: 8px 10px; color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 13px; outline: none; }
+    input:focus, select:focus { border-color: #f7931a; }
+    button { background: #f7931a; color: #000; border: none; padding: 9px 22px; border-radius: 6px; font-weight: bold; font-family: 'Courier New', monospace; font-size: 13px; cursor: pointer; margin-top: 16px; }
+    button:hover { background: #e8841a; }
+    button.secondary { background: rgba(247,147,26,0.15); color: #f7931a; border: 1px solid rgba(247,147,26,0.4); }
+    button.secondary:hover { background: rgba(247,147,26,0.25); }
+    button.danger { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); }
+    button.danger:hover { background: rgba(239,68,68,0.25); }
+    .msg { margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+    .msg.ok { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: #22c55e; }
+    .msg.err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; }
+    .msg.info { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { color: #8892a0; font-weight: normal; text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(247,147,26,0.15); }
+    td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+    tr:hover td { background: rgba(247,147,26,0.04); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .badge-active { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-staked { background: rgba(247,147,26,0.15); color: #f7931a; border: 1px solid rgba(247,147,26,0.3); }
+    .badge-none { background: rgba(255,255,255,0.05); color: #64748b; border: 1px solid rgba(255,255,255,0.1); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: #0d1120; border: 1px solid rgba(247,147,26,0.35); border-radius: 12px; padding: 28px; max-width: 440px; width: 100%; }
+    .modal h3 { color: #f7931a; margin-bottom: 16px; font-size: 16px; }
+    .modal .close { float: right; cursor: pointer; color: #64748b; font-size: 18px; line-height: 1; }
+    .modal .close:hover { color: #ef4444; }
+    .tribute-info { background: rgba(247,147,26,0.07); border: 1px solid rgba(247,147,26,0.2); border-radius: 6px; padding: 10px 12px; margin: 14px 0; font-size: 12px; color: #c8ccd4; }
+    .tribute-info strong { color: #f7931a; }
+    .row-flex { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+
+    #my-stakes-section { margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <div id="nav-bar">
+    <a href="/" class="nav-logo">
+      <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">
+      BTCPC
+    </a>
+    <a href="/globe" class="nav-link">Globe</a>
+    <a href="/dashboard" class="nav-link">Dashboard</a>
+    <a href="/map" class="nav-link">Map</a>
+    <a href="/device-dashboard" class="nav-link active">Devices</a>
+    <a href="/install" class="nav-link">Install</a>
+    <a href="/meshtastic" class="nav-link">Meshtastic</a>
+    <a href="/app" class="nav-link">Start</a>
+    <a href="https://t.me/btcpcbot" class="nav-link" target="_blank">Telegram</a>
+  </div>
+
+  <div class="container">
+    <h1>IoT Device Dashboard</h1>
+    <p style="color:#64748b;margin-bottom:24px;">Register IoT devices on-chain, claim abandoned devices, and stake on top sensors to earn yield.</p>
+
+    <!-- ─────────────────────────────────────────────── -->
+    <!-- Section 1: Register & Claim -->
+    <!-- ─────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">1. Register &amp; Claim a Device</div>
+      <div class="two-col">
+        <!-- Register -->
+        <div>
+          <div style="color:#8892a0;font-size:12px;margin-bottom:10px;">Register a new IoT device on-chain. Requires your posting key signature.</div>
+          <label>Device ID (e.g. <span style="color:#f7931a;">josh/flipper-abc</span>)</label>
+          <input type="text" id="reg-device-id" placeholder="owner/device-name">
+          <label>Owner Account</label>
+          <input type="text" id="reg-owner" placeholder="your BTCPC account name">
+          <label>Device Public Key (hex)</label>
+          <input type="text" id="reg-device-pubkey" placeholder="02abcd...">
+          <label>Posting Key Signature (hex)</label>
+          <input type="text" id="reg-posting-sig" placeholder="3044...">
+          <button onclick="registerDevice()">Register Device</button>
+          <div id="reg-msg"></div>
+        </div>
+        <!-- Claim -->
+        <div>
+          <div style="color:#8892a0;font-size:12px;margin-bottom:10px;">Claim an abandoned sensor device (dormant &gt;70 days). Enter your account and a stake.</div>
+          <label>Device ID to Claim</label>
+          <input type="text" id="claim-device-id" placeholder="originalowner/device-name">
+          <label>Claimant Account</label>
+          <input type="text" id="claim-account" placeholder="your BTCPC account name">
+          <label>Stake Amount (BTCPC)</label>
+          <input type="number" id="claim-stake" placeholder="100" min="0" step="0.01">
+          <button onclick="claimDevice()">Claim Device</button>
+          <div id="claim-msg"></div>
+        </div>
+      </div>
+
+      <!-- Claimable devices list -->
+      <h2 style="margin-top:24px;">Claimable Devices</h2>
+      <div id="claimable-list"><span style="color:#64748b;font-size:12px;">Loading...</span></div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────── -->
+    <!-- Section 2: Yield Staking Market -->
+    <!-- ─────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">2. Yield Staking Market</div>
+      <p style="color:#64748b;font-size:12px;margin-bottom:16px;">
+        Top staker on a device earns <strong style="color:#f7931a;">30%</strong> of that device's sensor income each epoch.
+        Device owner always earns <strong style="color:#f7931a;">60%</strong>. Tribute: <strong style="color:#f7931a;">5%</strong> of your stake goes to the owner on entry (non-refundable).
+      </p>
+
+      <!-- My stakes filter -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <input type="text" id="my-account-filter" placeholder="Your account (filter my stakes)" style="width:240px;max-width:100%;">
+        <button class="secondary" onclick="loadMyStakes()" style="margin-top:0;">My Stakes</button>
+        <button class="secondary" onclick="loadAllStakes()" style="margin-top:0;">All Devices</button>
+      </div>
+
+      <div id="yield-market-container">
+        <table id="yield-market-table">
+          <thead>
+            <tr>
+              <th>Device ID</th>
+              <th>Owner</th>
+              <th>Type</th>
+              <th>Top Staker</th>
+              <th>Current Stake</th>
+              <th>Est. Daily Yield</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="yield-market-body">
+            <tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px;">Loading devices...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="my-stakes-section" style="display:none;">
+        <h2 style="margin-top:20px;">My Yield Positions</h2>
+        <table>
+          <thead>
+            <tr><th>Device ID</th><th>Stake Amount</th><th>Net Stake</th><th>Tribute Paid</th><th>Since Epoch</th><th>Action</th></tr>
+          </thead>
+          <tbody id="my-stakes-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stake Modal -->
+  <div class="modal-overlay" id="stake-modal">
+    <div class="modal">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <h3>Stake on Device</h3>
+      <div id="modal-device-info" style="color:#8892a0;font-size:12px;margin-bottom:4px;"></div>
+
+      <label>Your Account</label>
+      <input type="text" id="modal-staker" placeholder="your BTCPC account">
+
+      <label>Stake Amount (BTCPC)</label>
+      <input type="number" id="modal-stake-amount" placeholder="e.g. 500" min="0" step="0.01">
+
+      <div class="tribute-info" id="tribute-info">
+        <div class="row-flex"><span>Stake Amount:</span> <strong id="ti-stake">—</strong></div>
+        <div class="row-flex"><span>Tribute (5% to owner):</span> <strong id="ti-tribute" style="color:#f7931a;">—</strong></div>
+        <div class="row-flex"><span>Net Stake at Risk:</span> <strong id="ti-net">—</strong></div>
+        <div style="margin-top:8px;color:#64748b;font-size:11px;">Tribute is non-refundable — it is the cost of holding the yield position.</div>
+      </div>
+
+      <button onclick="submitStake()" id="stake-submit-btn">Stake</button>
+      <div id="modal-msg"></div>
+    </div>
+  </div>
+
+  <script>
+  var API = '';  // same origin
+  var _modalDeviceId = null;
+  var _modalOwner = null;
+  var _currentTopStake = 0;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Utilities
+  // ─────────────────────────────────────────────────────────────────
+  function showMsg(id, text, type) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'msg ' + (type || 'info');
+    el.textContent = text;
+  }
+
+  function fmt(n) {
+    if (n === null || n === undefined) return '—';
+    return parseFloat(n).toFixed(4) + ' BTCPC';
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Section 1: Register Device
+  // ─────────────────────────────────────────────────────────────────
+  async function registerDevice() {
+    var deviceId = document.getElementById('reg-device-id').value.trim();
+    var owner = document.getElementById('reg-owner').value.trim();
+    var pubkey = document.getElementById('reg-device-pubkey').value.trim();
+    var sig = document.getElementById('reg-posting-sig').value.trim();
+    if (!deviceId || !owner || !pubkey || !sig) {
+      showMsg('reg-msg', 'All fields required.', 'err'); return;
+    }
+    try {
+      var r = await fetch(API + '/api/devices/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: owner, device_id: deviceId, device_pubkey: pubkey, posting_key_sig: sig }),
+      });
+      var d = await r.json();
+      if (r.ok) {
+        showMsg('reg-msg', 'Device registered: ' + (d.device && d.device.device_id), 'ok');
+        loadAllStakes();
+      } else {
+        showMsg('reg-msg', d.error || 'Registration failed.', 'err');
+      }
+    } catch (e) {
+      showMsg('reg-msg', 'Network error: ' + e.message, 'err');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Section 1: Claim Device
+  // ─────────────────────────────────────────────────────────────────
+  async function claimDevice() {
+    var deviceId = document.getElementById('claim-device-id').value.trim();
+    var account = document.getElementById('claim-account').value.trim();
+    var stakeAmt = parseFloat(document.getElementById('claim-stake').value);
+    if (!deviceId || !account) {
+      showMsg('claim-msg', 'Device ID and account required.', 'err'); return;
+    }
+    if (!isFinite(stakeAmt) || stakeAmt <= 0) {
+      showMsg('claim-msg', 'Stake amount must be > 0.', 'err'); return;
+    }
+    try {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/yield-stake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staker: account, stake_amount: stakeAmt }),
+      });
+      var d = await r.json();
+      if (r.ok) {
+        showMsg('claim-msg', 'Claimed! Tribute paid: ' + fmt(d.tribute_paid), 'ok');
+        loadAllStakes();
+      } else {
+        showMsg('claim-msg', d.error || 'Claim failed.', 'err');
+      }
+    } catch (e) {
+      showMsg('claim-msg', 'Network error: ' + e.message, 'err');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Claimable devices
+  // ─────────────────────────────────────────────────────────────────
+  async function loadClaimable() {
+    try {
+      var r = await fetch(API + '/api/sensors?status=claimable&limit=20');
+      var d = await r.json();
+      var el = document.getElementById('claimable-list');
+      if (!d.sensors || d.sensors.length === 0) {
+        el.innerHTML = '<span style="color:#64748b;font-size:12px;">No claimable devices right now.</span>';
+        return;
+      }
+      var rows = d.sensors.map(function(s) {
+        return '<tr><td>' + s.sensor_id + '</td><td>' + (s.last_owner||'—') + '</td><td>' + (s.sensor_type||'—') + '</td><td>' + (s.region||'—') + '</td><td>' + (s.epochs_silent||0) + ' epochs</td>' +
+          '<td><button class="secondary" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="prefillClaim(\'' + s.sensor_id + '\')">Claim</button></td></tr>';
+      }).join('');
+      el.innerHTML = '<table><thead><tr><th>Sensor ID</th><th>Last Owner</th><th>Type</th><th>Region</th><th>Silent</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    } catch (e) {
+      document.getElementById('claimable-list').innerHTML = '<span style="color:#ef4444;font-size:12px;">Failed to load: ' + e.message + '</span>';
+    }
+  }
+
+  function prefillClaim(deviceId) {
+    document.getElementById('claim-device-id').value = deviceId;
+    document.getElementById('claim-device-id').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Section 2: Yield Market
+  // ─────────────────────────────────────────────────────────────────
+  async function loadAllStakes() {
+    document.getElementById('my-stakes-section').style.display = 'none';
+    var tbody = document.getElementById('yield-market-body');
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px;">Loading...</td></tr>';
+    try {
+      // Load all sensors + all yield stakes
+      var [sensorsRes, stakesRes] = await Promise.all([
+        fetch(API + '/api/sensors?limit=200'),
+        fetch(API + '/api/devices/yield-stakes'),
+      ]);
+      var sensorsData = await sensorsRes.json();
+      var stakesData = await stakesRes.json();
+
+      var stakeMap = {};
+      (stakesData.stakes || []).forEach(function(s) { stakeMap[s.device_id] = s; });
+
+      var sensors = sensorsData.sensors || [];
+      // Sort by current top stake desc
+      sensors.sort(function(a, b) {
+        var sa = stakeMap[a.sensor_id] ? stakeMap[a.sensor_id].stake_amount : 0;
+        var sb = stakeMap[b.sensor_id] ? stakeMap[b.sensor_id].stake_amount : 0;
+        return sb - sa;
+      });
+
+      if (sensors.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px;">No devices registered yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = sensors.map(function(s) {
+        var ys = stakeMap[s.sensor_id];
+        var topStaker = ys ? ys.staker : null;
+        var stakeAmt = ys ? parseFloat(ys.stake_amount).toFixed(4) : '0.0000';
+        var stakerBadge = topStaker
+          ? '<span class="badge badge-staked">' + topStaker + '</span>'
+          : '<span class="badge badge-none">none</span>';
+        var actionBtn = '<button class="secondary" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="openStakeModal(\'' + s.sensor_id + '\',\'' + (s.owner||'') + '\',' + (ys?ys.stake_amount:0) + ')">Stake</button>';
+        return '<tr>' +
+          '<td style="font-family:monospace;">' + s.sensor_id + '</td>' +
+          '<td>' + (s.owner||'—') + '</td>' +
+          '<td><span class="badge badge-active">' + (s.type||'—') + '</span></td>' +
+          '<td>' + stakerBadge + '</td>' +
+          '<td>' + stakeAmt + ' BTCPC</td>' +
+          '<td style="color:#64748b;">—</td>' +
+          '<td>' + actionBtn + '</td>' +
+          '</tr>';
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#ef4444;text-align:center;padding:24px;">Error: ' + e.message + '</td></tr>';
+    }
+  }
+
+  async function loadMyStakes() {
+    var account = document.getElementById('my-account-filter').value.trim();
+    if (!account) { alert('Enter your account name first.'); return; }
+    try {
+      var r = await fetch(API + '/api/devices/yield-stakes?staker=' + encodeURIComponent(account));
+      var d = await r.json();
+      var section = document.getElementById('my-stakes-section');
+      var tbody = document.getElementById('my-stakes-body');
+      section.style.display = 'block';
+      if (!d.stakes || d.stakes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center;padding:16px;">No active yield positions for ' + account + '</td></tr>';
+        return;
+      }
+      tbody.innerHTML = d.stakes.map(function(s) {
+        return '<tr>' +
+          '<td style="font-family:monospace;">' + s.device_id + '</td>' +
+          '<td>' + parseFloat(s.stake_amount).toFixed(4) + ' BTCPC</td>' +
+          '<td>' + parseFloat(s.net_stake||s.stake_amount).toFixed(4) + ' BTCPC</td>' +
+          '<td>' + parseFloat(s.tribute_paid||0).toFixed(4) + ' BTCPC</td>' +
+          '<td>' + (s.stake_epoch||'—') + '</td>' +
+          '<td><button class="danger" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="unstake(\'' + s.device_id + '\',\'' + account + '\')">Unstake</button></td>' +
+          '</tr>';
+      }).join('');
+    } catch (e) {
+      showMsg('yield-market-body', 'Error: ' + e.message, 'err');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Stake modal
+  // ─────────────────────────────────────────────────────────────────
+  function openStakeModal(deviceId, owner, currentTopStake) {
+    _modalDeviceId = deviceId;
+    _modalOwner = owner;
+    _currentTopStake = parseFloat(currentTopStake) || 0;
+    document.getElementById('modal-device-info').textContent = 'Device: ' + deviceId + ' — Owner: ' + (owner||'unknown');
+    document.getElementById('modal-stake-amount').value = '';
+    document.getElementById('modal-staker').value = document.getElementById('my-account-filter').value || '';
+    document.getElementById('modal-msg').textContent = '';
+    updateTributeInfo();
+    document.getElementById('stake-modal').classList.add('open');
+    document.getElementById('modal-stake-amount').addEventListener('input', updateTributeInfo);
+  }
+
+  function closeModal() {
+    document.getElementById('stake-modal').classList.remove('open');
+    _modalDeviceId = null;
+  }
+
+  function updateTributeInfo() {
+    var stakeAmt = parseFloat(document.getElementById('modal-stake-amount').value) || 0;
+    var staker = document.getElementById('modal-staker').value.trim();
+    var isOwner = staker && staker === _modalOwner;
+    var tribute = isOwner ? 0 : parseFloat((stakeAmt * 0.05).toFixed(10));
+    var net = parseFloat((stakeAmt - tribute).toFixed(10));
+    document.getElementById('ti-stake').textContent = stakeAmt.toFixed(4) + ' BTCPC';
+    document.getElementById('ti-tribute').textContent = isOwner ? '0 (owner — no tribute)' : tribute.toFixed(4) + ' BTCPC';
+    document.getElementById('ti-net').textContent = net.toFixed(4) + ' BTCPC';
+  }
+
+  async function submitStake() {
+    var staker = document.getElementById('modal-staker').value.trim();
+    var stakeAmt = parseFloat(document.getElementById('modal-stake-amount').value);
+    if (!staker) { showMsg('modal-msg', 'Enter your account name.', 'err'); return; }
+    if (!isFinite(stakeAmt) || stakeAmt <= 0) { showMsg('modal-msg', 'Enter a valid stake amount.', 'err'); return; }
+    if (stakeAmt <= _currentTopStake) {
+      showMsg('modal-msg', 'Stake must exceed current top stake of ' + _currentTopStake.toFixed(4) + ' BTCPC.', 'err'); return;
+    }
+    document.getElementById('stake-submit-btn').disabled = true;
+    try {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(_modalDeviceId) + '/yield-stake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staker: staker, stake_amount: stakeAmt }),
+      });
+      var d = await r.json();
+      if (r.ok) {
+        showMsg('modal-msg', 'Staked! Tribute: ' + parseFloat(d.tribute_paid||0).toFixed(4) + ' BTCPC. Net at risk: ' + parseFloat(d.net_stake).toFixed(4) + ' BTCPC.', 'ok');
+        setTimeout(function() { closeModal(); loadAllStakes(); }, 1800);
+      } else {
+        showMsg('modal-msg', d.error || 'Stake failed.', 'err');
+      }
+    } catch (e) {
+      showMsg('modal-msg', 'Network error: ' + e.message, 'err');
+    }
+    document.getElementById('stake-submit-btn').disabled = false;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Unstake
+  // ─────────────────────────────────────────────────────────────────
+  async function unstake(deviceId, staker) {
+    if (!confirm('Unstake from ' + deviceId + '? Your net stake will be returned.')) return;
+    try {
+      var r = await fetch(API + '/api/devices/' + encodeURIComponent(deviceId) + '/yield-unstake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staker: staker }),
+      });
+      var d = await r.json();
+      if (r.ok) {
+        alert('Unstaked! Returned: ' + parseFloat(d.returned_amount).toFixed(4) + ' BTCPC');
+        loadMyStakes();
+        loadAllStakes();
+      } else {
+        alert('Error: ' + (d.error || 'unstake failed'));
+      }
+    } catch (e) {
+      alert('Network error: ' + e.message);
+    }
+  }
+
+  // Close modal on overlay click
+  document.getElementById('stake-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Init
+  // ─────────────────────────────────────────────────────────────────
+  loadClaimable();
+  loadAllStakes();
+  </script>
+</body>
+</html>

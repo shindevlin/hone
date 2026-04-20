@@ -205,6 +205,12 @@ function computeRewards(input) {
   // Sensors that submitted ≥1 reading this epoch get a small base reward.
   // This makes it worth coming online even before anyone purchases the data.
   // Purchase rewards are separate — triggered by sensorRewards.processPurchase().
+  //
+  // Device yield staking split (v3.4):
+  //   If a device has an active yield staker:
+  //     60% → device owner, 30% → top staker, 10% → btcpc_recycle
+  //   Otherwise:
+  //     90% → device owner, 10% → btcpc_recycle
   const sensorPool = round(effectiveBlockReward * POOL.sensor);
   const activeSensorList = (activeSensors || []).filter(s => s.account && (s.readings_count || 0) > 0);
   if (activeSensorList.length === 0) {
@@ -213,14 +219,48 @@ function computeRewards(input) {
     // Weight by readings_count — more readings submitted = slightly higher share
     // (capped: a sensor submitting 100 readings doesn't earn 100× one submitting 1)
     const totalReadings = activeSensorList.reduce((s, x) => s + Math.min(x.readings_count, 10), 0);
+    // Load stateStore for yield staker lookup (lazy to avoid circular dep in tests)
+    let _ss = null;
+    try { _ss = input.stateStore || require("./stateStore"); } catch (_) {}
+
     for (const sensor of activeSensorList) {
       const weight = Math.min(sensor.readings_count, 10) / totalReadings;
       const share = round(sensorPool * weight);
-      if (share > 0) {
+      if (share <= 0) continue;
+
+      // Check for active yield staker on each sensor_id in this sensor's sensor_ids
+      // sensor.account is the owner; sensor.sensor_ids is the list of device_ids
+      const sensorIds = sensor.sensor_ids || [];
+      // For each sensor_id, determine per-device share, apply staking split
+      if (sensorIds.length > 0 && _ss && typeof _ss.getDeviceYieldStake === "function") {
+        const perDevice = round(share / sensorIds.length);
+        for (const sid of sensorIds) {
+          const yieldStake = _ss.getDeviceYieldStake(sid);
+          if (yieldStake && yieldStake.staker) {
+            // 60/30/10 split
+            const ownerShare = round(perDevice * 0.60);
+            const stakerShare = round(perDevice * 0.30);
+            const recycleShare = round(perDevice - ownerShare - stakerShare);
+            if (ownerShare > 0) rewards.push({ to: sensor.account, amount: ownerShare, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, yield_staking: true, split: "owner_60" } });
+            if (stakerShare > 0) rewards.push({ to: yieldStake.staker, amount: stakerShare, type: "SENSOR_YIELD_REWARD", meta: { sensor_id: sid, device_owner: sensor.account, split: "staker_30" } });
+            recycled += recycleShare;
+          } else {
+            // 90/10 split
+            const ownerShare = round(perDevice * 0.90);
+            const recycleShare = round(perDevice - ownerShare);
+            if (ownerShare > 0) rewards.push({ to: sensor.account, amount: ownerShare, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, split: "owner_90" } });
+            recycled += recycleShare;
+          }
+        }
+      } else {
+        // No sensor_ids or no stateStore — fall back: 90/10 split on full share
+        const ownerShare = round(share * 0.90);
+        const recycleShare = round(share - ownerShare);
         rewards.push({
-          to: sensor.account, amount: share, type: "SENSOR_EPOCH_REWARD",
-          meta: { readings: sensor.readings_count, sensor_ids: sensor.sensor_ids || [] }
+          to: sensor.account, amount: ownerShare, type: "SENSOR_EPOCH_REWARD",
+          meta: { readings: sensor.readings_count, sensor_ids: sensorIds }
         });
+        recycled += recycleShare;
       }
     }
   }
