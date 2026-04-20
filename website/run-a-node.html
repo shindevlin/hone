@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run a Node — Earn BTCPC | btcpc.net</title>
+  <meta name="description" content="Mine AI inference. Connect sensors. Secure the BTCPC network. Any GPU or CPU. Start earning in 3 steps.">
+  <meta property="og:title" content="Run a BTCPC Node — Earn Real Rewards">
+  <meta property="og:description" content="Mine AI inference. Connect sensors. Secure the network. Start earning BTCPC in minutes.">
+  <meta property="og:url" content="https://btcpc.net/run-a-node">
+  <meta property="og:image" content="https://btcpc.net/btcpc-logo.jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --orange: #f7931a;
+      --orange-dim: rgba(247,147,26,0.12);
+      --orange-border: rgba(247,147,26,0.3);
+      --bg: #0a0e17;
+      --bg2: #111827;
+      --bg3: #1a2236;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --green: #22c55e;
+      --cyan: #22d3ee;
+      --radius: 12px;
+      --font: 'Courier New', Courier, monospace;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; min-height: 100vh; }
+
+    /* Nav */
+    #nav-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      display: flex; align-items: center; padding: 6px 16px;
+      background: rgba(10,14,23,0.95); border-bottom: 1px solid var(--orange-border);
+      font-size: 12px; gap: 16px;
+    }
+    #nav-bar a { color: #c8ccd4; text-decoration: none; }
+    #nav-bar a:first-child { color: var(--orange); font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+    #nav-bar a:hover { color: var(--orange); }
+
+    /* Layout */
+    .page { padding-top: 64px; max-width: 900px; margin: 0 auto; padding-bottom: 100px; }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 72px 24px 48px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(247,147,26,0.08) 0%, transparent 70%);
+      position: relative;
+    }
+    .hero h1 {
+      font-size: 52px; font-weight: 900; letter-spacing: -2px; margin-bottom: 12px; line-height: 1.05;
+    }
+    .hero h1 .orange { color: var(--orange); }
+    .hero .tagline { font-size: 18px; color: var(--text-muted); margin-bottom: 28px; }
+    .hero .tagline span { color: var(--text); }
+
+    /* Node counter badge */
+    .node-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--orange-dim); border: 1px solid var(--orange-border);
+      border-radius: 999px; padding: 8px 18px; font-size: 13px;
+      color: var(--orange); font-weight: bold; margin-bottom: 40px;
+    }
+    .node-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* Section */
+    .section { padding: 48px 24px 0; }
+    .section-label {
+      font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--orange); margin-bottom: 12px; font-weight: bold;
+    }
+    .section h2 { font-size: 28px; font-weight: 800; margin-bottom: 24px; color: var(--text); }
+
+    /* Requirements cards */
+    .req-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 8px; }
+    .req-card {
+      background: var(--bg2); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .req-card .req-icon { font-size: 28px; margin-bottom: 10px; }
+    .req-card .req-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .req-card .req-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+    /* Steps */
+    .steps { display: flex; flex-direction: column; gap: 20px; margin-top: 8px; }
+    .step {
+      background: var(--bg2); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius); padding: 28px;
+      position: relative;
+    }
+    .step:hover { border-color: var(--orange-border); }
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--orange); color: #0a0e17; font-weight: 900; font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .step h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+    .step .step-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 14px; }
+    .step .step-link { font-size: 12px; color: var(--orange); text-decoration: none; }
+    .step .step-link:hover { text-decoration: underline; }
+
+    /* Code block */
+    .code-block {
+      background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; padding: 16px 18px;
+      font-family: var(--font); font-size: 13px; color: #a6e3a1;
+      position: relative; overflow-x: auto; white-space: pre;
+    }
+    .copy-btn {
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(247,147,26,0.15); border: 1px solid var(--orange-border);
+      border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--orange);
+      cursor: pointer; font-family: var(--font);
+    }
+    .copy-btn:hover { background: rgba(247,147,26,0.25); }
+
+    /* Comment in code */
+    .code-block .comment { color: #6272a4; }
+
+    /* Earnings table */
+    .earn-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .earn-table th {
+      background: var(--bg3); color: var(--text-muted);
+      font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+      padding: 10px 16px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .earn-table td {
+      padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 13px;
+    }
+    .earn-table tr:last-child td { border-bottom: none; }
+    .earn-table tr:hover td { background: rgba(247,147,26,0.04); }
+    .earn-table .model-name { color: var(--cyan); font-weight: bold; }
+    .earn-table .earn-val { color: var(--green); font-weight: bold; }
+
+    /* Node types */
+    .node-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 8px; }
+    .node-card {
+      background: var(--bg2); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius); padding: 24px 20px;
+      transition: border-color 0.2s;
+    }
+    .node-card:hover { border-color: var(--orange-border); }
+    .node-card .nc-icon { font-size: 32px; margin-bottom: 10px; }
+    .node-card .nc-title { font-size: 15px; font-weight: 800; margin-bottom: 4px; color: var(--text); }
+    .node-card .nc-hw { font-size: 11px; color: var(--orange); font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px; }
+    .node-card .nc-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .node-card .nc-reward { margin-top: 10px; font-size: 12px; color: var(--green); font-weight: bold; }
+
+    /* CTA */
+    .cta-block {
+      margin-top: 48px; margin-left: 24px; margin-right: 24px;
+      background: linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);
+      border: 1px solid var(--orange-border);
+      border-radius: 16px; padding: 40px 32px; text-align: center;
+    }
+    .cta-block h2 { font-size: 26px; font-weight: 900; margin-bottom: 8px; }
+    .cta-block p { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; }
+    .cta-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      display: inline-block; background: var(--orange); color: #0a0e17;
+      font-weight: 900; font-size: 14px; padding: 12px 28px;
+      border-radius: 8px; text-decoration: none; font-family: var(--font);
+      transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-secondary {
+      display: inline-block; background: transparent; color: var(--orange);
+      font-weight: 700; font-size: 14px; padding: 11px 28px;
+      border-radius: 8px; border: 1px solid var(--orange-border); text-decoration: none;
+      font-family: var(--font); transition: background 0.15s;
+    }
+    .btn-secondary:hover { background: var(--orange-dim); }
+
+    /* Mine command */
+    .mine-cmd {
+      display: inline-block; background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; padding: 10px 18px; font-family: var(--font); font-size: 13px;
+      color: #a6e3a1; margin-top: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 34px; }
+      .hero .tagline { font-size: 15px; }
+      .cta-block { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<div id="nav-bar">
+  <a href="/"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC</a>
+  <a href="/globe">Globe</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/explorer">Explorer</a>
+  <a href="/run-a-node.html" style="color:var(--orange);font-weight:bold;">Run a Node</a>
+  <a href="/name-auction" style="color:var(--orange);font-weight:bold;">Name Auction</a>
+  <a href="/buy" style="color:var(--orange);font-weight:bold;">Buy BTCPC</a>
+  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+</div>
+
+<div class="page">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Run a Node.<br><span class="orange">Earn BTCPC.</span></h1>
+    <p class="tagline">
+      <span>Mine AI inference.</span> &nbsp;Connect sensors.&nbsp; Secure the network.
+    </p>
+    <div class="node-badge">
+      <span class="dot"></span>
+      <span id="peer-count">-- nodes</span> live on the network
+    </div>
+  </div>
+
+  <!-- What you need -->
+  <div class="section">
+    <div class="section-label">Requirements</div>
+    <h2>What you need</h2>
+    <div class="req-grid">
+      <div class="req-card">
+        <div class="req-icon">&#x1F4BB;</div>
+        <div class="req-title">GPU or CPU</div>
+        <div class="req-desc">Any Ollama-compatible GPU earns mining rewards. CPU-only? Run a clock or storage node — still earns.</div>
+      </div>
+      <div class="req-card">
+        <div class="req-icon">&#x1F4BE;</div>
+        <div class="req-title">8 GB RAM minimum</div>
+        <div class="req-desc">16 GB recommended for 13B+ models. Storage and clock nodes run fine on 8 GB.</div>
+      </div>
+      <div class="req-card">
+        <div class="req-icon">&#x1F5A5;&#xFE0F;</div>
+        <div class="req-title">Linux / macOS / Windows</div>
+        <div class="req-desc">Node.js 18+ and Ollama run everywhere. Native packages available for Linux and Windows.</div>
+      </div>
+      <div class="req-card">
+        <div class="req-icon">&#x1F310;</div>
+        <div class="req-title">Internet connection</div>
+        <div class="req-desc">Stable broadband. P2P port 6942 must be reachable for full node rewards.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3-step setup -->
+  <div class="section">
+    <div class="section-label">Setup</div>
+    <h2>Start mining in 3 steps</h2>
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Install</h3>
+        <p class="step-desc">Clone the repo and install dependencies. Takes about 60 seconds.</p>
+        <div class="code-block" id="cmd1">git clone https://github.com/shindevlin/btcpc.git &amp;&amp; cd btcpc &amp;&amp; npm install<button class="copy-btn" onclick="copyCmd('cmd1')">copy</button></div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Configure</h3>
+        <p class="step-desc">Copy the example config and edit your username in. Run the interactive setup to register your account on-chain. <a href="/setup.html" class="step-link">Full setup guide &rarr;</a></p>
+        <div class="code-block" id="cmd2"><span class="comment"># Copy the template, then open .env and set BTCPC_MINER to your username</span>
+cp .env.example .env
+node bin/btcpc-setup<button class="copy-btn" onclick="copyCmd('cmd2')">copy</button></div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Mine</h3>
+        <p class="step-desc">Start the mining daemon. Rewards arrive every 30-second epoch, scaled to your model's parameter count.</p>
+        <div class="code-block" id="cmd3">node bin/btcpc-mine --miner &lt;yourname&gt;<button class="copy-btn" onclick="copyCmd('cmd3')">copy</button></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- What you earn -->
+  <div class="section">
+    <div class="section-label">Rewards</div>
+    <h2>What you earn</h2>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
+      Rewards scale with verified parameter count from Ollama. Bigger model = more work = more BTCPC.
+      Values below are approximate at genesis reward rate.
+    </p>
+    <table class="earn-table">
+      <thead>
+        <tr>
+          <th>Model Size</th>
+          <th>Example Models</th>
+          <th>Approx BTCPC / epoch</th>
+          <th>Per day (est.)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="model-name">7B</td>
+          <td style="color:var(--text-muted);">qwen2.5:7b, llama3.1:8b, mistral:7b</td>
+          <td class="earn-val">~12 BTCPC</td>
+          <td style="color:var(--text-muted);">~1,440</td>
+        </tr>
+        <tr>
+          <td class="model-name">13B</td>
+          <td style="color:var(--text-muted);">llama2:13b, vicuna:13b</td>
+          <td class="earn-val">~24 BTCPC</td>
+          <td style="color:var(--text-muted);">~2,880</td>
+        </tr>
+        <tr>
+          <td class="model-name">27B</td>
+          <td style="color:var(--text-muted);">gemma3:27b, qwen2.5:32b</td>
+          <td class="earn-val">~54 BTCPC</td>
+          <td style="color:var(--text-muted);">~6,480</td>
+        </tr>
+        <tr>
+          <td class="model-name">70B</td>
+          <td style="color:var(--text-muted);">llama3.3:70b, qwen2.5:72b</td>
+          <td class="earn-val">~135 BTCPC</td>
+          <td style="color:var(--text-muted);">~16,200</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="color:var(--text-muted);font-size:11px;margin-top:12px;">
+      * Epoch = 30 seconds. Rewards are a share of the epoch pool, not fixed amounts.
+      Actual earnings depend on total network compute at time of mining.
+    </p>
+  </div>
+
+  <!-- Node types -->
+  <div class="section">
+    <div class="section-label">Node Types</div>
+    <h2>Pick your role</h2>
+    <div class="node-grid">
+      <div class="node-card">
+        <div class="nc-icon">&#x26CF;&#xFE0F;</div>
+        <div class="nc-title">Miner</div>
+        <div class="nc-hw">GPU recommended</div>
+        <div class="nc-desc">Run Ollama inference. Work is verified on-chain. Highest reward potential — scales with model parameter count.</div>
+        <div class="nc-reward">&#x25B2; Highest rewards</div>
+      </div>
+      <div class="node-card">
+        <div class="nc-icon">&#x23F1;&#xFE0F;</div>
+        <div class="nc-title">Clock Node</div>
+        <div class="nc-hw">Any hardware</div>
+        <div class="nc-desc">Provide time attestations for network consensus. Raspberry Pi, old laptop, phone — anything with internet works.</div>
+        <div class="nc-reward">&#x25B6; Stable small reward</div>
+      </div>
+      <div class="node-card">
+        <div class="nc-icon">&#x1F4BE;</div>
+        <div class="nc-title">Storage Node</div>
+        <div class="nc-hw">Disk space</div>
+        <div class="nc-desc">Host BTCPC-FS blobs. Earn pay-per-delivery fees when your stored data is retrieved. No slash for absence.</div>
+        <div class="nc-reward">&#x25B6; Pay per delivery</div>
+      </div>
+      <div class="node-card">
+        <div class="nc-icon">&#x1F4F6;</div>
+        <div class="nc-title">Sensor Relay</div>
+        <div class="nc-hw">IoT / GPS device</div>
+        <div class="nc-desc">Forward GNSS, environmental, or Meshtastic readings to the chain. Earn per verified reading relayed.</div>
+        <div class="nc-reward">&#x25B6; Pay per reading</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-block">
+    <h2>Ready to earn?</h2>
+    <p>Grab your on-chain username first — it's your miner identity and wallet address on the BTCPC chain.</p>
+    <div class="cta-buttons">
+      <a href="/name-auction.html" class="btn-primary">Get your username first</a>
+      <a href="#cmd3" class="btn-secondary">Already have one? Start mining</a>
+    </div>
+    <div class="mine-cmd">node bin/btcpc-mine --miner &lt;yourname&gt;</div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// Copy command helper
+function copyCmd(id) {
+  var el = document.getElementById(id);
+  // Get text without the button text
+  var clone = el.cloneNode(true);
+  var btn = clone.querySelector('.copy-btn');
+  if (btn) btn.remove();
+  var spans = clone.querySelectorAll('.comment');
+  // include comment text but strip HTML tags
+  var text = clone.innerText || clone.textContent;
+  navigator.clipboard.writeText(text.trim()).then(function() {
+    var b = document.querySelector('#' + id + ' .copy-btn');
+    if (b) { b.textContent = 'copied!'; setTimeout(function(){ b.textContent = 'copy'; }, 1500); }
+  }).catch(function() {
+    // fallback: select
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  });
+}
+
+// Live peer count
+(function fetchPeers() {
+  var el = document.getElementById('peer-count');
+  fetch('/api/stats')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var count = d.peer_count || d.peers || d.peerCount || d.connected_peers;
+      if (count !== undefined) el.textContent = count + ' node' + (count === 1 ? '' : 's');
+    })
+    .catch(function(){
+      // fallback: try /api/peers
+      fetch('/api/peers')
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          var count = Array.isArray(d) ? d.length : (d.count || d.peer_count);
+          if (count !== undefined) el.textContent = count + ' node' + (count === 1 ? '' : 's');
+        })
+        .catch(function(){ /* leave default */ });
+    });
+  setTimeout(fetchPeers, 30000);
+})();
+</script>
+
+</body>
+</html>

@@ -154,6 +154,13 @@ router.get("/quote", (req, res) => {
   const paymentAddress = getPaymentAddress(chain);
   const tokenContract = getTokenContract(chain, token);
 
+  if (!paymentAddress) {
+    return res.status(503).json({
+      error: "payment_not_configured",
+      message: "This chain is not yet configured for purchases. Try Ethereum.",
+    });
+  }
+
   res.json({
     btcpc_amount: btcpcAmount,
     price_per_btcpc_usd: price,
@@ -202,7 +209,10 @@ router.post("/submit", submitLimiter, (req, res) => {
 
   const paymentAddress = getPaymentAddress(chainNorm);
   if (!paymentAddress) {
-    return res.status(503).json({ error: "Payment address not configured for " + chainNorm });
+    return res.status(503).json({
+      error: "payment_not_configured",
+      message: "This chain is not yet configured for purchases. Try Ethereum.",
+    });
   }
 
   const purchaseId = crypto.randomBytes(8).toString("hex");

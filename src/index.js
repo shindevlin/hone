@@ -38,6 +38,11 @@ if (!process.env.JWT_SECRET) {
 // Phase F: MongoDB is optional. BTCPC_MONGO_MODE=disabled skips connection entirely.
 let mongoEnabled = false;
 
+// Purchase address startup check
+if (!process.env.BTCPC_PURCHASE_ETH_ADDRESS) {
+  console.warn('[BTCPC] WARNING: BTCPC_PURCHASE_ETH_ADDRESS not set — ETH purchase route will return 503');
+}
+
 const app = express();
 
 // Trust loopback proxies only (website static server runs on 127.0.0.1)
