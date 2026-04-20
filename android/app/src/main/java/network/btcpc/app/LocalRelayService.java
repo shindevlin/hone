@@ -3,10 +3,35 @@ package network.btcpc.app;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.hardware.usb.UsbConstants;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.ParcelUuid;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -17,62 +42,141 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-import fi.iki.elonen.NanoHTTPD;
-
+/**
+ * LocalRelayService — Flipper Zero sensor relay for BTCPC.
+ *
+ * Connection methods (no WiFi board required):
+ *   1. USB OTG  — Flipper Zero appears as CDC ACM serial (VID 0x0483, PID 0x5740).
+ *                 Android USB Host API reads lines from bulk endpoint.
+ *   2. BLE UART — Flipper Zero UART BLE Bridge app advertises Nordic UART Service.
+ *                 Android connects as GATT client, subscribes to TX characteristic.
+ *
+ * Each method parses lines as JSON: {"id":"sensor_id","value":23.5,"unit":"C"}
+ * and forwards to the BTCPC sensor readings API.
+ *
+ * API target: local node on localhost:4242 with fallback to btcpc.net.
+ */
 public class LocalRelayService extends Service {
 
     private static final String TAG = "BTCPCRelay";
     private static final int NOTIFICATION_ID = 9420;
     private static final String CHANNEL_ID = "btcpc_relay";
-    private static final int RELAY_PORT = 6942;
-    private static final String UPSTREAM_BASE = "https://btcpc.net/api";
 
-    private RelayServer server;
+    // Flipper Zero USB identifiers (STM32 CDC ACM)
+    private static final int FLIPPER_VID = 0x0483;
+    private static final int FLIPPER_PID = 0x5740;
+
+    // Nordic UART Service UUIDs (used by Flipper BLE UART Bridge app)
+    private static final UUID NUS_SERVICE_UUID =
+            UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static final UUID NUS_TX_CHAR_UUID =           // Flipper → phone (notify)
+            UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static final UUID CLIENT_CHARACTERISTIC_CONFIG =
+            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+
+    // API endpoints — local node first, remote fallback
+    private static final String LOCAL_API_BASE  = "http://localhost:4242/api";
+    private static final String REMOTE_API_BASE = "https://btcpc.net/api";
+
+    private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
+
+    private UsbManager usbManager;
+    private UsbReaderThread usbReaderThread;
+
+    private BluetoothLeScanner bleScanner;
+    private BluetoothGatt bleGatt;
+    private final ScanCallback bleScanCallback = new FlipperBleScanCallback();
+    private boolean bleConnected = false;
+
+    private final ExecutorService httpExecutor = Executors.newCachedThreadPool();
+
+    // -----------------------------------------------------------------------
+    // BroadcastReceiver — USB attach + permission grant
+    // -----------------------------------------------------------------------
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (isFlipperZero(device)) {
+                    Log.i(TAG, "Flipper Zero attached via USB");
+                    requestUsbPermission(device);
+                }
+            } else if (ACTION_USB_PERMISSION.equals(action)) {
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+                if (granted && device != null) {
+                    Log.i(TAG, "USB permission granted — opening Flipper serial");
+                    startUsbReader(device);
+                } else {
+                    Log.w(TAG, "USB permission denied for " + (device != null ? device.getDeviceName() : "null"));
+                }
+            }
+        }
+    };
+
+    // -----------------------------------------------------------------------
+    // Lifecycle
+    // -----------------------------------------------------------------------
 
     @Override
     public void onCreate() {
         super.onCreate();
+        usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
         createNotificationChannel();
+
+        // Register USB events
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(ACTION_USB_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbReceiver, filter);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("BTCPC Relay")
-                .setContentText("Accepting sensor data on port 6942")
+                .setContentText("BTCPC Relay — Flipper Zero via USB or Bluetooth")
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
                 .setOngoing(true)
                 .build();
 
         startForeground(NOTIFICATION_ID, notification);
 
-        if (server == null) {
-            server = new RelayServer(RELAY_PORT);
-            try {
-                server.start();
-                Log.i(TAG, "Relay server started on port " + RELAY_PORT);
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to start relay server: " + e.getMessage());
-                stopSelf();
-            }
-        }
+        // Check for already-attached Flipper Zero
+        probeAttachedUsb();
+
+        // Start BLE scan for Flipper UART bridge
+        startBleScan();
 
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        if (server != null) {
-            server.stop();
-            server = null;
-            Log.i(TAG, "Relay server stopped");
+        try { unregisterReceiver(usbReceiver); } catch (Exception ignored) {}
+        stopUsbReader();
+        stopBleScan();
+        if (bleGatt != null) {
+            bleGatt.close();
+            bleGatt = null;
         }
+        httpExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -81,6 +185,361 @@ public class LocalRelayService extends Service {
         return null;
     }
 
+    // -----------------------------------------------------------------------
+    // USB OTG — Method 1
+    // -----------------------------------------------------------------------
+
+    private boolean isFlipperZero(UsbDevice device) {
+        return device != null
+                && device.getVendorId()  == FLIPPER_VID
+                && device.getProductId() == FLIPPER_PID;
+    }
+
+    /**
+     * Check already-attached devices at service start (e.g. cable plugged before app launch).
+     */
+    private void probeAttachedUsb() {
+        if (usbManager == null) return;
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            if (isFlipperZero(device)) {
+                Log.i(TAG, "Flipper Zero already attached — requesting permission");
+                requestUsbPermission(device);
+                return;
+            }
+        }
+    }
+
+    private void requestUsbPermission(UsbDevice device) {
+        if (usbManager.hasPermission(device)) {
+            startUsbReader(device);
+            return;
+        }
+        Intent permIntent = new Intent(ACTION_USB_PERMISSION);
+        permIntent.setPackage(getPackageName());
+        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                ? PendingIntent.FLAG_MUTABLE
+                : 0;
+        PendingIntent pi = PendingIntent.getBroadcast(this, 0, permIntent, flags);
+        usbManager.requestPermission(device, pi);
+    }
+
+    private void startUsbReader(UsbDevice device) {
+        stopUsbReader();
+        UsbDeviceConnection connection = usbManager.openDevice(device);
+        if (connection == null) {
+            Log.e(TAG, "Failed to open USB device");
+            return;
+        }
+        // Find CDC ACM bulk-IN endpoint
+        UsbEndpoint bulkIn = findBulkInEndpoint(device, connection);
+        if (bulkIn == null) {
+            Log.e(TAG, "No bulk-IN endpoint found on Flipper Zero");
+            connection.close();
+            return;
+        }
+        usbReaderThread = new UsbReaderThread(connection, bulkIn);
+        usbReaderThread.start();
+        Log.i(TAG, "USB serial reader started");
+    }
+
+    private void stopUsbReader() {
+        if (usbReaderThread != null) {
+            usbReaderThread.cancel();
+            usbReaderThread = null;
+        }
+    }
+
+    /**
+     * Claim all interfaces and return the first bulk-IN endpoint (CDC ACM data interface).
+     */
+    private UsbEndpoint findBulkInEndpoint(UsbDevice device, UsbDeviceConnection conn) {
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface iface = device.getInterface(i);
+            conn.claimInterface(iface, true);
+            for (int e = 0; e < iface.getEndpointCount(); e++) {
+                UsbEndpoint ep = iface.getEndpoint(e);
+                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK
+                        && ep.getDirection() == UsbConstants.USB_DIR_IN) {
+                    return ep;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Background thread: reads raw bytes from USB bulk-IN, reassembles newline-delimited JSON lines.
+     */
+    private class UsbReaderThread extends Thread {
+        private final UsbDeviceConnection connection;
+        private final UsbEndpoint endpoint;
+        private volatile boolean running = true;
+        private static final int TIMEOUT_MS = 500;
+        private static final int BUF_SIZE = 512;
+
+        UsbReaderThread(UsbDeviceConnection connection, UsbEndpoint endpoint) {
+            super("USB-Flipper-Reader");
+            this.connection = connection;
+            this.endpoint = endpoint;
+            setDaemon(true);
+        }
+
+        void cancel() {
+            running = false;
+            connection.close();
+        }
+
+        @Override
+        public void run() {
+            byte[] buf = new byte[BUF_SIZE];
+            StringBuilder lineBuffer = new StringBuilder();
+            while (running) {
+                int read = connection.bulkTransfer(endpoint, buf, BUF_SIZE, TIMEOUT_MS);
+                if (read > 0) {
+                    String chunk = new String(buf, 0, read, StandardCharsets.UTF_8);
+                    lineBuffer.append(chunk);
+                    // Process complete lines
+                    int nl;
+                    while ((nl = lineBuffer.indexOf("\n")) >= 0) {
+                        String line = lineBuffer.substring(0, nl).trim();
+                        lineBuffer.delete(0, nl + 1);
+                        if (!line.isEmpty()) {
+                            handleSensorLine(line, "USB");
+                        }
+                    }
+                } else if (read < 0) {
+                    Log.w(TAG, "USB bulk transfer error — Flipper may have disconnected");
+                    running = false;
+                }
+            }
+            Log.i(TAG, "USB reader thread exiting");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // BLE UART (Nordic UART Service) — Method 2
+    // -----------------------------------------------------------------------
+
+    private void startBleScan() {
+        BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+        if (bm == null) return;
+        BluetoothAdapter adapter = bm.getAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            Log.i(TAG, "Bluetooth not available/enabled — skipping BLE scan");
+            return;
+        }
+        bleScanner = adapter.getBluetoothLeScanner();
+        if (bleScanner == null) return;
+
+        ScanFilter nusFilter = new ScanFilter.Builder()
+                .setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID))
+                .build();
+        ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+                .build();
+        bleScanner.startScan(Collections.singletonList(nusFilter), settings, bleScanCallback);
+        Log.i(TAG, "BLE scan started — looking for Flipper UART bridge (NUS)");
+    }
+
+    private void stopBleScan() {
+        if (bleScanner != null) {
+            try { bleScanner.stopScan(bleScanCallback); } catch (Exception ignored) {}
+            bleScanner = null;
+        }
+    }
+
+    private class FlipperBleScanCallback extends ScanCallback {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            if (bleConnected) return;
+            BluetoothDevice device = result.getDevice();
+            Log.i(TAG, "Found NUS device: " + device.getAddress()
+                    + " name=" + device.getName());
+            stopBleScan();
+            bleConnected = true;
+            // Connect on main thread is fine; GATT callbacks are delivered on Binder thread
+            bleGatt = device.connectGatt(LocalRelayService.this, false, new FlipperGattCallback());
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            Log.e(TAG, "BLE scan failed: errorCode=" + errorCode);
+        }
+    }
+
+    private class FlipperGattCallback extends BluetoothGattCallback {
+        private StringBuilder lineBuffer = new StringBuilder();
+
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.i(TAG, "BLE connected — discovering services");
+                gatt.discoverServices();
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                Log.i(TAG, "BLE disconnected — will re-scan");
+                bleConnected = false;
+                gatt.close();
+                bleGatt = null;
+                lineBuffer.setLength(0);
+                // Re-start scan after a short delay via retry thread
+                new Thread(() -> {
+                    try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
+                    startBleScan();
+                }, "BLE-Rescan").start();
+            }
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Service discovery failed: " + status);
+                return;
+            }
+            BluetoothGattService nus = gatt.getService(NUS_SERVICE_UUID);
+            if (nus == null) {
+                Log.e(TAG, "NUS service not found after discovery");
+                return;
+            }
+            BluetoothGattCharacteristic txChar = nus.getCharacteristic(NUS_TX_CHAR_UUID);
+            if (txChar == null) {
+                Log.e(TAG, "NUS TX characteristic not found");
+                return;
+            }
+            // Enable notifications on TX characteristic
+            gatt.setCharacteristicNotification(txChar, true);
+            BluetoothGattDescriptor descriptor = txChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
+            if (descriptor != null) {
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(descriptor);
+                Log.i(TAG, "BLE NUS TX notifications enabled");
+            }
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt,
+                                            BluetoothGattCharacteristic characteristic) {
+            if (!NUS_TX_CHAR_UUID.equals(characteristic.getUuid())) return;
+            byte[] data = characteristic.getValue();
+            if (data == null || data.length == 0) return;
+
+            String chunk = new String(data, StandardCharsets.UTF_8);
+            lineBuffer.append(chunk);
+            // Process complete lines
+            int nl;
+            while ((nl = lineBuffer.indexOf("\n")) >= 0) {
+                String line = lineBuffer.substring(0, nl).trim();
+                lineBuffer.delete(0, nl + 1);
+                if (!line.isEmpty()) {
+                    handleSensorLine(line, "BLE");
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared sensor-line handler
+    // -----------------------------------------------------------------------
+
+    /**
+     * Parse a newline-delimited JSON line from Flipper Zero and forward to BTCPC API.
+     * Expected format: {"id":"sensor_id","value":23.5,"unit":"C"}
+     */
+    private void handleSensorLine(String line, String transport) {
+        Log.d(TAG, "[" + transport + "] line: " + line);
+        JSONObject json;
+        try {
+            json = new JSONObject(line);
+        } catch (JSONException e) {
+            Log.w(TAG, "[" + transport + "] Non-JSON line ignored: " + line);
+            return;
+        }
+
+        String sensorId = json.optString("id", "").trim();
+        if (sensorId.isEmpty()) {
+            Log.w(TAG, "[" + transport + "] Missing 'id' in sensor reading");
+            return;
+        }
+        if (!json.has("value")) {
+            Log.w(TAG, "[" + transport + "] Missing 'value' in sensor reading");
+            return;
+        }
+
+        // Build the payload to forward (preserve all fields)
+        final String sensorIdFinal = sensorId;
+        final String payload = line;
+
+        httpExecutor.execute(() -> forwardReading(sensorIdFinal, payload, transport));
+    }
+
+    /**
+     * POST sensor reading to BTCPC API. Tries local node first, falls back to remote.
+     */
+    private void forwardReading(String sensorId, String jsonBody, String transport) {
+        String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
+        String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
+
+        boolean sent = false;
+        try {
+            String resp = httpPost(localUrl, jsonBody);
+            Log.i(TAG, "[" + transport + "] local API OK for " + sensorId + ": " + resp);
+            sent = true;
+        } catch (IOException localEx) {
+            Log.d(TAG, "[" + transport + "] local API unreachable (" + localEx.getMessage()
+                    + ") — trying remote");
+        }
+
+        if (!sent) {
+            try {
+                String resp = httpPost(remoteUrl, jsonBody);
+                Log.i(TAG, "[" + transport + "] remote API OK for " + sensorId + ": " + resp);
+            } catch (IOException remoteEx) {
+                Log.e(TAG, "[" + transport + "] both endpoints failed for " + sensorId
+                        + ": " + remoteEx.getMessage());
+            }
+        }
+    }
+
+    /**
+     * HTTP POST with JSON body; returns response body string.
+     */
+    private String httpPost(String urlStr, String jsonBody) throws IOException {
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("User-Agent", "BTCPC-Android-Relay/1.0");
+        conn.setConnectTimeout(5_000);
+        conn.setReadTimeout(10_000);
+        conn.setDoOutput(true);
+
+        try (OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8")) {
+            writer.write(jsonBody);
+            writer.flush();
+        }
+
+        int status = conn.getResponseCode();
+        java.io.InputStream is = (status >= 200 && status < 300)
+                ? conn.getInputStream()
+                : conn.getErrorStream();
+
+        StringBuilder sb = new StringBuilder();
+        if (is != null) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
+                String line2;
+                while ((line2 = reader.readLine()) != null) sb.append(line2);
+            }
+        }
+        if (status < 200 || status >= 300) {
+            throw new IOException("HTTP " + status + ": " + sb);
+        }
+        return sb.length() > 0 ? sb.toString() : "{\"status\":" + status + "}";
+    }
+
+    // -----------------------------------------------------------------------
+    // Notification channel
+    // -----------------------------------------------------------------------
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -88,159 +547,11 @@ public class LocalRelayService extends Service {
                     "BTCPC Relay",
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("LAN relay for sensor data from Flipper Zero, browsers, and other devices");
+            channel.setDescription("Relays sensor data from Flipper Zero via USB or Bluetooth");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
             }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // NanoHTTPD inner server
-    // -----------------------------------------------------------------------
-    private static class RelayServer extends NanoHTTPD {
-
-        RelayServer(int port) {
-            super(port);
-        }
-
-        @Override
-        public Response serve(IHTTPSession session) {
-            String uri = session.getUri();
-            Method method = session.getMethod();
-
-            Log.d(TAG, method + " " + uri);
-
-            // Only handle POST /sensors/:id/readings
-            if (!Method.POST.equals(method)) {
-                return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED,
-                        "application/json", "{\"error\":\"Method not allowed\"}");
-            }
-
-            // Parse /sensors/:id/readings
-            String sensorId = parseSensorId(uri);
-            if (sensorId == null) {
-                return newFixedLengthResponse(Response.Status.NOT_FOUND,
-                        "application/json", "{\"error\":\"Not found. Use POST /sensors/:id/readings\"}");
-            }
-
-            // Read body
-            String body;
-            try {
-                Map<String, String> files = new java.util.HashMap<>();
-                session.parseBody(files);
-                body = files.get("postData");
-                if (body == null || body.isEmpty()) {
-                    // Fallback: read directly from input stream
-                    int contentLength = 0;
-                    String cl = session.getHeaders().get("content-length");
-                    if (cl != null) contentLength = Integer.parseInt(cl.trim());
-                    if (contentLength > 0) {
-                        byte[] buf = new byte[contentLength];
-                        int read = session.getInputStream().read(buf, 0, contentLength);
-                        body = new String(buf, 0, read, "UTF-8");
-                    } else {
-                        body = "{}";
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to read body: " + e.getMessage());
-                return newFixedLengthResponse(Response.Status.BAD_REQUEST,
-                        "application/json", "{\"error\":\"Failed to read request body\"}");
-            }
-
-            // Validate JSON
-            JSONObject payload;
-            try {
-                payload = new JSONObject(body);
-            } catch (JSONException e) {
-                return newFixedLengthResponse(Response.Status.BAD_REQUEST,
-                        "application/json", "{\"error\":\"Invalid JSON\"}");
-            }
-
-            // Validate required fields
-            if (!payload.has("value")) {
-                return newFixedLengthResponse(Response.Status.BAD_REQUEST,
-                        "application/json", "{\"error\":\"'value' field is required\"}");
-            }
-
-            Object valueObj = payload.opt("value");
-            if (!(valueObj instanceof Number)) {
-                return newFixedLengthResponse(Response.Status.BAD_REQUEST,
-                        "application/json", "{\"error\":\"'value' must be numeric\"}");
-            }
-
-            Log.i(TAG, "Relaying reading for sensor " + sensorId + ": " + body);
-
-            // Forward to upstream
-            String upstreamUrl = UPSTREAM_BASE + "/sensors/" + sensorId + "/readings";
-            try {
-                String response = postToUpstream(upstreamUrl, body);
-                Log.i(TAG, "Upstream response for " + sensorId + ": " + response);
-                return newFixedLengthResponse(Response.Status.OK, "application/json", response);
-            } catch (IOException e) {
-                Log.e(TAG, "Upstream request failed: " + e.getMessage());
-                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR,
-                        "application/json", "{\"error\":\"Upstream unreachable\",\"detail\":\"" + e.getMessage() + "\"}");
-            }
-        }
-
-        /**
-         * Parse sensor ID from URI of the form /sensors/:id/readings
-         */
-        private String parseSensorId(String uri) {
-            if (uri == null) return null;
-            // Strip query string
-            int q = uri.indexOf('?');
-            if (q >= 0) uri = uri.substring(0, q);
-            // Match /sensors/<id>/readings
-            String[] parts = uri.split("/");
-            // Expected: ["", "sensors", "<id>", "readings"]
-            if (parts.length == 4
-                    && "sensors".equals(parts[1])
-                    && "readings".equals(parts[3])
-                    && !parts[2].isEmpty()) {
-                return parts[2];
-            }
-            return null;
-        }
-
-        /**
-         * HTTP POST to upstream URL with JSON body. Returns response body as string.
-         */
-        private String postToUpstream(String urlStr, String jsonBody) throws IOException {
-            URL url = new URL(urlStr);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("User-Agent", "BTCPC-Android-Relay/1.0");
-            conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(15_000);
-            conn.setDoOutput(true);
-
-            try (OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8")) {
-                writer.write(jsonBody);
-                writer.flush();
-            }
-
-            int status = conn.getResponseCode();
-            java.io.InputStream is = (status >= 200 && status < 300)
-                    ? conn.getInputStream()
-                    : conn.getErrorStream();
-
-            StringBuilder sb = new StringBuilder();
-            if (is != null) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sb.append(line);
-                    }
-                }
-            }
-
-            return sb.length() > 0 ? sb.toString() : "{\"status\":" + status + "}";
         }
     }
 }
