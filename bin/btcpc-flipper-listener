@@ -7,23 +7,87 @@
  * Runs as a background daemon. When a Flipper Zero is connected via USB,
  * automatically flushes its buffered sensor readings to the BTCPC chain.
  *
+ * Store-and-forward: when the chain API is unreachable, readings are written
+ * to ~/.btcpc/flipper-buffer.jsonl and drained on the next successful call.
+ *
+ * Sub-GHz relay: subghz readings include relay_account for reward attribution
+ * when the submitting node is not the device owner.
+ *
  * Usage: node bin/btcpc-flipper-listener
  */
 
-var fs = require("fs");
+var fs   = require("fs");
+var path = require("path");
 var http = require("http");
+var os   = require("os");
 var { execSync, execFileSync } = require("child_process");
 
 var CHECK_INTERVAL_MS = 10000; // check every 10 seconds
 var FLUSH_INTERVAL_MS = 30000; // flush readings every 30 seconds
 var lastFlush = 0;
 
-var CHAIN_HOST = "http://localhost:4242";
-var ACCOUNT = "josh";
-var AUTH_TOKEN = process.env.BTCPC_AUTH_TOKEN || "";
+var CHAIN_HOST  = "http://localhost:4242";
+var ACCOUNT     = process.env.BTCPC_MINER || "josh";
+var RELAY_ACCOUNT = process.env.RELAY_ACCOUNT || "natoshisakamoto";
+var AUTH_TOKEN  = process.env.BTCPC_AUTH_TOKEN || "";
 
+// ── Store-and-forward buffer ─────────────────────────────────────────────────
+var BUFFER_DIR  = path.join(os.homedir(), ".btcpc");
+var BUFFER_FILE = path.join(BUFFER_DIR, "flipper-buffer.jsonl");
+var BUFFER_MAX  = 10000; // max lines before oldest are dropped
+
+function ensureBufferDir() {
+    try {
+        if (!fs.existsSync(BUFFER_DIR)) fs.mkdirSync(BUFFER_DIR, { recursive: true });
+    } catch (_) {}
+}
+
+function bufferReading(entry) {
+    ensureBufferDir();
+    try {
+        // Read existing lines
+        var existing = [];
+        if (fs.existsSync(BUFFER_FILE)) {
+            existing = fs.readFileSync(BUFFER_FILE, "utf8")
+                .split("\n")
+                .filter(function(l) { return l.trim().length > 0; });
+        }
+        existing.push(JSON.stringify(entry));
+        // Cap at BUFFER_MAX — drop oldest
+        if (existing.length > BUFFER_MAX) {
+            existing = existing.slice(existing.length - BUFFER_MAX);
+        }
+        fs.writeFileSync(BUFFER_FILE, existing.join("\n") + "\n", "utf8");
+    } catch (e) {
+        log("Buffer write error: " + e.message);
+    }
+}
+
+function readBuffer() {
+    try {
+        if (!fs.existsSync(BUFFER_FILE)) return [];
+        return fs.readFileSync(BUFFER_FILE, "utf8")
+            .split("\n")
+            .filter(function(l) { return l.trim().length > 0; })
+            .map(function(l) {
+                try { return JSON.parse(l); } catch (_) { return null; }
+            })
+            .filter(Boolean);
+    } catch (_) {
+        return [];
+    }
+}
+
+function clearBuffer() {
+    try {
+        if (fs.existsSync(BUFFER_FILE)) fs.writeFileSync(BUFFER_FILE, "", "utf8");
+    } catch (_) {}
+}
+
+// ── Logging ──────────────────────────────────────────────────────────────────
 function log(msg) { console.log("[flipper-listener] " + msg); }
 
+// ── Flipper detection ─────────────────────────────────────────────────────────
 function findFlipperPort() {
     try {
         var files = fs.readdirSync("/dev").filter(function(f) { return f.startsWith("ttyACM"); });
@@ -150,23 +214,41 @@ function sendCommand(port, cmd) {
 }
 
 /**
- * POST a sensor reading to the chain via HTTP.
- * Endpoint: POST /api/sensors/:id/readings
- * Body: { account, value, metadata? }
- * The sensor ID contains a slash so it must be URL-encoded.
+ * Build the POST body for a sensor reading.
+ * Includes relay_account for subghz readings when the submitter is not the
+ * device owner (ACCOUNT !== RELAY_ACCOUNT).
  */
-function postReading(sensorId, value, metadata) {
+function buildBody(sensorType, value, metadata) {
+    var body = {
+        account:  ACCOUNT,
+        value:    value,
+        metadata: metadata || {},
+    };
+    // Sub-GHz relay attribution: only set when the submitting node is not the owner
+    if (sensorType === "subghz" && ACCOUNT !== RELAY_ACCOUNT) {
+        body.relay_account = RELAY_ACCOUNT;
+    }
+    return body;
+}
+
+/**
+ * POST a sensor reading to the chain via HTTP.
+ * Returns a Promise that resolves with the parsed response, or rejects on
+ * network error (ECONNREFUSED, timeout, etc.) so callers can buffer.
+ */
+function postReading(sensorId, value, metadata, sensorType) {
     return new Promise(function(resolve, reject) {
         var encodedId = encodeURIComponent(sensorId);
-        var body = JSON.stringify({ account: ACCOUNT, value: value, metadata: metadata || {} });
+        var bodyObj   = buildBody(sensorType || "unknown", value, metadata);
+        var bodyStr   = JSON.stringify(bodyObj);
         var options = {
             method: "POST",
             hostname: "localhost",
             port: 4242,
             path: "/api/sensors/" + encodedId + "/readings",
             headers: {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(body),
+                "Content-Type":   "application/json",
+                "Content-Length": Buffer.byteLength(bodyStr),
             },
         };
         if (AUTH_TOKEN) {
@@ -181,9 +263,57 @@ function postReading(sensorId, value, metadata) {
             });
         });
         req.on("error", reject);
-        req.write(body);
+        req.setTimeout(8000, function() {
+            req.destroy(new Error("request timeout"));
+        });
+        req.write(bodyStr);
         req.end();
     });
+}
+
+/**
+ * Drain any buffered readings (oldest first).
+ * Returns the number of entries successfully submitted.
+ */
+async function drainBuffer() {
+    var entries = readBuffer();
+    if (entries.length === 0) return 0;
+
+    log("draining " + entries.length + " buffered readings");
+    var remaining = [];
+    var drained = 0;
+
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        try {
+            var result = await postReading(e.sensorId, e.value, e.metadata, e.sensorType);
+            if (result && (result.success || result.duplicate)) {
+                drained++;
+            } else {
+                // Server rejected it — don't re-buffer, just skip
+                log("Buffered reading rejected for " + e.sensorId + ": " + JSON.stringify(result));
+                drained++;
+            }
+        } catch (err) {
+            // API still unreachable — stop draining, keep remaining
+            remaining = entries.slice(i);
+            break;
+        }
+    }
+
+    // Rewrite the file with only the unsubmitted entries
+    try {
+        ensureBufferDir();
+        if (remaining.length > 0) {
+            fs.writeFileSync(BUFFER_FILE,
+                remaining.map(function(x) { return JSON.stringify(x); }).join("\n") + "\n",
+                "utf8");
+        } else {
+            clearBuffer();
+        }
+    } catch (_) {}
+
+    return drained;
 }
 
 async function flushReadings(port) {
@@ -194,35 +324,62 @@ async function flushReadings(port) {
         if (resp && resp.readings && resp.readings.length > 0) {
             log("Got " + resp.readings.length + " readings from Flipper");
 
+            // Drain any previously buffered readings first
+            var buffered = readBuffer();
+            if (buffered.length > 0) {
+                await drainBuffer();
+            }
+
             var submitted = 0;
             for (var i = 0; i < resp.readings.length; i++) {
                 var r = resp.readings[i];
                 var sensorType = r.type || "unknown";
-                var sensorId = ACCOUNT + "/flipper-" + sensorType;
-                var value = (r.rssi !== undefined) ? r.rssi : (r.value !== undefined ? r.value : 0);
-                var metadata = {
-                    type: sensorType,
-                    source: "flipper-zero",
+                var sensorId   = ACCOUNT + "/flipper-" + sensorType;
+                var value      = (r.rssi !== undefined) ? r.rssi : (r.value !== undefined ? r.value : 0);
+                var metadata   = {
+                    type:               sensorType,
+                    source:             "flipper-zero",
                     signal_strength_dbm: typeof r.rssi === "number" ? r.rssi : undefined,
                 };
                 // Pass through any extra fields the Flipper returns
-                if (r.unit) metadata.unit = r.unit;
+                if (r.unit)                         metadata.unit        = r.unit;
                 if (typeof r.battery_pct === "number") metadata.battery_pct = r.battery_pct;
 
                 try {
-                    var result = await postReading(sensorId, value, metadata);
+                    var result = await postReading(sensorId, value, metadata, sensorType);
                     if (result && (result.success || result.duplicate)) {
                         submitted++;
                     } else {
                         log("Reading rejected for " + sensorId + ": " + JSON.stringify(result));
                     }
                 } catch (e) {
-                    log("Post error for " + sensorId + ": " + e.message);
+                    // API unreachable — buffer this reading and the rest
+                    log("Post error for " + sensorId + " (buffering): " + e.message);
+                    for (var j = i; j < resp.readings.length; j++) {
+                        var rb = resp.readings[j];
+                        var st = rb.type || "unknown";
+                        var sid = ACCOUNT + "/flipper-" + st;
+                        var rv = (rb.rssi !== undefined) ? rb.rssi : (rb.value !== undefined ? rb.value : 0);
+                        var rm = {
+                            type:               st,
+                            source:             "flipper-zero",
+                            signal_strength_dbm: typeof rb.rssi === "number" ? rb.rssi : undefined,
+                        };
+                        if (rb.unit)                           rm.unit        = rb.unit;
+                        if (typeof rb.battery_pct === "number") rm.battery_pct = rb.battery_pct;
+                        bufferReading({ sensorId: sid, value: rv, metadata: rm, sensorType: st });
+                    }
+                    break;
                 }
             }
             log("Submitted " + submitted + "/" + resp.readings.length + " to chain");
         } else {
             log("No readings to flush");
+            // Still try to drain the buffer if API is reachable
+            var pending = readBuffer();
+            if (pending.length > 0) {
+                await drainBuffer();
+            }
         }
     } catch (e) {
         log("Flush error: " + e.message);
@@ -231,6 +388,7 @@ async function flushReadings(port) {
 
 log("BTCPC Flipper Listener started");
 log("Checking for Flipper every " + (CHECK_INTERVAL_MS / 1000) + "s");
+log("Account: " + ACCOUNT + " | Relay account: " + RELAY_ACCOUNT);
 
 setInterval(async function() {
     var port = findFlipperPort();

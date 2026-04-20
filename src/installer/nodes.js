@@ -75,6 +75,21 @@ const NODE_TYPES = [
     bin: "btcpc-gnss-bridge",
     systemd: null,
   },
+  {
+    id: "flipper",
+    name: "Flipper Zero Bridge",
+    ask: "Auto-sync Flipper Zero sensor readings to the chain when plugged in? (harmless when no Flipper present)",
+    explain: [
+      "Polls /dev/ttyACM* every 10s and flushes Flipper readings to the chain.",
+      "Supports Sub-GHz, IR, NFC and any sensor your Flipper app exports.",
+      "Buffers offline readings and drains them when the chain is reachable.",
+      "Safe to run on any device — exits cleanly when no Flipper is connected.",
+    ],
+    requires: { ram_gb: 0.5, ollama: false },
+    env_keys: [],
+    bin: "btcpc-flipper-listener",
+    systemd: "btcpc-flipper",
+  },
 ];
 
 module.exports = { NODE_TYPES };

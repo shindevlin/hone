@@ -160,6 +160,14 @@ function _stepsFor(node, hw, username) {
     ];
   }
 
+  if (node.id === "flipper") {
+    return [{
+      desc: "install the Flipper Zero bridge as a systemd user service",
+      cmd: `cp ${repoDir}/etc/btcpc-flipper.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now btcpc-flipper`,
+      required: false,
+    }];
+  }
+
   return [];
 }
 
