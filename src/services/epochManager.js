@@ -144,6 +144,34 @@ async function distributeRewards(epoch) {
     minerReward = parseFloat(minerReward.toFixed(10));
     if (minerReward <= 0) continue;
 
+    // ── Community model royalty split (v3.1.97+) ─────────────────────────
+    // If the miner's proofs used a community-uploaded model, the model uploader
+    // earns royalty_percent of the miner's reward. Deducted before delegation split.
+    const minerProofs = computeProofs.filter(p => p.node_id === minerName);
+    let royaltyCut = 0;
+    const royaltyCreditMap = {}; // uploader → amount
+    if (minerProofs.length > 0) {
+      const perProofReward = minerReward / minerProofs.length;
+      for (const proof of minerProofs) {
+        if (!proof.model) continue;
+        const royalty = stateStore.getModelRoyalty ? stateStore.getModelRoyalty(proof.model) : null;
+        if (!royalty || royalty.royalty_percent <= 0) continue;
+        const cut = parseFloat((perProofReward * royalty.royalty_percent / 100).toFixed(10));
+        if (cut <= 0) continue;
+        royaltyCut += cut;
+        royaltyCreditMap[royalty.uploader] = parseFloat(((royaltyCreditMap[royalty.uploader] || 0) + cut).toFixed(10));
+      }
+    }
+    if (royaltyCut > 0) {
+      minerReward = parseFloat((minerReward - royaltyCut).toFixed(10));
+      for (const [uploader, amount] of Object.entries(royaltyCreditMap)) {
+        if (amount > 0) {
+          await ledger.recordMiningReward(uploader, amount, currentEpoch, 'BTCPC', `Epoch ${currentEpoch} model royalty`, 'model_royalty');
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // Check for delegations from stateStore
     const delegations = stateStore.getDelegationsTo ? stateStore.getDelegationsTo(minerName) : [];
     const totalDelegated = delegations.reduce((sum, d) => sum + (d.amount || 0), 0);

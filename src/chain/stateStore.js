@@ -64,6 +64,9 @@ var projects = new Map();
 var projectRevenueSplits = new Map(); // projectName → { splits: [{ account, percent }] }
 var earnings = new Map(); // account → { mining, clock, storage, iot, verifier, total }
 var seenEntries = new Set(); // deduplicate replayed entries
+// Community model registry (v3.1.97+): model_id → { model_id, name, description, format,
+//   size_mb, uploader, royalty_percent, stake_amount, files, status, upload_epoch }
+var communityModels = new Map();
 
 // ─────────────────────────────────────────────────────────────────
 // Commerce state (v2.10)
@@ -1220,6 +1223,43 @@ function applyEntry(entry) {
         existingBlob.payment_btcpc = _round(existingBlob.payment_btcpc + (bd.payment_btcpc || 0));
         if (bd.size && !existingBlob.size) existingBlob.size = bd.size;
         blobs.set(bd.cid, existingBlob);
+      }
+      break;
+
+    // ── Community model registry (v3.1.97+) ───────────────────────────────────
+    // Anyone can upload a model to the chain and earn royalties on inference.
+    case "MODEL_UPLOAD":
+      if (entry.model_data && entry.model_data.model_id && from) {
+        var md = entry.model_data;
+        var modelId = md.model_id;
+        if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(modelId)) break;
+        // First write wins — uploader cannot be changed after registration
+        if (!communityModels.has(modelId)) {
+          communityModels.set(modelId, {
+            model_id: modelId,
+            name: md.name || modelId,
+            description: md.description || '',
+            format: md.format || 'onnx',
+            size_mb: md.size_mb || 0,
+            uploader: from,
+            royalty_percent: Math.min(Math.max(Number(md.royalty_percent) || 5, 0), 10),
+            stake_amount: Number(md.stake_amount) || 0,
+            files: md.files || {},
+            status: Object.keys(md.files || {}).length > 0 ? 'active' : 'pending',
+            upload_epoch: entry.epoch,
+          });
+        } else {
+          // Uploader can update files/metadata but not royalty or ownership
+          var existing = communityModels.get(modelId);
+          if (existing.uploader === from) {
+            if (md.files) existing.files = Object.assign({}, existing.files, md.files);
+            if (md.name) existing.name = md.name;
+            if (md.description) existing.description = md.description;
+            if (md.size_mb) existing.size_mb = md.size_mb;
+            existing.status = Object.keys(existing.files).length > 0 ? 'active' : 'pending';
+            communityModels.set(modelId, existing);
+          }
+        }
       }
       break;
 
@@ -2601,6 +2641,23 @@ function getProjectRevenueSplit(projectName) {
   return projectRevenueSplits.get(projectName) || null;
 }
 
+// ── Community model registry (v3.1.97+) ──────────────────────────────────────
+
+function getCommunityModel(modelId) {
+  return communityModels.get(modelId) || null;
+}
+
+function getAllCommunityModels() {
+  return Array.from(communityModels.values());
+}
+
+// Used by rewardSettlement to look up royalty % for a given model at reward time.
+function getModelRoyalty(modelId) {
+  var m = communityModels.get(modelId);
+  if (!m || m.royalty_percent <= 0) return null;
+  return { uploader: m.uploader, royalty_percent: m.royalty_percent };
+}
+
 function getEarnings(account) {
   return earnings.get(account) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
 }
@@ -3671,6 +3728,10 @@ module.exports = {
   getOrdersBySeller: getOrdersBySeller,
   getReputation: getReputation,
   getReputationVote: getReputationVote,
+  // Community model registry (v3.1.97+)
+  getCommunityModel: getCommunityModel,
+  getAllCommunityModels: getAllCommunityModels,
+  getModelRoyalty: getModelRoyalty,
   // BTCPC-FS blobs (v2.11+)
   getBlobCommit: getBlobCommit,
   getAllBlobCommits: getAllBlobCommits,

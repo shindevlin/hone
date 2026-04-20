@@ -3,8 +3,9 @@
 /**
  * BTCPC Model Registry
  *
- * GET  /api/models/registry        — JSON listing of all supported models + status
+ * GET  /api/models/registry        — all models: built-in + community, with source flag
  * GET  /api/models/:id             — metadata for one model
+ * POST /api/models/upload          — register a community model and earn royalties on inference
  * POST /api/models/fetch           — chain pulls model from HuggingFace itself (admin auth)
  * GET  /api/models/:id/*           — fetch a model file
  *
@@ -48,6 +49,42 @@ const MODEL_CATALOG = {
       'config.json', 'generation_config.json', 'tokenizer.json',
       'tokenizer_config.json', 'special_tokens_map.json', 'vocab.json',
       'merges.txt', 'added_tokens.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'llama-3.2-1b': {
+    hf_repo: 'onnx-community/Llama-3.2-1B-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'llama-3.2-3b': {
+    hf_repo: 'onnx-community/Llama-3.2-3B-Instruct-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'phi-3.5-mini': {
+    hf_repo: 'onnx-community/Phi-3.5-mini-instruct-onnx-web',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json',
+      'tokenizer.model', 'genai_config.json', 'onnx/model_q4f16.onnx',
+    ],
+  },
+  'deepseek-r1-1.5b': {
+    hf_repo: 'onnx-community/DeepSeek-R1-Distill-Qwen-1.5B-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
+    ],
+  },
+  'gemma-3-1b': {
+    hf_repo: 'onnx-community/gemma-3-1b-it-ONNX',
+    files: [
+      'config.json', 'generation_config.json', 'tokenizer.json',
+      'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_q4.onnx',
     ],
   },
 };
@@ -112,6 +149,106 @@ function bestHostUrl(cid) {
     return null;
   }
 }
+
+/**
+ * POST /api/models/upload
+ * Anyone can register a community model on the BTCPC chain and earn royalties.
+ * Body:
+ *   model_id       — unique slug (lowercase alphanumeric + hyphens), e.g. "my-finetune-v1"
+ *   name           — human-readable name
+ *   description    — short description
+ *   format         — "onnx" (default)
+ *   size_mb        — approximate model size
+ *   files          — { "config.json": "<cid>", "onnx/model_q4.onnx": "<cid>", ... }
+ *   royalty_percent — 0–10 (default 5). % of miner reward paid to uploader each inference.
+ *   stake_amount    — BTCPC to stake (minimum 1 per 100MB). Held in chain escrow.
+ * Auth required. Stake is deducted from uploader's on-chain balance.
+ */
+router.post('/upload', authenticateToken, express.json({ limit: '64kb' }), async function(req, res) {
+  const uploader = req.user && req.user.username;
+  if (!uploader) return res.status(401).json({ error: 'unauthenticated' });
+
+  const { model_id, name, description, format, size_mb, files, royalty_percent, stake_amount } = req.body || {};
+
+  if (!model_id || !/^[a-z0-9][a-z0-9._-]{1,63}$/.test(model_id)) {
+    return res.status(400).json({ error: 'model_id must be lowercase alphanumeric + hyphens/dots, 2–64 chars' });
+  }
+  if (!files || typeof files !== 'object' || Object.keys(files).length === 0) {
+    return res.status(400).json({ error: 'files required: { "config.json": "<cid>", ... }' });
+  }
+
+  // Verify all CIDs exist in the blob store
+  const missingCids = [];
+  for (const [filename, cid] of Object.entries(files)) {
+    if (!blobStore.hasBlob(cid)) missingCids.push({ filename, cid });
+  }
+  if (missingCids.length > 0) {
+    return res.status(400).json({ error: 'some CIDs not found in blob store — upload files first via POST /api/blobs/stream', missing: missingCids });
+  }
+
+  const royaltyPct = Math.min(Math.max(parseFloat(royalty_percent) || 5, 0), 10);
+  const sizeMb = parseFloat(size_mb) || 0;
+  const minStake = Math.max(1, Math.ceil(sizeMb / 100));
+  const stakeAmt = Math.max(minStake, parseFloat(stake_amount) || minStake);
+
+  // Check uploader balance
+  const balance = stateStore.getBalance ? stateStore.getBalance(uploader, 'BTCPC') : 0;
+  if (balance < stakeAmt) {
+    return res.status(402).json({ error: 'insufficient balance for stake', required: stakeAmt, balance, unit: 'BTCPC' });
+  }
+
+  // Check model_id not already owned by someone else
+  const existing = stateStore.getCommunityModel ? stateStore.getCommunityModel(model_id) : null;
+  if (existing && existing.uploader !== uploader) {
+    return res.status(409).json({ error: 'model_id already registered by another uploader', uploader: existing.uploader });
+  }
+
+  // Deduct stake (transfer to btcpc_recycle — drains slowly to storage hosts in future)
+  try {
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordTransfer(uploader, 'btcpc_recycle', stakeAmt, 'BTCPC', `Model upload stake: ${model_id}`, epoch);
+    await ledger.recordModelUpload(uploader, model_id, {
+      name: name || model_id,
+      description: description || '',
+      format: format || 'onnx',
+      size_mb: sizeMb,
+      files,
+      royalty_percent: royaltyPct,
+      stake_amount: stakeAmt,
+    }, epoch);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  // Also mirror into model-registry.json so it's immediately serveable
+  const registry = loadRegistry();
+  if (!registry[model_id] || registry[model_id].uploader === uploader || !registry[model_id].uploader) {
+    registry[model_id] = {
+      ...registry[model_id],
+      name: name || model_id,
+      description: description || '',
+      format: format || 'onnx',
+      size_mb: sizeMb,
+      uploader,
+      royalty_percent: royaltyPct,
+      stake_amount: stakeAmt,
+      files,
+      status: Object.keys(files).length > 0 ? 'active' : 'pending',
+      uploaded_at: new Date().toISOString(),
+    };
+    saveRegistry(registry);
+  }
+
+  res.status(201).json({
+    status: 'registered',
+    model_id,
+    uploader,
+    royalty_percent: royaltyPct,
+    stake_deducted: stakeAmt,
+    file_count: Object.keys(files).length,
+    message: `Model ${model_id} is now active on the BTCPC chain. You earn ${royaltyPct}% of each inference reward when miners use it.`,
+  });
+});
 
 /**
  * POST /api/models/fetch
@@ -190,11 +327,22 @@ router.post('/fetch', authenticateToken, express.json(), async function(req, res
 /** GET /api/models/registry */
 router.get('/registry', function(req, res) {
   const registry = loadRegistry();
-  // Strip file CIDs from public response — clients only need model metadata + status
-  const public_registry = {};
+  // Merge in any community models registered on-chain but not yet in the JSON file
+  const chainModels = stateStore.getAllCommunityModels ? stateStore.getAllCommunityModels() : [];
+  for (const cm of chainModels) {
+    if (!registry[cm.model_id]) {
+      registry[cm.model_id] = {
+        name: cm.name, description: cm.description, format: cm.format,
+        size_mb: cm.size_mb, uploader: cm.uploader, royalty_percent: cm.royalty_percent,
+        status: cm.status, files: cm.files || {},
+      };
+    }
+  }
+  const built_in = {};
+  const community = {};
   Object.keys(registry).forEach(function(id) {
     const m = registry[id];
-    public_registry[id] = {
+    const entry = {
       name: m.name,
       description: m.description,
       format: m.format,
@@ -202,8 +350,13 @@ router.get('/registry', function(req, res) {
       status: m.status,
       file_count: Object.keys(m.files || {}).length,
     };
+    if (m.uploader) {
+      community[id] = { ...entry, uploader: m.uploader, royalty_percent: m.royalty_percent };
+    } else {
+      built_in[id] = entry;
+    }
   });
-  res.json({ models: public_registry });
+  res.json({ built_in, community });
 });
 
 /** GET /api/models/:id — model metadata (no file CIDs) */

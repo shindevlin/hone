@@ -885,13 +885,53 @@
 
         // CPU models — served from BTCPC chain, no WebGPU required
         var cpuModels = [
-          { id: 'smollm2-360m',  name: 'SmolLM2 360M', size: '~220MB', ram: 0.5, tier: 'phone', desc: 'Fast, runs on any phone', earning: '1x',   chain_id: 'smollm2-360m' },
-          { id: 'qwen2.5-0.5b', name: 'Qwen2.5 0.5B',  size: '~380MB', ram: 0.8, tier: 'phone', desc: 'Best quality, small phones', earning: '1.2x', chain_id: 'qwen2.5-0.5b' },
+          { id: 'smollm2-360m',    name: 'SmolLM2 360M',      size: '~220MB',  ram: 0.5, tier: 'phone',  desc: 'Fast, runs on any phone',         earning: '1x',   chain_id: 'smollm2-360m' },
+          { id: 'qwen2.5-0.5b',   name: 'Qwen2.5 0.5B',      size: '~380MB',  ram: 0.8, tier: 'phone',  desc: 'Best quality, small phones',      earning: '1.2x', chain_id: 'qwen2.5-0.5b' },
+          { id: 'llama-3.2-1b',   name: 'Llama 3.2 1B',      size: '~700MB',  ram: 1.2, tier: 'phone',  desc: 'Meta, fast and capable',          earning: '1.5x', chain_id: 'llama-3.2-1b' },
+          { id: 'deepseek-r1-1.5b', name: 'DeepSeek R1 1.5B', size: '~900MB',  ram: 1.5, tier: 'phone',  desc: 'Reasoning specialist',            earning: '1.8x', chain_id: 'deepseek-r1-1.5b' },
+          { id: 'gemma-3-1b',     name: 'Gemma 3 1B',        size: '~700MB',  ram: 1.2, tier: 'phone',  desc: 'Google, great quality for size',  earning: '1.5x', chain_id: 'gemma-3-1b' },
+          { id: 'llama-3.2-3b',   name: 'Llama 3.2 3B',      size: '~1.8GB',  ram: 2.5, tier: 'tablet', desc: 'Meta 3B, balanced quality/speed', earning: '2x',   chain_id: 'llama-3.2-3b' },
+          { id: 'phi-3.5-mini',   name: 'Phi-3.5 Mini 3.8B', size: '~2.2GB',  ram: 3.5, tier: 'tablet', desc: 'Microsoft, best-in-class small',  earning: '2.5x', chain_id: 'phi-3.5-mini' },
         ];
 
         var webllmModels = models;
         // No WebGPU and not desktop → use CPU models from chain
         var activeModels = desktopMode ? ollamaModels : (hasWebGPU ? webllmModels : cpuModels);
+
+        // Merge community models from chain registry into activeModels (async, updates list after load)
+        (function mergeCommunityModels() {
+          fetch(API_BASE + '/api/models/registry')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              var knownIds = new Set(cpuModels.map(function(m) { return m.chain_id || m.id; }));
+              var community = [];
+              Object.entries(data.community || {}).forEach(function(entry) {
+                var id = entry[0], m = entry[1];
+                if (knownIds.has(id)) return;
+                if (m.status !== 'active') return;
+                community.push({
+                  id: id,
+                  name: m.name,
+                  size: m.size_mb ? '~' + m.size_mb + 'MB' : '?',
+                  ram: (m.size_mb || 500) / 700,
+                  tier: 'phone',
+                  desc: (m.description || '') + ' · by ' + m.uploader,
+                  earning: (m.royalty_percent || 5) + '% to uploader',
+                  chain_id: id,
+                  community: true,
+                  uploader: m.uploader,
+                  royalty_percent: m.royalty_percent,
+                });
+              });
+              if (community.length === 0) return;
+              // Append to cpuModels and re-render the Mine tab if it's active
+              cpuModels.push.apply(cpuModels, community);
+              if (!desktopMode && !hasWebGPU && typeof renderMineModels === 'function') {
+                renderMineModels();
+              }
+            })
+            .catch(function() {});
+        })();
         if (!desktopMode && hasWebGPU) {
           activeModels.forEach(function(m) {
             // WebGPU models: served from BTCPC chain under /api/models/<chain_id>/

@@ -461,6 +461,29 @@ async function recordProjectRevenueSplit(setter, project, splits, epoch) {
 }
 
 /**
+ * Register a community model upload on-chain.
+ * Caller must have already stored all blob files and deducted stake from balance.
+ */
+async function recordModelUpload(uploader, modelId, modelData, epoch) {
+  const entry = _entry({
+    type: 'MODEL_UPLOAD',
+    from: uploader,
+    epoch,
+    model_data: {
+      model_id: modelId,
+      name: modelData.name || modelId,
+      description: modelData.description || '',
+      format: modelData.format || 'onnx',
+      size_mb: modelData.size_mb || 0,
+      files: modelData.files || {},
+      royalty_percent: modelData.royalty_percent || 5,
+      stake_amount: modelData.stake_amount || 0,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a faucet distribution.
  *
  * New faucet grants must be delegated network-use balance, never spendable
@@ -2295,6 +2318,7 @@ module.exports = {
   recordTransfer,
   recordMiningReward,
   recordProjectRevenueSplit,
+  recordModelUpload,
   recordFaucet,
   // Nested wallets (v3.3)
   recordWalletCreateChild,
