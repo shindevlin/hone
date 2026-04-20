@@ -25,8 +25,9 @@
           navigator.userAgent.indexOf('Electron') !== -1) {
         document.documentElement.setAttribute('data-desktop', '1');
       }
-      // Mark native app — hides desktop nav, install links, download buttons
-      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      // Mark native app — hides desktop nav, install links, download buttons.
+      // Use protocol+hostname: reliable regardless of Capacitor bridge timing.
+      if (location.protocol === 'https:' && location.hostname === 'localhost') {
         document.documentElement.setAttribute('data-native', '1');
       }
     })();
@@ -820,8 +821,7 @@
           { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, tier: 'gpu48', desc: 'Maximum quality, multi-GPU', earning: '17x' },
         ];
 
-        // Capacitor runs as https://localhost inside the Android/iOS app — treat it as mobile, not desktop.
-        var isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        var isCapacitor = (location.protocol === 'https:' && location.hostname === 'localhost');
         var desktopMode = !isCapacitor && (
           new URLSearchParams(location.search).get('desktop') === '1'
           || navigator.userAgent.includes('Electron')
@@ -1980,8 +1980,9 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
 
 <script>
 // ─── Config ───
-// In Capacitor (https://localhost), there is no local node — use the public one.
-const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+// Capacitor Android serves from https://localhost — no node runs there.
+// Use protocol+hostname: always reliable regardless of Capacitor bridge timing.
+const IS_NATIVE = (location.protocol === 'https:' && location.hostname === 'localhost');
 const REMOTE_BASE = 'https://btcpc.net';
 const API_BASE = IS_NATIVE ? REMOTE_BASE : location.origin;
 const EPOCH_INTERVAL = 30000; // 30 seconds
@@ -2234,11 +2235,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       errEl.style.display = 'block';
     }
   } catch (e) {
-    // Network error — proceed offline, sync later
-    account = val;
-    localStorage.setItem('btcpc-sensor-account', account);
-    saveAccountToDB();
-    initDashboard();
+    errEl.textContent = 'Could not reach node: ' + e.message + '. Check your connection.';
+    errEl.style.display = 'block';
   }
 
   btn.textContent = 'Start Earning';

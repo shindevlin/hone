@@ -51,7 +51,12 @@ app.set('trust proxy', 'loopback');
 
 // Middleware — security first
 app.use(cors({
-  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net', 'http://localhost:4242', 'http://localhost:3000', 'http://localhost:3100'],
+  origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [
+    'https://btcpc.net', 'https://scan.btcpc.net', 'https://docs.btcpc.net',
+    'http://localhost:4242', 'http://localhost:3000', 'http://localhost:3100',
+    'https://localhost',   // Capacitor Android app
+    'capacitor://localhost' // Capacitor iOS app
+  ],
   credentials: true
 }));
 app.use(helmet());

@@ -1,0 +1,18 @@
+{
+  "appId": "network.btcpc.app",
+  "appName": "BTCPC",
+  "webDir": "website",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#0a0e17",
+      "showSpinner": false
+    },
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}
