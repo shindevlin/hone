@@ -16,7 +16,9 @@ var os = require("os");
 var crypto = require("crypto");
 
 var DEFAULT_ROOT = path.join(os.homedir(), ".btcpc", "blobs");
-var BLOB_ROOT = process.env.BTCPC_BLOB_DIR || DEFAULT_ROOT;
+// BTCPC_BLOB_DIR is the canonical env var; BTCPC_STORAGE_DIR is accepted as
+// an alias for backwards compatibility with .env files that used the old name.
+var BLOB_ROOT = process.env.BTCPC_BLOB_DIR || process.env.BTCPC_STORAGE_DIR || DEFAULT_ROOT;
 var MAX_BLOB_BYTES = parseInt(process.env.BTCPC_MAX_BLOB_BYTES || String(100 * 1024 * 1024), 10);
 
 var CID_PATTERN = /^[a-f0-9]{64}$/;

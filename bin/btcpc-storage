@@ -29,19 +29,23 @@
 
 var path = require("path");
 var http = require("http");
+var https = require("https");
 var fs = require("fs");
 var crypto = require("crypto");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 
 var blobStore = require("../src/services/blobStore");
-var ledger = require("../src/services/ledger");
 
 var HOST_ACCOUNT = process.env.BTCPC_MINER || process.env.BTCPC_STORAGE_HOST || "storage-" + crypto.randomBytes(4).toString("hex");
 var PORT = parseInt(process.env.BTCPC_STORAGE_PORT || "4243", 10);
 var HEARTBEAT_INTERVAL_MS = parseInt(process.env.BTCPC_HEARTBEAT_INTERVAL_MS || "60000", 10);
 var CAPACITY_GB = parseFloat(process.env.BTCPC_STORAGE_CAPACITY_GB || "10");
 var REGIONS = (process.env.BTCPC_STORAGE_REGIONS || "").split(",").map(function (r) { return r.trim(); }).filter(Boolean);
+
+// API server base URL — heartbeats are submitted via HTTP so they reach
+// the miner's stateStore with the correct current chain epoch.
+var API_BASE = process.env.BTCPC_NODE_URL || ("http://localhost:" + (process.env.BTCPC_API_PORT || "4242"));
 
 function log(msg) { console.log("[btcpc-storage] " + msg); }
 function warn(msg) { console.warn("[btcpc-storage] WARN: " + msg); }
@@ -53,26 +57,85 @@ var epochCounter = 0;
 var servedBytesThisEpoch = 0;
 var servedRequestsThisEpoch = 0;
 
+/**
+ * Post a heartbeat to the API server via HTTP.
+ *
+ * Why HTTP and not a direct ledger.recordStorageHeartbeat() call?
+ *
+ * btcpc-storage is a standalone process with its own fresh stateStore
+ * that has NOT replayed from disk. A direct call would:
+ *   1. Write the heartbeat into that isolated in-memory state — invisible
+ *      to the miner process that actually builds blocks.
+ *   2. Pass epochCounter (1, 2, 3 ...) as the epoch instead of the real
+ *      chain height (currently 18000+), so getActiveStorageHosts() would
+ *      always see the host as stale and return 0.
+ *
+ * By POSTing to the API server, the heartbeat is applied to the miner's
+ * shared stateStore with the correct current chain epoch and queued into
+ * data/pending-entries.jsonl for inclusion in the next block.
+ */
+function _postHeartbeatHttp(payload, callback) {
+  try {
+    var body = JSON.stringify(payload);
+    var url = API_BASE + "/api/storage/heartbeat";
+    var parsedUrl = new (require("url").URL)(url);
+    var transport = parsedUrl.protocol === "https:" ? https : http;
+    var options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80),
+      path: parsedUrl.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    };
+    var req = transport.request(options, function (res) {
+      var data = "";
+      res.on("data", function (chunk) { data += chunk; });
+      res.on("end", function () {
+        try {
+          var parsed = JSON.parse(data);
+          callback(null, parsed);
+        } catch (e) {
+          callback(new Error("bad JSON from API: " + data.slice(0, 80)));
+        }
+      });
+    });
+    req.on("error", callback);
+    req.write(body);
+    req.end();
+  } catch (e) {
+    callback(e);
+  }
+}
+
 async function sendHeartbeat() {
   try {
     epochCounter += 1;
     var stats = blobStore.listBlobs();
     var localBlobCount = stats.length;
     var localBytes = stats.reduce(function (n, s) { return n + (s.size || 0); }, 0);
+    var cids = stats.map(function (s) { return s.cid; }).filter(Boolean);
+    var capacityUsedGb = localBytes / (1024 * 1024 * 1024);
 
-    // recordStorageHeartbeat records a STORAGE_HEARTBEAT ledger entry
-    // that flows through the cross-process queue (v2.13.1) into the
-    // next block. Signature: (host, cids, capacityUsedGb, epoch).
-    if (typeof ledger.recordStorageHeartbeat === "function") {
-      var cids = stats.map(function (s) { return s.cid; }).filter(Boolean);
-      var capacityUsedGb = localBytes / (1024 * 1024 * 1024);
-      await ledger.recordStorageHeartbeat(
-        HOST_ACCOUNT,
-        cids,
-        capacityUsedGb,
-        epochCounter
+    // Submit heartbeat via HTTP so it lands in the correct (miner) process
+    // stateStore and is stamped with the real chain epoch.
+    await new Promise(function (resolve) {
+      _postHeartbeatHttp(
+        { host: HOST_ACCOUNT, cids: cids, capacity_used_gb: capacityUsedGb },
+        function (httpErr, result) {
+          if (httpErr) {
+            warn("heartbeat HTTP error: " + httpErr.message + " — will retry next interval");
+          } else if (result && !result.ok) {
+            warn("heartbeat API error: " + JSON.stringify(result));
+          } else if (result) {
+            log("heartbeat #" + epochCounter + " accepted by API, chain epoch=" + result.epoch);
+          }
+          resolve();
+        }
       );
-    }
+    });
 
     log(
       "heartbeat #" + epochCounter +
