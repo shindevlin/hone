@@ -125,5 +125,15 @@
     "size_mb": 2500,
     "status": "pending",
     "files": {}
+  },
+  "dirty-muse-writer": {
+    "name": "Dirty Muse Writer v01",
+    "description": "Uncensored creative writing model, 9.2B params. GGUF for Ollama GPU miners.",
+    "format": "gguf",
+    "transformers_id": "Mantis2024/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW",
+    "size_mb": 5800,
+    "ollama_id": "dirty-muse-writer:9b",
+    "status": "pending",
+    "files": {}
   }
 }

@@ -111,6 +111,23 @@ const MODEL_CATALOG = {
       'vocab.json', 'merges.txt', 'onnx/model_q4f16.onnx',
     ],
   },
+  // ── GGUF models (for Ollama GPU miners) ───────────────────────────────────
+  // These are large single-file downloads streamed directly into the blob store.
+  // Miners pull the GGUF from chain and import into Ollama via modelfile.
+  'dirty-muse-writer': {
+    hf_repo: 'mradermacher/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW-GGUF',
+    format: 'gguf',
+    // Single Q4_K_M GGUF — balanced quality/size, ~5.8GB
+    files: [
+      'Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW.Q4_K_M.gguf',
+    ],
+    // Config/tokenizer pulled from the base model
+    base_repo: 'Mantis2024/Dirty-Muse-Writer-v01-Uncensored-Erotica-NSFW',
+    base_files: [
+      'config.json', 'tokenizer.json', 'tokenizer_config.json',
+      'special_tokens_map.json', 'tokenizer.model',
+    ],
+  },
 };
 
 function loadRegistry() {
@@ -142,6 +159,25 @@ function fetchUrl(url) {
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve(Buffer.concat(chunks)));
       res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+// Stream a URL directly into the blob store — no RAM buffering, handles files of any size.
+function fetchUrlToBlobStream(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode)) {
+        let loc = res.headers.location;
+        if (loc && loc.startsWith('/')) {
+          const u = new URL(url);
+          loc = u.origin + loc;
+        }
+        return fetchUrlToBlobStream(loc).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      blobStore.putBlobStream(res).then(resolve).catch(reject);
     }).on('error', reject);
   });
 }
@@ -313,24 +349,37 @@ router.post('/fetch', authenticateToken, express.json(), async function(req, res
       const files = { ...(entry.files || {}) };
       let changed = false;
 
-      for (const file of catalog.files) {
+      // Fetch all file lists: main repo files + optional base_repo files
+      const allFiles = [
+        ...catalog.files.map(f => ({ file: f, repo: catalog.hf_repo })),
+        ...(catalog.base_files || []).map(f => ({ file: f, repo: catalog.base_repo })),
+      ];
+
+      for (const { file, repo } of allFiles) {
         if (files[file]) continue; // already on-chain
-        const hfUrl = `https://huggingface.co/${catalog.hf_repo}/resolve/main/${file}`;
-        let buf;
+        const hfUrl = `https://huggingface.co/${repo}/resolve/main/${file}`;
+        // Use streaming for large files (GGUF) to avoid loading into RAM
+        const isLarge = file.endsWith('.gguf') || file.endsWith('.bin');
+        let result;
         try {
-          buf = await fetchUrl(hfUrl);
+          if (isLarge) {
+            console.log(`[model-fetch] ${modelId}/${file} streaming (large file)...`);
+            result = await fetchUrlToBlobStream(hfUrl);
+          } else {
+            const buf = await fetchUrl(hfUrl);
+            result = blobStore.putBlob(buf);
+          }
         } catch (err) {
           console.warn(`[model-fetch] ${modelId}/${file} download failed: ${err.message}`);
           continue;
         }
-        const result = blobStore.putBlob(buf);
         try {
           const epoch = await ledger.getCurrentEpoch();
           await ledger.recordBlobStoreCommit(uploader, result.cid, result.size, [uploader], DEFAULT_DURATION_EPOCHS, 0, epoch);
         } catch (_) {}
         files[file] = result.cid;
         changed = true;
-        console.log(`[model-fetch] ${modelId}/${file} → ${result.cid.slice(0, 12)}... (${result.existed ? 'existed' : 'new'})`);
+        console.log(`[model-fetch] ${modelId}/${file} → ${result.cid.slice(0, 12)}... ${(result.size/1e6).toFixed(0)}MB (${result.existed ? 'existed' : 'new'})`);
       }
 
       if (changed || !entry.status || entry.status === 'pending') {
