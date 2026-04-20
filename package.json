@@ -64,9 +64,9 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.6.1",
-    "@capacitor/cli": "^7.6.1",
-    "@capacitor/core": "^7.6.1",
+    "@capacitor/android": "^7.6.2",
+    "@capacitor/cli": "^7.6.2",
+    "@capacitor/core": "^7.6.2",
     "electron": "41.2.0",
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
