@@ -48,7 +48,7 @@ var stakes = new Map();
 var delegations = new Map();
 
 // Delegated-received balances: "username|token" → units
-// Tracks how much delegated (inference-only) balance an account holds.
+// Tracks how much delegated network-use balance an account holds.
 // Separate from balances — cannot be transferred or used in escrow.
 var delegatedReceived = new Map();
 
@@ -156,6 +156,19 @@ var witnessMap = new Map();
 // }
 // ─────────────────────────────────────────────────────────────────
 var nameAuctions = new Map();
+// nameDelegate: name → { delegated: bool, epoch }
+var nameDelegate = new Map();
+
+// Tier gates: index 0 = tier 1 (4+ char), ..., index 4 = tier 5 (1 char)
+var AUCTION_TIER_GATES = [100, 250, 1000, 2500, 25000];
+
+function _nameTier(name) {
+  var len = String(name || "").length;
+  if (len === 1) return 5;
+  if (len === 2) return 4;
+  if (len === 3) return 3;
+  return 1; // 4+ char names: tier 1 (lowest gate)
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Device Stake & Rent (v3.5) — pooled staker model
@@ -626,7 +639,7 @@ function applyEntry(entry) {
       break;
 
     case "INFERENCE_CHARGE":
-      // Deduct inference fee from delegated balance first, then owned balance.
+      // Deduct network service fee from delegated balance first, then owned balance.
       // to = miner/pool that receives payment; from = requester
       if (toUnits(amount) <= 0) break;
       var chargeToken = token || "BTCPC";
@@ -701,7 +714,7 @@ function applyEntry(entry) {
 
     case "DELEGATE": {
       // Multi-layer delegation: draw from owned balance first, then delegated balance.
-      // recipient always receives into their delegatedReceived pool (inference-only).
+      // recipient always receives into their delegatedReceived pool (network-use only).
       var delegSource = 'owned';
       var ownedOk = _debit(from, "BTCPC", amount);
       if (!ownedOk) {
@@ -748,20 +761,29 @@ function applyEntry(entry) {
       break;
     }
 
-    case "ESCROW_LOCK":
-      _debit(from, "BTCPC", amount);
+    case "ESCROW_LOCK": {
+      var escrowSource = "owned";
+      var escrowPaid = _debitDelegated(from, "BTCPC", amount);
+      if (escrowPaid) {
+        escrowSource = "delegated";
+      } else {
+        escrowPaid = _debit(from, "BTCPC", amount);
+      }
+      if (!escrowPaid) break;
       if (entry.memo) {
         // memo is usually "escrow:request_id"
         var rid = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
         escrows.set(rid, {
           payer: from,
           amount: amount,
+          source: escrowSource,
           status: "locked",
           locked_epoch: entry.epoch,
           released_to: null,
         });
       }
       break;
+    }
 
     case "ESCROW_RELEASE":
       _credit(to, "BTCPC", amount);
@@ -777,14 +799,19 @@ function applyEntry(entry) {
       break;
 
     case "ESCROW_REFUND":
-      _credit(to, "BTCPC", amount);
       if (entry.memo) {
         var rid3 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
         var e3 = escrows.get(rid3);
         if (e3) {
+          if (e3.source === "delegated") _creditDelegated(to, "BTCPC", amount);
+          else _credit(to, "BTCPC", amount);
           e3.status = "refunded";
           escrows.set(rid3, e3);
+        } else {
+          _credit(to, "BTCPC", amount);
         }
+      } else {
+        _credit(to, "BTCPC", amount);
       }
       break;
 
@@ -2041,6 +2068,91 @@ function applyEntry(entry) {
       break;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Name Auction (v3.6)
+    // ─────────────────────────────────────────────────────────────────
+
+    case "NAME_AUCTION_OPEN": {
+      var naoData = entry.auction_data || {};
+      var naoName = naoData.name;
+      if (!naoName) break;
+      var existing = nameAuctions.get(naoName);
+      if (existing && (existing.status === "open" || existing.status === "settled")) break;
+      nameAuctions.set(naoName, {
+        name: naoName,
+        seller: naoData.seller || from,
+        start_price_usd: naoData.start_price_usd || 0,
+        min_bid_increment_usd: naoData.min_bid_increment_usd || 0,
+        auction_end_epoch: naoData.auction_end_epoch || 0,
+        open_epoch: entry.epoch || 0,
+        bids: [],
+        status: "open",
+        winner: null,
+      });
+      break;
+    }
+
+    case "NAME_AUCTION_BID": {
+      var nabData = entry.auction_data || {};
+      var nabName = nabData.name;
+      if (!nabName) break;
+      var nabAuction = nameAuctions.get(nabName);
+      if (!nabAuction || nabAuction.status !== "open") break;
+      nabAuction.bids.push({
+        bidder: nabData.bidder || from,
+        bid_usd: nabData.bid_usd || 0,
+        chain: nabData.chain,
+        tx_hash: nabData.tx_hash,
+        btcpc_account: nabData.btcpc_account,
+        btcpc_pubkeys: nabData.btcpc_pubkeys || {},
+        bid_epoch: entry.epoch || 0,
+      });
+      break;
+    }
+
+    case "NAME_AUCTION_SETTLE": {
+      var nasData = entry.auction_data || {};
+      var nasName = nasData.name;
+      if (!nasName) break;
+      var nasAuction = nameAuctions.get(nasName);
+      if (!nasAuction || nasAuction.status !== "open") break;
+      // Find highest bid
+      var nasWinBid = null;
+      for (var _nb = 0; _nb < nasAuction.bids.length; _nb++) {
+        if (!nasWinBid || nasAuction.bids[_nb].bid_usd > nasWinBid.bid_usd) {
+          nasWinBid = nasAuction.bids[_nb];
+        }
+      }
+      nasAuction.status = "settled";
+      nasAuction.winner = nasWinBid ? nasWinBid.bidder : null;
+      if (nasWinBid && nasWinBid.btcpc_pubkeys) {
+        // Transfer account keys to winner (same as KEY_ROTATE)
+        var nasAcct = accounts.get(nasName);
+        if (nasAcct) {
+          nasAcct.public_keys = Object.assign({}, nasAcct.public_keys || {}, nasWinBid.btcpc_pubkeys);
+        }
+      }
+      break;
+    }
+
+    case "NAME_AUCTION_CANCEL": {
+      var nacData = entry.auction_data || {};
+      var nacName = nacData.name;
+      if (!nacName) break;
+      var nacAuction = nameAuctions.get(nacName);
+      if (!nacAuction || nacAuction.status !== "open") break;
+      nacAuction.status = "cancelled";
+      break;
+    }
+
+    case "NAME_DELEGATE": {
+      var ndData = entry.delegate_data || {};
+      var ndName = ndData.name;
+      if (!ndName) break;
+      nameDelegate.set(ndName, { delegated: !!ndData.delegated, epoch: entry.epoch || 0 });
+      break;
+    }
+
     default:
       // Unknown type — safe to skip. New types will be added here.
       break;
@@ -3011,6 +3123,11 @@ function getAuctionHistory() {
  * Names owned by shindevlin with no open or settled auction.
  * These are available to be auctioned.
  */
+function isDelegated(name) {
+  var rec = nameDelegate.get(name);
+  return rec ? rec.delegated : false;
+}
+
 function getAvailableReservedNames() {
   var unavailable = new Set();
   for (var rec of nameAuctions.values()) {
@@ -3021,19 +3138,30 @@ function getAvailableReservedNames() {
   var result = [];
   for (var entry of accounts.entries()) {
     var acctName = entry[0];
-    // Skip protocol accounts and shindevlin itself
     if (acctName === "shindevlin" || acctName === "btcpc_recycle" || acctName === "btcpc") continue;
-    // Owned by shindevlin means: created by shindevlin (no public keys yet = reserved placeholder)
-    // We check: account exists, not yet auctioned (open/settled)
     if (!unavailable.has(acctName)) {
       var acct = entry[1];
-      // Reserved names are held by shindevlin — no active keys or keys matching shindevlin's genesis setup
       var hasNoOwnerKey = !acct.public_keys || !acct.public_keys.active;
       if (hasNoOwnerKey) result.push(acctName);
     }
   }
   result.sort();
   return result;
+}
+
+// All reserved names with tier + delegation status for dashboard
+function getAllReservedNamesWithTier() {
+  var names = getAvailableReservedNames();
+  return names.map(function(n) {
+    var tier = _nameTier(n);
+    return {
+      name: n,
+      tier: tier,
+      min_nodes: AUCTION_TIER_GATES[tier - 1],
+      delegated: isDelegated(n),
+      auction: nameAuctions.get(n) || null,
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -3405,6 +3533,7 @@ function resetAll() {
   iotDeviceKeys.clear();
   deviceStakerPools.clear();
   deviceAutoStake.clear();
+  nameDelegate.clear();
   childrenMap.clear();
   parentMap.clear();
   aliasMap.clear();
@@ -3556,6 +3685,9 @@ module.exports = {
   getOpenAuctions: getOpenAuctions,
   getAuctionHistory: getAuctionHistory,
   getAvailableReservedNames: getAvailableReservedNames,
+  getAllReservedNamesWithTier: getAllReservedNamesWithTier,
+  isDelegated: isDelegated,
+  AUCTION_TIER_GATES: AUCTION_TIER_GATES,
   // Cross-chain monitor (v2.17)
   getCrossChainActivity: getCrossChainActivity,
   getRecentCrossChainActivity: getRecentCrossChainActivity,

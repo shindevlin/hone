@@ -29,11 +29,11 @@ const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
 
 const SELLER_ACCOUNT = 'shindevlin';
-
-// Valid BTCPC name pattern
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,19}$/;
-// Supported chains
 const VALID_CHAINS = ['ethereum', 'solana', 'ton'];
+
+// Tier node gates: tier 1 = index 0 (100 nodes), tier 5 = index 4 (25000 nodes)
+const AUCTION_TIER_GATES = stateStore.AUCTION_TIER_GATES || [100, 250, 1000, 2500, 25000];
 
 function isValidName(s) {
   return typeof s === 'string' && NAME_PATTERN.test(s);
@@ -41,8 +41,34 @@ function isValidName(s) {
 
 function isValidPubkeys(pk) {
   if (!pk || typeof pk !== 'object') return false;
-  // At minimum require a posting key
   return typeof pk.posting === 'string' && pk.posting.length > 0;
+}
+
+function _nameTier(name) {
+  var len = String(name || '').length;
+  if (len === 1) return 5;
+  if (len === 2) return 4;
+  if (len === 3) return 3;
+  return 1;
+}
+
+function _getActivePeerCount() {
+  try {
+    var network = require('../p2p/network');
+    if (typeof network.getPeers === 'function') return network.getPeers().length;
+    if (network.peers && typeof network.peers.size === 'number') return network.peers.size;
+  } catch (_) {}
+  return 0;
+}
+
+function _checkTierGate(name) {
+  var tier = _nameTier(name);
+  var required = AUCTION_TIER_GATES[tier - 1];
+  var current = _getActivePeerCount();
+  if (current < required) {
+    return { blocked: true, tier, required, current };
+  }
+  return { blocked: false, tier, required, current };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -120,6 +146,17 @@ router.post('/open', async function(req, res) {
     var name = String(body.name || '').toLowerCase();
     if (!isValidName(name)) {
       return res.status(400).json({ error: 'invalid name format' });
+    }
+
+    var gate = _checkTierGate(name);
+    if (gate.blocked) {
+      return res.status(503).json({
+        error: 'auctions_not_live',
+        message: 'Tier ' + gate.tier + ' names unlock at ' + gate.required + ' active nodes',
+        tier: gate.tier,
+        current_nodes: gate.current,
+        required_nodes: gate.required,
+      });
     }
 
     var startPrice = parseFloat(body.start_price_usd);
@@ -347,6 +384,63 @@ router.post('/:name/cancel', async function(req, res) {
       ok: true,
       name: name,
       cancelled_epoch: epoch,
+      entry: entry,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/auctions/all-names — all reserved names with tier + lock status
+// Used by the dashboard frontend
+// ─────────────────────────────────────────────────────────────────
+router.get('/all-names', function(req, res) {
+  try {
+    var currentNodes = _getActivePeerCount();
+    var names = stateStore.getAllReservedNamesWithTier ? stateStore.getAllReservedNamesWithTier() : [];
+    var withLock = names.map(function(n) {
+      return Object.assign({}, n, {
+        locked: currentNodes < n.min_nodes,
+        current_nodes: currentNodes,
+      });
+    });
+    res.json({
+      names: withLock,
+      current_nodes: currentNodes,
+      tier_gates: AUCTION_TIER_GATES,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// POST /api/auctions/:name/delegate — toggle delegation (shindevlin only)
+// Body: { seller_account, delegated: true|false }
+// ─────────────────────────────────────────────────────────────────
+router.post('/:name/delegate', async function(req, res) {
+  try {
+    var name = String(req.params.name || '').toLowerCase();
+    if (!isValidName(name)) {
+      return res.status(400).json({ error: 'invalid name format' });
+    }
+
+    var body = req.body || {};
+    var sellerAccount = String(body.seller_account || '').toLowerCase();
+    if (sellerAccount !== SELLER_ACCOUNT) {
+      return res.status(403).json({ error: 'only shindevlin may delegate names' });
+    }
+
+    var delegated = body.delegated !== false; // default true
+    var epoch = await ledger.getCurrentEpoch();
+    var entry = await ledger.recordNameDelegate(name, delegated, epoch);
+
+    res.json({
+      ok: true,
+      name: name,
+      delegated: delegated,
+      epoch: epoch,
       entry: entry,
     });
   } catch (err) {

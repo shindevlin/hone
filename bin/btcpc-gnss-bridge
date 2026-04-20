@@ -29,7 +29,7 @@ var GNSS_HOST = process.env.BTCPC_GNSS_HOST || "192.168.68.54";
 var GNSS_PORT = 80;
 var MINER_KEY = process.env.BTCPC_GNSS_MINER_KEY || "btcpcshin2026";
 var POLL_INTERVAL = parseInt(process.env.BTCPC_GNSS_INTERVAL) || 30000;
-var MINER_ACCOUNT = process.env.BTCPC_MINER || "shindevlin";
+var MINER_ACCOUNT = process.env.BTCPC_GNSS_MINER || process.env.BTCPC_MINER || "shindevlin";
 var API_HOST = "127.0.0.1";
 var API_PORT = parseInt(process.env.BTCPC_API_PORT) || 4242;
 

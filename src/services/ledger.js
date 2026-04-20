@@ -462,17 +462,13 @@ async function recordProjectRevenueSplit(setter, project, splits, epoch) {
 
 /**
  * Record a faucet distribution.
+ *
+ * New faucet grants must be delegated/inference-only, never spendable wallet
+ * balance. Kept for compatibility with older callers, but it now emits a
+ * DELEGATE entry from btcpc_faucet instead of a FAUCET credit.
  */
 async function recordFaucet(to, amount, epoch) {
-  const entry = _entry({
-    type: 'FAUCET',
-    from: 'btcpc_genesis',
-    to,
-    token: 'BTCPC',
-    amount,
-    epoch,
-  });
-  return _persist(entry);
+  return recordDelegate('btcpc_faucet', to, amount, 'faucet', epoch);
 }
 
 /**
@@ -2282,6 +2278,16 @@ async function recordNameAuctionCancel(name, sellerSig, epoch) {
   }));
 }
 
+async function recordNameDelegate(name, delegated, epoch) {
+  if (!name) throw new Error('name required');
+  return _persist(_entry({
+    type: 'NAME_DELEGATE',
+    from: 'shindevlin',
+    epoch: epoch || 0,
+    delegate_data: { name, delegated: !!delegated },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -2390,5 +2396,6 @@ module.exports = {
   recordNameAuctionBid,
   recordNameAuctionSettle,
   recordNameAuctionCancel,
+  recordNameDelegate,
   DEFAULT_AUCTION_DURATION_EPOCHS,
 };
