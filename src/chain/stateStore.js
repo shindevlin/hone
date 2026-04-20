@@ -180,6 +180,24 @@ var computeProofsByEpoch = new Map();
 // Slashing records: username → [ { epoch, offenseType, tier, amount, evidence } ]
 var slashRecords = new Map();
 
+// ─────────────────────────────────────────────────────────────────
+// Nested wallet state (v3.3)
+// parent/child namespace using "/" separator.
+// childrenMap: parent → Set of child account names ("parent/child")
+// parentMap:   child account name → parent account name
+// ─────────────────────────────────────────────────────────────────
+var childrenMap = new Map(); // parent → Set<childAccountName>
+var parentMap = new Map();   // childAccountName → parent
+
+// ─────────────────────────────────────────────────────────────────
+// btcpc_recycle Phase 2 endowment state (v3.3)
+// Activated automatically when total distributed supply >= 42,000,000 BTCPC.
+// ─────────────────────────────────────────────────────────────────
+var recycleRate = null;          // r — computed once at Phase 2 activation
+var phase2Activated = false;     // true once Phase 2 is live
+var phase2ActivationEpoch = null; // epoch at which Phase 2 first fired
+var totalSupplyDistributed = 0;  // running sum of all non-recycle rewards issued
+
 // Chain height: highest known finalized epoch
 var chainHeight = -1;
 
@@ -281,8 +299,22 @@ function _isSystemAccount(username) {
          username === "btcpc_mint" ||
          username === "btcpc_recycle" ||
          username === "btcpc_treasury" ||
+         username === "btcpc" ||
          username.startsWith("project:") ||
          username.startsWith("escrow:");
+}
+
+/**
+ * Hard guard: reject any attempt to set public_keys on btcpc_recycle.
+ * This is a keyless protocol contract — no owner, no keys, ever.
+ */
+function _isRecycleKeyAttempt(entry) {
+  var target = entry.to || entry.from;
+  if (target !== "btcpc_recycle") return false;
+  // Reject if the entry carries any key-setting payload
+  var data = entry.account_data || entry.key_rotate_data || {};
+  var keys = data.public_keys || data.new_public_keys || {};
+  return Object.keys(keys).length > 0;
 }
 
 // Canonical dedupe hash for an entry
@@ -301,6 +333,10 @@ function _entryKey(entry) {
   } else if (entry.type === "STORAGE_HEARTBEAT") {
     // Heartbeats are per-host-per-epoch; dedupe on that key.
     domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "WALLET_CREATE_CHILD") {
+    var wccParentId = (entry.wallet_data && entry.wallet_data.parent) || entry.from || "";
+    var wccChildId = (entry.wallet_data && entry.wallet_data.child_name) || "";
+    domainId = "wcc:" + wccParentId + "/" + wccChildId;
   } else if (entry.type === "DEVICE_KEY_REGISTER") {
     domainId = "dkr:" + (entry.device_key_data && entry.device_key_data.device_id || "");
   } else if (entry.type === "SENSOR_REGISTER") {
@@ -388,6 +424,9 @@ function applyEntry(entry) {
     for (var i = 0; i < toDelete; i++) seenEntries.delete(iter.next().value);
   }
 
+  // Hard guard: never let anything set keys on btcpc_recycle
+  if (_isRecycleKeyAttempt(entry)) return;
+
   var from = entry.from;
   var to = entry.to;
   var amount = entry.amount || 0;
@@ -401,6 +440,26 @@ function applyEntry(entry) {
         chain_addresses: entry.account_data && entry.account_data.chain_addresses,
       });
       break;
+
+    // ── Nested wallet (v3.3) ──────────────────────────────────────────
+    case "WALLET_CREATE_CHILD": {
+      var wccData = entry.wallet_data || {};
+      var wccParent = wccData.parent || from;
+      var wccChildName = wccData.child_name;
+      if (!wccParent || !wccChildName) break;
+      // Reject if child_name contains a "/" (no grandchildren yet)
+      if (String(wccChildName).indexOf("/") !== -1) break;
+      var wccChild = wccParent + "/" + wccChildName;
+      // Idempotent: if already exists, skip
+      if (accounts.has(wccChild)) break;
+      _ensureAccount(wccChild, { epoch: entry.epoch, public_keys: {}, chain_addresses: {} });
+      // Register parent–child links
+      parentMap.set(wccChild, wccParent);
+      var wccSiblings = childrenMap.get(wccParent) || new Set();
+      wccSiblings.add(wccChild);
+      childrenMap.set(wccParent, wccSiblings);
+      break;
+    }
 
     case "TRANSFER":
       // Integer-unit validation: amount must convert to a positive integer
@@ -436,6 +495,10 @@ function applyEntry(entry) {
         }
         earningRecord.total = _round(earningRecord.total + amount);
         earnings.set(to, earningRecord);
+        // Track total supply distributed (excludes recycle account)
+        if (to !== "btcpc_recycle") {
+          totalSupplyDistributed = _round(totalSupplyDistributed + amount);
+        }
       }
       break;
 
@@ -2306,6 +2369,47 @@ function getChallengesForCid(cid) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Sensor device lifecycle (v3.3)
+// ─────────────────────────────────────────────────────────────────
+
+// Epochs of silence before a sensor goes dormant (~48 hours at 30s epochs)
+var DORMANT_THRESHOLD = 5760;
+
+// Epochs of silence before a sensor becomes claimable (~70 days at 30s epochs)
+var CLAIMABLE_THRESHOLD = 201600;
+
+/**
+ * Derive the lifecycle status of a sensor device from its last_reading_epoch.
+ * Does NOT mutate the in-memory record — purely computed on request.
+ *
+ * Status precedence (highest wins):
+ *   retired   — explicit flag set by owner
+ *   active    — last reading within DORMANT_THRESHOLD epochs
+ *   dormant   — silent between DORMANT_THRESHOLD and CLAIMABLE_THRESHOLD epochs
+ *   claimable — silent >= CLAIMABLE_THRESHOLD epochs; ownership lock released
+ *
+ * @param {string} deviceId — sensor_id "<owner>/<device-name>"
+ * @param {number} currentEpoch — the current chain epoch
+ * @returns {string} "active" | "dormant" | "claimable" | "retired" | "unknown"
+ */
+function getDeviceStatus(deviceId, currentEpoch) {
+  var record = sensors.get(deviceId);
+  if (!record) return "unknown";
+  if (record.retired === true || record.status === "retired") return "retired";
+  if (record.last_reading_epoch === null || record.last_reading_epoch === undefined) {
+    // Never reported — treat as dormant from creation epoch 0
+    var silence = currentEpoch || 0;
+    if (silence >= CLAIMABLE_THRESHOLD) return "claimable";
+    if (silence >= DORMANT_THRESHOLD) return "dormant";
+    return "active";
+  }
+  var gap = (currentEpoch || 0) - record.last_reading_epoch;
+  if (gap >= CLAIMABLE_THRESHOLD) return "claimable";
+  if (gap >= DORMANT_THRESHOLD) return "dormant";
+  return "active";
+}
+
+// ─────────────────────────────────────────────────────────────────
 // IoT sensor + gateway getters (v2.15-beta)
 // ─────────────────────────────────────────────────────────────────
 
@@ -2510,6 +2614,91 @@ function getRecentCrossChainActivity(n) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Nested wallet getters (v3.3)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get all child account names of a parent.
+ * Returns an array of fully-qualified account names (e.g. ["btcpc/treasury"]).
+ */
+function getChildren(parent) {
+  var s = childrenMap.get(parent);
+  if (!s) return [];
+  return Array.from(s);
+}
+
+/**
+ * Get the parent account name for a child, or null if it has none.
+ */
+function getParent(account) {
+  return parentMap.get(account) || null;
+}
+
+/**
+ * Returns true if signingAccount is authorized to act on behalf of account.
+ * Rules:
+ *   1. Identity: signingAccount === account.
+ *   2. Parent: signingAccount is the direct parent of account (via parentMap).
+ */
+function isAuthorizedBy(account, signingAccount) {
+  if (!account || !signingAccount) return false;
+  if (signingAccount === account) return true;
+  return parentMap.get(account) === signingAccount;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// btcpc_recycle Phase 2 endowment getters/setters (v3.3)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Total BTCPC distributed to non-recycle accounts via MINING_REWARD.
+ * When this reaches 42,000,000 Phase 2 activates.
+ */
+function getTotalSupplyDistributed() {
+  return totalSupplyDistributed;
+}
+
+/**
+ * Returns true when total distributed supply >= 42,000,000 BTCPC.
+ * This is the canonical Phase 2 activation check.
+ */
+function isPhase2() {
+  return totalSupplyDistributed >= 42000000;
+}
+
+/**
+ * Returns true once Phase 2 has been formally activated in the reward engine.
+ */
+function isPhase2Activated() {
+  return phase2Activated;
+}
+
+/**
+ * Store the recycle rate r, mark Phase 2 active, and record the epoch.
+ * Called once by rewardEngine on the first Phase 2 epoch.
+ */
+function setRecycleRate(r, epoch) {
+  if (typeof r !== "number" || r <= 0) return;
+  recycleRate = r;
+  phase2Activated = true;
+  phase2ActivationEpoch = epoch || 0;
+}
+
+/**
+ * Get the stored recycle rate (null until Phase 2 activates).
+ */
+function getRecycleRate() {
+  return recycleRate;
+}
+
+/**
+ * Get the epoch at which Phase 2 was activated (null until then).
+ */
+function getPhase2ActivationEpoch() {
+  return phase2ActivationEpoch;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Bulk / introspection
 // ─────────────────────────────────────────────────────────────────
 
@@ -2700,8 +2889,17 @@ function resetAll() {
   seenEntries.clear();
   deviceKeys.clear();
   iotDeviceKeys.clear();
+  childrenMap.clear();
+  parentMap.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
+  recycleRate = null;
+  phase2Activated = false;
+  phase2ActivationEpoch = null;
+  totalSupplyDistributed = 0;
+  // Ensure btcpc_recycle always exists as keyless protocol contract
+  _ensureAccount("btcpc_recycle", { epoch: 0, public_keys: {}, chain_addresses: {} });
+  _ensureAccount("btcpc", { epoch: 0, public_keys: {}, chain_addresses: {} });
 }
 
 module.exports = {
@@ -2804,6 +3002,10 @@ module.exports = {
   getSnapshots: getSnapshots,
   getLatestSnapshot: getLatestSnapshot,
   getStatefulServiceRecord: getStatefulServiceRecord,
+  // Sensor device lifecycle (v3.3)
+  getDeviceStatus: getDeviceStatus,
+  DORMANT_THRESHOLD: DORMANT_THRESHOLD,
+  CLAIMABLE_THRESHOLD: CLAIMABLE_THRESHOLD,
   // IoT sensor + gateway (v2.15-beta)
   getSensor: getSensor,
   getAllSensors: getAllSensors,
@@ -2825,4 +3027,15 @@ module.exports = {
   // Introspection
   snapshot: snapshot,
   stats: stats,
+  // Nested wallets (v3.3)
+  getChildren: getChildren,
+  getParent: getParent,
+  isAuthorizedBy: isAuthorizedBy,
+  // btcpc_recycle Phase 2 endowment (v3.3)
+  getTotalSupplyDistributed: getTotalSupplyDistributed,
+  isPhase2: isPhase2,
+  isPhase2Activated: isPhase2Activated,
+  setRecycleRate: setRecycleRate,
+  getRecycleRate: getRecycleRate,
+  getPhase2ActivationEpoch: getPhase2ActivationEpoch,
 };

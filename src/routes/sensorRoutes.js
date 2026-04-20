@@ -333,24 +333,68 @@ sensorsRouter.post('/:id/finalize', authenticateToken, async (req, res) => {
 /**
  * GET /api/sensors
  * List sensors. Public, paginated, filterable by region/type/owner/status.
+ *
+ * When ?status=claimable is passed the list is filtered by computed lifecycle
+ * status (epoch-gap derived) rather than stored status field — this lets
+ * prospective claimants discover abandoned sensors. The response includes
+ * last_reading_epoch, last_owner, sensor_type, and region for evaluation.
  */
-sensorsRouter.get('/', (req, res) => {
+sensorsRouter.get('/', async (req, res) => {
   const { page, limit } = sanitizePagination(req.query.page, req.query.limit, 200);
+  const rawStatus = req.query.status ? sanitizeString(req.query.status, 16) : null;
+
+  // Lifecycle statuses require epoch-gap derivation; stored-status filter
+  // would miss records whose stored field has not been updated in place.
+  const lifecycleStatuses = ['active', 'dormant', 'claimable'];
+  const filterByLifecycle = rawStatus && lifecycleStatuses.indexOf(rawStatus) >= 0;
+
   const filter = {};
   if (req.query.region) filter.region = sanitizeString(req.query.region, 128);
   if (req.query.type) filter.type = sanitizeString(req.query.type, 32);
   if (req.query.owner) filter.owner = sanitizeString(req.query.owner, 64);
-  if (req.query.status) filter.status = sanitizeString(req.query.status, 16);
-  const all = sensorRegistry.getAllSensors(filter);
+  // Only pass stored-status filter for 'retired' — lifecycle ones filtered below
+  if (rawStatus && !filterByLifecycle) filter.status = rawStatus;
+
+  let all = sensorRegistry.getAllSensors(filter);
+
+  if (filterByLifecycle) {
+    // Need current epoch to compute gaps
+    const currentEpoch = await getCurrentEpoch();
+    all = all.filter(function (s) {
+      return stateStore.getDeviceStatus(s.sensor_id, currentEpoch) === rawStatus;
+    });
+  }
+
+  // For claimable discovery, enrich each record with fields prospective
+  // claimants need to evaluate the opportunity.
+  let sensors;
+  if (rawStatus === 'claimable') {
+    const currentEpoch = await getCurrentEpoch();
+    sensors = all.slice((page - 1) * limit, (page - 1) * limit + limit).map(function (s) {
+      return {
+        sensor_id: s.sensor_id,
+        last_reading_epoch: s.last_reading_epoch,
+        last_owner: s.owner,
+        sensor_type: s.type,
+        region: s.region,
+        status: 'claimable',
+        current_epoch: currentEpoch,
+        epochs_silent: currentEpoch - (s.last_reading_epoch || 0),
+      };
+    });
+  } else {
+    const start = (page - 1) * limit;
+    sensors = all.slice(start, start + limit);
+  }
+
   const total = all.length;
-  const start = (page - 1) * limit;
-  const sensors = all.slice(start, start + limit);
   res.json({ sensors, page, limit, total });
 });
 
 /**
  * GET /api/sensors/:id
- * Get a single sensor + its stats.
+ * Get a single sensor + its stats. Includes computed lifecycle `status`
+ * derived from epoch-gap via stateStore.getDeviceStatus().
  */
 sensorsRouter.get('/:id', async (req, res) => {
   const sensorId = decodeId(req.params.id);
@@ -359,7 +403,10 @@ sensorsRouter.get('/:id', async (req, res) => {
   if (!sensor) return res.status(404).json({ error: 'sensor not found' });
   const currentEpoch = await getCurrentEpoch();
   const stats = sensorRegistry.getSensorStats(sensorId, currentEpoch);
-  res.json({ sensor, stats, current_epoch: currentEpoch });
+  // Computed lifecycle status overrides the stored status field so callers
+  // always see the epoch-accurate state even if the record was not mutated.
+  const computedStatus = stateStore.getDeviceStatus(sensorId, currentEpoch);
+  res.json({ sensor: Object.assign({}, sensor, { status: computedStatus }), stats, current_epoch: currentEpoch });
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -593,6 +640,91 @@ devicesRouter.post('/register', async (req, res) => {
         owner: owner,
         device_pubkey: devicePubkey,
         registered_epoch: epoch,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/devices/:id/rotate-key
+ * Rotate the device public key for an IoT device. The current owner
+ * (post-claim) authorizes the rotation with their posting key.
+ *
+ * Path param: :id — URL-encoded "<owner>/<device-name>"
+ * Body: { owner, new_device_pubkey, posting_key_sig }
+ *   owner            — BTCPC account that currently owns the device
+ *   new_device_pubkey — hex-encoded new compressed secp256k1 public key
+ *   posting_key_sig  — owner's posting-key signature over (device_id + new_device_pubkey)
+ *
+ * On success, records a DEVICE_KEY_REGISTER entry on chain with the new key,
+ * superseding any previous registration for this device_id.
+ */
+devicesRouter.post('/:id/rotate-key', async (req, res) => {
+  try {
+    const deviceId = decodeId(req.params.id);
+    if (!deviceId) return res.status(400).json({ error: 'invalid device id encoding' });
+
+    const body = req.body || {};
+
+    const owner = sanitizeString(body.owner, 64);
+    if (!owner) return res.status(400).json({ error: 'owner required' });
+
+    const newDevicePubkey = sanitizeString(body.new_device_pubkey, 256);
+    if (!newDevicePubkey) return res.status(400).json({ error: 'new_device_pubkey required' });
+
+    const postingKeySig = sanitizeString(body.posting_key_sig, 512);
+    if (!postingKeySig) return res.status(400).json({ error: 'posting_key_sig required' });
+
+    // The device must already exist and be owned by `owner`
+    const existingDevice = stateStore.getDeviceKey(deviceId);
+    if (!existingDevice) {
+      return res.status(404).json({ error: 'device not found — register it first via /api/devices/register' });
+    }
+    if (existingDevice.owner !== owner) {
+      return res.status(403).json({ error: 'only the current owner can rotate the device key' });
+    }
+
+    // Verify posting key signature
+    const ownerAccount = stateStore.getAccount(owner);
+    if (!ownerAccount) {
+      return res.status(404).json({ error: 'owner account not found on chain' });
+    }
+    const postingPubkey = ownerAccount.public_keys && ownerAccount.public_keys.posting;
+    if (!postingPubkey) {
+      return res.status(422).json({ error: 'owner has no registered posting key' });
+    }
+
+    var sigOk = false;
+    try {
+      const verify = crypto.createVerify('SHA256');
+      verify.update(Buffer.from(deviceId + newDevicePubkey, 'utf8'));
+      sigOk = verify.verify(
+        { key: Buffer.from(postingPubkey, 'hex'), format: 'der', type: 'spki' },
+        Buffer.from(postingKeySig, 'hex')
+      );
+    } catch (_) {
+      sigOk = false;
+    }
+
+    if (!sigOk) {
+      return res.status(403).json({ error: 'posting_key_sig verification failed' });
+    }
+
+    const epoch = await getCurrentEpoch();
+
+    // Record the new key on chain — supersedes the previous registration
+    ledger.recordDeviceKeyRegister(owner, deviceId, newDevicePubkey, postingKeySig, epoch);
+
+    return res.json({
+      success: true,
+      device: {
+        device_id: deviceId,
+        owner: owner,
+        device_pubkey: newDevicePubkey,
+        registered_epoch: epoch,
+        rotated: true,
       },
     });
   } catch (err) {

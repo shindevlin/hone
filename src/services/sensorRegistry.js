@@ -26,6 +26,7 @@
  */
 
 var oracle = require('./oracleFeeds');
+var stateStore = require('../chain/stateStore');
 
 // sensor_id → sensor record
 var sensors = new Map();
@@ -175,7 +176,9 @@ function registerSensor(owner, sensorId, spec, options) {
 }
 
 /**
- * Permanently deactivate a sensor. Only the owner can retire.
+ * Permanently deactivate a sensor. Only the current owner can retire.
+ * Sets both status = "retired" and retired = true (explicit flag for
+ * getDeviceStatus() in stateStore to detect without Map lookup of status).
  * No new readings can be submitted after retirement.
  */
 function retireSensor(owner, sensorId, epoch) {
@@ -186,6 +189,7 @@ function retireSensor(owner, sensorId, epoch) {
   }
   if (record.status === "retired") return record;
   record.status = "retired";
+  record.retired = true;
   record.retired_epoch = epoch || 0;
   sensors.set(sensorId, record);
   return record;
@@ -290,13 +294,32 @@ function submitReading(sensorId, value, metadata, epoch) {
   readings.push(reading);
   readingsByEpoch.set(key, readings);
 
+  // Detect lifecycle state before updating last_reading_epoch so we can log recovery.
+  var dormantThreshold = stateStore.DORMANT_THRESHOLD || 5760;
+  var claimableThreshold = stateStore.CLAIMABLE_THRESHOLD || 201600;
+  var prevLifecycle = null;
+  if (record.last_reading_epoch !== null && record.last_reading_epoch !== undefined) {
+    var prevGap = ep - record.last_reading_epoch;
+    if (prevGap >= claimableThreshold) prevLifecycle = "claimable";
+    else if (prevGap >= dormantThreshold) prevLifecycle = "dormant";
+  }
+
   // Update sensor record
   record.total_readings = (record.total_readings || 0) + 1;
   record.last_reading_epoch = ep;
-  // Reactivate if idle
-  if (record.status === "idle") {
+
+  // Auto-recover to active from any non-active, non-retired state.
+  if (record.status !== "active" && record.status !== "retired") {
+    console.log("[BTCPC Sensor] Auto-recovered " + sensorId +
+      " from '" + record.status + "' to 'active' at epoch " + ep);
+    record.status = "active";
+  } else if (prevLifecycle) {
+    // Record was stored as active but epoch-gap said otherwise — recover and log.
+    console.log("[BTCPC Sensor] Auto-recovered " + sensorId +
+      " from lifecycle state '" + prevLifecycle + "' to 'active' at epoch " + ep);
     record.status = "active";
   }
+
   sensors.set(sensorId, record);
 
   // Update stats accumulator
@@ -589,4 +612,7 @@ module.exports = {
   SLUG_PATTERN: SLUG_PATTERN,
   VALID_TYPES: VALID_TYPES,
   IDLE_EPOCH_THRESHOLD: IDLE_EPOCH_THRESHOLD,
+  // Lifecycle thresholds (mirrors stateStore constants — source of truth is stateStore)
+  DORMANT_THRESHOLD: 5760,
+  CLAIMABLE_THRESHOLD: 201600,
 };
