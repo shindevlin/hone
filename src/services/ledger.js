@@ -463,8 +463,8 @@ async function recordProjectRevenueSplit(setter, project, splits, epoch) {
 /**
  * Record a faucet distribution.
  *
- * New faucet grants must be delegated/inference-only, never spendable wallet
- * balance. Kept for compatibility with older callers, but it now emits a
+ * New faucet grants must be delegated network-use balance, never spendable
+ * wallet balance. Kept for compatibility with older callers, but it now emits a
  * DELEGATE entry from btcpc_faucet instead of a FAUCET credit.
  */
 async function recordFaucet(to, amount, epoch) {
@@ -641,7 +641,9 @@ async function recordEscrowRelease(recipient, requestId, amount, epoch, memo) {
     token: 'BTCPC',
     amount,
     epoch,
-    memo: memo || 'escrow:' + requestId,
+    memo: 'escrow:' + requestId,
+    escrow_id: requestId,
+    settlement_note: memo || null,
   });
   return _persist(entry);
 }

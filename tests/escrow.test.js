@@ -5,6 +5,7 @@ jest.mock('../src/models/User', () => ({
 }));
 jest.mock('../src/chain/stateStore', () => ({
   getBalance: jest.fn().mockReturnValue(10),
+  getDelegatedBalance: jest.fn().mockReturnValue(0),
   getEscrow: jest.fn(),
   getAllEscrows: jest.fn().mockReturnValue({}),
   setEscrow: jest.fn()
@@ -26,6 +27,7 @@ describe('escrow service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     stateStore.getBalance.mockReturnValue(10);
+    stateStore.getDelegatedBalance.mockReturnValue(0);
   });
 
   test('lockFunds checks balance and records escrow lock', async () => {
@@ -40,8 +42,19 @@ describe('escrow service', () => {
 
   test('lockFunds throws on insufficient balance', async () => {
     stateStore.getBalance.mockReturnValue(2);
+    stateStore.getDelegatedBalance.mockReturnValue(1);
 
     await expect(escrow.lockFunds('req-1', 'alice', 4)).rejects.toThrow('Insufficient balance');
+  });
+
+  test('lockFunds accepts delegated network-use balance for service escrow', async () => {
+    stateStore.getBalance.mockReturnValue(0);
+    stateStore.getDelegatedBalance.mockReturnValue(4);
+
+    const result = await escrow.lockFunds('req-delegated', 'alice', 4);
+
+    expect(ledger.recordEscrowLock).toHaveBeenCalledWith('alice', 'req-delegated', 4, 42);
+    expect(result.status).toBe('locked');
   });
 
   test('releaseForJob pays miner and refunds overpayment', async () => {

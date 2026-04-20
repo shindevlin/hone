@@ -646,7 +646,7 @@ function applyEntry(entry) {
       var chargedFromDelegated = _debitDelegated(from, chargeToken, amount);
       if (!chargedFromDelegated) {
         // fall back to owned balance
-        _debit(from, chargeToken, amount);
+        if (!_debit(from, chargeToken, amount)) break;
       }
       _credit(to, chargeToken, amount);
       break;
@@ -692,7 +692,7 @@ function applyEntry(entry) {
       break;
 
     case "STAKE":
-      _debit(from, "BTCPC", amount);
+      if (!_debit(from, "BTCPC", amount)) break;
       if (from) {
         var s = stakes.get(from) || { total_staked: 0, purpose: entry.memo, first_stake_epoch: entry.epoch };
         s.total_staked = _round(s.total_staked + amount);
@@ -701,14 +701,13 @@ function applyEntry(entry) {
       break;
 
     case "UNSTAKE":
-      _credit(to, "BTCPC", amount);
       if (to) {
         var us = stakes.get(to);
-        if (us) {
-          us.total_staked = _round(us.total_staked - amount);
-          if (us.total_staked <= 0) stakes.delete(to);
-          else stakes.set(to, us);
-        }
+        if (!us || toUnits(us.total_staked) < toUnits(amount)) break;
+        _credit(to, "BTCPC", amount);
+        us.total_staked = _round(us.total_staked - amount);
+        if (us.total_staked <= 0) stakes.delete(to);
+        else stakes.set(to, us);
       }
       break;
 
@@ -786,15 +785,24 @@ function applyEntry(entry) {
     }
 
     case "ESCROW_RELEASE":
-      _credit(to, "BTCPC", amount);
-      if (entry.memo) {
-        var rid2 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
+      if (entry.escrow_id || entry.memo) {
+        var rid2 = entry.escrow_id || (entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo);
         var e2 = escrows.get(rid2);
         if (e2) {
+          var alreadyReleased = e2.released_amount || 0;
+          if (toUnits(alreadyReleased + amount) > toUnits(e2.amount)) break;
+          _credit(to, "BTCPC", amount);
           e2.status = "released";
           e2.released_to = to;
+          e2.released_amount = _round(alreadyReleased + amount);
           escrows.set(rid2, e2);
+        } else if (!entry.escrow_id && entry.memo && !entry.memo.startsWith("escrow:")) {
+          // Legacy release entries sometimes used memo for a human payout note
+          // instead of escrow identity. Preserve historical replay behavior.
+          _credit(to, "BTCPC", amount);
         }
+      } else {
+        _credit(to, "BTCPC", amount);
       }
       break;
 

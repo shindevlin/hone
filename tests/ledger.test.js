@@ -72,6 +72,93 @@ describe('ledger service', () => {
     expect(balance).toBe(10.25);
   });
 
+  test('recordFaucet issues delegated credit, not spendable wallet balance', async () => {
+    const stateStore = require('../src/chain/stateStore');
+    stateStore.resetAll();
+    stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'bob', epoch: 1, account_data: { public_keys: {}, chain_addresses: {} } });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'btcpc_faucet', token: 'BTCPC', amount: 10, epoch: 1, timestamp: 1 });
+
+    const entry = await ledger.recordFaucet('bob', 1, 2);
+
+    expect(entry.type).toBe('DELEGATE');
+    expect(entry.from).toBe('btcpc_faucet');
+    expect(entry.to).toBe('bob');
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+
+    await ledger.recordTransfer('bob', 'alice', 1, 'BTCPC', null, 3, null);
+    expect(stateStore.getBalance('alice', 'BTCPC')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+  });
+
+  test('delegated faucet credit can fund direct network-service escrow and refunds as delegated', async () => {
+    const stateStore = require('../src/chain/stateStore');
+    stateStore.resetAll();
+    stateStore.applyEntry({ type: 'ACCOUNT_CREATE', to: 'bob', epoch: 1, account_data: { public_keys: {}, chain_addresses: {} } });
+    stateStore.applyEntry({ type: 'FAUCET', to: 'btcpc_faucet', token: 'BTCPC', amount: 10, epoch: 1, timestamp: 1 });
+    await ledger.recordFaucet('bob', 1, 2);
+
+    await ledger.recordEscrowLock('bob', 'sensor-query-1', 1, 3);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getEscrow('sensor-query-1')).toEqual(expect.objectContaining({
+      payer: 'bob',
+      amount: 1,
+      source: 'delegated',
+      status: 'locked',
+    }));
+
+    await ledger.recordEscrowRefund('bob', 'sensor-query-1', 1, 4);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(1);
+  });
+
+  test('network service charge does not mint when payer has no usable balance', async () => {
+    const stateStore = require('../src/chain/stateStore');
+    stateStore.resetAll();
+
+    await ledger.recordInferenceCharge('bob', 'miner-a', 1, 2, 'req-no-funds');
+
+    expect(stateStore.getBalance('miner-a', 'BTCPC')).toBe(0);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+    expect(stateStore.getDelegatedBalance('bob', 'BTCPC')).toBe(0);
+  });
+
+  test('stake and unstake cannot mint from insufficient owned balance', async () => {
+    const stateStore = require('../src/chain/stateStore');
+    stateStore.resetAll();
+
+    await ledger.recordStake('bob', 5, 'mining', 2);
+    expect(stateStore.getStakePool('bob')).toBe(null);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(0);
+
+    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'BTCPC', amount: 3, epoch: 3, timestamp: 3 });
+    await ledger.recordStake('bob', 2, 'mining', 4);
+    expect(stateStore.getStakePool('bob').total_staked).toBe(2);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(1);
+
+    await ledger.recordUnstake('bob', 5, 5);
+    expect(stateStore.getStakePool('bob').total_staked).toBe(2);
+    expect(stateStore.getBalance('bob', 'BTCPC')).toBe(1);
+  });
+
+  test('escrow release cannot pay more than the locked service amount', async () => {
+    const stateStore = require('../src/chain/stateStore');
+    stateStore.resetAll();
+    stateStore.applyEntry({ type: 'FAUCET', to: 'bob', token: 'BTCPC', amount: 2, epoch: 1, timestamp: 1 });
+
+    await ledger.recordEscrowLock('bob', 'service-escrow-1', 2, 2);
+    await ledger.recordEscrowRelease('miner-a', 'service-escrow-1', 1.25, 3, 'service payout');
+    await ledger.recordEscrowRelease('miner-b', 'service-escrow-1', 1.25, 4, 'service payout');
+
+    expect(stateStore.getBalance('miner-a', 'BTCPC')).toBe(1.25);
+    expect(stateStore.getBalance('miner-b', 'BTCPC')).toBe(0);
+    expect(stateStore.getEscrow('service-escrow-1')).toEqual(expect.objectContaining({
+      amount: 2,
+      released_amount: 1.25,
+    }));
+  });
+
   test('flushPendingEntries returns and clears pending entries', async () => {
     mockMempoolSubmit.mockReturnValue({ accepted: true });
 

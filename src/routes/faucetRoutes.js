@@ -5,15 +5,16 @@
  * Shin Devlin
  *
  * Faucet issues DELEGATED tokens, not gifted BTCPC.
- * Delegated tokens can only be spent on inference fees — not transferred,
- * not sold, not used for escrow. They expire after DELEGATION_EPOCHS.
+ * Delegated tokens can only be spent on direct network services — AI,
+ * sensor data, storage, and other on-chain service requests. They are not
+ * transferable, sellable, stakeable, or bridgeable.
  *
  * This prevents faucet farming (claim → sell → repeat).
  * Real earning happens via mining, sensors, storage, and data purchases.
  *
  * On-chain: recordDelegate(FAUCET_ACCOUNT → recipient, amount, 'faucet')
- * Inference router deducts from delegated_balance before wallet balance.
- * TRANSFER and ESCROW_LOCK check: delegated_balance is NOT spendable.
+ * Network service billing deducts from delegated_balance before wallet balance.
+ * TRANSFER, STAKE, and bridge flows must not treat delegated balance as owned.
  */
 
 const express = require("express");
@@ -24,7 +25,7 @@ const stateStore = require("../chain/stateStore");
 const FAUCET_ACCOUNT = "btcpc_faucet";      // holds the faucet reserve
 const DELEGATION_EPOCHS = 720;              // ~6 hours at 30s epochs — expires automatically
 
-// Scales with network maturity — same inference utility regardless of epoch
+// Scales with network maturity — same service utility regardless of epoch
 function getFaucetAmount() {
   const epoch = stateStore.getChainHeight();
   if (epoch <= 1000) return 1;      // bootstrap: ~1000 small queries
@@ -61,7 +62,7 @@ setInterval(() => {
 /**
  * POST /api/faucet/claim
  * Issues delegated BTCPC to a zero-balance account.
- * Tokens are spendable on inference only — not transferable.
+ * Tokens are spendable on direct network services only — not transferable.
  * Body: { account: "username" }
  */
 router.post("/claim", async (req, res) => {
@@ -85,6 +86,18 @@ router.post("/claim", async (req, res) => {
       return res.status(404).json({ error: "Account not found on chain. Register first." });
     }
 
+    // Account age gate: must be at least 120 epochs (~1 hour) old to prevent mass-wallet farming
+    const MIN_ACCOUNT_AGE_EPOCHS = 120;
+    const ageEpoch = stateStore.getChainHeight();
+    const accountEpoch = acc.epoch || 0;
+    if ((ageEpoch - accountEpoch) < MIN_ACCOUNT_AGE_EPOCHS) {
+      const epochsLeft = MIN_ACCOUNT_AGE_EPOCHS - (ageEpoch - accountEpoch);
+      return res.status(429).json({
+        error: "Account too new. Wait " + Math.ceil(epochsLeft * 30 / 60) + " more minutes before claiming.",
+        epochs_remaining: epochsLeft,
+      });
+    }
+
     // Only claim if wallet balance is zero (delegated balance excluded — can re-claim when used up)
     const walletBalance = stateStore.getBalance(account, "BTCPC");
     if (walletBalance > 0) {
@@ -100,7 +113,7 @@ router.post("/claim", async (req, res) => {
       : 0;
     if (currentDelegated > 0) {
       return res.status(429).json({
-        error: "You still have " + currentDelegated.toFixed(4) + " delegated BTCPC. Use it for inference before claiming more.",
+        error: "You still have " + currentDelegated.toFixed(4) + " delegated BTCPC. Use it for AI, sensor data, storage, or other network services before claiming more.",
         delegated_balance: currentDelegated,
       });
     }
@@ -112,7 +125,7 @@ router.post("/claim", async (req, res) => {
       const epochsRemaining = DELEGATION_EPOCHS - (currentEpoch - lastClaim);
       const minutesRemaining = Math.ceil(epochsRemaining * 30 / 60);
       return res.status(429).json({
-        error: "Faucet delegation active — " + minutesRemaining + " minutes remaining. Use your delegated tokens on inference.",
+        error: "Faucet delegation active — " + minutesRemaining + " minutes remaining. Use your delegated tokens on direct network services.",
         epochs_remaining: epochsRemaining,
       });
     }
@@ -124,7 +137,7 @@ router.post("/claim", async (req, res) => {
       return res.status(503).json({ error: "Faucet reserve is empty. Check back later." });
     }
 
-    // Issue as DELEGATE (not TRANSFER) — inference-only, not spendable as wallet
+    // Issue as DELEGATE (not TRANSFER) — network-use only, not wallet balance.
     await ledger.recordDelegate(FAUCET_ACCOUNT, account, amount, "faucet", currentEpoch);
 
     claimedAccounts.set(account, currentEpoch);
@@ -140,8 +153,8 @@ router.post("/claim", async (req, res) => {
       delegated_balance: delegatedBalance,
       expires_epochs: DELEGATION_EPOCHS,
       expires_minutes: Math.ceil(DELEGATION_EPOCHS * 30 / 60),
-      message: `Welcome to BTCPC — ${amount} BTCPC delegated for inference. Use it to ask questions. Earn more by mining, running sensors, or storing data.`,
-      note: "Delegated tokens are inference-only. They cannot be transferred or sold.",
+      message: `Welcome to BTCPC — ${amount} BTCPC delegated for direct network services. Use it for AI, sensor data, storage, or other on-chain service requests. Earn owned BTCPC by mining, running sensors, or storing data.`,
+      note: "Delegated tokens are network-use only. They cannot be transferred, sold, staked, or bridged.",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -161,7 +174,7 @@ router.get("/status", (req, res) => {
     claim_type: "delegation",
     delegation_epochs: DELEGATION_EPOCHS,
     delegation_hours: Math.ceil(DELEGATION_EPOCHS * 30 / 3600),
-    note: "Faucet issues delegated tokens — spendable on inference only.",
+    note: "Faucet issues delegated tokens — spendable on direct network services only.",
   });
 });
 

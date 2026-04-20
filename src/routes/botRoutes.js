@@ -487,6 +487,13 @@ router.post('/claim', async (req, res) => {
 
     const balance = stateStore.getBalance(user.username, 'BTCPC');
     if (balance > 0) return res.status(400).json({ error: `Still have ${balance} BTCPC. Use tokens before claiming.` });
+    const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'BTCPC') : 0;
+    if (delegatedBalance > 0) {
+      return res.status(429).json({
+        error: `Still have ${delegatedBalance} delegated BTCPC. Use it for AI, sensor data, storage, or other network services before claiming more.`,
+        delegated_balance: delegatedBalance,
+      });
+    }
 
     // Check if this is a first-time claim (no account state yet)
     const accountState = stateStore.getAccount ? stateStore.getAccount(user.username) : null;
@@ -499,11 +506,19 @@ router.post('/claim', async (req, res) => {
       }
     }
 
-    // Record on permanent ledger
+    // Record on permanent ledger as delegated network-use faucet credit.
     const epoch = await ledger.getCurrentEpoch();
-    await ledger.recordFaucet(user.username, 1, epoch);
+    await ledger.recordDelegate('btcpc_faucet', user.username, 1, 'faucet', epoch);
+    const nextDelegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(user.username, 'BTCPC') : delegatedBalance + 1;
 
-    res.json({ success: true, balance: balance + 1, firstClaim: isFirstClaim });
+    res.json({
+      success: true,
+      type: 'delegation',
+      balance,
+      delegated_balance: nextDelegatedBalance,
+      firstClaim: isFirstClaim,
+      note: 'Delegated BTCPC is network-use only. It can pay for direct on-chain services, but cannot be transferred, sold, staked, or bridged.',
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

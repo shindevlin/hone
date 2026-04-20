@@ -127,7 +127,7 @@ function buildWalletExport(username, mnemonic, walletRows, balances) {
   lines.push("Account: " + username);
   lines.push("Mnemonic: " + mnemonic);
   lines.push("Wallet balance BTCPC: " + (balances.wallet || 0));
-  lines.push("Delegated BTCPC for inference: " + (balances.delegated || 0));
+  lines.push("Delegated BTCPC for network services: " + (balances.delegated || 0));
   lines.push("");
   for (const row of walletRows) {
     lines.push(row.label);
@@ -338,7 +338,7 @@ async function createAccountForUser(options) {
     delegated_balance: delegatedBalance,
     faucet_claimed: faucetClaimed,
     faucet_note: delegatedBalance > 0
-      ? "Delegated BTCPC is for inference only. It cannot be transferred or sold."
+      ? "Delegated BTCPC can pay for direct network services. It cannot be transferred, sold, staked, or bridged."
       : null,
     public_keys: finalMaterial.public_keys,
     chain_addresses: finalMaterial.chain_addresses,

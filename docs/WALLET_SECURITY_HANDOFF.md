@@ -13,7 +13,7 @@ The custody model is:
 - Posting key: runs mining nodes and signs operational proofs. Mining machines should only receive this key.
 - Memo key: reserved for encrypted memo/message use. No full product surface is assigned yet.
 
-Starter faucet value must never be sellable. Faucet issuance should be delegated BTCPC for inference only, not wallet balance.
+Starter faucet value must never be sellable. Faucet issuance should be delegated BTCPC for direct network services, not wallet balance.
 
 ## Implemented In This Pass
 
@@ -156,6 +156,47 @@ Primary-name rule:
 
 ## Remaining Work
 
+### Current Risk List
+
+1. Name assignment and transfer routes need owner-key signatures before broad production use. Session auth alone is not enough for assigning or transferring valuable name assets.
+2. The full reserved-name inventory is not yet materialized on the current live chain. `joshua`, `yoshi`, and `josue` were created and assigned on-chain; the complete curated list plus all one-, two-, and three-letter names still needs a batch/reservation plan.
+3. Website name-asset UX is not complete. Users need pages for owned names, premium/reserved names, primary display name, assignment, sale, and transfer.
+4. The project should decide whether every public name is a transferable name asset attached to a wallet/keyset. That is cleaner than treating the first name as the account and later names as aliases.
+5. Explorer/UI should render `ACCOUNT_ALIAS_ASSIGN` and `ACCOUNT_ALIAS_TRANSFER` clearly so people can verify name ownership on-chain.
+6. Broad Jest runs are noisy because `.claude/worktrees` and generated packages are picked up. Test config should ignore those paths.
+7. Service-worker cache can hide website updates until refresh. The cache was bumped to `btcpc-node-v12`, but a visible "new version available" prompt would be better.
+8. Staking backend requires active-key signatures, but the website still needs a local signing UI.
+9. Faucet history needs review. New account creation and current faucet claim paths use delegated faucet value, but prior chain state may still contain spendable faucet grants from older code.
+10. Some unrelated repo files are dirty and should be reviewed separately before future commits.
+
+### Faucet Hardening Implemented
+
+Goal: no user receives sellable BTCPC from a faucet or onboarding grant.
+
+Implemented behavior:
+
+- Account creation may receive delegated BTCPC only.
+- Public faucet and Telegram bot claim routes call `recordDelegate`, not `recordTransfer`.
+- `recordFaucet()` is retained for compatibility, but now emits `DELEGATE` from `btcpc_faucet` instead of a spendable `FAUCET` credit.
+- Delegated faucet balance can be used for direct on-chain network services such as AI, sensor data, and storage, but cannot transfer, stake, bridge, or sell.
+- Responses must label faucet value as delegated/network-use only.
+- Wallet export and balance responses label delegated BTCPC as network-use value, not wallet balance.
+
+Ledger/state replay fixes made in the same pass:
+
+- `TRANSFER` already ignores delegated balance.
+- `ESCROW_LOCK` now spends delegated network-use balance first, then owned wallet balance.
+- `ESCROW_REFUND` restores delegated escrow back to delegated balance instead of converting it into owned wallet balance.
+- `INFERENCE_CHARGE` now credits the recipient only if delegated or owned debit succeeds.
+- `STAKE` now creates stake only if owned BTCPC debit succeeds.
+- `UNSTAKE` now credits wallet balance only if the account has enough staked BTCPC.
+- `ESCROW_RELEASE` now tracks released amount and refuses payouts above the locked escrow amount.
+- `recordEscrowRelease()` now keeps `memo` as `escrow:<requestId>` and stores the human note separately as `settlement_note`, so sensor/storage/inference payout notes do not break escrow replay.
+
+Current limitation:
+
+- Mixed funding is not split yet. A service escrow is paid entirely from delegated balance if delegated balance covers the full amount; otherwise it is paid entirely from owned wallet balance if owned balance covers the full amount. Partial delegated plus partial owned payment should be added later if product needs it.
+
 ### Website Staking UI
 
 The backend now requires active-key signatures, but the main website still needs a staking interface that signs locally in the browser.
@@ -202,6 +243,11 @@ New focused tests were added:
 - `tests/reservedNames.test.js`
 
 Existing bot redesign tests were partially updated for `chain_addresses`.
+
+Additional focused tests were added/updated for the faucet hardening pass:
+
+- `tests/ledger.test.js`: faucet grants become delegated, delegated faucet value cannot transfer, delegated value can fund service escrow, service escrow refund stays delegated, service charges cannot mint from insufficient funds, stake/unstake cannot mint, escrow release cannot overpay.
+- `tests/escrow.test.js`: service escrow accepts delegated network-use balance.
 
 Run targeted tests after dependency install:
 

@@ -65,7 +65,7 @@ async function getBalance(req, res) {
       chain: 'btcpc',
       balance: tokenBalances,
       delegated_balance: delegatedBalance,
-      delegated_note: delegatedBalance > 0 ? 'Delegated tokens are inference-only and cannot be transferred.' : undefined,
+      delegated_note: delegatedBalance > 0 ? 'Delegated tokens can pay for direct network services, but cannot be transferred, sold, staked, or bridged.' : undefined,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

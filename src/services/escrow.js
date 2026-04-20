@@ -4,7 +4,8 @@
  * BTCPC Escrow Service
  * Shin Devlin
  *
- * Locks BTCPC during inference requests, releases on completion, refunds on expiry.
+ * Locks BTCPC during direct network-service requests, releases on completion,
+ * refunds on expiry.
  *
  * Phase E: Escrow, Wallet, Transaction Mongoose models removed.
  * Escrow state lives in stateStore. Ledger entries are the canonical record.
@@ -15,13 +16,14 @@ const User = require('../models/User');
 const ledger = require('./ledger');
 
 /**
- * Lock funds for an inference request.
- * Deducts maxFee from payer's stateStore balance, creates escrow entry.
+ * Lock funds for a direct network-service request.
+ * Deducts maxFee from delegated network-use balance first, then owned balance.
  */
 async function lockFunds(requestId, payerUsername, amount) {
   const balance = stateStore.getBalance(payerUsername, 'BTCPC');
-  if (balance < amount) {
-    throw new Error(`Insufficient balance: have ${balance}, need ${amount}`);
+  const delegated = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(payerUsername, 'BTCPC') : 0;
+  if (balance < amount && delegated < amount) {
+    throw new Error(`Insufficient balance: have ${balance} wallet BTCPC and ${delegated} delegated BTCPC, need ${amount}`);
   }
 
   // Record on permanent ledger
@@ -32,7 +34,7 @@ async function lockFunds(requestId, payerUsername, amount) {
 }
 
 /**
- * Release escrowed funds to nodes after successful inference.
+ * Release escrowed funds to nodes after successful network service work.
  * Distributes according to payout schedule.
  */
 async function releaseFunds(requestId, payouts) {
