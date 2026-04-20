@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // When running inside the Android/iOS app, go straight to the mobile UI.
+    if (typeof window !== 'undefined' && (window.Capacitor || navigator.userAgent.indexOf('btcpc-app') !== -1)) {
+      window.location.replace('/app.html');
+    }
+  </script>
   <title>BTCPC - Bitcoin Proof of Compute | btcpc.net</title>
   <meta name="description" content="The blockchain where mining means doing real work: AI inference, data storage, sensor networks, cloud hosting. 42,000,000 BTCPC total supply.">
   <meta property="og:title" content="BTCPC - Bitcoin Proof of Compute">

@@ -112,6 +112,7 @@ public class LocalRelayService extends Service {
     private boolean bleConnected = false;
 
     private final ExecutorService httpExecutor = Executors.newCachedThreadPool();
+    private volatile String lastReading = null;
 
     // -----------------------------------------------------------------------
     // BroadcastReceiver — USB attach + permission grant
@@ -238,6 +239,26 @@ public class LocalRelayService extends Service {
         public Response serve(IHTTPSession session) {
             String uri = session.getUri();           // e.g. /sensors/temp01/readings
             Method method = session.getMethod();
+
+            // CORS preflight
+            if (Method.OPTIONS.equals(method)) {
+                Response r = newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+                r.addHeader("Access-Control-Allow-Origin", "*");
+                r.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                r.addHeader("Access-Control-Allow-Headers", "Content-Type");
+                return r;
+            }
+
+            // Status endpoint — polled by app UI to show relay health
+            if (Method.GET.equals(method) && uri.equals("/_relay/status")) {
+                String lastJson = lastReading != null ? lastReading : "null";
+                String statusJson = "{\"ok\":true,\"usb_connected\":" + (usbReaderThread != null) +
+                        ",\"ble_connected\":" + bleConnected +
+                        ",\"last_reading\":" + lastJson + "}";
+                Response r = newFixedLengthResponse(Response.Status.OK, "application/json", statusJson);
+                r.addHeader("Access-Control-Allow-Origin", "*");
+                return r;
+            }
 
             // Only handle POST /sensors/:id/readings
             if (!Method.POST.equals(method) || !uri.matches("/sensors/[^/]+/readings")) {
@@ -582,6 +603,7 @@ public class LocalRelayService extends Service {
      * POST sensor reading to BTCPC API. Tries local node first, falls back to remote.
      */
     private void forwardReading(String sensorId, String jsonBody, String transport) {
+        lastReading = jsonBody;
         String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
         String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
 

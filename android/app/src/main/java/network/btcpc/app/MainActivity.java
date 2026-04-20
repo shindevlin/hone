@@ -20,6 +20,10 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BTCPCSensorsPlugin.class);
         super.onCreate(savedInstanceState);
+        // Start the relay service once — it's a foreground service and persists independently
+        startRelayService();
+        // Request BLE permissions after service is running so the permission dialog
+        // doesn't fire onPause before startForeground() can be called
         requestBlePermissionsIfNeeded();
     }
 
@@ -42,18 +46,6 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-        startRelayService();
-    }
-
-    @Override
-    public void onPause() {
-        super.onPause();
-        stopRelayService();
-    }
-
     private void startRelayService() {
         try {
             Intent intent = new Intent(this, LocalRelayService.class);
@@ -65,16 +57,6 @@ public class MainActivity extends BridgeActivity {
             Log.i(TAG, "LocalRelayService started");
         } catch (Exception e) {
             Log.e(TAG, "Failed to start LocalRelayService: " + e.getMessage());
-        }
-    }
-
-    private void stopRelayService() {
-        try {
-            Intent intent = new Intent(this, LocalRelayService.class);
-            stopService(intent);
-            Log.i(TAG, "LocalRelayService stopped");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to stop LocalRelayService: " + e.getMessage());
         }
     }
 }

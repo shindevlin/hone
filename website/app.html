@@ -17,15 +17,17 @@
   <link rel="manifest" href="/app-manifest.json">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <script>
-    // Suppress login screen flash when a saved session exists
     (function() {
       if (localStorage.getItem('btcpc-sensor-account')) {
         document.documentElement.setAttribute('data-autologin', '1');
       }
-      // Mark desktop mode early so CSS can widen the layout
       if (new URLSearchParams(location.search).get('desktop') === '1' ||
           navigator.userAgent.indexOf('Electron') !== -1) {
         document.documentElement.setAttribute('data-desktop', '1');
+      }
+      // Mark native app — hides desktop nav, install links, download buttons
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+        document.documentElement.setAttribute('data-native', '1');
       }
     })();
   </script>
@@ -135,6 +137,10 @@
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
     .screen.active { display: block; }
+
+    /* ── Native Android/iOS app ──────────────────────────────────────────── */
+    [data-native] #nav-bar { display: none !important; }
+    [data-native] .desktop-only { display: none !important; }
 
     /* ── Desktop app layout ──────────────────────────────────────────────── */
     /* Hide website nav and mobile chrome */
@@ -689,6 +695,29 @@
     <div id="panel-sensors" class="tab-panel active">
       <div id="sensor-list"></div>
 
+      <!-- Relay status card — only shown in native app -->
+      <div id="relay-status-card" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">External Relay (Flipper / IoT)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+          <div id="relay-wifi-box" style="background:rgba(247,147,26,0.06);border:1px solid var(--border);border-radius:6px;padding:8px 4px;">
+            <div style="font-size:16px;">📶</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;">WiFi</div>
+            <div id="relay-wifi-status" style="font-size:10px;color:#6b7280;margin-top:1px;">port 6942</div>
+          </div>
+          <div id="relay-usb-box" style="background:rgba(247,147,26,0.06);border:1px solid var(--border);border-radius:6px;padding:8px 4px;">
+            <div style="font-size:16px;">🔌</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;">USB OTG</div>
+            <div id="relay-usb-status" style="font-size:10px;color:#6b7280;margin-top:1px;">watching</div>
+          </div>
+          <div id="relay-ble-box" style="background:rgba(247,147,26,0.06);border:1px solid var(--border);border-radius:6px;padding:8px 4px;">
+            <div style="font-size:16px;">📡</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;">Bluetooth</div>
+            <div id="relay-ble-status" style="font-size:10px;color:#6b7280;margin-top:1px;">scanning</div>
+          </div>
+        </div>
+        <div id="relay-readings-log" style="margin-top:8px;font-size:10px;color:var(--muted);max-height:60px;overflow-y:auto;font-family:monospace;"></div>
+      </div>
+
       <div class="sync-bar" id="sync-bar">
         <div class="row"><span>Next reading in</span><span id="sync-countdown">30s</span></div>
         <div class="row"><span>Sync status</span><span id="sync-status">Waiting</span></div>
@@ -791,11 +820,15 @@
           { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, tier: 'gpu48', desc: 'Maximum quality, multi-GPU', earning: '17x' },
         ];
 
-        var desktopMode = new URLSearchParams(location.search).get('desktop') === '1'
+        // Capacitor runs as https://localhost inside the Android/iOS app — treat it as mobile, not desktop.
+        var isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        var desktopMode = !isCapacitor && (
+          new URLSearchParams(location.search).get('desktop') === '1'
           || navigator.userAgent.includes('Electron')
           || location.hostname === 'localhost'
           || location.hostname === '127.0.0.1'
-          || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname);
+          || /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(location.hostname)
+        );
 
         // Detect device capabilities
         var deviceRAM = navigator.deviceMemory || 4; // GB, defaults to 4 if not available
@@ -1857,6 +1890,59 @@
 
     <div class="app-footer">BTCPC Node v3.0 &mdash; btcpc.net</div>
   </div>
+
+  <script>
+  // ── Native app relay status ──────────────────────────────────────────────
+  (function() {
+    var isNative = document.documentElement.hasAttribute('data-native');
+    // data-native is set at DOMContentLoaded time; also check Capacitor directly
+    if (!isNative && !(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) return;
+
+    var card = document.getElementById('relay-status-card');
+    if (card) card.style.display = 'block';
+
+    var readingsLog = document.getElementById('relay-readings-log');
+    var wifiStatus  = document.getElementById('relay-wifi-status');
+    var usbStatus   = document.getElementById('relay-usb-status');
+    var bleStatus   = document.getElementById('relay-ble-status');
+
+    function colorBox(id, active) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = active ? 'rgba(34,197,94,0.4)' : 'var(--border)';
+      el.style.background  = active ? 'rgba(34,197,94,0.07)' : 'rgba(247,147,26,0.06)';
+    }
+
+    // Poll the local relay service status endpoint (served by LocalRelayService NanoHTTPD)
+    function pollRelay() {
+      fetch('http://localhost:6942/_relay/status', { signal: AbortSignal.timeout(2000) })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (wifiStatus) { wifiStatus.textContent = 'active'; wifiStatus.style.color = '#22c55e'; }
+          colorBox('relay-wifi-box', true);
+          if (d.usb_connected) {
+            if (usbStatus) { usbStatus.textContent = 'connected'; usbStatus.style.color = '#22c55e'; }
+            colorBox('relay-usb-box', true);
+          }
+          if (d.ble_connected) {
+            if (bleStatus) { bleStatus.textContent = 'connected'; bleStatus.style.color = '#22c55e'; }
+            colorBox('relay-ble-box', true);
+          }
+          if (d.last_reading && readingsLog) {
+            var line = document.createElement('div');
+            line.textContent = new Date().toLocaleTimeString() + ' ' + JSON.stringify(d.last_reading).slice(0, 80);
+            readingsLog.prepend(line);
+            if (readingsLog.children.length > 10) readingsLog.lastChild.remove();
+          }
+        })
+        .catch(function() {
+          if (wifiStatus) { wifiStatus.textContent = 'port 6942'; wifiStatus.style.color = '#6b7280'; }
+        });
+    }
+    pollRelay();
+    setInterval(pollRelay, 5000);
+  })();
+  </script>
 
   <!-- Tab Bar (shown on dashboard) -->
   <div id="tab-bar">
