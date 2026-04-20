@@ -48,20 +48,28 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import fi.iki.elonen.NanoHTTPD;
+
 /**
  * LocalRelayService — Flipper Zero sensor relay for BTCPC.
  *
- * Connection methods (no WiFi board required):
- *   1. USB OTG  — Flipper Zero appears as CDC ACM serial (VID 0x0483, PID 0x5740).
- *                 Android USB Host API reads lines from bulk endpoint.
- *   2. BLE UART — Flipper Zero UART BLE Bridge app advertises Nordic UART Service.
- *                 Android connects as GATT client, subscribes to TX characteristic.
+ * All three connection methods run concurrently. Whichever delivers a reading first wins —
+ * they all funnel into the same forwardReading() method.
  *
- * Each method parses lines as JSON: {"id":"sensor_id","value":23.5,"unit":"C"}
+ *   1. WiFi/HTTP — NanoHTTPD server on port 6942.
+ *                  Accepts POST /sensors/:id/readings (JSON body).
+ *                  Works with Flipper WiFi dev board or any device on the same LAN.
+ *   2. USB OTG   — Flipper Zero appears as CDC ACM serial (VID 0x0483, PID 0x5740).
+ *                  Android USB Host API reads lines from bulk endpoint.
+ *   3. BLE UART  — Flipper Zero UART BLE Bridge app advertises Nordic UART Service.
+ *                  Android connects as GATT client, subscribes to TX characteristic.
+ *
+ * Each method parses JSON: {"id":"sensor_id","value":23.5,"unit":"C"}
  * and forwards to the BTCPC sensor readings API.
  *
  * API target: local node on localhost:4242 with fallback to btcpc.net.
@@ -89,6 +97,10 @@ public class LocalRelayService extends Service {
     private static final String REMOTE_API_BASE = "https://btcpc.net/api";
 
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
+
+    // WiFi HTTP server (NanoHTTPD) — Method 1
+    private static final int WIFI_HTTP_PORT = 6942;
+    private FlipperHttpServer wifiHttpServer;
 
     private UsbManager usbManager;
     private UsbReaderThread usbReaderThread;
@@ -151,17 +163,20 @@ public class LocalRelayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("BTCPC Relay")
-                .setContentText("BTCPC Relay — Flipper Zero via USB or Bluetooth")
+                .setContentText("BTCPC Relay — WiFi · USB · Bluetooth")
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
                 .setOngoing(true)
                 .build();
 
         startForeground(NOTIFICATION_ID, notification);
 
-        // Check for already-attached Flipper Zero
+        // Method 1: Start WiFi HTTP server (NanoHTTPD on port 6942)
+        startWifiServer();
+
+        // Method 2: Check for already-attached Flipper Zero (USB OTG)
         probeAttachedUsb();
 
-        // Start BLE scan for Flipper UART bridge
+        // Method 3: Start BLE scan for Flipper UART bridge
         startBleScan();
 
         return START_STICKY;
@@ -169,6 +184,7 @@ public class LocalRelayService extends Service {
 
     @Override
     public void onDestroy() {
+        stopWifiServer();
         try { unregisterReceiver(usbReceiver); } catch (Exception ignored) {}
         stopUsbReader();
         stopBleScan();
@@ -186,7 +202,91 @@ public class LocalRelayService extends Service {
     }
 
     // -----------------------------------------------------------------------
-    // USB OTG — Method 1
+    // WiFi / HTTP (NanoHTTPD) — Method 1
+    // -----------------------------------------------------------------------
+
+    private void startWifiServer() {
+        try {
+            wifiHttpServer = new FlipperHttpServer(WIFI_HTTP_PORT);
+            wifiHttpServer.start();
+            Log.i(TAG, "WiFi HTTP server started on port " + WIFI_HTTP_PORT);
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to start WiFi HTTP server: " + e.getMessage());
+        }
+    }
+
+    private void stopWifiServer() {
+        if (wifiHttpServer != null) {
+            wifiHttpServer.stop();
+            wifiHttpServer = null;
+            Log.i(TAG, "WiFi HTTP server stopped");
+        }
+    }
+
+    /**
+     * NanoHTTPD server that accepts POST /sensors/:id/readings with a JSON body.
+     * Funnels readings into the same handleSensorLine / forwardReading pipeline.
+     */
+    private class FlipperHttpServer extends NanoHTTPD {
+
+        FlipperHttpServer(int port) {
+            super(port);
+        }
+
+        @Override
+        public Response serve(IHTTPSession session) {
+            String uri = session.getUri();           // e.g. /sensors/temp01/readings
+            Method method = session.getMethod();
+
+            // Only handle POST /sensors/:id/readings
+            if (!Method.POST.equals(method) || !uri.matches("/sensors/[^/]+/readings")) {
+                return newFixedLengthResponse(Response.Status.NOT_FOUND,
+                        "application/json", "{\"error\":\"not found\"}");
+            }
+
+            // Extract sensor id from path
+            String[] parts = uri.split("/");
+            // parts: ["", "sensors", "<id>", "readings"]
+            if (parts.length < 4) {
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST,
+                        "application/json", "{\"error\":\"bad path\"}");
+            }
+            String sensorId = parts[2];
+
+            // Read body
+            try {
+                Map<String, String> bodyMap = new java.util.HashMap<>();
+                session.parseBody(bodyMap);
+                String body = bodyMap.containsKey("postData") ? bodyMap.get("postData") : "";
+                if (body == null || body.isEmpty()) {
+                    return newFixedLengthResponse(Response.Status.BAD_REQUEST,
+                            "application/json", "{\"error\":\"empty body\"}");
+                }
+
+                // Ensure body has "id" field — inject it if the Flipper sent a minimal payload
+                JSONObject json = new JSONObject(body);
+                if (!json.has("id")) {
+                    json.put("id", sensorId);
+                }
+
+                Log.d(TAG, "[WiFi] received reading for " + sensorId);
+                final String finalBody = json.toString();
+                final String finalId = sensorId;
+                httpExecutor.execute(() -> forwardReading(finalId, finalBody, "WiFi"));
+
+                return newFixedLengthResponse(Response.Status.OK,
+                        "application/json", "{\"status\":\"queued\"}");
+
+            } catch (IOException | NanoHTTPD.ResponseException | JSONException e) {
+                Log.e(TAG, "[WiFi] Error parsing request: " + e.getMessage());
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR,
+                        "application/json", "{\"error\":\"" + e.getMessage() + "\"}");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // USB OTG — Method 2
     // -----------------------------------------------------------------------
 
     private boolean isFlipperZero(UsbDevice device) {
@@ -317,7 +417,7 @@ public class LocalRelayService extends Service {
     }
 
     // -----------------------------------------------------------------------
-    // BLE UART (Nordic UART Service) — Method 2
+    // BLE UART (Nordic UART Service) — Method 3
     // -----------------------------------------------------------------------
 
     private void startBleScan() {
