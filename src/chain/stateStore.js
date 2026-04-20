@@ -2416,6 +2416,15 @@ function getStakePool(username) {
   return stakes.get(username) || null;
 }
 
+/**
+ * Get the total staked BTCPC for a username (node account).
+ * Returns 0 if the account has no stake pool.
+ */
+function getStake(username) {
+  var pool = stakes.get(username);
+  return pool ? (pool.total_staked || 0) : 0;
+}
+
 function getAllStakePools() {
   var result = [];
   for (var entry of stakes) {
@@ -2491,6 +2500,16 @@ function getActiveEscrows() {
 
 function getEpoch(epochNumber) {
   return epochs.get(epochNumber) || null;
+}
+
+/**
+ * Return the VRF beacon seed stored for an epoch, or null if not yet
+ * committed.  Consumers fall back to crypto.randomBytes when null.
+ */
+function getEpochVrfSeed(epochNumber) {
+  var ep = epochs.get(epochNumber);
+  if (!ep) return null;
+  return ep.vrf_seed || ep.beacon || null;
 }
 
 function getLatestEpoch() {
@@ -3612,6 +3631,7 @@ module.exports = {
   getNFTsByCollection: getNFTsByCollection,
   getAllNFTs: getAllNFTs,
   // Staking/delegation
+  getStake: getStake,
   getStakePool: getStakePool,
   getAllStakePools: getAllStakePools,
   getDelegation: getDelegation,
@@ -3625,6 +3645,7 @@ module.exports = {
   getActiveEscrows: getActiveEscrows,
   // Epoch / proofs
   getEpoch: getEpoch,
+  getEpochVrfSeed: getEpochVrfSeed,
   getLatestEpoch: getLatestEpoch,
   getChainHeight: getChainHeight,
   getRecentEpochs: getRecentEpochs,

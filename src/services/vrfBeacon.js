@@ -194,6 +194,19 @@ function shuffleArray(beacon, array, salt) {
   return result;
 }
 
+/**
+ * Derive a deterministic hex value from a seed and domain string.
+ * Used for VRF-based job assignment: given the epoch seed and a
+ * request-scoped domain, returns a reproducible but unpredictable
+ * 64-character hex string.  Any party with the seed can verify
+ * the derivation; without the seed (pre-reveal) it is opaque.
+ */
+function deriveFromSeed(seed, domain) {
+  if (!seed || !domain) return crypto.randomBytes(32).toString("hex");
+  var input = "btcpc:vrf:" + seed + ":" + domain;
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
 module.exports = {
   generateSecret: generateSecret,
   commitHash: commitHash,
@@ -203,4 +216,5 @@ module.exports = {
   deriveIndex: deriveIndex,
   deriveFloat: deriveFloat,
   shuffleArray: shuffleArray,
+  deriveFromSeed: deriveFromSeed,
 };

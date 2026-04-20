@@ -23,6 +23,7 @@ const crypto = require("crypto");
 const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 const escrow = require("../services/escrow");
+const vrfBeacon = require("../services/vrfBeacon");
 
 // ── Sharding modules (lazy-required to avoid circular deps) ──
 // Loaded on first use only
@@ -38,6 +39,7 @@ const COMMIT_TIMEOUT_MS = 120000;   // 2min for nodes to commit results
 const REVEAL_TIMEOUT_MS = 30000;    // 30s for reveal after all commits
 const MIN_REDUNDANCY = 1;           // N=1 for solo/early network
 const STANDARD_REDUNDANCY = 3;      // N=3 for mature network
+const MIN_CLAIM_STAKE = 10;         // Minimum BTCPC staked to participate
 
 // ── Active requests in memory ──
 const activeRequests = new Map();
@@ -161,6 +163,13 @@ async function claimRequest(requestId, nodeId, sikHash, price) {
   const nodeEntry = nodeRegistry.getNode(nodeId);
   if (!nodeEntry) return { error: 'Node not registered' };
 
+  // Stake gate: nodes must have skin-in-the-game to claim jobs.
+  // Prevents zero-cost sybil rings from flooding the claim pool.
+  const nodeStake = (nodeEntry.stake || 0);
+  if (nodeStake < MIN_CLAIM_STAKE) {
+    return { error: `Insufficient stake to claim inference jobs. Minimum ${MIN_CLAIM_STAKE} BTCPC required.` };
+  }
+
   // Check if node is already busy with active inference
   let activeClaims = 0;
   for (const [, req] of activeRequests) {
@@ -244,8 +253,32 @@ async function assignNodes(requestId) {
     })
   );
 
-  // Sort by score descending
-  scoredClaims.sort((a, b) => b.score - a.score);
+  // ── VRF-weighted shuffle ──
+  // After scoring, we do NOT simply take the top-N by score.
+  // A colluder ring that knows everyone's scores can pre-arrange
+  // who will score highest and guarantee they receive the job.
+  //
+  // Instead: multiply each score by a per-node VRF slot value
+  // derived from the epoch beacon.  Higher score = higher expected
+  // vrf_slot, but the per-node random factor means no pre-arrangement
+  // is possible.  Sorted by vrf_slot descending.
+  //
+  // vrf_slot = score * U  where U ∈ (0, 1] is derived from
+  //   vrfBeacon.deriveFromSeed(epochVrfSeed, requestId + ':' + node_id)
+  // So a node with score 0.9 still beats a node with score 0.1 on
+  // average, but not deterministically — collusion is broken.
+  const currentEpoch = stateStore.getChainHeight();
+  let vrfSeed = stateStore.getEpochVrfSeed(currentEpoch);
+  if (!vrfSeed) vrfSeed = crypto.randomBytes(32).toString('hex');
+
+  for (const claim of scoredClaims) {
+    const vrfHex = vrfBeacon.deriveFromSeed(vrfSeed, requestId + ':' + claim.node_id);
+    const u = parseInt(vrfHex.slice(0, 8), 16) / 0xFFFFFFFF;
+    claim.vrf_slot = claim.score * u;
+  }
+
+  // Sort by VRF-weighted slot descending
+  scoredClaims.sort((a, b) => b.vrf_slot - a.vrf_slot);
 
   const assigned = scoredClaims.slice(0, N);
   request.assignments = assigned.map((c) => ({
