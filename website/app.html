@@ -1325,6 +1325,7 @@
             { id:'llama3.2:3b',  label:'Llama 3.2 3B', note:'meta' },
             { id:'gemma3:4b',    label:'Gemma3 4B',   note:'google' },
           ];
+          window._chatModels = chatModels;
           chatModels.forEach(function(m, i) {
             var btn = document.createElement('button');
             btn.type = 'button';
@@ -1343,11 +1344,47 @@
               this.style.background = 'rgba(247,147,26,0.2)';
               this.style.border = '1px solid #f7931a';
               this.style.color = '#f7931a';
+              updateChatSendLabel();
             };
             document.getElementById('chat-model-radios').appendChild(btn);
           });
         })();
         </script>
+      </div>
+      <!-- Parallel count selector -->
+      <input type="hidden" id="chat-parallel-count" value="1">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="font-size:11px;color:var(--muted);">Parallel:</span>
+        <script>
+        (function(){
+          [1,2,3].forEach(function(n) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'chat-parallel-' + n;
+            btn.dataset.n = n;
+            btn.style.cssText = 'padding:4px 10px;border-radius:16px;font-family:monospace;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;' +
+              (n===1 ? 'background:rgba(247,147,26,0.2);border:1px solid #f7931a;color:#f7931a;' :
+                       'background:rgba(247,147,26,0.05);border:1px solid var(--border);color:var(--muted);');
+            btn.textContent = '×' + n;
+            btn.title = n === 1 ? 'Single model' : ('Ask ' + n + ' models in parallel (~' + n + '× cost, lower latency for complex queries)');
+            btn.onclick = function() {
+              document.getElementById('chat-parallel-count').value = n;
+              document.querySelectorAll('[id^=chat-parallel-]').forEach(function(b) {
+                b.style.background = 'rgba(247,147,26,0.05)';
+                b.style.border = '1px solid var(--border)';
+                b.style.color = 'var(--muted)';
+              });
+              this.style.background = 'rgba(247,147,26,0.2)';
+              this.style.border = '1px solid #f7931a';
+              this.style.color = '#f7931a';
+              updateChatSendLabel();
+            };
+            document.currentScript.parentNode.appendChild(btn);
+          });
+          if (window.updateChatSendLabel) updateChatSendLabel();
+        })();
+        </script>
+        <span id="chat-parallel-hint" style="font-size:10px;color:var(--muted);margin-left:4px;"></span>
       </div>
       <div class="chat-input-row">
         <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
@@ -3169,17 +3206,10 @@ var fileInput = document.getElementById('mine-file-input');
 
 if (dlBtn) {
   dlBtn.addEventListener('click', function() {
-    var model = document.getElementById('mine-model-select').value;
-    var baseURL = modelDownloadURLs[model];
-    if (baseURL) {
-      // WebLLM models have multiple files — open the HuggingFace page so user can download all
-      var hfPage = baseURL.replace('/resolve/main/', '').replace('https://huggingface.co/', 'https://huggingface.co/');
-      window.open(hfPage + '/tree/main', '_blank');
-      dlBtn.textContent = 'Opening HuggingFace...';
-      setTimeout(function() { dlBtn.textContent = 'Download Model File'; }, 3000);
-    } else {
-      dlBtn.textContent = 'Model URL not found';
-    }
+    // On-chain model distribution is coming — models will be served via BTCPC-FS.
+    // Never open external sites from the app.
+    dlBtn.textContent = 'On-device mining requires WebGPU (not available in app)';
+    setTimeout(function() { dlBtn.textContent = 'Download Model File'; }, 4000);
   });
 }
 
@@ -3440,11 +3470,19 @@ async function initChat() {
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send');
 
+function updateChatSendLabel() {
+  const n = parseInt(document.getElementById('chat-parallel-count').value) || 1;
+  const btn = document.getElementById('chat-send');
+  const hint = document.getElementById('chat-parallel-hint');
+  if (btn) btn.textContent = n > 1 ? 'Send ×' + n : 'Send';
+  if (hint) hint.textContent = n > 1 ? '~' + n + '× cost, get ' + n + ' answers' : '';
+}
+window.updateChatSendLabel = updateChatSendLabel;
+
 chatSendBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
-// Auto-resize textarea
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
@@ -3461,81 +3499,87 @@ async function sendChat() {
   }
 
   const modelInput = document.getElementById('chat-model-input');
-  const model = modelInput ? modelInput.value.trim() : '';
-  if (!model) {
-    if (modelInput) { modelInput.style.borderColor = '#ef4444'; modelInput.focus(); }
+  const primaryModel = modelInput ? modelInput.value.trim() : '';
+  if (!primaryModel) {
+    if (modelInput) { modelInput.style.borderColor = '#ef4444'; }
     return;
   }
   if (modelInput) modelInput.style.borderColor = '';
+
+  const parallelCount = parseInt(document.getElementById('chat-parallel-count').value) || 1;
+
+  // Build list of models to query — primary first, then fill from the known list
+  const allModels = (window._chatModels || []).map(function(m) { return m.id; });
+  const others = allModels.filter(function(id) { return id !== primaryModel; });
+  const modelsToQuery = [primaryModel].concat(others).slice(0, parallelCount);
 
   chatInput.value = '';
   chatInput.style.height = 'auto';
   chatSendBtn.disabled = true;
 
   appendChatBubble('user', text, null);
-  await saveChatMessage('user', text, model, null);
+  await saveChatMessage('user', text, primaryModel, null);
 
-  // Show typing indicator
-  const typingDiv = document.createElement('div');
-  typingDiv.className = 'chat-msg assistant';
-  typingDiv.textContent = 'thinking...';
-  typingDiv.style.opacity = '0.5';
+  // One typing indicator per model
   const container = document.getElementById('chat-messages');
-  container.appendChild(typingDiv);
+  const typingDivs = modelsToQuery.map(function(modelId) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg assistant';
+    div.style.opacity = '0.5';
+    div.textContent = (parallelCount > 1 ? '[' + modelId + '] ' : '') + 'thinking...';
+    container.appendChild(div);
+    return div;
+  });
   container.scrollTop = container.scrollHeight;
 
-  try {
-    const body = {
-      model: model,
-      messages: [{ role: 'user', content: text }],
-      stream: false,
-    };
-
-    const resp = await fetch(API_BASE + '/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + jwt,
-      },
-      body: JSON.stringify(body),
-    });
-
-    typingDiv.remove();
-
-    if (!resp.ok) {
-      const errData = await resp.json().catch(() => ({}));
-      if (resp.status === 401) {
-        localStorage.removeItem('btcpc-jwt');
-        // Inject a clickable re-auth notice directly (not through appendChatBubble which escapes HTML)
-        const container = document.getElementById('chat-messages');
-        const notice = document.createElement('div');
-        notice.className = 'chat-msg assistant';
-        notice.innerHTML = 'Session expired. <a href="#" style="color:#f7931a" onclick="showReauth();return false;">Tap here to re-login</a>.';
-        container.appendChild(notice);
-        container.scrollTop = container.scrollHeight;
-        await saveChatMessage('assistant', 'Session expired — please re-login', null, null);
-      } else {
-        const errMsg = errData.error || errData.message || `Error ${resp.status}`;
-        appendChatBubble('assistant', errMsg, null);
-        await saveChatMessage('assistant', errMsg, null, null);
+  async function queryModel(modelId, typingDiv) {
+    try {
+      const resp = await fetch(API_BASE + '/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+        body: JSON.stringify({ model: modelId, messages: [{ role: 'user', content: text }], stream: false }),
+      });
+      typingDiv.remove();
+      if (!resp.ok) {
+        const errData = await resp.json().catch(function() { return {}; });
+        if (resp.status === 401) {
+          localStorage.removeItem('btcpc-jwt');
+          const notice = document.createElement('div');
+          notice.className = 'chat-msg assistant';
+          notice.innerHTML = 'Session expired. <a href="#" style="color:#f7931a" onclick="showReauth();return false;">Tap here to re-login</a>.';
+          container.appendChild(notice);
+          container.scrollTop = container.scrollHeight;
+          await saveChatMessage('assistant', 'Session expired — please re-login', null, null);
+          return;
+        }
+        const errMsg = errData.error || errData.message || ('Error ' + resp.status);
+        const label = parallelCount > 1 ? '[' + modelId + '] ' + errMsg : errMsg;
+        appendChatBubble('assistant', label, null);
+        await saveChatMessage('assistant', label, modelId, null);
+        return;
       }
-    } else {
       const data = await resp.json();
       const reply = data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
-      const usedModel = data.model || null;
       const tokens = data.usage?.total_tokens || data.usage?.completion_tokens || 0;
       const costPerToken = data.usage?.cost_per_token || 0;
       const totalCost = data.usage?.cost || (tokens * costPerToken) || null;
-      const costLabel = totalCost ? `${totalCost} BTCPC (${tokens} tokens)` : (tokens ? `${tokens} tokens` : null);
-      appendChatBubble('assistant', reply, costLabel);
-      await saveChatMessage('assistant', reply, usedModel, cost);
+      const costLabel = (totalCost ? totalCost + ' BTCPC · ' : '') + (tokens ? tokens + ' tokens' : null);
+      const labelledReply = parallelCount > 1 ? '[' + (data.model || modelId) + ']\n' + reply : reply;
+      appendChatBubble('assistant', labelledReply, costLabel || null);
+      await saveChatMessage('assistant', labelledReply, data.model || modelId, null);
+    } catch (err) {
+      typingDiv.remove();
+      const errMsg = (parallelCount > 1 ? '[' + modelId + '] ' : '') + 'Network error — check your connection';
+      appendChatBubble('assistant', errMsg, null);
+      await saveChatMessage('assistant', errMsg, null, null);
     }
-  } catch (err) {
-    typingDiv.remove();
-    const errMsg = 'Network error — check your connection';
-    appendChatBubble('assistant', errMsg, null);
-    await saveChatMessage('assistant', errMsg, null, null);
   }
+
+  // Fire all queries in parallel — Promise.allSettled ensures all render even if one fails
+  await Promise.allSettled(modelsToQuery.map(function(modelId, i) {
+    return queryModel(modelId, typingDivs[i]);
+  }));
+  chatSendBtn.disabled = false;
 
   chatSendBtn.disabled = false;
   chatInput.focus();
