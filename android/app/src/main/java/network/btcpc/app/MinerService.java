@@ -43,7 +43,7 @@ public class MinerService extends Service {
     }
 
     // ---------- JNI bridge (implemented in Rust) ----------
-    private static native void nativeStart(String account, String jwt, String apiBase, String modelDir);
+    private static native void nativeStart(String account, String jwt, String apiBase, String modelId, String modelDir);
     private static native void nativeStop();
     private static native String nativeGetStatus();
     private static native boolean nativeIsRunning();
@@ -85,7 +85,8 @@ public class MinerService extends Service {
         String account  = prefs.getAccount();
         String jwt      = prefs.getJwt();
         String apiBase  = prefs.getApiUrl();
-        String modelDir = getFilesDir().getAbsolutePath() + "/miner-model";
+        String modelId  = prefs.getMinerModel();
+        String modelDir = getFilesDir().getAbsolutePath() + "/miner-models/" + modelId;
 
         new File(modelDir).mkdirs();
 
@@ -95,7 +96,7 @@ public class MinerService extends Service {
             return START_NOT_STICKY;
         }
 
-        nativeStart(account, jwt, apiBase, modelDir);
+        nativeStart(account, jwt, apiBase, modelId, modelDir);
         handler.post(statusPoller);
         return START_STICKY;
     }

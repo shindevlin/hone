@@ -7,6 +7,10 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -15,42 +19,44 @@ import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
-/**
- * EarnFragment — card-based toggles for the four earn services.
- *
- * Miner   — on-device ONNX inference (placeholder; ONNX runtime not bundled yet,
- *            toggle is wired but service start is a no-op until the binary ships).
- * Clock   — NativeClockService WebSocket heartbeat peer.
- * Sensors — NativeSensorService phone sensor publisher.
- * Storage — placeholder (no service yet, toggle stored in prefs).
- *
- * Each card polls SharedPrefs every 2 s to surface live status text written
- * by the running background services.
- */
+import java.util.ArrayList;
+import java.util.List;
+
 public class EarnFragment extends Fragment {
 
     private static final long POLL_INTERVAL_MS = 2000;
 
+    // Quota steps in MB: 256, 512, 1024, 2048, 4096, 6144, 8192, 10240, 12288,
+    //                    16384, 20480, 25600, 32768, 40960, 51200, 65536, 81920, 102400, 131072
+    private static final int[] QUOTA_STEPS_MB = {
+            256, 512, 1024, 2048, 4096, 6144, 8192, 10240, 12288,
+            16384, 20480, 25600, 32768, 40960, 51200, 65536, 81920, 102400, 131072
+    };
+
     private AppPrefs prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    // Miner
     private SwitchCompat minerToggle;
-    private TextView minerStatus;
+    private Spinner      minerModelSpinner;
+    private TextView     minerStatus;
 
-    // Clock
     private SwitchCompat clockToggle;
-    private TextView clockStatus;
+    private TextView     clockStatus;
 
-    // Sensors
     private SwitchCompat sensorsToggle;
-    private TextView sensorsStatus;
+    private TextView     sensorsStatus;
 
-    // Storage
     private SwitchCompat storageToggle;
-    private TextView storageStatus;
+    private SeekBar      storageQuotaSeek;
+    private TextView     storageQuotaLabel;
+    private TextView     storageStatus;
 
     private boolean polling = false;
+
+    // Model picker data (populated from chain)
+    private final List<String> modelIds   = new ArrayList<>();
+    private final List<String> modelNames = new ArrayList<>();
+    private ArrayAdapter<String> modelAdapter;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -65,20 +71,47 @@ public class EarnFragment extends Fragment {
 
         prefs = new AppPrefs(requireContext());
 
-        minerToggle   = view.findViewById(R.id.earn_miner_toggle);
-        minerStatus   = view.findViewById(R.id.earn_miner_status);
-        clockToggle   = view.findViewById(R.id.earn_clock_toggle);
-        clockStatus   = view.findViewById(R.id.earn_clock_status);
-        sensorsToggle = view.findViewById(R.id.earn_sensors_toggle);
-        sensorsStatus = view.findViewById(R.id.earn_sensors_status);
-        storageToggle = view.findViewById(R.id.earn_storage_toggle);
-        storageStatus = view.findViewById(R.id.earn_storage_status);
+        minerToggle        = view.findViewById(R.id.earn_miner_toggle);
+        minerModelSpinner  = view.findViewById(R.id.earn_miner_model_spinner);
+        minerStatus        = view.findViewById(R.id.earn_miner_status);
+        clockToggle        = view.findViewById(R.id.earn_clock_toggle);
+        clockStatus        = view.findViewById(R.id.earn_clock_status);
+        sensorsToggle      = view.findViewById(R.id.earn_sensors_toggle);
+        sensorsStatus      = view.findViewById(R.id.earn_sensors_status);
+        storageToggle      = view.findViewById(R.id.earn_storage_toggle);
+        storageQuotaSeek   = view.findViewById(R.id.earn_storage_quota_seek);
+        storageQuotaLabel  = view.findViewById(R.id.earn_storage_quota_label);
+        storageStatus      = view.findViewById(R.id.earn_storage_status);
 
-        // Restore toggle states from prefs — suppress listener during restore
+        // Set up model spinner
+        modelAdapter = new ArrayAdapter<>(requireContext(),
+                android.R.layout.simple_spinner_item, modelNames);
+        modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        minerModelSpinner.setAdapter(modelAdapter);
+
+        // Restore toggle states
         minerToggle.setChecked(prefs.isMinerEnabled());
         clockToggle.setChecked(prefs.isClockEnabled());
         sensorsToggle.setChecked(prefs.isSensorsEnabled());
         storageToggle.setChecked(prefs.isStorageEnabled());
+
+        // Storage quota seek bar
+        int savedQuotaMb = prefs.getStorageQuotaMb();
+        int seekPos = quotaMbToSeekPos(savedQuotaMb);
+        storageQuotaSeek.setMax(QUOTA_STEPS_MB.length - 1);
+        storageQuotaSeek.setProgress(seekPos);
+        updateQuotaLabel(QUOTA_STEPS_MB[seekPos]);
+
+        storageQuotaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                int mb = QUOTA_STEPS_MB[Math.max(0, Math.min(progress, QUOTA_STEPS_MB.length - 1))];
+                updateQuotaLabel(mb);
+                if (fromUser) prefs.setStorageQuotaMb(mb);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
 
         // Miner toggle
         minerToggle.setOnCheckedChangeListener((btn, checked) -> {
@@ -101,9 +134,8 @@ public class EarnFragment extends Fragment {
         // Clock toggle
         clockToggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.setClockEnabled(checked);
-            if (checked) {
-                startService(NativeClockService.class);
-            } else {
+            if (checked) startService(NativeClockService.class);
+            else {
                 stopService(NativeClockService.class);
                 clockStatus.setText("Stopped");
             }
@@ -112,9 +144,8 @@ public class EarnFragment extends Fragment {
         // Sensors toggle
         sensorsToggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.setSensorsEnabled(checked);
-            if (checked) {
-                startService(NativeSensorService.class);
-            } else {
+            if (checked) startService(NativeSensorService.class);
+            else {
                 stopService(NativeSensorService.class);
                 sensorsStatus.setText("Stopped");
             }
@@ -138,7 +169,20 @@ public class EarnFragment extends Fragment {
             }
         });
 
-        // Initial status text paint
+        // Model spinner selection
+        minerModelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                if (pos < modelIds.size()) {
+                    prefs.setMinerModel(modelIds.get(pos));
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
+        // Fetch models from chain
+        fetchModels();
+
         refreshStatuses();
     }
 
@@ -152,6 +196,45 @@ public class EarnFragment extends Fragment {
     public void onPause() {
         super.onPause();
         stopPolling();
+    }
+
+    // ---- chain model fetch ----
+
+    private void fetchModels() {
+        ChainApi.fetchPhoneModels(prefs.getApiUrl(), new ChainApi.PhoneModelsCallback() {
+            @Override
+            public void onSuccess(List<String> ids, List<String> names) {
+                if (!isAdded()) return;
+                modelIds.clear();   modelIds.addAll(ids);
+                modelNames.clear(); modelNames.addAll(names);
+                modelAdapter.notifyDataSetChanged();
+                // Restore saved selection
+                String saved = prefs.getMinerModel();
+                int idx = modelIds.indexOf(saved);
+                if (idx >= 0) minerModelSpinner.setSelection(idx);
+            }
+            @Override
+            public void onError(String message) {
+                if (!isAdded()) return;
+                // Populate fallback list inline if fetch fails
+                if (modelIds.isEmpty()) {
+                    modelIds.add("qwen2.5-0.5b");    modelNames.add("Qwen2.5-0.5B (default, ~400 MB)");
+                    modelIds.add("qwen3-0.6b");       modelNames.add("Qwen3-0.6B (~450 MB)");
+                    modelIds.add("smollm2-360m");     modelNames.add("SmolLM2-360M (~280 MB)");
+                    modelIds.add("llama-3.2-1b");     modelNames.add("Llama 3.2 1B (~700 MB)");
+                    modelIds.add("deepseek-r1-1.5b"); modelNames.add("DeepSeek-R1 1.5B (~1.1 GB)");
+                    modelIds.add("qwen3-1.7b");       modelNames.add("Qwen3-1.7B (~1.3 GB)");
+                    modelIds.add("gemma-3-1b");       modelNames.add("Gemma-3 1B (~850 MB)");
+                    modelIds.add("phi-3.5-mini");     modelNames.add("Phi-3.5 Mini (~2.2 GB)");
+                    modelIds.add("llama-3.2-3b");     modelNames.add("Llama 3.2 3B (~2.0 GB)");
+                    modelIds.add("qwen3-4b");         modelNames.add("Qwen3-4B (~2.6 GB)");
+                    modelAdapter.notifyDataSetChanged();
+                    String saved = prefs.getMinerModel();
+                    int idx = modelIds.indexOf(saved);
+                    if (idx >= 0) minerModelSpinner.setSelection(idx);
+                }
+            }
+        });
     }
 
     // ---- service control ----
@@ -191,21 +274,30 @@ public class EarnFragment extends Fragment {
 
     private void refreshStatuses() {
         if (!isAdded()) return;
-
-        // Miner — read state written by MinerService
-        String minerState = prefs.getMinerState();
-        minerStatus.setText(minerState.isEmpty() ? "Stopped" : minerState);
-
-        // Clock — read state written by NativeClockService
-        String clockState = prefs.getClockState();
-        clockStatus.setText(clockState.isEmpty() ? "Stopped" : clockState);
-
-        // Sensors — read state written by NativeSensorService
-        String sensorState = prefs.getSensorState();
-        sensorsStatus.setText(sensorState.isEmpty() ? "Stopped" : sensorState);
-
-        // Storage — read state written by StorageService
+        String minerState   = prefs.getMinerState();
+        String clockState   = prefs.getClockState();
+        String sensorState  = prefs.getSensorState();
         String storageState = prefs.getStorageState();
+        minerStatus.setText(minerState.isEmpty()   ? "Stopped" : minerState);
+        clockStatus.setText(clockState.isEmpty()   ? "Stopped" : clockState);
+        sensorsStatus.setText(sensorState.isEmpty() ? "Stopped" : sensorState);
         storageStatus.setText(storageState.isEmpty() ? "Stopped" : storageState);
+    }
+
+    // ---- quota helpers ----
+
+    private void updateQuotaLabel(int mb) {
+        if (mb < 1024) {
+            storageQuotaLabel.setText(mb + " MB");
+        } else {
+            storageQuotaLabel.setText((mb / 1024) + " GB");
+        }
+    }
+
+    private int quotaMbToSeekPos(int mb) {
+        for (int i = 0; i < QUOTA_STEPS_MB.length; i++) {
+            if (QUOTA_STEPS_MB[i] >= mb) return i;
+        }
+        return 2; // default 1 GB
     }
 }

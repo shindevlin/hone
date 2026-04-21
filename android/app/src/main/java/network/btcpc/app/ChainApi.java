@@ -41,6 +41,12 @@ public class ChainApi {
         void onError(String message);
     }
 
+    public interface PhoneModelsCallback {
+        /** model ids (e.g. ["qwen2.5-0.5b", "llama-3.2-1b"]) and display names */
+        void onSuccess(java.util.List<String> ids, java.util.List<String> names);
+        void onError(String message);
+    }
+
     public interface LoginCallback {
         void onSuccess(String account, String token);
         void onError(String message);
@@ -67,6 +73,67 @@ public class ChainApi {
     // ---------- public methods ----------
 
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+
+    /**
+     * Fetch models suitable for on-device phone mining from the chain registry.
+     * GET /api/models/registry — filters to models with size_mb <= threshold.
+     */
+    public static void fetchPhoneModels(String apiBase, PhoneModelsCallback callback) {
+        String url = apiBase + "/api/models/registry";
+        Request request = new Request.Builder().url(url).get().build();
+
+        CLIENT.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                MAIN.post(() -> callback.onError("Network error: " + e.getMessage()));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                try (ResponseBody rb = response.body()) {
+                    if (!response.isSuccessful() || rb == null) {
+                        MAIN.post(() -> callback.onError("Server error " + response.code()));
+                        return;
+                    }
+                    JSONObject json = new JSONObject(rb.string());
+                    java.util.List<String> ids   = new java.util.ArrayList<>();
+                    java.util.List<String> names = new java.util.ArrayList<>();
+
+                    // Registry is a map of id → metadata
+                    java.util.Iterator<String> keys = json.keys();
+                    while (keys.hasNext()) {
+                        String id = keys.next();
+                        JSONObject meta = json.optJSONObject(id);
+                        if (meta == null) continue;
+                        // Only include small models (≤ 4 GB) — skip deprecated
+                        if ("deprecated".equals(meta.optString("status"))) continue;
+                        long sizeMb = meta.optLong("size_mb", 9999);
+                        if (sizeMb > 4096) continue;
+                        String name = meta.optString("name", id);
+                        ids.add(id);
+                        names.add(name + (sizeMb > 0 ? " (" + sizeMb + " MB)" : ""));
+                    }
+
+                    if (ids.isEmpty()) {
+                        // Fallback list if registry is empty or all filtered
+                        ids.add("qwen2.5-0.5b");   names.add("Qwen2.5-0.5B (~400 MB)");
+                        ids.add("qwen3-0.6b");      names.add("Qwen3-0.6B (~450 MB)");
+                        ids.add("smollm2-360m");    names.add("SmolLM2-360M (~280 MB)");
+                        ids.add("llama-3.2-1b");    names.add("Llama 3.2 1B (~700 MB)");
+                        ids.add("deepseek-r1-1.5b");names.add("DeepSeek-R1 1.5B (~1.1 GB)");
+                        ids.add("qwen3-1.7b");      names.add("Qwen3-1.7B (~1.3 GB)");
+                        ids.add("gemma-3-1b");      names.add("Gemma-3 1B (~850 MB)");
+                        ids.add("phi-3.5-mini");    names.add("Phi-3.5 Mini (~2.2 GB)");
+                        ids.add("llama-3.2-3b");    names.add("Llama 3.2 3B (~2.0 GB)");
+                        ids.add("qwen3-4b");        names.add("Qwen3-4B (~2.6 GB)");
+                    }
+                    MAIN.post(() -> callback.onSuccess(ids, names));
+                } catch (Exception e) {
+                    MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                }
+            }
+        });
+    }
 
     /**
      * Authenticate with the chain node.

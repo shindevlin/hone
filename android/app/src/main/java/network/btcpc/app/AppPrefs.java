@@ -20,6 +20,12 @@ public class AppPrefs {
     public static final String KEY_RELAY_URL   = "relayUrl";   // WebSocket relay for clock peer
     public static final String KEY_DEVICE_NAME = "sensor_device_name";
 
+    // ---- miner / storage config ----
+    public static final String KEY_MINER_MODEL      = "minerModel";
+    public static final String KEY_STORAGE_QUOTA_MB = "storageQuotaMb";
+    public static final String DEFAULT_MINER_MODEL  = "qwen2.5-0.5b";
+    public static final int    DEFAULT_QUOTA_MB     = 1024;
+
     // ---- service-enabled toggles ----
     public static final String KEY_MINER_ENABLED   = "minerEnabled";
     public static final String KEY_CLOCK_ENABLED   = "clockEnabled";
@@ -105,6 +111,23 @@ public class AppPrefs {
 
     public String getSensorState() {
         return prefs.getString(KEY_SENSOR_STATE, "stopped");
+    }
+
+    public String getMinerModel() {
+        String m = prefs.getString(KEY_MINER_MODEL, DEFAULT_MINER_MODEL);
+        return (m == null || m.trim().isEmpty()) ? DEFAULT_MINER_MODEL : m.trim();
+    }
+
+    public void setMinerModel(String value) {
+        prefs.edit().putString(KEY_MINER_MODEL, value.trim()).apply();
+    }
+
+    public int getStorageQuotaMb() {
+        return prefs.getInt(KEY_STORAGE_QUOTA_MB, DEFAULT_QUOTA_MB);
+    }
+
+    public void setStorageQuotaMb(int mb) {
+        prefs.edit().putInt(KEY_STORAGE_QUOTA_MB, mb).apply();
     }
 
     public String getMinerState() {

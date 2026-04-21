@@ -22,8 +22,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
@@ -48,7 +50,10 @@ public class NativeClockService extends Service {
     private volatile String nodeId;
     private volatile String account;
     private volatile String relayUrl;
+    private volatile String apiBase;
+    private volatile String jwt;
     private volatile long lastHeartbeatMs;
+    private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
 
     @Override
     public void onCreate() {
@@ -94,8 +99,10 @@ public class NativeClockService extends Service {
 
     private void loadSettings() {
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        account = prefs.getString("account", "btcpc-phone");
+        account  = prefs.getString("account", "btcpc-phone");
         relayUrl = prefs.getString("relayUrl", DEFAULT_RELAY_URL);
+        apiBase  = prefs.getString("apiUrl", "https://btcpc.net");
+        jwt      = prefs.getString("jwt", "");
         nodeId = prefs.getString("clockNodeId", null);
         if (nodeId == null || nodeId.isEmpty()) {
             nodeId = UUID.randomUUID().toString().replace("-", "");
@@ -194,6 +201,31 @@ public class NativeClockService extends Service {
             }
         } catch (Exception e) {
             Log.w(TAG, "Heartbeat send failed: " + e.getMessage());
+        }
+        // Also POST to chain REST endpoint so the node records credit even if
+        // the relay doesn't forward the WebSocket message to the P2P network.
+        postChainHeartbeat();
+    }
+
+    private void postChainHeartbeat() {
+        if (account == null || account.isEmpty() || "btcpc-phone".equals(account)) return;
+        try {
+            JSONObject body = new JSONObject();
+            body.put("account", account);
+            body.put("client_id", nodeId);
+            Request.Builder rb = new Request.Builder()
+                    .url(apiBase + "/public/clock-heartbeat")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA));
+            if (jwt != null && !jwt.isEmpty()) {
+                rb.addHeader("Authorization", "Bearer " + jwt);
+            }
+            try (Response resp = client.newCall(rb.build()).execute()) {
+                if (resp.isSuccessful()) {
+                    persistState("Clock peer: on-chain ✓ epoch " + getCurrentEpoch());
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Chain heartbeat failed: " + e.getMessage());
         }
     }
 

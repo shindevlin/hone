@@ -104,23 +104,24 @@ router.post('/submit', authenticateToken, (req, res) => {
     // Record the proof
     const workValue = Math.max(1, token_count || 1);
 
+    const targetEpoch = epoch || currentEpoch();
     try {
-        // Store as a phone mining proof — the epoch reward calculation picks these up
-        stateStore.addPhoneMiningProof(epoch || currentEpoch(), {
+        stateStore.addMiningProof(targetEpoch, {
             miner: account,
             job_id,
             work_value: workValue,
             work_hash,
             device: 'android',
+            model_id: req.body.model_id || 'unknown',
             submitted_at: Date.now(),
         });
     } catch (err) {
-        // stateStore may not have addPhoneMiningProof yet — still accept and track in memory
-        const prev = submittedProofs.get(account) || { count: 0, last_epoch: 0 };
-        prev.count++;
-        prev.last_epoch = epoch || currentEpoch();
-        submittedProofs.set(account, prev);
+        // stateStore unavailable — track in memory so stats still work
     }
+    const prev = submittedProofs.get(account) || { count: 0, last_epoch: 0 };
+    prev.count++;
+    prev.last_epoch = targetEpoch;
+    submittedProofs.set(account, prev);
 
     pendingWork.delete(job_id);
 

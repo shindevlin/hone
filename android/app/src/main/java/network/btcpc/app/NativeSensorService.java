@@ -8,10 +8,19 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
@@ -39,7 +48,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-public class NativeSensorService extends Service implements SensorEventListener {
+public class NativeSensorService extends Service implements SensorEventListener, LocationListener {
 
     private static final String TAG = "BTCPCSensor";
     private static final String CHANNEL_ID = "btcpc_sensors";
@@ -57,11 +66,14 @@ public class NativeSensorService extends Service implements SensorEventListener 
     private volatile String account;
     private volatile String deviceName;
     private SensorManager sensorManager;
+    private LocationManager locationManager;
+    private BroadcastReceiver batteryReceiver;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        sensorManager   = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         createNotificationChannel();
         loadSettings();
     }
@@ -74,6 +86,8 @@ public class NativeSensorService extends Service implements SensorEventListener 
         Notification notification = buildNotification("Phone sensors: collecting");
         startForeground(NOTIFICATION_ID, notification);
         registerSensors();
+        registerLocationUpdates();
+        registerBatteryReceiver();
         scheduler.scheduleAtFixedRate(this::flushSnapshotsSafe, 10, 30, TimeUnit.SECONDS);
         persistState("Sensors: running");
         return START_STICKY;
@@ -84,8 +98,12 @@ public class NativeSensorService extends Service implements SensorEventListener 
         running = false;
         scheduler.shutdownNow();
         io.shutdownNow();
-        if (sensorManager != null) {
-            sensorManager.unregisterListener(this);
+        if (sensorManager != null) sensorManager.unregisterListener(this);
+        if (locationManager != null) {
+            try { locationManager.removeUpdates(this); } catch (SecurityException ignored) {}
+        }
+        if (batteryReceiver != null) {
+            try { unregisterReceiver(batteryReceiver); } catch (IllegalArgumentException ignored) {}
         }
         persistState("Sensors: stopped");
         super.onDestroy();
@@ -112,7 +130,7 @@ public class NativeSensorService extends Service implements SensorEventListener 
         snapshot.name = event.sensor.getName();
         snapshot.vendor = event.sensor.getVendor();
         snapshots.put(sensorType, snapshot);
-        persistState("Sensors: " + sensorType + " active");
+        persistState("Sensors active: " + snapshots.size());
     }
 
     @Override
@@ -131,6 +149,80 @@ public class NativeSensorService extends Service implements SensorEventListener 
         }
         persistState("Sensors: listeners registered");
     }
+
+    private void registerLocationUpdates() {
+        if (locationManager == null) return;
+        try {
+            // Check permission
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+            // Request updates every 60s or 50m movement
+            locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, 60_000L, 50f, this);
+            // Passive fallback (no extra battery — uses other apps' fixes)
+            locationManager.requestLocationUpdates(
+                    LocationManager.PASSIVE_PROVIDER, 120_000L, 100f, this);
+        } catch (SecurityException e) {
+            Log.w(TAG, "GPS permission denied: " + e.getMessage());
+        } catch (Exception e) {
+            Log.w(TAG, "GPS registration failed: " + e.getMessage());
+        }
+    }
+
+    private void registerBatteryReceiver() {
+        batteryReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                try {
+                    int level  = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale  = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                    int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    if (level < 0 || scale <= 0) return;
+                    double pct = (level * 100.0) / scale;
+                    boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                            || status == BatteryManager.BATTERY_STATUS_FULL;
+
+                    SensorSnapshot snap = new SensorSnapshot();
+                    snap.type = "battery";
+                    snap.unit = "%";
+                    snap.sensorId = account + "/" + deviceName + "-battery";
+                    snap.timestamp = System.currentTimeMillis();
+                    snap.values = new double[]{pct};
+                    snap.androidType = -1;
+                    snap.name = "Battery";
+                    snap.vendor = Build.MANUFACTURER;
+                    // Stash charging flag in extra field via metadata later
+                    snapshots.put("battery", snap);
+                } catch (Exception e) {
+                    Log.w(TAG, "Battery receiver error: " + e.getMessage());
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        registerReceiver(batteryReceiver, filter);
+    }
+
+    // LocationListener implementation
+    @Override
+    public void onLocationChanged(Location location) {
+        if (!running || location == null) return;
+        SensorSnapshot snap = new SensorSnapshot();
+        snap.type = "gps-location";
+        snap.unit = "deg";
+        snap.sensorId = account + "/" + deviceName + "-gps-location";
+        snap.timestamp = location.getTime();
+        snap.values = new double[]{location.getLatitude(), location.getLongitude(),
+                location.getAltitude(), location.getAccuracy()};
+        snap.androidType = -2;
+        snap.name = "GPS";
+        snap.vendor = "Android";
+        snapshots.put("gps-location", snap);
+        persistState("GPS fix: ±" + (int) location.getAccuracy() + "m");
+    }
+
+    @Override public void onStatusChanged(String provider, int status, android.os.Bundle extras) {}
+    @Override public void onProviderEnabled(String provider) {}
+    @Override public void onProviderDisabled(String provider) {}
 
     private void flushSnapshotsSafe() {
         if (!running) return;
@@ -264,35 +356,43 @@ public class NativeSensorService extends Service implements SensorEventListener 
         return value.replaceAll("[^a-zA-Z0-9._-]", "").toLowerCase(Locale.US);
     }
 
+    // Numeric constants for sensor types added in later API levels
+    // (avoid @RequiresApi by using the raw int values directly)
+    private static final int TYPE_MAGNETIC_FIELD_UNCALIBRATED = 14;
+    private static final int TYPE_GAME_ROTATION_VECTOR        = 15;
+    private static final int TYPE_GYROSCOPE_UNCALIBRATED      = 16;
+    private static final int TYPE_RELATIVE_HUMIDITY           = 12;
+    private static final int TYPE_AMBIENT_TEMPERATURE         = 13;
+    private static final int TYPE_STATIONARY_DETECT           = 29;
+    private static final int TYPE_MOTION_DETECT               = 30;
+    private static final int TYPE_HINGE_ANGLE                 = 36;
+    private static final int TYPE_HEADING                     = 35;
+
     private static String mapSensorType(int type) {
         switch (type) {
-            case Sensor.TYPE_ACCELEROMETER:
-                return "accelerometer";
-            case Sensor.TYPE_LINEAR_ACCELERATION:
-                return "linear-acceleration";
-            case Sensor.TYPE_GRAVITY:
-                return "gravity";
-            case Sensor.TYPE_GYROSCOPE:
-                return "gyroscope";
-            case Sensor.TYPE_ROTATION_VECTOR:
-            case Sensor.TYPE_GAME_ROTATION_VECTOR:
-            case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:
-                return "orientation";
-            case Sensor.TYPE_LIGHT:
-                return "light";
-            case Sensor.TYPE_MAGNETIC_FIELD:
-                return "magnetometer";
-            case Sensor.TYPE_PRESSURE:
-                return "barometer";
-            case Sensor.TYPE_PROXIMITY:
-                return "proximity";
-            case Sensor.TYPE_STEP_COUNTER:
-            case Sensor.TYPE_STEP_DETECTOR:
-                return "steps";
-            case Sensor.TYPE_HEART_RATE:
-                return "heart-rate";
-            default:
-                return null;
+            case Sensor.TYPE_ACCELEROMETER:              return "accelerometer";
+            case Sensor.TYPE_LINEAR_ACCELERATION:        return "linear-acceleration";
+            case Sensor.TYPE_GRAVITY:                    return "gravity";
+            case Sensor.TYPE_GYROSCOPE:                  return "gyroscope";
+            case TYPE_GYROSCOPE_UNCALIBRATED:            return "gyroscope-raw";
+            case Sensor.TYPE_ROTATION_VECTOR:            return "orientation";
+            case TYPE_GAME_ROTATION_VECTOR:              return "orientation-game";
+            case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:return "orientation-geo";
+            case Sensor.TYPE_LIGHT:                      return "light";
+            case Sensor.TYPE_MAGNETIC_FIELD:             return "magnetometer";
+            case TYPE_MAGNETIC_FIELD_UNCALIBRATED:       return "magnetometer-raw";
+            case Sensor.TYPE_PRESSURE:                   return "barometer";
+            case Sensor.TYPE_PROXIMITY:                  return "proximity";
+            case Sensor.TYPE_STEP_COUNTER:               return "steps";
+            case Sensor.TYPE_STEP_DETECTOR:              return "step-detector";
+            case Sensor.TYPE_HEART_RATE:                 return "heart-rate";
+            case TYPE_RELATIVE_HUMIDITY:                 return "humidity";
+            case TYPE_AMBIENT_TEMPERATURE:               return "temperature";
+            case TYPE_HINGE_ANGLE:                       return "hinge-angle";
+            case TYPE_HEADING:                           return "heading";
+            case TYPE_STATIONARY_DETECT:                 return "stationary";
+            case TYPE_MOTION_DETECT:                     return "motion";
+            default:                                     return null;
         }
     }
 
@@ -300,26 +400,27 @@ public class NativeSensorService extends Service implements SensorEventListener 
         switch (type) {
             case Sensor.TYPE_ACCELEROMETER:
             case Sensor.TYPE_LINEAR_ACCELERATION:
-            case Sensor.TYPE_GRAVITY:
+            case Sensor.TYPE_GRAVITY:                    return "m/s²";
             case Sensor.TYPE_GYROSCOPE:
+            case TYPE_GYROSCOPE_UNCALIBRATED:            return "rad/s";
             case Sensor.TYPE_MAGNETIC_FIELD:
+            case TYPE_MAGNETIC_FIELD_UNCALIBRATED:       return "µT";
             case Sensor.TYPE_ROTATION_VECTOR:
-            case Sensor.TYPE_GAME_ROTATION_VECTOR:
-            case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:
-                return "magnitude";
-            case Sensor.TYPE_LIGHT:
-                return "lux";
-            case Sensor.TYPE_PRESSURE:
-                return "hPa";
-            case Sensor.TYPE_PROXIMITY:
-                return "cm";
-            case Sensor.TYPE_STEP_COUNTER:
-            case Sensor.TYPE_STEP_DETECTOR:
-                return "steps";
-            case Sensor.TYPE_HEART_RATE:
-                return "bpm";
-            default:
-                return "value";
+            case TYPE_GAME_ROTATION_VECTOR:
+            case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:return "quaternion";
+            case Sensor.TYPE_LIGHT:                      return "lux";
+            case Sensor.TYPE_PRESSURE:                   return "hPa";
+            case Sensor.TYPE_PROXIMITY:                  return "cm";
+            case Sensor.TYPE_STEP_COUNTER:               return "steps";
+            case Sensor.TYPE_STEP_DETECTOR:              return "event";
+            case Sensor.TYPE_HEART_RATE:                 return "bpm";
+            case TYPE_RELATIVE_HUMIDITY:                 return "%";
+            case TYPE_AMBIENT_TEMPERATURE:               return "°C";
+            case TYPE_HINGE_ANGLE:                       return "°";
+            case TYPE_HEADING:                           return "°";
+            case TYPE_STATIONARY_DETECT:
+            case TYPE_MOTION_DETECT:                     return "event";
+            default:                                     return "value";
         }
     }
 

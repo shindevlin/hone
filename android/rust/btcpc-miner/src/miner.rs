@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
@@ -6,20 +6,39 @@ use serde::{Deserialize, Serialize};
 use crate::MinerState;
 use crate::proof;
 
+// ---- chain API types ----
+
+#[derive(Debug, Deserialize)]
+struct PhoneModel {
+    id: String,
+    name: String,
+    #[serde(default)]
+    size_mb: u64,
+    #[serde(default)]
+    phone_suitable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsResponse {
+    models: Vec<PhoneModel>,
+}
+
 #[derive(Debug, Serialize)]
 struct WorkClaim {
     account: String,
     device_type: String,
-    model_hint: String,
+    model_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct WorkUnit {
     job_id: String,
     prompt: String,
+    #[serde(default = "default_max_tokens")]
     max_tokens: u32,
     epoch: u64,
 }
+fn default_max_tokens() -> u32 { 32 }
 
 #[derive(Debug, Serialize)]
 struct WorkResult {
@@ -29,71 +48,163 @@ struct WorkResult {
     token_count: u32,
     work_hash: String,
     epoch: u64,
+    model_id: String,
 }
+
+// ---- model download ----
+
+async fn ensure_model_files(
+    api_base: &str,
+    model_id: &str,
+    model_dir: &Path,
+    client: &reqwest::Client,
+    state: &Arc<MinerState>,
+) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let model_file    = model_dir.join(format!("{model_id}.onnx"));
+    let tokenizer_file= model_dir.join(format!("{model_id}-tokenizer.json"));
+
+    if !model_file.exists() {
+        *state.status.lock() = format!("Downloading {model_id} from chain…");
+        let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
+        download_file(client, &url, &model_file).await
+            .map_err(|e| anyhow::anyhow!("model download: {e}"))?;
+    }
+
+    if !tokenizer_file.exists() {
+        *state.status.lock() = format!("Downloading tokenizer for {model_id}…");
+        let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
+        download_file(client, &url, &tokenizer_file).await
+            .map_err(|e| anyhow::anyhow!("tokenizer download: {e}"))?;
+    }
+
+    Ok((model_file, tokenizer_file))
+}
+
+async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> anyhow::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("HTTP {}: {}", resp.status(), url));
+    }
+    let bytes = resp.bytes().await?;
+    let mut f = tokio::fs::File::create(dest).await?;
+    f.write_all(&bytes).await?;
+    Ok(())
+}
+
+// ---- ONNX inference via tract ----
+
+fn run_inference_sync(
+    model_path: &Path,
+    tokenizer_path: &Path,
+    prompt: &str,
+    max_tokens: u32,
+) -> anyhow::Result<(String, u32)> {
+    use tract_onnx::prelude::*;
+
+    let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
+        .map_err(|e| anyhow::anyhow!("tokenizer: {e}"))?;
+
+    let encoding = tokenizer.encode(prompt, true)
+        .map_err(|e| anyhow::anyhow!("encode: {e}"))?;
+    let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
+    let seq_len = input_ids.len();
+
+    let model = tract_onnx::onnx()
+        .model_for_path(model_path)?
+        .into_optimized()?
+        .into_runnable()?;
+
+    // Build input tensor: shape [1, seq_len]
+    let input = tract_ndarray::Array2::from_shape_vec(
+        (1, seq_len),
+        input_ids.clone(),
+    )?;
+    let input_tensor = TValue::from(input.into_arc_tensor());
+
+    // Attention mask: all ones
+    let mask = tract_ndarray::Array2::<i64>::ones((1, seq_len));
+    let mask_tensor = TValue::from(mask.into_arc_tensor());
+
+    let mut generated: Vec<i64> = input_ids;
+    let eos: i64 = 151643; // Qwen EOS; generic models use 2 or 1
+
+    for _ in 0..max_tokens {
+        let cur_len = generated.len();
+        let inp = tract_ndarray::Array2::from_shape_vec(
+            (1, cur_len),
+            generated.clone(),
+        )?;
+        let inp_t = TValue::from(inp.into_arc_tensor());
+        let msk = tract_ndarray::Array2::<i64>::ones((1, cur_len));
+        let msk_t = TValue::from(msk.into_arc_tensor());
+
+        let outputs = model.run(tvec![inp_t, msk_t])?;
+        let logits = outputs[0].to_array_view::<f32>()?;
+        // logits shape: [1, seq, vocab] — take last token
+        let vocab_size = logits.shape()[2];
+        let last_row_start = (cur_len - 1) * vocab_size;
+        let last_logits: &[f32] = &logits.as_slice().unwrap()
+            [last_row_start..last_row_start + vocab_size];
+
+        let next_token = last_logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i as i64)
+            .unwrap_or(eos);
+
+        if next_token == eos || next_token == 2 { break; }
+        generated.push(next_token);
+    }
+
+    let new_tokens: Vec<u32> = generated[seq_len..].iter().map(|&x| x as u32).collect();
+    let token_count = new_tokens.len() as u32;
+    let output_text = tokenizer.decode(&new_tokens, true).unwrap_or_default();
+
+    Ok((output_text, token_count))
+}
+
+// ---- main miner loop ----
 
 pub async fn run_miner(
     account: String,
     jwt: String,
     api_base: String,
+    model_id: String,
     model_dir: String,
     state: &Arc<MinerState>,
 ) -> anyhow::Result<()> {
-    use candle_core::{Device, Tensor};
-    use candle_transformers::models::qwen2::{Config as QwenConfig, ModelForCausalLM};
-    use candle_nn::VarBuilder;
-    use hf_hub::{api::tokio::Api, Repo, RepoType};
-
-    let device = Device::Cpu;
-
-    // Download or load model from cache
-    *state.status.lock() = "Downloading model…".to_string();
-    let model_path = PathBuf::from(&model_dir);
-    let model_file = model_path.join("model.safetensors");
-    let config_file = model_path.join("config.json");
-    let tokenizer_file = model_path.join("tokenizer.json");
-
-    if !model_file.exists() {
-        let api = Api::new()?;
-        let repo = api.repo(Repo::new(
-            "Qwen/Qwen2.5-0.5B-Instruct".to_string(),
-            RepoType::Model,
-        ));
-        *state.status.lock() = "Downloading Qwen2.5-0.5B…".to_string();
-        let _ = repo.get("model.safetensors").await?;
-        let _ = repo.get("config.json").await?;
-        let _ = repo.get("tokenizer.json").await?;
-    }
-
-    *state.status.lock() = "Loading model…".to_string();
-    let config: QwenConfig = serde_json::from_reader(std::fs::File::open(&config_file)?)?;
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&model_file], candle_core::DType::F32, &device)? };
-    let mut model = ModelForCausalLM::new(&config, vb)?;
-
-    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_file)
-        .map_err(|e| anyhow::anyhow!("Tokenizer: {e}"))?;
-
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(60))
         .build()?;
 
-    *state.status.lock() = format!("Mining — account: {account}");
+    let dir = PathBuf::from(&model_dir);
+    tokio::fs::create_dir_all(&dir).await?;
+
+    // Download model files from the chain
+    let (model_path, tokenizer_path) = ensure_model_files(
+        &api_base, &model_id, &dir, &client, state,
+    ).await?;
+
+    *state.status.lock() = format!("Mining with {model_id}");
 
     while state.running.load(Ordering::SeqCst) {
-        // Claim a work unit
-        let claim_resp = client
+        // Claim work
+        let claim = client
             .post(format!("{api_base}/api/mining/phone/claim"))
             .bearer_auth(&jwt)
             .json(&WorkClaim {
                 account: account.clone(),
                 device_type: "android".to_string(),
-                model_hint: "qwen2.5-0.5b".to_string(),
+                model_id: model_id.clone(),
             })
             .send()
             .await;
 
-        let work: WorkUnit = match claim_resp {
+        let work: WorkUnit = match claim {
             Ok(r) if r.status().is_success() => {
-                match r.json::<WorkUnit>().await {
+                match r.json().await {
                     Ok(w) => w,
                     Err(_) => {
                         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -102,74 +213,52 @@ pub async fn run_miner(
                 }
             }
             _ => {
-                *state.status.lock() = format!("Mining (waiting for work…)");
+                *state.status.lock() = format!("Mining with {model_id} (waiting…)");
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                 continue;
             }
         };
 
-        *state.status.lock() = format!("Running inference (epoch {})", work.epoch);
+        *state.status.lock() = format!("Inference: epoch {} ({model_id})", work.epoch);
 
-        // Tokenize
-        let encoding = tokenizer.encode(work.prompt.as_str(), true)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let tokens: Vec<u32> = encoding.get_ids().to_vec();
-        let input = Tensor::new(tokens.as_slice(), &device)?.unsqueeze(0)?;
+        // Run inference on a blocking thread (CPU-bound)
+        let mp = model_path.clone();
+        let tp = tokenizer_path.clone();
+        let prompt = work.prompt.clone();
+        let max_tok = work.max_tokens;
+        let result = tokio::task::spawn_blocking(move || {
+            run_inference_sync(&mp, &tp, &prompt, max_tok)
+        }).await?;
 
-        // Run inference
-        let logits = model.forward(&input, 0)?;
-        let output_ids = sample_greedy(&logits, work.max_tokens, &tokenizer, &device, &mut model)?;
-        let output_text = tokenizer.decode(&output_ids, true).unwrap_or_default();
-        let token_count = output_ids.len() as u32;
-
-        // Build proof
-        let work_hash = proof::compute_work_hash(&work.job_id, &output_text, &account);
-
-        // Submit result
-        let result = WorkResult {
-            job_id: work.job_id.clone(),
-            account: account.clone(),
-            output: output_text,
-            token_count,
-            work_hash,
-            epoch: work.epoch,
+        let (output_text, token_count) = match result {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("Inference failed: {e}");
+                *state.status.lock() = format!("Inference error — retrying ({model_id})");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
         };
+
+        let work_hash = proof::compute_work_hash(&work.job_id, &output_text, &account);
 
         let _ = client
             .post(format!("{api_base}/api/mining/phone/submit"))
             .bearer_auth(&jwt)
-            .json(&result)
+            .json(&WorkResult {
+                job_id: work.job_id.clone(),
+                account: account.clone(),
+                output: output_text,
+                token_count,
+                work_hash,
+                epoch: work.epoch,
+                model_id: model_id.clone(),
+            })
             .send()
             .await;
 
-        *state.status.lock() = format!("Submitted proof (epoch {})", work.epoch);
+        *state.status.lock() = format!("Proof submitted: epoch {} ({model_id})", work.epoch);
     }
 
     Ok(())
-}
-
-fn sample_greedy(
-    logits: &candle_core::Tensor,
-    max_new: u32,
-    tokenizer: &tokenizers::Tokenizer,
-    device: &candle_core::Device,
-    model: &mut candle_transformers::models::qwen2::ModelForCausalLM,
-) -> anyhow::Result<Vec<u32>> {
-    use candle_core::IndexOp;
-    let mut output_ids = Vec::new();
-    let mut last_logits = logits.clone();
-
-    for _ in 0..max_new {
-        let next_token = last_logits
-            .i((.., last_logits.dim(1)? - 1, ..))?
-            .argmax(candle_core::D::Minus1)?
-            .to_scalar::<u32>()?;
-        if next_token == 151643 { // EOS for Qwen
-            break;
-        }
-        output_ids.push(next_token);
-        let new_input = candle_core::Tensor::new(&[next_token], device)?.unsqueeze(0)?;
-        last_logits = model.forward(&new_input, output_ids.len())?;
-    }
-    Ok(output_ids)
 }

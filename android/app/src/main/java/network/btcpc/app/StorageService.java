@@ -55,6 +55,7 @@ public class StorageService extends Service {
     private File blobDir;
     private final OkHttpClient httpClient = new OkHttpClient();
     private int servedCount = 0;
+    private long quotaBytes = 1024L * 1024 * 1024;
 
     // ---------- service lifecycle ----------
 
@@ -73,6 +74,7 @@ public class StorageService extends Service {
 
         String account = prefs.getAccount();
         String jwt     = prefs.getJwt();
+        quotaBytes = (long) prefs.getStorageQuotaMb() * 1024 * 1024;
         if (account.isEmpty() || jwt.isEmpty()) {
             prefs.setStorageState("Not signed in — set account in Settings");
             updateNotification("Not signed in");
@@ -142,7 +144,13 @@ public class StorageService extends Service {
                         if (blobId.isEmpty()) continue;
                         File dest = new File(blobDir, blobId);
                         if (!dest.exists() && !blobUrl.isEmpty()) {
-                            if (downloadBlob(blobUrl, dest)) downloaded++;
+                            // Enforce quota
+                            long usedBytes = 0;
+                            File[] files = blobDir.listFiles();
+                            if (files != null) for (File f : files) usedBytes += f.length();
+                            if (usedBytes < quotaBytes) {
+                                if (downloadBlob(blobUrl, dest)) downloaded++;
+                            }
                         }
                     }
                     final int count = blobs.length();
@@ -200,6 +208,7 @@ public class StorageService extends Service {
                 body.put("port", HTTP_PORT);
                 body.put("blob_count", blobDir.listFiles() != null ? blobDir.listFiles().length : 0);
                 body.put("served_count", servedCount);
+                body.put("quota_mb", quotaBytes / (1024 * 1024));
 
                 okhttp3.RequestBody rb = okhttp3.RequestBody.create(
                         body.toString(),
