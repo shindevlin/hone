@@ -92,6 +92,12 @@ var reputationVotes = new Map();
 // src/services/blobStore.js — this Map is the chain-level metadata only.
 var blobs = new Map();
 
+// Private encrypted file storage (v3.1.110+):
+// storage_id → { owner, encrypted_manifest, wrapped_dek_owner, grants[], total_size, stored_epoch }
+// Manifests are encrypted client-side; the chain only stores opaque ciphertext.
+// grants[]: [{ grantee, wrapped_dek, expires_at }]
+var storedFiles = new Map();
+
 // BTCPC-FS storage heartbeats (v2.11.2+): host → {
 //   last_heartbeat_epoch,
 //   heartbeats: [{ epoch, cids: [...], capacity_used_gb }, ...],  // rolling window
@@ -1259,6 +1265,50 @@ function applyEntry(entry) {
             existing.status = Object.keys(existing.files).length > 0 ? 'active' : 'pending';
             communityModels.set(modelId, existing);
           }
+        }
+      }
+      break;
+
+    // ── Private encrypted file storage (v3.1.110+) ─────────────────
+    case "FILE_STORE":
+      if (entry.file_data && entry.file_data.storage_id && from) {
+        var fd = entry.file_data;
+        var sid = fd.storage_id;
+        if (typeof sid === 'string' && sid.length > 0 && !storedFiles.has(sid)) {
+          storedFiles.set(sid, {
+            owner: from,
+            encrypted_manifest: fd.encrypted_manifest || null,
+            wrapped_dek_owner: fd.wrapped_dek_owner || null,
+            grants: Array.isArray(fd.grants) ? fd.grants.slice() : [],
+            total_size: Number(fd.total_size) || 0,
+            stored_epoch: entry.epoch || 0,
+          });
+        }
+      }
+      break;
+
+    case "FILE_GRANT":
+      if (entry.grant_data && entry.grant_data.storage_id && from) {
+        var gd = entry.grant_data;
+        var gFile = storedFiles.get(gd.storage_id);
+        if (gFile && gFile.owner === from && gd.grantee && gd.wrapped_dek) {
+          var existingIdx = gFile.grants.findIndex(function(g) { return g.grantee === gd.grantee; });
+          var newGrant = { grantee: gd.grantee, wrapped_dek: gd.wrapped_dek, expires_at: gd.expires_at || null };
+          if (existingIdx >= 0) {
+            gFile.grants[existingIdx] = newGrant;
+          } else {
+            gFile.grants.push(newGrant);
+          }
+        }
+      }
+      break;
+
+    case "FILE_REVOKE":
+      if (entry.revoke_data && entry.revoke_data.storage_id && from) {
+        var rd = entry.revoke_data;
+        var rFile = storedFiles.get(rd.storage_id);
+        if (rFile && rFile.owner === from && rd.grantee) {
+          rFile.grants = rFile.grants.filter(function(g) { return g.grantee !== rd.grantee; });
         }
       }
       break;
@@ -2641,6 +2691,20 @@ function getProjectRevenueSplit(projectName) {
   return projectRevenueSplits.get(projectName) || null;
 }
 
+// ── Private encrypted file storage (v3.1.110+) ───────────────────────────────
+
+function getStoredFile(storageId) {
+  return storedFiles.get(storageId) || null;
+}
+
+function getStoredFilesByOwner(owner) {
+  var result = [];
+  storedFiles.forEach(function(f, sid) {
+    if (f.owner === owner) result.push(Object.assign({ storage_id: sid }, f));
+  });
+  return result;
+}
+
 // ── Community model registry (v3.1.97+) ──────────────────────────────────────
 
 function getCommunityModel(modelId) {
@@ -3728,6 +3792,9 @@ module.exports = {
   getOrdersBySeller: getOrdersBySeller,
   getReputation: getReputation,
   getReputationVote: getReputationVote,
+  // Private encrypted file storage (v3.1.110+)
+  getStoredFile: getStoredFile,
+  getStoredFilesByOwner: getStoredFilesByOwner,
   // Community model registry (v3.1.97+)
   getCommunityModel: getCommunityModel,
   getAllCommunityModels: getAllCommunityModels,

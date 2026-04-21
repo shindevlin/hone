@@ -490,6 +490,63 @@ async function recordModelUpload(uploader, modelId, modelData, epoch) {
 }
 
 /**
+ * Store a private encrypted file manifest on-chain (v3.1.110+).
+ * The manifest is AES-256-GCM encrypted with a per-file DEK.
+ * The DEK is ECIES-wrapped for the owner's memo public key.
+ * Storage nodes never see the plaintext manifest — only the owner
+ * (or grantees) can reconstruct chunk locations.
+ */
+async function recordFileStore(owner, storageId, encryptedManifest, wrappedDekOwner, initialGrants, totalSize, epoch) {
+  const entry = _entry({
+    type: 'FILE_STORE',
+    from: owner,
+    epoch,
+    file_data: {
+      storage_id: storageId,
+      encrypted_manifest: encryptedManifest,
+      wrapped_dek_owner: wrappedDekOwner,
+      grants: initialGrants || [],
+      total_size: totalSize || 0,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Owner adds a new access grant to an existing stored file.
+ * The caller (owner) must supply wrapped_dek already encrypted for the grantee
+ * using the grantee's memo public key — the server never holds the plaintext DEK.
+ */
+async function recordFileGrant(owner, storageId, grantEntry, epoch) {
+  const entry = _entry({
+    type: 'FILE_GRANT',
+    from: owner,
+    epoch,
+    grant_data: {
+      storage_id: storageId,
+      grantee: grantEntry.grantee,
+      wrapped_dek: grantEntry.wrapped_dek,
+      expires_at: grantEntry.expires_at || null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Owner revokes a grantee's access. The grantee's wrapped_dek is removed
+ * from chain state; they can no longer recover chunk locations.
+ */
+async function recordFileRevoke(owner, storageId, grantee, epoch) {
+  const entry = _entry({
+    type: 'FILE_REVOKE',
+    from: owner,
+    epoch,
+    revoke_data: { storage_id: storageId, grantee },
+  });
+  return _persist(entry);
+}
+
+/**
  * Record a faucet distribution.
  *
  * New faucet grants must be delegated network-use balance, never spendable
@@ -2383,6 +2440,10 @@ module.exports = {
   recordOrderDispute,
   recordReputationVote,
   commerce,
+  // Private encrypted file storage (v3.1.110+)
+  recordFileStore,
+  recordFileGrant,
+  recordFileRevoke,
   // BTCPC-FS (v2.11+)
   recordBlobStoreCommit,
   recordBlobServeProof,
