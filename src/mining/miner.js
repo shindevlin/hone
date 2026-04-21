@@ -1550,6 +1550,9 @@ async function startMiner() {
 
   // Start inference marketplace poller — claim and run paid buyer jobs
   startMarketplacePoller();
+
+  // Start browser job poller — requires Playwright, headless by default
+  startBrowserPoller();
 }
 
 /**
@@ -1567,6 +1570,7 @@ async function startMarketplacePoller() {
 
   const protocolTools = require('../services/protocolTools');
   const ragService = require('../services/ragService');
+  const browserRunner = require('../services/browserRunner');
 
   // Build Ollama message list from job context + turns history
   function buildMessages(job) {
@@ -1758,6 +1762,118 @@ async function startMarketplacePoller() {
   };
 
   console.log('[Marketplace] Inference marketplace poller active — polling every 15s');
+}
+
+/**
+ * Poll the browser marketplace for open computer-use jobs.
+ * Runs every 20s. Requires Playwright to be installed.
+ */
+async function startBrowserPoller() {
+  if (!browserRunner.isPlaywrightAvailable()) {
+    console.log('[BrowserPoller] Playwright not installed — skipping browser job polling');
+    return;
+  }
+  console.log(`[BrowserPoller] Browser job poller active — headless: ${browserRunner.HEADLESS}`);
+  console.log('[BrowserPoller] Set BTCPC_BROWSER_HEADLESS=false to show browser window');
+
+  const POLL_INTERVAL_MS = 20000;
+  const storeRef = require('../chain/stateStore');
+
+  const pollLoop = setInterval(async () => {
+    if (!running) return;
+    try {
+      const openJobs = storeRef.getOpenBrowserJobs ? storeRef.getOpenBrowserJobs() : [];
+      const openOnly = openJobs.filter(j => j.status === 'open');
+      const myActive = (storeRef.getBrowserJobsByMiner ? storeRef.getBrowserJobsByMiner(MINER_ACCOUNT) : [])
+        .filter(j => j.status === 'claimed' || j.status === 'action_pending');
+
+      // Resume action_pending jobs where buyer submitted an action (now back to claimed)
+      const resumable = (storeRef.getBrowserJobsByMiner ? storeRef.getBrowserJobsByMiner(MINER_ACCOUNT) : [])
+        .filter(j => j.status === 'claimed' && browserRunner.getSession(j.job_id));
+
+      if (resumable.length > 0) {
+        for (const jobSummary of resumable) {
+          const job = storeRef.getBrowserJob(jobSummary.job_id);
+          if (!job) continue;
+          const session = browserRunner.getSession(job.job_id);
+          if (!session) continue;
+
+          // Get last buyer action
+          const lastAction = (job.turns || []).filter(t => t.role === 'buyer').pop();
+          if (!lastAction) continue;
+
+          try {
+            await session.executeAction(lastAction);
+            const screenshotCid = await session.takeScreenshot();
+            const accessibilityTree = await session.getAccessibilityTree();
+            const currentUrl = session.currentUrl();
+            const pageTitle = await session.pageTitle();
+
+            await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
+              screenshot_cid: screenshotCid,
+              current_url: currentUrl,
+              page_title: pageTitle,
+              accessibility_tree: accessibilityTree,
+              available_actions: ['click', 'type', 'navigate', 'scroll', 'key', 'wait', 'done'],
+            }, { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+          } catch (err) {
+            console.warn(`[BrowserPoller] Action error for ${job.job_id}: ${err.message}`);
+          }
+        }
+        return;
+      }
+
+      if (myActive.length > 0 || openOnly.length === 0) return;
+
+      // Claim best-paying open browser job
+      const best = openOnly.sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0))[0];
+      if (!best) return;
+
+      const job = storeRef.getBrowserJob(best.job_id);
+      if (!job) return;
+
+      console.log(`[BrowserPoller] Claiming browser job ${job.job_id} — goal: ${(job.goal || '').slice(0, 60)}`);
+
+      await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/claim`, {},
+        { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+
+      // Launch browser session
+      const session = await browserRunner.createSession(job.job_id, { viewport: job.viewport });
+      await session.navigate(job.start_url);
+
+      // Take initial screenshot
+      const screenshotCid = await session.takeScreenshot();
+      const accessibilityTree = await session.getAccessibilityTree();
+      const currentUrl = session.currentUrl();
+      const pageTitle = await session.pageTitle();
+
+      await axios.post(`http://localhost:${process.env.BTCPC_API_PORT || 3000}/api/browser/${job.job_id}/screenshot`, {
+        screenshot_cid: screenshotCid,
+        current_url: currentUrl,
+        page_title: pageTitle,
+        accessibility_tree: accessibilityTree,
+        available_actions: ['click', 'type', 'navigate', 'scroll', 'key', 'wait', 'done'],
+      }, { headers: { Authorization: `Bearer ${process.env.BTCPC_MINER_JWT}` } });
+
+      console.log(`[BrowserPoller] Initial screenshot for ${job.job_id}: ${screenshotCid.slice(0, 12)}… — waiting for buyer action`);
+    } catch (err) {
+      if (err.message && !err.message.includes('already exists')) {
+        console.warn(`[BrowserPoller] Poll error: ${err.message}`);
+      }
+    }
+  }, POLL_INTERVAL_MS);
+
+  const origStop = module.exports.stopMiner;
+  module.exports.stopMiner = async function() {
+    clearInterval(pollLoop);
+    // Close all active browser sessions gracefully
+    const storeRef = require('../chain/stateStore');
+    const active = storeRef.getBrowserJobsByMiner ? storeRef.getBrowserJobsByMiner(MINER_ACCOUNT) : [];
+    for (const j of active) {
+      await browserRunner.closeSession(j.job_id).catch(() => {});
+    }
+    origStop();
+  };
 }
 
 /**
