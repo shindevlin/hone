@@ -202,6 +202,9 @@ async function executeProtocolTool(name, input) {
     return _execSensorQuery(input);
   }
   if (name === "execute_code") {
+    if (process.env.BTCPC_CODE_EXEC_ENABLED === "false") {
+      return { content: "This miner has disabled code execution jobs.", trusted: true, error: "disabled" };
+    }
     return _execCode(input);
   }
   if (name === "web_fetch") {

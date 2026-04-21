@@ -1769,12 +1769,15 @@ async function startMarketplacePoller() {
  * Runs every 20s. Requires Playwright to be installed.
  */
 async function startBrowserPoller() {
+  if (process.env.BTCPC_BROWSER_ENABLED === "false") {
+    console.log('[BrowserPoller] Browser jobs disabled (BTCPC_BROWSER_ENABLED=false)');
+    return;
+  }
   if (!browserRunner.isPlaywrightAvailable()) {
     console.log('[BrowserPoller] Playwright not installed — skipping browser job polling');
     return;
   }
-  console.log(`[BrowserPoller] Browser job poller active — headless: ${browserRunner.HEADLESS}`);
-  console.log('[BrowserPoller] Set BTCPC_BROWSER_HEADLESS=false to show browser window');
+  console.log('[BrowserPoller] Browser job poller active — always headless (buyer sessions are private)');
 
   const POLL_INTERVAL_MS = 20000;
   const storeRef = require('../chain/stateStore');

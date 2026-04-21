@@ -5,12 +5,12 @@
  * Shin Devlin
  *
  * Wraps Playwright to execute browser actions for computer-use marketplace jobs.
- * Runs headless by default — set BTCPC_BROWSER_HEADLESS=false to show the window
- * (useful when the miner wants to watch the agent work on their machine).
+ * ALWAYS runs headless — browser sessions belong to buyers and showing them
+ * would expose private activity to the miner. The miner's screen is never used.
  *
- * Each BrowserSession handles one job. It navigates to the start URL, takes
- * screenshots after every action, and stores them as BTCPC-FS blobs so the
- * buyer can see what the agent is doing.
+ * URL filtering is enforced before every navigation via browserContentFilter.
+ * Hard blocks: SSRF/private IPs, CSAM patterns, non-http protocols.
+ * Soft blocks: miner-configured (onion, adult, gambling, drugs, weapons).
  */
 
 const path = require("path");
@@ -18,8 +18,9 @@ const fs = require("fs");
 const crypto = require("crypto");
 const os = require("os");
 
-const HEADLESS = process.env.BTCPC_BROWSER_HEADLESS !== "false"; // headless unless explicitly disabled
+const HEADLESS = true; // always — buyer sessions are private; miner must not watch
 const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const { assertUrlAllowed } = require("./browserContentFilter");
 const SCREENSHOT_QUALITY = 80; // JPEG quality for screenshots
 const DEFAULT_TIMEOUT_MS = 10000;
 
@@ -62,6 +63,8 @@ class BrowserSession {
   }
 
   async navigate(url) {
+    // Content filter runs on every navigation — hard blocks (SSRF, CSAM) + miner soft blocks
+    assertUrlAllowed(url);
     await this.page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT_MS });
   }
 
@@ -119,6 +122,7 @@ class BrowserSession {
         break;
 
       case "navigate":
+        assertUrlAllowed(text || "");
         await this.page.goto(text || "", { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT_MS });
         break;
 
@@ -202,5 +206,4 @@ module.exports = {
   getSession,
   closeSession,
   isPlaywrightAvailable,
-  HEADLESS,
 };

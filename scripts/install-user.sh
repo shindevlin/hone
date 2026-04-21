@@ -121,6 +121,133 @@ else
   echo "[btcpc] .env already exists — skipping (delete it to reset config)"
 fi
 
+# ── Capability wizard ──────────────────────────────────────────────────────────
+# Only run interactively — skip if piped (curl | bash) or BTCPC_NONINTERACTIVE=1
+if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo " BTCPC Agent Capabilities"
+  echo " You earn BTCPC for every job your machine processes."
+  echo " Choose what you want to allow. You can change these later in .env"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  _ask_yn() {
+    local prompt="$1" default="$2" answer
+    while true; do
+      printf "%s [%s]: " "$prompt" "$default"
+      read -r answer
+      answer="${answer:-$default}"
+      case "${answer,,}" in
+        y|yes) echo "true"; return ;;
+        n|no)  echo "false"; return ;;
+        *)     echo "  Please answer y or n." >&2 ;;
+      esac
+    done
+  }
+
+  _ask_choice() {
+    local prompt="$1" default="$2" options="$3" answer
+    while true; do
+      printf "%s (%s) [%s]: " "$prompt" "$options" "$default"
+      read -r answer
+      answer="${answer:-$default}"
+      if [[ "|${options//\//|}|" == *"|${answer}|"* ]]; then
+        echo "$answer"; return
+      else
+        echo "  Please choose one of: $options" >&2
+      fi
+    done
+  }
+
+  echo "── Inference jobs (text generation, AI chat) ──────────────────────────────"
+  echo "   Standard inference is always enabled — it's the core of BTCPC mining."
+  echo ""
+
+  echo "── Code execution (sandboxed JavaScript / Python / Bash) ─────────────────"
+  echo "   Agents can ask your machine to run code in an isolated subprocess."
+  echo "   The sandbox has no network access and a 30-second timeout."
+  echo ""
+  _CODE_EXEC=$(_ask_yn "   Allow code execution jobs?" "y")
+
+  echo ""
+  echo "── Browser / computer-use jobs (headless web automation) ─────────────────"
+  echo "   Agents can control a headless browser on your machine to complete"
+  echo "   web tasks. The browser is NEVER shown on your screen — buyer sessions"
+  echo "   are private. Screenshots are encrypted and sent to the buyer only."
+  echo ""
+  _BROWSER=$(_ask_yn "   Allow browser agent jobs?" "y")
+
+  if [[ "$_BROWSER" == "true" ]]; then
+    echo ""
+    echo "   Content filter — hard blocks always active: SSRF, private IPs, CSAM."
+    echo "   Choose additional categories to block on YOUR machine:"
+    echo ""
+    _BLOCK_ONION=$(_ask_yn "   Block Tor / .onion hidden services?" "n")
+    echo "   (Note: legitimate privacy tools and news outlets use .onion)"
+    _BLOCK_ADULT=$(_ask_yn "   Block adult content sites?" "n")
+    _BLOCK_GAMBLING=$(_ask_yn "   Block gambling sites?" "n")
+    _BLOCK_DRUGS=$(_ask_yn "   Block drug marketplace sites?" "n")
+    _BLOCK_WEAPONS=$(_ask_yn "   Block illegal weapons sites?" "n")
+    echo ""
+    printf "   Restrict to specific domains only? (leave blank to allow all): "
+    read -r _ALLOWED_DOMAINS
+    _ALLOWED_DOMAINS="${_ALLOWED_DOMAINS// /}"  # strip spaces
+  fi
+
+  echo ""
+  echo "── Fine-tuning jobs (LoRA model training) ─────────────────────────────────"
+  echo "   Buyers pay you to fine-tune AI models on their datasets."
+  echo "   Uses significant GPU and disk space. Jobs can run for hours."
+  echo ""
+  _FINETUNE=$(_ask_yn "   Allow fine-tuning jobs?" "n")
+
+  echo ""
+  echo "── Inference tier ──────────────────────────────────────────────────────────"
+  echo "   standard = general models (qwen3:4b, llama3, etc.)"
+  echo "   reasoning = extended thinking models (qwq:32b, deepseek-r1)"
+  echo "   fast      = small/fast models (qwen3:0.6b, phi3-mini)"
+  echo ""
+  _TIER=$(_ask_choice "   Preferred inference tier" "standard" "standard/reasoning/fast")
+
+  # Write capability settings to .env
+  {
+    echo ""
+    echo "# BTCPC Agent Capabilities (set during install)"
+    echo "BTCPC_CODE_EXEC_ENABLED=${_CODE_EXEC}"
+    echo "BTCPC_BROWSER_ENABLED=${_BROWSER}"
+    if [[ "$_BROWSER" == "true" ]]; then
+      echo "BTCPC_BROWSER_BLOCK_ONION=${_BLOCK_ONION}"
+      echo "BTCPC_BROWSER_BLOCK_ADULT=${_BLOCK_ADULT}"
+      echo "BTCPC_BROWSER_BLOCK_GAMBLING=${_BLOCK_GAMBLING}"
+      echo "BTCPC_BROWSER_BLOCK_DRUGS=${_BLOCK_DRUGS}"
+      echo "BTCPC_BROWSER_BLOCK_WEAPONS=${_BLOCK_WEAPONS}"
+      if [[ -n "$_ALLOWED_DOMAINS" ]]; then
+        echo "BTCPC_BROWSER_ALLOWED_DOMAINS=${_ALLOWED_DOMAINS}"
+      fi
+    fi
+    echo "BTCPC_FINETUNE_ENABLED=${_FINETUNE}"
+    echo "BTCPC_DEFAULT_TIER=${_TIER}"
+  } >> .env
+
+  # Install Playwright if browser jobs enabled
+  if [[ "$_BROWSER" == "true" ]]; then
+    echo ""
+    echo "[btcpc] Installing Playwright (headless browser for agent jobs)..."
+    npm install playwright --save-dev --silent 2>/dev/null || true
+    npx playwright install chromium --with-deps 2>/dev/null || \
+      echo "[btcpc] Playwright chromium install failed — browser jobs will be skipped at runtime"
+  fi
+
+  # Install fine-tuning dependencies if enabled
+  if [[ "$_FINETUNE" == "true" ]]; then
+    echo "[btcpc] Fine-tuning support noted — ensure Ollama has sufficient VRAM for your chosen models."
+  fi
+
+  echo ""
+  echo "[btcpc] Capability settings written to .env"
+fi
+
 # ── Create account ─────────────────────────────────────────────────────────────
 BTCPC_MINER="$USERNAME" \
 BTCPC_CLOCK_ACCOUNT="$USERNAME" \
