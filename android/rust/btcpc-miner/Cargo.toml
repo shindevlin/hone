@@ -19,7 +19,7 @@ hex = "0.4"
 tract-onnx = "0.21"
 tract-core = "0.21"
 # Tokenizer (BPE / sentencepiece)
-tokenizers = { version = "0.19", default-features = false, features = ["http"] }
+tokenizers = { version = "0.19", default-features = false, features = ["unstable_wasm"] }
 log = "0.4"
 android_logger = "0.13"
 once_cell = "1"

@@ -120,11 +120,11 @@ fn run_inference_sync(
         (1, seq_len),
         input_ids.clone(),
     )?;
-    let input_tensor = TValue::from(input.into_arc_tensor());
+    let input_tensor = TValue::from(tract_core::prelude::Tensor::from(input));
 
     // Attention mask: all ones
     let mask = tract_ndarray::Array2::<i64>::ones((1, seq_len));
-    let mask_tensor = TValue::from(mask.into_arc_tensor());
+    let mask_tensor = TValue::from(tract_core::prelude::Tensor::from(mask));
 
     let mut generated: Vec<i64> = input_ids;
     let eos: i64 = 151643; // Qwen EOS; generic models use 2 or 1
@@ -135,9 +135,9 @@ fn run_inference_sync(
             (1, cur_len),
             generated.clone(),
         )?;
-        let inp_t = TValue::from(inp.into_arc_tensor());
+        let inp_t = TValue::from(tract_core::prelude::Tensor::from(inp));
         let msk = tract_ndarray::Array2::<i64>::ones((1, cur_len));
-        let msk_t = TValue::from(msk.into_arc_tensor());
+        let msk_t = TValue::from(tract_core::prelude::Tensor::from(msk));
 
         let outputs = model.run(tvec![inp_t, msk_t])?;
         let logits = outputs[0].to_array_view::<f32>()?;

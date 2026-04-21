@@ -70,8 +70,14 @@ var GOSSIP_HASH_CAP = 50000;
  * Uses a lazy require to break the ledger ↔ p2p circular dependency.
  * All errors are swallowed — the entry is already in the local queue.
  */
+var BLOCK_ONLY_GOSSIP_SKIP = new Set([
+  'MINING_REWARD', 'CLOCK_REWARD', 'STORAGE_REWARD',
+  'SERVICE_REWARD', 'IOT_REWARD', 'FAUCET',
+]);
+
 function _gossipEntry(entry) {
   try {
+    if (BLOCK_ONLY_GOSSIP_SKIP.has(entry.type)) return;
     var key = JSON.stringify(entry);
     if (gossipedHashes.has(key)) return;
     gossipedHashes.add(key);
