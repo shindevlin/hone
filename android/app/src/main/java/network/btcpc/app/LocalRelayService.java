@@ -170,7 +170,13 @@ public class LocalRelayService extends Service {
                 .setOngoing(true)
                 .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            startForeground(NOTIFICATION_ID, notification);
+        } catch (Exception e) {
+            android.util.Log.w("BTCPCRelay", "startForeground failed: " + e.getMessage());
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         // Method 1: Start WiFi HTTP server (NanoHTTPD on port 6942)
         startWifiServer();

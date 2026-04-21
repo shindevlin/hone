@@ -70,7 +70,13 @@ public class StorageService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIF_ID, buildNotification("Starting…"));
+        try {
+            startForeground(NOTIF_ID, buildNotification("Starting…"));
+        } catch (Exception e) {
+            android.util.Log.w("BTCPCStorage", "startForeground failed: " + e.getMessage());
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         String account = prefs.getAccount();
         String jwt     = prefs.getJwt();

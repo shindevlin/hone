@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -44,6 +45,9 @@ public class EarnFragment extends Fragment {
     private TextView     clockStatus;
 
     private SwitchCompat sensorsToggle;
+    private View         sensorsOptions;
+    private CheckBox     cbMotion, cbOrientation, cbEnvironment, cbMagnetometer,
+                         cbProximity, cbSteps, cbHeartrate, cbGps, cbBattery;
     private TextView     sensorsStatus;
 
     private SwitchCompat storageToggle;
@@ -77,7 +81,17 @@ public class EarnFragment extends Fragment {
         clockToggle        = view.findViewById(R.id.earn_clock_toggle);
         clockStatus        = view.findViewById(R.id.earn_clock_status);
         sensorsToggle      = view.findViewById(R.id.earn_sensors_toggle);
+        sensorsOptions     = view.findViewById(R.id.earn_sensors_options);
         sensorsStatus      = view.findViewById(R.id.earn_sensors_status);
+        cbMotion       = view.findViewById(R.id.sensor_motion);
+        cbOrientation  = view.findViewById(R.id.sensor_orientation);
+        cbEnvironment  = view.findViewById(R.id.sensor_environment);
+        cbMagnetometer = view.findViewById(R.id.sensor_magnetometer);
+        cbProximity    = view.findViewById(R.id.sensor_proximity);
+        cbSteps        = view.findViewById(R.id.sensor_steps);
+        cbHeartrate    = view.findViewById(R.id.sensor_heartrate);
+        cbGps          = view.findViewById(R.id.sensor_gps);
+        cbBattery      = view.findViewById(R.id.sensor_battery);
         storageToggle      = view.findViewById(R.id.earn_storage_toggle);
         storageQuotaSeek   = view.findViewById(R.id.earn_storage_quota_seek);
         storageQuotaLabel  = view.findViewById(R.id.earn_storage_quota_label);
@@ -94,6 +108,28 @@ public class EarnFragment extends Fragment {
         clockToggle.setChecked(prefs.isClockEnabled());
         sensorsToggle.setChecked(prefs.isSensorsEnabled());
         storageToggle.setChecked(prefs.isStorageEnabled());
+
+        // Restore sensor checkboxes
+        cbMotion.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION));
+        cbOrientation.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ORIENTATION));
+        cbEnvironment.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ENVIRONMENT));
+        cbMagnetometer.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MAGNETOMETER));
+        cbProximity.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_PROXIMITY));
+        cbSteps.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_STEPS));
+        cbHeartrate.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_HEARTRATE));
+        cbGps.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_GPS));
+        cbBattery.setChecked(prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_BATTERY));
+        sensorsOptions.setVisibility(prefs.isSensorsEnabled() ? View.VISIBLE : View.GONE);
+
+        cbMotion.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_MOTION, v));
+        cbOrientation.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_ORIENTATION, v));
+        cbEnvironment.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_ENVIRONMENT, v));
+        cbMagnetometer.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_MAGNETOMETER, v));
+        cbProximity.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_PROXIMITY, v));
+        cbSteps.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_STEPS, v));
+        cbHeartrate.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_HEARTRATE, v));
+        cbGps.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_GPS, v));
+        cbBattery.setOnCheckedChangeListener((b,v) -> saveSensorPref(AppPrefs.KEY_SENSOR_BATTERY, v));
 
         // Storage quota seek bar
         int savedQuotaMb = prefs.getStorageQuotaMb();
@@ -144,6 +180,7 @@ public class EarnFragment extends Fragment {
         // Sensors toggle
         sensorsToggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.setSensorsEnabled(checked);
+            sensorsOptions.setVisibility(checked ? View.VISIBLE : View.GONE);
             if (checked) startService(NativeSensorService.class);
             else {
                 stopService(NativeSensorService.class);
@@ -238,6 +275,14 @@ public class EarnFragment extends Fragment {
     }
 
     // ---- service control ----
+
+    private void saveSensorPref(String key, boolean enabled) {
+        prefs.setSensorEnabled(key, enabled);
+        if (prefs.isSensorsEnabled()) {
+            stopService(NativeSensorService.class);
+            startService(NativeSensorService.class);
+        }
+    }
 
     private void startService(Class<?> serviceClass) {
         if (!isAdded()) return;

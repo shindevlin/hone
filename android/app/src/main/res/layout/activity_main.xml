@@ -6,6 +6,40 @@
     android:background="@color/btcpc_bg"
     android:orientation="vertical">
 
+    <!-- Top header bar with logo -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="@color/btcpc_surface"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/btcpc_logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="BTCPC" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="BTCPC"
+            android:textColor="@color/btcpc_orange"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.05" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/btcpc_surface_alt" />
+
     <FrameLayout
         android:id="@+id/fragment_container"
         android:layout_width="match_parent"

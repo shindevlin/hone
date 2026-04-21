@@ -215,6 +215,80 @@
 
                 </LinearLayout>
 
+                <!-- Per-sensor opt-in checkboxes (visible when toggle is on) -->
+                <LinearLayout
+                    android:id="@+id/earn_sensors_options"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="6dp"
+                        android:text="ACTIVE SENSORS"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="11sp"
+                        android:letterSpacing="0.1" />
+
+                    <CheckBox android:id="@+id/sensor_motion"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Motion (accelerometer, gyroscope)"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_orientation"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Orientation (rotation vector)"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_environment"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Environment (light, pressure, temp, humidity)"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_magnetometer"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Magnetometer"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_proximity"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Proximity"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_steps"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Step counter"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                    <CheckBox android:id="@+id/sensor_heartrate"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Heart rate"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="false" />
+
+                    <CheckBox android:id="@+id/sensor_gps"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="GPS location"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="false" />
+
+                    <CheckBox android:id="@+id/sensor_battery"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Battery level"
+                        android:textColor="@color/btcpc_text" android:textSize="13sp"
+                        android:buttonTint="@color/btcpc_orange" android:checked="true" />
+
+                </LinearLayout>
+
                 <TextView
                     android:id="@+id/earn_sensors_status"
                     android:layout_width="match_parent"

@@ -68,7 +68,13 @@ public class NativeClockService extends Service {
         running = true;
 
         Notification notification = buildNotification("Clock peer: connecting");
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            startForeground(NOTIFICATION_ID, notification);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "startForeground failed: " + e.getMessage());
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         connect();
         if (!heartbeatStarted) {

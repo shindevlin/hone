@@ -77,42 +77,113 @@ struct WorkResult {
 
 // ---- model download ----
 
+// Download client has no timeout — large ONNX files take minutes over mobile.
+// Inference client keeps 60s for normal API calls.
+fn make_download_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1800)) // 30 min
+        .build()
+        .expect("download client")
+}
+
 async fn ensure_model_files(
     api_base: &str,
     model_id: &str,
     model_dir: &Path,
-    client: &reqwest::Client,
     state: &Arc<MinerState>,
 ) -> anyhow::Result<(PathBuf, PathBuf)> {
-    let model_file    = model_dir.join(format!("{model_id}.onnx"));
-    let tokenizer_file= model_dir.join(format!("{model_id}-tokenizer.json"));
+    let model_file     = model_dir.join(format!("{model_id}.onnx"));
+    let tokenizer_file = model_dir.join(format!("{model_id}-tokenizer.json"));
+    let dl = make_download_client();
 
     if !model_file.exists() {
-        *state.status.lock() = format!("Downloading {model_id} from chain…");
         let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
-        download_file(client, &url, &model_file).await
-            .map_err(|e| anyhow::anyhow!("model download: {e}"))?;
+        download_with_retry(&dl, &url, &model_file, model_id, state).await
+            .map_err(|e| anyhow::anyhow!("model download failed after retries: {e}"))?;
     }
 
     if !tokenizer_file.exists() {
-        *state.status.lock() = format!("Downloading tokenizer for {model_id}…");
         let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
-        download_file(client, &url, &tokenizer_file).await
-            .map_err(|e| anyhow::anyhow!("tokenizer download: {e}"))?;
+        download_with_retry(&dl, &url, &tokenizer_file, "tokenizer", state).await
+            .map_err(|e| anyhow::anyhow!("tokenizer download failed after retries: {e}"))?;
     }
 
     Ok((model_file, tokenizer_file))
 }
 
-async fn download_file(client: &reqwest::Client, url: &str, dest: &Path) -> anyhow::Result<()> {
+async fn download_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    label: &str,
+    state: &Arc<MinerState>,
+) -> anyhow::Result<()> {
+    let max_attempts = 5u32;
+    for attempt in 1..=max_attempts {
+        match download_file_streaming(client, url, dest, label, state).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                // Remove partial file so next attempt starts clean
+                let _ = tokio::fs::remove_file(dest).await;
+                if attempt < max_attempts {
+                    let delay = (attempt * 10).min(60);
+                    *state.status.lock() = format!(
+                        "Download failed ({e}), retrying in {delay}s… ({attempt}/{max_attempts})"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(delay as u64)).await;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    unreachable!()
+}
+
+async fn download_file_streaming(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    label: &str,
+    state: &Arc<MinerState>,
+) -> anyhow::Result<()> {
+    use futures::StreamExt;
     use tokio::io::AsyncWriteExt;
+
     let resp = client.get(url).send().await?;
     if !resp.status().is_success() {
         return Err(anyhow::anyhow!("HTTP {}: {}", resp.status(), url));
     }
-    let bytes = resp.bytes().await?;
-    let mut f = tokio::fs::File::create(dest).await?;
-    f.write_all(&bytes).await?;
+    let total_mb = resp.content_length().unwrap_or(0) / 1_000_000;
+
+    // Write to .tmp, rename on success — avoids leaving corrupt files
+    let tmp = dest.with_extension("tmp");
+    let mut f = tokio::fs::File::create(&tmp).await?;
+    let mut stream = resp.bytes_stream();
+    let mut downloaded: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        downloaded += chunk.len() as u64;
+        f.write_all(&chunk).await?;
+        if total_mb > 0 {
+            *state.status.lock() = format!(
+                "Downloading {} — {} / {} MB",
+                label,
+                downloaded / 1_000_000,
+                total_mb
+            );
+        } else {
+            *state.status.lock() = format!(
+                "Downloading {} — {} MB",
+                label,
+                downloaded / 1_000_000
+            );
+        }
+    }
+    f.flush().await?;
+    drop(f);
+    tokio::fs::rename(&tmp, dest).await?;
     Ok(())
 }
 
@@ -207,10 +278,17 @@ pub async fn run_miner(
     let dir = PathBuf::from(&model_dir);
     tokio::fs::create_dir_all(&dir).await?;
 
-    // Download model files from the chain
-    let (model_path, tokenizer_path) = ensure_model_files(
-        &api_base, &model_id, &dir, &client, state,
-    ).await?;
+    // Download model files — retries internally; loop here handles permanent failures gracefully
+    let (model_path, tokenizer_path) = loop {
+        match ensure_model_files(&api_base, &model_id, &dir, state).await {
+            Ok(paths) => break paths,
+            Err(e) => {
+                *state.status.lock() = format!("Model download failed: {e} — retrying in 60s");
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                if !state.running.load(Ordering::SeqCst) { return Ok(()); }
+            }
+        }
+    };
 
     *state.status.lock() = format!("Mining with {model_id}");
 

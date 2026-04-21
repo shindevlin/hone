@@ -84,7 +84,13 @@ public class NativeSensorService extends Service implements SensorEventListener,
         running = true;
 
         Notification notification = buildNotification("Phone sensors: collecting");
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            startForeground(NOTIFICATION_ID, notification);
+        } catch (Exception e) {
+            android.util.Log.w(TAG, "startForeground failed: " + e.getMessage());
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         registerSensors();
         registerLocationUpdates();
         registerBatteryReceiver();
@@ -142,16 +148,52 @@ public class NativeSensorService extends Service implements SensorEventListener,
         if (sensorManager == null) return;
         sensorManager.unregisterListener(this);
         registeredSensors.clear();
+        AppPrefs prefs = new AppPrefs(this);
         List<Sensor> all = sensorManager.getSensorList(Sensor.TYPE_ALL);
         for (Sensor sensor : all) {
-            if (mapSensorType(sensor.getType()) == null) continue;
+            if (!isSensorGroupEnabled(prefs, sensor.getType())) continue;
             sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
         }
         persistState("Sensors: listeners registered");
     }
 
+    private boolean isSensorGroupEnabled(AppPrefs prefs, int type) {
+        switch (type) {
+            case Sensor.TYPE_ACCELEROMETER:
+            case Sensor.TYPE_LINEAR_ACCELERATION:
+            case Sensor.TYPE_GRAVITY:
+            case 16: // GYROSCOPE_UNCALIBRATED
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION)
+                    && mapSensorType(type) != null;
+            case Sensor.TYPE_GYROSCOPE:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION);
+            case Sensor.TYPE_ROTATION_VECTOR:
+            case Sensor.TYPE_GAME_ROTATION_VECTOR:
+            case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ORIENTATION);
+            case Sensor.TYPE_LIGHT:
+            case Sensor.TYPE_PRESSURE:
+            case 13: // AMBIENT_TEMPERATURE
+            case 12: // RELATIVE_HUMIDITY
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ENVIRONMENT);
+            case Sensor.TYPE_MAGNETIC_FIELD:
+            case 14: // MAGNETIC_FIELD_UNCALIBRATED
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MAGNETOMETER);
+            case Sensor.TYPE_PROXIMITY:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_PROXIMITY);
+            case Sensor.TYPE_STEP_COUNTER:
+            case Sensor.TYPE_STEP_DETECTOR:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_STEPS);
+            case Sensor.TYPE_HEART_RATE:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_HEARTRATE);
+            default:
+                return mapSensorType(type) != null;
+        }
+    }
+
     private void registerLocationUpdates() {
         if (locationManager == null) return;
+        if (!new AppPrefs(this).isSensorEnabled(AppPrefs.KEY_SENSOR_GPS)) return;
         try {
             // Check permission
             if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -170,6 +212,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     }
 
     private void registerBatteryReceiver() {
+        if (!new AppPrefs(this).isSensorEnabled(AppPrefs.KEY_SENSOR_BATTERY)) return;
         batteryReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -227,12 +270,16 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private void flushSnapshotsSafe() {
         if (!running) return;
         io.submit(() -> {
+            // Snapshot under lock, then release before network I/O so onSensorChanged
+            // (main thread) never blocks waiting for a network call to complete.
+            List<SensorSnapshot> toFlush;
             synchronized (snapshots) {
-                for (SensorSnapshot snapshot : snapshots.values()) {
-                    if (snapshot == null || snapshot.values == null || snapshot.values.length == 0) continue;
-                    ensureRegistered(snapshot);
-                    submitReading(snapshot);
-                }
+                toFlush = new java.util.ArrayList<>(snapshots.values());
+            }
+            for (SensorSnapshot snapshot : toFlush) {
+                if (snapshot == null || snapshot.values == null || snapshot.values.length == 0) continue;
+                ensureRegistered(snapshot);
+                submitReading(snapshot);
             }
         });
     }
