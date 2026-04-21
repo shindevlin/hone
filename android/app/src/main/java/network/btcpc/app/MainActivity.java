@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.splashscreen.SplashScreen;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 
@@ -20,11 +21,11 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
  * MainActivity — host for the 5-tab BottomNavigationView UI.
  *
  * Tabs:
- *   Wallet   → WalletFragment
- *   Earn     → EarnFragment
- *   Flipper  → FlipperFragment
- *   Activity → ActivityFragment
- *   Settings → SettingsFragment
+ *   Wallet    → WalletFragment
+ *   Earn      → EarnFragment
+ *   Flipper   → FlipperFragment
+ *   Network   → DashboardFragment
+ *   Settings  → SettingsFragment
  *
  * On create, services that were enabled in AppPrefs are started automatically
  * (mirrors what BootReceiver does after a device reboot).
@@ -39,16 +40,17 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_SENSOR_PERMS       = 202;
 
     // Fragment tag constants — used as unique back-stack identifiers
-    private static final String TAG_WALLET   = "tab_wallet";
-    private static final String TAG_EARN     = "tab_earn";
-    private static final String TAG_FLIPPER  = "tab_flipper";
-    private static final String TAG_ACTIVITY = "tab_activity";
-    private static final String TAG_SETTINGS = "tab_settings";
+    private static final String TAG_WALLET    = "tab_wallet";
+    private static final String TAG_EARN      = "tab_earn";
+    private static final String TAG_FLIPPER   = "tab_flipper";
+    private static final String TAG_DASHBOARD = "tab_dashboard";
+    private static final String TAG_SETTINGS  = "tab_settings";
 
     private Fragment activeFragment;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -69,21 +71,21 @@ public class MainActivity extends AppCompatActivity {
 
         if (savedInstanceState == null) {
             // First launch — add all fragments, but show only wallet
-            WalletFragment   walletFrag   = new WalletFragment();
-            EarnFragment     earnFrag     = new EarnFragment();
-            FlipperFragment  flipperFrag  = new FlipperFragment();
-            ActivityFragment activityFrag = new ActivityFragment();
-            SettingsFragment settingsFrag = new SettingsFragment();
+            WalletFragment    walletFrag    = new WalletFragment();
+            EarnFragment      earnFrag      = new EarnFragment();
+            FlipperFragment   flipperFrag   = new FlipperFragment();
+            DashboardFragment dashboardFrag = new DashboardFragment();
+            SettingsFragment  settingsFrag  = new SettingsFragment();
 
             fm.beginTransaction()
-              .add(R.id.fragment_container, walletFrag,   TAG_WALLET)
-              .add(R.id.fragment_container, earnFrag,     TAG_EARN)
-              .add(R.id.fragment_container, flipperFrag,  TAG_FLIPPER)
-              .add(R.id.fragment_container, activityFrag, TAG_ACTIVITY)
-              .add(R.id.fragment_container, settingsFrag, TAG_SETTINGS)
+              .add(R.id.fragment_container, walletFrag,    TAG_WALLET)
+              .add(R.id.fragment_container, earnFrag,      TAG_EARN)
+              .add(R.id.fragment_container, flipperFrag,   TAG_FLIPPER)
+              .add(R.id.fragment_container, dashboardFrag, TAG_DASHBOARD)
+              .add(R.id.fragment_container, settingsFrag,  TAG_SETTINGS)
               .hide(earnFrag)
               .hide(flipperFrag)
-              .hide(activityFrag)
+              .hide(dashboardFrag)
               .hide(settingsFrag)
               .commit();
 
@@ -116,11 +118,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Nullable
     private Fragment fragmentForNavId(FragmentManager fm, int id) {
-        if (id == R.id.nav_wallet)   return fm.findFragmentByTag(TAG_WALLET);
-        if (id == R.id.nav_earn)     return fm.findFragmentByTag(TAG_EARN);
-        if (id == R.id.nav_flipper)  return fm.findFragmentByTag(TAG_FLIPPER);
-        if (id == R.id.nav_activity) return fm.findFragmentByTag(TAG_ACTIVITY);
-        if (id == R.id.nav_settings) return fm.findFragmentByTag(TAG_SETTINGS);
+        if (id == R.id.nav_wallet)    return fm.findFragmentByTag(TAG_WALLET);
+        if (id == R.id.nav_earn)      return fm.findFragmentByTag(TAG_EARN);
+        if (id == R.id.nav_flipper)   return fm.findFragmentByTag(TAG_FLIPPER);
+        if (id == R.id.nav_dashboard) return fm.findFragmentByTag(TAG_DASHBOARD);
+        if (id == R.id.nav_settings)  return fm.findFragmentByTag(TAG_SETTINGS);
         return null;
     }
 

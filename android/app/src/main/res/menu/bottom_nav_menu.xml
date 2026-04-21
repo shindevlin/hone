@@ -9,7 +9,7 @@
     <item
         android:id="@+id/nav_earn"
         android:icon="@android:drawable/ic_menu_upload"
-        android:title="Earn" />
+        android:title="Mine" />
 
     <item
         android:id="@+id/nav_flipper"
@@ -17,9 +17,9 @@
         android:title="Flipper" />
 
     <item
-        android:id="@+id/nav_activity"
-        android:icon="@android:drawable/ic_menu_recent_history"
-        android:title="Activity" />
+        android:id="@+id/nav_dashboard"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:title="Network" />
 
     <item
         android:id="@+id/nav_settings"
