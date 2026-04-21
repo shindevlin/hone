@@ -507,8 +507,21 @@ router.get('/registry', function(req, res) {
  */
 router.get('/:id/manifest', function(req, res) {
   const registry = loadRegistry();
-  const model = registry[req.params.id];
-  if (!model) return res.status(404).json({ error: 'model not in registry', id: req.params.id });
+  let model = registry[req.params.id];
+
+  // Fall back to MODEL_CATALOG for built-in models not yet stored locally.
+  // Return HuggingFace URLs directly so phones can download from source.
+  if (!model) {
+    const catalog = MODEL_CATALOG[req.params.id];
+    if (!catalog) return res.status(404).json({ error: 'model not in registry', id: req.params.id });
+    const hfBase = `https://huggingface.co/${catalog.hf_repo}/resolve/main`;
+    const files = {};
+    for (const filename of catalog.files) {
+      files[filename] = { chunked: false, cid: null, size: 0, url: `${hfBase}/${filename}` };
+    }
+    return res.json({ model_id: req.params.id, files, source: 'huggingface' });
+  }
+
   if (model.status === 'pending') return res.status(503).json({ error: 'model not yet available' });
 
   const files = {};
