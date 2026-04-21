@@ -235,6 +235,77 @@ function putBlobStream(readableStream) {
   });
 }
 
+// Split buffer into chunkSize pieces, store each as a blob.
+// Returns { chunk_size, total_size, chunks: [{cid, size, existed}, ...] }
+function putBlobChunked(buffer, chunkSize) {
+  chunkSize = chunkSize || (16 * 1024 * 1024);
+  var chunks = [];
+  var offset = 0;
+  while (offset < buffer.length) {
+    var end = Math.min(offset + chunkSize, buffer.length);
+    var chunk = buffer.slice(offset, end);
+    var result = putBlob(chunk);
+    if (!result) throw new Error('putBlob failed at offset ' + offset);
+    chunks.push({ cid: result.cid, size: chunk.length, existed: result.existed });
+    offset = end;
+  }
+  return { chunk_size: chunkSize, total_size: buffer.length, chunks: chunks };
+}
+
+// Stream a readable into 16MB chunks stored as separate blobs.
+// Returns Promise<{ chunk_size, total_size, chunks: [{cid, size, existed}] }>
+function putBlobStreamChunked(readableStream, chunkSize) {
+  chunkSize = chunkSize || (16 * 1024 * 1024);
+  return new Promise(function(resolve, reject) {
+    var parts = [];
+    readableStream.on('data', function(c) { parts.push(c); });
+    readableStream.on('end', function() {
+      try { resolve(putBlobChunked(Buffer.concat(parts), chunkSize)); }
+      catch(e) { reject(e); }
+    });
+    readableStream.on('error', reject);
+  });
+}
+
+// Create a Readable that yields chunks in order — for serving chunked files.
+function createChunkedReadStream(chunkCids) {
+  var Readable = require('stream').Readable;
+  var stream = new Readable({ read: function() {} });
+  (function push(i) {
+    if (i >= chunkCids.length) { stream.push(null); return; }
+    var buf = getBlob(chunkCids[i]);
+    if (!buf) { stream.destroy(new Error('chunk not found: ' + chunkCids[i])); return; }
+    stream.push(buf);
+    setImmediate(function() { push(i + 1); });
+  })(0);
+  return stream;
+}
+
+// Read a byte range across multiple chunks. Returns Buffer or null.
+function readChunkedRange(chunks, start, length) {
+  // chunks: [{cid, size}, ...]
+  var parts = [];
+  var pos = 0;
+  var remaining = length;
+  for (var i = 0; i < chunks.length && remaining > 0; i++) {
+    var chunkEnd = pos + chunks[i].size;
+    if (chunkEnd <= start) { pos = chunkEnd; continue; }
+    var chunkStart = Math.max(0, start - pos);
+    var chunkLen = Math.min(chunks[i].size - chunkStart, remaining);
+    var buf = readBlobRange(chunks[i].cid, chunkStart, chunkLen);
+    if (!buf) return null;
+    parts.push(buf);
+    remaining -= chunkLen;
+    pos = chunkEnd;
+  }
+  return parts.length ? Buffer.concat(parts) : Buffer.alloc(0);
+}
+
+// Returns true if every chunk CID is present locally.
+function hasAllChunks(chunkManifest) {
+  return chunkManifest.chunks.every(function(c) { return hasBlob(c.cid); });
+}
+
 module.exports = {
   BLOB_ROOT: BLOB_ROOT,
   MAX_BLOB_BYTES: MAX_BLOB_BYTES,
@@ -252,4 +323,9 @@ module.exports = {
   readBlobRange: readBlobRange,
   hashBlobRange: hashBlobRange,
   putBlobStream: putBlobStream,
+  putBlobChunked: putBlobChunked,
+  putBlobStreamChunked: putBlobStreamChunked,
+  createChunkedReadStream: createChunkedReadStream,
+  readChunkedRange: readChunkedRange,
+  hasAllChunks: hasAllChunks,
 };

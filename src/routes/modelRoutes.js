@@ -206,6 +206,22 @@ function fetchUrlToBlobStream(url) {
   });
 }
 
+// Stream a URL into 16MB chunks stored as separate blobs.
+function fetchUrlToChunks(url, chunkSize) {
+  return new Promise(function(resolve, reject) {
+    var mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'User-Agent': 'btcpc-model-fetcher/1.0' } }, function(res) {
+      if ([301, 302, 307, 308].includes(res.statusCode)) {
+        var loc = res.headers.location;
+        if (loc && loc.startsWith('/')) { var u = new URL(url); loc = u.origin + loc; }
+        return fetchUrlToChunks(loc, chunkSize).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      blobStore.putBlobStreamChunked(res, chunkSize).then(resolve).catch(reject);
+    }).on('error', reject);
+  });
+}
+
 // CORS open — model files must be downloadable by any origin (browser inference)
 router.use(function(req, res, next) {
   res.set('Access-Control-Allow-Origin', '*');
@@ -387,8 +403,24 @@ router.post('/fetch', authenticateToken, express.json(), async function(req, res
         let result;
         try {
           if (isLarge) {
-            console.log(`[model-fetch] ${modelId}/${file} streaming (large file)...`);
-            result = await fetchUrlToBlobStream(hfUrl);
+            console.log(`[model-fetch] ${modelId}/${file} chunking (large file)...`);
+            const chunkResult = await fetchUrlToChunks(hfUrl, 16 * 1024 * 1024);
+            // Store chunk manifest alongside files
+            const reg3 = loadRegistry();
+            if (!reg3[modelId]) reg3[modelId] = {};
+            if (!reg3[modelId].chunked_files) reg3[modelId].chunked_files = {};
+            reg3[modelId].chunked_files[file] = {
+              chunk_size: chunkResult.chunk_size,
+              total_size: chunkResult.total_size,
+              chunks: chunkResult.chunks.map(function(c) { return { cid: c.cid, size: c.size }; }),
+            };
+            saveRegistry(reg3);
+            // Use first chunk CID as the canonical file CID for backward compat
+            result = { cid: chunkResult.chunks[0].cid + '_chunked', size: chunkResult.total_size, existed: false };
+            // Skip the normal files[file] = result.cid path for chunked files
+            console.log(`[model-fetch] ${modelId}/${file} → ${chunkResult.chunks.length} chunks, ${(chunkResult.total_size/1e6).toFixed(0)}MB`);
+            changed = true;
+            continue;
           } else {
             const buf = await fetchUrl(hfUrl);
             result = blobStore.putBlob(buf);
@@ -456,6 +488,54 @@ router.get('/registry', function(req, res) {
   res.json({ built_in, community });
 });
 
+/**
+ * GET /api/models/:id/manifest
+ * Returns the full file manifest: single-file CIDs and chunked file manifests.
+ * Each chunk entry includes the best available download URL.
+ * Used by phone miners to discover chunk CIDs and which storage nodes hold them.
+ */
+router.get('/:id/manifest', function(req, res) {
+  const registry = loadRegistry();
+  const model = registry[req.params.id];
+  if (!model) return res.status(404).json({ error: 'model not in registry', id: req.params.id });
+  if (model.status === 'pending') return res.status(503).json({ error: 'model not yet available' });
+
+  const files = {};
+  const apiBase = (req.protocol + '://' + req.get('host'));
+
+  // Single-blob files
+  for (const [filename, cid] of Object.entries(model.files || {})) {
+    if ((model.chunked_files || {})[filename]) continue; // covered below
+    const hostUrl = bestHostUrl(cid);
+    files[filename] = {
+      chunked: false,
+      cid: cid,
+      size: blobStore.statBlob(cid) ? blobStore.statBlob(cid).size : 0,
+      url: hostUrl || (apiBase + '/api/models/' + req.params.id + '/' + filename),
+    };
+  }
+
+  // Chunked files
+  for (const [filename, manifest] of Object.entries(model.chunked_files || {})) {
+    files[filename] = {
+      chunked: true,
+      chunk_size: manifest.chunk_size,
+      total_size: manifest.total_size,
+      chunks: manifest.chunks.map(function(chunk, idx) {
+        const hostUrl = bestHostUrl(chunk.cid);
+        return {
+          index: idx,
+          cid: chunk.cid,
+          size: chunk.size,
+          url: hostUrl || (apiBase + '/api/blobs/' + chunk.cid),
+        };
+      }),
+    };
+  }
+
+  res.json({ model_id: req.params.id, files });
+});
+
 /** GET /api/models/:id — model metadata (no file CIDs) */
 router.get('/:id', function(req, res) {
   const registry = loadRegistry();
@@ -476,6 +556,33 @@ router.get('/:id/*path', function(req, res) {
   }
 
   const filePath = Array.isArray(req.params.path) ? req.params.path.join('/') : req.params.path;
+
+  // Check chunked manifest first
+  const chunkManifest = (model.chunked_files || {})[filePath];
+  if (chunkManifest) {
+    const total = chunkManifest.total_size;
+    res.set('X-BTCPC-Chunked', String(chunkManifest.chunks.length));
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.set('Accept-Ranges', 'bytes');
+    const ext = require('path').extname(filePath).toLowerCase();
+    const ctMap = { '.json': 'application/json', '.onnx': 'application/octet-stream', '.bin': 'application/octet-stream' };
+    res.set('Content-Type', ctMap[ext] || 'application/octet-stream');
+    const rangeHeader = req.headers['range'];
+    if (rangeHeader) {
+      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      const start = match && match[1] ? parseInt(match[1]) : 0;
+      const end = match && match[2] ? Math.min(parseInt(match[2]), total - 1) : total - 1;
+      const length = end - start + 1;
+      res.status(206);
+      res.set('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.set('Content-Length', String(length));
+      const buf = blobStore.readChunkedRange(chunkManifest.chunks, start, length);
+      return res.end(buf);
+    }
+    res.set('Content-Length', String(total));
+    return blobStore.createChunkedReadStream(chunkManifest.chunks.map(function(c) { return c.cid; })).pipe(res);
+  }
+
   const cid = (model.files || {})[filePath];
   if (!cid) return res.status(404).json({ error: 'file not in model manifest', file: filePath });
 

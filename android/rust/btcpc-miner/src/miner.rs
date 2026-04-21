@@ -77,13 +77,170 @@ struct WorkResult {
 
 // ---- model download ----
 
-// No total timeout on the download client — connection drops are handled by
-// resumable range requests, not a wall-clock timeout.
 fn make_download_client() -> reqwest::Client {
     reqwest::Client::builder()
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .build()
         .expect("download client")
+}
+
+// ---- manifest structs ----
+
+#[derive(Debug, Deserialize)]
+struct ChunkEntry {
+    index: u32,
+    cid: String,
+    size: u64,
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum FileEntry {
+    Chunked {
+        #[allow(dead_code)]
+        chunked: bool,
+        chunk_size: u64,
+        total_size: u64,
+        chunks: Vec<ChunkEntry>,
+    },
+    Single {
+        #[allow(dead_code)]
+        chunked: Option<bool>,
+        url: Option<String>,
+        #[allow(dead_code)]
+        cid: Option<String>,
+        #[allow(dead_code)]
+        size: Option<u64>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelManifest {
+    #[allow(dead_code)]
+    model_id: String,
+    files: std::collections::HashMap<String, FileEntry>,
+}
+
+async fn fetch_manifest(
+    client: &reqwest::Client,
+    api_base: &str,
+    model_id: &str,
+) -> anyhow::Result<ModelManifest> {
+    let url = format!("{api_base}/api/models/{model_id}/manifest");
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("manifest HTTP {}", resp.status()));
+    }
+    Ok(resp.json::<ModelManifest>().await?)
+}
+
+// Download a chunked file. Each chunk is saved as <dest>.chunk.<N>, then all
+// are assembled into <dest>.tmp and renamed. Existing chunk files are skipped
+// so any connection drop resumes from the last incomplete chunk.
+async fn download_chunks(
+    client: &reqwest::Client,
+    chunks: &[ChunkEntry],
+    total_size: u64,
+    dest: &Path,
+    label: &str,
+    state: &Arc<MinerState>,
+) -> anyhow::Result<()> {
+    use sha2::{Sha256, Digest};
+    use tokio::io::AsyncWriteExt;
+
+    let tmp = dest.with_extension("tmp");
+
+    for chunk in chunks {
+        let chunk_file = dest.with_extension(format!("chunk.{}", chunk.index));
+
+        // Skip if already downloaded and correct size
+        if chunk_file.exists() {
+            if let Ok(meta) = tokio::fs::metadata(&chunk_file).await {
+                if meta.len() == chunk.size {
+                    *state.status.lock() = format!(
+                        "Chunk {}/{} already downloaded, skipping",
+                        chunk.index + 1, chunks.len()
+                    );
+                    continue;
+                }
+            }
+            let _ = tokio::fs::remove_file(&chunk_file).await;
+        }
+
+        // Download this chunk with retries
+        let mut attempts = 0u32;
+        loop {
+            attempts += 1;
+            *state.status.lock() = format!(
+                "Downloading {} chunk {}/{} ({} MB total)",
+                label,
+                chunk.index + 1,
+                chunks.len(),
+                total_size / 1_000_000
+            );
+
+            let resp = match client.get(&chunk.url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if attempts >= 10 { return Err(e.into()); }
+                    tokio::time::sleep(std::time::Duration::from_secs((attempts * 10).min(60) as u64)).await;
+                    continue;
+                }
+            };
+
+            if !resp.status().is_success() {
+                if attempts >= 5 { return Err(anyhow::anyhow!("chunk HTTP {}", resp.status())); }
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                continue;
+            }
+
+            let bytes = match resp.bytes().await {
+                Ok(b) => b,
+                Err(e) => {
+                    if attempts >= 10 { return Err(e.into()); }
+                    tokio::time::sleep(std::time::Duration::from_secs((attempts * 10).min(60) as u64)).await;
+                    continue;
+                }
+            };
+
+            // Verify SHA-256
+            let got_cid = hex::encode(Sha256::digest(&bytes));
+            if got_cid != chunk.cid {
+                if attempts >= 5 {
+                    return Err(anyhow::anyhow!("chunk {} hash mismatch", chunk.index));
+                }
+                continue;
+            }
+
+            let mut f = tokio::fs::File::create(&chunk_file).await?;
+            f.write_all(&bytes).await?;
+            f.flush().await?;
+            break;
+        }
+    }
+
+    // Assemble all chunks into .tmp
+    *state.status.lock() = format!("Assembling {} ({} chunks)…", label, chunks.len());
+    {
+        let mut out = tokio::fs::File::create(&tmp).await?;
+        for chunk in chunks {
+            let chunk_file = dest.with_extension(format!("chunk.{}", chunk.index));
+            let data = tokio::fs::read(&chunk_file).await?;
+            out.write_all(&data).await?;
+        }
+        out.flush().await?;
+    }
+
+    tokio::fs::rename(&tmp, dest).await?;
+
+    // Clean up chunk files
+    for chunk in chunks {
+        let chunk_file = dest.with_extension(format!("chunk.{}", chunk.index));
+        let _ = tokio::fs::remove_file(&chunk_file).await;
+    }
+
+    Ok(())
 }
 
 async fn ensure_model_files(
@@ -96,16 +253,61 @@ async fn ensure_model_files(
     let tokenizer_file = model_dir.join(format!("{model_id}-tokenizer.json"));
     let dl = make_download_client();
 
-    if !model_file.exists() {
-        let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
-        download_resumable(&dl, &url, &model_file, model_id, state).await
-            .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
-    }
+    // Try manifest-based download first (chunk-aware, network-distributed)
+    match fetch_manifest(&dl, api_base, model_id).await {
+        Ok(manifest) => {
+            if !model_file.exists() {
+                match manifest.files.get("onnx/model_q4.onnx")
+                    .or_else(|| manifest.files.get("onnx/model_q4f16.onnx"))
+                {
+                    Some(FileEntry::Chunked { chunks, total_size, .. }) => {
+                        *state.status.lock() = format!(
+                            "Downloading {} in {} chunks from network…",
+                            model_id, chunks.len()
+                        );
+                        download_chunks(&dl, chunks, *total_size, &model_file, model_id, state).await
+                            .map_err(|e| anyhow::anyhow!("chunked model download failed: {e}"))?;
+                    }
+                    Some(FileEntry::Single { url: Some(url), .. }) => {
+                        download_resumable(&dl, url, &model_file, model_id, state).await
+                            .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                    }
+                    _ => {
+                        // Manifest exists but no matching file entry — fall back to direct URL
+                        let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
+                        download_resumable(&dl, &url, &model_file, model_id, state).await
+                            .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                    }
+                }
+            }
 
-    if !tokenizer_file.exists() {
-        let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
-        download_resumable(&dl, &url, &tokenizer_file, "tokenizer", state).await
-            .map_err(|e| anyhow::anyhow!("tokenizer download failed: {e}"))?;
+            if !tokenizer_file.exists() {
+                match manifest.files.get("tokenizer.json") {
+                    Some(FileEntry::Single { url: Some(url), .. }) => {
+                        download_resumable(&dl, url, &tokenizer_file, "tokenizer", state).await
+                            .map_err(|e| anyhow::anyhow!("tokenizer download failed: {e}"))?;
+                    }
+                    _ => {
+                        let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
+                        download_resumable(&dl, &url, &tokenizer_file, "tokenizer", state).await
+                            .map_err(|e| anyhow::anyhow!("tokenizer download failed: {e}"))?;
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            // No manifest endpoint (older node) — fall back to direct URL download
+            if !model_file.exists() {
+                let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
+                download_resumable(&dl, &url, &model_file, model_id, state).await
+                    .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+            }
+            if !tokenizer_file.exists() {
+                let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
+                download_resumable(&dl, &url, &tokenizer_file, "tokenizer", state).await
+                    .map_err(|e| anyhow::anyhow!("tokenizer download failed: {e}"))?;
+            }
+        }
     }
 
     Ok((model_file, tokenizer_file))
