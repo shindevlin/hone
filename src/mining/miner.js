@@ -1206,26 +1206,6 @@ async function startMiner() {
   // Each physical device gets its own unique keypair. The owner's active key
   // authorizes each device on-chain once. After that, proposals are signed
   // with the device key. natoshi never has to do anything manually.
-  const activeKeyPriv = process.env.BTCPC_ACTIVE_KEY;
-
-  // Bootstrap: ensure the account's active public key is in stateStore for
-  // peers that verify via the old path (EPOCH_FINALIZED still uses account key).
-  if (activeKeyPriv) {
-    try {
-      const { secp256k1 } = require('@noble/curves/secp256k1');
-      const minerAccount = stateStore.getAccount(MINER_ACCOUNT);
-      const hasActiveKey = minerAccount && minerAccount.public_keys && minerAccount.public_keys.active;
-      if (!hasActiveKey) {
-        const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(activeKeyPriv, 'hex'), true);
-        const activePubKey = Buffer.from(pubKeyBytes).toString('hex');
-        stateStore.bootstrapAccountKey(MINER_ACCOUNT, 'active', activePubKey);
-        console.log(`[BTCPC] Bootstrap: active public key set for ${MINER_ACCOUNT}: ${activePubKey.slice(0, 16)}...`);
-      }
-    } catch (keyRegErr) {
-      console.warn(`[BTCPC] Could not bootstrap active key: ${keyRegErr.message}`);
-    }
-  }
-
   await _ensureDeviceKey();
 
   running = true;
@@ -1297,6 +1277,28 @@ async function startMiner() {
       replayResult.accounts + ' accounts, ' + replayResult.durationMs + 'ms');
   } catch (err) {
     console.error('[BTCPC] stateStore replay error:', err.message);
+  }
+
+  // Bootstrap: ensure the account's posting public key is in stateStore so
+  // peers can verify block proposal signatures. Must run AFTER replay so
+  // replayed blocks don't overwrite the bootstrapped key.
+  {
+    const postingKeyPriv = process.env.BTCPC_POSTING_KEY;
+    if (postingKeyPriv) {
+      try {
+        const { secp256k1 } = require('@noble/curves/secp256k1');
+        const minerAccount = stateStore.getAccount(MINER_ACCOUNT);
+        const existingKeys = (minerAccount && minerAccount.public_keys) || {};
+        if (!existingKeys.posting) {
+          const pubKeyBytes = secp256k1.getPublicKey(Buffer.from(postingKeyPriv, 'hex'), true);
+          const postingPubKey = Buffer.from(pubKeyBytes).toString('hex');
+          stateStore.bootstrapAccountKey(MINER_ACCOUNT, 'posting', postingPubKey);
+          console.log(`[BTCPC] Bootstrap: posting public key set for ${MINER_ACCOUNT}: ${postingPubKey.slice(0, 16)}...`);
+        }
+      } catch (keyRegErr) {
+        console.warn(`[BTCPC] Could not bootstrap posting key: ${keyRegErr.message}`);
+      }
+    }
   }
 
   function getCurrentEpochNumber() {
@@ -1388,7 +1390,7 @@ async function startMiner() {
 
       // Sign the finalized block so peers can verify it came from the authorized miner
       let blockSignature = null;
-      const activeKeyForSign = process.env.BTCPC_ACTIVE_KEY;
+      const activeKeyForSign = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
       if (activeKeyForSign) {
         try {
           const messageAuth = require('../p2p/messageAuth');
@@ -1485,9 +1487,9 @@ async function startMiner() {
         protocol: protocolModule,
       });
 
-      // Sign proposal with device key (preferred) or account active key (fallback).
+      // Sign proposal with device key (preferred) or account posting/active key (fallback).
       // device_id is included so peers can look up the on-chain delegation.
-      const signingKey = _devicePrivKey || process.env.BTCPC_ACTIVE_KEY;
+      const signingKey = _devicePrivKey || process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
       if (signingKey) {
         try {
           const messageAuth = require('../p2p/messageAuth');

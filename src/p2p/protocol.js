@@ -945,7 +945,8 @@ async function handleEpochFinalized(peer, msg, ctx) {
       proposer: data.proposer,
       timestamp: data.block_timestamp || data.timestamp || 0,
     };
-    var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
+    var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "posting")
+      || messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
     if (!sigOk) {
       if (messageAuth.REQUIRE_SIGNATURES) {
         console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
