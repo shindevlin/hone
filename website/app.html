@@ -168,7 +168,7 @@
     /* Hide the mobile dashboard header chrome */
     [data-desktop] .dash-header,
     [data-desktop] #chrome-banner { display: none !important; }
-    [data-desktop] #screen-dash > div:not(.tab-panel):not(#panel-sensors):not(#panel-mine):not(#panel-node):not(#panel-chat):not(#panel-data):not(#panel-settings):not(#bg-dl-banner) {
+    [data-desktop] #screen-dash > div:not(.tab-panel):not(#panel-sensors):not(#panel-mine):not(#panel-status):not(#panel-node):not(#panel-chat):not(#panel-data):not(#panel-settings):not(#bg-dl-banner) {
       display: none !important;
     }
 
@@ -534,6 +534,7 @@
     <nav class="sb-nav" id="sb-nav">
       <button class="sb-nav-item active" data-tab="sensors"><span class="sb-icon">📡</span>Sensors</button>
       <button class="sb-nav-item" data-tab="mine"><span class="sb-icon">⛏</span>Mine</button>
+      <button class="sb-nav-item" data-tab="status"><span class="sb-icon">📶</span>Network</button>
       <button class="sb-nav-item" data-tab="node"><span class="sb-icon">🖥</span>Node</button>
       <button class="sb-nav-item" data-tab="chat"><span class="sb-icon">💬</span>Chat</button>
       <button class="sb-nav-item" data-tab="data"><span class="sb-icon">📊</span>Data</button>
@@ -1364,6 +1365,443 @@
       </div>
     </div>
 
+    <!-- Tab: Network Status (graphical) -->
+    <div id="panel-status" class="tab-panel">
+
+      <!-- Row 1: Phone mining state + earnings ring -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+
+        <!-- Mining state card -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:130px;">
+          <svg id="st-mine-ring" viewBox="0 0 80 80" width="80" height="80" style="display:block;">
+            <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(247,147,26,0.12)" stroke-width="8"/>
+            <circle id="st-mine-arc" cx="40" cy="40" r="32" fill="none" stroke="#f7931a" stroke-width="8"
+              stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="201"
+              transform="rotate(-90 40 40)" style="transition:stroke-dashoffset 1s ease;"/>
+            <text id="st-mine-pct" x="40" y="45" text-anchor="middle" fill="#f7931a" font-size="13" font-family="monospace" font-weight="bold">0%</text>
+          </svg>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px;text-align:center;">Mining Activity</div>
+          <div id="st-mine-label" style="font-size:11px;color:var(--text);margin-top:2px;text-align:center;">Idle</div>
+        </div>
+
+        <!-- Earnings bar chart -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Earnings History</div>
+          <canvas id="st-earnings-chart" width="120" height="72" style="width:100%;max-width:160px;display:block;margin:0 auto;"></canvas>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;">
+            <div style="text-align:center;">
+              <div id="st-jobs" style="font-size:16px;font-weight:700;color:var(--orange);">0</div>
+              <div style="font-size:9px;color:var(--muted);">Jobs</div>
+            </div>
+            <div style="text-align:center;">
+              <div id="st-tokens" style="font-size:16px;font-weight:700;color:var(--orange);">0</div>
+              <div style="font-size:9px;color:var(--muted);">Tokens</div>
+            </div>
+            <div style="text-align:center;">
+              <div id="st-earned" style="font-size:16px;font-weight:700;color:#22c55e;">0.00</div>
+              <div style="font-size:9px;color:var(--muted);">BTCPC</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: Network hex graph -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Network</div>
+          <div id="st-net-status" style="font-size:10px;color:#22c55e;">●&nbsp;Live</div>
+        </div>
+        <svg id="st-hex-graph" viewBox="0 0 300 120" width="100%" height="120" style="display:block;overflow:visible;"></svg>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;text-align:center;">
+          <div>
+            <div id="st-net-nodes" style="font-size:18px;font-weight:700;color:var(--orange);">—</div>
+            <div style="font-size:9px;color:var(--muted);">Nodes</div>
+          </div>
+          <div>
+            <div id="st-net-miners" style="font-size:18px;font-weight:700;color:var(--orange);">—</div>
+            <div style="font-size:9px;color:var(--muted);">Miners</div>
+          </div>
+          <div>
+            <div id="st-net-clocks" style="font-size:18px;font-weight:700;color:var(--orange);">—</div>
+            <div style="font-size:9px;color:var(--muted);">Clocks</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Epoch ring + wallet/delegate -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+
+        <!-- Epoch ring -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Epoch</div>
+          <svg viewBox="0 0 80 80" width="80" height="80" style="display:block;">
+            <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(247,147,26,0.12)" stroke-width="7"/>
+            <circle id="st-epoch-arc" cx="40" cy="40" r="30" fill="none" stroke="#f7931a" stroke-width="7"
+              stroke-linecap="round" stroke-dasharray="188" stroke-dashoffset="188"
+              transform="rotate(-90 40 40)" style="transition:stroke-dashoffset 0.5s linear;"/>
+            <text id="st-epoch-num" x="40" y="38" text-anchor="middle" fill="var(--text)" font-size="12" font-family="monospace" font-weight="bold">—</text>
+            <text id="st-epoch-sec" x="40" y="52" text-anchor="middle" fill="var(--muted)" font-size="8" font-family="monospace">—s</text>
+          </svg>
+          <div id="st-epoch-reward" style="font-size:10px;color:var(--muted);margin-top:4px;text-align:center;">reward —</div>
+        </div>
+
+        <!-- Wallet + delegate -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">Wallet</div>
+          <div style="font-size:22px;font-weight:700;color:var(--orange);margin-bottom:2px;" id="st-wallet-bal">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:10px;">BTCPC balance</div>
+          <button id="st-delegate-btn" style="width:100%;padding:8px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:6px;">Delegate BTCPC</button>
+          <button id="st-send-btn" style="width:100%;padding:8px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.25);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Send BTCPC</button>
+        </div>
+      </div>
+
+      <!-- Delegate modal -->
+      <div id="st-delegate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
+        <div style="background:#0d1120;border:1px solid rgba(247,147,26,0.35);border-radius:12px;padding:24px;max-width:360px;width:90%;margin:auto;">
+          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Delegate BTCPC</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Delegate to a miner to earn a share of their rewards. Delegated BTCPC stays in your wallet — you can undelegate any time.</div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Miner account</label>
+          <input type="text" id="st-del-to" placeholder="e.g. shindevlin" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <input type="number" id="st-del-amount" placeholder="0.00" min="0.01" step="0.01" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Purpose</label>
+          <select id="st-del-purpose" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(10,14,23,0.95);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:14px;">
+            <option value="mining">Mining support</option>
+            <option value="staking">Staking</option>
+            <option value="governance">Governance vote</option>
+          </select>
+          <div id="st-del-msg" style="font-size:11px;margin-bottom:8px;display:none;"></div>
+          <div style="display:flex;gap:8px;">
+            <button id="st-del-cancel" style="flex:1;padding:8px;background:rgba(100,100,100,0.1);border:1px solid rgba(100,100,100,0.2);color:var(--muted);border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;">Cancel</button>
+            <button id="st-del-submit" style="flex:1;padding:8px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);color:#22c55e;border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;font-weight:700;">Delegate</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Send modal -->
+      <div id="st-send-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
+        <div style="background:#0d1120;border:1px solid rgba(247,147,26,0.35);border-radius:12px;padding:24px;max-width:360px;width:90%;margin:auto;">
+          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Send BTCPC</div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">To account</label>
+          <input type="text" id="st-send-to" placeholder="e.g. natoshisakamoto" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <input type="number" id="st-send-amount" placeholder="0.00" min="0.001" step="0.001" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Memo (optional)</label>
+          <input type="text" id="st-send-memo" placeholder="optional note" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:14px;">
+          <div id="st-send-msg" style="font-size:11px;margin-bottom:8px;display:none;"></div>
+          <div style="display:flex;gap:8px;">
+            <button id="st-send-cancel" style="flex:1;padding:8px;background:rgba(100,100,100,0.1);border:1px solid rgba(100,100,100,0.2);color:var(--muted);border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;">Cancel</button>
+            <button id="st-send-submit" style="flex:1;padding:8px;background:rgba(247,147,26,0.15);border:1px solid rgba(247,147,26,0.35);color:#f7931a;border-radius:6px;font-family:inherit;font-size:12px;cursor:pointer;font-weight:700;">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <script>
+      // ── Network Status Tab ─────────────────────────────────────────────────────
+      (function() {
+        var EPOCH_MS = 30000;
+        var GENESIS_TS = 1776236400000;
+        var earningsHistory = JSON.parse(localStorage.getItem('btcpc-earnings-history') || '[]');
+        while (earningsHistory.length < 10) earningsHistory.unshift(0);
+        earningsHistory = earningsHistory.slice(-10);
+
+        // ── Hex graph ───────────────────────────────────────────────────────────
+        function hexPoints(cx, cy, r) {
+          var pts = [];
+          for (var i = 0; i < 6; i++) {
+            var a = Math.PI / 180 * (60 * i - 30);
+            pts.push((cx + r * Math.cos(a)).toFixed(1) + ',' + (cy + r * Math.sin(a)).toFixed(1));
+          }
+          return pts.join(' ');
+        }
+
+        function drawHexGraph(nodes, miners, clocks) {
+          var svg = document.getElementById('st-hex-graph');
+          if (!svg) return;
+          svg.innerHTML = '';
+          var ns = 'http://www.w3.org/2000/svg';
+          var total = Math.max(3, Math.min(nodes || 3, 18));
+          var mCount = Math.min(miners || 1, total);
+          var cCount = Math.min(clocks || 1, total - mCount);
+
+          // Lay out hexagons in a honeycomb row pattern
+          var r = 14; var gap = 4; var step = r * 2 + gap;
+          var cols = Math.ceil(total / 2); var startX = 20; var rowY = [30, 60];
+          var drawn = 0;
+          for (var col = 0; col < cols && drawn < total; col++) {
+            for (var row = 0; row < 2 && drawn < total; row++) {
+              var cx = startX + col * (step * 0.9);
+              var cy = rowY[row];
+              var isMiner = drawn < mCount;
+              var isClock = !isMiner && drawn < mCount + cCount;
+              var color = isMiner ? '#f7931a' : (isClock ? '#22c55e' : '#334155');
+              var strokeColor = isMiner ? 'rgba(247,147,26,0.4)' : (isClock ? 'rgba(34,197,94,0.4)' : 'rgba(51,65,85,0.4)');
+              var poly = document.createElementNS(ns, 'polygon');
+              poly.setAttribute('points', hexPoints(cx, cy, r));
+              poly.setAttribute('fill', color.replace('#', 'rgba(').replace(/(..)(..)(..)/, function(m,r,g,b) {
+                return parseInt(r,16)+','+parseInt(g,16)+','+parseInt(b,16)+',0.15)';
+              }));
+              poly.setAttribute('stroke', strokeColor);
+              poly.setAttribute('stroke-width', '1.5');
+              // Pulse animation for miners
+              if (isMiner) {
+                var anim = document.createElementNS(ns, 'animate');
+                anim.setAttribute('attributeName', 'stroke-opacity');
+                anim.setAttribute('values', '0.4;1;0.4');
+                anim.setAttribute('dur', (1.5 + drawn * 0.3) + 's');
+                anim.setAttribute('repeatCount', 'indefinite');
+                poly.appendChild(anim);
+              }
+              svg.appendChild(poly);
+              // Small label
+              var label = document.createElementNS(ns, 'text');
+              label.setAttribute('x', cx);
+              label.setAttribute('y', cy + 4);
+              label.setAttribute('text-anchor', 'middle');
+              label.setAttribute('font-size', '7');
+              label.setAttribute('fill', isMiner ? '#f7931a' : (isClock ? '#22c55e' : '#64748b'));
+              label.setAttribute('font-family', 'monospace');
+              label.textContent = isMiner ? '⛏' : (isClock ? '⏱' : '○');
+              svg.appendChild(label);
+              drawn++;
+            }
+          }
+          // Legend
+          var ld = [
+            { color:'#f7931a', label:'Miners' },
+            { color:'#22c55e', label:'Clocks' },
+            { color:'#64748b', label:'Nodes' },
+          ];
+          ld.forEach(function(l, i) {
+            var rect = document.createElementNS(ns, 'rect');
+            rect.setAttribute('x', 220 + i * 28); rect.setAttribute('y', 8);
+            rect.setAttribute('width', 8); rect.setAttribute('height', 8);
+            rect.setAttribute('rx', '2');
+            rect.setAttribute('fill', l.color);
+            rect.setAttribute('opacity', '0.7');
+            svg.appendChild(rect);
+            var lt = document.createElementNS(ns, 'text');
+            lt.setAttribute('x', 230 + i * 28); lt.setAttribute('y', 16);
+            lt.setAttribute('font-size', '7'); lt.setAttribute('fill', '#64748b');
+            lt.setAttribute('font-family', 'monospace');
+            lt.textContent = l.label;
+            svg.appendChild(lt);
+          });
+        }
+
+        // ── Earnings bar chart ──────────────────────────────────────────────────
+        function drawEarningsChart(history) {
+          var canvas = document.getElementById('st-earnings-chart');
+          if (!canvas) return;
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width, H = canvas.height;
+          ctx.clearRect(0, 0, W, H);
+          var max = Math.max.apply(null, history.concat([0.001]));
+          var barW = Math.floor((W - 10) / history.length) - 2;
+          history.forEach(function(v, i) {
+            var h = Math.max(2, Math.round((v / max) * (H - 8)));
+            var x = 5 + i * (barW + 2);
+            var y = H - h;
+            var alpha = 0.3 + 0.7 * (i / (history.length - 1));
+            ctx.fillStyle = 'rgba(247,147,26,' + alpha.toFixed(2) + ')';
+            ctx.beginPath();
+            ctx.roundRect ? ctx.roundRect(x, y, barW, h, 2) : ctx.rect(x, y, barW, h);
+            ctx.fill();
+          });
+        }
+
+        // ── Epoch ring ──────────────────────────────────────────────────────────
+        function updateEpochRing() {
+          var now = Date.now();
+          var elapsed = (now - GENESIS_TS) % EPOCH_MS;
+          var pct = elapsed / EPOCH_MS;
+          var epochNum = Math.floor((now - GENESIS_TS) / EPOCH_MS);
+          var remain = Math.round((EPOCH_MS - elapsed) / 1000);
+          var circumference = 188;
+          var offset = circumference * (1 - pct);
+          var arc = document.getElementById('st-epoch-arc');
+          var numEl = document.getElementById('st-epoch-num');
+          var secEl = document.getElementById('st-epoch-sec');
+          if (arc) arc.setAttribute('stroke-dashoffset', offset.toFixed(1));
+          if (numEl) numEl.textContent = '#' + epochNum;
+          if (secEl) secEl.textContent = remain + 's';
+        }
+
+        // ── Mining ring ─────────────────────────────────────────────────────────
+        function updateMineRing(active, pct) {
+          var arc = document.getElementById('st-mine-arc');
+          var pctEl = document.getElementById('st-mine-pct');
+          var labelEl = document.getElementById('st-mine-label');
+          if (!arc) return;
+          var circumference = 201;
+          var p = Math.min(1, Math.max(0, pct || 0));
+          arc.setAttribute('stroke-dashoffset', (circumference * (1 - p)).toFixed(1));
+          arc.setAttribute('stroke', active ? '#f7931a' : '#334155');
+          if (pctEl) pctEl.textContent = Math.round(p * 100) + '%';
+          if (labelEl) labelEl.textContent = active ? 'Mining' : 'Idle';
+        }
+
+        // ── Fetch network stats ─────────────────────────────────────────────────
+        async function refreshStatus() {
+          try {
+            var r = await fetch(API_BASE + '/public/network');
+            var net = await r.json();
+            var nodes = net.nodes || 0, miners = net.miners || 0, clocks = net.clocks || 0;
+            document.getElementById('st-net-nodes').textContent = nodes;
+            document.getElementById('st-net-miners').textContent = miners;
+            document.getElementById('st-net-clocks').textContent = clocks;
+            drawHexGraph(nodes, miners, clocks);
+            var netStatus = document.getElementById('st-net-status');
+            if (netStatus) {
+              netStatus.style.color = net.alive ? '#22c55e' : '#ef4444';
+              netStatus.textContent = net.alive ? '● Live' : '● Stalled';
+            }
+          } catch (_) {}
+
+          // Wallet balance
+          var jwt = localStorage.getItem('btcpc-jwt');
+          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          if (jwt && acct) {
+            try {
+              var br = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              var bd = await br.json();
+              var bal = bd && bd.balance && typeof bd.balance === 'object' ? (bd.balance.BTCPC || 0) : (bd.balance || 0);
+              document.getElementById('st-wallet-bal').textContent = parseFloat(bal).toFixed(4);
+            } catch (_) {}
+
+            // Epoch reward
+            try {
+              var er = await fetch(API_BASE + '/node/epoch/current');
+              var ed = await er.json();
+              if (ed.success && ed.epoch) {
+                document.getElementById('st-epoch-reward').textContent = 'reward ' + (ed.epoch.block_reward || 0).toFixed(2) + ' BTCPC';
+              }
+            } catch (_) {}
+          }
+        }
+
+        // ── Mining stats sync ───────────────────────────────────────────────────
+        window._updateStatusMining = function(stats) {
+          if (!stats) return;
+          document.getElementById('st-jobs').textContent = stats.jobsCompleted || 0;
+          document.getElementById('st-tokens').textContent = stats.tokensGenerated || 0;
+          document.getElementById('st-earned').textContent = parseFloat(stats.earnings || 0).toFixed(4);
+          // Add to history bar
+          if ((stats.jobsCompleted || 0) > 0) {
+            earningsHistory.push(stats.earnings || 0);
+            earningsHistory = earningsHistory.slice(-10);
+            localStorage.setItem('btcpc-earnings-history', JSON.stringify(earningsHistory));
+            drawEarningsChart(earningsHistory);
+          }
+          var pct = Math.min(1, (stats.jobsCompleted || 0) / 10);
+          updateMineRing(typeof miningActive !== 'undefined' && miningActive, pct);
+        };
+
+        // ── Delegate modal wiring ───────────────────────────────────────────────
+        function showModal(id) { var m = document.getElementById(id); if (m) { m.style.display = 'flex'; } }
+        function hideModal(id) { var m = document.getElementById(id); if (m) m.style.display = 'none'; }
+
+        document.getElementById('st-delegate-btn').addEventListener('click', function() { showModal('st-delegate-modal'); });
+        document.getElementById('st-del-cancel').addEventListener('click', function() { hideModal('st-delegate-modal'); });
+        document.getElementById('st-delegate-modal').addEventListener('click', function(e) { if (e.target === this) hideModal('st-delegate-modal'); });
+
+        document.getElementById('st-del-submit').addEventListener('click', async function() {
+          var to = document.getElementById('st-del-to').value.trim();
+          var amount = parseFloat(document.getElementById('st-del-amount').value);
+          var purpose = document.getElementById('st-del-purpose').value;
+          var msg = document.getElementById('st-del-msg');
+          if (!to || !amount || amount <= 0) { msg.textContent = 'Enter a miner and amount.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
+          var jwt = localStorage.getItem('btcpc-jwt');
+          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          if (!jwt) { msg.textContent = 'Not logged in.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
+          try {
+            var r = await fetch(API_BASE + '/api/delegation/delegate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+              body: JSON.stringify({ from: acct, to: to, amount: amount, purpose: purpose }),
+            });
+            var d = await r.json();
+            if (r.ok && (d.success || d.ok)) {
+              msg.textContent = 'Delegated ' + amount + ' BTCPC to ' + to + '.';
+              msg.style.color = '#22c55e'; msg.style.display = 'block';
+              setTimeout(function() { hideModal('st-delegate-modal'); refreshStatus(); }, 1800);
+            } else {
+              msg.textContent = d.error || 'Delegation failed.';
+              msg.style.color = '#ef4444'; msg.style.display = 'block';
+            }
+          } catch (e) { msg.textContent = 'Network error: ' + e.message; msg.style.color='#ef4444'; msg.style.display='block'; }
+        });
+
+        // ── Send modal wiring ───────────────────────────────────────────────────
+        document.getElementById('st-send-btn').addEventListener('click', function() { showModal('st-send-modal'); });
+        document.getElementById('st-send-cancel').addEventListener('click', function() { hideModal('st-send-modal'); });
+        document.getElementById('st-send-modal').addEventListener('click', function(e) { if (e.target === this) hideModal('st-send-modal'); });
+
+        document.getElementById('st-send-submit').addEventListener('click', async function() {
+          var to = document.getElementById('st-send-to').value.trim();
+          var amount = parseFloat(document.getElementById('st-send-amount').value);
+          var memo = document.getElementById('st-send-memo').value.trim();
+          var msg = document.getElementById('st-send-msg');
+          if (!to || !amount || amount <= 0) { msg.textContent = 'Enter recipient and amount.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
+          var jwt = localStorage.getItem('btcpc-jwt');
+          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          if (!jwt) { msg.textContent = 'Not logged in.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
+          try {
+            var r = await fetch(API_BASE + '/api/wallet/transfer', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+              body: JSON.stringify({ from: acct, to: to, amount: amount, token: 'BTCPC', memo: memo }),
+            });
+            var d = await r.json();
+            if (r.ok && (d.success || d.ok)) {
+              msg.textContent = 'Sent ' + amount + ' BTCPC to ' + to + '.';
+              msg.style.color = '#22c55e'; msg.style.display = 'block';
+              setTimeout(function() { hideModal('st-send-modal'); refreshStatus(); }, 1800);
+            } else {
+              msg.textContent = d.error || 'Transfer failed.';
+              msg.style.color = '#ef4444'; msg.style.display = 'block';
+            }
+          } catch (e) { msg.textContent = 'Network error: ' + e.message; msg.style.color='#ef4444'; msg.style.display='block'; }
+        });
+
+        // ── Init ────────────────────────────────────────────────────────────────
+        drawEarningsChart(earningsHistory);
+        drawHexGraph(4, 3, 2);
+        updateEpochRing();
+        setInterval(updateEpochRing, 1000);
+
+        // Refresh network stats when tab becomes visible
+        var tabBar = document.getElementById('tab-bar');
+        if (tabBar) {
+          tabBar.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-tab]');
+            if (btn && btn.dataset.tab === 'status') {
+              refreshStatus();
+              // Sync mining stats from miner if available
+              if (window.btcpcMiner) {
+                var s = window.btcpcMiner.getStats();
+                window._updateStatusMining && window._updateStatusMining(s);
+              }
+            }
+          });
+        }
+
+        // Update mine ring periodically when mining
+        setInterval(function() {
+          if (typeof miningActive !== 'undefined' && miningActive && window.btcpcMiner) {
+            var s = window.btcpcMiner.getStats();
+            var pct = Math.min(1, (s.jobsCompleted || 0) / 10);
+            updateMineRing(true, pct);
+            document.getElementById('st-jobs').textContent = s.jobsCompleted || 0;
+            document.getElementById('st-tokens').textContent = s.tokensGenerated || 0;
+            document.getElementById('st-earned').textContent = parseFloat(s.earnings || 0).toFixed(4);
+          }
+        }, 5000);
+
+      })();
+      </script>
+    </div>
+
     <!-- Tab: Chat -->
     <div id="panel-chat" class="tab-panel">
       <div id="chat-messages"></div>
@@ -2078,6 +2516,7 @@
     <div class="tab-inner">
       <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
       <button data-tab="mine"><span class="tab-icon">&#x26CF;&#xFE0F;</span>Mine</button>
+      <button data-tab="status"><span class="tab-icon">&#x1F4F6;</span>Network</button>
       <button data-tab="node"><span class="tab-icon">&#x1F5A5;&#xFE0F;</span>Node</button>
       <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
       <button data-tab="data"><span class="tab-icon">&#x1F4CA;</span>Data</button>
@@ -2130,7 +2569,7 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
 // Use protocol+hostname: always reliable regardless of Capacitor bridge timing.
 const IS_NATIVE = (location.protocol === 'https:' && location.hostname === 'localhost');
 const REMOTE_BASE = 'https://btcpc.net';
-const BTCPC_APP_VERSION = '3.1.90';
+const BTCPC_APP_VERSION = '3.1.117';
 const API_BASE = IS_NATIVE ? REMOTE_BASE : location.origin;
 const EPOCH_INTERVAL = 30000; // 30 seconds
 const BTCPC_PER_READING = 0.000042; // estimated per sensor per epoch
@@ -3807,7 +4246,10 @@ function updateMineStats() {
 
 // Wire miner status updates
 if (window.btcpcMiner) {
-  window.btcpcMiner.onStatusChange(function(status, data) {
+  window.btcpcMiner.onStatusChange(function(ev) {
+    var status = (ev && ev.status) ? ev.status : ev;
+    var data = (ev && ev.detail) ? ev.detail : null;
+    var minerStats = (ev && ev.stats) ? ev.stats : null;
     switch (status) {
       case 'connected':
         mineConnDot.className = 'mine-dot green';
@@ -3821,18 +4263,19 @@ if (window.btcpcMiner) {
         mineConnDot.className = 'mine-dot red';
         mineConnText.textContent = 'Reconnecting... (attempt ' + (data && data.attempt || '?') + ')';
         break;
-      case 'job_claimed':
-        mineJobText.textContent = 'Processing job ' + ((data && data.request_id || '').slice(0, 8)) + '...';
+      case 'claimed':
+        mineJobText.textContent = 'Claimed job ' + ((data && data.request_id || '').slice(0, 8)) + '...';
         break;
-      case 'job_complete':
-        mineJobText.textContent = 'Completed: ' + (data && data.tokens || 0) + ' tokens, ' + ((data && data.elapsed_ms || 0) / 1000).toFixed(1) + 's';
+      case 'processing':
+        mineJobText.textContent = 'Running inference' + (data && data.request_id ? ' \u00b7 ' + data.request_id.slice(0, 8) : '') + '...';
+        break;
+      case 'completed':
+        mineJobText.textContent = 'Done: ' + (data && data.tokens || 0) + ' tokens, ' + ((data && data.elapsed_ms || 0) / 1000).toFixed(1) + 's';
         updateMineStats();
+        if (window._updateStatusMining) window._updateStatusMining(minerStats);
         break;
-      case 'job_error':
+      case 'error':
         mineJobText.textContent = 'Job error \u2014 waiting for next';
-        break;
-      case 'idle':
-        mineJobText.textContent = 'Idle \u2014 waiting for jobs';
         break;
     }
   });
@@ -3918,7 +4361,7 @@ mineToggleBtn.addEventListener('click', async () => {
         window._btcpcCPUPipeline = await pipelineFn('text-generation', cpuModelId, {
           progress_callback: function(p) {
             if (p.status === 'progress' && p.progress != null) {
-              mineProgressBar.style.width = p.progress.toFixed(0) + '%';
+              mineProgressFill.style.width = p.progress.toFixed(0) + '%';
               mineModelText.textContent = 'Downloading ' + (p.file || 'model') + ' — ' + p.progress.toFixed(0) + '%';
             }
           }
@@ -3926,6 +4369,25 @@ mineToggleBtn.addEventListener('click', async () => {
         mineProgressWrap.style.display = 'none';
         mineModelText.textContent = cpuModelId + ' ready (CPU)';
         mineModelLoaded = true;
+        // Expose CPU pipeline as btcpcEngine shim so miner.js relay can use it
+        window.btcpcEngine = {
+          getLoadedModels: function() { return [cpuModelId]; },
+          runInference: async function(prompt, opts) {
+            var t0 = Date.now();
+            var res = await window._btcpcCPUPipeline(prompt, {
+              max_new_tokens: opts.max_tokens || 128,
+              temperature: opts.temperature || 0.7,
+              do_sample: true,
+            });
+            var text = (res[0] && res[0].generated_text) || '';
+            // Strip the input prompt that transformers.js echoes back
+            if (text.startsWith(prompt)) text = text.slice(prompt.length).trim();
+            return { text: text, tokens: Math.ceil(text.length / 4), elapsed_ms: Date.now() - t0 };
+          },
+          onProgress: function() {},
+          initEngine: function() { return Promise.resolve(); },
+        };
+        console.log('[BTCPC] CPU inference shim ready for relay miner');
       } catch (cpuErr) {
         mineProgressWrap.style.display = 'none';
         mineModelText.textContent = 'Model download failed: ' + cpuErr.message;

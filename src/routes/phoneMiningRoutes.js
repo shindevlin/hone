@@ -17,6 +17,23 @@ const { authenticateToken } = require('../middlewares/auth');
 const stateStore = require('../chain/stateStore');
 const messageAuth = require('../p2p/messageAuth');
 
+// Replay prevention: permanent record of seen job_ids within a rolling 3-epoch window.
+// Bounded to SEEN_JOB_CAP entries; oldest are evicted when cap is reached.
+const SEEN_JOB_CAP = 100000;
+const seenJobIds = new Map(); // job_id → epoch_submitted
+
+function _recordJob(jobId, epoch) {
+    if (seenJobIds.size >= SEEN_JOB_CAP) {
+        const oldest = seenJobIds.keys().next().value;
+        seenJobIds.delete(oldest);
+    }
+    seenJobIds.set(jobId, epoch);
+}
+
+function _jobSeen(jobId) {
+    return seenJobIds.has(jobId);
+}
+
 // Synthetic work prompts for phones when no inference jobs are pending.
 // These are simple, verifiable inference tasks — hashing proof is deterministic.
 const SYNTHETIC_PROMPTS = [
@@ -87,6 +104,11 @@ router.post('/submit', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'job_id, output, and work_hash are required' });
     }
 
+    // Replay prevention: reject job_ids already submitted in any epoch
+    if (_jobSeen(job_id)) {
+        return res.status(409).json({ error: 'job already submitted — replay rejected' });
+    }
+
     // Require posting-key signature — same requirement as desktop miners.
     if (!signature) {
         return res.status(403).json({ error: 'signature required — set your posting key in Settings' });
@@ -114,21 +136,62 @@ router.post('/submit', authenticateToken, (req, res) => {
 
     // Record the proof
     const workValue = Math.max(1, token_count || 1);
-
     const targetEpoch = epoch || currentEpoch();
+
+    // Mark job_id as seen — prevents replay in any future epoch
+    _recordJob(job_id, targetEpoch);
+
+    const proof = {
+        miner: account,
+        job_id,
+        work_value: workValue,
+        work_hash,
+        device: 'android',
+        model_id: req.body.model_id || 'unknown',
+        submitted_at: Date.now(),
+    };
+
     try {
-        stateStore.addMiningProof(targetEpoch, {
-            miner: account,
-            job_id,
-            work_value: workValue,
-            work_hash,
-            device: 'android',
-            model_id: req.body.model_id || 'unknown',
-            submitted_at: Date.now(),
-        });
+        stateStore.addMiningProof(targetEpoch, proof);
     } catch (err) {
         // stateStore unavailable — track in memory so stats still work
     }
+
+    // Enter reward settlement pipeline — proof finalizes after VERIFICATION_WINDOW epochs.
+    try {
+        const rewardSettlement = require('../chain/rewardSettlement');
+        rewardSettlement.submitWorkProof({
+            node_id: account,
+            model: req.body.model_id || 'btcpc-phone-v1',
+            prompt_hash: crypto.createHash('sha256').update(work_hash).digest('hex'),
+            result_hash: work_hash,
+            tokens_generated: token_count || 0,
+            work_value: workValue,
+            device: 'android',
+            epoch_number: targetEpoch,
+        }, targetEpoch);
+    } catch (err) {
+        // rewardSettlement optional — degrades gracefully
+    }
+
+    // Also route to verifier engine for P2P verification broadcast.
+    try {
+        const verifierEngine = require('../chain/verifierEngine');
+        verifierEngine.addToPool({
+            id: job_id,
+            node_id: account,
+            model: req.body.model_id || 'btcpc-phone-v1',
+            prompt_hash: crypto.createHash('sha256').update(work_hash).digest('hex'),
+            tokens_generated: token_count || 0,
+            work_value: workValue,
+            work_hash,
+            device: 'android',
+            epoch: targetEpoch,
+        });
+    } catch (err) {
+        // verifierEngine optional — degrades gracefully if not running
+    }
+
     const prev = submittedProofs.get(account) || { count: 0, last_epoch: 0 };
     prev.count++;
     prev.last_epoch = targetEpoch;
