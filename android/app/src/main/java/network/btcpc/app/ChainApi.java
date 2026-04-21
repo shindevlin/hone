@@ -10,8 +10,10 @@ import java.io.IOException;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
@@ -39,6 +41,11 @@ public class ChainApi {
         void onError(String message);
     }
 
+    public interface LoginCallback {
+        void onSuccess(String account, String token);
+        void onError(String message);
+    }
+
     public interface RelayStatusCallback {
         /** Called on the main thread with parsed relay status fields. */
         void onSuccess(boolean ok, boolean usbConnected, boolean bleConnected, String lastReading);
@@ -58,6 +65,61 @@ public class ChainApi {
     private ChainApi() {}
 
     // ---------- public methods ----------
+
+    private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+
+    /**
+     * Authenticate with the chain node.
+     * POST /api/user/login { username, password } → { token, user.username }
+     */
+    public static void login(String username, String password, String apiBase,
+                             LoginCallback callback) {
+        String url = apiBase + "/api/user/login";
+        String body;
+        try {
+            JSONObject obj = new JSONObject();
+            obj.put("username", username);
+            obj.put("password", password);
+            body = obj.toString();
+        } catch (Exception e) {
+            MAIN.post(() -> callback.onError("Build error: " + e.getMessage()));
+            return;
+        }
+        Request request = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(body, JSON_MEDIA))
+                .build();
+
+        CLIENT.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                MAIN.post(() -> callback.onError("Network error: " + e.getMessage()));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                try (ResponseBody rb = response.body()) {
+                    String raw = rb != null ? rb.string() : "";
+                    JSONObject json = new JSONObject(raw);
+                    if (!response.isSuccessful()) {
+                        String msg = json.optString("error", "Login failed (" + response.code() + ")");
+                        MAIN.post(() -> callback.onError(msg));
+                        return;
+                    }
+                    String token   = json.optString("token", "");
+                    JSONObject usr = json.optJSONObject("user");
+                    String acct    = usr != null ? usr.optString("username", username) : username;
+                    if (token.isEmpty()) {
+                        MAIN.post(() -> callback.onError("No token returned"));
+                        return;
+                    }
+                    MAIN.post(() -> callback.onSuccess(acct, token));
+                } catch (Exception e) {
+                    MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                }
+            }
+        });
+    }
 
     /**
      * Fetch wallet balance for the authenticated account.

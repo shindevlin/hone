@@ -83,14 +83,9 @@ public class WalletFragment extends Fragment {
         String jwt     = prefs.getJwt();
         String apiBase = prefs.getApiUrl();
 
-        if (account.isEmpty()) {
+        if (account.isEmpty() || jwt.isEmpty()) {
             swipeRefresh.setRefreshing(false);
-            statusView.setText("Set your account name in Settings.");
-            return;
-        }
-        if (jwt.isEmpty()) {
-            swipeRefresh.setRefreshing(false);
-            statusView.setText("Set your JWT token in Settings.");
+            showLoginPrompt();
             return;
         }
 
@@ -210,6 +205,19 @@ public class WalletFragment extends Fragment {
         builder.setPositiveButton("Copy address", (dialog, which) -> copyToClipboard(finalAddress));
         builder.setNegativeButton("Close", null);
         builder.show();
+    }
+
+    // ---- login prompt ----
+
+    private void showLoginPrompt() {
+        if (!isAdded()) return;
+        statusView.setText("Sign in to view your wallet");
+        LoginSheet sheet = new LoginSheet();
+        sheet.setOnLoginSuccess((account, jwt) -> {
+            statusView.setText("");
+            loadBalance();
+        });
+        sheet.show(getParentFragmentManager(), "login");
     }
 
     // ---- utilities ----

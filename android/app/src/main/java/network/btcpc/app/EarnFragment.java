@@ -83,8 +83,19 @@ public class EarnFragment extends Fragment {
         // Miner toggle
         minerToggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.setMinerEnabled(checked);
-            // Miner service not yet shipping — show coming-soon status
-            minerStatus.setText(checked ? "Starting… (ONNX model loading)" : "Stopped");
+            if (checked) {
+                if (prefs.getAccount().isEmpty()) {
+                    minerStatus.setText("Sign in first — tap Settings");
+                    minerToggle.setChecked(false);
+                    prefs.setMinerEnabled(false);
+                } else {
+                    startService(MinerService.class);
+                }
+            } else {
+                stopService(MinerService.class);
+                prefs.setMinerState("Stopped");
+                minerStatus.setText("Stopped");
+            }
         });
 
         // Clock toggle
@@ -112,8 +123,19 @@ public class EarnFragment extends Fragment {
         // Storage toggle
         storageToggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.setStorageEnabled(checked);
-            // Storage service not yet shipping
-            storageStatus.setText(checked ? "Starting… (not yet available)" : "Stopped");
+            if (checked) {
+                if (prefs.getAccount().isEmpty()) {
+                    storageStatus.setText("Sign in first — tap Settings");
+                    storageToggle.setChecked(false);
+                    prefs.setStorageEnabled(false);
+                } else {
+                    startService(StorageService.class);
+                }
+            } else {
+                stopService(StorageService.class);
+                prefs.setStorageState("Stopped");
+                storageStatus.setText("Stopped");
+            }
         });
 
         // Initial status text paint
@@ -170,12 +192,9 @@ public class EarnFragment extends Fragment {
     private void refreshStatuses() {
         if (!isAdded()) return;
 
-        // Miner — no live service state yet
-        if (prefs.isMinerEnabled()) {
-            minerStatus.setText("Running (ONNX — coming soon)");
-        } else {
-            minerStatus.setText("Stopped");
-        }
+        // Miner — read state written by MinerService
+        String minerState = prefs.getMinerState();
+        minerStatus.setText(minerState.isEmpty() ? "Stopped" : minerState);
 
         // Clock — read state written by NativeClockService
         String clockState = prefs.getClockState();
@@ -185,11 +204,8 @@ public class EarnFragment extends Fragment {
         String sensorState = prefs.getSensorState();
         sensorsStatus.setText(sensorState.isEmpty() ? "Stopped" : sensorState);
 
-        // Storage — no live service state yet
-        if (prefs.isStorageEnabled()) {
-            storageStatus.setText("Storage hosting — coming soon");
-        } else {
-            storageStatus.setText("Stopped");
-        }
+        // Storage — read state written by StorageService
+        String storageState = prefs.getStorageState();
+        storageStatus.setText(storageState.isEmpty() ? "Stopped" : storageState);
     }
 }

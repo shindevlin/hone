@@ -132,7 +132,7 @@
                     android:textColor="@color/btcpc_orange"
                     android:backgroundTint="@color/btcpc_surface_alt"
                     android:strokeColor="@color/btcpc_orange"
-                    android:strokeWidth="1dp"
+                    android:strokeWidth="1"
                     android:textSize="16sp" />
 
             </LinearLayout>

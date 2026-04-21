@@ -27,10 +27,12 @@ public class AppPrefs {
     public static final String KEY_STORAGE_ENABLED = "storageEnabled";
 
     // ---- service status (written by background services) ----
-    public static final String KEY_RELAY_STATE  = "relay_state";
-    public static final String KEY_CLOCK_STATE  = "clock_state";
-    public static final String KEY_SENSOR_STATE = "sensor_state";
-    public static final String KEY_LAST_EVENT   = "last_event";
+    public static final String KEY_RELAY_STATE   = "relay_state";
+    public static final String KEY_CLOCK_STATE   = "clock_state";
+    public static final String KEY_SENSOR_STATE  = "sensor_state";
+    public static final String KEY_MINER_STATE   = "miner_state";
+    public static final String KEY_STORAGE_STATE = "storage_state";
+    public static final String KEY_LAST_EVENT    = "last_event";
 
     // ---- defaults ----
     public static final String DEFAULT_API_URL     = "https://btcpc.net";
@@ -103,6 +105,22 @@ public class AppPrefs {
 
     public String getSensorState() {
         return prefs.getString(KEY_SENSOR_STATE, "stopped");
+    }
+
+    public String getMinerState() {
+        return prefs.getString(KEY_MINER_STATE, "");
+    }
+
+    public String getStorageState() {
+        return prefs.getString(KEY_STORAGE_STATE, "");
+    }
+
+    public void setMinerState(String value) {
+        prefs.edit().putString(KEY_MINER_STATE, value).apply();
+    }
+
+    public void setStorageState(String value) {
+        prefs.edit().putString(KEY_STORAGE_STATE, value).apply();
     }
 
     public String getLastEvent() {

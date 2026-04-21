@@ -136,7 +136,12 @@ public class MainActivity extends AppCompatActivity {
         if (prefs.isSensorsEnabled()) {
             startFgService(NativeSensorService.class);
         }
-        // Miner and Storage services are not yet shipping — skip
+        if (prefs.isMinerEnabled() && !prefs.getAccount().isEmpty()) {
+            startFgService(MinerService.class);
+        }
+        if (prefs.isStorageEnabled() && !prefs.getAccount().isEmpty()) {
+            startFgService(StorageService.class);
+        }
     }
 
     private void startFgService(Class<?> serviceClass) {

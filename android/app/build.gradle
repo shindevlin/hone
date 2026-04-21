@@ -10,6 +10,9 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
@@ -46,6 +49,44 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}
+
+// Build the Rust miner .so via cargo-ndk (requires cargo-ndk + Rust toolchain with NDK targets).
+// Run: cargo install cargo-ndk
+//      rustup target add aarch64-linux-android x86_64-linux-android
+// The task is skipped entirely if cargo-ndk is not on PATH — MinerService detects the missing
+// library at runtime and shows a "rebuild with cargo-ndk" message instead of crashing.
+task buildRustMiner {
+    doLast {
+        def cargoNdk = 'cargo-ndk'
+        def hasCargoNdk = false
+        try {
+            def probe = [cargoNdk, '--version'].execute()
+            probe.waitFor()
+            hasCargoNdk = (probe.exitValue() == 0)
+        } catch (ignored) {}
+
+        if (!hasCargoNdk) {
+            logger.lifecycle('[btcpc] cargo-ndk not found — skipping Rust miner build (install with: cargo install cargo-ndk)')
+            return
+        }
+
+        def rustDir = file('../../rust/btcpc-miner').canonicalPath
+        def jniOut  = file('src/main/jniLibs').canonicalPath
+        def cmd = "cargo ndk -t arm64-v8a -t x86_64 -o '${jniOut}' build --release"
+        def proc = ['sh', '-c', "cd '${rustDir}' && ${cmd}"].execute()
+        proc.consumeProcessOutput(System.out, System.err)
+        proc.waitFor()
+        if (proc.exitValue() != 0) {
+            logger.lifecycle('[btcpc] Rust miner build failed — mining will show library-missing message on device')
+        }
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'mergeDebugJniLibFolders' || task.name == 'mergeReleaseJniLibFolders') {
+        task.dependsOn buildRustMiner
+    }
 }
 
 try {
