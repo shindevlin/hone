@@ -337,10 +337,28 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
 
     // The signed claim payload — the wBTCPC oracle verifies this and mints on the target chain
     const crypto = require('crypto');
-    const claimPayload = { account, chain, amount: claimAmount, address: claimAddress, epoch };
-    const claimHash = crypto.createHash('sha256')
-      .update(JSON.stringify(claimPayload, Object.keys(claimPayload).sort()))
-      .digest('hex');
+    const nonce = crypto.randomBytes(32).toString('hex');
+
+    // Generate EVM-compatible proof if oracle key is configured and chain is EVM
+    let claimProof = null;
+    const oracleKey = process.env.BTCPC_ORACLE_PRIVKEY;
+    const evmChains = ['ethereum', 'base', 'arbitrum', 'optimism', 'bsc', 'polygon'];
+    if (oracleKey && evmChains.includes(chain)) {
+      try {
+        const { generateClaimProof } = require('../claims/claimProofGenerator');
+        claimProof = generateClaimProof({
+          btcpcAccount: account,
+          chain,
+          targetWallet: claimAddress,
+          amount: claimAmount,
+          nonce,
+          epoch,
+          oraclePrivKey: oracleKey,
+        });
+      } catch (e) {
+        console.error('[BTCPC] claim proof generation failed:', e.message);
+      }
+    }
 
     return res.json({
       success: true,
@@ -350,9 +368,11 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
       claim_address: claimAddress,
       mint_fee_btcpc: 0.001,
       epoch,
-      claim_hash: claimHash,
-      claim_payload: claimPayload,
-      message: 'Present claim_hash + signature to the wBTCPC contract oracle on ' + chain + '. Gas on ' + chain + ' paid separately.',
+      nonce,
+      evm_proof: claimProof,
+      message: claimProof
+        ? 'Submit evm_proof to the wBTCPC contract on ' + chain + '. Gas paid separately.'
+        : 'Claim recorded. EVM proof requires BTCPC_ORACLE_PRIVKEY to be configured on this node.',
     });
   } catch (err) {
     return res.status(400).json({ error: err.message });
