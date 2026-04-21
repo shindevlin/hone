@@ -728,4 +728,37 @@ setInterval(function() {
   }
 }, 600000);
 
+/**
+ * GET /public/android-version
+ * Returns the latest Android APK version info.
+ * version_code is an integer; app compares with BuildConfig.VERSION_CODE.
+ */
+const ANDROID_RELEASE = {
+  version_code: 3,
+  version_name: require('../../package.json').version,
+  apk_url: 'https://btcpc.net/public/android-apk',
+  changelog: 'Full sensor array (GPS, battery, temperature, humidity + 5 more), model picker from chain registry, storage quota, on-chain credit for all earn activities, auto-restart on update',
+  min_sdk: 26,
+};
+
+router.get('/android-version', function(req, res) {
+  res.json(ANDROID_RELEASE);
+});
+
+/**
+ * GET /downloads/btcpc-android.apk — serve the latest release APK.
+ * File is placed at website/downloads/btcpc-android.apk by the release script.
+ */
+router.get('/android-apk', function(req, res) {
+  const path = require('path');
+  const fs = require('fs');
+  const apkPath = path.join(process.cwd(), 'website', 'downloads', 'btcpc-android.apk');
+  if (!fs.existsSync(apkPath)) {
+    return res.status(404).json({ error: 'APK not yet published — check btcpc.net/downloads' });
+  }
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', 'attachment; filename="btcpc-android.apk"');
+  fs.createReadStream(apkPath).pipe(res);
+});
+
 module.exports = router;

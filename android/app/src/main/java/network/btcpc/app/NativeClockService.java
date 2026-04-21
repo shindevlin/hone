@@ -74,6 +74,7 @@ public class NativeClockService extends Service {
         if (!heartbeatStarted) {
             heartbeatStarted = true;
             scheduler.scheduleAtFixedRate(this::sendHeartbeatSafe, 5, 30, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::sendDeviceHeartbeat, 10, 60, TimeUnit.SECONDS);
         }
         persistState("Clock peer: running");
         return START_STICKY;
@@ -205,6 +206,56 @@ public class NativeClockService extends Service {
         // Also POST to chain REST endpoint so the node records credit even if
         // the relay doesn't forward the WebSocket message to the P2P network.
         postChainHeartbeat();
+    }
+
+    private void sendDeviceHeartbeat() {
+        if (account == null || account.isEmpty() || "btcpc-phone".equals(account)) return;
+        AppPrefs prefs = new AppPrefs(this);
+        try {
+            java.util.List<String> roles = new java.util.ArrayList<>();
+            roles.add("clock");
+            if (prefs.isMinerEnabled())   roles.add("miner");
+            if (prefs.isSensorsEnabled()) roles.add("sensor");
+            if (prefs.isStorageEnabled()) roles.add("storage");
+
+            org.json.JSONArray rolesArr = new org.json.JSONArray();
+            for (String r : roles) rolesArr.put(r);
+
+            JSONObject body = new JSONObject();
+            body.put("account",    account);
+            body.put("device_id",  nodeId);
+            body.put("name",       prefs.getDeviceName());
+            body.put("type",       "phone");
+            body.put("roles",      rolesArr);
+            body.put("model",      android.os.Build.MODEL);
+            body.put("status",     "active");
+            body.put("version",    BuildConfig.VERSION_NAME);
+
+            // Sensor count from shared prefs state string
+            String sensorState = prefs.getSensorState();
+            int sensorCount = 0;
+            if (sensorState.contains("active: ")) {
+                try {
+                    sensorCount = Integer.parseInt(
+                            sensorState.replace("Sensors active: ", "").trim());
+                } catch (NumberFormatException ignored) {}
+            }
+            body.put("sensors", sensorCount);
+
+            Request.Builder rb = new Request.Builder()
+                    .url(apiBase + "/public/device-heartbeat")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA));
+            if (jwt != null && !jwt.isEmpty()) {
+                rb.addHeader("Authorization", "Bearer " + jwt);
+            }
+            try (Response resp = client.newCall(rb.build()).execute()) {
+                if (!resp.isSuccessful()) {
+                    Log.w(TAG, "Device heartbeat failed: " + resp.code());
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Device heartbeat error: " + e.getMessage());
+        }
     }
 
     private void postChainHeartbeat() {

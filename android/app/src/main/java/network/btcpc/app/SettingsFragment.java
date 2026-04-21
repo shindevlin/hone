@@ -37,6 +37,10 @@ public class SettingsFragment extends Fragment {
     private TextView clockStatusView;
     private TextView sensorStatusView;
 
+    private TextView versionView;
+    private com.google.android.material.button.MaterialButton updateBtn;
+    private TextView updateStatus;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -64,6 +68,13 @@ public class SettingsFragment extends Fragment {
         clockStatusView  = view.findViewById(R.id.settings_clock_status);
         sensorStatusView = view.findViewById(R.id.settings_sensor_status);
 
+        versionView  = view.findViewById(R.id.settings_version);
+        updateBtn    = view.findViewById(R.id.settings_update_btn);
+        updateStatus = view.findViewById(R.id.settings_update_status);
+
+        versionView.setText("v" + BuildConfig.VERSION_NAME);
+        updateBtn.setOnClickListener(v -> checkForUpdate());
+
         // Populate fields from prefs
         accountInput.setText(prefs.getAccount());
         jwtInput.setText(prefs.getJwt());
@@ -74,6 +85,8 @@ public class SettingsFragment extends Fragment {
         saveBtn.setOnClickListener(v -> saveSettings());
 
         refreshServiceStatuses();
+        // Auto-check for updates when settings opens
+        checkForUpdate();
     }
 
     @Override
@@ -109,6 +122,55 @@ public class SettingsFragment extends Fragment {
     private String text(EditText et) {
         if (et == null || et.getText() == null) return "";
         return et.getText().toString().trim();
+    }
+
+    // ---- update check ----
+
+    private void checkForUpdate() {
+        if (!isAdded()) return;
+        updateStatus.setText("Checking for updates…");
+        updateStatus.setVisibility(android.view.View.VISIBLE);
+        updateBtn.setEnabled(false);
+
+        UpdateChecker.check(requireContext(), prefs.getApiUrl(), new UpdateChecker.Listener() {
+            @Override
+            public void onUpdateAvailable(String versionName, String changelog, Runnable install) {
+                if (!isAdded()) return;
+                updateStatus.setText("Update available: v" + versionName);
+                updateStatus.setTextColor(0xFFF7931A); // orange
+                updateBtn.setText("Update to v" + versionName);
+                updateBtn.setEnabled(true);
+                updateBtn.setOnClickListener(v -> {
+                    updateBtn.setEnabled(false);
+                    updateStatus.setText("Downloading…");
+                    updateStatus.setTextColor(0xFFA8B0BF); // muted
+                    install.run();
+                });
+            }
+
+            @Override
+            public void onUpToDate(String currentVersion) {
+                if (!isAdded()) return;
+                updateStatus.setText("Up to date (v" + currentVersion + ")");
+                updateStatus.setTextColor(0xFF22C55E); // green
+                updateBtn.setText("Check for updates");
+                updateBtn.setEnabled(true);
+                updateBtn.setOnClickListener(v2 -> checkForUpdate());
+                handler.postDelayed(() -> {
+                    if (isAdded()) updateStatus.setVisibility(android.view.View.GONE);
+                }, 3000);
+            }
+
+            @Override
+            public void onError(String msg) {
+                if (!isAdded()) return;
+                updateStatus.setText("Update check failed");
+                updateStatus.setTextColor(0xFFA8B0BF);
+                updateBtn.setText("Check for updates");
+                updateBtn.setEnabled(true);
+                updateBtn.setOnClickListener(v2 -> checkForUpdate());
+            }
+        });
     }
 
     // ---- service status ----
