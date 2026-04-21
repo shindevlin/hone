@@ -25,11 +25,16 @@
 
 const express = require("express");
 const router = express.Router();
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 const { authenticateToken } = require("../middlewares/auth");
 const market = require("../services/inferenceMarket");
 const stateStore = require("../chain/stateStore");
 const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
 const { PROTOCOL_TOOL_SCHEMAS } = require("../services/protocolTools");
+
+const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
 
 const MAX_PROMPT_LENGTH = 8000;
 const MAX_RESULT_LENGTH = 32000;
@@ -66,6 +71,34 @@ router.post("/", authenticateToken, async (req, res) => {
     const ragCids = Array.isArray(req.body.rag_cids) ? req.body.rag_cids.slice(0, 10) : [];
     const sessionId = req.body.session_id ? sanitizeString(req.body.session_id, 64) : null;
 
+    // Images: accept pre-uploaded CIDs or inline base64 — stored as blobs, chain only sees CIDs
+    let imageCids = Array.isArray(req.body.image_cids) ? req.body.image_cids.slice(0, 5) : [];
+    if (Array.isArray(req.body.images) && req.body.images.length > 0) {
+      if (!fs.existsSync(BLOB_DIR)) fs.mkdirSync(BLOB_DIR, { recursive: true });
+      for (const b64 of req.body.images.slice(0, 5)) {
+        try {
+          const buf = Buffer.from(b64, "base64");
+          if (buf.length > 20 * 1024 * 1024) continue; // skip if >20MB
+          const cid = crypto.createHash("sha256").update(buf).digest("hex");
+          fs.writeFileSync(path.join(BLOB_DIR, cid), buf);
+          imageCids.push(cid);
+        } catch (_) {}
+      }
+    }
+
+    // Audio: accept pre-uploaded CID or inline base64
+    let audioCid = req.body.audio_cid ? sanitizeString(req.body.audio_cid, 64) : null;
+    if (!audioCid && req.body.audio) {
+      try {
+        const buf = Buffer.from(req.body.audio, "base64");
+        if (buf.length <= 50 * 1024 * 1024) { // max 50MB
+          if (!fs.existsSync(BLOB_DIR)) fs.mkdirSync(BLOB_DIR, { recursive: true });
+          audioCid = crypto.createHash("sha256").update(buf).digest("hex");
+          fs.writeFileSync(path.join(BLOB_DIR, audioCid), buf);
+        }
+      } catch (_) {}
+    }
+
     const result = await market.openJob(buyer, prompt, maxFee, {
       model,
       systemPrompt,
@@ -75,6 +108,8 @@ router.post("/", authenticateToken, async (req, res) => {
       outputSchema,
       tier,
       ragCids,
+      imageCids,
+      audioCid,
       sessionId,
     });
     res.json(result);
@@ -223,6 +258,8 @@ router.post("/:id/claim", authenticateToken, async (req, res) => {
       tools: job ? (job.tools || []) : [],
       max_turns: job ? (job.max_turns || 1) : 1,
       turns: job ? (job.turns || []) : [],
+      image_cids: job ? (job.image_cids || []) : [],
+      audio_cid: job ? (job.audio_cid || null) : null,
     });
   } catch (err) {
     const status =

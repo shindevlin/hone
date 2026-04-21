@@ -1570,13 +1570,38 @@ async function startMarketplacePoller() {
 
   const protocolTools = require('../services/protocolTools');
   const ragService = require('../services/ragService');
+  const audioTranscriber = require('../services/audioTranscriber');
   const browserRunner = require('../services/browserRunner');
+  const fsSync = require('fs');
+  const pathMod = require('path');
+  const BLOB_DATA_DIR = process.env.BTCPC_BLOB_DIR || pathMod.resolve(__dirname, '../../data/blobs');
+
+  const _visionModel = process.env.BTCPC_VISION_MODEL || 'llava:7b';
+  const _audioEnabled = audioTranscriber.isWhisperAvailable();
+  console.log(`[Marketplace] Capabilities — vision: ${_visionModel}, audio/whisper: ${_audioEnabled}, code_exec: ${process.env.BTCPC_CODE_EXEC_ENABLED !== 'false'}, browser: ${process.env.BTCPC_BROWSER_ENABLED !== 'false'}`);
 
   // Build Ollama message list from job context + turns history
   function buildMessages(job) {
     const messages = [];
     if (job.system_prompt) messages.push({ role: 'system', content: job.system_prompt });
-    messages.push({ role: 'user', content: job.prompt });
+
+    // First user message — attach images if this is the first turn (vision jobs)
+    const userMsg = { role: 'user', content: job.prompt };
+    if (job.image_cids && job.image_cids.length > 0 && (job.current_turn || 0) === 0) {
+      const images = [];
+      for (const cid of job.image_cids) {
+        if (!/^[a-f0-9]{64}$/.test(cid)) continue;
+        const blobPath = pathMod.join(BLOB_DATA_DIR, cid);
+        try {
+          images.push(fsSync.readFileSync(blobPath).toString('base64'));
+        } catch (_) {
+          console.warn(`[Marketplace] Image blob missing: ${cid}`);
+        }
+      }
+      if (images.length > 0) userMsg.images = images;
+    }
+    messages.push(userMsg);
+
     // Replay agentic turns
     for (const turn of (job.turns || [])) {
       if (turn.role === 'assistant' && turn.tool_calls) {
@@ -1607,11 +1632,14 @@ async function startMarketplacePoller() {
     }).filter(Boolean);
   }
 
-  // Pick model based on job tier
+  // Pick model based on job tier and modality
   function pickModel(job) {
+    // Vision jobs need a multi-modal model
+    if (job.image_cids && job.image_cids.length > 0) {
+      return job.model || process.env.BTCPC_VISION_MODEL || 'llava:7b';
+    }
     const tier = job.tier || 'standard';
     if (tier === 'reasoning') {
-      // Prefer reasoning models — fallback chain
       return job.model || process.env.BTCPC_REASONING_MODEL || 'qwq:32b' ||
              process.env.BTCPC_MODEL || MODEL || 'qwen3:4b';
     }
@@ -1687,6 +1715,19 @@ async function startMarketplacePoller() {
           }
         } catch (ragErr) {
           console.warn(`[Marketplace] RAG failed for ${job.job_id}: ${ragErr.message}`);
+        }
+      }
+
+      // Audio: transcribe before first turn, prepend transcript to prompt
+      if (job.audio_cid && (job.current_turn || 0) === 0) {
+        try {
+          const transcript = await audioTranscriber.transcribe(job.audio_cid);
+          if (transcript) {
+            job = { ...job, prompt: `[Audio transcript]\n${transcript}\n\n${job.prompt}` };
+            console.log(`[Marketplace] Audio transcribed for ${job.job_id} (${transcript.length} chars)`);
+          }
+        } catch (audioErr) {
+          console.warn(`[Marketplace] Audio transcription failed for ${job.job_id}: ${audioErr.message}`);
         }
       }
 
@@ -1773,6 +1814,7 @@ async function startBrowserPoller() {
     console.log('[BrowserPoller] Browser jobs disabled (BTCPC_BROWSER_ENABLED=false)');
     return;
   }
+  const browserRunner = require('../services/browserRunner');
   if (!browserRunner.isPlaywrightAvailable()) {
     console.log('[BrowserPoller] Playwright not installed — skipping browser job polling');
     return;

@@ -1375,6 +1375,8 @@ function applyEntry(entry) {
           output_schema: ijOpen.output_schema || null,
           tier: ijOpen.tier || "standard",
           rag_cids: ijOpen.rag_cids || [],
+          image_cids: ijOpen.image_cids || [],
+          audio_cid: ijOpen.audio_cid || null,
           batch_id: ijOpen.batch_id || null,
           session_id: ijOpen.session_id || null,
           miner: null,

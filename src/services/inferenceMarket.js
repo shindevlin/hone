@@ -64,6 +64,8 @@ async function openJob(buyer, prompt, maxFee, opts) {
   const outputSchema = opts.outputSchema || null;
   const tier = ["standard", "reasoning", "fast"].includes(opts.tier) ? opts.tier : "standard";
   const ragCids = Array.isArray(opts.ragCids) ? opts.ragCids.slice(0, 10) : [];
+  const imageCids = Array.isArray(opts.imageCids) ? opts.imageCids.slice(0, 5) : [];
+  const audioCid = opts.audioCid || null;
   const batchId = opts.batchId || null;
   const sessionId = opts.sessionId || null;
 
@@ -92,6 +94,8 @@ async function openJob(buyer, prompt, maxFee, opts) {
     output_schema: outputSchema,
     tier,
     rag_cids: ragCids,
+    image_cids: imageCids,
+    audio_cid: audioCid,
     batch_id: batchId,
     session_id: sessionId,
   }, epoch);
@@ -101,7 +105,7 @@ async function openJob(buyer, prompt, maxFee, opts) {
     try { await ledger.recordSessionAddJob(sessionId, jobId, epoch); } catch (_) {}
   }
 
-  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, batch_id: batchId, session_id: sessionId };
+  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, image_cids: imageCids, audio_cid: audioCid, batch_id: batchId, session_id: sessionId };
 }
 
 /**
