@@ -180,14 +180,25 @@ if [[ "${BTCPC_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 0 ]]; then
 
   if [[ "$_BROWSER" == "true" ]]; then
     echo ""
-    echo "   Content filter — hard blocks always active: SSRF, private IPs, CSAM."
-    echo "   Choose additional categories to block on YOUR machine:"
+    echo "   Content filter — hard blocks always active: SSRF/private IPs, CSAM."
+    echo "   All categories below default to allowed. Answer 'y' to block on your machine."
     echo ""
-    _BLOCK_ONION=$(_ask_yn "   Block Tor / .onion hidden services?" "n")
-    echo "   (Note: legitimate privacy tools and news outlets use .onion)"
+    echo "   Tor / .onion hidden services: Used by SecureDrop, privacy-focused news"
+    echo "   outlets, whistleblower platforms, and censorship-evading services."
+    echo "   BTCPC does not block these by default — censorship resistance is core"
+    echo "   to the protocol."
+    _BLOCK_ONION=$(_ask_yn "   Block Tor/.onion hidden services?" "n")
+    echo ""
+    echo "   Adult content: Legal adult websites (pornography, adult entertainment)."
     _BLOCK_ADULT=$(_ask_yn "   Block adult content sites?" "n")
+    echo ""
+    echo "   Gambling: Online casinos, sports betting, poker sites."
     _BLOCK_GAMBLING=$(_ask_yn "   Block gambling sites?" "n")
+    echo ""
+    echo "   Drug marketplaces: Sites selling illegal controlled substances."
     _BLOCK_DRUGS=$(_ask_yn "   Block drug marketplace sites?" "n")
+    echo ""
+    echo "   Weapons: Sites selling illegal firearms or weapons."
     _BLOCK_WEAPONS=$(_ask_yn "   Block illegal weapons sites?" "n")
     echo ""
     printf "   Restrict to specific domains only? (leave blank to allow all): "

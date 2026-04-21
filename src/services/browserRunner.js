@@ -196,6 +196,24 @@ async function closeSession(jobId) {
   }
 }
 
+/**
+ * Delete screenshot blobs stored locally for a job.
+ * Screenshots belong to the buyer — once transmitted (as CIDs in turn history),
+ * the miner's local copy must be removed. Called at job settlement/close.
+ */
+function deleteSessionBlobs(screenshotCids) {
+  if (!Array.isArray(screenshotCids)) return;
+  for (const cid of screenshotCids) {
+    if (!/^[a-f0-9]{64}$/.test(cid)) continue;
+    const blobPath = path.join(BLOB_DIR, cid);
+    try {
+      fs.unlinkSync(blobPath);
+    } catch (_) {
+      // already gone or never written — not an error
+    }
+  }
+}
+
 function isPlaywrightAvailable() {
   return loadPlaywright() !== null;
 }
@@ -205,5 +223,6 @@ module.exports = {
   createSession,
   getSession,
   closeSession,
+  deleteSessionBlobs,
   isPlaywrightAvailable,
 };

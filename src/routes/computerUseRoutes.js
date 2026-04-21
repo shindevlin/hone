@@ -30,6 +30,7 @@ const { authenticateToken } = require("../middlewares/auth");
 const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
 const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
+const { closeSession, deleteSessionBlobs } = require("../services/browserRunner");
 
 const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
 const PROTOCOL_FEE_PCT = 0.10;
@@ -247,6 +248,10 @@ router.post("/:id/action", authenticateToken, async (req, res) => {
       if (minerPayout > 0) await ledger.recordEscrowRelease(job.miner, req.params.id, minerPayout, epoch, "Browser job settlement");
       if (protocolFee > 0) await ledger.recordEscrowRelease(PROTOCOL_FEE_ACCOUNT, req.params.id, protocolFee, epoch, "Browser job protocol fee");
       await ledger.recordBrowserJobSettle(req.params.id, job.miner, buyer, { actual_cost: actualCost, miner_payout: minerPayout, protocol_fee: protocolFee }, epoch);
+      // Delete local screenshot blobs — session data belongs to the buyer only
+      const screenshotCids = (job.turns || []).map((t) => t.screenshot_cid).filter(Boolean);
+      await closeSession(req.params.id);
+      deleteSessionBlobs(screenshotCids);
       return res.json({ job_id: req.params.id, status: "settled", action });
     }
 
@@ -280,6 +285,12 @@ router.post("/:id/complete", authenticateToken, async (req, res) => {
       result_summary: resultSummary, final_screenshot_cid: finalScreenshotCid,
     }, epoch);
 
+    // Delete local screenshot blobs — session data belongs to the buyer only
+    const screenshotCids = (job.turns || []).map((t) => t.screenshot_cid).filter(Boolean);
+    if (finalScreenshotCid) screenshotCids.push(finalScreenshotCid);
+    await closeSession(req.params.id);
+    deleteSessionBlobs(screenshotCids);
+
     res.json({ job_id: req.params.id, status: "settled", miner_payout: minerPayout });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -302,6 +313,11 @@ router.post("/:id/refund", authenticateToken, async (req, res) => {
     const epoch = await ledger.getCurrentEpoch();
     await ledger.recordEscrowRefund(job.buyer, req.params.id, job.max_fee, epoch);
     await ledger.recordBrowserJobRefund(req.params.id, job.buyer, "manual", epoch);
+
+    // Clean up any local screenshots — job is abandoned
+    const screenshotCids = (job.turns || []).map((t) => t.screenshot_cid).filter(Boolean);
+    await closeSession(req.params.id);
+    deleteSessionBlobs(screenshotCids);
 
     res.json({ job_id: req.params.id, status: "refunded", refunded: job.max_fee });
   } catch (err) {
