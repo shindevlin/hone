@@ -20,6 +20,7 @@
 const crypto = require("crypto");
 const stateStore = require("../chain/stateStore");
 const ledger = require("./ledger");
+const protocolTools = require("./protocolTools");
 
 const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
 const PROTOCOL_FEE_PCT = 0.10;
@@ -58,6 +59,10 @@ async function openJob(buyer, prompt, maxFee, opts) {
   // Lock escrow first
   await ledger.recordEscrowLock(buyer, jobId, maxFee, epoch);
 
+  // Validate tools array — each entry must be a recognized tool name or a custom schema object
+  const tools = Array.isArray(opts.tools) ? opts.tools : [];
+  const maxTurns = Math.min(parseInt(opts.maxTurns) || 1, 20);
+
   // Record job opening on chain
   await ledger.recordInferenceJobOpen(buyer, jobId, {
     prompt,
@@ -66,9 +71,11 @@ async function openJob(buyer, prompt, maxFee, opts) {
     system_prompt: opts.systemPrompt || null,
     ttl_epochs: ttlEpochs,
     expires_epoch: epoch + ttlEpochs,
+    tools,
+    max_turns: maxTurns,
   }, epoch);
 
-  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch };
+  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns };
 }
 
 /**
@@ -91,7 +98,118 @@ async function claimJob(jobId, miner) {
   }
 
   await ledger.recordInferenceJobClaim(jobId, miner, epoch);
-  return { job_id: jobId, miner, status: "claimed", epoch };
+
+  // Return turns history so miner can reconstruct conversation context for multi-turn jobs
+  const fresh = stateStore.getInferenceJob(jobId);
+  return {
+    job_id: jobId,
+    miner,
+    status: "claimed",
+    epoch,
+    turns: fresh ? (fresh.turns || []) : [],
+    current_turn: fresh ? (fresh.current_turn || 0) : 0,
+    tools: fresh ? (fresh.tools || []) : [],
+    max_turns: fresh ? (fresh.max_turns || 1) : 1,
+  };
+}
+
+/**
+ * Miner submits tool calls it wants executed. Transitions job to 'tool_pending'.
+ * Protocol-native tools are auto-executed by this function (no buyer round-trip).
+ * External tools (web_fetch, web_search) are forwarded to the buyer.
+ *
+ * Returns { tool_pending, auto_resolved, buyer_tools } where:
+ *   - auto_resolved: array of { tool_use_id, name, content, trusted } for protocol tools
+ *   - buyer_tools: array of tool calls the buyer still needs to execute
+ */
+async function submitToolCalls(jobId, miner, toolCalls) {
+  const job = stateStore.getInferenceJob(jobId);
+  if (!job) throw new Error("Job not found: " + jobId);
+  if (job.status !== "claimed") throw new Error("Job not claimed (status: " + job.status + ")");
+  if (job.miner !== miner) throw new Error("Not your job");
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) throw new Error("toolCalls array required");
+
+  const epoch = await ledger.getCurrentEpoch();
+  const turn = (job.current_turn || 0) + 1;
+
+  if (turn > (job.max_turns || 1)) {
+    throw new Error("max_turns exceeded — submit a final answer instead");
+  }
+
+  // Auto-execute any protocol-native or miner-executable tools right now
+  const autoResolved = [];
+  const buyerTools = [];
+
+  for (const tc of toolCalls) {
+    const name = (tc.function && tc.function.name) || tc.name || "";
+    const rawInput = (tc.function && tc.function.arguments) || tc.arguments || tc.input || {};
+    const input = typeof rawInput === "string" ? JSON.parse(rawInput) : rawInput;
+    const id = tc.id || ("tc_" + crypto.randomBytes(4).toString("hex"));
+
+    if (protocolTools.canMinerExecute(name)) {
+      const result = await protocolTools.executeProtocolTool(name, input);
+      autoResolved.push({
+        tool_use_id: id,
+        name,
+        content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+        trusted: result.trusted,
+        error: result.error || null,
+      });
+    } else {
+      buyerTools.push({ ...tc, id });
+    }
+  }
+
+  // Record tool_call entry on chain
+  await ledger.recordInferenceJobToolCall(jobId, miner, toolCalls, turn, epoch);
+
+  // If all tools were auto-resolved, immediately feed them back as tool_results
+  // so the job returns to 'claimed' for the next inference turn
+  if (buyerTools.length === 0 && autoResolved.length > 0) {
+    await ledger.recordInferenceJobToolResult(
+      jobId, miner, autoResolved, turn, epoch
+    );
+    return {
+      tool_pending: false,
+      auto_resolved: autoResolved,
+      buyer_tools: [],
+      job_id: jobId,
+      turn,
+    };
+  }
+
+  return {
+    tool_pending: true,
+    auto_resolved: autoResolved,
+    buyer_tools: buyerTools,
+    job_id: jobId,
+    turn,
+  };
+}
+
+/**
+ * Buyer submits tool execution results. Transitions job back to 'claimed'
+ * so the miner can run the next inference turn.
+ */
+async function submitToolResults(jobId, buyer, toolResults) {
+  const job = stateStore.getInferenceJob(jobId);
+  if (!job) throw new Error("Job not found: " + jobId);
+  if (job.status !== "tool_pending") throw new Error("Job not awaiting tool results (status: " + job.status + ")");
+  if (job.buyer !== buyer) throw new Error("Not your job");
+  if (!Array.isArray(toolResults) || toolResults.length === 0) throw new Error("toolResults array required");
+
+  const epoch = await ledger.getCurrentEpoch();
+  const turn = job.current_turn || 0;
+
+  await ledger.recordInferenceJobToolResult(jobId, buyer, toolResults, turn, epoch);
+
+  return {
+    job_id: jobId,
+    status: "claimed",
+    turn,
+    next_turn: turn + 1,
+    epoch,
+  };
 }
 
 /**
@@ -106,7 +224,10 @@ async function claimJob(jobId, miner) {
 async function submitJob(jobId, miner, result, proofHash) {
   const job = stateStore.getInferenceJob(jobId);
   if (!job) throw new Error("Job not found: " + jobId);
-  if (job.status !== "claimed") throw new Error("Job not claimed (status: " + job.status + ")");
+  // Allow submission from 'claimed' (normal) or 'tool_pending' (miner got final answer after tools)
+  if (job.status !== "claimed" && job.status !== "tool_pending") {
+    throw new Error("Job not in submittable state (status: " + job.status + ")");
+  }
   if (job.miner !== miner) throw new Error("Not your job");
   if (!result) throw new Error("result required");
 
@@ -270,6 +391,8 @@ function getMinerJobs(miner, opts) {
 module.exports = {
   openJob,
   claimJob,
+  submitToolCalls,
+  submitToolResults,
   submitJob,
   settleJob,
   refundJob,

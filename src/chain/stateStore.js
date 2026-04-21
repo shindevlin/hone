@@ -1356,6 +1356,10 @@ function applyEntry(entry) {
           system_prompt: ijOpen.system_prompt || null,
           ttl_epochs: ijOpen.ttl_epochs || 20,
           expires_epoch: ijOpen.expires_epoch || 0,
+          tools: ijOpen.tools || [],
+          max_turns: ijOpen.max_turns || 1,
+          turns: [],
+          current_turn: 0,
           miner: null,
           proof_hash: null,
           actual_cost: null,
@@ -1415,6 +1419,43 @@ function applyEntry(entry) {
           ijRefund.refund_reason = entry.job_data.reason || "expired";
           ijRefund.refunded_epoch = entry.epoch;
           inferenceJobs.set(entry.job_data.job_id, ijRefund);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_TOOL_CALL":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijTC = inferenceJobs.get(entry.job_data.job_id);
+        if (ijTC && (ijTC.status === "claimed" || ijTC.status === "tool_pending")) {
+          ijTC.turns = ijTC.turns || [];
+          ijTC.turns.push({
+            role: "assistant",
+            tool_calls: entry.job_data.tool_calls,
+            turn: entry.job_data.turn,
+            epoch: entry.epoch,
+          });
+          ijTC.status = "tool_pending";
+          ijTC.current_turn = entry.job_data.turn;
+          inferenceJobs.set(entry.job_data.job_id, ijTC);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_TOOL_RESULT":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijTR = inferenceJobs.get(entry.job_data.job_id);
+        if (ijTR && ijTR.status === "tool_pending") {
+          ijTR.turns = ijTR.turns || [];
+          ijTR.turns.push({
+            role: "tool",
+            tool_results: entry.job_data.tool_results,
+            turn: entry.job_data.turn,
+            epoch: entry.epoch,
+          });
+          // Re-open for next inference turn
+          ijTR.status = "claimed";
+          ijTR.current_turn = entry.job_data.turn;
+          inferenceJobs.set(entry.job_data.job_id, ijTR);
         }
       }
       break;
@@ -3731,9 +3772,17 @@ function getInferenceJob(jobId) {
 function getOpenInferenceJobs() {
   var result = [];
   for (var job of inferenceJobs.values()) {
-    if (job.status === "open" || job.status === "claimed") result.push(job);
+    if (job.status === "open" || job.status === "claimed" || job.status === "tool_pending") result.push(job);
   }
   return result;
+}
+
+function getJobsAwaitingToolResults(buyer) {
+  var result = [];
+  for (var job of inferenceJobs.values()) {
+    if (job.status === "tool_pending" && job.buyer === buyer) result.push(job);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
 }
 
 function getInferenceJobsByBuyer(buyer) {
@@ -4291,6 +4340,7 @@ module.exports = {
   getOpenInferenceJobs,
   getInferenceJobsByBuyer,
   getInferenceJobsByMiner,
+  getJobsAwaitingToolResults,
   // Storage settlement lag (v3.1.119+)
   getPendingStorageHolds,
   getStorageHoldsForHost,

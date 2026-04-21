@@ -2745,6 +2745,30 @@ async function recordInferenceJobRefund(jobId, buyer, reason, epoch) {
   }));
 }
 
+async function recordInferenceJobToolCall(jobId, miner, toolCalls, turn, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!miner) throw new Error('miner required');
+  if (!Array.isArray(toolCalls)) throw new Error('toolCalls must be an array');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_TOOL_CALL',
+    from: miner,
+    epoch: epoch || 0,
+    job_data: { job_id: jobId, miner, tool_calls: toolCalls, turn: turn || 0, status: 'tool_pending' },
+  }));
+}
+
+async function recordInferenceJobToolResult(jobId, buyer, toolResults, turn, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!buyer) throw new Error('buyer required');
+  if (!Array.isArray(toolResults)) throw new Error('toolResults must be an array');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_TOOL_RESULT',
+    from: buyer,
+    epoch: epoch || 0,
+    job_data: { job_id: jobId, buyer, tool_results: toolResults, turn: turn || 0, status: 'claimed' },
+  }));
+}
+
 module.exports = {
   recordAccountCreate,
   recordTransfer,
@@ -2881,4 +2905,6 @@ module.exports = {
   recordInferenceJobSubmit,
   recordInferenceJobSettle,
   recordInferenceJobRefund,
+  recordInferenceJobToolCall,
+  recordInferenceJobToolResult,
 };

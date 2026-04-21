@@ -1,23 +1,26 @@
 "use strict";
 
 /**
- * Inference Marketplace HTTP Routes — v3.1.119
+ * Inference Marketplace HTTP Routes
  * Shin Devlin
  *
  * REST API for the BTCPC inference marketplace. Buyers post jobs with
- * BTCPC escrow. Miners claim and run inference. Verifier nodes confirm.
+ * BTCPC escrow. Miners claim and run inference (one-shot or agentic loop).
  * Protocol takes 10%.
  *
  * Routes:
- *   POST   /api/jobs                  — buyer posts a job
- *   GET    /api/jobs                  — list open jobs (public)
- *   GET    /api/jobs/mine             — buyer's own jobs (auth)
- *   GET    /api/jobs/claimed          — miner's claimed jobs (auth)
- *   GET    /api/jobs/:id              — job detail (public)
- *   POST   /api/jobs/:id/claim        — miner claims a job
- *   POST   /api/jobs/:id/submit       — miner submits result
- *   POST   /api/jobs/:id/settle       — settle (auto or verifier)
- *   POST   /api/jobs/:id/refund       — refund expired job
+ *   POST   /api/jobs                     — buyer posts a job
+ *   GET    /api/jobs                     — list open jobs (public)
+ *   GET    /api/jobs/mine                — buyer's own jobs (auth)
+ *   GET    /api/jobs/claimed             — miner's claimed jobs (auth)
+ *   GET    /api/jobs/tool-pending        — buyer's jobs awaiting tool results (auth)
+ *   GET    /api/jobs/:id                 — job detail (public)
+ *   POST   /api/jobs/:id/claim           — miner claims a job
+ *   POST   /api/jobs/:id/tool-calls      — miner submits tool calls (agentic)
+ *   POST   /api/jobs/:id/tool-result     — buyer submits tool execution results (agentic)
+ *   POST   /api/jobs/:id/submit          — miner submits final result
+ *   POST   /api/jobs/:id/settle          — settle (auto or verifier)
+ *   POST   /api/jobs/:id/refund          — refund expired job
  */
 
 const express = require("express");
@@ -26,6 +29,7 @@ const { authenticateToken } = require("../middlewares/auth");
 const market = require("../services/inferenceMarket");
 const stateStore = require("../chain/stateStore");
 const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
+const { PROTOCOL_TOOL_SCHEMAS } = require("../services/protocolTools");
 
 const MAX_PROMPT_LENGTH = 8000;
 const MAX_RESULT_LENGTH = 32000;
@@ -45,6 +49,13 @@ router.post("/", authenticateToken, async (req, res) => {
       parseInt(req.body.ttl_epochs) || 20,
       480 // max 4 hours
     );
+    const maxTurns = Math.min(parseInt(req.body.max_turns) || 1, 20);
+
+    // tools: array of tool name strings (protocol tools) or full schema objects (custom)
+    let tools = [];
+    if (Array.isArray(req.body.tools)) {
+      tools = req.body.tools.slice(0, 20); // max 20 tools per job
+    }
 
     if (!prompt) return res.status(400).json({ error: "prompt required" });
     if (!maxFee || maxFee <= 0)
@@ -54,6 +65,8 @@ router.post("/", authenticateToken, async (req, res) => {
       model,
       systemPrompt,
       ttlEpochs,
+      tools,
+      maxTurns,
     });
     res.json(result);
   } catch (err) {
@@ -118,6 +131,24 @@ router.get("/claimed", authenticateToken, (req, res) => {
   }
 });
 
+// ── GET /api/jobs/tool-pending ────────────────────────────────────────────────
+// Buyer's jobs awaiting tool execution results (tool_pending status).
+// Buyer reads these, executes the tool calls, then POST /tool-result.
+router.get("/tool-pending", authenticateToken, (req, res) => {
+  try {
+    const jobs = stateStore.getJobsAwaitingToolResults(req.user.username);
+    res.json({ jobs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/jobs/protocol-tools ─────────────────────────────────────────────
+// List all protocol-native tool schemas buyers can include in jobs. Public.
+router.get("/protocol-tools", (req, res) => {
+  res.json({ tools: PROTOCOL_TOOL_SCHEMAS });
+});
+
 // ── GET /api/jobs/:id ─────────────────────────────────────────────────────────
 // Full job detail. Full prompt only visible to buyer or claimer.
 router.get("/:id", (req, res) => {
@@ -129,6 +160,16 @@ router.get("/:id", (req, res) => {
     req.headers.authorization && req.user &&
     (req.user.username === job.buyer || req.user.username === job.miner);
 
+  // Turns: full history to buyer/miner; strip sensitive content from public
+  const turns = isOwner ? (job.turns || []) : [];
+
+  // When job is tool_pending and viewer is buyer, include the pending tool calls
+  let pendingToolCalls = null;
+  if (job.status === "tool_pending" && isOwner && job.buyer === (req.user && req.user.username)) {
+    const lastTurn = (job.turns || []).filter((t) => t.role === "assistant").pop();
+    pendingToolCalls = lastTurn ? lastTurn.tool_calls : null;
+  }
+
   res.json({
     job_id: job.job_id,
     buyer: job.buyer,
@@ -136,6 +177,11 @@ router.get("/:id", (req, res) => {
     model: job.model,
     prompt: isOwner ? job.prompt : job.prompt.slice(0, 100) + (job.prompt.length > 100 ? "…" : ""),
     system_prompt: isOwner ? job.system_prompt : null,
+    tools: job.tools || [],
+    max_turns: job.max_turns || 1,
+    current_turn: job.current_turn || 0,
+    turns,
+    pending_tool_calls: pendingToolCalls,
     status: job.status,
     miner: job.miner,
     proof_hash: job.proof_hash,
@@ -158,19 +204,65 @@ router.post("/:id/claim", authenticateToken, async (req, res) => {
     const miner = req.user.username;
     const result = await market.claimJob(req.params.id, miner);
 
-    // Return full prompt to the miner who claimed
+    // Return full job context to the miner who claimed
     const job = stateStore.getInferenceJob(req.params.id);
     res.json({
       ...result,
       prompt: job ? job.prompt : null,
       system_prompt: job ? job.system_prompt : null,
       model: job ? job.model : null,
+      tools: job ? (job.tools || []) : [],
+      max_turns: job ? (job.max_turns || 1) : 1,
+      turns: job ? (job.turns || []) : [],
     });
   } catch (err) {
     const status =
       err.message.includes("not found") ? 404 :
       err.message.includes("not open") ? 409 :
       err.message.includes("expired") ? 410 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/tool-calls ─────────────────────────────────────────────
+// Miner detected tool calls in Ollama response. Protocol-native tools are
+// executed inline. External tools are forwarded to the buyer (tool_pending).
+router.post("/:id/tool-calls", authenticateToken, async (req, res) => {
+  try {
+    const miner = req.user.username;
+    const toolCalls = req.body.tool_calls;
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return res.status(400).json({ error: "tool_calls array required" });
+    }
+    const result = await market.submitToolCalls(req.params.id, miner, toolCalls);
+    res.json(result);
+  } catch (err) {
+    const status =
+      err.message.includes("not found") ? 404 :
+      err.message.includes("not claimed") ? 409 :
+      err.message.includes("Not your job") ? 403 :
+      err.message.includes("max_turns") ? 422 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/tool-result ────────────────────────────────────────────
+// Buyer submits tool execution results for external tools. Job returns to
+// 'claimed' so the miner can run the next inference turn.
+router.post("/:id/tool-result", authenticateToken, async (req, res) => {
+  try {
+    const buyer = req.user.username;
+    const toolResults = req.body.tool_results;
+    if (!Array.isArray(toolResults) || toolResults.length === 0) {
+      return res.status(400).json({ error: "tool_results array required" });
+    }
+    const result = await market.submitToolResults(req.params.id, buyer, toolResults);
+    res.json(result);
+  } catch (err) {
+    const status =
+      err.message.includes("not found") ? 404 :
+      err.message.includes("not awaiting") ? 409 :
+      err.message.includes("Not your job") ? 403 : 400;
     res.status(status).json({ error: err.message });
   }
 });

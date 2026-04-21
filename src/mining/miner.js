@@ -1565,69 +1565,150 @@ async function startMarketplacePoller() {
   const storeRef = require('../chain/stateStore');
   let pollRunning = false;
 
+  const protocolTools = require('../services/protocolTools');
+
+  // Build Ollama message list from job context + turns history
+  function buildMessages(job) {
+    const messages = [];
+    if (job.system_prompt) messages.push({ role: 'system', content: job.system_prompt });
+    messages.push({ role: 'user', content: job.prompt });
+    // Replay agentic turns
+    for (const turn of (job.turns || [])) {
+      if (turn.role === 'assistant' && turn.tool_calls) {
+        messages.push({ role: 'assistant', tool_calls: turn.tool_calls, content: '' });
+      } else if (turn.role === 'tool' && turn.tool_results) {
+        for (const tr of turn.tool_results) {
+          messages.push({
+            role: 'tool',
+            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+      } else if (turn.content) {
+        messages.push({ role: turn.role || 'assistant', content: turn.content });
+      }
+    }
+    return messages;
+  }
+
+  // Build Ollama tools array from job.tools (name strings → full schemas)
+  function buildOllamaTools(jobTools) {
+    if (!Array.isArray(jobTools) || jobTools.length === 0) return undefined;
+    return jobTools.map((t) => {
+      if (typeof t === 'string') {
+        const schema = protocolTools.getSchema(t);
+        return schema || null;
+      }
+      return t; // already a full schema object
+    }).filter(Boolean);
+  }
+
+  // Run one inference turn for a job. Returns { done, toolCalls, result, tokens }
+  async function runInferenceTurn(job) {
+    const model = job.model || MODEL || 'qwen3:4b';
+    const messages = buildMessages(job);
+    const tools = buildOllamaTools(job.tools);
+
+    const body = { model, messages, stream: false };
+    if (tools && tools.length > 0) body.tools = tools;
+
+    const resp = await axios.post(`${OLLAMA_URL}/api/chat`, body, { timeout: 120000 });
+
+    const msg = resp.data && resp.data.message ? resp.data.message : {};
+    const toolCalls = msg.tool_calls && msg.tool_calls.length > 0 ? msg.tool_calls : null;
+    const result = msg.content || '';
+    const tokens = resp.data && resp.data.eval_count ? resp.data.eval_count : 0;
+
+    return { done: !toolCalls, toolCalls, result, tokens };
+  }
+
   const pollLoop = setInterval(async () => {
     if (!running || pollRunning) return;
     pollRunning = true;
     try {
-      // Skip if we already have a claimed job in progress
-      const myActive = market.getMinerJobs(MINER_ACCOUNT, { limit: 5 });
-      const inFlight = myActive.filter(j => j.status === 'claimed' || j.status === 'submitted');
-      if (inFlight.length > 0) return;
+      // Check for multi-turn jobs where buyer submitted tool results (status back to 'claimed')
+      const myActive = market.getMinerJobs(MINER_ACCOUNT, { limit: 10 });
+      const resumable = myActive.filter(j => j.status === 'claimed' && (j.current_turn || 0) > 0);
 
-      const { jobs } = market.getOpenJobs({ limit: 5 });
-      if (!jobs || jobs.length === 0) return;
+      // Also check for new open jobs if nothing to resume
+      const inFlight = myActive.filter(j => j.status === 'claimed' || j.status === 'tool_pending');
 
-      // Pick best-paying open job
-      const best = jobs.sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0))[0];
-      if (!best) return;
+      let job = null;
 
-      console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} BTCPC, model: ${best.model || 'any'})`);
-      await market.claimJob(best.job_id, MINER_ACCOUNT);
+      if (resumable.length > 0) {
+        // Resume highest-value in-progress agentic job
+        job = storeRef.getInferenceJob(resumable[0].job_id);
+      } else if (inFlight.length === 0) {
+        // Claim a new open job
+        const { jobs } = market.getOpenJobs({ limit: 5 });
+        if (!jobs || jobs.length === 0) return;
+        const best = jobs.filter(j => j.status === 'open').sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0))[0];
+        if (!best) return;
 
-      // Fetch full job (with prompt)
-      const job = storeRef.getInferenceJob(best.job_id);
+        console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} BTCPC, model: ${best.model || 'any'})`);
+        const claimed = await market.claimJob(best.job_id, MINER_ACCOUNT);
+        job = storeRef.getInferenceJob(best.job_id);
+        if (!job) return;
+      } else {
+        return; // waiting on buyer tool results
+      }
+
       if (!job) return;
 
-      // Run inference via Ollama
-      const model = job.model || MODEL || 'qwen3:4b';
-      const messages = [];
-      if (job.system_prompt) messages.push({ role: 'system', content: job.system_prompt });
-      messages.push({ role: 'user', content: job.prompt });
-
-      const axios = require('axios');
       const t0 = Date.now();
-      const resp = await axios.post(`${OLLAMA_URL}/api/chat`, {
-        model,
-        messages,
-        stream: false,
-      }, { timeout: 120000 });
+      let totalTokens = 0;
+      let finalResult = null;
 
-      const result = resp.data && resp.data.message && resp.data.message.content
-        ? resp.data.message.content
-        : '';
-      const tokensGenerated = resp.data && resp.data.eval_count ? resp.data.eval_count : 0;
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      // Agentic turn loop
+      for (let turn = job.current_turn || 0; turn <= (job.max_turns || 1); turn++) {
+        const { done, toolCalls, result, tokens } = await runInferenceTurn(job);
+        totalTokens += tokens;
 
-      if (!result) {
+        if (done || !toolCalls) {
+          finalResult = result;
+          break;
+        }
+
+        // Submit tool calls — protocol tools execute inline, external ones go to buyer
+        const tcResult = await market.submitToolCalls(job.job_id, MINER_ACCOUNT, toolCalls);
+        console.log(`[Marketplace] Job ${job.job_id} turn ${turn}: ${toolCalls.length} tool calls, auto_resolved=${tcResult.auto_resolved.length}, buyer_pending=${tcResult.buyer_tools.length}`);
+
+        if (tcResult.tool_pending) {
+          // External tools need buyer — stop loop, buyer will POST /tool-result
+          console.log(`[Marketplace] Job ${job.job_id} waiting for buyer tool results`);
+          return;
+        }
+
+        // All tools auto-resolved — reload job with updated turns and continue
+        job = storeRef.getInferenceJob(job.job_id);
+        if (!job) return;
+        if (turn >= (job.max_turns || 1)) {
+          // Force-exit the loop with whatever we have
+          finalResult = result || '[max turns reached]';
+          break;
+        }
+      }
+
+      if (!finalResult) {
         await market.refundJob(job.job_id);
         console.warn(`[Marketplace] Empty result for ${job.job_id} — refunded`);
         return;
       }
 
-      // Cost proportional to tokens generated (vs max budget)
-      const costPerToken = job.max_fee / Math.max(tokensGenerated, 1);
-      const actualCost = Math.min(job.max_fee, parseFloat((costPerToken * tokensGenerated).toFixed(10)));
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
-      await market.submitJob(job.job_id, MINER_ACCOUNT, result, null);
-      // submitJob auto-settles; settle again with actual cost if needed
+      // Cost proportional to tokens generated
+      const costPerToken = job.max_fee / Math.max(totalTokens, 1);
+      const actualCost = Math.min(job.max_fee, parseFloat((costPerToken * totalTokens).toFixed(10)));
+
+      await market.submitJob(job.job_id, MINER_ACCOUNT, finalResult, null);
       try {
-        const settled = storeRef.getInferenceJob(job.job_id);
-        if (settled && settled.status === 'submitted') {
+        const submitted = storeRef.getInferenceJob(job.job_id);
+        if (submitted && submitted.status === 'submitted') {
           await market.settleJob(job.job_id, actualCost, MINER_ACCOUNT);
         }
       } catch (_) {}
 
-      console.log(`[Marketplace] Job ${job.job_id} complete — ${tokensGenerated} tokens, ${elapsed}s, ${actualCost.toFixed(4)} BTCPC earned`);
+      console.log(`[Marketplace] Job ${job.job_id} complete — ${totalTokens} tokens, ${elapsed}s, ${actualCost.toFixed(4)} BTCPC earned`);
     } catch (err) {
       if (err.message && !err.message.includes('not open') && !err.message.includes('expired')) {
         console.warn(`[Marketplace] Poll error: ${err.message}`);
