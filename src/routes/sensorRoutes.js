@@ -199,6 +199,10 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
 
     try {
       const reading = sensorRegistry.submitReading(sensorId, numeric, { ...metadata, tool_trace_hash: toolTraceHash || undefined, tools_used: toolsUsed.length > 0 ? toolsUsed : undefined }, epoch);
+      // witness_count > 1 means a second (or later) gateway observed the same reading
+      if (reading.witness_count && reading.witness_count > 1) {
+        return res.status(200).json({ success: true, witnessed: true, witness_count: reading.witness_count, reading });
+      }
       return res.status(201).json({ success: true, reading: reading });
     } catch (err) {
       if (/duplicate reading/i.test(err.message)) {

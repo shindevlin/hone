@@ -208,9 +208,15 @@ async function ingest(wallet, readings, transport) {
         ...dominant.meta,
       },
     });
-    if (r.status === 201 || r.status === 200) {
+    if (r.status === 201) {
       const epoch = r.body && r.body.reading && r.body.reading.epoch;
       console.log(`[${transport}] ${wallet}: ${dominant.value} dBm  epoch=${epoch || '?'}  (${readings.length} raw)`);
+    } else if (r.status === 200 && r.body && r.body.witnessed) {
+      const n = r.body.witness_count;
+      const epoch = r.body.reading && r.body.reading.epoch;
+      console.log(`[${transport}] ${wallet}: witnessed (${n} nodes)  epoch=${epoch || '?'}  median=${r.body.reading && r.body.reading.witnessed_median}`);
+    } else if (r.status === 200 && r.body && r.body.duplicate) {
+      // same gateway already submitted this epoch — normal, no log noise
     } else {
       console.warn(`[${transport}] submit ${r.status}:`, JSON.stringify(r.body).slice(0, 150));
     }

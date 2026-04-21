@@ -46,6 +46,11 @@ var readingHistory = new Map(); // sensorId → array of last 10 numeric values
 // Fraud prevention: rate-limit tracking — last epoch a sensor submitted
 var lastEpochBySensor = new Map(); // sensorId → epoch number
 
+// Multi-gateway witnessing: sensorId+"|"+epoch → Set of gateway_ids that already submitted
+// Different gateways witnessing the same reading is intentional and strengthens the data point.
+// Same gateway submitting twice for the same epoch is still blocked as spam.
+var witnessedByGateway = new Map(); // sensorId+"|"+epoch → Set<gatewayId>
+
 // Sensor divergence strikes: sensorId → { strikes, window_start_epoch }
 var divergenceStrikes = new Map();
 var DIVERGENCE_WINDOW_EPOCHS = 2880;  // 24h at 30s epochs
@@ -55,7 +60,7 @@ var GEO_CORROBORATION_TOLERANCE = 0.10; // 10%
 var GEO_MIN_CORROBORATORS = 2;
 
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "custom"];
+var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "rf-scanner", "custom"];
 
 // Number of epochs of silence before a sensor transitions to "idle"
 var IDLE_EPOCH_THRESHOLD = 100;
@@ -216,12 +221,64 @@ function submitReading(sensorId, value, metadata, epoch) {
   }
 
   var ep = epoch || 0;
+  var meta = metadata || {};
 
-  // ── Fraud prevention: rate limit (one reading per sensor per epoch) ──
-  var prevEpoch = lastEpochBySensor.get(sensorId);
-  if (prevEpoch !== undefined && prevEpoch === ep) {
-    throw new Error("duplicate reading: sensor " + sensorId + " already submitted in epoch " + ep);
+  // Identify the submitting gateway (or "direct" if no gateway)
+  var gatewayId = (meta.gateway_id && String(meta.gateway_id)) ||
+                  (meta.relay_account && String(meta.relay_account)) ||
+                  "direct";
+
+  // ── Multi-gateway witnessing ───────────────────────────────────────────────
+  // Different gateways independently receiving the same Flipper broadcast each
+  // add evidence. Block only the same gateway submitting twice in one epoch.
+  var witnessKey = sensorId + "|" + ep;
+  var witnesses = witnessedByGateway.get(witnessKey) || new Set();
+
+  if (witnesses.has(gatewayId)) {
+    throw new Error("duplicate reading: " + gatewayId + " already witnessed sensor " + sensorId + " in epoch " + ep);
   }
+
+  var key = _readingsKey(sensorId, ep);
+  var readings = readingsByEpoch.get(key) || [];
+
+  // If a primary reading already exists for this epoch, fold this in as a witness
+  if (readings.length > 0) {
+    var primary = readings[0];
+    if (!primary.witnesses) {
+      // Bootstrap the witnesses array from the primary reading's own gateway
+      var firstGateway = (primary.metadata && (primary.metadata.gateway_id || primary.metadata.relay_account)) || "direct";
+      primary.witnesses = [{
+        gateway_id: firstGateway,
+        relay_account: primary.metadata && primary.metadata.relay_account,
+        value: primary.value,
+        submitted_at: primary.submitted_at,
+      }];
+    }
+    primary.witnesses.push({
+      gateway_id: gatewayId,
+      relay_account: meta.relay_account || null,
+      value: numeric,
+      submitted_at: Date.now(),
+    });
+    primary.witness_count = primary.witnesses.length;
+    // Recompute median across all witnessed values — more witnesses = more robust value
+    var wValues = primary.witnesses.map(function(w) { return w.value; }).sort(function(a, b) { return a - b; });
+    var mid = Math.floor(wValues.length / 2);
+    primary.witnessed_median = wValues.length % 2 === 0
+      ? (wValues[mid - 1] + wValues[mid]) / 2
+      : wValues[mid];
+    // Trust weight scales up with independent witnesses (capped at 2.0)
+    primary.trust_weight = Math.min(2.0, (primary.trust_weight || 1) + 0.25);
+
+    witnesses.add(gatewayId);
+    witnessedByGateway.set(witnessKey, witnesses);
+    readingsByEpoch.set(key, readings);
+    return primary; // return updated reading, not a new one
+  }
+
+  // ── First submission for this epoch — create the primary reading ──────────
+
+  // Rate-limit tracking (still useful for lifecycle state detection)
   lastEpochBySensor.set(sensorId, ep);
 
   // ── Fraud prevention: outlier detection (3-sigma on rolling window) ──
@@ -244,7 +301,6 @@ function submitReading(sensorId, value, metadata, epoch) {
   readingHistory.set(sensorId, history);
 
   // ── Fraud prevention: gateway attestation + signature verification ──
-  var meta = metadata || {};
   var gatewayVerified = false;
   var gatewaySigValid = false;
   var trustWeight = 1;
@@ -275,9 +331,6 @@ function submitReading(sensorId, value, metadata, epoch) {
     trustWeight = 0.5;
   }
 
-  var key = _readingsKey(sensorId, ep);
-  var readings = readingsByEpoch.get(key) || [];
-
   var reading = {
     sensor_id: sensorId,
     epoch: ep,
@@ -288,8 +341,14 @@ function submitReading(sensorId, value, metadata, epoch) {
     gateway_verified: gatewayVerified,
     gateway_sig_valid: gatewaySigValid,
     trust_weight: trustWeight,
+    witness_count: 1,
+    witnesses: null, // populated lazily when a second witness arrives
+    witnessed_median: numeric,
     confirmation_status: "pending",
   };
+
+  witnesses.add(gatewayId);
+  witnessedByGateway.set(witnessKey, witnesses);
 
   readings.push(reading);
   readingsByEpoch.set(key, readings);
