@@ -77,11 +77,11 @@ struct WorkResult {
 
 // ---- model download ----
 
-// Download client has no timeout — large ONNX files take minutes over mobile.
-// Inference client keeps 60s for normal API calls.
+// No total timeout on the download client — connection drops are handled by
+// resumable range requests, not a wall-clock timeout.
 fn make_download_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(1800)) // 30 min
+        .tcp_keepalive(std::time::Duration::from_secs(30))
         .build()
         .expect("download client")
 }
@@ -98,49 +98,22 @@ async fn ensure_model_files(
 
     if !model_file.exists() {
         let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
-        download_with_retry(&dl, &url, &model_file, model_id, state).await
-            .map_err(|e| anyhow::anyhow!("model download failed after retries: {e}"))?;
+        download_resumable(&dl, &url, &model_file, model_id, state).await
+            .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
     }
 
     if !tokenizer_file.exists() {
         let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
-        download_with_retry(&dl, &url, &tokenizer_file, "tokenizer", state).await
-            .map_err(|e| anyhow::anyhow!("tokenizer download failed after retries: {e}"))?;
+        download_resumable(&dl, &url, &tokenizer_file, "tokenizer", state).await
+            .map_err(|e| anyhow::anyhow!("tokenizer download failed: {e}"))?;
     }
 
     Ok((model_file, tokenizer_file))
 }
 
-async fn download_with_retry(
-    client: &reqwest::Client,
-    url: &str,
-    dest: &Path,
-    label: &str,
-    state: &Arc<MinerState>,
-) -> anyhow::Result<()> {
-    let max_attempts = 5u32;
-    for attempt in 1..=max_attempts {
-        match download_file_streaming(client, url, dest, label, state).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                // Remove partial file so next attempt starts clean
-                let _ = tokio::fs::remove_file(dest).await;
-                if attempt < max_attempts {
-                    let delay = (attempt * 10).min(60);
-                    *state.status.lock() = format!(
-                        "Download failed ({e}), retrying in {delay}s… ({attempt}/{max_attempts})"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_secs(delay as u64)).await;
-                } else {
-                    return Err(e);
-                }
-            }
-        }
-    }
-    unreachable!()
-}
-
-async fn download_file_streaming(
+// Resumable download using HTTP Range requests. The .tmp file is preserved
+// across connection drops so each retry picks up where it left off.
+async fn download_resumable(
     client: &reqwest::Client,
     url: &str,
     dest: &Path,
@@ -148,43 +121,142 @@ async fn download_file_streaming(
     state: &Arc<MinerState>,
 ) -> anyhow::Result<()> {
     use futures::StreamExt;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
-    let resp = client.get(url).send().await?;
-    if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("HTTP {}: {}", resp.status(), url));
-    }
-    let total_mb = resp.content_length().unwrap_or(0) / 1_000_000;
-
-    // Write to .tmp, rename on success — avoids leaving corrupt files
     let tmp = dest.with_extension("tmp");
-    let mut f = tokio::fs::File::create(&tmp).await?;
-    let mut stream = resp.bytes_stream();
-    let mut downloaded: u64 = 0;
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        downloaded += chunk.len() as u64;
-        f.write_all(&chunk).await?;
-        if total_mb > 0 {
+    // How many bytes do we already have from a previous attempt?
+    let already = if tmp.exists() {
+        tokio::fs::metadata(&tmp).await.map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
+    // HEAD first to learn the total size (skip if already complete)
+    let total = {
+        let head = client.head(url).send().await;
+        match head {
+            Ok(r) if r.status().is_success() => r.content_length().unwrap_or(0),
+            _ => 0,
+        }
+    };
+
+    if total > 0 && already >= total {
+        // Already fully downloaded — just rename
+        tokio::fs::rename(&tmp, dest).await?;
+        return Ok(());
+    }
+
+    let mut attempts = 0u32;
+    loop {
+        attempts += 1;
+        let offset = if tmp.exists() {
+            tokio::fs::metadata(&tmp).await.map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
+
+        if total > 0 {
             *state.status.lock() = format!(
-                "Downloading {} — {} / {} MB",
+                "Downloading {} — {} / {} MB{}",
                 label,
-                downloaded / 1_000_000,
-                total_mb
+                offset / 1_000_000,
+                total / 1_000_000,
+                if attempts > 1 { format!(" (attempt {})", attempts) } else { String::new() }
             );
         } else {
-            *state.status.lock() = format!(
-                "Downloading {} — {} MB",
-                label,
-                downloaded / 1_000_000
-            );
+            *state.status.lock() = format!("Downloading {} — {} MB", label, offset / 1_000_000);
         }
+
+        let mut req = client.get(url);
+        if offset > 0 {
+            req = req.header("Range", format!("bytes={}-", offset));
+        }
+
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                if attempts >= 20 { return Err(e.into()); }
+                let delay = (attempts * 15).min(120);
+                *state.status.lock() = format!("Connect failed — retrying in {delay}s ({label})");
+                tokio::time::sleep(std::time::Duration::from_secs(delay as u64)).await;
+                continue;
+            }
+        };
+
+        let status = resp.status();
+        // 206 = partial content (range accepted), 200 = server ignored range
+        if status == 416 {
+            // Requested range not satisfiable — file on server may be smaller; start over
+            let _ = tokio::fs::remove_file(&tmp).await;
+            continue;
+        }
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("HTTP {}: {}", status, url));
+        }
+
+        // If server returned 200 (ignored our Range), restart the file
+        let append = status.as_u16() == 206;
+        let mut f = if append {
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true).append(true).open(&tmp).await?;
+            file.seek(std::io::SeekFrom::End(0)).await?;
+            file
+        } else {
+            tokio::fs::File::create(&tmp).await?
+        };
+
+        let mut written: u64 = if append { offset } else { 0 };
+        let mut stream = resp.bytes_stream();
+        let mut ok = true;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if let Err(e) = f.write_all(&bytes).await {
+                        *state.status.lock() = format!("Write error: {e} — retrying");
+                        ok = false;
+                        break;
+                    }
+                    written += bytes.len() as u64;
+                    if total > 0 {
+                        *state.status.lock() = format!(
+                            "Downloading {} — {} / {} MB",
+                            label,
+                            written / 1_000_000,
+                            total / 1_000_000
+                        );
+                    } else {
+                        *state.status.lock() = format!(
+                            "Downloading {} — {} MB",
+                            label,
+                            written / 1_000_000
+                        );
+                    }
+                }
+                Err(e) => {
+                    *state.status.lock() = format!("Connection dropped — resuming ({label}): {e}");
+                    ok = false;
+                    break;
+                }
+            }
+        }
+
+        if !ok {
+            // Flush what we have and retry — Range header will resume from here
+            let _ = f.flush().await;
+            drop(f);
+            if attempts >= 20 { return Err(anyhow::anyhow!("too many retries")); }
+            let delay = (attempts * 10).min(60) as u64;
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            continue;
+        }
+
+        f.flush().await?;
+        drop(f);
+        tokio::fs::rename(&tmp, dest).await?;
+        return Ok(());
     }
-    f.flush().await?;
-    drop(f);
-    tokio::fs::rename(&tmp, dest).await?;
-    Ok(())
 }
 
 // ---- ONNX inference via tract ----
