@@ -234,10 +234,27 @@ function connectToPeer(address) {
   }
 }
 
+// Hardcoded bootstrap peers — eclipse protection.
+// Ensures a fresh node always has at least one honest peer to connect to
+// before the relay provides a full peer list. These are long-running
+// infrastructure nodes operated by the core team.
+const BOOTSTRAP_PEERS = [
+  "wss://node1.btcpc.network:6942",
+  "wss://node2.btcpc.network:6942",
+];
+
 /**
- * Connect to a list of seed peers from environment or explicit list.
+ * Connect to hardcoded bootstrap peers + configured seed peers.
+ * Bootstrap peers are always dialed regardless of env configuration —
+ * they protect against eclipse attacks where an adversary controls all
+ * peers a node discovers through the relay.
  */
 function connectToSeeds(seedList) {
+  // Always connect to bootstrap peers first
+  for (var i = 0; i < BOOTSTRAP_PEERS.length; i++) {
+    connectToPeer(BOOTSTRAP_PEERS[i]);
+  }
+
   const seeds = seedList || process.env.BTCPC_SEED_PEERS || "";
   if (!seeds) return;
 

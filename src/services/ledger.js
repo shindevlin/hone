@@ -15,6 +15,7 @@
  */
 
 const stateStore = require('../chain/stateStore');
+const epochBandwidth = require('./epochBandwidth');
 const fs = require('fs');
 const path = require('path');
 
@@ -210,7 +211,24 @@ function _entry(data) {
 // on-disk queue so entries originating in the API server eventually land in
 // blocks written by the miner process, AND gossips to P2P peers so that the
 // current network broadcaster (which may be on another machine) sees the entry.
+//
+// Epoch Bandwidth is consumed here for user-originated entries. System reward
+// entries (MINING_REWARD, CLOCK_REWARD, etc.) have cost 0 and always pass.
 function _persist(entry) {
+  const payer = entry.from || null;
+  const ebResult = epochBandwidth.checkAndDeduct(payer, entry.type);
+  if (!ebResult.allowed) {
+    const err = new Error(
+      'Insufficient epoch bandwidth — ' +
+      Math.floor(ebResult.eb_remaining) + ' EB available, ' +
+      ebResult.cost + ' required. Stake more BTCPC or wait for next epoch.'
+    );
+    err.code = 'INSUFFICIENT_EB';
+    err.eb_remaining = ebResult.eb_remaining;
+    err.eb_cost = ebResult.cost;
+    err.max_eb = ebResult.max_eb;
+    throw err;
+  }
   stateStore.applyEntry(entry);
   pendingEntries.push(entry);
   _appendPendingToDisk(entry);

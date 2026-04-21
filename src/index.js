@@ -205,12 +205,26 @@ app.use("/api/onboard", onboardLimiter, (req, res, next) => {
   botRoutes(req, res, next);
 });
 app.use("/api/bot", botRoutes);
-app.use(explorerRoutes);
+app.use("/api/explorer", explorerRoutes);
 app.use(toolRoutes);
 app.use(inferenceApi);
 app.use(encryptedInference);
 
 app.use(morgan('combined'));
+
+// Epoch Bandwidth error handler — 429 with machine-readable body
+app.use((err, req, res, next) => {
+  if (err && err.code === 'INSUFFICIENT_EB') {
+    return res.status(429).json({
+      error: err.message,
+      code: 'INSUFFICIENT_EB',
+      eb_remaining: err.eb_remaining,
+      eb_cost: err.eb_cost,
+      max_eb: err.max_eb,
+    });
+  }
+  next(err);
+});
 
 // Rate limiting
 const limiter = rateLimit({
