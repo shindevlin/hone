@@ -503,6 +503,7 @@ fn load_model(model_path: &Path, tokenizer_path: &Path) -> anyhow::Result<Cached
         .model_for_path(model_path)?
         .with_input_fact(0, InferenceFact::dt_shape(i64::datum_type(), tvec![1usize, MAX_SEQ]))?
         .with_input_fact(1, InferenceFact::dt_shape(i64::datum_type(), tvec![1usize, MAX_SEQ]))?
+        .with_input_fact(2, InferenceFact::dt_shape(i64::datum_type(), tvec![1usize, MAX_SEQ]))?
         .into_optimized()?
         .into_runnable()?;
 
@@ -545,12 +546,17 @@ fn run_inference_sync(
     let mut mask: Vec<i64> = vec![0i64; MAX_SEQ];
     for i in 0..seq_actual { mask[i] = 1; }
 
-    let ids_t = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), ids)?;
-    let msk_t = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), mask)?;
+    // token_type_ids: all zeros (single sentence, no segment B)
+    let type_ids: Vec<i64> = vec![0i64; MAX_SEQ];
+
+    let ids_t      = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), ids)?;
+    let msk_t      = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), mask)?;
+    let type_ids_t = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), type_ids)?;
 
     let outputs = cached.plan.run(tvec![
         TValue::from(Tensor::from(ids_t)),
         TValue::from(Tensor::from(msk_t)),
+        TValue::from(Tensor::from(type_ids_t)),
     ])?;
 
     // Take the [CLS] token embedding (output[0], position 0) as the compute proof.

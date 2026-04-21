@@ -16,6 +16,8 @@ const crypto = require('crypto');
 const { authenticateToken } = require('../middlewares/auth');
 const stateStore = require('../chain/stateStore');
 const messageAuth = require('../p2p/messageAuth');
+const protocol = require('../p2p/protocol');
+const p2pNetwork = require('../p2p/network');
 
 // Replay prevention: permanent record of seen job_ids within a rolling 3-epoch window.
 // Bounded to SEEN_JOB_CAP entries; oldest are evicted when cap is reached.
@@ -157,6 +159,22 @@ router.post('/submit', authenticateToken, (req, res) => {
         stateStore.addMiningProof(targetEpoch, proof);
     } catch (err) {
         // stateStore unavailable — track in memory so stats still work
+    }
+
+    // Broadcast MINING_PROOF via P2P so btcpc-mine picks it up in
+    // handleMiningProof → recordMinerWork → blockProposal reward distribution.
+    try {
+        const proofMsg = protocol.createMessage('MINING_PROOF', {
+            block_number: targetEpoch,
+            miner: account,
+            model: req.body.model_id || 'btcpc-phone-v1',
+            work_value: workValue,
+            work_hash,
+            device: 'android',
+        }, p2pNetwork.getNodeId ? p2pNetwork.getNodeId() : 'api');
+        p2pNetwork.broadcast(proofMsg);
+    } catch (err) {
+        try { protocol.recordMinerWork(account, job_id, workValue, targetEpoch); } catch (_) {}
     }
 
     // Enter reward settlement pipeline — proof finalizes after VERIFICATION_WINDOW epochs.

@@ -64,9 +64,10 @@ app.use(express.json({ limit: '1mb' }));
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute per IP
+  max: 600, // phone: miner+sensor+clock run concurrently
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/mining/phone/') || req.path.startsWith('/models/'),
   message: { error: 'Too many requests, slow down' }
 });
 app.use('/api/', apiLimiter);

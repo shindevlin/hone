@@ -868,6 +868,12 @@ function handleMiningProof(peer, msg, ctx) {
 
   console.log("[BTCPC P2P] Mining proof from " + data.miner + " for block " + data.block_number);
 
+  // Register work for reward distribution — covers GPU peers and phone miners.
+  if (data.work_value && data.work_value > 0) {
+    var jobKey = data.miner + ":" + data.block_number;
+    recordMinerWork(data.miner, jobKey, data.work_value, data.block_number);
+  }
+
   // Phase D: do NOT persist MiningProof to Mongo. Proofs flow into the
   // block payload (payload.mining_proofs) when the authority writes the
   // block, and into stateStore.miningProofsByEpoch via replay + live apply.

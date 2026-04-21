@@ -58,7 +58,7 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeStart(
     let jwt:         String = env.get_string(&j_jwt).map(|s| s.into()).unwrap_or_default();
     let api_base:    String = env.get_string(&j_api_base).map(|s| s.into()).unwrap_or_default();
     let model_id:    String = env.get_string(&j_model_id).map(|s| s.into())
-                                .unwrap_or_else(|_| "qwen2.5-0.5b".to_string());
+                                .unwrap_or_else(|_| "btcpc-phone-v1".to_string());
     let model_dir:   String = env.get_string(&j_model_dir).map(|s| s.into()).unwrap_or_default();
     let posting_key: String = env.get_string(&j_posting_key).map(|s| s.into()).unwrap_or_default();
 
