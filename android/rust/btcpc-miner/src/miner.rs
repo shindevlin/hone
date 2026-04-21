@@ -6,6 +6,29 @@ use serde::{Deserialize, Serialize};
 use crate::MinerState;
 use crate::proof;
 
+// ---- posting-key signing ----
+// Signs {account, job_id, work_hash} (keys sorted alphabetically, canonical JSON)
+// with SHA256 → secp256k1 ECDSA, matching keyManager.signTransaction on the server.
+fn sign_work_proof(account: &str, job_id: &str, work_hash: &str, posting_key_hex: &str) -> Option<String> {
+    use k256::ecdsa::{SigningKey, signature::hazmat::PrehashSigner};
+    use sha2::{Sha256, Digest};
+
+    let key_bytes = hex::decode(posting_key_hex).ok()?;
+    let signing_key = SigningKey::from_bytes(key_bytes.as_slice().into()).ok()?;
+
+    // Server canonical: JSON.stringify(data, Object.keys(data).sort())
+    // Keys in alphabetical order: account < job_id < work_hash
+    let canonical = format!(
+        r#"{{"account":"{}","job_id":"{}","work_hash":"{}"}}"#,
+        account, job_id, work_hash
+    );
+    let hash = Sha256::digest(canonical.as_bytes());
+
+    let (sig, _recovery): (k256::ecdsa::Signature, _) =
+        signing_key.sign_prehash_recoverable(&hash).ok()?;
+    Some(hex::encode(sig.to_bytes()))
+}
+
 // ---- chain API types ----
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +72,7 @@ struct WorkResult {
     work_hash: String,
     epoch: u64,
     model_id: String,
+    signature: String,
 }
 
 // ---- model download ----
@@ -173,6 +197,7 @@ pub async fn run_miner(
     api_base: String,
     model_id: String,
     model_dir: String,
+    posting_key: String,
     state: &Arc<MinerState>,
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
@@ -242,6 +267,14 @@ pub async fn run_miner(
 
         let work_hash = proof::compute_work_hash(&work.job_id, &output_text, &account);
 
+        let signature = sign_work_proof(&account, &work.job_id, &work_hash, &posting_key)
+            .unwrap_or_default();
+        if signature.is_empty() {
+            *state.status.lock() = "Signing failed — check posting key in Settings".to_string();
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            continue;
+        }
+
         let _ = client
             .post(format!("{api_base}/api/mining/phone/submit"))
             .bearer_auth(&jwt)
@@ -253,6 +286,7 @@ pub async fn run_miner(
                 work_hash,
                 epoch: work.epoch,
                 model_id: model_id.clone(),
+                signature,
             })
             .send()
             .await;

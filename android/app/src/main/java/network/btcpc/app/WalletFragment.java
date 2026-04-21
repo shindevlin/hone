@@ -21,15 +21,17 @@ import com.google.android.material.button.MaterialButton;
 
 import java.util.Locale;
 
-/**
- * WalletFragment — shows balance and address, supports send + receive actions.
- *
- * Balance is loaded from /api/wallet/balance with Bearer JWT auth.
- * Swipe-to-refresh triggers a reload.
- */
 public class WalletFragment extends Fragment {
 
     private AppPrefs prefs;
+
+    private View loginSection;
+    private View contentSection;
+
+    private EditText loginUsernameInput;
+    private EditText loginPasswordInput;
+    private MaterialButton loginBtn;
+    private TextView loginError;
 
     private SwipeRefreshLayout swipeRefresh;
     private TextView balanceView;
@@ -52,6 +54,14 @@ public class WalletFragment extends Fragment {
 
         prefs = new AppPrefs(requireContext());
 
+        loginSection  = view.findViewById(R.id.wallet_login_section);
+        contentSection = view.findViewById(R.id.wallet_content_section);
+
+        loginUsernameInput = view.findViewById(R.id.wallet_login_username);
+        loginPasswordInput = view.findViewById(R.id.wallet_login_password);
+        loginBtn           = view.findViewById(R.id.wallet_login_btn);
+        loginError         = view.findViewById(R.id.wallet_login_error);
+
         swipeRefresh  = view.findViewById(R.id.wallet_swipe_refresh);
         balanceView   = view.findViewById(R.id.wallet_balance);
         delegatedView = view.findViewById(R.id.wallet_delegated);
@@ -67,16 +77,76 @@ public class WalletFragment extends Fragment {
         sendBtn.setOnClickListener(v -> showSendDialog());
         receiveBtn.setOnClickListener(v -> showReceiveDialog());
 
-        loadBalance();
+        loginBtn.setOnClickListener(v -> attemptLogin());
+
+        if (prefs.getAccount().isEmpty() || prefs.getJwt().isEmpty()) {
+            showLoginForm();
+        } else {
+            showWallet();
+            loadBalance();
+        }
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        loadBalance();
+        if (!prefs.getAccount().isEmpty() && !prefs.getJwt().isEmpty()) {
+            showWallet();
+            loadBalance();
+        }
     }
 
-    // ---- balance loading ----
+    private void showLoginForm() {
+        loginSection.setVisibility(View.VISIBLE);
+        contentSection.setVisibility(View.GONE);
+        swipeRefresh.setEnabled(false);
+    }
+
+    private void showWallet() {
+        loginSection.setVisibility(View.GONE);
+        contentSection.setVisibility(View.VISIBLE);
+        swipeRefresh.setEnabled(true);
+    }
+
+    private void attemptLogin() {
+        String username = text(loginUsernameInput);
+        String password = text(loginPasswordInput);
+
+        if (username.isEmpty() || password.isEmpty()) {
+            showLoginError("Enter your account name and password.");
+            return;
+        }
+
+        loginBtn.setEnabled(false);
+        loginBtn.setText("Signing in…");
+        loginError.setVisibility(View.GONE);
+
+        ChainApi.login(username, password, prefs.getApiUrl(), new ChainApi.LoginCallback() {
+            @Override
+            public void onSuccess(String account, String token) {
+                if (!isAdded()) return;
+                prefs.saveAll(account, token, prefs.getPostingKey(),
+                        prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
+                loginBtn.setEnabled(true);
+                loginBtn.setText("Sign In");
+                showWallet();
+                loadBalance();
+            }
+
+            @Override
+            public void onError(String message) {
+                if (!isAdded()) return;
+                loginBtn.setEnabled(true);
+                loginBtn.setText("Sign In");
+                showLoginError(message);
+            }
+        });
+    }
+
+    private void showLoginError(String msg) {
+        loginError.setText(msg);
+        loginError.setVisibility(View.VISIBLE);
+    }
 
     private void loadBalance() {
         String account = prefs.getAccount();
@@ -85,7 +155,7 @@ public class WalletFragment extends Fragment {
 
         if (account.isEmpty() || jwt.isEmpty()) {
             swipeRefresh.setRefreshing(false);
-            showLoginPrompt();
+            showLoginForm();
             return;
         }
 
@@ -99,20 +169,17 @@ public class WalletFragment extends Fragment {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
 
-                String formatted = String.format(Locale.US, "%.4f", btcpcBalance);
-                balanceView.setText(formatted);
+                balanceView.setText(String.format(Locale.US, "%.4f", btcpcBalance));
 
                 if (delegatedBalance > 0) {
-                    String del = String.format(Locale.US,
-                            "%.4f BTCPC delegated", delegatedBalance);
-                    delegatedView.setText(del);
+                    delegatedView.setText(String.format(Locale.US,
+                            "%.4f BTCPC delegated", delegatedBalance));
                     delegatedView.setVisibility(View.VISIBLE);
                 } else {
                     delegatedView.setVisibility(View.GONE);
                 }
 
                 if (!address.isEmpty()) {
-                    // Truncate middle for display — full address goes to clipboard on tap
                     String display = address.length() > 24
                             ? address.substring(0, 12) + "…" + address.substring(address.length() - 10)
                             : address;
@@ -136,16 +203,9 @@ public class WalletFragment extends Fragment {
         });
     }
 
-    // ---- send dialog ----
-
     private void showSendDialog() {
         if (!isAdded()) return;
         Context ctx = requireContext();
-
-        View dialogView = LayoutInflater.from(ctx).inflate(android.R.layout.simple_list_item_2, null);
-        // Use a simple two-field dialog via AlertDialog
-        AlertDialog.Builder builder = new AlertDialog.Builder(ctx);
-        builder.setTitle("Send BTCPC");
 
         final EditText toField = new EditText(ctx);
         toField.setHint("Recipient account");
@@ -163,24 +223,24 @@ public class WalletFragment extends Fragment {
         layout.addView(toField);
         amountField.setPadding(0, pad / 2, 0, 0);
         layout.addView(amountField);
-        builder.setView(layout);
 
-        builder.setPositiveButton("Send", (dialog, which) -> {
-            String to     = toField.getText() != null ? toField.getText().toString().trim() : "";
-            String amount = amountField.getText() != null ? amountField.getText().toString().trim() : "";
-            if (to.isEmpty() || amount.isEmpty()) {
-                Toast.makeText(ctx, "Please fill in all fields", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            Toast.makeText(ctx,
-                    "Send " + amount + " BTCPC to " + to + " — coming soon",
-                    Toast.LENGTH_LONG).show();
-        });
-        builder.setNegativeButton("Cancel", null);
-        builder.show();
+        new AlertDialog.Builder(ctx)
+                .setTitle("Send BTCPC")
+                .setView(layout)
+                .setPositiveButton("Send", (dialog, which) -> {
+                    String to     = toField.getText() != null ? toField.getText().toString().trim() : "";
+                    String amount = amountField.getText() != null ? amountField.getText().toString().trim() : "";
+                    if (to.isEmpty() || amount.isEmpty()) {
+                        Toast.makeText(ctx, "Please fill in all fields", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Toast.makeText(ctx,
+                            "Send " + amount + " BTCPC to " + to + " — coming soon",
+                            Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
-
-    // ---- receive dialog ----
 
     private void showReceiveDialog() {
         if (!isAdded()) return;
@@ -190,37 +250,21 @@ public class WalletFragment extends Fragment {
             address = (String) tag;
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
-        builder.setTitle("Receive BTCPC");
-
         TextView tv = new TextView(requireContext());
         int pad = (int) (16 * requireContext().getResources().getDisplayMetrics().density);
         tv.setPadding(pad, pad, pad, pad);
         tv.setText(address);
         tv.setTextIsSelectable(true);
         tv.setTextSize(14f);
-        builder.setView(tv);
 
         final String finalAddress = address;
-        builder.setPositiveButton("Copy address", (dialog, which) -> copyToClipboard(finalAddress));
-        builder.setNegativeButton("Close", null);
-        builder.show();
+        new AlertDialog.Builder(requireContext())
+                .setTitle("Receive BTCPC")
+                .setView(tv)
+                .setPositiveButton("Copy address", (dialog, which) -> copyToClipboard(finalAddress))
+                .setNegativeButton("Close", null)
+                .show();
     }
-
-    // ---- login prompt ----
-
-    private void showLoginPrompt() {
-        if (!isAdded()) return;
-        statusView.setText("Sign in to view your wallet");
-        LoginSheet sheet = new LoginSheet();
-        sheet.setOnLoginSuccess((account, jwt) -> {
-            statusView.setText("");
-            loadBalance();
-        });
-        sheet.show(getParentFragmentManager(), "login");
-    }
-
-    // ---- utilities ----
 
     private void copyToClipboard(String text) {
         if (!isAdded()) return;
@@ -230,5 +274,10 @@ public class WalletFragment extends Fragment {
             cm.setPrimaryClip(ClipData.newPlainText("BTCPC address", text));
             Toast.makeText(requireContext(), "Address copied", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String text(EditText et) {
+        if (et == null || et.getText() == null) return "";
+        return et.getText().toString().trim();
     }
 }

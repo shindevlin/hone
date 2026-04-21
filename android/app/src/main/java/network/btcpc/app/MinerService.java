@@ -43,7 +43,7 @@ public class MinerService extends Service {
     }
 
     // ---------- JNI bridge (implemented in Rust) ----------
-    private static native void nativeStart(String account, String jwt, String apiBase, String modelId, String modelDir);
+    private static native void nativeStart(String account, String jwt, String apiBase, String modelId, String modelDir, String postingKey);
     private static native void nativeStop();
     private static native String nativeGetStatus();
     private static native boolean nativeIsRunning();
@@ -74,7 +74,13 @@ public class MinerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIF_ID, buildNotification("Starting…"));
+        try {
+            startForeground(NOTIF_ID, buildNotification("Starting…"));
+        } catch (Exception e) {
+            android.util.Log.w("BTCPCMiner", "startForeground failed: " + e.getMessage());
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         if (!nativeAvailable) {
             prefs.setMinerState("Native library not available — rebuild APK with cargo-ndk");
@@ -82,11 +88,12 @@ public class MinerService extends Service {
             return START_NOT_STICKY;
         }
 
-        String account  = prefs.getAccount();
-        String jwt      = prefs.getJwt();
-        String apiBase  = prefs.getApiUrl();
-        String modelId  = prefs.getMinerModel();
-        String modelDir = getFilesDir().getAbsolutePath() + "/miner-models/" + modelId;
+        String account    = prefs.getAccount();
+        String jwt        = prefs.getJwt();
+        String postingKey = prefs.getPostingKey();
+        String apiBase    = prefs.getApiUrl();
+        String modelId    = prefs.getMinerModel();
+        String modelDir   = getFilesDir().getAbsolutePath() + "/miner-models/" + modelId;
 
         new File(modelDir).mkdirs();
 
@@ -96,7 +103,7 @@ public class MinerService extends Service {
             return START_NOT_STICKY;
         }
 
-        nativeStart(account, jwt, apiBase, modelId, modelDir);
+        nativeStart(account, jwt, apiBase, modelId, modelDir, postingKey);
         handler.post(statusPoller);
         return START_STICKY;
     }

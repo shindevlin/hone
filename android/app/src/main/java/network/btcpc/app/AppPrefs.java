@@ -20,11 +20,25 @@ public class AppPrefs {
     public static final String KEY_RELAY_URL   = "relayUrl";   // WebSocket relay for clock peer
     public static final String KEY_DEVICE_NAME = "sensor_device_name";
 
+    // ---- posting key (secp256k1 private key for signing work proofs) ----
+    public static final String KEY_POSTING_KEY = "postingKey";
+
     // ---- miner / storage config ----
     public static final String KEY_MINER_MODEL      = "minerModel";
     public static final String KEY_STORAGE_QUOTA_MB = "storageQuotaMb";
     public static final String DEFAULT_MINER_MODEL  = "qwen2.5-0.5b";
     public static final int    DEFAULT_QUOTA_MB     = 1024;
+
+    // ---- per-sensor toggles ----
+    public static final String KEY_SENSOR_MOTION      = "sensorMotion";
+    public static final String KEY_SENSOR_ORIENTATION = "sensorOrientation";
+    public static final String KEY_SENSOR_ENVIRONMENT = "sensorEnvironment";
+    public static final String KEY_SENSOR_MAGNETOMETER= "sensorMagnetometer";
+    public static final String KEY_SENSOR_PROXIMITY   = "sensorProximity";
+    public static final String KEY_SENSOR_STEPS       = "sensorSteps";
+    public static final String KEY_SENSOR_HEARTRATE   = "sensorHeartrate";
+    public static final String KEY_SENSOR_GPS         = "sensorGps";
+    public static final String KEY_SENSOR_BATTERY     = "sensorBattery";
 
     // ---- service-enabled toggles ----
     public static final String KEY_MINER_ENABLED   = "minerEnabled";
@@ -63,6 +77,14 @@ public class AppPrefs {
         return prefs.getString(KEY_JWT, "");
     }
 
+    public String getPostingKey() {
+        return prefs.getString(KEY_POSTING_KEY, "");
+    }
+
+    public void setPostingKey(String value) {
+        prefs.edit().putString(KEY_POSTING_KEY, value.trim()).apply();
+    }
+
     public String getApiUrl() {
         String url = prefs.getString(KEY_API_URL, DEFAULT_API_URL);
         if (url == null || url.trim().isEmpty()) url = DEFAULT_API_URL;
@@ -83,6 +105,14 @@ public class AppPrefs {
     public String getDeviceName() {
         String d = prefs.getString(KEY_DEVICE_NAME, DEFAULT_DEVICE_NAME);
         return (d == null || d.trim().isEmpty()) ? DEFAULT_DEVICE_NAME : d;
+    }
+
+    public boolean isSensorEnabled(String key) {
+        boolean def = !KEY_SENSOR_HEARTRATE.equals(key) && !KEY_SENSOR_GPS.equals(key);
+        return prefs.getBoolean(key, def);
+    }
+    public void setSensorEnabled(String key, boolean v) {
+        prefs.edit().putBoolean(key, v).apply();
     }
 
     public boolean isMinerEnabled() {
@@ -185,10 +215,11 @@ public class AppPrefs {
     }
 
     /** Bulk-save all user-facing settings in one edit. */
-    public void saveAll(String account, String jwt, String apiUrl, String relayUrl, String deviceName) {
+    public void saveAll(String account, String jwt, String postingKey, String apiUrl, String relayUrl, String deviceName) {
         prefs.edit()
              .putString(KEY_ACCOUNT, account.trim())
              .putString(KEY_JWT, jwt.trim())
+             .putString(KEY_POSTING_KEY, postingKey.trim())
              .putString(KEY_API_URL, apiUrl.trim())
              .putString(KEY_RELAY_URL, relayUrl.trim())
              .putString(KEY_DEVICE_NAME, deviceName.trim())

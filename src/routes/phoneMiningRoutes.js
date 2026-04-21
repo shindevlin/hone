@@ -15,6 +15,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { authenticateToken } = require('../middlewares/auth');
 const stateStore = require('../chain/stateStore');
+const messageAuth = require('../p2p/messageAuth');
 
 // Synthetic work prompts for phones when no inference jobs are pending.
 // These are simple, verifiable inference tasks — hashing proof is deterministic.
@@ -79,17 +80,27 @@ router.post('/claim', authenticateToken, (req, res) => {
  * Returns: { success, proof_accepted, reward_pending }
  */
 router.post('/submit', authenticateToken, (req, res) => {
-    const { job_id, output, token_count, work_hash, epoch } = req.body;
+    const { job_id, output, token_count, work_hash, epoch, signature } = req.body;
     const account = req.user.username;
 
     if (!job_id || !output || !work_hash) {
         return res.status(400).json({ error: 'job_id, output, and work_hash are required' });
     }
 
+    // Require posting-key signature — same requirement as desktop miners.
+    if (!signature) {
+        return res.status(403).json({ error: 'signature required — set your posting key in Settings' });
+    }
+
+    // Verify signature: SHA256(canonical JSON {account, job_id, work_hash}) signed with posting key
+    const signData = { account, job_id, work_hash };
+    if (!messageAuth.verifyAccountSignature(account, signData, signature, 'posting')) {
+        return res.status(403).json({ error: 'Invalid posting-key signature' });
+    }
+
     const unit = pendingWork.get(job_id);
     if (!unit) {
         // Accept late submissions (work may have been done while unit expired)
-        // but mark as unverifiable
     }
 
     // Verify work hash: SHA256(job_id | "|" | output | "|" | account)

@@ -27,6 +27,7 @@ public class SettingsFragment extends Fragment {
 
     private EditText accountInput;
     private EditText jwtInput;
+    private EditText postingKeyInput;
     private EditText apiUrlInput;
     private EditText relayUrlInput;
     private EditText deviceNameInput;
@@ -58,6 +59,7 @@ public class SettingsFragment extends Fragment {
 
         accountInput    = view.findViewById(R.id.settings_account);
         jwtInput        = view.findViewById(R.id.settings_jwt);
+        postingKeyInput = view.findViewById(R.id.settings_posting_key);
         apiUrlInput     = view.findViewById(R.id.settings_api_url);
         relayUrlInput   = view.findViewById(R.id.settings_relay_url);
         deviceNameInput = view.findViewById(R.id.settings_device_name);
@@ -78,6 +80,7 @@ public class SettingsFragment extends Fragment {
         // Populate fields from prefs
         accountInput.setText(prefs.getAccount());
         jwtInput.setText(prefs.getJwt());
+        postingKeyInput.setText(prefs.getPostingKey());
         apiUrlInput.setText(prefs.getApiUrl());
         relayUrlInput.setText(prefs.getRelayUrl());
         deviceNameInput.setText(prefs.getDeviceName());
@@ -100,6 +103,7 @@ public class SettingsFragment extends Fragment {
     private void saveSettings() {
         String account    = text(accountInput);
         String jwt        = text(jwtInput);
+        String postingKey = text(postingKeyInput);
         String apiUrl     = text(apiUrlInput);
         String relayUrl   = text(relayUrlInput);
         String deviceName = text(deviceNameInput);
@@ -107,7 +111,13 @@ public class SettingsFragment extends Fragment {
         if (apiUrl.isEmpty())   apiUrl   = AppPrefs.DEFAULT_API_URL;
         if (relayUrl.isEmpty()) relayUrl = AppPrefs.DEFAULT_RELAY_URL;
 
-        prefs.saveAll(account, jwt, apiUrl, relayUrl, deviceName);
+        if (!postingKey.isEmpty() && !postingKey.matches("[0-9a-fA-F]{64}")) {
+            saveStatus.setText("Posting key must be 64 hex characters");
+            saveStatus.setTextColor(0xFFEF4444);
+            return;
+        }
+
+        prefs.saveAll(account, jwt, postingKey, apiUrl, relayUrl, deviceName);
 
         saveStatus.setText("Saved.");
         saveStatus.setTextColor(0xFF22C55E);  // green

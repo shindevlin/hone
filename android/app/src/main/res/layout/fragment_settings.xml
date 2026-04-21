@@ -116,6 +116,30 @@
             android:textColorHint="@color/btcpc_muted"
             android:textSize="15sp" />
 
+        <!-- Posting Key -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Posting Key (required to mine)"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_posting_key"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:background="@color/btcpc_surface"
+            android:hint="64-char hex posting private key"
+            android:inputType="textPassword"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp"
+            android:importantForAutofill="no" />
+
         <!-- API URL -->
         <TextView
             android:layout_width="wrap_content"

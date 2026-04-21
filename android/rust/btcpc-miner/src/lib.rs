@@ -46,6 +46,7 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeStart(
     j_api_base: JString,
     j_model_id: JString,
     j_model_dir: JString,
+    j_posting_key: JString,
 ) {
     android_logger::init_once(
         android_logger::Config::default()
@@ -53,12 +54,13 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeStart(
             .with_tag("btcpc-miner"),
     );
 
-    let account:   String = env.get_string(&j_account).map(|s| s.into()).unwrap_or_default();
-    let jwt:       String = env.get_string(&j_jwt).map(|s| s.into()).unwrap_or_default();
-    let api_base:  String = env.get_string(&j_api_base).map(|s| s.into()).unwrap_or_default();
-    let model_id:  String = env.get_string(&j_model_id).map(|s| s.into())
-                              .unwrap_or_else(|_| "qwen2.5-0.5b".to_string());
-    let model_dir: String = env.get_string(&j_model_dir).map(|s| s.into()).unwrap_or_default();
+    let account:     String = env.get_string(&j_account).map(|s| s.into()).unwrap_or_default();
+    let jwt:         String = env.get_string(&j_jwt).map(|s| s.into()).unwrap_or_default();
+    let api_base:    String = env.get_string(&j_api_base).map(|s| s.into()).unwrap_or_default();
+    let model_id:    String = env.get_string(&j_model_id).map(|s| s.into())
+                                .unwrap_or_else(|_| "qwen2.5-0.5b".to_string());
+    let model_dir:   String = env.get_string(&j_model_dir).map(|s| s.into()).unwrap_or_default();
+    let posting_key: String = env.get_string(&j_posting_key).map(|s| s.into()).unwrap_or_default();
 
     let st = state().clone();
     if st.running.swap(true, Ordering::SeqCst) {
@@ -66,9 +68,15 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeStart(
     }
     *st.status.lock() = "Starting…".to_string();
 
+    if posting_key.is_empty() {
+        *st.status.lock() = "No posting key — set it in Settings to mine".to_string();
+        st.running.store(false, Ordering::SeqCst);
+        return;
+    }
+
     runtime().spawn(async move {
         *state().status.lock() = format!("Loading {model_id}…");
-        match miner::run_miner(account, jwt, api_base, model_id.clone(), model_dir, state()).await {
+        match miner::run_miner(account, jwt, api_base, model_id.clone(), model_dir, posting_key, state()).await {
             Ok(_) => { *state().status.lock() = "Stopped".to_string(); }
             Err(e) => {
                 log::error!("Miner error: {e}");

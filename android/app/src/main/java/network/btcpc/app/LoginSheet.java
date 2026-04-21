@@ -1,25 +1,28 @@
 package network.btcpc.app;
 
+import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.fragment.app.DialogFragment;
 
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.button.MaterialButton;
 
 /**
- * LoginSheet — bottom sheet that authenticates the user and stores the JWT
- * in AppPrefs so all services and API calls can use it.
- *
- * POST /api/user/login { username, password } → { token, user }
+ * LoginSheet — full-width dialog for account login.
+ * Uses DialogFragment (not BottomSheet) to avoid keyboard/animation conflicts.
  */
-public class LoginSheet extends BottomSheetDialogFragment {
+public class LoginSheet extends DialogFragment {
 
     public interface OnLoginSuccess {
         void onLoggedIn(String account, String jwt);
@@ -36,6 +39,32 @@ public class LoginSheet extends BottomSheetDialogFragment {
     private MaterialButton loginBtn;
     private TextView errorText;
     private View loadingSpinner;
+
+    @NonNull
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        Dialog dialog = super.onCreateDialog(savedInstanceState);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().requestFeature(Window.FEATURE_NO_TITLE);
+            dialog.getWindow().setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        return dialog;
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        Dialog dialog = getDialog();
+        if (dialog != null && dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
+        }
+    }
 
     @Nullable
     @Override
@@ -74,7 +103,7 @@ public class LoginSheet extends BottomSheetDialogFragment {
             @Override
             public void onSuccess(String account, String token) {
                 if (!isAdded()) return;
-                prefs.saveAll(account, token,
+                prefs.saveAll(account, token, prefs.getPostingKey(),
                         prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
                 setLoading(false);
                 if (callback != null) callback.onLoggedIn(account, token);
