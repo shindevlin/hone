@@ -467,6 +467,9 @@ async function recordMiningReward(miner, amount, epoch, _token, _memo, rewardSou
     reward_source: rewardSource || 'mining',
   });
   return _persist(entry);
+  // Cross-chain credits (0.1 BTCPC per chain) are accrued automatically by
+  // stateStore.applyEntry on every MINING_REWARD — both for new blocks and
+  // when replaying historical blocks, giving all miners retroactive credit.
 }
 
 /**
@@ -2404,6 +2407,55 @@ async function recordNameAuctionCancel(name, sellerSig, epoch) {
   }));
 }
 
+/**
+ * Record a cross-chain claim — consumes accumulated wBTCPC credit on a chain.
+ */
+async function recordCrossChainClaim(account, chain, amount, claimAddress, signature, epoch) {
+  if (!account) throw new Error('account required');
+  if (!chain) throw new Error('chain required');
+  if (!amount || amount <= 0) throw new Error('amount must be > 0');
+  if (!claimAddress) throw new Error('claim address required');
+  return _persist(_entry({
+    type: 'CROSS_CHAIN_CLAIM',
+    from: account,
+    to: account,
+    token: 'BTCPC',
+    amount,
+    chain,
+    epoch: epoch || 0,
+    signature: signature || null,
+    signed_by: 'posting',
+    claim_data: { chain, amount, claim_address: claimAddress },
+  }));
+}
+
+/**
+ * Record a cross-chain identity link on-chain.
+ * Creates a permanent, signed attestation that a BTCPC account owns specific
+ * addresses on external chains. This is the canonical record btcpcscan and
+ * oracle watchers use to route cross-chain payments.
+ *
+ * @param {string} account        — BTCPC account name
+ * @param {object} chainAddresses — { eth, solana, ton, bitcoin, ... }
+ * @param {string} ownerKeySig    — signature from account's owner key
+ * @param {number} epoch
+ */
+async function recordIdentityLink(account, chainAddresses, ownerKeySig, epoch) {
+  if (!account) throw new Error('account required');
+  if (!chainAddresses || typeof chainAddresses !== 'object') throw new Error('chain_addresses required');
+  if (!ownerKeySig) throw new Error('owner key signature required');
+  if (!stateStore.hasAccount(account)) throw new Error('account not found: ' + account);
+  return _persist(_entry({
+    type: 'IDENTITY_LINK',
+    from: account,
+    to: account,
+    epoch: epoch || 0,
+    signature: ownerKeySig,
+    signed_by: 'owner',
+    identity_data: { chain_addresses: chainAddresses },
+  }));
+}
+
 async function recordNameDelegate(name, delegated, epoch) {
   if (!name) throw new Error('name required');
   return _persist(_entry({
@@ -2530,4 +2582,6 @@ module.exports = {
   recordNameAuctionCancel,
   recordNameDelegate,
   DEFAULT_AUCTION_DURATION_EPOCHS,
+  recordIdentityLink,
+  recordCrossChainClaim,
 };

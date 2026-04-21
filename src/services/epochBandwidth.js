@@ -49,6 +49,9 @@ const OPERATION_COSTS = {
   SERVICE_REWARD:     0,
   IOT_REWARD:         0,
   FAUCET:             0,
+  CROSS_CHAIN_CREDIT: 0,
+  CROSS_CHAIN_CLAIM:  0,
+  IDENTITY_LINK:      5,
   _DEFAULT:           5,
 };
 

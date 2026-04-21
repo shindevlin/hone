@@ -223,6 +223,12 @@ var crossChainActivity = new Map();
 var CROSS_CHAIN_ACTIVITY_RETENTION = 1000;
 
 // ─────────────────────────────────────────────────────────────────
+// Cross-chain credits (v3.1.114): "account|chain" → unclaimed amount
+// Miners accrue 0.1 BTCPC per supported chain per BTCPC earned on-chain.
+// Consumed by CROSS_CHAIN_CLAIM entries when user claims wBTCPC on a chain.
+var crossChainCredits = new Map();
+
+// ─────────────────────────────────────────────────────────────────
 // Stateful compute state (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
 // services: slug → deployment record (stateful services tracked here)
@@ -595,6 +601,46 @@ function applyEntry(entry) {
       break;
     }
 
+    case "IDENTITY_LINK": {
+      // Formal on-chain attestation that a BTCPC account owns specific addresses
+      // on external chains. Signed with the owner key. Updates chain_addresses in
+      // place and records the epoch of the attestation for audit purposes.
+      var ilAccount = from || to;
+      if (!ilAccount || !accounts.has(ilAccount)) break;
+      var ilData = entry.identity_data || {};
+      var ilAddresses = ilData.chain_addresses || {};
+      var ilAcc = accounts.get(ilAccount);
+      // Merge new addresses — existing addresses are overwritten per key, others preserved
+      var merged = Object.assign({}, ilAcc.chain_addresses || {}, ilAddresses);
+      ilAcc.chain_addresses = merged;
+      ilAcc.identity_linked_epoch = entry.epoch;
+      accounts.set(ilAccount, ilAcc);
+      break;
+    }
+
+    case "CROSS_CHAIN_CREDIT": {
+      // Accrues claimable wBTCPC on each supported chain alongside mining rewards.
+      var cccAccount = to || from;
+      var cccChain = entry.chain;
+      var cccAmount = amount || 0;
+      if (!cccAccount || !cccChain || cccAmount <= 0) break;
+      var cccKey = cccAccount + '|' + cccChain;
+      crossChainCredits.set(cccKey, (crossChainCredits.get(cccKey) || 0) + cccAmount);
+      break;
+    }
+
+    case "CROSS_CHAIN_CLAIM": {
+      // Consumes accumulated credit when user claims wBTCPC on a chain.
+      var clAccount = from || to;
+      var clChain = entry.chain;
+      var clAmount = amount || 0;
+      if (!clAccount || !clChain || clAmount <= 0) break;
+      var clKey = clAccount + '|' + clChain;
+      var clBal = crossChainCredits.get(clKey) || 0;
+      crossChainCredits.set(clKey, Math.max(0, clBal - clAmount));
+      break;
+    }
+
     case "ACCOUNT_ALIAS_ASSIGN": {
       var aaData = entry.alias_data || {};
       var aaParent = aaData.parent || from;
@@ -684,6 +730,17 @@ function applyEntry(entry) {
         // Track total supply distributed (excludes recycle account)
         if (to !== "btcpc_recycle") {
           totalSupplyDistributed = _round(totalSupplyDistributed + amount);
+        }
+        // Auto-accrue cross-chain credits (0.1 BTCPC per chain per BTCPC earned).
+        // Runs for both new blocks (no companion CROSS_CHAIN_CREDIT entry yet) and
+        // historical blocks replayed from disk, giving all miners retroactive credit.
+        var ccCreditAmount = _round(amount * 0.1);
+        if (ccCreditAmount > 0) {
+          var ccChains = ['eth', 'solana', 'ton', 'bitcoin'];
+          for (var ci = 0; ci < ccChains.length; ci++) {
+            var ccKey = to + '|' + ccChains[ci];
+            crossChainCredits.set(ccKey, _round((crossChainCredits.get(ccKey) || 0) + ccCreditAmount));
+          }
         }
       }
       break;
@@ -3395,6 +3452,26 @@ function getStatefulServiceRecord(slug) {
  * @param {string} [chain]  - optional filter (base|arbitrum|ethereum|solana|bitcoin)
  * @returns {Array}
  */
+function getCrossChainCredits(account) {
+  var supported = ['eth', 'solana', 'ton', 'bitcoin'];
+  var result = {};
+  for (var i = 0; i < supported.length; i++) {
+    result[supported[i]] = crossChainCredits.get(account + '|' + supported[i]) || 0;
+  }
+  return result;
+}
+
+function getAllCrossChainCredits(account) {
+  var result = {};
+  for (var entry of crossChainCredits.entries()) {
+    if (entry[0].startsWith(account + '|')) {
+      var chain = entry[0].slice(account.length + 1);
+      result[chain] = entry[1];
+    }
+  }
+  return result;
+}
+
 function getCrossChainActivity(username, chain) {
   var list = crossChainActivity.get(username) || [];
   if (chain) {
@@ -3906,4 +3983,6 @@ module.exports = {
   setRecycleRate: setRecycleRate,
   getRecycleRate: getRecycleRate,
   getPhase2ActivationEpoch: getPhase2ActivationEpoch,
+  getCrossChainCredits,
+  getAllCrossChainCredits,
 };

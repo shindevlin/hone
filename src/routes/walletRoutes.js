@@ -226,4 +226,134 @@ router.get('/:account/parent', (req, res) => {
   return res.json({ account, parent });
 });
 
+// ── Cross-chain identity link (v3.1.114) ──────────────────────────────────────
+
+/**
+ * POST /api/wallet/identity-link
+ * Body: { chain_addresses: { eth, solana, ton, bitcoin }, signature }
+ *
+ * Creates a permanent on-chain attestation that this BTCPC account owns the
+ * listed addresses on external chains. Visible on btcpcscan under the account.
+ * Requires owner key signature over canonical JSON of { account, chain_addresses }.
+ */
+router.post('/identity-link', authenticateToken, async (req, res) => {
+  try {
+    const account = req.user.username;
+    const { chain_addresses, signature } = req.body || {};
+
+    if (!chain_addresses || typeof chain_addresses !== 'object') {
+      return res.status(400).json({ error: 'chain_addresses required (e.g. { eth: "0x...", solana: "5..." })' });
+    }
+    if (!signature) {
+      return res.status(403).json({ error: 'owner key signature required' });
+    }
+
+    const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+    const entry = await ledger.recordIdentityLink(account, chain_addresses, signature, epoch);
+
+    return res.json({
+      success: true,
+      account,
+      chain_addresses,
+      epoch,
+      entry_type: entry.type,
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/wallet/:account/identity
+ * Public — returns the linked chain addresses for an account.
+ */
+router.get('/:account/identity', (req, res) => {
+  const account = (req.params.account || '').toLowerCase().trim();
+  if (!account) return res.status(400).json({ error: 'account required' });
+  const acct = stateStore.getAccount ? stateStore.getAccount(account) : null;
+  if (!acct) return res.status(404).json({ error: 'account not found' });
+  return res.json({
+    account,
+    chain_addresses: acct.chain_addresses || {},
+    identity_linked_epoch: acct.identity_linked_epoch || null,
+  });
+});
+
+// ── Cross-chain credits (v3.1.114) ────────────────────────────────────────────
+
+/**
+ * GET /api/wallet/:account/cross-chain-credits
+ * Public — returns unclaimed wBTCPC credits per chain for an account.
+ */
+router.get('/:account/cross-chain-credits', (req, res) => {
+  const account = (req.params.account || '').toLowerCase().trim();
+  if (!account) return res.status(400).json({ error: 'account required' });
+  const acct = stateStore.getAccount ? stateStore.getAccount(account) : null;
+  if (!acct) return res.status(404).json({ error: 'account not found' });
+  const credits = stateStore.getCrossChainCredits(account);
+  const chain_addresses = acct.chain_addresses || {};
+  const chains = Object.entries(credits).map(([chain, amount]) => ({
+    chain,
+    unclaimed_btcpc: Math.round(amount * 1e8) / 1e8,
+    claim_address: chain_addresses[chain] || null,
+    can_claim: !!chain_addresses[chain] && amount > 0,
+  }));
+  return res.json({ account, chains });
+});
+
+/**
+ * POST /api/wallet/claim-cross-chain
+ * Body: { chain, amount?, signature }
+ * Auth: required — generates a signed claim message for the wBTCPC contract on the target chain.
+ */
+router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
+  try {
+    const account = req.user.username;
+    const { chain, amount, signature } = req.body || {};
+    if (!chain) return res.status(400).json({ error: 'chain required (eth|solana|ton|bitcoin)' });
+    if (!signature) return res.status(403).json({ error: 'posting key signature required' });
+
+    const acct = stateStore.getAccount ? stateStore.getAccount(account) : null;
+    if (!acct) return res.status(404).json({ error: 'account not found' });
+
+    const claimAddress = (acct.chain_addresses || {})[chain];
+    if (!claimAddress) {
+      return res.status(400).json({
+        error: `No ${chain} address linked. POST /api/wallet/identity-link first.`,
+      });
+    }
+
+    const credits = stateStore.getCrossChainCredits(account);
+    const available = credits[chain] || 0;
+    if (available <= 0) return res.status(400).json({ error: 'no claimable credits on ' + chain });
+
+    const claimAmount = amount ? Math.min(parseFloat(amount), available) : available;
+    if (claimAmount <= 0) return res.status(400).json({ error: 'amount must be > 0' });
+
+    const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+    await ledger.recordCrossChainClaim(account, chain, claimAmount, claimAddress, signature, epoch);
+
+    // The signed claim payload — the wBTCPC oracle verifies this and mints on the target chain
+    const crypto = require('crypto');
+    const claimPayload = { account, chain, amount: claimAmount, address: claimAddress, epoch };
+    const claimHash = crypto.createHash('sha256')
+      .update(JSON.stringify(claimPayload, Object.keys(claimPayload).sort()))
+      .digest('hex');
+
+    return res.json({
+      success: true,
+      account,
+      chain,
+      claim_amount: claimAmount,
+      claim_address: claimAddress,
+      epoch,
+      claim_hash: claimHash,
+      claim_payload: claimPayload,
+      message: 'Present claim_hash + signature to the wBTCPC contract oracle on ' + chain,
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 module.exports = router;

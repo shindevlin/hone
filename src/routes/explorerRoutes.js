@@ -365,6 +365,10 @@ router.get("/account/:name", (req, res) => {
       last_active_at: nodeInfo ? epochTimestamp(nodeInfo.last_epoch) : null,
       epochs_active_last_100: nodeInfo ? nodeInfo.epochs_active : 0,
       rewards_last_100_epochs: nodeInfo ? Math.round(nodeInfo.total_rewards * 1e8) / 1e8 : 0,
+      chain_addresses: acct.chain_addresses || {},
+      identity_linked_epoch: acct.identity_linked_epoch || null,
+      identity_linked_at: acct.identity_linked_epoch ? epochTimestamp(acct.identity_linked_epoch) : null,
+      cross_chain_credits: store.getCrossChainCredits ? store.getCrossChainCredits(name) : {},
       timestamp: Date.now(),
     });
   } catch (err) {
