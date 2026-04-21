@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="btcpc_bg">#0B0F17</color>
+    <color name="btcpc_surface">#161B25</color>
+    <color name="btcpc_surface_alt">#232A37</color>
+    <color name="btcpc_text">#F5F7FA</color>
+    <color name="btcpc_muted">#A8B0BF</color>
+    <color name="btcpc_orange">#F7931A</color>
+    <color name="btcpc_green">#22C55E</color>
+</resources>

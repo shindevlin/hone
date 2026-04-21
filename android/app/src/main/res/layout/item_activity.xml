@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="4dp"
+    android:paddingVertical="10dp">
+
+    <!-- Type badge -->
+    <TextView
+        android:id="@+id/item_type_badge"
+        android:layout_width="72dp"
+        android:layout_height="26dp"
+        android:gravity="center"
+        android:text="TYPE"
+        android:textColor="@android:color/black"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:background="@color/btcpc_orange"
+        android:paddingHorizontal="6dp" />
+
+    <!-- Description + epoch -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="8dp">
+
+        <TextView
+            android:id="@+id/item_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Transaction"
+            android:textColor="@color/btcpc_text"
+            android:textSize="14sp"
+            android:ellipsize="end"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/item_epoch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Epoch 0"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- Amount -->
+    <TextView
+        android:id="@+id/item_amount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="+0.0000"
+        android:textColor="@color/btcpc_green"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:gravity="end" />
+
+</LinearLayout>

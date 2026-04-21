@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/btcpc_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="Flipper Zero Relay"
+        android:textColor="@color/btcpc_text"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <!-- Transport indicators -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        style="@style/BtcpcCard">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:text="Connection"
+                android:textColor="@color/btcpc_muted"
+                android:textSize="13sp"
+                android:letterSpacing="0.08" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <!-- USB indicator -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal">
+
+                    <TextView
+                        android:id="@+id/flipper_usb_dot"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:background="@android:drawable/presence_offline"
+                        android:contentDescription="USB status" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="USB"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/flipper_usb_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Disconnected"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <!-- BLE indicator -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal">
+
+                    <TextView
+                        android:id="@+id/flipper_ble_dot"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:background="@android:drawable/presence_offline"
+                        android:contentDescription="BLE status" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="BLE"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/flipper_ble_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Disconnected"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <!-- WiFi indicator -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal">
+
+                    <TextView
+                        android:id="@+id/flipper_wifi_dot"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:background="@android:drawable/presence_offline"
+                        android:contentDescription="WiFi status" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="WiFi"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/flipper_wifi_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Listening :6942"
+                        android:textColor="@color/btcpc_muted"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Last reading -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        style="@style/BtcpcCard">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:text="Last Reading"
+                android:textColor="@color/btcpc_muted"
+                android:textSize="13sp"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/flipper_last_reading"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No readings yet"
+                android:textColor="@color/btcpc_text"
+                android:textSize="14sp"
+                android:fontFamily="monospace" />
+
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Reading log -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:text="Reading Log"
+        android:textColor="@color/btcpc_muted"
+        android:textSize="13sp"
+        android:letterSpacing="0.08" />
+
+    <ScrollView
+        android:id="@+id/flipper_log_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/btcpc_surface"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/flipper_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/btcpc_text"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="4dp" />
+
+    </ScrollView>
+
+</LinearLayout>

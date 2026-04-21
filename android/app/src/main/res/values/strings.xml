@@ -4,4 +4,5 @@
     <string name="title_activity_main">BTCPC</string>
     <string name="package_name">network.btcpc.app</string>
     <string name="custom_url_scheme">network.btcpc.app</string>
+    <string name="native_dashboard_subtitle">Native peer dashboard</string>
 </resources>

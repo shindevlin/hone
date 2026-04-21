@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/btcpc_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="Settings"
+            android:textColor="@color/btcpc_text"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <!-- Account -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Account Name"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_account"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:background="@color/btcpc_surface"
+            android:hint="shindevlin"
+            android:inputType="text"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp" />
+
+        <!-- JWT -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="JWT Token"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_jwt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:background="@color/btcpc_surface"
+            android:hint="eyJ..."
+            android:inputType="textPassword"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp" />
+
+        <!-- API URL -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API Base URL"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_api_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:background="@color/btcpc_surface"
+            android:hint="https://btcpc.net"
+            android:inputType="textUri"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp" />
+
+        <!-- Clock Relay URL -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Clock Relay (WebSocket)"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_relay_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="14dp"
+            android:background="@color/btcpc_surface"
+            android:hint="wss://btcpc-relay.shindevlin.workers.dev/ws"
+            android:inputType="textUri"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp" />
+
+        <!-- Device name -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Device Name"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <EditText
+            android:id="@+id/settings_device_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="20dp"
+            android:background="@color/btcpc_surface"
+            android:hint="android-phone"
+            android:inputType="text"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/settings_save_btn"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:backgroundTint="@color/btcpc_orange"
+            android:text="Save"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/settings_save_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text=""
+            android:textColor="@color/btcpc_green"
+            android:textSize="13sp" />
+
+        <!-- Services section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="10dp"
+            android:text="SERVICES"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="12sp"
+            android:letterSpacing="0.12" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/btcpc_surface"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Relay (Flipper)"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_relay_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/btcpc_surface_alt" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Clock Peer"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_clock_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/btcpc_surface_alt" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Sensors"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_sensor_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
