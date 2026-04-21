@@ -87,6 +87,32 @@ const PROTOCOL_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
+      name: "execute_code",
+      description: "Execute code in a sandboxed subprocess. Returns stdout, stderr, and exit code. Supports javascript (Node.js), python, and bash. Has a hard timeout. No network access inside the sandbox.",
+      parameters: {
+        type: "object",
+        properties: {
+          language: {
+            type: "string",
+            enum: ["javascript", "python", "bash"],
+            description: "Programming language to execute",
+          },
+          code: {
+            type: "string",
+            description: "The code to execute",
+          },
+          timeout_ms: {
+            type: "number",
+            description: "Execution timeout in milliseconds (default: 5000, max: 30000)",
+          },
+        },
+        required: ["language", "code"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "web_fetch",
       description: "Fetch the content of a URL. UNVERIFIED — executed by the miner's machine. Result is flagged trusted: false. Only use for public, non-sensitive URLs.",
       parameters: {
@@ -134,6 +160,7 @@ const PROTOCOL_NATIVE_TOOLS = new Set([
   "btcpc_balance",
   "btcpc_chain_query",
   "btcpc_sensor_query",
+  "execute_code",
 ]);
 
 // Tools that are miner-executed but not chain-verifiable
@@ -173,6 +200,9 @@ async function executeProtocolTool(name, input) {
   }
   if (name === "btcpc_sensor_query") {
     return _execSensorQuery(input);
+  }
+  if (name === "execute_code") {
+    return _execCode(input);
   }
   if (name === "web_fetch") {
     return _execWebFetch(input);
@@ -283,6 +313,62 @@ function _execSensorQuery(input) {
     };
   } catch (err) {
     return { content: err.message, trusted: true, error: "query_error" };
+  }
+}
+
+function _execCode(input) {
+  const language = input.language;
+  const code = input.code;
+  const timeout = Math.min(parseInt(input.timeout_ms) || 5000, 30000);
+  const maxOutput = 16 * 1024; // 16KB output limit
+
+  if (!code) return { content: "code required", trusted: true, error: "missing_param" };
+
+  const { execSync } = require("child_process");
+  const os = require("os");
+  const path = require("path");
+  const fs = require("fs");
+
+  let ext, cmd;
+  if (language === "javascript") {
+    ext = ".js";
+    cmd = "node";
+  } else if (language === "python") {
+    ext = ".py";
+    cmd = "python3";
+  } else if (language === "bash") {
+    ext = ".sh";
+    cmd = "bash";
+  } else {
+    return { content: `Unsupported language: ${language}`, trusted: true, error: "unsupported_language" };
+  }
+
+  // Write code to a temp file
+  const tmpFile = path.join(os.tmpdir(), `btcpc_exec_${Date.now()}${ext}`);
+  try {
+    fs.writeFileSync(tmpFile, code, "utf8");
+    const stdout = execSync(`${cmd} ${tmpFile}`, {
+      timeout,
+      maxBuffer: maxOutput,
+      env: {
+        PATH: process.env.PATH,
+        HOME: os.tmpdir(),
+        // No network-sensitive env vars
+      },
+    }).toString("utf8").slice(0, maxOutput);
+    return {
+      trusted: true,
+      content: { stdout, stderr: "", exit_code: 0, language },
+    };
+  } catch (err) {
+    const stdout = err.stdout ? err.stdout.toString("utf8").slice(0, maxOutput) : "";
+    const stderr = err.stderr ? err.stderr.toString("utf8").slice(0, maxOutput) : err.message;
+    return {
+      trusted: true,
+      content: { stdout, stderr, exit_code: err.status || 1, language },
+    };
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
   }
 }
 

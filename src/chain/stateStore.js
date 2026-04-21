@@ -84,6 +84,18 @@ var orders = new Map();
 // Inference marketplace jobs (v3.1.119+): job_id → { job_id, buyer, prompt, max_fee, model, system_prompt, ttl_epochs, expires_epoch, miner, proof_hash, status, open_epoch, claimed_epoch, settled_epoch }
 var inferenceJobs = new Map();
 
+// Sessions (v3.1.121+): session_id → { session_id, buyer, created_epoch, job_ids, summary, last_updated_epoch }
+var sessions = new Map();
+
+// Fine-tuning jobs (v3.1.121+): finetune_id → { finetune_id, buyer, dataset_cid, base_model, epochs, lora_rank, status, ... }
+var finetuneJobs = new Map();
+
+// Browser/computer-use jobs (v3.1.121+): job_id → { job_id, buyer, goal, start_url, status, turns, ... }
+var browserJobs = new Map();
+
+// Registered MCP tools (v3.1.121+): tool_name → { name, description, schema, webhook_url, owner, registered_epoch }
+var toolRegistry = new Map();
+
 // Storage payout holds (v3.1.119+): hold_id → { hold_id, host, cid, amount, hold_epoch, release_epoch, status }
 var storagePayoutHolds = new Map();
 
@@ -1360,6 +1372,11 @@ function applyEntry(entry) {
           max_turns: ijOpen.max_turns || 1,
           turns: [],
           current_turn: 0,
+          output_schema: ijOpen.output_schema || null,
+          tier: ijOpen.tier || "standard",
+          rag_cids: ijOpen.rag_cids || [],
+          batch_id: ijOpen.batch_id || null,
+          session_id: ijOpen.session_id || null,
           miner: null,
           proof_hash: null,
           actual_cost: null,
@@ -1457,6 +1474,260 @@ function applyEntry(entry) {
           ijTR.current_turn = entry.job_data.turn;
           inferenceJobs.set(entry.job_data.job_id, ijTR);
         }
+      }
+      break;
+
+    // ── Browser / Computer-use jobs (v3.1.121+) ─────────────────────
+    case "BROWSER_JOB_OPEN":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjOpen = entry.browser_data;
+        browserJobs.set(bjOpen.job_id, {
+          job_id: bjOpen.job_id,
+          buyer: bjOpen.buyer,
+          goal: bjOpen.goal,
+          start_url: bjOpen.start_url,
+          max_fee: bjOpen.max_fee,
+          max_turns: bjOpen.max_turns || 20,
+          ttl_epochs: bjOpen.ttl_epochs || 120,
+          expires_epoch: bjOpen.expires_epoch || 0,
+          viewport: bjOpen.viewport || { width: 1280, height: 800 },
+          status: "open",
+          miner: null,
+          turns: [],
+          current_turn: 0,
+          open_epoch: entry.epoch,
+          claimed_epoch: null,
+          settled_epoch: null,
+        });
+      }
+      break;
+
+    case "BROWSER_JOB_CLAIM":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjClaim = browserJobs.get(entry.browser_data.job_id);
+        if (bjClaim && bjClaim.status === "open") {
+          bjClaim.miner = entry.browser_data.miner;
+          bjClaim.status = "claimed";
+          bjClaim.claimed_epoch = entry.epoch;
+          browserJobs.set(entry.browser_data.job_id, bjClaim);
+        }
+      }
+      break;
+
+    case "BROWSER_JOB_SCREENSHOT":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjSS = browserJobs.get(entry.browser_data.job_id);
+        if (bjSS && (bjSS.status === "claimed" || bjSS.status === "action_pending")) {
+          bjSS.turns = bjSS.turns || [];
+          bjSS.turns.push({
+            role: "miner",
+            screenshot_cid: entry.browser_data.screenshot_cid,
+            current_url: entry.browser_data.current_url,
+            page_title: entry.browser_data.page_title,
+            available_actions: entry.browser_data.available_actions,
+            turn: entry.browser_data.turn,
+            epoch: entry.epoch,
+          });
+          bjSS.current_turn = entry.browser_data.turn;
+          bjSS.status = "action_pending";
+          browserJobs.set(entry.browser_data.job_id, bjSS);
+        }
+      }
+      break;
+
+    case "BROWSER_JOB_ACTION":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjAct = browserJobs.get(entry.browser_data.job_id);
+        if (bjAct && bjAct.status === "action_pending") {
+          bjAct.turns = bjAct.turns || [];
+          bjAct.turns.push({
+            role: "buyer",
+            action_type: entry.browser_data.action_type,
+            coordinate: entry.browser_data.coordinate,
+            text: entry.browser_data.text,
+            selector: entry.browser_data.selector,
+            turn: entry.browser_data.turn,
+            epoch: entry.epoch,
+          });
+          bjAct.status = entry.browser_data.action_type === "done" ? "submitted" : "claimed";
+          browserJobs.set(entry.browser_data.job_id, bjAct);
+        }
+      }
+      break;
+
+    case "BROWSER_JOB_SETTLE":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjSettle = browserJobs.get(entry.browser_data.job_id);
+        if (bjSettle) {
+          bjSettle.status = "settled";
+          bjSettle.actual_cost = entry.browser_data.actual_cost;
+          bjSettle.miner_payout = entry.browser_data.miner_payout;
+          bjSettle.result_summary = entry.browser_data.result_summary || null;
+          bjSettle.final_screenshot_cid = entry.browser_data.final_screenshot_cid || null;
+          bjSettle.settled_epoch = entry.epoch;
+          browserJobs.set(entry.browser_data.job_id, bjSettle);
+        }
+      }
+      break;
+
+    case "BROWSER_JOB_REFUND":
+      if (entry.browser_data && entry.browser_data.job_id) {
+        var bjRefund = browserJobs.get(entry.browser_data.job_id);
+        if (bjRefund) {
+          bjRefund.status = "refunded";
+          bjRefund.refund_reason = entry.browser_data.reason || "expired";
+          bjRefund.refunded_epoch = entry.epoch;
+          browserJobs.set(entry.browser_data.job_id, bjRefund);
+        }
+      }
+      break;
+
+    // ── Fine-tuning jobs (v3.1.121+) ────────────────────────────────
+    case "FINETUNE_JOB_OPEN":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftOpen = entry.ft_data;
+        finetuneJobs.set(ftOpen.finetune_id, {
+          finetune_id: ftOpen.finetune_id,
+          buyer: ftOpen.buyer,
+          dataset_cid: ftOpen.dataset_cid,
+          base_model: ftOpen.base_model,
+          epochs: ftOpen.epochs || 3,
+          lora_rank: ftOpen.lora_rank || 16,
+          max_fee: ftOpen.max_fee,
+          ttl_epochs: ftOpen.ttl_epochs || 2000,
+          expires_epoch: ftOpen.expires_epoch || 0,
+          status: "open",
+          miner: null,
+          adapter_cid: null,
+          progress_pct: 0,
+          open_epoch: entry.epoch,
+          claimed_epoch: null,
+          completed_epoch: null,
+          settled_epoch: null,
+        });
+      }
+      break;
+
+    case "FINETUNE_JOB_CLAIM":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftClaim = finetuneJobs.get(entry.ft_data.finetune_id);
+        if (ftClaim && ftClaim.status === "open") {
+          ftClaim.miner = entry.ft_data.miner;
+          ftClaim.status = "training";
+          ftClaim.claimed_epoch = entry.epoch;
+          finetuneJobs.set(entry.ft_data.finetune_id, ftClaim);
+        }
+      }
+      break;
+
+    case "FINETUNE_JOB_PROGRESS":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftProg = finetuneJobs.get(entry.ft_data.finetune_id);
+        if (ftProg) {
+          ftProg.progress_pct = entry.ft_data.progress_pct || 0;
+          ftProg.current_epoch_num = entry.ft_data.current_epoch_num || 0;
+          ftProg.loss = entry.ft_data.loss || null;
+          finetuneJobs.set(entry.ft_data.finetune_id, ftProg);
+        }
+      }
+      break;
+
+    case "FINETUNE_JOB_COMPLETE":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftComp = finetuneJobs.get(entry.ft_data.finetune_id);
+        if (ftComp) {
+          ftComp.status = "completed";
+          ftComp.adapter_cid = entry.ft_data.adapter_cid;
+          ftComp.completed_epoch = entry.epoch;
+          finetuneJobs.set(entry.ft_data.finetune_id, ftComp);
+        }
+      }
+      break;
+
+    case "FINETUNE_JOB_SETTLE":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftSettle = finetuneJobs.get(entry.ft_data.finetune_id);
+        if (ftSettle) {
+          ftSettle.status = "settled";
+          ftSettle.actual_cost = entry.ft_data.actual_cost;
+          ftSettle.miner_payout = entry.ft_data.miner_payout;
+          ftSettle.settled_epoch = entry.epoch;
+          finetuneJobs.set(entry.ft_data.finetune_id, ftSettle);
+        }
+      }
+      break;
+
+    case "FINETUNE_JOB_REFUND":
+      if (entry.ft_data && entry.ft_data.finetune_id) {
+        var ftRefund = finetuneJobs.get(entry.ft_data.finetune_id);
+        if (ftRefund) {
+          ftRefund.status = "refunded";
+          ftRefund.refund_reason = entry.ft_data.reason || "expired";
+          ftRefund.refunded_epoch = entry.epoch;
+          finetuneJobs.set(entry.ft_data.finetune_id, ftRefund);
+        }
+      }
+      break;
+
+    // ── Sessions (v3.1.121+) ────────────────────────────────────────
+    case "SESSION_CREATE":
+      if (entry.session_data && entry.session_data.session_id) {
+        var sd = entry.session_data;
+        sessions.set(sd.session_id, {
+          session_id: sd.session_id,
+          buyer: sd.buyer,
+          name: sd.name || null,
+          created_epoch: entry.epoch,
+          last_updated_epoch: entry.epoch,
+          job_ids: [],
+          summary: sd.initial_summary || null,
+        });
+      }
+      break;
+
+    case "SESSION_ADD_JOB":
+      if (entry.session_data && entry.session_data.session_id) {
+        var sadj = sessions.get(entry.session_data.session_id);
+        if (sadj) {
+          sadj.job_ids = sadj.job_ids || [];
+          if (!sadj.job_ids.includes(entry.session_data.job_id)) {
+            sadj.job_ids.push(entry.session_data.job_id);
+          }
+          sadj.last_updated_epoch = entry.epoch;
+          sessions.set(entry.session_data.session_id, sadj);
+        }
+      }
+      break;
+
+    case "SESSION_UPDATE_SUMMARY":
+      if (entry.session_data && entry.session_data.session_id) {
+        var sus = sessions.get(entry.session_data.session_id);
+        if (sus) {
+          sus.summary = entry.session_data.summary;
+          sus.last_updated_epoch = entry.epoch;
+          sessions.set(entry.session_data.session_id, sus);
+        }
+      }
+      break;
+
+    // ── MCP Tool Registry (v3.1.121+) ───────────────────────────────
+    case "TOOL_REGISTER":
+      if (entry.tool_data && entry.tool_data.name) {
+        var td = entry.tool_data;
+        toolRegistry.set(td.name, {
+          name: td.name,
+          description: td.description || "",
+          schema: td.schema || null,
+          webhook_url: td.webhook_url,
+          owner: td.owner || from,
+          registered_epoch: entry.epoch,
+        });
+      }
+      break;
+
+    case "TOOL_UNREGISTER":
+      if (entry.tool_data && entry.tool_data.name) {
+        toolRegistry.delete(entry.tool_data.name);
       }
       break;
 
@@ -3785,6 +4056,98 @@ function getJobsAwaitingToolResults(buyer) {
   return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
 }
 
+// ── Browser job getters ───────────────────────────────────────────────────────
+
+function getBrowserJob(jobId) {
+  return browserJobs.get(jobId) || null;
+}
+
+function getOpenBrowserJobs() {
+  var result = [];
+  for (var j of browserJobs.values()) {
+    if (j.status === "open" || j.status === "claimed" || j.status === "action_pending") result.push(j);
+  }
+  return result;
+}
+
+function getBrowserJobsByBuyer(buyer) {
+  var result = [];
+  for (var j of browserJobs.values()) {
+    if (j.buyer === buyer) result.push(j);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
+function getBrowserJobsByMiner(miner) {
+  var result = [];
+  for (var j of browserJobs.values()) {
+    if (j.miner === miner) result.push(j);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
+// ── Fine-tuning getters ───────────────────────────────────────────────────────
+
+function getFinetuneJob(finetuneId) {
+  return finetuneJobs.get(finetuneId) || null;
+}
+
+function getOpenFinetuneJobs() {
+  var result = [];
+  for (var ft of finetuneJobs.values()) {
+    if (ft.status === "open" || ft.status === "training") result.push(ft);
+  }
+  return result;
+}
+
+function getFinetuneJobsByBuyer(buyer) {
+  var result = [];
+  for (var ft of finetuneJobs.values()) {
+    if (ft.buyer === buyer) result.push(ft);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
+function getFinetuneJobsByMiner(miner) {
+  var result = [];
+  for (var ft of finetuneJobs.values()) {
+    if (ft.miner === miner) result.push(ft);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
+// ── Session getters ───────────────────────────────────────────────────────────
+
+function getSession(sessionId) {
+  return sessions.get(sessionId) || null;
+}
+
+function getSessionsByBuyer(buyer) {
+  var result = [];
+  for (var s of sessions.values()) {
+    if (s.buyer === buyer) result.push(s);
+  }
+  return result.sort(function(a, b) { return (b.created_epoch || 0) - (a.created_epoch || 0); });
+}
+
+// ── Tool registry getters ─────────────────────────────────────────────────────
+
+function getRegisteredTool(name) {
+  return toolRegistry.get(name) || null;
+}
+
+function getAllRegisteredTools() {
+  return Array.from(toolRegistry.values());
+}
+
+function getToolsByOwner(owner) {
+  var result = [];
+  for (var t of toolRegistry.values()) {
+    if (t.owner === owner) result.push(t);
+  }
+  return result;
+}
+
 function getInferenceJobsByBuyer(buyer) {
   var result = [];
   for (var job of inferenceJobs.values()) {
@@ -4341,6 +4704,23 @@ module.exports = {
   getInferenceJobsByBuyer,
   getInferenceJobsByMiner,
   getJobsAwaitingToolResults,
+  // Browser / computer-use jobs (v3.1.121+)
+  getBrowserJob,
+  getOpenBrowserJobs,
+  getBrowserJobsByBuyer,
+  getBrowserJobsByMiner,
+  // Fine-tuning (v3.1.121+)
+  getFinetuneJob,
+  getOpenFinetuneJobs,
+  getFinetuneJobsByBuyer,
+  getFinetuneJobsByMiner,
+  // Sessions (v3.1.121+)
+  getSession,
+  getSessionsByBuyer,
+  // Tool registry (v3.1.121+)
+  getRegisteredTool,
+  getAllRegisteredTools,
+  getToolsByOwner,
   // Storage settlement lag (v3.1.119+)
   getPendingStorageHolds,
   getStorageHoldsForHost,

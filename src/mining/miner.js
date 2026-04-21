@@ -1566,6 +1566,7 @@ async function startMarketplacePoller() {
   let pollRunning = false;
 
   const protocolTools = require('../services/protocolTools');
+  const ragService = require('../services/ragService');
 
   // Build Ollama message list from job context + turns history
   function buildMessages(job) {
@@ -1602,14 +1603,32 @@ async function startMarketplacePoller() {
     }).filter(Boolean);
   }
 
+  // Pick model based on job tier
+  function pickModel(job) {
+    const tier = job.tier || 'standard';
+    if (tier === 'reasoning') {
+      // Prefer reasoning models — fallback chain
+      return job.model || process.env.BTCPC_REASONING_MODEL || 'qwq:32b' ||
+             process.env.BTCPC_MODEL || MODEL || 'qwen3:4b';
+    }
+    if (tier === 'fast') {
+      return job.model || process.env.BTCPC_FAST_MODEL || 'qwen3:0.6b' ||
+             process.env.BTCPC_MODEL || MODEL || 'qwen3:4b';
+    }
+    return job.model || MODEL || 'qwen3:4b';
+  }
+
   // Run one inference turn for a job. Returns { done, toolCalls, result, tokens }
   async function runInferenceTurn(job) {
-    const model = job.model || MODEL || 'qwen3:4b';
+    const model = pickModel(job);
     const messages = buildMessages(job);
     const tools = buildOllamaTools(job.tools);
 
     const body = { model, messages, stream: false };
     if (tools && tools.length > 0) body.tools = tools;
+    if (job.output_schema) {
+      body.format = { type: 'json', schema: job.output_schema };
+    }
 
     const resp = await axios.post(`${OLLAMA_URL}/api/chat`, body, { timeout: 120000 });
 
@@ -1653,6 +1672,19 @@ async function startMarketplacePoller() {
       }
 
       if (!job) return;
+
+      // RAG: retrieve context from BTCPC-FS blobs before first turn
+      if (job.rag_cids && job.rag_cids.length > 0 && (job.current_turn || 0) === 0) {
+        try {
+          const ragContext = await ragService.retrieveContext(job.prompt, job.rag_cids);
+          if (ragContext) {
+            // Inject RAG context into job's system prompt in-memory (not persisted — miner-local)
+            job = { ...job, system_prompt: ragContext + (job.system_prompt ? '\n\n' + job.system_prompt : '') };
+          }
+        } catch (ragErr) {
+          console.warn(`[Marketplace] RAG failed for ${job.job_id}: ${ragErr.message}`);
+        }
+      }
 
       const t0 = Date.now();
       let totalTokens = 0;

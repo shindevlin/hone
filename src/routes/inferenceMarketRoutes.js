@@ -61,12 +61,21 @@ router.post("/", authenticateToken, async (req, res) => {
     if (!maxFee || maxFee <= 0)
       return res.status(400).json({ error: "max_fee required" });
 
+    const outputSchema = req.body.output_schema || null;
+    const tier = req.body.tier || "standard";
+    const ragCids = Array.isArray(req.body.rag_cids) ? req.body.rag_cids.slice(0, 10) : [];
+    const sessionId = req.body.session_id ? sanitizeString(req.body.session_id, 64) : null;
+
     const result = await market.openJob(buyer, prompt, maxFee, {
       model,
       systemPrompt,
       ttlEpochs,
       tools,
       maxTurns,
+      outputSchema,
+      tier,
+      ragCids,
+      sessionId,
     });
     res.json(result);
   } catch (err) {
@@ -353,6 +362,65 @@ router.post("/:id/refund", authenticateToken, async (req, res) => {
   } catch (err) {
     const status = err.message.includes("not found") ? 404 :
       err.message.includes("already") ? 409 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/batch ──────────────────────────────────────────────────────
+// Open up to 20 jobs in one request. Shared config merges with per-job overrides.
+// Returns batch_id + array of job results.
+router.post("/batch", authenticateToken, async (req, res) => {
+  try {
+    const buyer = req.user.username;
+    const jobDefs = req.body.jobs;
+    if (!Array.isArray(jobDefs) || jobDefs.length === 0) {
+      return res.status(400).json({ error: "jobs array required" });
+    }
+    if (jobDefs.length > 20) {
+      return res.status(400).json({ error: "max 20 jobs per batch" });
+    }
+    const shared = req.body.shared || {};
+    const batchId = "batch_" + require("crypto").randomBytes(6).toString("hex");
+
+    const results = [];
+    const errors = [];
+
+    for (let i = 0; i < jobDefs.length; i++) {
+      const def = jobDefs[i];
+      const prompt = sanitizeString(def.prompt || shared.prompt, MAX_PROMPT_LENGTH);
+      const maxFee = sanitizeAmount(def.max_fee != null ? def.max_fee : shared.max_fee);
+      if (!prompt || !maxFee) {
+        errors.push({ index: i, error: "prompt and max_fee required" });
+        continue;
+      }
+      try {
+        const job = await market.openJob(buyer, prompt, maxFee, {
+          model: def.model || shared.model || null,
+          systemPrompt: def.system_prompt || shared.system_prompt || null,
+          ttlEpochs: Math.min(parseInt(def.ttl_epochs || shared.ttl_epochs) || 20, 480),
+          tools: Array.isArray(def.tools) ? def.tools : (shared.tools || []),
+          maxTurns: Math.min(parseInt(def.max_turns || shared.max_turns) || 1, 20),
+          outputSchema: def.output_schema || shared.output_schema || null,
+          tier: def.tier || shared.tier || "standard",
+          ragCids: Array.isArray(def.rag_cids) ? def.rag_cids : (shared.rag_cids || []),
+          sessionId: def.session_id || shared.session_id || null,
+          batchId,
+        });
+        results.push({ index: i, ...job });
+      } catch (err) {
+        errors.push({ index: i, error: err.message });
+      }
+    }
+
+    res.json({
+      batch_id: batchId,
+      submitted: results.length,
+      failed: errors.length,
+      jobs: results,
+      errors: errors.length ? errors : undefined,
+    });
+  } catch (err) {
+    const status = err.message && err.message.includes("Insufficient") ? 402 : 400;
     res.status(status).json({ error: err.message });
   }
 });

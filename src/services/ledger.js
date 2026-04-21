@@ -2745,6 +2745,148 @@ async function recordInferenceJobRefund(jobId, buyer, reason, epoch) {
   }));
 }
 
+// ── Browser / computer-use jobs (v3.1.121+) ───────────────────────────────────
+
+async function recordBrowserJobOpen(buyer, jobId, jobData, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_OPEN', from: buyer, epoch: epoch || 0,
+    browser_data: { ...jobData, job_id: jobId, buyer } }));
+}
+async function recordBrowserJobClaim(jobId, miner, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_CLAIM', from: miner, epoch: epoch || 0,
+    browser_data: { job_id: jobId, miner } }));
+}
+async function recordBrowserJobScreenshot(jobId, miner, ssData, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_SCREENSHOT', from: miner, epoch: epoch || 0,
+    browser_data: { job_id: jobId, miner, ...ssData } }));
+}
+async function recordBrowserJobAction(jobId, buyer, actionData, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_ACTION', from: buyer, epoch: epoch || 0,
+    browser_data: { job_id: jobId, buyer, ...actionData } }));
+}
+async function recordBrowserJobSettle(jobId, miner, buyer, settlementData, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_SETTLE', from: miner, to: buyer, epoch: epoch || 0,
+    browser_data: { job_id: jobId, miner, buyer, ...settlementData } }));
+}
+async function recordBrowserJobRefund(jobId, buyer, reason, epoch) {
+  return _persist(_entry({ type: 'BROWSER_JOB_REFUND', from: buyer, epoch: epoch || 0,
+    browser_data: { job_id: jobId, buyer, reason: reason || 'expired' } }));
+}
+
+// ── Fine-tuning jobs (v3.1.121+) ─────────────────────────────────────────────
+
+async function recordFinetuneJobOpen(buyer, finetuneId, ftData, epoch) {
+  if (!buyer) throw new Error('buyer required');
+  if (!finetuneId) throw new Error('finetuneId required');
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_OPEN',
+    from: buyer,
+    epoch: epoch || 0,
+    ft_data: { ...ftData, finetune_id: finetuneId, buyer },
+  }));
+}
+
+async function recordFinetuneJobClaim(finetuneId, miner, epoch) {
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_CLAIM',
+    from: miner,
+    epoch: epoch || 0,
+    ft_data: { finetune_id: finetuneId, miner },
+  }));
+}
+
+async function recordFinetuneJobProgress(finetuneId, miner, progressData, epoch) {
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_PROGRESS',
+    from: miner,
+    epoch: epoch || 0,
+    ft_data: { finetune_id: finetuneId, miner, ...progressData },
+  }));
+}
+
+async function recordFinetuneJobComplete(finetuneId, miner, adapterCid, epoch) {
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_COMPLETE',
+    from: miner,
+    epoch: epoch || 0,
+    ft_data: { finetune_id: finetuneId, miner, adapter_cid: adapterCid },
+  }));
+}
+
+async function recordFinetuneJobSettle(finetuneId, miner, buyer, settlementData, epoch) {
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_SETTLE',
+    from: miner,
+    to: buyer,
+    epoch: epoch || 0,
+    ft_data: { finetune_id: finetuneId, miner, buyer, ...settlementData },
+  }));
+}
+
+async function recordFinetuneJobRefund(finetuneId, buyer, reason, epoch) {
+  return _persist(_entry({
+    type: 'FINETUNE_JOB_REFUND',
+    from: buyer,
+    epoch: epoch || 0,
+    ft_data: { finetune_id: finetuneId, buyer, reason: reason || 'expired' },
+  }));
+}
+
+// ── Sessions (v3.1.121+) ──────────────────────────────────────────────────────
+
+async function recordSessionCreate(buyer, sessionId, opts, epoch) {
+  if (!buyer) throw new Error('buyer required');
+  if (!sessionId) throw new Error('sessionId required');
+  opts = opts || {};
+  return _persist(_entry({
+    type: 'SESSION_CREATE',
+    from: buyer,
+    epoch: epoch || 0,
+    session_data: { session_id: sessionId, buyer, name: opts.name || null, initial_summary: opts.initialSummary || null },
+  }));
+}
+
+async function recordSessionAddJob(sessionId, jobId, epoch) {
+  if (!sessionId) throw new Error('sessionId required');
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'SESSION_ADD_JOB',
+    epoch: epoch || 0,
+    session_data: { session_id: sessionId, job_id: jobId },
+  }));
+}
+
+async function recordSessionUpdateSummary(sessionId, summary, epoch) {
+  if (!sessionId) throw new Error('sessionId required');
+  return _persist(_entry({
+    type: 'SESSION_UPDATE_SUMMARY',
+    epoch: epoch || 0,
+    session_data: { session_id: sessionId, summary },
+  }));
+}
+
+// ── MCP Tool Registry (v3.1.121+) ─────────────────────────────────────────────
+
+async function recordToolRegister(owner, toolData, epoch) {
+  if (!owner) throw new Error('owner required');
+  if (!toolData || !toolData.name) throw new Error('tool name required');
+  return _persist(_entry({
+    type: 'TOOL_REGISTER',
+    from: owner,
+    epoch: epoch || 0,
+    tool_data: { ...toolData, owner },
+  }));
+}
+
+async function recordToolUnregister(owner, toolName, epoch) {
+  if (!toolName) throw new Error('toolName required');
+  return _persist(_entry({
+    type: 'TOOL_UNREGISTER',
+    from: owner,
+    epoch: epoch || 0,
+    tool_data: { name: toolName, owner },
+  }));
+}
+
 async function recordInferenceJobToolCall(jobId, miner, toolCalls, turn, epoch) {
   if (!jobId) throw new Error('jobId required');
   if (!miner) throw new Error('miner required');
@@ -2907,4 +3049,25 @@ module.exports = {
   recordInferenceJobRefund,
   recordInferenceJobToolCall,
   recordInferenceJobToolResult,
+  // Browser / computer-use (v3.1.121+)
+  recordBrowserJobOpen,
+  recordBrowserJobClaim,
+  recordBrowserJobScreenshot,
+  recordBrowserJobAction,
+  recordBrowserJobSettle,
+  recordBrowserJobRefund,
+  // Fine-tuning (v3.1.121+)
+  recordFinetuneJobOpen,
+  recordFinetuneJobClaim,
+  recordFinetuneJobProgress,
+  recordFinetuneJobComplete,
+  recordFinetuneJobSettle,
+  recordFinetuneJobRefund,
+  // Sessions (v3.1.121+)
+  recordSessionCreate,
+  recordSessionAddJob,
+  recordSessionUpdateSummary,
+  // MCP Tool Registry (v3.1.121+)
+  recordToolRegister,
+  recordToolUnregister,
 };

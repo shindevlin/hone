@@ -59,23 +59,49 @@ async function openJob(buyer, prompt, maxFee, opts) {
   // Lock escrow first
   await ledger.recordEscrowLock(buyer, jobId, maxFee, epoch);
 
-  // Validate tools array — each entry must be a recognized tool name or a custom schema object
   const tools = Array.isArray(opts.tools) ? opts.tools : [];
   const maxTurns = Math.min(parseInt(opts.maxTurns) || 1, 20);
+  const outputSchema = opts.outputSchema || null;
+  const tier = ["standard", "reasoning", "fast"].includes(opts.tier) ? opts.tier : "standard";
+  const ragCids = Array.isArray(opts.ragCids) ? opts.ragCids.slice(0, 10) : [];
+  const batchId = opts.batchId || null;
+  const sessionId = opts.sessionId || null;
 
-  // Record job opening on chain
+  // If session_id provided, prepend session summary to system prompt
+  let systemPrompt = opts.systemPrompt || null;
+  if (sessionId) {
+    const session = stateStore.getSession ? stateStore.getSession(sessionId) : null;
+    if (session && session.summary) {
+      const sessionCtx = `[Session context]\n${session.summary}\n\n`;
+      systemPrompt = sessionCtx + (systemPrompt || "");
+    }
+    if (session && session.buyer && session.buyer !== buyer) {
+      throw new Error("Session belongs to a different buyer");
+    }
+  }
+
   await ledger.recordInferenceJobOpen(buyer, jobId, {
     prompt,
     max_fee: maxFee,
     model: opts.model || null,
-    system_prompt: opts.systemPrompt || null,
+    system_prompt: systemPrompt,
     ttl_epochs: ttlEpochs,
     expires_epoch: epoch + ttlEpochs,
     tools,
     max_turns: maxTurns,
+    output_schema: outputSchema,
+    tier,
+    rag_cids: ragCids,
+    batch_id: batchId,
+    session_id: sessionId,
   }, epoch);
 
-  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns };
+  // Register job with session if provided
+  if (sessionId) {
+    try { await ledger.recordSessionAddJob(sessionId, jobId, epoch); } catch (_) {}
+  }
+
+  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, batch_id: batchId, session_id: sessionId };
 }
 
 /**
@@ -156,7 +182,35 @@ async function submitToolCalls(jobId, miner, toolCalls) {
         error: result.error || null,
       });
     } else {
-      buyerTools.push({ ...tc, id });
+      // Check if it's a registered webhook tool — call it now
+      const registered = stateStore.getRegisteredTool ? stateStore.getRegisteredTool(name) : null;
+      if (registered && registered.webhook_url) {
+        try {
+          const axios = require("axios");
+          const hookResp = await axios.post(registered.webhook_url, {
+            tool_use_id: id, name, input,
+          }, { timeout: 15000 });
+          const hookContent = hookResp.data && hookResp.data.content != null
+            ? hookResp.data.content
+            : JSON.stringify(hookResp.data);
+          autoResolved.push({
+            tool_use_id: id,
+            name,
+            content: typeof hookContent === "string" ? hookContent : JSON.stringify(hookContent),
+            trusted: false,
+            webhook: true,
+            error: null,
+          });
+        } catch (hookErr) {
+          autoResolved.push({
+            tool_use_id: id, name,
+            content: `Webhook error: ${hookErr.message}`,
+            trusted: false, webhook: true, error: "webhook_error",
+          });
+        }
+      } else {
+        buyerTools.push({ ...tc, id });
+      }
     }
   }
 
