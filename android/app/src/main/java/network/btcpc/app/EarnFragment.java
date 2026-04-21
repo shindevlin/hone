@@ -255,7 +255,8 @@ public class EarnFragment extends Fragment {
                 if (!isAdded()) return;
                 // Populate fallback list inline if fetch fails
                 if (modelIds.isEmpty()) {
-                    modelIds.add("qwen2.5-0.5b");    modelNames.add("Qwen2.5-0.5B (default, ~400 MB)");
+                    modelIds.add("btcpc-phone-v1");   modelNames.add("BTCPC Phone v1 (recommended, ~24 MB)");
+                    modelIds.add("qwen2.5-0.5b");    modelNames.add("Qwen2.5-0.5B (~400 MB)");
                     modelIds.add("qwen3-0.6b");       modelNames.add("Qwen3-0.6B (~450 MB)");
                     modelIds.add("smollm2-360m");     modelNames.add("SmolLM2-360M (~280 MB)");
                     modelIds.add("llama-3.2-1b");     modelNames.add("Llama 3.2 1B (~700 MB)");

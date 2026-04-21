@@ -34,7 +34,18 @@ const REGISTRY_PATH = path.resolve(__dirname, '../../data/model-registry.json');
 const DEFAULT_DURATION_EPOCHS = 10000;
 
 // Canonical HuggingFace source for each supported model.
+// btcpc-phone-v1: encoder-only sentence embedding model (MiniLM-L6-v2).
+// No KV-cache / no past_key_values — compatible with tract-onnx on Android.
+// ~24MB ONNX, runs on CPU in <500ms on mid-range phones.
 const MODEL_CATALOG = {
+  'btcpc-phone-v1': {
+    hf_repo: 'Xenova/all-MiniLM-L6-v2',
+    files: [
+      'config.json', 'tokenizer.json', 'tokenizer_config.json',
+      'special_tokens_map.json', 'vocab.txt', 'onnx/model.onnx',
+    ],
+    phone_model: true,
+  },
   'smollm2-360m': {
     hf_repo: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
     files: [

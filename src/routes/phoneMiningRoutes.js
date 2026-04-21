@@ -40,7 +40,7 @@ function generateJobId() {
 
 function currentEpoch() {
     try {
-        return stateStore.getCurrentEpoch() || 0;
+        return stateStore.getChainHeight() || 0;
     } catch (_) { return 0; }
 }
 

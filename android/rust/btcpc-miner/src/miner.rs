@@ -2,9 +2,27 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
+use once_cell::sync::OnceCell;
 
 use crate::MinerState;
 use crate::proof;
+
+// Cached tract model — loaded once per model_id, reused across work units.
+// Avoids the 2-3s load time on every inference job.
+struct CachedModel {
+    plan: tract_onnx::prelude::SimplePlan<
+        tract_onnx::prelude::TypedFact,
+        Box<dyn tract_onnx::prelude::TypedOp>,
+        tract_onnx::prelude::Graph<tract_onnx::prelude::TypedFact, Box<dyn tract_onnx::prelude::TypedOp>>,
+    >,
+    tokenizer: tokenizers::Tokenizer,
+}
+
+static MODEL_CACHE: OnceCell<std::sync::Mutex<Option<CachedModel>>> = OnceCell::new();
+
+fn model_cache() -> &'static std::sync::Mutex<Option<CachedModel>> {
+    MODEL_CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 // ---- posting-key signing ----
 // Signs {account, job_id, work_hash} (keys sorted alphabetically, canonical JSON)
@@ -257,7 +275,9 @@ async fn ensure_model_files(
     match fetch_manifest(&dl, api_base, model_id).await {
         Ok(manifest) => {
             if !model_file.exists() {
-                match manifest.files.get("onnx/model_q4.onnx")
+                // Prefer plain model.onnx (encoder-only, works with tract) then quantized variants
+                match manifest.files.get("onnx/model.onnx")
+                    .or_else(|| manifest.files.get("onnx/model_q4.onnx"))
                     .or_else(|| manifest.files.get("onnx/model_q4f16.onnx"))
                 {
                     Some(FileEntry::Chunked { chunks, total_size, .. }) => {
@@ -273,10 +293,14 @@ async fn ensure_model_files(
                             .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
                     }
                     _ => {
-                        // Manifest exists but no matching file entry — fall back to direct URL
-                        let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
-                        download_resumable(&dl, &url, &model_file, model_id, state).await
-                            .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                        // Manifest exists but no matching file entry — try model.onnx then q4
+                        let url = format!("{api_base}/api/models/{model_id}/onnx/model.onnx");
+                        let r = download_resumable(&dl, &url, &model_file, model_id, state).await;
+                        if r.is_err() {
+                            let url2 = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
+                            download_resumable(&dl, &url2, &model_file, model_id, state).await
+                                .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                        }
                     }
                 }
             }
@@ -296,11 +320,15 @@ async fn ensure_model_files(
             }
         }
         Err(_) => {
-            // No manifest endpoint (older node) — fall back to direct URL download
+            // No manifest endpoint — try plain model.onnx first, then quantized
             if !model_file.exists() {
-                let url = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
-                download_resumable(&dl, &url, &model_file, model_id, state).await
-                    .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                let url = format!("{api_base}/api/models/{model_id}/onnx/model.onnx");
+                let r = download_resumable(&dl, &url, &model_file, model_id, state).await;
+                if r.is_err() {
+                    let url2 = format!("{api_base}/api/models/{model_id}/onnx/model_q4.onnx");
+                    download_resumable(&dl, &url2, &model_file, model_id, state).await
+                        .map_err(|e| anyhow::anyhow!("model download failed: {e}"))?;
+                }
             }
             if !tokenizer_file.exists() {
                 let url = format!("{api_base}/api/models/{model_id}/tokenizer.json");
@@ -463,73 +491,77 @@ async fn download_resumable(
 
 // ---- ONNX inference via tract ----
 
-fn run_inference_sync(
-    model_path: &Path,
-    tokenizer_path: &Path,
-    prompt: &str,
-    max_tokens: u32,
-) -> anyhow::Result<(String, u32)> {
+fn load_model(model_path: &Path, tokenizer_path: &Path) -> anyhow::Result<CachedModel> {
     use tract_onnx::prelude::*;
+
+    // Use concrete input shape so tract doesn't choke on symbolic KV-cache dims.
+    // We run the model as a plain encoder (BERT/MiniLM style): two inputs,
+    // both fixed at [1, MAX_SEQ] and padded at runtime. No past_key_values.
+    const MAX_SEQ: usize = 128;
+
+    let plan = tract_onnx::onnx()
+        .model_for_path(model_path)?
+        .with_input_fact(0, InferenceFact::dt_shape(i64::datum_type(), tvec![1usize, MAX_SEQ]))?
+        .with_input_fact(1, InferenceFact::dt_shape(i64::datum_type(), tvec![1usize, MAX_SEQ]))?
+        .into_optimized()?
+        .into_runnable()?;
 
     let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
         .map_err(|e| anyhow::anyhow!("tokenizer: {e}"))?;
 
-    let encoding = tokenizer.encode(prompt, true)
-        .map_err(|e| anyhow::anyhow!("encode: {e}"))?;
-    let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
-    let seq_len = input_ids.len();
+    Ok(CachedModel { plan, tokenizer })
+}
 
-    let model = tract_onnx::onnx()
-        .model_for_path(model_path)?
-        .into_optimized()?
-        .into_runnable()?;
+fn run_inference_sync(
+    model_path: &Path,
+    tokenizer_path: &Path,
+    prompt: &str,
+    _max_tokens: u32,
+) -> anyhow::Result<(String, u32)> {
+    use tract_onnx::prelude::*;
 
-    // Build input tensor: shape [1, seq_len]
-    let input = tract_ndarray::Array2::from_shape_vec(
-        (1, seq_len),
-        input_ids.clone(),
-    )?;
-    let input_tensor = TValue::from(tract_core::prelude::Tensor::from(input));
+    const MAX_SEQ: usize = 128;
 
-    // Attention mask: all ones
-    let mask = tract_ndarray::Array2::<i64>::ones((1, seq_len));
-    let mask_tensor = TValue::from(tract_core::prelude::Tensor::from(mask));
-
-    let mut generated: Vec<i64> = input_ids;
-    let eos: i64 = 151643; // Qwen EOS; generic models use 2 or 1
-
-    for _ in 0..max_tokens {
-        let cur_len = generated.len();
-        let inp = tract_ndarray::Array2::from_shape_vec(
-            (1, cur_len),
-            generated.clone(),
-        )?;
-        let inp_t = TValue::from(tract_core::prelude::Tensor::from(inp));
-        let msk = tract_ndarray::Array2::<i64>::ones((1, cur_len));
-        let msk_t = TValue::from(tract_core::prelude::Tensor::from(msk));
-
-        let outputs = model.run(tvec![inp_t, msk_t])?;
-        let logits = outputs[0].to_array_view::<f32>()?;
-        // logits shape: [1, seq, vocab] — take last token
-        let vocab_size = logits.shape()[2];
-        let last_row_start = (cur_len - 1) * vocab_size;
-        let last_logits: &[f32] = &logits.as_slice().unwrap()
-            [last_row_start..last_row_start + vocab_size];
-
-        let next_token = last_logits
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(i, _)| i as i64)
-            .unwrap_or(eos);
-
-        if next_token == eos || next_token == 2 { break; }
-        generated.push(next_token);
+    // Ensure model is loaded — reuse across work units
+    {
+        let mut guard = model_cache().lock().unwrap();
+        if guard.is_none() {
+            *guard = Some(load_model(model_path, tokenizer_path)?);
+        }
     }
 
-    let new_tokens: Vec<u32> = generated[seq_len..].iter().map(|&x| x as u32).collect();
-    let token_count = new_tokens.len() as u32;
-    let output_text = tokenizer.decode(&new_tokens, true).unwrap_or_default();
+    let guard = model_cache().lock().unwrap();
+    let cached = guard.as_ref().unwrap();
+
+    // Tokenise and pad/truncate to MAX_SEQ
+    let encoding = cached.tokenizer.encode(prompt, true)
+        .map_err(|e| anyhow::anyhow!("encode: {e}"))?;
+    let mut ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
+    ids.truncate(MAX_SEQ);
+    let seq_actual = ids.len();
+    ids.resize(MAX_SEQ, 0i64); // pad with [PAD] = 0
+
+    // Attention mask: 1 for real tokens, 0 for padding
+    let mut mask: Vec<i64> = vec![0i64; MAX_SEQ];
+    for i in 0..seq_actual { mask[i] = 1; }
+
+    let ids_t = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), ids)?;
+    let msk_t = tract_ndarray::Array2::from_shape_vec((1, MAX_SEQ), mask)?;
+
+    let outputs = cached.plan.run(tvec![
+        TValue::from(Tensor::from(ids_t)),
+        TValue::from(Tensor::from(msk_t)),
+    ])?;
+
+    // Take the [CLS] token embedding (output[0], position 0) as the compute proof.
+    // Shape: [1, seq, hidden] or [1, hidden] depending on model.
+    let out = outputs[0].to_array_view::<f32>()?;
+    let flat: Vec<f32> = out.iter().take(64).cloned().collect();
+    let token_count = seq_actual as u32;
+
+    // Encode embedding as hex string — becomes the "output_text" in the work hash
+    let bytes: Vec<u8> = flat.iter().flat_map(|f| f.to_le_bytes()).collect();
+    let output_text = hex::encode(&bytes);
 
     Ok((output_text, token_count))
 }
@@ -563,6 +595,9 @@ pub async fn run_miner(
             }
         }
     };
+
+    // Invalidate any cached model from a previous model_id — paths may have changed
+    { *model_cache().lock().unwrap() = None; }
 
     *state.status.lock() = format!("Mining with {model_id}");
 
