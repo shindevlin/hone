@@ -348,10 +348,11 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
       chain,
       claim_amount: claimAmount,
       claim_address: claimAddress,
+      mint_fee_btcpc: 0.001,
       epoch,
       claim_hash: claimHash,
       claim_payload: claimPayload,
-      message: 'Present claim_hash + signature to the wBTCPC contract oracle on ' + chain,
+      message: 'Present claim_hash + signature to the wBTCPC contract oracle on ' + chain + '. Gas on ' + chain + ' paid separately.',
     });
   } catch (err) {
     return res.status(400).json({ error: err.message });

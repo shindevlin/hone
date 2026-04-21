@@ -2407,14 +2407,36 @@ async function recordNameAuctionCancel(name, sellerSig, epoch) {
   }));
 }
 
+// Flat mint fee charged on the BTCPC chain when a claim payload is generated.
+// Paid here regardless of destination chain — ETH gas is separate and paid by the claimer.
+const CROSS_CHAIN_CLAIM_FEE = 0.001;
+
 /**
  * Record a cross-chain claim — consumes accumulated wBTCPC credit on a chain.
+ * Charges CROSS_CHAIN_CLAIM_FEE BTCPC to btcpc_recycle on the BTCPC side.
  */
 async function recordCrossChainClaim(account, chain, amount, claimAddress, signature, epoch) {
   if (!account) throw new Error('account required');
   if (!chain) throw new Error('chain required');
   if (!amount || amount <= 0) throw new Error('amount must be > 0');
   if (!claimAddress) throw new Error('claim address required');
+
+  const bal = stateStore.getBalance ? stateStore.getBalance(account, 'BTCPC') : 0;
+  if (bal < CROSS_CHAIN_CLAIM_FEE) {
+    throw new Error(`Insufficient balance for mint fee — need ${CROSS_CHAIN_CLAIM_FEE} BTCPC`);
+  }
+
+  // Deduct mint fee → recycle pool
+  _persist(_entry({
+    type: 'TRANSFER',
+    from: account,
+    to: 'btcpc_recycle',
+    token: 'BTCPC',
+    amount: CROSS_CHAIN_CLAIM_FEE,
+    epoch: epoch || 0,
+    memo: 'cross-chain mint fee',
+  }));
+
   return _persist(_entry({
     type: 'CROSS_CHAIN_CLAIM',
     from: account,
@@ -2425,7 +2447,7 @@ async function recordCrossChainClaim(account, chain, amount, claimAddress, signa
     epoch: epoch || 0,
     signature: signature || null,
     signed_by: 'posting',
-    claim_data: { chain, amount, claim_address: claimAddress },
+    claim_data: { chain, amount, claim_address: claimAddress, mint_fee: CROSS_CHAIN_CLAIM_FEE },
   }));
 }
 
