@@ -123,6 +123,67 @@ var storageHeartbeats = new Map();
 // calculation windows without unbounded growth.
 var STORAGE_HEARTBEAT_RETENTION = 1000;
 
+// ─────────────────────────────────────────────────────────────────
+// Node reputation (v3.1.118): unified reputation per account across all service types.
+// account → {
+//   storage:   { score, passed, failed, migrations, last_epoch }
+//   mining:    { score, passed, failed, last_epoch }
+//   sensor:    { score, passed, failed, last_epoch }
+//   clock:     { score, passed, failed, last_epoch }
+//   inference: { score, passed, failed, last_epoch }
+//   overall:   number (0–100, weighted average)
+// }
+// Score = exponential moving average of pass rate, 0–100.
+// New accounts start at 50 (neutral). Score rises with good events, falls with bad.
+var nodeReputation = new Map();
+
+var REPUTATION_WEIGHTS = { storage: 0.3, mining: 0.3, sensor: 0.2, clock: 0.1, inference: 0.1 };
+
+function _repScore(category) {
+  return { score: 50, passed: 0, failed: 0, migrations: 0, last_epoch: 0 };
+}
+
+function _updateRepScore(current, passed) {
+  // EMA: new_score = 0.9 * old_score + 0.1 * (100 if pass, 0 if fail)
+  var updated = Object.assign({}, current);
+  updated.score = Math.round(0.9 * (current.score || 50) + (passed ? 10 : 0));
+  if (passed) updated.passed = (current.passed || 0) + 1;
+  else updated.failed = (current.failed || 0) + 1;
+  return updated;
+}
+
+function _getNodeRep(account) {
+  return nodeReputation.get(account) || {
+    storage: _repScore('storage'),
+    mining: _repScore('mining'),
+    sensor: _repScore('sensor'),
+    clock: _repScore('clock'),
+    inference: _repScore('inference'),
+    overall: 50,
+  };
+}
+
+function _computeOverall(rep) {
+  var w = REPUTATION_WEIGHTS;
+  return Math.round(
+    rep.storage.score   * w.storage +
+    rep.mining.score    * w.mining +
+    rep.sensor.score    * w.sensor +
+    rep.clock.score     * w.clock +
+    rep.inference.score * w.inference
+  );
+}
+
+function _applyRepEvent(account, category, passed, epoch, extra) {
+  if (!account) return;
+  var rep = _getNodeRep(account);
+  rep[category] = _updateRepScore(rep[category], passed);
+  rep[category].last_epoch = epoch || 0;
+  if (extra) Object.assign(rep[category], extra);
+  rep.overall = _computeOverall(rep);
+  nodeReputation.set(account, rep);
+}
+
 // BTCPC-FS blob challenges (v2.11.2+): challenge_id → {
 //   challenger, host, cid, byte_start, byte_length, expected_hash?,
 //   issued_epoch, response_epoch, response_hash, status
@@ -734,6 +795,8 @@ function applyEntry(entry) {
         }
         earningRecord.total = _round(earningRecord.total + amount);
         earnings.set(to, earningRecord);
+        // Each accepted mining reward is a passed reputation event
+        _applyRepEvent(to, 'mining', true, entry.epoch);
         // Track total supply distributed (excludes recycle account)
         if (to !== "btcpc_recycle") {
           totalSupplyDistributed = _round(totalSupplyDistributed + amount);
@@ -1498,9 +1561,11 @@ function applyEntry(entry) {
           if (challenge.response_hash === challenge.expected_hash) {
             challenge.status = "passed";
             _bumpChallengeStat(from, "passed");
+            _applyRepEvent(from, 'storage', true, entry.epoch);
           } else {
             challenge.status = "failed_mismatch";
             _bumpChallengeStat(from, "failed");
+            _applyRepEvent(from, 'storage', false, entry.epoch);
           }
         } else {
           challenge.status = "responded"; // awaiting verifier ruling
@@ -1522,9 +1587,11 @@ function applyEntry(entry) {
         if (rd.passed) {
           c2.status = "passed";
           _bumpChallengeStat(c2.host, "passed");
+          _applyRepEvent(c2.host, 'storage', true, entry.epoch);
         } else {
           c2.status = "failed_mismatch";
           _bumpChallengeStat(c2.host, "failed");
+          _applyRepEvent(c2.host, 'storage', false, entry.epoch);
         }
         blobChallenges.set(rd.challenge_id, c2);
       }
@@ -1541,9 +1608,35 @@ function applyEntry(entry) {
         if (c3.status !== "pending") break;
         c3.status = "failed_timeout";
         _bumpChallengeStat(c3.host, "failed");
+        _applyRepEvent(c3.host, 'storage', false, entry.epoch);
         blobChallenges.set(td.challenge_id, c3);
       }
       break;
+
+    case "STORAGE_MIGRATION": {
+      // Data migrated away from a failing host to a new host.
+      // Old host: rep ding + migration counter. New host: neutral (starts earning).
+      var smOld = entry.migration_data && entry.migration_data.from_host;
+      var smNew = entry.migration_data && entry.migration_data.to_host;
+      if (smOld) {
+        var smRep = _getNodeRep(smOld);
+        smRep.storage = _updateRepScore(smRep.storage, false);
+        smRep.storage.migrations = (smRep.storage.migrations || 0) + 1;
+        smRep.storage.last_epoch = entry.epoch;
+        smRep.overall = _computeOverall(smRep);
+        nodeReputation.set(smOld, smRep);
+      }
+      break;
+    }
+
+    case "NODE_REPUTATION_UPDATE": {
+      // Manual/oracle-driven reputation event for any service category.
+      var nru = entry.reputation_data || {};
+      if (nru.account && nru.category && typeof nru.passed === 'boolean') {
+        _applyRepEvent(nru.account, nru.category, nru.passed, entry.epoch, nru.extra || null);
+      }
+      break;
+    }
 
     // Host reports bytes served for a CID in the current epoch.
     // Chain invariants:
@@ -3459,6 +3552,10 @@ function getStatefulServiceRecord(slug) {
  * @param {string} [chain]  - optional filter (base|arbitrum|ethereum|solana|bitcoin)
  * @returns {Array}
  */
+function getNodeReputation(account) {
+  return _getNodeRep(account);
+}
+
 function getCrossChainCredits(account) {
   var result = {};
   for (var i = 0; i < CROSS_CHAIN_SUPPORTED.length; i++) {
@@ -3992,4 +4089,5 @@ module.exports = {
   getCrossChainCredits,
   getAllCrossChainCredits,
   CROSS_CHAIN_SUPPORTED,
+  getNodeReputation,
 };

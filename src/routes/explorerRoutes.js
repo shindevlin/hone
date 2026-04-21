@@ -369,6 +369,7 @@ router.get("/account/:name", (req, res) => {
       identity_linked_epoch: acct.identity_linked_epoch || null,
       identity_linked_at: acct.identity_linked_epoch ? epochTimestamp(acct.identity_linked_epoch) : null,
       cross_chain_credits: store.getCrossChainCredits ? store.getCrossChainCredits(name) : {},
+      reputation: store.getNodeReputation ? store.getNodeReputation(name) : null,
       timestamp: Date.now(),
     });
   } catch (err) {
@@ -484,6 +485,32 @@ router.get("/network", (req, res) => {
       avg_reward_last_10: Math.round(avgReward * 1e8) / 1e8,
       epochs_per_day: Math.round(86400000 / EPOCH_MS),
       daily_emission: Math.round(GENESIS_REWARD * (86400000 / EPOCH_MS) * 1e8) / 1e8,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /account/:name/reputation
+ * Full reputation breakdown for btcpcscan node profile page.
+ */
+router.get("/account/:name/reputation", (req, res) => {
+  try {
+    ensureHydrated();
+    const name = (req.params.name || "").toLowerCase().trim();
+    if (!name) return res.status(400).json({ error: "account name required" });
+    const store = ss();
+    if (!store.hasAccount || !store.hasAccount(name)) {
+      return res.status(404).json({ error: "account not found" });
+    }
+    const rep = store.getNodeReputation ? store.getNodeReputation(name) : null;
+    const challengeStats = store.getBlobChallengeStats ? store.getBlobChallengeStats(name) : null;
+    res.json({
+      account: name,
+      reputation: rep,
+      storage_challenge_stats: challengeStats,
       timestamp: Date.now(),
     });
   } catch (err) {

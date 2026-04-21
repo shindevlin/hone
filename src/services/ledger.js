@@ -2412,6 +2412,41 @@ async function recordNameAuctionCancel(name, sellerSig, epoch) {
 const CROSS_CHAIN_CLAIM_FEE = 0.001;
 
 /**
+ * Record a storage migration — data moved from a failing host to a new host.
+ * The old host takes a reputation ding; the new host starts earning for the shard.
+ */
+async function recordStorageMigration(cid, fromHost, toHost, reason, epoch) {
+  if (!cid) throw new Error('cid required');
+  if (!fromHost) throw new Error('fromHost required');
+  if (!toHost) throw new Error('toHost required');
+  return _persist(_entry({
+    type: 'STORAGE_MIGRATION',
+    from: fromHost,
+    to: toHost,
+    epoch: epoch || 0,
+    migration_data: { cid, from_host: fromHost, to_host: toHost, reason: reason || 'challenge_failure' },
+  }));
+}
+
+/**
+ * Record a node reputation event — oracle or verifier-driven.
+ * @param {string} account   — account whose reputation is updated
+ * @param {string} category  — 'storage'|'mining'|'sensor'|'clock'|'inference'
+ * @param {boolean} passed   — whether the event was a pass or fail
+ * @param {number} epoch
+ */
+async function recordNodeReputationUpdate(account, category, passed, epoch) {
+  if (!account) throw new Error('account required');
+  if (!category) throw new Error('category required');
+  return _persist(_entry({
+    type: 'NODE_REPUTATION_UPDATE',
+    from: account,
+    epoch: epoch || 0,
+    reputation_data: { account, category, passed: !!passed },
+  }));
+}
+
+/**
  * Record a cross-chain claim — consumes accumulated wBTCPC credit on a chain.
  * Charges CROSS_CHAIN_CLAIM_FEE BTCPC to btcpc_recycle on the BTCPC side.
  */
@@ -2606,4 +2641,6 @@ module.exports = {
   DEFAULT_AUCTION_DURATION_EPOCHS,
   recordIdentityLink,
   recordCrossChainClaim,
+  recordStorageMigration,
+  recordNodeReputationUpdate,
 };
