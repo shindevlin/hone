@@ -475,7 +475,7 @@ router.get('/:id/*path', function(req, res) {
     return res.status(503).json({ error: 'model upload in progress — check back shortly', id: req.params.id });
   }
 
-  const filePath = req.params.path;
+  const filePath = Array.isArray(req.params.path) ? req.params.path.join('/') : req.params.path;
   const cid = (model.files || {})[filePath];
   if (!cid) return res.status(404).json({ error: 'file not in model manifest', file: filePath });
 
