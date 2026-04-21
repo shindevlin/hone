@@ -1547,6 +1547,104 @@ async function startMiner() {
 
   // Start model manager (auto-pulls in-demand models within disk budget)
   startModelManager();
+
+  // Start inference marketplace poller — claim and run paid buyer jobs
+  startMarketplacePoller();
+}
+
+/**
+ * Poll the inference marketplace for open jobs and run them.
+ * Runs every 15s. Priority: paid marketplace jobs over block-reward work
+ * (marketplace pays the miner directly via escrow, plus block reward still accrues).
+ */
+async function startMarketplacePoller() {
+  const POLL_INTERVAL_MS = 15000;
+  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.122.145.60:11434';
+
+  const market = require('../services/inferenceMarket');
+  const storeRef = require('../chain/stateStore');
+  let pollRunning = false;
+
+  const pollLoop = setInterval(async () => {
+    if (!running || pollRunning) return;
+    pollRunning = true;
+    try {
+      // Skip if we already have a claimed job in progress
+      const myActive = market.getMinerJobs(MINER_ACCOUNT, { limit: 5 });
+      const inFlight = myActive.filter(j => j.status === 'claimed' || j.status === 'submitted');
+      if (inFlight.length > 0) return;
+
+      const { jobs } = market.getOpenJobs({ limit: 5 });
+      if (!jobs || jobs.length === 0) return;
+
+      // Pick best-paying open job
+      const best = jobs.sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0))[0];
+      if (!best) return;
+
+      console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} BTCPC, model: ${best.model || 'any'})`);
+      await market.claimJob(best.job_id, MINER_ACCOUNT);
+
+      // Fetch full job (with prompt)
+      const job = storeRef.getInferenceJob(best.job_id);
+      if (!job) return;
+
+      // Run inference via Ollama
+      const model = job.model || MODEL || 'qwen3:4b';
+      const messages = [];
+      if (job.system_prompt) messages.push({ role: 'system', content: job.system_prompt });
+      messages.push({ role: 'user', content: job.prompt });
+
+      const axios = require('axios');
+      const t0 = Date.now();
+      const resp = await axios.post(`${OLLAMA_URL}/api/chat`, {
+        model,
+        messages,
+        stream: false,
+      }, { timeout: 120000 });
+
+      const result = resp.data && resp.data.message && resp.data.message.content
+        ? resp.data.message.content
+        : '';
+      const tokensGenerated = resp.data && resp.data.eval_count ? resp.data.eval_count : 0;
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+
+      if (!result) {
+        await market.refundJob(job.job_id);
+        console.warn(`[Marketplace] Empty result for ${job.job_id} — refunded`);
+        return;
+      }
+
+      // Cost proportional to tokens generated (vs max budget)
+      const costPerToken = job.max_fee / Math.max(tokensGenerated, 1);
+      const actualCost = Math.min(job.max_fee, parseFloat((costPerToken * tokensGenerated).toFixed(10)));
+
+      await market.submitJob(job.job_id, MINER_ACCOUNT, result, null);
+      // submitJob auto-settles; settle again with actual cost if needed
+      try {
+        const settled = storeRef.getInferenceJob(job.job_id);
+        if (settled && settled.status === 'submitted') {
+          await market.settleJob(job.job_id, actualCost, MINER_ACCOUNT);
+        }
+      } catch (_) {}
+
+      console.log(`[Marketplace] Job ${job.job_id} complete — ${tokensGenerated} tokens, ${elapsed}s, ${actualCost.toFixed(4)} BTCPC earned`);
+    } catch (err) {
+      if (err.message && !err.message.includes('not open') && !err.message.includes('expired')) {
+        console.warn(`[Marketplace] Poll error: ${err.message}`);
+      }
+    } finally {
+      pollRunning = false;
+    }
+  }, POLL_INTERVAL_MS);
+
+  // Clean up on stop
+  const origStop = stopMiner;
+  module.exports.stopMiner = function() {
+    clearInterval(pollLoop);
+    origStop();
+  };
+
+  console.log('[Marketplace] Inference marketplace poller active — polling every 15s');
 }
 
 /**

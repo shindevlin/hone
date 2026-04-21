@@ -133,6 +133,94 @@ router.post("/query", authenticateToken, async (req, res) => {
   }
 });
 
+// ── GET /api/sensor-data/coverage ────────────────────────────────────────────
+// Returns geographic coverage: how many active sensors per grid cell / region.
+// Public endpoint for B2B buyers to assess network density before purchasing.
+router.get("/coverage", (req, res) => {
+  let stateStore;
+  try { stateStore = require("../chain/stateStore"); } catch (_) {}
+
+  if (!stateStore || typeof stateStore.getAllSensors !== "function") {
+    return res.status(503).json({ error: "Sensor registry unavailable" });
+  }
+
+  const sensors = stateStore.getAllSensors ? stateStore.getAllSensors() : [];
+  const gridPrecision = parseInt(req.query.precision) || 2; // decimal degrees, default ~11km cell
+
+  const cells = {};
+  let activeCount = 0;
+
+  for (const sensor of sensors) {
+    if (!sensor.lat || !sensor.lon) continue;
+    const lat = parseFloat(sensor.lat.toFixed(gridPrecision));
+    const lon = parseFloat(sensor.lon.toFixed(gridPrecision));
+    const key = `${lat},${lon}`;
+    if (!cells[key]) {
+      cells[key] = { lat, lon, count: 0, types: new Set() };
+    }
+    cells[key].count++;
+    if (sensor.sensor_types) {
+      sensor.sensor_types.forEach(t => cells[key].types.add(t));
+    }
+    activeCount++;
+  }
+
+  const grid = Object.values(cells).map(c => ({
+    lat: c.lat,
+    lon: c.lon,
+    sensor_count: c.count,
+    data_types: Array.from(c.types),
+  }));
+
+  res.json({
+    active_sensors: activeCount,
+    grid_cells: grid.length,
+    grid_precision_degrees: Math.pow(10, -gridPrecision),
+    grid,
+  });
+});
+
+// ── GET /api/sensor-data/availability ────────────────────────────────────────
+// Returns what sensor data types are available right now and at what density.
+// Used by B2B buyers to scope API subscriptions.
+router.get("/availability", (req, res) => {
+  let stateStore;
+  try { stateStore = require("../chain/stateStore"); } catch (_) {}
+
+  if (!stateStore || typeof stateStore.getAllSensors !== "function") {
+    return res.status(503).json({ error: "Sensor registry unavailable" });
+  }
+
+  const billing = loadBilling();
+  const rateCard = billing && typeof billing.getRateCard === "function"
+    ? billing.getRateCard()
+    : null;
+
+  const sensors = stateStore.getAllSensors ? stateStore.getAllSensors() : [];
+  const typeCounts = {};
+
+  for (const sensor of sensors) {
+    if (!sensor.sensor_types) continue;
+    for (const t of sensor.sensor_types) {
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    }
+  }
+
+  const availability = Object.entries(typeCounts).map(([type, count]) => ({
+    type,
+    sensor_count: count,
+    price_per_reading_btcpc: rateCard && rateCard.price_per_reading
+      ? rateCard.price_per_reading[type] || rateCard.price_per_reading.default
+      : null,
+  }));
+
+  res.json({
+    total_active_sensors: sensors.length,
+    data_types: availability,
+    rate_card_available: !!rateCard,
+  });
+});
+
 function __setBillingLoader(loader) {
   billingLoader = typeof loader === "function" ? loader : billingLoader;
 }

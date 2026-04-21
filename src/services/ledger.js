@@ -2513,6 +2513,151 @@ async function recordIdentityLink(account, chainAddresses, ownerKeySig, epoch) {
   }));
 }
 
+// ─── Storage settlement lag (v3.1.119+) ──────────────────────────────────────
+// Hosts earn storage rewards at the end of each epoch, but payout is held for
+// STORAGE_HOLD_EPOCHS epochs. If a blob challenge fails during the hold window,
+// the held reward is forfeited. This gives buyers a complaint window without
+// slashing the host's stake — consistent with the no-slash rule.
+
+const STORAGE_HOLD_EPOCHS = 10; // ~5 minutes
+
+/**
+ * Record that a storage reward is being held pending challenge window.
+ * Called by blobPayouts.settlePayouts instead of paying directly.
+ */
+async function recordStoragePayoutHold(host, cid, amount, holdEpoch) {
+  if (!host || !cid || !amount || amount <= 0) return null;
+  const holdId = `sph_${host}_${cid}_${holdEpoch}`;
+  return _persist(_entry({
+    type: 'STORAGE_PAYOUT_HOLD',
+    from: 'btcpc_storage_escrow',
+    to: host,
+    token: 'BTCPC',
+    amount,
+    epoch: holdEpoch || 0,
+    storage_hold_data: {
+      hold_id: holdId,
+      host,
+      cid,
+      amount,
+      hold_epoch: holdEpoch,
+      release_epoch: (holdEpoch || 0) + STORAGE_HOLD_EPOCHS,
+    },
+  }));
+}
+
+/**
+ * Release a held storage payout to the host after the challenge window passes.
+ */
+async function recordStoragePayoutRelease(holdId, host, amount, epoch) {
+  if (!holdId || !host || !amount) return null;
+  return _persist(_entry({
+    type: 'STORAGE_PAYOUT_RELEASE',
+    from: 'btcpc_storage_escrow',
+    to: host,
+    token: 'BTCPC',
+    amount,
+    epoch: epoch || 0,
+    storage_hold_data: { hold_id: holdId, host, amount },
+  }));
+}
+
+/**
+ * Forfeit a held storage payout — challenge failed during the hold window.
+ * The held amount routes to btcpc_recycle (not to the challenger — no slash).
+ */
+async function recordStoragePayoutForfeit(holdId, host, amount, cid, epoch) {
+  if (!holdId || !host || !amount) return null;
+  return _persist(_entry({
+    type: 'STORAGE_PAYOUT_FORFEIT',
+    from: 'btcpc_storage_escrow',
+    to: 'btcpc_recycle',
+    token: 'BTCPC',
+    amount,
+    epoch: epoch || 0,
+    storage_hold_data: { hold_id: holdId, host, cid, amount },
+  }));
+}
+
+/**
+ * Scan all pending storage holds and release those whose challenge window has closed.
+ * Called from epochManager on every epoch tick.
+ */
+async function releaseMaturedStorageHolds(currentEpoch) {
+  const holds = stateStore.getPendingStorageHolds
+    ? stateStore.getPendingStorageHolds()
+    : [];
+
+  let released = 0;
+  let totalReleased = 0;
+
+  for (const hold of holds) {
+    if (currentEpoch < hold.release_epoch) continue;
+    try {
+      await recordStoragePayoutRelease(hold.hold_id, hold.host, hold.amount, currentEpoch);
+      released++;
+      totalReleased += hold.amount;
+    } catch (_) {}
+  }
+
+  return { released, totalReleased: parseFloat(totalReleased.toFixed(10)) };
+}
+
+// ─── btcpc_recycle redistribution (v3.1.119+) ────────────────────────────────
+
+const RECYCLE_DISTRIBUTION_INTERVAL_EPOCHS = 240; // ~2 hours
+const RECYCLE_DISTRIBUTION_RATE = 0.05; // distribute 5% of pool per interval
+
+/**
+ * Distribute a portion of the btcpc_recycle pool to active stakers,
+ * proportional to their stake weight. Called every 240 epochs.
+ */
+async function distributeRecyclePool(epoch) {
+  // Only distribute once the 42M supply is fully minted (Phase 2).
+  // In Phase 1 the recycle pool accumulates fees as future reward endowment.
+  if (!stateStore.isPhase2()) return { distributed: 0, recipients: 0, reason: 'phase1' };
+
+  const recycleBalance = stateStore.getBalance('btcpc_recycle', 'BTCPC');
+  if (!recycleBalance || recycleBalance < 0.01) return { distributed: 0, recipients: 0 };
+
+  const stakers = stateStore.getAllStakePools().filter(s =>
+    s.total_staked > 0 &&
+    s.username !== 'btcpc_recycle' &&
+    s.username !== 'btcpc' &&
+    s.username !== 'btcpc_escrow' &&
+    s.username !== 'btcpc_fees'
+  );
+  if (stakers.length === 0) return { distributed: 0, recipients: 0 };
+
+  const totalStake = stakers.reduce((sum, s) => sum + s.total_staked, 0);
+  if (totalStake <= 0) return { distributed: 0, recipients: 0 };
+
+  const poolToDistribute = parseFloat((recycleBalance * RECYCLE_DISTRIBUTION_RATE).toFixed(10));
+  if (poolToDistribute < 0.000001) return { distributed: 0, recipients: 0 };
+
+  let totalDistributed = 0;
+  let recipients = 0;
+
+  for (const staker of stakers) {
+    const share = staker.total_staked / totalStake;
+    const amount = parseFloat((poolToDistribute * share).toFixed(10));
+    if (amount < 0.000001) continue;
+    await _persist(_entry({
+      type: 'RECYCLE_DISTRIBUTION',
+      from: 'btcpc_recycle',
+      to: staker.username,
+      token: 'BTCPC',
+      amount,
+      epoch: epoch || 0,
+      memo: `recycle:${epoch}:${staker.total_staked.toFixed(2)}stake`,
+    }));
+    totalDistributed += amount;
+    recipients++;
+  }
+
+  return { distributed: parseFloat(totalDistributed.toFixed(10)), recipients };
+}
+
 async function recordNameDelegate(name, delegated, epoch) {
   if (!name) throw new Error('name required');
   return _persist(_entry({
@@ -2520,6 +2665,83 @@ async function recordNameDelegate(name, delegated, epoch) {
     from: 'shindevlin',
     epoch: epoch || 0,
     delegate_data: { name, delegated: !!delegated },
+  }));
+}
+
+// ─── Inference Marketplace (v3.1.119+) ───────────────────────────────────────
+
+async function recordInferenceJobOpen(buyer, jobId, jobData, epoch) {
+  if (!buyer) throw new Error('buyer required');
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_OPEN',
+    from: buyer,
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      buyer,
+      prompt: jobData.prompt,
+      max_fee: jobData.max_fee,
+      model: jobData.model || null,
+      system_prompt: jobData.system_prompt || null,
+      ttl_epochs: jobData.ttl_epochs || 20,
+      expires_epoch: jobData.expires_epoch || 0,
+      status: 'open',
+    },
+  }));
+}
+
+async function recordInferenceJobClaim(jobId, miner, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!miner) throw new Error('miner required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_CLAIM',
+    from: miner,
+    epoch: epoch || 0,
+    job_data: { job_id: jobId, miner, status: 'claimed' },
+  }));
+}
+
+async function recordInferenceJobSubmit(jobId, miner, proofHash, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!miner) throw new Error('miner required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_SUBMIT',
+    from: miner,
+    epoch: epoch || 0,
+    job_data: { job_id: jobId, miner, proof_hash: proofHash, status: 'submitted' },
+  }));
+}
+
+async function recordInferenceJobSettle(jobId, miner, buyer, settlementData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_SETTLE',
+    from: miner,
+    to: buyer,
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      miner,
+      buyer,
+      actual_cost: settlementData.actual_cost,
+      miner_payout: settlementData.miner_payout,
+      protocol_fee: settlementData.protocol_fee,
+      overpayment: settlementData.overpayment,
+      settled_by: settlementData.settled_by || 'auto',
+      status: 'settled',
+    },
+  }));
+}
+
+async function recordInferenceJobRefund(jobId, buyer, reason, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!buyer) throw new Error('buyer required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_REFUND',
+    from: buyer,
+    epoch: epoch || 0,
+    job_data: { job_id: jobId, buyer, reason: reason || 'expired', status: 'refunded' },
   }));
 }
 
@@ -2643,4 +2865,20 @@ module.exports = {
   recordCrossChainClaim,
   recordStorageMigration,
   recordNodeReputationUpdate,
+  // Storage settlement lag (v3.1.119+)
+  recordStoragePayoutHold,
+  recordStoragePayoutRelease,
+  recordStoragePayoutForfeit,
+  releaseMaturedStorageHolds,
+  STORAGE_HOLD_EPOCHS,
+  // btcpc_recycle redistribution (v3.1.119+)
+  distributeRecyclePool,
+  RECYCLE_DISTRIBUTION_INTERVAL_EPOCHS,
+  RECYCLE_DISTRIBUTION_RATE,
+  // Inference Marketplace (v3.1.119+)
+  recordInferenceJobOpen,
+  recordInferenceJobClaim,
+  recordInferenceJobSubmit,
+  recordInferenceJobSettle,
+  recordInferenceJobRefund,
 };

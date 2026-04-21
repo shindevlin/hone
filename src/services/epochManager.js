@@ -330,6 +330,46 @@ async function epochTick() {
     if (!existing) {
       await createEpoch(currentEpochNum);
     }
+
+    // Sweep expired inference marketplace jobs on every epoch tick
+    try {
+      const inferenceMarket = require('./inferenceMarket');
+      await inferenceMarket.sweepExpiredJobs();
+    } catch (_) {}
+
+    // Release matured storage payout holds + process forfeitures
+    try {
+      const ledgerMod = require('./ledger');
+      const storeRef = require('../chain/stateStore');
+
+      // Process forfeit_pending holds (challenge failed during window)
+      const allHolds = storeRef.getPendingStorageHolds ? storeRef.getPendingStorageHolds() : [];
+      for (const hold of allHolds) {
+        if (hold.status === 'forfeit_pending') {
+          await ledgerMod.recordStoragePayoutForfeit(hold.hold_id, hold.host, hold.amount, hold.cid, currentEpochNum);
+        }
+      }
+
+      // Release matured holds (challenge window expired with no failure)
+      const holdResult = await ledgerMod.releaseMaturedStorageHolds(currentEpochNum);
+      if (holdResult.released > 0) {
+        console.log(`[BTCPC] Storage holds released: ${holdResult.released} holds, ${holdResult.totalReleased.toFixed(4)} BTCPC (epoch ${currentEpochNum})`);
+      }
+    } catch (_) {}
+
+    // Distribute btcpc_recycle pool every 240 epochs (~2 hours)
+    try {
+      const ledgerMod = require('./ledger');
+      if (
+        currentEpochNum > 0 &&
+        currentEpochNum % ledgerMod.RECYCLE_DISTRIBUTION_INTERVAL_EPOCHS === 0
+      ) {
+        const result = await ledgerMod.distributeRecyclePool(currentEpochNum);
+        if (result.distributed > 0) {
+          console.log(`[BTCPC] Recycle pool distributed: ${result.distributed.toFixed(4)} BTCPC to ${result.recipients} stakers (epoch ${currentEpochNum})`);
+        }
+      }
+    } catch (_) {}
   } catch (err) {
     console.error('[BTCPC] Epoch tick error:', err.message);
   }

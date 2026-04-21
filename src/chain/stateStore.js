@@ -81,6 +81,12 @@ var products = new Map();
 // Orders: order_id → { buyer, seller, product_id, quantity, unit_price, total, token, escrow_id, status, placed_epoch, fulfilled_epoch, delivered_epoch }
 var orders = new Map();
 
+// Inference marketplace jobs (v3.1.119+): job_id → { job_id, buyer, prompt, max_fee, model, system_prompt, ttl_epochs, expires_epoch, miner, proof_hash, status, open_epoch, claimed_epoch, settled_epoch }
+var inferenceJobs = new Map();
+
+// Storage payout holds (v3.1.119+): hold_id → { hold_id, host, cid, amount, hold_epoch, release_epoch, status }
+var storagePayoutHolds = new Map();
+
 // Reputation aggregates: "store|<id>" or "miner|<id>" or "product|<id>" → { score, votes_up, votes_down, completed, disputed, last_updated_epoch }
 var reputation = new Map();
 
@@ -1286,6 +1292,133 @@ function applyEntry(entry) {
       }
       break;
 
+    // ── Storage settlement lag (v3.1.119+) ──────────────────────────
+    case "STORAGE_PAYOUT_HOLD":
+      if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
+        var sphData = entry.storage_hold_data;
+        // Debit btcpc_storage_escrow account (create it if needed)
+        _ensureAccount("btcpc_storage_escrow");
+        storagePayoutHolds.set(sphData.hold_id, {
+          hold_id: sphData.hold_id,
+          host: sphData.host,
+          cid: sphData.cid,
+          amount: sphData.amount,
+          hold_epoch: sphData.hold_epoch,
+          release_epoch: sphData.release_epoch,
+          status: "pending",
+        });
+      }
+      break;
+
+    case "STORAGE_PAYOUT_RELEASE":
+      if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
+        var sphRelease = storagePayoutHolds.get(entry.storage_hold_data.hold_id);
+        if (sphRelease && sphRelease.status === "pending") {
+          _credit(to, "BTCPC", amount);
+          sphRelease.status = "released";
+          sphRelease.released_epoch = entry.epoch;
+          storagePayoutHolds.set(entry.storage_hold_data.hold_id, sphRelease);
+        }
+      }
+      break;
+
+    case "STORAGE_PAYOUT_FORFEIT":
+      if (entry.storage_hold_data && entry.storage_hold_data.hold_id) {
+        var sphForfeit = storagePayoutHolds.get(entry.storage_hold_data.hold_id);
+        if (sphForfeit && sphForfeit.status === "pending") {
+          _credit("btcpc_recycle", "BTCPC", amount);
+          sphForfeit.status = "forfeited";
+          sphForfeit.forfeited_epoch = entry.epoch;
+          storagePayoutHolds.set(entry.storage_hold_data.hold_id, sphForfeit);
+        }
+      }
+      break;
+
+    // ── btcpc_recycle pool redistribution (v3.1.119+) ───────────────
+    case "RECYCLE_DISTRIBUTION":
+      // Standard debit/credit — recycle pool pays stakers proportionally.
+      // The distribution calculation happens in ledger.distributeRecyclePool();
+      // here we just apply the balance change.
+      _debit(from, "BTCPC", amount);
+      _credit(to, "BTCPC", amount);
+      break;
+
+    // ── Inference Marketplace (v3.1.119+) ───────────────────────────
+    case "INFERENCE_JOB_OPEN":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijOpen = entry.job_data;
+        inferenceJobs.set(ijOpen.job_id, {
+          job_id: ijOpen.job_id,
+          buyer: ijOpen.buyer,
+          prompt: ijOpen.prompt,
+          max_fee: ijOpen.max_fee,
+          model: ijOpen.model || null,
+          system_prompt: ijOpen.system_prompt || null,
+          ttl_epochs: ijOpen.ttl_epochs || 20,
+          expires_epoch: ijOpen.expires_epoch || 0,
+          miner: null,
+          proof_hash: null,
+          actual_cost: null,
+          status: "open",
+          open_epoch: entry.epoch,
+          claimed_epoch: null,
+          submitted_epoch: null,
+          settled_epoch: null,
+        });
+      }
+      break;
+
+    case "INFERENCE_JOB_CLAIM":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijClaim = inferenceJobs.get(entry.job_data.job_id);
+        if (ijClaim && ijClaim.status === "open") {
+          ijClaim.miner = entry.job_data.miner;
+          ijClaim.status = "claimed";
+          ijClaim.claimed_epoch = entry.epoch;
+          inferenceJobs.set(entry.job_data.job_id, ijClaim);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_SUBMIT":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijSubmit = inferenceJobs.get(entry.job_data.job_id);
+        if (ijSubmit && ijSubmit.status === "claimed") {
+          ijSubmit.proof_hash = entry.job_data.proof_hash;
+          ijSubmit.status = "submitted";
+          ijSubmit.submitted_epoch = entry.epoch;
+          inferenceJobs.set(entry.job_data.job_id, ijSubmit);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_SETTLE":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijSettle = inferenceJobs.get(entry.job_data.job_id);
+        if (ijSettle) {
+          ijSettle.status = "settled";
+          ijSettle.actual_cost = entry.job_data.actual_cost;
+          ijSettle.miner_payout = entry.job_data.miner_payout;
+          ijSettle.protocol_fee = entry.job_data.protocol_fee;
+          ijSettle.settled_epoch = entry.epoch;
+          ijSettle.settled_by = entry.job_data.settled_by || "auto";
+          inferenceJobs.set(entry.job_data.job_id, ijSettle);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_REFUND":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijRefund = inferenceJobs.get(entry.job_data.job_id);
+        if (ijRefund) {
+          ijRefund.status = "refunded";
+          ijRefund.refund_reason = entry.job_data.reason || "expired";
+          ijRefund.refunded_epoch = entry.epoch;
+          inferenceJobs.set(entry.job_data.job_id, ijRefund);
+        }
+      }
+      break;
+
     // ── BTCPC-FS blob commits (v2.11+) ─────────────────────────────
     case "BLOB_STORE_COMMIT":
       if (entry.blob_data && entry.blob_data.cid && from) {
@@ -1592,6 +1725,9 @@ function applyEntry(entry) {
           c2.status = "failed_mismatch";
           _bumpChallengeStat(c2.host, "failed");
           _applyRepEvent(c2.host, 'storage', false, entry.epoch);
+          // Mark any pending storage payout holds for this CID as forfeit_pending.
+          // The ledger will write STORAGE_PAYOUT_FORFEIT entries on next epoch sweep.
+          forfeitStorageHoldsForCid(c2.cid);
         }
         blobChallenges.set(rd.challenge_id, c2);
       }
@@ -3556,6 +3692,66 @@ function getNodeReputation(account) {
   return _getNodeRep(account);
 }
 
+// ── Storage payout hold getters (v3.1.119+) ──────────────────────────────────
+
+function getPendingStorageHolds() {
+  var result = [];
+  for (var hold of storagePayoutHolds.values()) {
+    if (hold.status === "pending") result.push(hold);
+  }
+  return result;
+}
+
+function getStorageHoldsForHost(host) {
+  var result = [];
+  for (var hold of storagePayoutHolds.values()) {
+    if (hold.host === host) result.push(hold);
+  }
+  return result;
+}
+
+function forfeitStorageHoldsForCid(cid) {
+  var forfeited = [];
+  for (var hold of storagePayoutHolds.values()) {
+    if (hold.cid === cid && hold.status === "pending") {
+      hold.status = "forfeit_pending";
+      storagePayoutHolds.set(hold.hold_id, hold);
+      forfeited.push(hold);
+    }
+  }
+  return forfeited;
+}
+
+// ── Inference Marketplace getters (v3.1.119+) ────────────────────────────────
+
+function getInferenceJob(jobId) {
+  return inferenceJobs.get(jobId) || null;
+}
+
+function getOpenInferenceJobs() {
+  var result = [];
+  for (var job of inferenceJobs.values()) {
+    if (job.status === "open" || job.status === "claimed") result.push(job);
+  }
+  return result;
+}
+
+function getInferenceJobsByBuyer(buyer) {
+  var result = [];
+  for (var job of inferenceJobs.values()) {
+    if (job.buyer === buyer) result.push(job);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
+function getInferenceJobsByMiner(miner) {
+  var result = [];
+  for (var job of inferenceJobs.values()) {
+    if (job.miner === miner) result.push(job);
+  }
+  return result.sort(function(a, b) { return (b.open_epoch || 0) - (a.open_epoch || 0); });
+}
+
 function getCrossChainCredits(account) {
   var result = {};
   for (var i = 0; i < CROSS_CHAIN_SUPPORTED.length; i++) {
@@ -4090,4 +4286,13 @@ module.exports = {
   getAllCrossChainCredits,
   CROSS_CHAIN_SUPPORTED,
   getNodeReputation,
+  // Inference Marketplace (v3.1.119+)
+  getInferenceJob,
+  getOpenInferenceJobs,
+  getInferenceJobsByBuyer,
+  getInferenceJobsByMiner,
+  // Storage settlement lag (v3.1.119+)
+  getPendingStorageHolds,
+  getStorageHoldsForHost,
+  forfeitStorageHoldsForCid,
 };
