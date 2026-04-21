@@ -533,6 +533,26 @@ async function recordFileGrant(owner, storageId, grantEntry, epoch) {
 }
 
 /**
+ * Record one half of a quantum-split file on chain (v3.1.111+).
+ * Each FILE_SHARD entry carries one encrypted pointer: blob_cid + DEK share,
+ * wrapped for a specific key (posting for shard A, memo for shard B).
+ * Two entries per file, written separately — nothing on chain links them.
+ * The pair_id that ties them together is returned to the client only.
+ */
+async function recordFileShard(owner, shardId, encryptedPtr, epoch) {
+  const entry = _entry({
+    type: 'FILE_SHARD',
+    from: owner,
+    epoch,
+    shard_data: {
+      shard_id: shardId,
+      encrypted_ptr: encryptedPtr,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
  * Owner revokes a grantee's access. The grantee's wrapped_dek is removed
  * from chain state; they can no longer recover chunk locations.
  */
@@ -2444,6 +2464,7 @@ module.exports = {
   recordFileStore,
   recordFileGrant,
   recordFileRevoke,
+  recordFileShard,
   // BTCPC-FS (v2.11+)
   recordBlobStoreCommit,
   recordBlobServeProof,

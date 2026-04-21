@@ -98,6 +98,13 @@ var blobs = new Map();
 // grants[]: [{ grantee, wrapped_dek, expires_at }]
 var storedFiles = new Map();
 
+// Quantum-resistant split storage (v3.1.111+):
+// shard_id → { owner, encrypted_ptr, created_epoch }
+// Each entry holds ONE opaque ECIES-wrapped pointer (blob_cid + DEK share).
+// Two entries per file (posting key wraps shard A, memo key wraps shard B).
+// No on-chain field links the two — only the client's locally-held pair_id does.
+var shardPtrs = new Map();
+
 // BTCPC-FS storage heartbeats (v2.11.2+): host → {
 //   last_heartbeat_epoch,
 //   heartbeats: [{ epoch, cids: [...], capacity_used_gb }, ...],  // rolling window
@@ -1309,6 +1316,22 @@ function applyEntry(entry) {
         var rFile = storedFiles.get(rd.storage_id);
         if (rFile && rFile.owner === from && rd.grantee) {
           rFile.grants = rFile.grants.filter(function(g) { return g.grantee !== rd.grantee; });
+        }
+      }
+      break;
+
+    // ── Quantum-resistant split storage (v3.1.111+) ─────────────────
+    // One opaque shard pointer per entry. Two entries constitute a file;
+    // nothing here links them — that association lives client-side only.
+    case "FILE_SHARD":
+      if (entry.shard_data && entry.shard_data.shard_id && from) {
+        var shd = entry.shard_data;
+        if (typeof shd.shard_id === 'string' && shd.shard_id.length > 0 && !shardPtrs.has(shd.shard_id)) {
+          shardPtrs.set(shd.shard_id, {
+            owner: from,
+            encrypted_ptr: shd.encrypted_ptr || null,
+            created_epoch: entry.epoch || 0,
+          });
         }
       }
       break;
@@ -2705,6 +2728,18 @@ function getStoredFilesByOwner(owner) {
   return result;
 }
 
+function getShard(shardId) {
+  return shardPtrs.get(shardId) || null;
+}
+
+function getShardsByOwner(owner) {
+  var result = [];
+  shardPtrs.forEach(function(s, id) {
+    if (s.owner === owner) result.push({ shard_id: id, encrypted_ptr: s.encrypted_ptr, created_epoch: s.created_epoch });
+  });
+  return result;
+}
+
 // ── Community model registry (v3.1.97+) ──────────────────────────────────────
 
 function getCommunityModel(modelId) {
@@ -3795,6 +3830,9 @@ module.exports = {
   // Private encrypted file storage (v3.1.110+)
   getStoredFile: getStoredFile,
   getStoredFilesByOwner: getStoredFilesByOwner,
+  // Quantum-resistant split storage (v3.1.111+)
+  getShard: getShard,
+  getShardsByOwner: getShardsByOwner,
   // Community model registry (v3.1.97+)
   getCommunityModel: getCommunityModel,
   getAllCommunityModels: getAllCommunityModels,
