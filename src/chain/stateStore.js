@@ -228,6 +228,13 @@ var CROSS_CHAIN_ACTIVITY_RETENTION = 1000;
 // Consumed by CROSS_CHAIN_CLAIM entries when user claims wBTCPC on a chain.
 var crossChainCredits = new Map();
 
+// Canonical list of chains where wBTCPC exists. One credit per chain per reward.
+var CROSS_CHAIN_SUPPORTED = [
+  'ethereum', 'base', 'arbitrum', 'optimism',  // EVM (same address, separate contracts)
+  'solana', 'ton', 'bitcoin',                   // non-EVM
+  'hive', 'bsc', 'polygon',                     // additional
+];
+
 // ─────────────────────────────────────────────────────────────────
 // Stateful compute state (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
@@ -736,7 +743,7 @@ function applyEntry(entry) {
         // historical blocks replayed from disk, giving all miners retroactive credit.
         var ccCreditAmount = _round(amount * 0.1);
         if (ccCreditAmount > 0) {
-          var ccChains = ['eth', 'solana', 'ton', 'bitcoin'];
+          var ccChains = CROSS_CHAIN_SUPPORTED;
           for (var ci = 0; ci < ccChains.length; ci++) {
             var ccKey = to + '|' + ccChains[ci];
             crossChainCredits.set(ccKey, _round((crossChainCredits.get(ccKey) || 0) + ccCreditAmount));
@@ -3453,10 +3460,9 @@ function getStatefulServiceRecord(slug) {
  * @returns {Array}
  */
 function getCrossChainCredits(account) {
-  var supported = ['eth', 'solana', 'ton', 'bitcoin'];
   var result = {};
-  for (var i = 0; i < supported.length; i++) {
-    result[supported[i]] = crossChainCredits.get(account + '|' + supported[i]) || 0;
+  for (var i = 0; i < CROSS_CHAIN_SUPPORTED.length; i++) {
+    result[CROSS_CHAIN_SUPPORTED[i]] = crossChainCredits.get(account + '|' + CROSS_CHAIN_SUPPORTED[i]) || 0;
   }
   return result;
 }
@@ -3985,4 +3991,5 @@ module.exports = {
   getPhase2ActivationEpoch: getPhase2ActivationEpoch,
   getCrossChainCredits,
   getAllCrossChainCredits,
+  CROSS_CHAIN_SUPPORTED,
 };

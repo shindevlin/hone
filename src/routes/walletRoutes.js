@@ -310,7 +310,9 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
   try {
     const account = req.user.username;
     const { chain, amount, signature } = req.body || {};
-    if (!chain) return res.status(400).json({ error: 'chain required (eth|solana|ton|bitcoin)' });
+    const supported = stateStore.CROSS_CHAIN_SUPPORTED || [];
+    if (!chain) return res.status(400).json({ error: 'chain required', supported_chains: supported });
+    if (!supported.includes(chain)) return res.status(400).json({ error: 'unsupported chain: ' + chain, supported_chains: supported });
     if (!signature) return res.status(403).json({ error: 'posting key signature required' });
 
     const acct = stateStore.getAccount ? stateStore.getAccount(account) : null;
