@@ -109,15 +109,17 @@ router.post('/submit', authenticateToken, (req, res) => {
         return res.status(409).json({ error: 'job already submitted — replay rejected' });
     }
 
-    // Require posting-key signature — same requirement as desktop miners.
-    if (!signature) {
-        return res.status(403).json({ error: 'signature required — set your posting key in Settings' });
-    }
-
-    // Verify signature: SHA256(canonical JSON {account, job_id, work_hash}) signed with posting key
-    const signData = { account, job_id, work_hash };
-    if (!messageAuth.verifyAccountSignature(account, signData, signature, 'posting')) {
-        return res.status(403).json({ error: 'Invalid posting-key signature' });
+    // Posting-key signature is preferred but optional for JWT-authenticated phone miners.
+    // The authenticateToken middleware already validated the caller owns this account.
+    // A self-attested marker is accepted in lieu of a posting key so phone browsers can mine
+    // without managing secp256k1 keys on-device.
+    const isSelfAttested = !signature || signature === 'self-attested';
+    if (!isSelfAttested) {
+        // Full signature present — verify it.
+        const signData = { account, job_id, work_hash };
+        if (!messageAuth.verifyAccountSignature(account, signData, signature, 'posting')) {
+            return res.status(403).json({ error: 'Invalid posting-key signature' });
+        }
     }
 
     const unit = pendingWork.get(job_id);
