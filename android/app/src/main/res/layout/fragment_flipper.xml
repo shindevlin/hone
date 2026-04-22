@@ -121,7 +121,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Plug in your Flipper via USB - the app reads its BLE address automatically and pairs. Or tap below to scan manually."
+                android:text="Plug in your Flipper via USB - the app reads its BLE address and pairs automatically. Or tap below to scan manually."
                 android:textColor="@color/btcpc_muted"
                 android:textSize="13sp" />
 

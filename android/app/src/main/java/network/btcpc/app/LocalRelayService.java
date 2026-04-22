@@ -72,8 +72,11 @@ import fi.iki.elonen.NanoHTTPD;
  *   3. BLE UART  — Flipper Zero UART BLE Bridge app advertises Nordic UART Service.
  *                  Android connects as GATT client, subscribes to TX characteristic.
  *
- * Each method parses JSON: {"id":"sensor_id","value":23.5,"unit":"C"}
- * and forwards to the BTCPC sensor readings API.
+ * Each method parses JSON sensor lines and forwards to the BTCPC sensor
+ * readings API. Flipper packets now preserve device identity in metadata:
+ *   {"id":"sensor_id","value":23.5,"metadata":{"flipper_device_id":"...",
+ *    "flipper_session_id":"...", "flipper_packet_tag":"..."}}
+ * Legacy payloads without this envelope still work.
  *
  * API target: local node on localhost:4242 with fallback to btcpc.net.
  */
@@ -429,7 +432,6 @@ public class LocalRelayService extends Service {
         private volatile boolean running = true;
         private static final int TIMEOUT_MS = 500;
         private static final int BUF_SIZE = 512;
-        private boolean macQueried = false;
 
         UsbReaderThread(UsbDeviceConnection connection, UsbEndpoint inEndpoint, UsbEndpoint outEndpoint) {
             super("USB-Flipper-Reader");
@@ -444,19 +446,8 @@ public class LocalRelayService extends Service {
             connection.close();
         }
 
-        private void sendCommand(String cmd) {
-            if (outEndpoint == null) return;
-            byte[] bytes = cmd.getBytes(StandardCharsets.UTF_8);
-            connection.bulkTransfer(outEndpoint, bytes, bytes.length, 1000);
-        }
-
         @Override
         public void run() {
-            // Give the Flipper a moment to initialise its CLI after USB connect
-            try { Thread.sleep(600); } catch (InterruptedException ignored) {}
-            sendCommand("bt info\r\n");
-            macQueried = true;
-
             byte[] buf = new byte[BUF_SIZE];
             StringBuilder lineBuffer = new StringBuilder();
             while (running) {
@@ -469,7 +460,7 @@ public class LocalRelayService extends Service {
                         String line = lineBuffer.substring(0, nl).trim();
                         lineBuffer.delete(0, nl + 1);
                         if (!line.isEmpty()) {
-                            if (macQueried) checkForMac(line);
+                            checkForMac(line);
                             handleSensorLine(line, "USB");
                         }
                     }
@@ -481,23 +472,36 @@ public class LocalRelayService extends Service {
             Log.i(TAG, "USB reader thread exiting");
         }
 
-        /** Scans a CLI response line for a hex MAC address and saves it if not yet paired. */
+        /** Watches incoming USB lines for a MAC address and saves it if not yet paired. */
         private void checkForMac(String line) {
             AppPrefs prefs = new AppPrefs(LocalRelayService.this);
             if (!prefs.getFlipperBleMac().isEmpty()) return; // already paired
-            // Match AA:BB:CC:DD:EE:FF (upper or lower case)
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
-                    .matcher(line);
-            if (m.find()) {
-                String mac = m.group(0).toUpperCase();
+
+            String mac = null;
+
+            // Primary: explicit announce from btcpc_relay.fap — "BTCPC_MAC:AA:BB:CC:DD:EE:FF"
+            if (line.startsWith("BTCPC_MAC:")) {
+                String candidate = line.substring("BTCPC_MAC:".length()).trim();
+                if (candidate.matches("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")) {
+                    mac = candidate.toUpperCase();
+                }
+            }
+
+            // Fallback: any line containing a MAC pattern (e.g. Flipper CLI bt info output)
+            if (mac == null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
+                        .matcher(line);
+                if (m.find()) mac = m.group(0).toUpperCase();
+            }
+
+            if (mac != null) {
                 Log.i(TAG, "Auto-detected Flipper BLE MAC: " + mac);
                 prefs.setFlipperBle(mac, "Flipper Zero");
                 Intent broadcast = new Intent(ACTION_FLIPPER_MAC_FOUND);
                 broadcast.setPackage(getPackageName());
                 broadcast.putExtra(EXTRA_FLIPPER_MAC, mac);
                 sendBroadcast(broadcast);
-                macQueried = false; // stop checking further lines
             }
         }
     }
@@ -523,21 +527,22 @@ public class LocalRelayService extends Service {
         bleScanner = adapter.getBluetoothLeScanner();
         if (bleScanner == null) return;
 
-        String savedMac = new AppPrefs(this).getFlipperBleMac();
-        if (savedMac.isEmpty()) {
-            Log.i(TAG, "No paired Flipper MAC — skipping BLE scan. Use Flipper tab to pair.");
-            return;
+        AppPrefs prefs = new AppPrefs(this);
+        String savedMac = prefs.getFlipperBleMac();
+        java.util.List<ScanFilter> filters = new java.util.ArrayList<>();
+        if (!savedMac.isEmpty()) {
+            // Target the specific paired device by MAC address when known.
+            filters.add(new ScanFilter.Builder().setDeviceAddress(savedMac).build());
+            Log.i(TAG, "BLE scan started — looking for paired Flipper " + savedMac);
+        } else {
+            // No remembered MAC yet — discover any Flipper UART device and learn its address.
+            filters.add(new ScanFilter.Builder().setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID)).build());
+            Log.i(TAG, "BLE scan started — discovering Flipper UART devices");
         }
-
-        // Target the specific paired device by MAC address
-        ScanFilter macFilter = new ScanFilter.Builder()
-                .setDeviceAddress(savedMac)
-                .build();
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
                 .build();
-        bleScanner.startScan(Collections.singletonList(macFilter), settings, bleScanCallback);
-        Log.i(TAG, "BLE scan started — looking for paired Flipper " + savedMac);
+        bleScanner.startScan(filters, settings, bleScanCallback);
     }
 
     private void stopBleScan() {
@@ -554,6 +559,11 @@ public class LocalRelayService extends Service {
             BluetoothDevice device = result.getDevice();
             Log.i(TAG, "Found NUS device: " + device.getAddress()
                     + " name=" + device.getName());
+            AppPrefs prefs = new AppPrefs(LocalRelayService.this);
+            if (prefs.getFlipperBleMac().isEmpty()) {
+                prefs.setFlipperBle(device.getAddress().toUpperCase(),
+                        device.getName() != null ? device.getName() : "Flipper Zero");
+            }
             stopBleScan();
             bleConnected = true;
             // Connect on main thread is fine; GATT callbacks are delivered on Binder thread
@@ -641,7 +651,9 @@ public class LocalRelayService extends Service {
 
     /**
      * Parse a newline-delimited JSON line from Flipper Zero and forward to BTCPC API.
-     * Expected format: {"id":"sensor_id","value":23.5,"unit":"C"}
+     * Legacy format: {"id":"sensor_id","value":23.5,"unit":"C"}
+     * Current Flipper format keeps device/session/auth fields in the top-level
+     * payload and this service copies them into metadata before forwarding.
      */
     private void handleSensorLine(String line, String transport) {
         Log.d(TAG, "[" + transport + "] line: " + line);
@@ -663,9 +675,37 @@ public class LocalRelayService extends Service {
             return;
         }
 
+        // Preserve the Flipper device/session/auth contract in metadata.
+        JSONObject metadata = json.optJSONObject("metadata");
+        if (metadata == null) metadata = new JSONObject();
+        try {
+            String flipperDev = json.optString("dev", "").trim();
+            String flipperSid = json.optString("sid", "").trim();
+            String flipperTag = json.optString("tag", "").trim();
+            String pairedSessionId = new AppPrefs(this).getFlipperSessionId();
+
+            if (!pairedSessionId.isEmpty()) {
+                if (flipperSid.isEmpty() || !pairedSessionId.equals(flipperSid)) {
+                    Log.w(TAG, "[" + transport + "] Ignoring Flipper reading for unpaired session "
+                            + (flipperSid.isEmpty() ? "<missing>" : flipperSid));
+                    return;
+                }
+            }
+
+            if (!flipperDev.isEmpty()) metadata.put("flipper_device_id", flipperDev);
+            if (!flipperSid.isEmpty()) metadata.put("flipper_session_id", flipperSid);
+            if (!flipperTag.isEmpty()) metadata.put("flipper_packet_tag", flipperTag);
+            if (json.has("seq")) metadata.put("flipper_sequence", json.optLong("seq", -1));
+            if (json.has("src")) metadata.put("flipper_source", json.optString("src", ""));
+            metadata.put("relay_transport", transport);
+            json.put("metadata", metadata);
+        } catch (JSONException e) {
+            Log.w(TAG, "[" + transport + "] Failed to normalize Flipper metadata: " + e.getMessage());
+        }
+
         // Build the payload to forward (preserve all fields)
         final String sensorIdFinal = sensorId;
-        final String payload = line;
+        final String payload = json.toString();
 
         httpExecutor.execute(() -> forwardReading(sensorIdFinal, payload, transport));
     }
@@ -675,7 +715,8 @@ public class LocalRelayService extends Service {
      */
     private void forwardReading(String sensorId, String jsonBody, String transport) {
         lastReading = jsonBody;
-        // Always try to attach phone GPS to readings (silently skipped if no permission/location)
+        // Always try to attach phone GPS to readings (silently skipped if no permission/location).
+        // The phone remains the authoritative location source for the paired Flipper session.
         jsonBody = attachGps(jsonBody);
 
         String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";

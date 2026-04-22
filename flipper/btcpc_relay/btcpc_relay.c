@@ -20,6 +20,8 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <furi_hal_version.h>
+#include <furi_hal_usb_cdc.h>
+#include <string.h>
 
 #define TAG          "BTCPCRelay"
 #define PAGE_COUNT   5
@@ -141,6 +143,11 @@ int32_t btcpc_relay_app(void* p) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     FURI_LOG_I(TAG, "BLE MAC: %s", app->mac);
+
+    /* Announce MAC over USB CDC so the BTCPC phone app can pair automatically */
+    char mac_announce[32];
+    int mac_len = snprintf(mac_announce, sizeof(mac_announce), "BTCPC_MAC:%s\n", app->mac);
+    furi_hal_cdc_send(0, (uint8_t*)mac_announce, (uint16_t)mac_len);
 
     FuriMessageQueue* queue  = furi_message_queue_alloc(8, sizeof(InputEvent));
     ViewPort*         vp     = view_port_alloc();
