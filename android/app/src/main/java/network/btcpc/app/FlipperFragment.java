@@ -15,10 +15,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.InputType;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
@@ -26,7 +24,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ScrollView;
-import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -46,13 +43,13 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * FlipperFragment — session pairing and live status for the Flipper Zero relay.
+ * FlipperFragment — pairing and live status for the Flipper Zero relay.
  *
  * Pairing flow:
- *  1. User taps "Add Flipper"
- *  2. Scans the QR code shown on the Flipper, or enters the short pairing code
- *  3. The app stores the Flipper session id and attaches phone GPS to that session
- *  4. Legacy BLE transport pairing still works behind the scenes for live relay
+ *  1. User plugs Flipper in via USB → btcpc_relay.fap sends BTCPC_MAC:<addr> over CDC
+ *  2. LocalRelayService reads it and fires ACTION_FLIPPER_MAC_FOUND — auto-pairs instantly
+ *  3. Fallback: user taps "Pair via BLE" for an 8-second BLE scan, or enters MAC manually
+ *  4. MAC saved to AppPrefs; service restarts and connects BLE directly to that device
  */
 public class FlipperFragment extends Fragment {
 
@@ -149,13 +146,8 @@ public class FlipperFragment extends Fragment {
         logScroll       = view.findViewById(R.id.flipper_log_scroll);
 
         pairBtn.setOnClickListener(v -> {
-            if (!prefs.getFlipperSessionId().isEmpty()) {
-                new android.app.AlertDialog.Builder(requireContext())
-                        .setTitle("Unpair Flipper?")
-                        .setMessage("This will forget the current Flipper session and stop GPS binding for it.")
-                        .setPositiveButton("Unpair", (dialog, which) -> unpairFlipper())
-                        .setNegativeButton("Cancel", null)
-                        .show();
+            if (!prefs.getFlipperBleMac().isEmpty()) {
+                unpairFlipper();
             } else {
                 showPairOptionsDialog();
             }
@@ -191,24 +183,19 @@ public class FlipperFragment extends Fragment {
 
     private void refreshPairingUI() {
         if (pairStatus == null || !isAdded()) return;
-        String sessionId = prefs.getFlipperSessionId();
-        String sessionLabel = prefs.getFlipperSessionLabel();
-        long pairedAt = prefs.getFlipperSessionAt();
-        boolean paired = !sessionId.isEmpty();
+        String mac  = prefs.getFlipperBleMac();
+        String name = prefs.getFlipperBleName();
+        boolean paired = !mac.isEmpty();
 
         if (paired) {
-            pairStatus.setText(sessionLabel.isEmpty()
-                    ? "Flipper paired"
-                    : sessionLabel);
-            pairGps.setText("Session: " + shortId(sessionId)
-                    + (pairedAt > 0 ? "  •  " + formatTime(new Date(pairedAt)) : "")
-                    + "\nGPS: attached to all readings");
+            pairStatus.setText(name.isEmpty() ? mac : name);
+            pairGps.setText("GPS: attached to all readings");
             pairHint.setVisibility(View.GONE);
             pairBtn.setText("Unpair");
             pairBtn.setEnabled(true);
         } else {
             pairStatus.setText("No Flipper paired");
-            pairGps.setText("Open Pair Phone on the Flipper and scan the QR code here");
+            pairGps.setText("");
             pairHint.setVisibility(View.VISIBLE);
             pairBtn.setText("Add Flipper");
             pairBtn.setEnabled(true);
@@ -386,91 +373,11 @@ public class FlipperFragment extends Fragment {
                 .show();
     }
 
-    private void showManualPairCodeDialog() {
-        if (!isAdded()) return;
-        EditText input = new EditText(requireContext());
-        input.setHint("BTCPC:PAIR:ABC123");
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        int pad = (int) (16 * requireContext().getResources().getDisplayMetrics().density);
-        input.setPadding(pad, pad, pad, pad);
-
-        new android.app.AlertDialog.Builder(requireContext())
-                .setTitle("Enter pairing code")
-                .setMessage("Paste the code shown on the Flipper or type the QR payload manually.")
-                .setView(input)
-                .setPositiveButton("Pair", (dialog, which) -> {
-                    String token = input.getText() != null ? input.getText().toString().trim() : "";
-                    handlePairToken(token);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void handlePairToken(String token) {
-        String sessionId = extractSessionId(token);
-        if (sessionId == null || sessionId.isEmpty()) {
-            Toast.makeText(requireContext(), "Could not read the pairing code", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        new android.app.AlertDialog.Builder(requireContext())
-                .setTitle("Pair Flipper")
-                .setMessage("Pair this phone with session " + shortId(sessionId) + "?")
-                .setPositiveButton("Pair", (dialog, which) -> completeSessionPairing(sessionId))
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void completeSessionPairing(String sessionId) {
-        prefs.setFlipperSession(sessionId, "Flipper Zero");
-        refreshPairingUI();
-        appendLog("Paired session " + shortId(sessionId));
-        Toast.makeText(requireContext(), "Flipper paired", Toast.LENGTH_LONG).show();
-    }
-
     private void unpairFlipper() {
-        prefs.clearFlipperSession();
         prefs.clearFlipperBle();
         refreshPairingUI();
         appendLog("Flipper unpaired.");
         Toast.makeText(requireContext(), "Flipper unpaired", Toast.LENGTH_LONG).show();
-    }
-
-    private String extractSessionId(String token) {
-        if (token == null) return null;
-        String trimmed = token.trim();
-        if (trimmed.isEmpty()) return null;
-
-        if (trimmed.startsWith("BTCPC:PAIR:")) {
-            String sid = trimmed.substring("BTCPC:PAIR:".length()).trim();
-            return sid.isEmpty() ? null : sid;
-        }
-
-        if (trimmed.startsWith("btcpc://")) {
-            try {
-                Uri uri = Uri.parse(trimmed);
-                if ("btcpc".equalsIgnoreCase(uri.getScheme())
-                        && "pair".equalsIgnoreCase(uri.getHost())) {
-                    String sid = uri.getQueryParameter("sid");
-                    return (sid == null || sid.trim().isEmpty()) ? null : sid.trim();
-                }
-            } catch (Exception ignored) {}
-        }
-
-        return trimmed.length() >= 6 ? trimmed : null;
-    }
-
-    private String shortId(String value) {
-        if (value == null) return "";
-        String trimmed = value.trim();
-        if (trimmed.length() <= 8) return trimmed;
-        return trimmed.substring(0, 4) + "…" + trimmed.substring(trimmed.length() - 4);
-    }
-
-
-
-    private String formatTime(Date date) {
-        return TIME_FMT.format(date);
     }
 
     @Override

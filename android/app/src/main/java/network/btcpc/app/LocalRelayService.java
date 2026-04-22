@@ -675,37 +675,9 @@ public class LocalRelayService extends Service {
             return;
         }
 
-        // Preserve the Flipper device/session/auth contract in metadata.
-        JSONObject metadata = json.optJSONObject("metadata");
-        if (metadata == null) metadata = new JSONObject();
-        try {
-            String flipperDev = json.optString("dev", "").trim();
-            String flipperSid = json.optString("sid", "").trim();
-            String flipperTag = json.optString("tag", "").trim();
-            String pairedSessionId = new AppPrefs(this).getFlipperSessionId();
-
-            if (!pairedSessionId.isEmpty()) {
-                if (flipperSid.isEmpty() || !pairedSessionId.equals(flipperSid)) {
-                    Log.w(TAG, "[" + transport + "] Ignoring Flipper reading for unpaired session "
-                            + (flipperSid.isEmpty() ? "<missing>" : flipperSid));
-                    return;
-                }
-            }
-
-            if (!flipperDev.isEmpty()) metadata.put("flipper_device_id", flipperDev);
-            if (!flipperSid.isEmpty()) metadata.put("flipper_session_id", flipperSid);
-            if (!flipperTag.isEmpty()) metadata.put("flipper_packet_tag", flipperTag);
-            if (json.has("seq")) metadata.put("flipper_sequence", json.optLong("seq", -1));
-            if (json.has("src")) metadata.put("flipper_source", json.optString("src", ""));
-            metadata.put("relay_transport", transport);
-            json.put("metadata", metadata);
-        } catch (JSONException e) {
-            Log.w(TAG, "[" + transport + "] Failed to normalize Flipper metadata: " + e.getMessage());
-        }
-
-        // Build the payload to forward (preserve all fields)
+        // Build the payload to forward
         final String sensorIdFinal = sensorId;
-        final String payload = json.toString();
+        final String payload = line;
 
         httpExecutor.execute(() -> forwardReading(sensorIdFinal, payload, transport));
     }
