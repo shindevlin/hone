@@ -52,7 +52,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Scan the QR code shown on your Flipper's screen to pair it."
+                android:text="Plug in your Flipper via USB — the app will scan for it over BLE and pair automatically. Or tap below to scan manually."
                 android:textColor="@color/btcpc_muted"
                 android:textSize="13sp" />
 
@@ -62,7 +62,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Scan QR"
+                android:text="Pair via BLE"
                 android:textColor="@color/btcpc_orange" />
 
         </LinearLayout>

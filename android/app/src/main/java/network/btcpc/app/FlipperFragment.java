@@ -1,12 +1,25 @@
 package network.btcpc.app;
 
-import android.content.ActivityNotFoundException;
+import android.Manifest;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelUuid;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,57 +34,87 @@ import androidx.fragment.app.Fragment;
 import com.google.android.material.button.MaterialButton;
 
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 
 /**
- * FlipperFragment — live status panel for the LocalRelayService (Flipper Zero relay).
+ * FlipperFragment — pairing and live status for the Flipper Zero relay.
  *
- * Polls localhost:6942/_relay/status every 3 seconds.
- * Shows USB / BLE / WiFi connection indicators and appends new sensor readings
- * to a scrolling log (capped at 20 lines).
+ * Pairing flow:
+ *  1. User plugs Flipper in via USB → LocalRelayService broadcasts ACTION_FLIPPER_USB_DETECTED
+ *  2. Fragment receives it, starts a 8-second BLE scan for NUS devices
+ *  3. Shows a device-picker dialog; user selects their Flipper
+ *  4. MAC + name saved to AppPrefs; service restarts and targets that device
+ *  5. All future connections are BLE-only (no USB required)
+ *
+ * User can also tap "Pair via BLE" to trigger the scan manually without USB.
  */
 public class FlipperFragment extends Fragment {
 
-    private static final long POLL_INTERVAL_MS = 3000;
-    private static final int  MAX_LOG_LINES    = 20;
-    private static final int  REQ_QR_SCAN      = 901;
-    private static final SimpleDateFormat TIME_FMT =
-            new SimpleDateFormat("HH:mm:ss", Locale.US);
+    private static final long POLL_INTERVAL_MS  = 3_000;
+    private static final long BLE_SCAN_DURATION = 8_000;
+    private static final int  MAX_LOG_LINES     = 20;
+    private static final SimpleDateFormat TIME_FMT = new SimpleDateFormat("HH:mm:ss", Locale.US);
+
+    // Nordic UART Service UUID — Flipper Zero BLE UART Bridge
+    private static final UUID NUS_SERVICE_UUID =
+            UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+
+    private static final int COLOR_ON  = Color.parseColor("#22C55E");
+    private static final int COLOR_OFF = Color.parseColor("#A8B0BF");
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final LinkedList<String> logLines = new LinkedList<>();
+    private final Map<String, String> foundDevices = new LinkedHashMap<>(); // mac → name
 
-    // Pairing card views
-    private TextView pairStatus;
-    private TextView pairGps;
-    private TextView pairHint;
+    private AppPrefs prefs;
+
+    // Pairing card
+    private TextView       pairStatus;
+    private TextView       pairGps;
+    private TextView       pairHint;
     private MaterialButton pairBtn;
 
-    private TextView usbDot;
-    private TextView usbLabel;
-    private TextView bleDot;
-    private TextView bleLabel;
-    private TextView wifiDot;
-    private TextView wifiLabel;
+    // Transport indicators
+    private TextView usbDot, usbLabel;
+    private TextView bleDot, bleLabel;
+    private TextView wifiDot, wifiLabel;
     private TextView lastReadingView;
     private TextView logView;
     private ScrollView logScroll;
 
     private String lastReadingJson = null;
-    private boolean polling = false;
+    private boolean polling        = false;
 
-    private AppPrefs prefs;
+    // BLE pairing scan state
+    private BluetoothLeScanner pairingScanner  = null;
+    private boolean             pairingScanActive = false;
 
-    // Colours
-    private static final int COLOR_ON  = Color.parseColor("#22C55E");
-    private static final int COLOR_OFF = Color.parseColor("#A8B0BF");
+    // -----------------------------------------------------------------------
+    // Broadcast receiver — USB Flipper detected from LocalRelayService
+    // -----------------------------------------------------------------------
+    private final BroadcastReceiver usbDetectReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(intent.getAction())) {
+                appendLog("Flipper Zero detected via USB — starting BLE pairing scan…");
+                startBlePairingScan();
+            }
+        }
+    };
+
+    // -----------------------------------------------------------------------
+    // Fragment lifecycle
+    // -----------------------------------------------------------------------
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
-                             ViewGroup container,
-                             Bundle savedInstanceState) {
+                             ViewGroup container, Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_flipper, container, false);
     }
 
@@ -81,39 +124,30 @@ public class FlipperFragment extends Fragment {
 
         prefs = new AppPrefs(requireContext());
 
-        // Pairing card
         pairStatus = view.findViewById(R.id.flipper_pair_status);
         pairGps    = view.findViewById(R.id.flipper_pair_gps);
         pairHint   = view.findViewById(R.id.flipper_pair_hint);
         pairBtn    = view.findViewById(R.id.flipper_pair_btn);
 
+        usbDot          = view.findViewById(R.id.flipper_usb_dot);
+        usbLabel        = view.findViewById(R.id.flipper_usb_label);
+        bleDot          = view.findViewById(R.id.flipper_ble_dot);
+        bleLabel        = view.findViewById(R.id.flipper_ble_label);
+        wifiDot         = view.findViewById(R.id.flipper_wifi_dot);
+        wifiLabel       = view.findViewById(R.id.flipper_wifi_label);
+        lastReadingView = view.findViewById(R.id.flipper_last_reading);
+        logView         = view.findViewById(R.id.flipper_log);
+        logScroll       = view.findViewById(R.id.flipper_log_scroll);
+
         pairBtn.setOnClickListener(v -> {
-            String currentSid = prefs.getFlipperSessionId();
-            if (!currentSid.isEmpty()) {
-                // Unpair
-                prefs.clearFlipperSession();
+            if (!prefs.getFlipperBleMac().isEmpty()) {
+                prefs.clearFlipperBle();
                 refreshPairingUI();
+                appendLog("Flipper unpaired.");
             } else {
-                // Try ZXing QR scanner first; fall back to manual entry
-                Intent scanIntent = new Intent("com.google.zxing.client.android.SCAN");
-                scanIntent.putExtra("SCAN_MODE", "QR_CODE_MODE");
-                try {
-                    startActivityForResult(scanIntent, REQ_QR_SCAN);
-                } catch (ActivityNotFoundException e) {
-                    showManualPairDialog();
-                }
+                startBlePairingScan();
             }
         });
-
-        usbDot       = view.findViewById(R.id.flipper_usb_dot);
-        usbLabel     = view.findViewById(R.id.flipper_usb_label);
-        bleDot       = view.findViewById(R.id.flipper_ble_dot);
-        bleLabel     = view.findViewById(R.id.flipper_ble_label);
-        wifiDot      = view.findViewById(R.id.flipper_wifi_dot);
-        wifiLabel    = view.findViewById(R.id.flipper_wifi_label);
-        lastReadingView = view.findViewById(R.id.flipper_last_reading);
-        logView      = view.findViewById(R.id.flipper_log);
-        logScroll    = view.findViewById(R.id.flipper_log_scroll);
     }
 
     @Override
@@ -121,30 +155,12 @@ public class FlipperFragment extends Fragment {
         super.onResume();
         refreshPairingUI();
         startPolling();
-    }
 
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_QR_SCAN && resultCode == android.app.Activity.RESULT_OK && data != null) {
-            String scanned = data.getStringExtra("SCAN_RESULT");
-            if (scanned != null && scanned.startsWith("btcpc://pair")) {
-                Uri uri = Uri.parse(scanned);
-                String sid = uri.getQueryParameter("sid");
-                if (sid != null && !sid.trim().isEmpty()) {
-                    prefs.setFlipperSessionId(sid.trim());
-                    refreshPairingUI();
-                    Toast.makeText(requireContext(),
-                            "Flipper paired (session: " + sid.trim() + ")",
-                            Toast.LENGTH_LONG).show();
-                } else {
-                    Toast.makeText(requireContext(), "Invalid QR code — no session ID found",
-                            Toast.LENGTH_SHORT).show();
-                }
-            } else {
-                Toast.makeText(requireContext(), "Not a BTCPC pairing QR code",
-                        Toast.LENGTH_SHORT).show();
-            }
+        IntentFilter filter = new IntentFilter(LocalRelayService.ACTION_FLIPPER_USB_DETECTED);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requireContext().registerReceiver(usbDetectReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            requireContext().registerReceiver(usbDetectReceiver, filter);
         }
     }
 
@@ -152,60 +168,206 @@ public class FlipperFragment extends Fragment {
     public void onPause() {
         super.onPause();
         stopPolling();
+        stopPairingScan();
+        try { requireContext().unregisterReceiver(usbDetectReceiver); } catch (Exception ignored) {}
     }
 
-    // ---- pairing UI ----
+    // -----------------------------------------------------------------------
+    // Pairing UI
+    // -----------------------------------------------------------------------
 
     private void refreshPairingUI() {
         if (pairStatus == null || !isAdded()) return;
-        String sid = prefs.getFlipperSessionId();
-        boolean paired = !sid.isEmpty();
+        String mac  = prefs.getFlipperBleMac();
+        String name = prefs.getFlipperBleName();
+        boolean paired = !mac.isEmpty();
 
         if (paired) {
-            // Show truncated session ID (first 12 chars + "...")
-            String display = sid.length() > 12 ? sid.substring(0, 12) + "..." : sid;
-            pairStatus.setText("Session: " + display);
-            pairGps.setText("GPS: attached");
+            pairStatus.setText(name.isEmpty() ? mac : name);
+            pairGps.setText("GPS: attached to all readings");
             pairHint.setVisibility(View.GONE);
             pairBtn.setText("Unpair");
+            pairBtn.setEnabled(true);
         } else {
             pairStatus.setText("No Flipper paired");
             pairGps.setText("");
             pairHint.setVisibility(View.VISIBLE);
-            pairBtn.setText("Scan QR");
+            pairBtn.setText("Pair via BLE");
+            pairBtn.setEnabled(true);
         }
     }
 
-    // ---- manual pair dialog (fallback when no QR scanner installed) ----
+    // -----------------------------------------------------------------------
+    // BLE pairing scan
+    // -----------------------------------------------------------------------
 
-    private void showManualPairDialog() {
+    private void startBlePairingScan() {
+        if (pairingScanActive) return;
+        if (!isAdded()) return;
+
+        // Runtime permission check (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (requireContext().checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(requireContext(),
+                        "Grant Nearby Devices permission to scan for Flipper",
+                        Toast.LENGTH_LONG).show();
+                requestPermissions(new String[]{
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                }, 801);
+                return;
+            }
+        }
+
+        BluetoothManager bm = (BluetoothManager)
+                requireContext().getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = bm != null ? bm.getAdapter() : null;
+        if (adapter == null || !adapter.isEnabled()) {
+            Toast.makeText(requireContext(),
+                    "Enable Bluetooth to scan for Flipper", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        pairingScanner = adapter.getBluetoothLeScanner();
+        if (pairingScanner == null) {
+            Toast.makeText(requireContext(), "BLE scanner not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        foundDevices.clear();
+        pairingScanActive = true;
+        pairStatus.setText("Scanning for Flipper Zero…");
+        pairBtn.setEnabled(false);
+
+        ScanFilter nusFilter = new ScanFilter.Builder()
+                .setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID))
+                .build();
+        ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build();
+
+        pairingScanner.startScan(
+                Collections.singletonList(nusFilter), settings, pairingScanCallback);
+
+        // Stop scan and show results after timeout
+        handler.postDelayed(this::finishPairingScan, BLE_SCAN_DURATION);
+    }
+
+    private void stopPairingScan() {
+        if (pairingScanner != null && pairingScanActive) {
+            try { pairingScanner.stopScan(pairingScanCallback); } catch (Exception ignored) {}
+        }
+        pairingScanner   = null;
+        pairingScanActive = false;
+    }
+
+    private final ScanCallback pairingScanCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            if (!isAdded()) return;
+            BluetoothDevice device = result.getDevice();
+            String name = device.getName();
+            // Accept any NUS device; Flipper names itself "Flipper <last4>"
+            if (name == null || name.isEmpty()) name = device.getAddress();
+            foundDevices.put(device.getAddress(), name);
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            if (!isAdded()) return;
+            pairingScanActive = false;
+            pairStatus.setText("Scan failed (code " + errorCode + ")");
+            pairBtn.setEnabled(true);
+        }
+    };
+
+    private void finishPairingScan() {
+        stopPairingScan();
+        if (!isAdded()) return;
+
+        if (foundDevices.isEmpty()) {
+            pairStatus.setText("No Flipper found nearby");
+            pairBtn.setEnabled(true);
+            pairBtn.setText("Pair via BLE");
+            appendLog("BLE scan: no NUS devices found.");
+            showManualMacDialog();
+            return;
+        }
+
+        if (foundDevices.size() == 1) {
+            Map.Entry<String, String> entry = foundDevices.entrySet().iterator().next();
+            completePairing(entry.getKey(), entry.getValue());
+            return;
+        }
+
+        // Multiple devices found — let user pick
+        String[] names = foundDevices.values().toArray(new String[0]);
+        String[] macs  = foundDevices.keySet().toArray(new String[0]);
+        new android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Select your Flipper Zero")
+                .setItems(names, (dialog, which) -> completePairing(macs[which], names[which]))
+                .setNegativeButton("Cancel", (d, w) -> {
+                    refreshPairingUI();
+                    pairBtn.setEnabled(true);
+                })
+                .show();
+    }
+
+    private void completePairing(String mac, String name) {
+        prefs.setFlipperBle(mac, name);
+        refreshPairingUI();
+        appendLog("Paired with " + name + " (" + mac + ")");
+        Toast.makeText(requireContext(), "Paired with " + name, Toast.LENGTH_LONG).show();
+        // Restart relay service so it picks up the new MAC and connects via BLE
+        requireContext().stopService(new Intent(requireContext(), LocalRelayService.class));
+        requireContext().startService(new Intent(requireContext(), LocalRelayService.class));
+    }
+
+    /** Fallback: let user paste a MAC address manually (e.g. shown in Flipper BT settings). */
+    private void showManualMacDialog() {
         if (!isAdded()) return;
         android.widget.EditText input = new android.widget.EditText(requireContext());
-        input.setHint("Session ID from btcpc.net/pair");
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        input.setHint("AA:BB:CC:DD:EE:FF");
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         int pad = (int)(16 * requireContext().getResources().getDisplayMetrics().density);
         input.setPadding(pad, pad, pad, pad);
 
         new android.app.AlertDialog.Builder(requireContext())
-                .setTitle("Pair Flipper Zero")
-                .setMessage("Paste the session ID shown on btcpc.net/pair:")
+                .setTitle("Enter Flipper BLE Address")
+                .setMessage("Find it in Flipper Settings → Bluetooth → Paired Devices, or on the Flipper BLE UART app screen.")
                 .setView(input)
                 .setPositiveButton("Pair", (dialog, which) -> {
-                    String sid = input.getText() != null ? input.getText().toString().trim() : "";
-                    if (sid.isEmpty()) {
-                        Toast.makeText(requireContext(), "Enter a session ID", Toast.LENGTH_SHORT).show();
+                    String mac = input.getText() != null
+                            ? input.getText().toString().trim().toUpperCase() : "";
+                    if (!mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) {
+                        Toast.makeText(requireContext(),
+                                "Enter a valid MAC (AA:BB:CC:DD:EE:FF)", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    prefs.setFlipperSessionId(sid);
-                    refreshPairingUI();
-                    Toast.makeText(requireContext(),
-                            "Flipper paired (session: " + sid + ")", Toast.LENGTH_LONG).show();
+                    completePairing(mac, "Flipper");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    // ---- polling ----
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 801) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted) startBlePairingScan();
+            else Toast.makeText(requireContext(),
+                    "Bluetooth permission denied — cannot scan", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Status polling
+    // -----------------------------------------------------------------------
 
     private void startPolling() {
         if (polling) return;
@@ -234,7 +396,6 @@ public class FlipperFragment extends Fragment {
                                   boolean bleConnected, String newReading) {
                 if (!isAdded()) return;
                 updateIndicators(usbConnected, bleConnected, true);
-
                 if (newReading != null && !newReading.equals(lastReadingJson)) {
                     lastReadingJson = newReading;
                     lastReadingView.setText(newReading);
@@ -247,7 +408,6 @@ public class FlipperFragment extends Fragment {
             @Override
             public void onError(String message) {
                 if (!isAdded()) return;
-                // Relay service not running or HTTP server not up yet
                 updateIndicators(false, false, false);
                 if (logLines.isEmpty()) {
                     appendLog("Relay service not running — enable it in Earn tab");
@@ -256,20 +416,19 @@ public class FlipperFragment extends Fragment {
         });
     }
 
-    // ---- UI helpers ----
+    // -----------------------------------------------------------------------
+    // UI helpers
+    // -----------------------------------------------------------------------
 
     private void updateIndicators(boolean usb, boolean ble, boolean wifi) {
-        // USB
         usbDot.setBackgroundColor(usb ? COLOR_ON : COLOR_OFF);
         usbLabel.setText(usb ? "Connected" : "Disconnected");
         usbLabel.setTextColor(usb ? COLOR_ON : COLOR_OFF);
 
-        // BLE
         bleDot.setBackgroundColor(ble ? COLOR_ON : COLOR_OFF);
         bleLabel.setText(ble ? "Connected" : "Disconnected");
         bleLabel.setTextColor(ble ? COLOR_ON : COLOR_OFF);
 
-        // WiFi — always "listening" when relay is up, off when not running
         wifiDot.setBackgroundColor(wifi ? COLOR_ON : COLOR_OFF);
         wifiLabel.setText(wifi ? "Listening :6942" : "Not running");
         wifiLabel.setTextColor(wifi ? COLOR_ON : COLOR_OFF);
@@ -278,15 +437,10 @@ public class FlipperFragment extends Fragment {
     private void appendLog(String line) {
         String timestamp = TIME_FMT.format(new Date());
         logLines.addLast("[" + timestamp + "] " + line);
-        while (logLines.size() > MAX_LOG_LINES) {
-            logLines.removeFirst();
-        }
+        while (logLines.size() > MAX_LOG_LINES) logLines.removeFirst();
         StringBuilder sb = new StringBuilder();
-        for (String l : logLines) {
-            sb.append(l).append("\n");
-        }
+        for (String l : logLines) sb.append(l).append("\n");
         logView.setText(sb.toString());
-        // Scroll to bottom
         logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
     }
 }

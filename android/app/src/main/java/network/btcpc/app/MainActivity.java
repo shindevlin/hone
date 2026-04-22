@@ -133,26 +133,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void handlePairIntent(Intent intent, AppPrefs prefs,
                                    BottomNavigationView bottomNav, FragmentManager fm) {
-        if (intent == null) return;
-        Uri data = intent.getData();
-        if (data == null) return;
-        if (!"btcpc".equals(data.getScheme()) || !"pair".equals(data.getHost())) return;
-
-        String sid = data.getQueryParameter("sid");
-        if (sid == null || sid.trim().isEmpty()) return;
-
-        prefs.setFlipperSessionId(sid.trim());
-
-        // Navigate to Flipper tab
-        Fragment flipperFrag = fm.findFragmentByTag(TAG_FLIPPER);
-        if (flipperFrag != null && activeFragment != null && activeFragment != flipperFrag) {
-            fm.beginTransaction().hide(activeFragment).show(flipperFrag).commit();
-            activeFragment = flipperFrag;
-            bottomNav.setSelectedItemId(R.id.nav_flipper);
-        }
-
-        Toast.makeText(this, "Flipper paired (session: " + sid.trim() + ")",
-                Toast.LENGTH_LONG).show();
+        // btcpc://pair deep-links are no longer used — pairing is now done via BLE scan
+        // triggered by USB plug-in or the "Pair via BLE" button in the Flipper tab.
     }
 
     // ---- fragment lookup ----

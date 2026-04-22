@@ -100,6 +100,8 @@ public class LocalRelayService extends Service {
     private static final String REMOTE_API_BASE = "https://btcpc.net/api";
 
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
+    /** Broadcast when a Flipper Zero is detected via USB and not yet BLE-paired. */
+    public static final String ACTION_FLIPPER_USB_DETECTED = "network.btcpc.app.FLIPPER_USB_DETECTED";
 
     // WiFi HTTP server (NanoHTTPD) — Method 1
     private static final int WIFI_HTTP_PORT = 6942;
@@ -127,6 +129,7 @@ public class LocalRelayService extends Service {
                 UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 if (isFlipperZero(device)) {
                     Log.i(TAG, "Flipper Zero attached via USB");
+                    notifyFlipperUsbDetected();
                     requestUsbPermission(device);
                 }
             } else if (ACTION_USB_PERMISSION.equals(action)) {
@@ -325,6 +328,16 @@ public class LocalRelayService extends Service {
                 && device.getProductId() == FLIPPER_PID;
     }
 
+    /** Notify UI that a Flipper is connected via USB (only when not yet BLE-paired). */
+    private void notifyFlipperUsbDetected() {
+        String savedMac = new AppPrefs(this).getFlipperBleMac();
+        if (savedMac.isEmpty()) {
+            Intent i = new Intent(ACTION_FLIPPER_USB_DETECTED);
+            i.setPackage(getPackageName());
+            sendBroadcast(i);
+        }
+    }
+
     /**
      * Check already-attached devices at service start (e.g. cable plugged before app launch).
      */
@@ -333,6 +346,7 @@ public class LocalRelayService extends Service {
         for (UsbDevice device : usbManager.getDeviceList().values()) {
             if (isFlipperZero(device)) {
                 Log.i(TAG, "Flipper Zero already attached — requesting permission");
+                notifyFlipperUsbDetected();
                 requestUsbPermission(device);
                 return;
             }
@@ -467,14 +481,21 @@ public class LocalRelayService extends Service {
         bleScanner = adapter.getBluetoothLeScanner();
         if (bleScanner == null) return;
 
-        ScanFilter nusFilter = new ScanFilter.Builder()
-                .setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID))
+        String savedMac = new AppPrefs(this).getFlipperBleMac();
+        if (savedMac.isEmpty()) {
+            Log.i(TAG, "No paired Flipper MAC — skipping BLE scan. Use Flipper tab to pair.");
+            return;
+        }
+
+        // Target the specific paired device by MAC address
+        ScanFilter macFilter = new ScanFilter.Builder()
+                .setDeviceAddress(savedMac)
                 .build();
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
                 .build();
-        bleScanner.startScan(Collections.singletonList(nusFilter), settings, bleScanCallback);
-        Log.i(TAG, "BLE scan started — looking for Flipper UART bridge (NUS)");
+        bleScanner.startScan(Collections.singletonList(macFilter), settings, bleScanCallback);
+        Log.i(TAG, "BLE scan started — looking for paired Flipper " + savedMac);
     }
 
     private void stopBleScan() {
@@ -612,12 +633,8 @@ public class LocalRelayService extends Service {
      */
     private void forwardReading(String sensorId, String jsonBody, String transport) {
         lastReading = jsonBody;
-
-        // Attach GPS when a Flipper session is paired — phone provides location for Flipper data
-        String sid = new AppPrefs(this).getFlipperSessionId();
-        if (!sid.isEmpty()) {
-            jsonBody = attachGps(jsonBody);
-        }
+        // Always try to attach phone GPS to readings (silently skipped if no permission/location)
+        jsonBody = attachGps(jsonBody);
 
         String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
         String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";

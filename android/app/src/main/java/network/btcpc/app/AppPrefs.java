@@ -46,8 +46,9 @@ public class AppPrefs {
     public static final String KEY_SENSORS_ENABLED = "sensorsEnabled";
     public static final String KEY_STORAGE_ENABLED = "storageEnabled";
 
-    // ---- Flipper Zero pairing ----
-    public static final String KEY_FLIPPER_SESSION_ID = "flipperSessionId";
+    // ---- Flipper Zero pairing (BLE MAC-based) ----
+    public static final String KEY_FLIPPER_BLE_MAC  = "flipperBleMac";
+    public static final String KEY_FLIPPER_BLE_NAME = "flipperBleName";
 
     // ---- service status (written by background services) ----
     public static final String KEY_RELAY_STATE   = "relay_state";
@@ -219,16 +220,23 @@ public class AppPrefs {
 
     // ---- Flipper pairing ----
 
-    public String getFlipperSessionId() {
-        return prefs.getString(KEY_FLIPPER_SESSION_ID, "");
+    public String getFlipperBleMac() {
+        return prefs.getString(KEY_FLIPPER_BLE_MAC, "");
     }
 
-    public void setFlipperSessionId(String sid) {
-        prefs.edit().putString(KEY_FLIPPER_SESSION_ID, sid.trim()).apply();
+    public String getFlipperBleName() {
+        return prefs.getString(KEY_FLIPPER_BLE_NAME, "");
     }
 
-    public void clearFlipperSession() {
-        prefs.edit().remove(KEY_FLIPPER_SESSION_ID).apply();
+    public void setFlipperBle(String mac, String name) {
+        prefs.edit()
+             .putString(KEY_FLIPPER_BLE_MAC, mac.trim())
+             .putString(KEY_FLIPPER_BLE_NAME, name != null ? name.trim() : "")
+             .apply();
+    }
+
+    public void clearFlipperBle() {
+        prefs.edit().remove(KEY_FLIPPER_BLE_MAC).remove(KEY_FLIPPER_BLE_NAME).apply();
     }
 
     /** Bulk-save all user-facing settings in one edit. */
