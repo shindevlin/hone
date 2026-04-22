@@ -297,6 +297,8 @@ public class LocalRelayService extends Service {
                     broadcast.putExtra(EXTRA_FLIPPER_MAC, mac);
                     sendBroadcast(broadcast);
                     Log.i(TAG, "[PC pair] MAC saved: " + mac);
+                    stopBleScan();
+                    startBleScan();
                     Response r = newFixedLengthResponse(Response.Status.OK,
                             "application/json", "{\"ok\":true,\"mac\":\"" + mac + "\"}");
                     r.addHeader("Access-Control-Allow-Origin", "*");
@@ -572,7 +574,7 @@ public class LocalRelayService extends Service {
             Log.i(TAG, "BLE scan started — discovering Flipper UART devices");
         }
         ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
         bleScanner.startScan(filters, settings, bleScanCallback);
     }
