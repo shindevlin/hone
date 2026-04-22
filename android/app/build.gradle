@@ -7,8 +7,8 @@ android {
         applicationId "network.btcpc.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 127
-        versionName "3.1.127"
+        versionCode 129
+        versionName "3.1.129"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters "arm64-v8a", "x86_64"
@@ -61,23 +61,23 @@ dependencies {
 // library at runtime and shows a "rebuild with cargo-ndk" message instead of crashing.
 task buildRustMiner {
     doLast {
-        def cargoNdk = 'cargo-ndk'
-        def hasCargoNdk = false
-        try {
-            def probe = [cargoNdk, '--version'].execute()
-            probe.waitFor()
-            hasCargoNdk = (probe.exitValue() == 0)
-        } catch (ignored) {}
-
-        if (!hasCargoNdk) {
+        // Resolve cargo-ndk: prefer ~/.cargo/bin (cargo install location),
+        // fall back to system PATH. Use shell expansion so $HOME is always correct.
+        def resolveProc = ['sh', '-c',
+            'test -f "$HOME/.cargo/bin/cargo-ndk" && echo "$HOME/.cargo/bin/cargo-ndk" || which cargo-ndk 2>/dev/null'
+        ].execute()
+        resolveProc.waitFor()
+        def cargoNdk = resolveProc.text?.trim()
+        if (!cargoNdk) {
             logger.lifecycle('[btcpc] cargo-ndk not found — skipping Rust miner build (install with: cargo install cargo-ndk)')
             return
         }
 
-        def rustDir = file('../../rust/btcpc-miner').canonicalPath
+        def rustDir = file('../rust/btcpc-miner').canonicalPath
         def jniOut  = file('src/main/jniLibs').canonicalPath
-        def cmd = "cargo ndk -t arm64-v8a -t x86_64 -o '${jniOut}' build --release"
-        def proc = ['sh', '-c', "cd '${rustDir}' && ${cmd}"].execute()
+        // Export PATH with ~/.cargo/bin so cargo/rustup tools resolve inside the build
+        def cmd = 'export PATH="$HOME/.cargo/bin:$PATH" && cargo ndk -t arm64-v8a -t x86_64 -o \'' + jniOut + '\' build --release'
+        def proc = ['sh', '-c', 'cd \'' + rustDir + '\' && ' + cmd].execute()
         proc.consumeProcessOutput(System.out, System.err)
         proc.waitFor()
         if (proc.exitValue() != 0) {
