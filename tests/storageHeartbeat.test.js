@@ -14,6 +14,7 @@ jest.mock('../src/p2p/mempool', () => ({
 }));
 
 const stateStore = require('../src/chain/stateStore');
+const epochBandwidth = require('../src/services/epochBandwidth');
 const ledger = require('../src/services/ledger');
 
 const CID_A = 'a'.repeat(64);
@@ -23,6 +24,8 @@ const CID_C = 'c'.repeat(64);
 describe('STORAGE_HEARTBEAT (v2.11.2)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
+    ['alice', 'bob', 'carol'].forEach(a => epochBandwidth.seedForTest(a));
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });

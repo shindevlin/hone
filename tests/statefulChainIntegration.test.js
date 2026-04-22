@@ -41,6 +41,7 @@ jest.mock('../src/p2p/protocol', () => ({
 const http = require('http');
 const express = require('express');
 const stateStore = require('../src/chain/stateStore');
+const epochBandwidth = require('../src/services/epochBandwidth');
 const ledger = require('../src/services/ledger');
 const serviceRegistry = require('../src/services/serviceRegistry');
 const serviceRoutes = require('../src/routes/serviceRoutes');
@@ -124,6 +125,8 @@ afterAll(async () => {
 
 beforeEach(() => {
   stateStore.resetAll();
+  epochBandwidth.resetAll();
+  ['shindevlin', 'alice', 'outsider', 'host-1', 'shindevlin/voxel-wars'].forEach(a => epochBandwidth.seedForTest(a));
   serviceRegistry.resetForTests();
 });
 
@@ -334,6 +337,8 @@ describe('recordSnapshotRestore', () => {
 describe('GET /api/services/:slug/snapshots', () => {
   beforeEach(async () => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
+    ['shindevlin', 'alice', 'outsider', 'host-1', 'shindevlin/voxel-wars'].forEach(a => epochBandwidth.seedForTest(a));
     serviceRegistry.resetForTests();
     // Deploy the service in both registries (route checks serviceRegistry)
     serviceRegistry.deploy('shindevlin', 'shindevlin/voxel-wars', basicRuntime(), { epoch: 1 });
@@ -369,6 +374,8 @@ describe('GET /api/services/:slug/snapshots', () => {
 describe('GET /api/services/:slug/snapshots/latest', () => {
   beforeEach(async () => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
+    ['shindevlin', 'alice', 'outsider', 'host-1', 'shindevlin/voxel-wars'].forEach(a => epochBandwidth.seedForTest(a));
     serviceRegistry.resetForTests();
     serviceRegistry.deploy('shindevlin', 'shindevlin/voxel-wars', basicRuntime(), { epoch: 1 });
     await ledger.recordStatefulServiceDeploy(
@@ -395,6 +402,8 @@ describe('GET /api/services/:slug/snapshots/latest', () => {
 describe('POST /api/services/:slug/snapshots', () => {
   beforeEach(async () => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
+    ['shindevlin', 'alice', 'outsider', 'host-1', 'shindevlin/voxel-wars'].forEach(a => epochBandwidth.seedForTest(a));
     serviceRegistry.resetForTests();
     serviceRegistry.deploy('shindevlin', 'shindevlin/voxel-wars', basicRuntime(), { epoch: 1 });
     await ledger.recordStatefulServiceDeploy(
@@ -448,6 +457,8 @@ describe('POST /api/services/:slug/snapshots', () => {
 describe('POST /api/services/:slug/restore/:cid', () => {
   beforeEach(async () => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
+    ['shindevlin', 'alice', 'outsider', 'host-1', 'shindevlin/voxel-wars'].forEach(a => epochBandwidth.seedForTest(a));
     serviceRegistry.resetForTests();
     serviceRegistry.deploy('shindevlin', 'shindevlin/voxel-wars', basicRuntime(), { epoch: 1 });
     await ledger.recordStatefulServiceDeploy(
