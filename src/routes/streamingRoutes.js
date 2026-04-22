@@ -14,6 +14,9 @@
 
 const express = require("express");
 const router = express.Router();
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 const axios = require("axios");
 const { authenticateToken } = require("../middlewares/auth");
 const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
@@ -21,9 +24,31 @@ const stateStore = require("../chain/stateStore");
 const ledger = require("../services/ledger");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MIN_STREAM_FEE = 0.001;   // 0.001 BTCPC minimum for direct streaming
-const COST_PER_TOKEN = 0.000001; // 0.000001 BTCPC per token (adjust via env)
+const MIN_STREAM_FEE = 0.001;
+const COST_PER_TOKEN = 0.000001;
 const MAX_PROMPT_LENGTH = 8000;
+const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+
+const VISION_MODEL_PATTERNS = [/llava/i, /bakllava/i, /moondream/i, /minicpm-v/i, /qwen.*vl/i];
+function _isVisionModel(name) { return VISION_MODEL_PATTERNS.some((re) => re.test(name)); }
+
+function _pickStreamModel(tier, hasImages, requestedModel) {
+  if (hasImages) return requestedModel || process.env.BTCPC_VISION_MODEL || "llava:7b";
+  if (tier === "reasoning") return requestedModel || process.env.BTCPC_REASONING_MODEL || "qwq:32b";
+  if (tier === "fast") return requestedModel || process.env.BTCPC_FAST_MODEL || "qwen3:0.6b";
+  return requestedModel || process.env.BTCPC_MODEL || "qwen3:4b";
+}
+
+function _storeInlineBlob(b64, maxBytes) {
+  try {
+    const buf = Buffer.from(b64, "base64");
+    if (buf.length > maxBytes) return null;
+    if (!fs.existsSync(BLOB_DIR)) fs.mkdirSync(BLOB_DIR, { recursive: true });
+    const cid = crypto.createHash("sha256").update(buf).digest("hex");
+    fs.writeFileSync(path.join(BLOB_DIR, cid), buf);
+    return cid;
+  } catch (_) { return null; }
+}
 
 // ── POST /api/inference/stream ────────────────────────────────────────────────
 // Direct streaming inference — bypasses marketplace, instant response.
@@ -45,13 +70,35 @@ router.post("/stream", authenticateToken, async (req, res) => {
     return res.status(402).json({ error: `Insufficient balance: need at least ${MIN_STREAM_FEE} BTCPC` });
   }
 
-  // Pick model by tier
-  let resolvedModel = model;
-  if (!resolvedModel) {
-    if (tier === "reasoning") resolvedModel = process.env.BTCPC_REASONING_MODEL || "qwq:32b";
-    else if (tier === "fast") resolvedModel = process.env.BTCPC_FAST_MODEL || "qwen3:0.6b";
-    else resolvedModel = process.env.BTCPC_MODEL || "qwen3:4b";
+  // Images: accept pre-uploaded CIDs or inline base64 (max 4MB each, max 5)
+  let imageCids = Array.isArray(req.body.image_cids) ? req.body.image_cids.slice(0, 5) : [];
+  if (Array.isArray(req.body.images)) {
+    for (const b64 of req.body.images.slice(0, 5)) {
+      const cid = _storeInlineBlob(b64, 4 * 1024 * 1024);
+      if (cid) imageCids.push(cid);
+    }
   }
+  const hasImages = imageCids.length > 0;
+
+  // Audio: transcribe inline before streaming if provided
+  let audioTranscript = null;
+  const audioCid = req.body.audio_cid ? sanitizeString(req.body.audio_cid, 64) : null;
+  const inlineAudio = req.body.audio;
+  let resolvedAudioCid = audioCid;
+  if (!resolvedAudioCid && inlineAudio) {
+    resolvedAudioCid = _storeInlineBlob(inlineAudio, 10 * 1024 * 1024);
+  }
+  if (resolvedAudioCid) {
+    try {
+      const audioTranscriber = require("../services/audioTranscriber");
+      audioTranscript = await audioTranscriber.transcribe(resolvedAudioCid);
+      try { fs.unlinkSync(path.join(BLOB_DIR, resolvedAudioCid)); } catch (_) {}
+    } catch (audioErr) {
+      console.warn(`[Stream] Audio transcription failed: ${audioErr.message}`);
+    }
+  }
+
+  const resolvedModel = _pickStreamModel(tier, hasImages, model);
 
   // Set up SSE
   res.setHeader("Content-Type", "text/event-stream");
@@ -64,9 +111,24 @@ router.post("/stream", authenticateToken, async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Build messages — inject audio transcript, attach images
   const messages = [];
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
-  messages.push({ role: "user", content: prompt });
+  const userContent = audioTranscript
+    ? `[Audio transcript]\n${audioTranscript}\n\n${prompt}`
+    : prompt;
+  const userMsg = { role: "user", content: userContent };
+
+  if (hasImages) {
+    const images = [];
+    for (const cid of imageCids) {
+      if (!/^[a-f0-9]{64}$/.test(cid)) continue;
+      const blobPath = path.join(BLOB_DIR, cid);
+      try { images.push(fs.readFileSync(blobPath).toString("base64")); } catch (_) {}
+    }
+    if (images.length > 0) userMsg.images = images;
+  }
+  messages.push(userMsg);
 
   const body = { model: resolvedModel, messages, stream: true };
   if (outputSchema) body.format = { type: "json", schema: outputSchema };
@@ -128,6 +190,8 @@ router.post("/stream", authenticateToken, async (req, res) => {
       tokens: totalTokens,
       cost_btcpc: actualCost,
       model: resolvedModel,
+      images: imageCids.length > 0 ? imageCids.length : undefined,
+      audio_transcribed: audioTranscript ? true : undefined,
     });
     res.end();
   } catch (err) {

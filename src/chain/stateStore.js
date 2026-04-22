@@ -4175,19 +4175,32 @@ function getToolsByOwner(owner) {
 
 // ── Miner capabilities (v3.1.125+) ────────────────────────────────────────────
 
+// Capabilities older than this many epochs are considered stale (~100 min at 30s/epoch).
+// Miners rebroadcast every 100 epochs, so 200 gives two missed heartbeats before pruning.
+var CAPABILITY_STALE_EPOCHS = 200;
+
+function _isCapabilityFresh(caps) {
+  if (!caps || caps.updated_epoch == null) return false;
+  var latestEpoch = getLatestEpoch();
+  if (latestEpoch == null) return true; // chain not yet synced — don't prune
+  return (latestEpoch - caps.updated_epoch) < CAPABILITY_STALE_EPOCHS;
+}
+
 function getMinerCapabilities(miner) {
-  return minerCapabilities.get(miner) || null;
+  var caps = minerCapabilities.get(miner) || null;
+  return (caps && _isCapabilityFresh(caps)) ? caps : null;
 }
 
 function getAllMinerCapabilities() {
-  return Array.from(minerCapabilities.values());
+  return Array.from(minerCapabilities.values()).filter(_isCapabilityFresh);
 }
 
 /** Return miners whose advertised capabilities satisfy the job's requirements. */
 function getCapableMiners(requirements) {
-  if (!requirements) return getAllMinerCapabilities();
+  var fresh = getAllMinerCapabilities(); // already staleness-filtered
+  if (!requirements) return fresh;
   var result = [];
-  for (var caps of minerCapabilities.values()) {
+  for (var caps of fresh) {
     if (requirements.vision && !caps.vision) continue;
     if (requirements.audio && !caps.audio) continue;
     if (requirements.code_exec && !caps.code_exec) continue;
@@ -4201,7 +4214,7 @@ function getCapableMiners(requirements) {
 
 /** Aggregate view of what the live network can serve. */
 function getNetworkCapabilitySummary() {
-  var all = getAllMinerCapabilities();
+  var all = getAllMinerCapabilities(); // already staleness-filtered
   return {
     total_miners: all.length,
     vision: all.filter(function (c) { return c.vision; }).length,
@@ -4211,6 +4224,7 @@ function getNetworkCapabilitySummary() {
     finetune: all.filter(function (c) { return c.finetune; }).length,
     reasoning: all.filter(function (c) { return c.tiers && c.tiers.includes("reasoning"); }).length,
     fast: all.filter(function (c) { return c.tiers && c.tiers.includes("fast"); }).length,
+    stale_miners: Array.from(minerCapabilities.values()).filter(function (c) { return !_isCapabilityFresh(c); }).length,
   };
 }
 
@@ -4798,6 +4812,7 @@ module.exports = {
   getAllMinerCapabilities,
   getCapableMiners,
   getNetworkCapabilitySummary,
+  CAPABILITY_STALE_EPOCHS,
   // Storage settlement lag (v3.1.119+)
   getPendingStorageHolds,
   getStorageHoldsForHost,

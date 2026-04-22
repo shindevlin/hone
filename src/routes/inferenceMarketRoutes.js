@@ -78,7 +78,7 @@ router.post("/", authenticateToken, async (req, res) => {
       for (const b64 of req.body.images.slice(0, 5)) {
         try {
           const buf = Buffer.from(b64, "base64");
-          if (buf.length > 20 * 1024 * 1024) continue; // skip if >20MB
+          if (buf.length > 4 * 1024 * 1024) continue; // >4MB: use POST /api/blobs instead
           const cid = crypto.createHash("sha256").update(buf).digest("hex");
           fs.writeFileSync(path.join(BLOB_DIR, cid), buf);
           imageCids.push(cid);
@@ -91,7 +91,7 @@ router.post("/", authenticateToken, async (req, res) => {
     if (!audioCid && req.body.audio) {
       try {
         const buf = Buffer.from(req.body.audio, "base64");
-        if (buf.length <= 50 * 1024 * 1024) { // max 50MB
+        if (buf.length <= 10 * 1024 * 1024) { // >10MB: use POST /api/blobs instead
           if (!fs.existsSync(BLOB_DIR)) fs.mkdirSync(BLOB_DIR, { recursive: true });
           audioCid = crypto.createHash("sha256").update(buf).digest("hex");
           fs.writeFileSync(path.join(BLOB_DIR, audioCid), buf);

@@ -43,6 +43,28 @@ function isWhisperAvailable() {
 }
 
 /**
+ * Detect audio format from magic bytes. Returns a file extension Whisper accepts.
+ * Falls back to .wav (Whisper is permissive about WAV-like blobs).
+ */
+function detectAudioExtension(buf) {
+  if (!buf || buf.length < 12) return ".wav";
+  // WAV: RIFF....WAVE
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return ".wav";
+  // MP3: ID3 tag or sync word FF FB / FF FA / FF F3
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return ".mp3";
+  if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) return ".mp3";
+  // OGG: OggS
+  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return ".ogg";
+  // FLAC: fLaC
+  if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) return ".flac";
+  // M4A / AAC: ftyp box (bytes 4-7 = "ftyp")
+  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return ".m4a";
+  // WebM / Matroska: EBML header 1A 45 DF A3
+  if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return ".webm";
+  return ".wav";
+}
+
+/**
  * Transcribe an audio blob (by CID) to text.
  * Returns the transcript string, or throws on failure.
  */
@@ -55,10 +77,16 @@ async function transcribe(audioCid) {
     throw new Error(`Audio blob not found locally: ${audioCid}`);
   }
 
+  // Detect format from magic bytes so Whisper gets the right extension
+  const header = Buffer.alloc(12);
+  const fd = fs.openSync(blobPath, "r");
+  fs.readSync(fd, header, 0, 12, 0);
+  fs.closeSync(fd);
+  const ext = detectAudioExtension(header);
+
   const tmpDir = os.tmpdir();
-  // Whisper infers format from extension — copy blob with .wav extension
-  const tmpAudio = path.join(tmpDir, `btcpc_audio_${Date.now()}.wav`);
-  const expectedTxt = tmpAudio.replace(/\.wav$/, ".txt");
+  const tmpAudio = path.join(tmpDir, `btcpc_audio_${Date.now()}${ext}`);
+  const expectedTxt = tmpAudio.replace(/\.[^.]+$/, ".txt");
 
   try {
     fs.copyFileSync(blobPath, tmpAudio);
@@ -89,4 +117,4 @@ async function transcribe(audioCid) {
   }
 }
 
-module.exports = { transcribe, isWhisperAvailable };
+module.exports = { transcribe, isWhisperAvailable, detectAudioExtension };

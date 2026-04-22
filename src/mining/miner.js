@@ -228,6 +228,8 @@ async function computeFinalization(epochNumber) {
   // compute proofs stored in stateStore. Escrow sweep still runs.
   const escrow = require('../services/escrow');
   await escrow.sweepEscrows(600000).catch(() => {});
+  const { sweepAllMarketplaces } = require('../services/marketplaceSweep');
+  await sweepAllMarketplaces().catch(() => {});
 
   // Phase E: settled jobs count comes from compute proofs (each proof = 1 settled job)
   const settledJobsCount = stateStore.getComputeProofs(epochNumber).length;

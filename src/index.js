@@ -60,7 +60,9 @@ app.use(cors({
   credentials: true
 }));
 app.use(helmet());
-app.use(express.json({ limit: '1mb' }));
+// 25MB allows inline base64 images in inference jobs (up to 5×4MB = 20MB encoded).
+// For larger assets buyers should upload via POST /api/blobs (binary, no overhead).
+app.use(express.json({ limit: '25mb' }));
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
