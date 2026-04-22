@@ -72,17 +72,18 @@ function loadJwtSecret() {
 }
 
 function generateJwt(username, userId, secret) {
-  // Manual JWT generation (no jsonwebtoken dependency required)
+  try {
+    const jwt = require('jsonwebtoken');
+    return jwt.sign({ username, id: userId }, secret, { expiresIn: '365d' });
+  } catch (_) {}
+  // Fallback: manual HS256 (no external dep)
   const header  = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(JSON.stringify({
-    username,
-    id:  userId,
+    username, id: userId,
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 365 * 24 * 3600,
   })).toString('base64url');
-  const sig = crypto.createHmac('sha256', secret)
-                    .update(header + '.' + payload)
-                    .digest('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(header + '.' + payload).digest('base64url');
   return `${header}.${payload}.${sig}`;
 }
 
@@ -268,6 +269,7 @@ async function registerSensor() {
       decimals: 0,
       region:   'us-west',
       hardware_model: 'flipper-zero',
+      account:  account,  // fallback if JWT lookup doesn't populate req.user
     });
     if (res.status === 201 || res.status === 200) {
       ok(`Sensor ${sensorId} registered`);

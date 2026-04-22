@@ -741,6 +741,8 @@ public class LocalRelayService extends Service {
         // Always try to attach phone GPS to readings (silently skipped if no permission/location).
         // The phone remains the authoritative location source for the paired Flipper session.
         jsonBody = attachGps(jsonBody);
+        // Inject account so the server can attribute the reading even if JWT lookup fails.
+        jsonBody = injectAccount(jsonBody);
 
         String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
         String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
@@ -804,6 +806,21 @@ public class LocalRelayService extends Service {
             return json.toString();
         } catch (Exception e) {
             Log.w(TAG, "GPS attach failed: " + e.getMessage());
+            return jsonBody;
+        }
+    }
+
+    /** Inject account from prefs as relay_account so the server can attribute the reading. */
+    private String injectAccount(String jsonBody) {
+        try {
+            String account = new AppPrefs(this).getAccount();
+            if (account == null || account.isEmpty()) return jsonBody;
+            JSONObject json = new JSONObject(jsonBody);
+            if (!json.has("account")) json.put("account", account);
+            // Also set relay_account so multi-gateway witnessing tracks this phone
+            if (!json.has("relay_account")) json.put("relay_account", account);
+            return json.toString();
+        } catch (Exception e) {
             return jsonBody;
         }
     }

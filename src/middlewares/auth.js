@@ -52,6 +52,11 @@ async function authenticateToken(req, res, next) {
       if (ssRec) {
         // Normalise to the shape downstream code expects.
         // secretStore uses user_id; Mongo uses _id — both become id.
+        // Legacy records may lack a username field — patch in-place so the
+        // record is correct for future lookups without requiring a restart.
+        if (!ssRec.username && decoded.username) {
+          ssRec.username = decoded.username;
+        }
         req.user = {
           id: ssRec.user_id || decoded.id,
           username: ssRec.username || decoded.username,
