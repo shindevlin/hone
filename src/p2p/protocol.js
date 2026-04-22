@@ -854,31 +854,28 @@ function handleMiningProof(peer, msg, ctx) {
   const data = msg.data || {};
   if (!data.block_number || !data.miner) return;
 
-  // Content-based dedup: reject duplicate (miner, block_number) proofs
-  var proofKey = data.miner + ":" + data.block_number;
+  // Dedup key: use work_hash when present (allows multiple phone proofs per epoch
+  // to each accumulate work_value). Fall back to miner:block_number for GPU peers
+  // that submit one proof per epoch without a hash.
+  var proofKey = data.work_hash
+    ? data.miner + ":" + data.work_hash.slice(0, 32)
+    : data.miner + ":" + data.block_number;
   if (seenProofKeys.has(proofKey)) {
-    return; // silently drop duplicate
+    return; // silently drop replay
   }
   seenProofKeys.add(proofKey);
   if (seenProofKeys.size > SEEN_PROOF_MAX) {
-    // Evict oldest 500 (Set preserves insertion order)
     var iter = seenProofKeys.values();
     for (var i = 0; i < 500; i++) seenProofKeys.delete(iter.next().value);
   }
 
-  console.log("[BTCPC P2P] Mining proof from " + data.miner + " for block " + data.block_number);
-
-  // Register work for reward distribution — covers GPU peers and phone miners.
+  // Register work for reward distribution.
   if (data.work_value && data.work_value > 0) {
-    var jobKey = data.miner + ":" + data.block_number;
+    // jobKey must be unique per proof so work_value accumulates across multiple
+    // proofs in the same epoch (phone miners submit many short jobs per epoch).
+    var jobKey = data.work_hash || (data.miner + ":" + data.block_number);
     recordMinerWork(data.miner, jobKey, data.work_value, data.block_number);
   }
-
-  // Phase D: do NOT persist MiningProof to Mongo. Proofs flow into the
-  // block payload (payload.mining_proofs) when the authority writes the
-  // block, and into stateStore.miningProofsByEpoch via replay + live apply.
-  // Remote proofs are just informational here — the authoritative copy
-  // arrives in BLOCK_PROPOSAL / EPOCH_FINALIZED messages.
 
   // Rebroadcast to other peers
   ctx.broadcast(msg, peer.address);

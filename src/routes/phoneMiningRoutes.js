@@ -18,6 +18,7 @@ const stateStore = require('../chain/stateStore');
 const messageAuth = require('../p2p/messageAuth');
 const protocol = require('../p2p/protocol');
 const p2pNetwork = require('../p2p/network');
+const nodeRegistry = require('../chain/nodeRegistry');
 
 // Replay prevention: permanent record of seen job_ids within a rolling 3-epoch window.
 // Bounded to SEEN_JOB_CAP entries; oldest are evicted when cap is reached.
@@ -144,6 +145,17 @@ router.post('/submit', authenticateToken, (req, res) => {
 
     // Mark job_id as seen — prevents replay in any future epoch
     _recordJob(job_id, targetEpoch);
+
+    // Auto-register phone miners as permissioned nodes so blockProposal gives
+    // them weight=1 without requiring pre-existing stake. Post-bootstrap unstaked
+    // miners get weight=0, making earnings impossible for new accounts with no balance.
+    // Phone mining is an onboarding path — permissioned registration fixes the
+    // chicken-and-egg: you need BTCPC to stake, but need to mine to get BTCPC.
+    try {
+        if (!nodeRegistry.getNode(account)) {
+            nodeRegistry.registerNode(account, 'miner', 0, null, targetEpoch, true);
+        }
+    } catch (_) {}
 
     const proof = {
         miner: account,
