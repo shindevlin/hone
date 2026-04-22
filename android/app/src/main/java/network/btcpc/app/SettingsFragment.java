@@ -25,8 +25,8 @@ public class SettingsFragment extends Fragment {
 
     private AppPrefs prefs;
 
-    private EditText accountInput;
-    private EditText jwtInput;
+    private TextView accountLabel;
+    private MaterialButton signOutBtn;
     private EditText postingKeyInput;
     private EditText apiUrlInput;
     private EditText relayUrlInput;
@@ -57,8 +57,8 @@ public class SettingsFragment extends Fragment {
 
         prefs = new AppPrefs(requireContext());
 
-        accountInput    = view.findViewById(R.id.settings_account);
-        jwtInput        = view.findViewById(R.id.settings_jwt);
+        accountLabel    = view.findViewById(R.id.settings_account_label);
+        signOutBtn      = view.findViewById(R.id.settings_signout_btn);
         postingKeyInput = view.findViewById(R.id.settings_posting_key);
         apiUrlInput     = view.findViewById(R.id.settings_api_url);
         relayUrlInput   = view.findViewById(R.id.settings_relay_url);
@@ -77,9 +77,24 @@ public class SettingsFragment extends Fragment {
         versionView.setText("v" + BuildConfig.VERSION_NAME);
         updateBtn.setOnClickListener(v -> checkForUpdate());
 
-        // Populate fields from prefs
-        accountInput.setText(prefs.getAccount());
-        jwtInput.setText(prefs.getJwt());
+        // Show signed-in account or prompt to sign in
+        String account = prefs.getAccount();
+        if (!account.isEmpty()) {
+            accountLabel.setText("Signed in as " + account);
+            signOutBtn.setVisibility(android.view.View.VISIBLE);
+        } else {
+            accountLabel.setText("Not signed in — use the Wallet tab to sign in");
+            signOutBtn.setVisibility(android.view.View.GONE);
+        }
+        signOutBtn.setOnClickListener(v -> {
+            prefs.saveAll("", "", "", prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
+            accountLabel.setText("Not signed in — use the Wallet tab to sign in");
+            signOutBtn.setVisibility(android.view.View.GONE);
+            saveStatus.setText("Signed out.");
+            saveStatus.setTextColor(0xFF22C55E);
+            handler.postDelayed(() -> { if (isAdded()) saveStatus.setText(""); }, 2000);
+        });
+
         postingKeyInput.setText(prefs.getPostingKey());
         apiUrlInput.setText(prefs.getApiUrl());
         relayUrlInput.setText(prefs.getRelayUrl());
@@ -95,14 +110,22 @@ public class SettingsFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
+        if (prefs != null && accountLabel != null) {
+            String acct = prefs.getAccount();
+            if (!acct.isEmpty()) {
+                accountLabel.setText("Signed in as " + acct);
+                signOutBtn.setVisibility(android.view.View.VISIBLE);
+            } else {
+                accountLabel.setText("Not signed in — use the Wallet tab to sign in");
+                signOutBtn.setVisibility(android.view.View.GONE);
+            }
+        }
         refreshServiceStatuses();
     }
 
     // ---- save ----
 
     private void saveSettings() {
-        String account    = text(accountInput);
-        String jwt        = text(jwtInput);
         String postingKey = text(postingKeyInput);
         String apiUrl     = text(apiUrlInput);
         String relayUrl   = text(relayUrlInput);
@@ -117,7 +140,7 @@ public class SettingsFragment extends Fragment {
             return;
         }
 
-        prefs.saveAll(account, jwt, postingKey, apiUrl, relayUrl, deviceName);
+        prefs.saveAll(prefs.getAccount(), prefs.getJwt(), postingKey, apiUrl, relayUrl, deviceName);
 
         saveStatus.setText("Saved.");
         saveStatus.setTextColor(0xFF22C55E);  // green

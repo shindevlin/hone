@@ -30,7 +30,9 @@ public class WalletFragment extends Fragment {
 
     private EditText loginUsernameInput;
     private EditText loginPasswordInput;
+    private EditText loginPostingKeyInput;
     private MaterialButton loginBtn;
+    private MaterialButton createAccountBtn;
     private TextView loginError;
 
     private SwipeRefreshLayout swipeRefresh;
@@ -57,10 +59,12 @@ public class WalletFragment extends Fragment {
         loginSection  = view.findViewById(R.id.wallet_login_section);
         contentSection = view.findViewById(R.id.wallet_content_section);
 
-        loginUsernameInput = view.findViewById(R.id.wallet_login_username);
-        loginPasswordInput = view.findViewById(R.id.wallet_login_password);
-        loginBtn           = view.findViewById(R.id.wallet_login_btn);
-        loginError         = view.findViewById(R.id.wallet_login_error);
+        loginUsernameInput  = view.findViewById(R.id.wallet_login_username);
+        loginPasswordInput  = view.findViewById(R.id.wallet_login_password);
+        loginPostingKeyInput = view.findViewById(R.id.wallet_login_posting_key);
+        loginBtn            = view.findViewById(R.id.wallet_login_btn);
+        createAccountBtn    = view.findViewById(R.id.wallet_create_account_btn);
+        loginError          = view.findViewById(R.id.wallet_login_error);
 
         swipeRefresh  = view.findViewById(R.id.wallet_swipe_refresh);
         balanceView   = view.findViewById(R.id.wallet_balance);
@@ -78,6 +82,12 @@ public class WalletFragment extends Fragment {
         receiveBtn.setOnClickListener(v -> showReceiveDialog());
 
         loginBtn.setOnClickListener(v -> attemptLogin());
+        createAccountBtn.setOnClickListener(v -> {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(prefs.getApiUrl().replace("/api", "") + "/create-account"));
+            startActivity(intent);
+        });
 
         if (prefs.getAccount().isEmpty() || prefs.getJwt().isEmpty()) {
             showLoginForm();
@@ -109,11 +119,17 @@ public class WalletFragment extends Fragment {
     }
 
     private void attemptLogin() {
-        String username = text(loginUsernameInput);
-        String password = text(loginPasswordInput);
+        String username   = text(loginUsernameInput);
+        String password   = text(loginPasswordInput);
+        String postingKey = text(loginPostingKeyInput);
 
         if (username.isEmpty() || password.isEmpty()) {
             showLoginError("Enter your account name and password.");
+            return;
+        }
+
+        if (!postingKey.isEmpty() && !postingKey.matches("[0-9a-fA-F]{64}")) {
+            showLoginError("Posting key must be 64 hex characters (leave blank to skip).");
             return;
         }
 
@@ -125,7 +141,8 @@ public class WalletFragment extends Fragment {
             @Override
             public void onSuccess(String account, String token) {
                 if (!isAdded()) return;
-                prefs.saveAll(account, token, prefs.getPostingKey(),
+                String keyToSave = postingKey.isEmpty() ? prefs.getPostingKey() : postingKey;
+                prefs.saveAll(account, token, keyToSave,
                         prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
                 loginBtn.setEnabled(true);
                 loginBtn.setText("Sign In");

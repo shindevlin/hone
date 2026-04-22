@@ -70,51 +70,40 @@
 
         </LinearLayout>
 
-        <!-- Account -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Account Name"
-            android:textColor="@color/btcpc_muted"
-            android:textSize="13sp"
-            android:letterSpacing="0.06" />
-
-        <EditText
-            android:id="@+id/settings_account"
+        <!-- Signed-in account row -->
+        <LinearLayout
+            android:id="@+id/settings_account_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="14dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:background="@color/btcpc_surface"
-            android:hint="shindevlin"
-            android:inputType="text"
             android:padding="14dp"
-            android:textColor="@color/btcpc_text"
-            android:textColorHint="@color/btcpc_muted"
-            android:textSize="15sp" />
+            android:layout_marginBottom="14dp">
 
-        <!-- JWT -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="JWT Token"
-            android:textColor="@color/btcpc_muted"
-            android:textSize="13sp"
-            android:letterSpacing="0.06" />
+            <TextView
+                android:id="@+id/settings_account_label"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Not signed in"
+                android:textColor="@color/btcpc_text"
+                android:textSize="15sp" />
 
-        <EditText
-            android:id="@+id/settings_jwt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="14dp"
-            android:background="@color/btcpc_surface"
-            android:hint="eyJ..."
-            android:inputType="textPassword"
-            android:padding="14dp"
-            android:textColor="@color/btcpc_text"
-            android:textColorHint="@color/btcpc_muted"
-            android:textSize="15sp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/settings_signout_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Sign Out"
+                android:textColor="#EF4444"
+                android:textSize="13sp"
+                android:backgroundTint="@color/btcpc_surface_alt"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:strokeColor="#EF4444"
+                android:strokeWidth="1"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
         <!-- Posting Key -->
         <TextView
