@@ -96,6 +96,9 @@ var browserJobs = new Map();
 // Registered MCP tools (v3.1.121+): tool_name → { name, description, schema, webhook_url, owner, registered_epoch }
 var toolRegistry = new Map();
 
+// Miner capabilities (v3.1.125+): miner → { miner, models, vision, vision_model, audio, code_exec, browser, finetune, tiers, version, updated_epoch }
+var minerCapabilities = new Map();
+
 // Storage payout holds (v3.1.119+): hold_id → { hold_id, host, cid, amount, hold_epoch, release_epoch, status }
 var storagePayoutHolds = new Map();
 
@@ -1730,6 +1733,26 @@ function applyEntry(entry) {
     case "TOOL_UNREGISTER":
       if (entry.tool_data && entry.tool_data.name) {
         toolRegistry.delete(entry.tool_data.name);
+      }
+      break;
+
+    // ── Miner capability advertisement (v3.1.125+) ──────────────────
+    case "MINER_CAPABILITY":
+      if (entry.capabilities && from) {
+        var caps = entry.capabilities;
+        minerCapabilities.set(from, {
+          miner: from,
+          models: Array.isArray(caps.models) ? caps.models : [],
+          vision: !!caps.vision,
+          vision_model: caps.vision_model || null,
+          audio: !!caps.audio,
+          code_exec: !!caps.code_exec,
+          browser: !!caps.browser,
+          finetune: !!caps.finetune,
+          tiers: Array.isArray(caps.tiers) ? caps.tiers : ["standard"],
+          version: caps.version || null,
+          updated_epoch: entry.epoch,
+        });
       }
       break;
 
@@ -4150,6 +4173,47 @@ function getToolsByOwner(owner) {
   return result;
 }
 
+// ── Miner capabilities (v3.1.125+) ────────────────────────────────────────────
+
+function getMinerCapabilities(miner) {
+  return minerCapabilities.get(miner) || null;
+}
+
+function getAllMinerCapabilities() {
+  return Array.from(minerCapabilities.values());
+}
+
+/** Return miners whose advertised capabilities satisfy the job's requirements. */
+function getCapableMiners(requirements) {
+  if (!requirements) return getAllMinerCapabilities();
+  var result = [];
+  for (var caps of minerCapabilities.values()) {
+    if (requirements.vision && !caps.vision) continue;
+    if (requirements.audio && !caps.audio) continue;
+    if (requirements.code_exec && !caps.code_exec) continue;
+    if (requirements.browser && !caps.browser) continue;
+    if (requirements.finetune && !caps.finetune) continue;
+    if (requirements.tier && !caps.tiers.includes(requirements.tier)) continue;
+    result.push(caps);
+  }
+  return result;
+}
+
+/** Aggregate view of what the live network can serve. */
+function getNetworkCapabilitySummary() {
+  var all = getAllMinerCapabilities();
+  return {
+    total_miners: all.length,
+    vision: all.filter(function (c) { return c.vision; }).length,
+    audio: all.filter(function (c) { return c.audio; }).length,
+    code_exec: all.filter(function (c) { return c.code_exec; }).length,
+    browser: all.filter(function (c) { return c.browser; }).length,
+    finetune: all.filter(function (c) { return c.finetune; }).length,
+    reasoning: all.filter(function (c) { return c.tiers && c.tiers.includes("reasoning"); }).length,
+    fast: all.filter(function (c) { return c.tiers && c.tiers.includes("fast"); }).length,
+  };
+}
+
 function getInferenceJobsByBuyer(buyer) {
   var result = [];
   for (var job of inferenceJobs.values()) {
@@ -4511,6 +4575,12 @@ function resetAll() {
   parentMap.clear();
   aliasMap.clear();
   accountAliases.clear();
+  inferenceJobs.clear();
+  sessions.clear();
+  finetuneJobs.clear();
+  browserJobs.clear();
+  toolRegistry.clear();
+  minerCapabilities.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
   recycleRate = null;
@@ -4723,6 +4793,11 @@ module.exports = {
   getRegisteredTool,
   getAllRegisteredTools,
   getToolsByOwner,
+  // Miner capabilities (v3.1.125+)
+  getMinerCapabilities,
+  getAllMinerCapabilities,
+  getCapableMiners,
+  getNetworkCapabilitySummary,
   // Storage settlement lag (v3.1.119+)
   getPendingStorageHolds,
   getStorageHoldsForHost,

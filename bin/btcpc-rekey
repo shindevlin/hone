@@ -44,6 +44,32 @@
  * mnemonic exists in process memory only for the ~50ms derivation step,
  * is never logged, and is never written to disk — but the safer pattern
  * is to use --pubkeys so the mnemonic never leaves your cold machine.
+ *
+ * --from-cli mode (NON-INTERACTIVE — for setup wizards / batch installers):
+ *   Must be combined with --pubkeys. All four required public keys are
+ *   supplied as CLI flags. No readline prompts are issued at any point.
+ *   The 'overwrite' and 'continue' confirmation prompts are skipped.
+ *
+ *   Required flags (all four must be present):
+ *     --owner-pk   <66-or-64-hex-char compressed public key>
+ *     --active-pk  <66-or-64-hex-char compressed public key>
+ *     --posting-pk <66-or-64-hex-char compressed public key>
+ *     --memo-pk    <66-or-64-hex-char compressed public key>
+ *
+ *   Optional flag:
+ *     --evm-addr   <0x + 40 hex chars>   (defaults to null if omitted)
+ *
+ *   Example:
+ *     node bin/btcpc-rekey shindevlin --pubkeys --from-cli \
+ *       --owner-pk   <hex> \
+ *       --active-pk  <hex> \
+ *       --posting-pk <hex> \
+ *       --memo-pk    <hex> \
+ *       --evm-addr   0x...
+ *
+ *   Exit codes:
+ *     0 — success (ACCOUNT_CREATE written to pending-entries.jsonl)
+ *     1 — bad arguments supplied by caller (usage printed to stderr)
  */
 
 var path = require("path");
@@ -66,14 +92,30 @@ function prompt(question) {
   });
 }
 
+function getArgValue(argv, flag) {
+  var idx = argv.indexOf(flag);
+  return (idx !== -1 && idx + 1 < argv.length) ? argv[idx + 1] : null;
+}
+
 async function main() {
-  var username = process.argv[2];
-  var pubkeysMode = process.argv.indexOf("--pubkeys") !== -1;
-  if (!username || username === "--pubkeys") {
-    console.error("usage: node bin/btcpc-rekey <username> [--pubkeys]");
+  var argv = process.argv.slice(2);
+  var username = argv[0];
+  var pubkeysMode = argv.indexOf("--pubkeys") !== -1;
+  var fromCli = argv.indexOf("--from-cli") !== -1;
+  if (!username || username.startsWith("--")) {
+    console.error("usage: node bin/btcpc-rekey <username> [--pubkeys] [--from-cli ...]");
     console.error("");
     console.error("  default mode  — interactive mnemonic prompt, derives keys locally");
     console.error("  --pubkeys     — paste pre-derived hex public keys (no mnemonic)");
+    console.error("  --from-cli    — non-interactive; requires --pubkeys plus:");
+    console.error("                    --owner-pk <hex>  --active-pk <hex>");
+    console.error("                    --posting-pk <hex>  --memo-pk <hex>");
+    console.error("                    --evm-addr <0x...>  (optional)");
+    process.exit(1);
+  }
+
+  if (fromCli && !pubkeysMode) {
+    console.error("[btcpc-rekey] --from-cli requires --pubkeys");
     process.exit(1);
   }
   username = username.trim().toLowerCase();
@@ -106,7 +148,7 @@ async function main() {
   console.log("[btcpc-rekey]   staked:  " + account.staked);
   console.log("[btcpc-rekey]   owner_pk: " + (hasOwner ? account.public_keys.owner.slice(0, 16) + "..." : "(empty)"));
 
-  if (hasOwner) {
+  if (hasOwner && !fromCli) {
     console.log("");
     console.log("[btcpc-rekey] WARNING: " + username + " already has an owner public key on chain.");
     console.log("[btcpc-rekey] Re-keying will OVERWRITE the existing keys with new ones derived");
@@ -118,38 +160,70 @@ async function main() {
       console.log("[btcpc-rekey] Aborted.");
       process.exit(0);
     }
+  } else if (hasOwner && fromCli) {
+    console.log("[btcpc-rekey] WARNING: " + username + " already has an owner public key on chain — overwriting (--from-cli).");
   }
 
   var publicKeys;
   var chainAddresses;
 
   if (pubkeysMode) {
-    // ── Safer path: paste pre-derived public keys, no mnemonic ──
-    console.log("");
-    console.log("[btcpc-rekey] --pubkeys mode: paste the four hex public keys + EVM address.");
-    console.log("[btcpc-rekey] Derive them on a separate trusted machine first via:");
-    console.log("[btcpc-rekey]   node bin/btcpc-cli wallet recover");
-    console.log("[btcpc-rekey] The mnemonic will NEVER touch this script.");
-    console.log("");
-
+    // ── Safer path: pre-derived public keys, no mnemonic ──
     function isHexKey(s) { return /^[a-f0-9]{66}$/.test(s) || /^[a-f0-9]{64}$/.test(s); }
     function isEvmAddr(s) { return /^0x[a-f0-9]{40}$/i.test(s); }
 
-    var owner = (await prompt("[btcpc-rekey] Owner public key (hex):   ")).trim().toLowerCase();
-    if (!isHexKey(owner)) { console.error("[btcpc-rekey] Invalid owner key (expected 64 or 66 hex chars)."); process.exit(1); }
-    var active = (await prompt("[btcpc-rekey] Active public key (hex):  ")).trim().toLowerCase();
-    if (!isHexKey(active)) { console.error("[btcpc-rekey] Invalid active key."); process.exit(1); }
-    var posting = (await prompt("[btcpc-rekey] Posting public key (hex): ")).trim().toLowerCase();
-    if (!isHexKey(posting)) { console.error("[btcpc-rekey] Invalid posting key."); process.exit(1); }
-    var memo = (await prompt("[btcpc-rekey] Memo public key (hex):    ")).trim().toLowerCase();
-    if (!isHexKey(memo)) { console.error("[btcpc-rekey] Invalid memo key."); process.exit(1); }
-    var evm = (await prompt("[btcpc-rekey] EVM address (0x..):        ")).trim();
-    if (!isEvmAddr(evm)) { console.error("[btcpc-rekey] Invalid EVM address (expected 0x + 40 hex)."); process.exit(1); }
+    var owner, active, posting, memo, evm;
+
+    if (fromCli) {
+      // ── Non-interactive: read everything from CLI flags ──
+      owner   = (getArgValue(process.argv, "--owner-pk")   || "").trim().toLowerCase();
+      active  = (getArgValue(process.argv, "--active-pk")  || "").trim().toLowerCase();
+      posting = (getArgValue(process.argv, "--posting-pk") || "").trim().toLowerCase();
+      memo    = (getArgValue(process.argv, "--memo-pk")    || "").trim().toLowerCase();
+      evm     = (getArgValue(process.argv, "--evm-addr")   || "").trim();
+
+      var missing = [];
+      if (!owner)   missing.push("--owner-pk");
+      if (!active)  missing.push("--active-pk");
+      if (!posting) missing.push("--posting-pk");
+      if (!memo)    missing.push("--memo-pk");
+      if (missing.length) {
+        console.error("[btcpc-rekey] --from-cli: missing required flag(s): " + missing.join(", "));
+        console.error("[btcpc-rekey] usage: node bin/btcpc-rekey <username> --pubkeys --from-cli \\");
+        console.error("[btcpc-rekey]          --owner-pk <hex> --active-pk <hex> --posting-pk <hex> --memo-pk <hex> [--evm-addr <0x...>]");
+        process.exit(1);
+      }
+      if (!isHexKey(owner))   { console.error("[btcpc-rekey] --owner-pk: invalid (expected 64 or 66 hex chars).");   process.exit(1); }
+      if (!isHexKey(active))  { console.error("[btcpc-rekey] --active-pk: invalid (expected 64 or 66 hex chars).");  process.exit(1); }
+      if (!isHexKey(posting)) { console.error("[btcpc-rekey] --posting-pk: invalid (expected 64 or 66 hex chars)."); process.exit(1); }
+      if (!isHexKey(memo))    { console.error("[btcpc-rekey] --memo-pk: invalid (expected 64 or 66 hex chars).");    process.exit(1); }
+      if (evm && !isEvmAddr(evm)) { console.error("[btcpc-rekey] --evm-addr: invalid (expected 0x + 40 hex)."); process.exit(1); }
+
+    } else {
+      // ── Interactive: prompt for each key ──
+      console.log("");
+      console.log("[btcpc-rekey] --pubkeys mode: paste the four hex public keys + EVM address.");
+      console.log("[btcpc-rekey] Derive them on a separate trusted machine first via:");
+      console.log("[btcpc-rekey]   node bin/btcpc-cli wallet recover");
+      console.log("[btcpc-rekey] The mnemonic will NEVER touch this script.");
+      console.log("");
+
+      owner = (await prompt("[btcpc-rekey] Owner public key (hex):   ")).trim().toLowerCase();
+      if (!isHexKey(owner)) { console.error("[btcpc-rekey] Invalid owner key (expected 64 or 66 hex chars)."); process.exit(1); }
+      active = (await prompt("[btcpc-rekey] Active public key (hex):  ")).trim().toLowerCase();
+      if (!isHexKey(active)) { console.error("[btcpc-rekey] Invalid active key."); process.exit(1); }
+      posting = (await prompt("[btcpc-rekey] Posting public key (hex): ")).trim().toLowerCase();
+      if (!isHexKey(posting)) { console.error("[btcpc-rekey] Invalid posting key."); process.exit(1); }
+      memo = (await prompt("[btcpc-rekey] Memo public key (hex):    ")).trim().toLowerCase();
+      if (!isHexKey(memo)) { console.error("[btcpc-rekey] Invalid memo key."); process.exit(1); }
+      evm = (await prompt("[btcpc-rekey] EVM address (0x..):        ")).trim();
+      if (!isEvmAddr(evm)) { console.error("[btcpc-rekey] Invalid EVM address (expected 0x + 40 hex)."); process.exit(1); }
+    }
 
     publicKeys = { owner: owner, active: active, posting: posting, memo: memo };
     chainAddresses = {
       btcpc: null,
-      evm: evm.toLowerCase(),
+      evm: evm ? evm.toLowerCase() : null,
       solana: null,
       bitcoin: null,
       ton: null,
@@ -211,10 +285,14 @@ async function main() {
     console.log("[btcpc-rekey] WARNING: supplied owner key does NOT match the existing on-chain key.");
     console.log("[btcpc-rekey] Existing: " + account.public_keys.owner.slice(0, 32) + "...");
     console.log("[btcpc-rekey] Supplied: " + publicKeys.owner.slice(0, 32) + "...");
-    var confirm2 = await prompt("[btcpc-rekey] Keys do not match prior on-chain keys. Type 'continue' to proceed: ");
-    if (confirm2.trim() !== "continue") {
-      console.log("[btcpc-rekey] Aborted.");
-      process.exit(0);
+    if (!fromCli) {
+      var confirm2 = await prompt("[btcpc-rekey] Keys do not match prior on-chain keys. Type 'continue' to proceed: ");
+      if (confirm2.trim() !== "continue") {
+        console.log("[btcpc-rekey] Aborted.");
+        process.exit(0);
+      }
+    } else {
+      console.log("[btcpc-rekey] Keys do not match prior on-chain keys — proceeding anyway (--from-cli).");
     }
   }
 

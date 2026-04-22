@@ -10,7 +10,23 @@
  * Creates: .env with proper config
  * Starts: the appropriate processes via btcpc-all
  *
- * Usage: node bin/btcpc-setup
+ * Usage: node bin/btcpc-setup [options]
+ *
+ * Options:
+ *   --yes            Assume "yes" / defaults for all y/n prompts (still prompts for names/keys)
+ *   --auto           Fully non-interactive: skip ALL prompts, use defaults. Implies --yes.
+ *                    Username resolution order: --username > BTCPC_MINER env > guest-{8hex}
+ *   --skip-keys      Skip mnemonic / posting-key prompts. Caller is responsible for keys.
+ *                    Implied by --auto (auto mode always skips key prompts).
+ *   --skip-ollama    Skip Ollama installation even if miner role is selected
+ *   --no-start       Write config but do not start any node processes
+ *   --username NAME  BTCPC account name to use for this node
+ *
+ * Environment variables:
+ *   BTCPC_NONINTERACTIVE=1   Behave as if --auto was passed (useful in Docker / CI)
+ *   BTCPC_MINER              Account name fallback when --username is not supplied in --auto mode
+ *
+ * Auto-mode logs every default value it selects so the caller can verify choices.
  */
 
 var os = require("os");
@@ -22,8 +38,18 @@ var readline = require("readline");
 
 var REPO_DIR = path.resolve(__dirname, "..");
 var argv = process.argv.slice(2);
+
+// BTCPC_NONINTERACTIVE=1 is equivalent to passing --auto
+var _envNonInteractive = process.env.BTCPC_NONINTERACTIVE === "1";
+var _autoFlag = argv.indexOf("--auto") !== -1 || _envNonInteractive;
+
 var SETUP_OPTIONS = {
-  assumeYes: argv.indexOf("--yes") !== -1,
+  // --auto implies --yes
+  assumeYes: argv.indexOf("--yes") !== -1 || _autoFlag,
+  // true = fully non-interactive, all prompts use defaults
+  auto: _autoFlag,
+  // --skip-keys: skip mnemonic/posting-key prompts; implied by --auto
+  skipKeys: argv.indexOf("--skip-keys") !== -1 || _autoFlag,
   skipOllama: argv.indexOf("--skip-ollama") !== -1,
   noStart: argv.indexOf("--no-start") !== -1,
   username: null
@@ -33,6 +59,17 @@ for (var argIndex = 0; argIndex < argv.length; argIndex++) {
   if (argv[argIndex] === "--username" && argv[argIndex + 1]) {
     SETUP_OPTIONS.username = String(argv[argIndex + 1]).trim().toLowerCase();
     argIndex++;
+  }
+}
+
+// In auto mode, resolve username early so we can log it up front
+if (SETUP_OPTIONS.auto && !SETUP_OPTIONS.username) {
+  if (process.env.BTCPC_MINER) {
+    SETUP_OPTIONS.username = process.env.BTCPC_MINER.trim().toLowerCase();
+  } else if (process.env.BTCPC_CLOCK_ACCOUNT) {
+    SETUP_OPTIONS.username = process.env.BTCPC_CLOCK_ACCOUNT.trim().toLowerCase();
+  } else {
+    SETUP_OPTIONS.username = "guest-" + crypto.randomBytes(4).toString("hex");
   }
 }
 
@@ -1012,6 +1049,19 @@ async function main() {
   console.log("  ============================================");
   console.log("");
 
+  // ── Auto-mode banner ──
+  if (SETUP_OPTIONS.auto) {
+    log("Running in NON-INTERACTIVE (--auto) mode.");
+    log("[auto] username:    " + SETUP_OPTIONS.username);
+    log("[auto] skip-keys:   " + SETUP_OPTIONS.skipKeys);
+    log("[auto] skip-ollama: " + SETUP_OPTIONS.skipOllama);
+    log("[auto] no-start:    " + SETUP_OPTIONS.noStart);
+    if (process.env.BTCPC_NONINTERACTIVE === "1") {
+      log("[auto] triggered by BTCPC_NONINTERACTIVE=1 env var");
+    }
+    console.log("");
+  }
+
   // ── Step 1: Hardware Scan ──
   log("Detecting hardware...");
   var hw = {
@@ -1046,8 +1096,20 @@ async function main() {
   console.log("");
   var accountName = process.env.BTCPC_MINER || process.env.BTCPC_CLOCK_ACCOUNT;
   var postingKey = process.env.BTCPC_POSTING_KEY || "";
-  if (!accountName) {
-    var accountMode = (await ask("Do you already have a BTCPC account? [y/N]", "n")).trim().toLowerCase();
+
+  if (SETUP_OPTIONS.auto && !accountName) {
+    // --auto: username was already resolved at startup; use it directly
+    accountName = SETUP_OPTIONS.username;
+    log("[auto] account: " + accountName + " (keys skipped — set BTCPC_POSTING_KEY separately)");
+  } else if (!accountName) {
+    var accountMode;
+    if (SETUP_OPTIONS.skipKeys) {
+      // --skip-keys without --auto: still ask for username but skip key prompts
+      accountMode = "y"; // treat as existing account so we skip account creation flow
+      log("--skip-keys active: key prompts will be skipped.");
+    } else {
+      accountMode = (await ask("Do you already have a BTCPC account? [y/N]", "n")).trim().toLowerCase();
+    }
     var hasAccount = accountMode === "y" || accountMode === "yes";
     accountName = SETUP_OPTIONS.username || await ask("BTCPC username for this node (3-20 chars, lowercase):");
     if (!accountName || accountName.length < 3) {
@@ -1056,12 +1118,16 @@ async function main() {
     }
 
     if (hasAccount) {
-      if (selectedRoles.indexOf("miner") !== -1 || selectedRoles.indexOf("both") !== -1) {
-        postingKey = await ask("Paste the BTCPC posting private key for mining (64 hex chars). Leave blank to configure later:", "");
-        if (postingKey && !/^[0-9a-fA-F]{64}$/.test(postingKey)) {
-          warn("Posting key was not 64 hex chars; leaving BTCPC_POSTING_KEY unset.");
-          postingKey = "";
+      if (!SETUP_OPTIONS.skipKeys) {
+        if (selectedRoles.indexOf("miner") !== -1 || selectedRoles.indexOf("both") !== -1) {
+          postingKey = await ask("Paste the BTCPC posting private key for mining (64 hex chars). Leave blank to configure later:", "");
+          if (postingKey && !/^[0-9a-fA-F]{64}$/.test(postingKey)) {
+            warn("Posting key was not 64 hex chars; leaving BTCPC_POSTING_KEY unset.");
+            postingKey = "";
+          }
         }
+      } else {
+        log("[skip-keys] Skipping posting-key prompt. Set BTCPC_POSTING_KEY in .env to enable mining.");
       }
       log("Using existing account: " + accountName);
     } else {
@@ -1089,7 +1155,11 @@ async function main() {
 
         postingKey = account.role_private_keys.posting;
         log("Write down the full wallet export. If you lose it, your account is gone forever.");
-        await ask("Press Enter when you've saved your wallet export...", "");
+        if (!SETUP_OPTIONS.skipKeys) {
+          await ask("Press Enter when you've saved your wallet export...", "");
+        } else {
+          log("[skip-keys] Skipping 'press Enter' confirmation. Save the wallet export above before continuing.");
+        }
       } catch (err) {
         if (err.message && err.message.includes("already exists")) {
           log("Account '" + accountName + "' already exists — using it");
@@ -1116,7 +1186,7 @@ async function main() {
         log("Ollama is required for mining (earning 98% of block rewards).");
         console.log("");
 
-        var answer = await ask("Install Ollama to enable mining? (y/n)", SETUP_OPTIONS.assumeYes ? "y" : null);
+        var answer = await ask("Install Ollama to enable mining? (y/n)", SETUP_OPTIONS.assumeYes ? "y" : "n");
         if (answer === "y" || answer === "yes") {
           var installed = await installOllama();
           if (installed) {

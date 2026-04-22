@@ -2896,6 +2896,16 @@ async function recordToolUnregister(owner, toolName, epoch) {
   }));
 }
 
+async function recordMinerCapability(miner, capabilities, epoch) {
+  if (!miner) throw new Error('miner required');
+  return _persist(_entry({
+    type: 'MINER_CAPABILITY',
+    from: miner,
+    epoch: epoch || 0,
+    capabilities,
+  }));
+}
+
 async function recordInferenceJobToolCall(jobId, miner, toolCalls, turn, epoch) {
   if (!jobId) throw new Error('jobId required');
   if (!miner) throw new Error('miner required');
@@ -3079,4 +3089,5 @@ module.exports = {
   // MCP Tool Registry (v3.1.121+)
   recordToolRegister,
   recordToolUnregister,
+  recordMinerCapability,
 };

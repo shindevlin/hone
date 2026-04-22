@@ -1575,10 +1575,28 @@ async function startMarketplacePoller() {
   const fsSync = require('fs');
   const pathMod = require('path');
   const BLOB_DATA_DIR = process.env.BTCPC_BLOB_DIR || pathMod.resolve(__dirname, '../../data/blobs');
+  const capabilityService = require('../services/capabilityService');
 
-  const _visionModel = process.env.BTCPC_VISION_MODEL || 'llava:7b';
-  const _audioEnabled = audioTranscriber.isWhisperAvailable();
-  console.log(`[Marketplace] Capabilities — vision: ${_visionModel}, audio/whisper: ${_audioEnabled}, code_exec: ${process.env.BTCPC_CODE_EXEC_ENABLED !== 'false'}, browser: ${process.env.BTCPC_BROWSER_ENABLED !== 'false'}`);
+  // Detect and broadcast capabilities on startup, then every 100 epochs
+  let myCapabilities = null;
+  let lastCapabilityBroadcastEpoch = -1;
+  const CAPABILITY_REBROADCAST_EPOCHS = 100;
+
+  async function broadcastCapabilities() {
+    try {
+      const caps = await capabilityService.detectCapabilities();
+      myCapabilities = caps;
+      const epoch = await ledger.getCurrentEpoch();
+      await ledger.recordMinerCapability(MINER_ACCOUNT, caps, epoch);
+      lastCapabilityBroadcastEpoch = epoch;
+      console.log(`[Marketplace] Capabilities broadcast — vision:${caps.vision}(${caps.vision_model || 'none'}) audio:${caps.audio} code_exec:${caps.code_exec} browser:${caps.browser} finetune:${caps.finetune} tiers:[${caps.tiers.join(',')}] models:${caps.models.length}`);
+    } catch (err) {
+      console.warn(`[Marketplace] Capability broadcast failed: ${err.message}`);
+    }
+  }
+
+  // Initial broadcast (non-blocking)
+  broadcastCapabilities().catch(() => {});
 
   // Build Ollama message list from job context + turns history
   function buildMessages(job) {
@@ -1689,11 +1707,26 @@ async function startMarketplacePoller() {
         // Resume highest-value in-progress agentic job
         job = storeRef.getInferenceJob(resumable[0].job_id);
       } else if (inFlight.length === 0) {
-        // Claim a new open job
-        const { jobs } = market.getOpenJobs({ limit: 5 });
+        // Periodically rebroadcast capabilities (every CAPABILITY_REBROADCAST_EPOCHS epochs)
+        try {
+          const currentEpoch = storeRef.getLatestEpoch ? storeRef.getLatestEpoch() : null;
+          if (currentEpoch && lastCapabilityBroadcastEpoch >= 0 &&
+              (currentEpoch - lastCapabilityBroadcastEpoch) >= CAPABILITY_REBROADCAST_EPOCHS) {
+            broadcastCapabilities().catch(() => {});
+          }
+        } catch (_) {}
+
+        // Claim a new open job — only if we can serve it
+        const { jobs } = market.getOpenJobs({ limit: 20 });
         if (!jobs || jobs.length === 0) return;
-        const best = jobs.filter(j => j.status === 'open').sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0))[0];
-        if (!best) return;
+
+        const servable = jobs
+          .filter(j => j.status === 'open')
+          .filter(j => !myCapabilities || capabilityService.meetsJobRequirements(j, myCapabilities))
+          .sort((a, b) => (b.max_fee || 0) - (a.max_fee || 0));
+
+        if (servable.length === 0) return;
+        const best = servable[0];
 
         console.log(`[Marketplace] Claiming job ${best.job_id} (${best.max_fee} BTCPC, model: ${best.model || 'any'})`);
         const claimed = await market.claimJob(best.job_id, MINER_ACCOUNT);
@@ -1718,7 +1751,7 @@ async function startMarketplacePoller() {
         }
       }
 
-      // Audio: transcribe before first turn, prepend transcript to prompt
+      // Audio: transcribe before first turn, prepend transcript to prompt, then delete local blob
       if (job.audio_cid && (job.current_turn || 0) === 0) {
         try {
           const transcript = await audioTranscriber.transcribe(job.audio_cid);
@@ -1726,6 +1759,8 @@ async function startMarketplacePoller() {
             job = { ...job, prompt: `[Audio transcript]\n${transcript}\n\n${job.prompt}` };
             console.log(`[Marketplace] Audio transcribed for ${job.job_id} (${transcript.length} chars)`);
           }
+          // Audio belongs to buyer — delete local copy once transcript is in memory
+          try { fsSync.unlinkSync(pathMod.join(BLOB_DATA_DIR, job.audio_cid)); } catch (_) {}
         } catch (audioErr) {
           console.warn(`[Marketplace] Audio transcription failed for ${job.job_id}: ${audioErr.message}`);
         }
