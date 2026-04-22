@@ -76,7 +76,8 @@
     "testPathIgnorePatterns": [
       "/node_modules/",
       "<rootDir>/btcpc/",
-      "<rootDir>/\\.claude/"
+      "<rootDir>/\\.claude/",
+      "<rootDir>/camofox-browser/"
     ]
   },
   "keywords": [
