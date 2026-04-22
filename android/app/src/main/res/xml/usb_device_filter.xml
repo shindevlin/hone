@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Flipper Zero: STM32 CDC ACM — VID 0x0483, PID 0x5740 -->
+<!--
+  Flipper Zero USB device filter.
+  STM32 VID 0x0483 (1155) — Flipper presents different PIDs depending on mode:
+    0x5740 (22336) — CDC ACM (default / CLI / btcpc_relay.fap)
+    0x5741 (22337) — HID
+    0x5720 (22304) — Mass Storage
+  Omitting product-id catches any Flipper USB mode.
+-->
 <resources>
-    <usb-device vendor-id="1155" product-id="22336" />
+    <usb-device vendor-id="1155" />
 </resources>
