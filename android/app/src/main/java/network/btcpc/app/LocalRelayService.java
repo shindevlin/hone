@@ -511,6 +511,11 @@ public class LocalRelayService extends Service {
     // -----------------------------------------------------------------------
 
     private void startBleScan() {
+        // USB relay takes priority — don't start BLE when USB reader is already active
+        if (usbReaderThread != null) {
+            Log.i(TAG, "USB relay active — skipping BLE scan");
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 Log.i(TAG, "BLUETOOTH_SCAN permission not granted — skipping BLE scan. Grant from app settings to enable Flipper BLE relay.");

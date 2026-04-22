@@ -101,13 +101,22 @@ public class FlipperFragment extends Fragment {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(action)) {
-                // MAC not yet known — start BLE scan to find it
-                appendLog("Flipper Zero detected via USB — reading BLE address…");
+                appendLog("Flipper Zero detected via USB — auto-pairing…");
+                if (pairStatus != null) pairStatus.setText("Waiting for Flipper MAC…");
+                if (pairBtn != null) pairBtn.setEnabled(false);
+                // Wait up to 12 s for the MAC announcement (covers 2 × Flipper 5-s re-announce)
+                handler.postDelayed(() -> {
+                    if (!isAdded()) return;
+                    if (prefs.getFlipperBleMac().isEmpty()) {
+                        appendLog("No MAC via USB — open btcpc_relay.fap on Flipper or use BLE.");
+                        refreshPairingUI(); // re-enable button
+                    }
+                }, 12_000);
             } else if (LocalRelayService.ACTION_FLIPPER_MAC_FOUND.equals(action)) {
-                // Service read the MAC from the Flipper CLI automatically
+                handler.removeCallbacksAndMessages(null); // cancel any pending fallback timer
                 String mac = intent.getStringExtra(LocalRelayService.EXTRA_FLIPPER_MAC);
                 if (mac != null && !mac.isEmpty()) {
-                    appendLog("Flipper BLE address auto-detected: " + mac);
+                    appendLog("Auto-paired via USB: " + mac);
                     completePairing(mac, "Flipper Zero");
                 }
             }

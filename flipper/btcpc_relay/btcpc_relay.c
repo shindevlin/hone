@@ -159,6 +159,9 @@ int32_t btcpc_relay_app(void* p) {
 
     bool       running = true;
     InputEvent ev;
+    /* Re-announce MAC every 5 s so hot-plug works (phone may connect after startup) */
+    uint32_t last_announce = furi_get_tick();
+    const uint32_t ANNOUNCE_INTERVAL = 5000; /* ms */
 
     while(running) {
         if(furi_message_queue_get(queue, &ev, 100) == FuriStatusOk) {
@@ -182,6 +185,13 @@ int32_t btcpc_relay_app(void* p) {
             }
             furi_mutex_release(app->mutex);
             view_port_update(vp);
+        }
+
+        /* Periodic MAC re-announce for hot-plug */
+        uint32_t now = furi_get_tick();
+        if(now - last_announce >= ANNOUNCE_INTERVAL) {
+            furi_hal_cdc_send(0, (uint8_t*)mac_announce, (uint16_t)mac_len);
+            last_announce = now;
         }
     }
 
