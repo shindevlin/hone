@@ -26,13 +26,19 @@ var nodes = new Map();
 
 /**
  * Register a node. Called when processing NODE_REGISTER ledger entries.
+ * @param {string} username
+ * @param {string|string[]} nodeType — primary type string or array of types
+ * @param {number} stake
+ * @param {string} p2pAddress
+ * @param {number} epoch
+ * @param {boolean} permissioned
  */
-function registerNode(username, nodeType, stake, p2pAddress, epoch, permissioned, nodeTypes) {
-  var types = Array.isArray(nodeTypes) && nodeTypes.length > 0 ? nodeTypes : null;
+function registerNode(username, nodeType, stake, p2pAddress, epoch, permissioned) {
+  var types = Array.isArray(nodeType) ? nodeType : [nodeType || "clock"];
   nodes.set(username, {
     username: username,
-    type: (types ? types[0] : null) || nodeType || "clock",
-    node_types: types || (nodeType ? [nodeType] : ["clock"]),
+    type: types[0] || "clock",
+    node_types: types,
     stake: stake || 0,
     p2pAddress: p2pAddress || null,
     registeredEpoch: epoch || 0,
@@ -115,19 +121,17 @@ function processLedgerEntry(entry) {
 
   switch (entry.type) {
     case "NODE_REGISTER": {
-      var _nrData = entry.account_data || {};
-      var _nrTypes = Array.isArray(_nrData.node_types) && _nrData.node_types.length > 0
-        ? _nrData.node_types
-        : null;
-      var _nrType = entry.memo || _nrData.node_type || "clock";
+      var accountData = entry.account_data || {};
+      // Support node_types array (multi-role) or legacy node_type string
+      var nodeTypes = accountData.node_types || (accountData.node_type ? [accountData.node_type] : null)
+        || (entry.memo ? [entry.memo] : null) || ["clock"];
       registerNode(
-        entry.from || _nrData.username,
-        _nrType,
+        entry.from || accountData.username,
+        nodeTypes,
         0,
-        _nrData.p2p_address,
+        accountData.p2p_address,
         entry.epoch,
-        _nrData.permissioned,
-        _nrTypes
+        accountData.permissioned
       );
       break;
     }
@@ -135,15 +139,12 @@ function processLedgerEntry(entry) {
     case "MINING_REWARD":
       // Any account that receives a mining reward is implicitly a miner node
       if (entry.to) {
-        if (!nodes.has(entry.to)) {
-          registerNode(entry.to, "miner", 0, null, entry.epoch);
-        } else {
-          // Add "miner" role to existing node if not already present
-          var _mrNode = nodes.get(entry.to);
-          if (!Array.isArray(_mrNode.node_types)) _mrNode.node_types = [_mrNode.type || "clock"];
-          if (_mrNode.node_types.indexOf("miner") === -1) {
-            _mrNode.node_types.push("miner");
-          }
+        var existing = nodes.get(entry.to);
+        if (!existing) {
+          registerNode(entry.to, ["miner"], 0, null, entry.epoch);
+        } else if (existing.node_types && existing.node_types.indexOf("miner") === -1) {
+          // Add miner role to existing non-miner node
+          existing.node_types = existing.node_types.concat(["miner"]);
         }
       }
       break;

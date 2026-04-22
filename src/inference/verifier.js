@@ -49,6 +49,40 @@ function getVerifierCount(totalNodes) {
 }
 
 /**
+ * Get verifier policy: how many verifiers to use, capped by opt-in supply.
+ * @param {number} totalNodes — total registered nodes
+ * @param {number} optInCount — nodes that have opted into verification
+ * @returns {{ count: number, phase: string }}
+ */
+function getVerifierPolicy(totalNodes, optInCount) {
+  if (!optInCount || optInCount === 0) {
+    return { count: 0, phase: "no-verifiers" };
+  }
+  var ideal = getVerifierCount(totalNodes);
+  var count = Math.min(ideal, optInCount);
+  var phase = totalNodes < 10 ? "bootstrap" : totalNodes < 50 ? "early" : totalNodes < 200 ? "growth" : "mature";
+  return { count: count, phase: phase };
+}
+
+/**
+ * Deterministically decide whether a specific job should be verified.
+ * Based on jobId + blockHash + coverage probability.
+ * @param {string} jobId
+ * @param {string} blockHash
+ * @param {number} probability — 0..1
+ * @returns {boolean}
+ */
+function shouldVerifyJob(jobId, blockHash, probability) {
+  if (probability <= 0) return false;
+  if (probability >= 1) return true;
+  var hash = crypto.createHash("sha256")
+    .update((jobId || "") + ":" + (blockHash || ""))
+    .digest();
+  var val = hash.readUInt32BE(0) / 0xffffffff;
+  return val < probability;
+}
+
+/**
  * Select random verifiers for a job.
  * Deterministic based on block hash + job ID — everyone computes the same selection.
  * Excludes the miner who did the work.

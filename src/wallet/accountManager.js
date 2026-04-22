@@ -9,7 +9,6 @@ const mongoose = require("mongoose");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const keyManager = require("./keyManager");
-const { blockedAccountNameReason } = require("../middlewares/validate");
 
 // Lazy-loaded models (avoids circular require issues at import time)
 let _User;
@@ -23,13 +22,19 @@ function User() {
 // Username validation
 // ---------------------------------------------------------------------------
 
-const USERNAME_RE = /^[a-z][a-z0-9\-]{1,18}[a-z0-9]$|^[a-z]{1,2}[a-z0-9\-]{0,18}$/;
-const USERNAME_FORMAT_ERROR = 'Username must be 3-20 chars, lowercase letters/numbers/hyphens only, with no leading or trailing hyphen';
+const USERNAME_RE = /^[a-z0-9][a-z0-9\-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/;
+
+// Reserved system usernames that cannot be registered
+const RESERVED_USERNAMES = [
+  "wallet", "admin", "system", "root", "btcpc", "miner", "node",
+  "relay", "oracle", "bridge", "genesis", "epoch", "block", "chain",
+  "stake", "vote", "recycle", "fee", "reward", "treasury", "protocol"
+];
 
 /**
  * Validate a BTCPC username.
- * Rules: 3-20 chars, lowercase letters/numbers/hyphens, must start with letter,
- * no leading or trailing hyphen.
+ * Rules: 3-20 chars, lowercase letters/numbers/hyphens only,
+ *        no leading or trailing hyphen, no reserved system names.
  * @param {string} username
  * @returns {{ valid: boolean, reason?: string }}
  */
@@ -37,21 +42,11 @@ function validateUsername(username) {
   if (!username || typeof username !== "string") {
     return { valid: false, reason: "Username is required" };
   }
-  if (username.length < 3 || username.length > 20) {
-    return { valid: false, reason: USERNAME_FORMAT_ERROR };
+  if (RESERVED_USERNAMES.indexOf(username) !== -1) {
+    return { valid: false, reason: "That username is reserved for system use" };
   }
-  if (!/^[a-z]/.test(username)) {
-    return { valid: false, reason: USERNAME_FORMAT_ERROR };
-  }
-  if (username.endsWith('-') || username.startsWith('-')) {
-    return { valid: false, reason: USERNAME_FORMAT_ERROR };
-  }
-  if (!/^[a-z][a-z0-9\-]*$/.test(username)) {
-    return { valid: false, reason: USERNAME_FORMAT_ERROR };
-  }
-  const blockedReason = blockedAccountNameReason(username);
-  if (blockedReason) {
-    return { valid: false, reason: blockedReason };
+  if (!USERNAME_RE.test(username) || username.length < 3 || username.length > 20) {
+    return { valid: false, reason: "Username must be 3-20 chars, lowercase letters/numbers/hyphens only, with no leading or trailing hyphen" };
   }
   return { valid: true };
 }

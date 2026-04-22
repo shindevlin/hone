@@ -272,13 +272,13 @@ fi
 echo
 ok "Installation complete!"
 echo
-say "Launching the BTCPC setup wizard (auto-restarts on crash)..."
+say "Launching the BTCPC intelligent installer..."
 say "(will detect your AI engines and ask what you want to run)"
 echo
 sleep 1
 cd "$INSTALL_DIR"
 while true; do
-  node bin/btcpc-setup && break
-  say "btcpc-setup exited — restarting in 3 seconds..."
-  sleep 3
+  node bin/btcpc-setup 2>&1 || true
+  say "btcpc-setup exited. Restarting in 5 seconds..."
+  sleep 5
 done
