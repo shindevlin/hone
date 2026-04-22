@@ -169,11 +169,10 @@ public class WalletFragment extends Fragment {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
 
-                balanceView.setText(String.format(Locale.US, "%.4f", btcpcBalance));
+                balanceView.setText(formatBtcpc(btcpcBalance));
 
                 if (delegatedBalance > 0) {
-                    delegatedView.setText(String.format(Locale.US,
-                            "%.4f BTCPC delegated", delegatedBalance));
+                    delegatedView.setText(formatBtcpc(delegatedBalance) + " BTCPC delegated");
                     delegatedView.setVisibility(View.VISIBLE);
                 } else {
                     delegatedView.setVisibility(View.GONE);
@@ -264,6 +263,27 @@ public class WalletFragment extends Fragment {
                 .setPositiveButton("Copy address", (dialog, which) -> copyToClipboard(finalAddress))
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    /**
+     * Format a BTCPC balance with adaptive precision.
+     * >= 1 BTCPC    → 4 decimal places  (e.g. "12.3456")
+     * >= 0.0001     → 6 decimal places  (e.g. "0.001234")
+     * anything less → 8 decimal places  (e.g. "0.00000042")
+     * Trailing zeros stripped so "1.0000" → "1.0" and "0.00500000" → "0.005"
+     */
+    private static String formatBtcpc(double v) {
+        if (v == 0) return "0";
+        String s;
+        if (v >= 1.0)      s = String.format(Locale.US, "%.4f", v);
+        else if (v >= 0.0001) s = String.format(Locale.US, "%.6f", v);
+        else               s = String.format(Locale.US, "%.8f", v);
+        // Strip trailing zeros after decimal point, but keep at least one digit after dot
+        if (s.contains(".")) {
+            s = s.replaceAll("0+$", "");
+            if (s.endsWith(".")) s += "0";
+        }
+        return s;
     }
 
     private void copyToClipboard(String text) {
