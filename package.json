@@ -75,7 +75,8 @@
   "jest": {
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "<rootDir>/btcpc/"
+      "<rootDir>/btcpc/",
+      "<rootDir>/\\.claude/"
     ]
   },
   "keywords": [

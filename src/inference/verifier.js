@@ -285,40 +285,6 @@ function aggregateVotes(votes) {
   };
 }
 
-/**
- * Return the verifier policy for the current network state.
- * Caps panel size at the number of opt-in verifiers.
- * @param {number} totalNodes — total network nodes
- * @param {number} optInCount — nodes that have opted into verification
- * @returns {{ count: number, phase: string }}
- */
-function getVerifierPolicy(totalNodes, optInCount) {
-  if (!optInCount || optInCount <= 0) {
-    return { count: 0, phase: 'no-verifiers' };
-  }
-  var ideal = getVerifierCount(totalNodes);
-  var count = Math.min(ideal, optInCount);
-  var phase = count >= 7 ? 'full' : count >= 3 ? 'growing' : 'bootstrap';
-  return { count: count, phase: phase };
-}
-
-/**
- * Deterministically decide whether a given job should be verified,
- * based on the job ID, block hash, and a coverage probability (0-1).
- * Returns true if the job falls within the coverage window.
- * @param {string} jobId
- * @param {string} blockHash
- * @param {number} probability — fraction of jobs to verify (0=none, 1=all)
- * @returns {boolean}
- */
-function shouldVerifyJob(jobId, blockHash, probability) {
-  if (probability <= 0) return false;
-  if (probability >= 1) return true;
-  var hash = crypto.createHash('sha256').update(jobId + ':' + blockHash).digest('hex');
-  var sample = parseInt(hash.slice(0, 8), 16) / 0xffffffff;
-  return sample < probability;
-}
-
 module.exports = {
   getVerifierCount: getVerifierCount,
   getVerifierPolicy: getVerifierPolicy,
