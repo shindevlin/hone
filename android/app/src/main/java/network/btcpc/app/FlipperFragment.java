@@ -101,13 +101,24 @@ public class FlipperFragment extends Fragment {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(action)) {
-                appendLog("Flipper Zero detected via USB — waiting for MAC…");
+                // USB connected — try auto-MAC first; BLE scan is fallback if MAC doesn't arrive
+                appendLog("Flipper Zero detected via USB — waiting for auto-pair…");
+                handler.postDelayed(() -> {
+                    // If still not paired after 3 s, fall back to BLE scan
+                    if (isAdded() && prefs.getFlipperBleMac().isEmpty()) {
+                        appendLog("No MAC received via USB — starting BLE scan…");
+                        startBlePairingScan();
+                    }
+                }, 3_000);
             } else if (LocalRelayService.ACTION_FLIPPER_MAC_FOUND.equals(action)) {
-                handler.removeCallbacksAndMessages(null); // cancel any pending fallback timer
                 String mac = intent.getStringExtra(LocalRelayService.EXTRA_FLIPPER_MAC);
                 if (mac != null && !mac.isEmpty()) {
+                    stopPairingScan(); // cancel any in-progress BLE scan
                     appendLog("Auto-paired via USB: " + mac);
-                    completePairing(mac, "Flipper Zero");
+                    refreshPairingUI();
+                    Toast.makeText(requireContext(), "Flipper paired automatically", Toast.LENGTH_SHORT).show();
+                    requireContext().stopService(new Intent(requireContext(), LocalRelayService.class));
+                    requireContext().startService(new Intent(requireContext(), LocalRelayService.class));
                 }
             }
         }

@@ -140,8 +140,8 @@ static void draw_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, 2, 25, "On your Android phone:");
         canvas_draw_str(c, 2, 35, "  Open BTCPC app");
         canvas_draw_str(c, 2, 45, "  Tap Flipper tab");
-        canvas_draw_str(c, 2, 55, "  Plug in USB — auto-pairs");
-        canvas_draw_str(c, 2, 63, "  OR tap Pair via BLE");
+        canvas_draw_str(c, 2, 55, "  Plug USB (auto-pairs)");
+        canvas_draw_str(c, 2, 63, "  OR tap \"Pair via BLE\"");
         draw_nav(c, true, true);
         break;
     case 4:
