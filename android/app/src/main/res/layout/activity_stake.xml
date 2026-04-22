@@ -43,13 +43,39 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/stake_header_subtitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="20dp"
+                    android:layout_marginBottom="12dp"
                     android:text="Minimum stake requirements adjust dynamically with network demand."
                     android:textColor="@color/btcpc_muted"
                     android:textSize="13sp" />
+
+                <!-- Bootstrap free period banner (hidden when not in bootstrap) -->
+                <TextView
+                    android:id="@+id/stake_bootstrap_banner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:background="#1A22C55E"
+                    android:padding="12dp"
+                    android:text=""
+                    android:textColor="#22C55E"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <!-- Sponsor a user button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/stake_sponsor_btn"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="20dp"
+                    android:text="Sponsor a User's Stake"
+                    android:textColor="@color/btcpc_orange"
+                    android:backgroundTint="@color/btcpc_surface_alt"
+                    android:strokeColor="@color/btcpc_orange"
+                    android:strokeWidth="1"
+                    android:textSize="14sp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
                 <!-- Inference card -->
                 <include layout="@layout/item_stake_role"

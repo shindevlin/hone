@@ -8,6 +8,10 @@ const { resolveUserFromAuth } = require('../services/userResolver');
 
 const MINIMUM_STAKE = 1000;
 const UNLOCK_PERIOD_DAYS = 7;
+const AUTHORITY_ACCOUNTS = new Set([
+  process.env.BTCPC_AUTHORITY || 'shindevlin',
+  'natoshisakamoto',
+]);
 
 // In-memory unstake requests: username → { amount, requestedAt, availableAt }
 // Persisted via ledger UNSTAKE_REQUEST entries; stateStore holds the canonical state.
@@ -250,22 +254,23 @@ async function getNetworkStaking(req, res) {
   }
 }
 
-// Per-role base requirements at genesis (near-zero network).
-// These are floors — actual requirements = base × demandMultiplier(stakerCount).
-// At 0 stakers: 1x. Doubles every 1 000 stakers. Caps at 100x so the math stays bounded.
+// Per-role base requirements at genesis.
+// clock is permanently free — maximum participation benefits decentralization.
+// sensor_data has no base stake — hardware contribution is the barrier to entry.
 const ROLE_BASE = {
   inference:      { minStake: 10,  unlockDays: 7,  description: 'Run AI inference proofs. Rewards scale with verified compute delivered.' },
-  sensor_data:    { minStake: 5,   unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
+  sensor_data:    { minStake: 0,   unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
   storage:        { minStake: 20,  unlockDays: 14, description: 'Host files on BTCPC-FS. Paid per byte delivered; slashed for unavailability.' },
-  clock:          { minStake: 15,  unlockDays: 7,  description: 'Provide verified timestamps for chain sync. Requires reliable uptime.' },
+  clock:          { minStake: 0,   unlockDays: 0,  description: 'Provide verified timestamps for chain sync. Always free — the more clocks the better.' },
   verify_node:    { minStake: 50,  unlockDays: 30, description: 'Validate inference proofs and transaction signatures.' },
   review_node:    { minStake: 30,  unlockDays: 30, description: 'Audit flagged work and handle dispute resolution.' },
   human_reviewer: { minStake: 1,   unlockDays: 3,  description: 'Manual quality review — human oracle for subjective assessment.' },
 };
 
-// Doubles every 1 000 active stakers; caps at 100×.
-function demandMultiplier(stakerCount) {
-  return Math.min(100, Math.pow(2, stakerCount / 1000));
+// Doubles every 1 000 active stakers beyond the free-period threshold; caps at 100×.
+function demandMultiplier(stakerCount, freeThreshold) {
+  if (stakerCount < freeThreshold) return 0; // free period
+  return Math.min(100, Math.pow(2, (stakerCount - freeThreshold) / 1000));
 }
 
 async function getStakeRequirements(req, res) {
@@ -275,18 +280,75 @@ async function getStakeRequirements(req, res) {
     for (const pool of Object.values(allPools)) {
       if (pool && pool.total_staked > 0) stakerCount++;
     }
-    const multiplier = demandMultiplier(stakerCount);
+    const policy = stateStore.getNetworkPolicy ? stateStore.getNetworkPolicy() : { stakeFreeUntilStakers: 1000 };
+    const freeThreshold = policy.stakeFreeUntilStakers || 1000;
+    const multiplier = demandMultiplier(stakerCount, freeThreshold);
+    const bootstrapFree = stakerCount < freeThreshold;
 
     const requirements = {};
     for (const [role, base] of Object.entries(ROLE_BASE)) {
+      // clock and sensor_data are always 0; all others are 0 during bootstrap
+      const alwaysFree = base.minStake === 0;
+      const effectiveMin = alwaysFree ? 0 : (bootstrapFree ? 0 : Math.ceil(base.minStake * multiplier));
       requirements[role] = {
         ...base,
-        minStake: Math.max(base.minStake, Math.ceil(base.minStake * multiplier)),
+        minStake: effectiveMin,
+        alwaysFree,
+        bootstrapFree: bootstrapFree && !alwaysFree,
         demandMultiplier: Math.round(multiplier * 100) / 100,
       };
     }
 
-    res.json({ success: true, requirements, stakerCount, unlockPeriodDays: UNLOCK_PERIOD_DAYS });
+    res.json({
+      success: true,
+      requirements,
+      stakerCount,
+      freeUntilStakers: freeThreshold,
+      bootstrapFree,
+      unlockPeriodDays: UNLOCK_PERIOD_DAYS,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function sponsorStake(req, res) {
+  try {
+    const { beneficiary, amount, sharePercent = 15 } = req.body;
+    const username = req.user.username;
+    if (!beneficiary || typeof beneficiary !== 'string') {
+      return res.status(400).json({ error: 'beneficiary required' });
+    }
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return res.status(400).json({ error: 'amount must be positive' });
+    const pct = Math.max(0, Math.min(50, parseFloat(sharePercent) || 15));
+    if (!stateStore.hasAccount(beneficiary)) {
+      return res.status(404).json({ error: `account ${beneficiary} not found` });
+    }
+    const bal = stateStore.getBalance(username, 'BTCPC');
+    if (bal < amt) {
+      return res.status(400).json({ error: `insufficient balance (have ${bal}, need ${amt})` });
+    }
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordSponsorStake(username, beneficiary, amt, pct, epoch);
+    res.json({ success: true, sponsor: username, beneficiary, amount: amt, sharePercent: pct });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function setStakePolicy(req, res) {
+  try {
+    if (!AUTHORITY_ACCOUNTS.has(req.user.username)) {
+      return res.status(403).json({ error: 'only network authorities may set stake policy' });
+    }
+    const { freeUntilStakers } = req.body;
+    if (typeof freeUntilStakers !== 'number' || freeUntilStakers < 0) {
+      return res.status(400).json({ error: 'freeUntilStakers must be a non-negative number' });
+    }
+    const epoch = await ledger.getCurrentEpoch();
+    await ledger.recordNetworkPolicy(req.user.username, { stake_free_until_stakers: freeUntilStakers }, epoch);
+    res.json({ success: true, freeUntilStakers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -299,5 +361,7 @@ module.exports = {
   getStakingInfo,
   getNetworkStaking,
   getStakeRequirements,
+  sponsorStake,
+  setStakePolicy,
   activeKeyChallenge
 };

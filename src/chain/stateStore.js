@@ -67,6 +67,10 @@ var seenEntries = new Set(); // deduplicate replayed entries
 // Community model registry (v3.1.97+): model_id → { model_id, name, description, format,
 //   size_mb, uploader, royalty_percent, stake_amount, files, status, upload_epoch }
 var communityModels = new Map();
+// Sponsored stakes: beneficiary → { sponsor, amount, sharePercent, epoch }
+var sponsoredStakes = new Map();
+// Mutable network policy (admin-settable, replayed from ledger)
+var networkPolicy = { stakeFreeUntilStakers: 1000 };
 
 // ─────────────────────────────────────────────────────────────────
 // Commerce state (v2.10)
@@ -158,6 +162,7 @@ var STORAGE_HEARTBEAT_RETENTION = 1000;
 //   sensor:    { score, passed, failed, last_epoch }
 //   clock:     { score, passed, failed, last_epoch }
 //   inference: { score, passed, failed, last_epoch }
+//   review:    { score, passed, failed, last_epoch }
 //   overall:   number (0–100, weighted average)
 // }
 // Score = exponential moving average of pass rate, 0–100.
@@ -186,6 +191,7 @@ function _getNodeRep(account) {
     sensor: _repScore('sensor'),
     clock: _repScore('clock'),
     inference: _repScore('inference'),
+    review: _repScore('review'),
     overall: 50,
   };
 }
@@ -204,6 +210,7 @@ function _computeOverall(rep) {
 function _applyRepEvent(account, category, passed, epoch, extra) {
   if (!account) return;
   var rep = _getNodeRep(account);
+  if (!rep[category]) rep[category] = _repScore(category);
   rep[category] = _updateRepScore(rep[category], passed);
   rep[category].last_epoch = epoch || 0;
   if (extra) Object.assign(rep[category], extra);
@@ -349,6 +356,9 @@ var ANCHOR_LOG_CAP = 100;
 
 // Slashing records: username → [ { epoch, offenseType, tier, amount, evidence } ]
 var slashRecords = new Map();
+
+// Inference review votes: job_id → [ { reviewer, verdict, epoch, review_mode, review_stage } ]
+var inferenceReviewVotes = new Map();
 
 // ─────────────────────────────────────────────────────────────────
 // Nested wallet state (v3.3)
@@ -812,6 +822,28 @@ function applyEntry(entry) {
       _credit(to, token, parsedAmount);
       break;
 
+    case "SLASH":
+      if (parsedAmount === null) break;
+      if (!from || !to) break;
+      if (!_debitStake(from, parsedAmount)) break;
+      _credit(to, token || "BTCPC", parsedAmount);
+      if (entry.slash_data && entry.slash_data.account) {
+        addSlashRecord(entry.slash_data.account, {
+          account: entry.slash_data.account,
+          role: entry.slash_data.role || "verifier",
+          offenseType: entry.slash_data.offenseType || "REVIEW_DISSENT",
+          tier: entry.slash_data.tier || 0,
+          amount: parsedAmount,
+          evidence: entry.slash_data.evidence || null,
+          slashTxId: entry._id ? entry._id.toString() : null,
+          deregistered: !!entry.slash_data.deregistered,
+          epoch: entry.epoch || 0,
+          timestamp: entry.timestamp || new Date().toISOString(),
+          appeal: entry.slash_data.appeal || { deadline: (entry.epoch || 0) + 100 },
+        });
+      }
+      break;
+
     case "INFERENCE_CHARGE":
       // Deduct network service fee from delegated balance first, then owned balance.
       // to = miner/pool that receives payment; from = requester
@@ -825,9 +857,38 @@ function applyEntry(entry) {
       _credit(to, chargeToken, parsedAmount);
       break;
 
+    case "SPONSOR_STAKE": {
+      var spAmt = _coerceAmount(amount);
+      if (spAmt === null || !from || !to) break;
+      if (!_debit(from, "BTCPC", spAmt)) break;
+      sponsoredStakes.set(to, { sponsor: from, amount: spAmt, sharePercent: entry.share_percent || 15, epoch: entry.epoch });
+      break;
+    }
+
+    case "NETWORK_POLICY": {
+      if (typeof entry.stake_free_until_stakers === 'number') {
+        networkPolicy.stakeFreeUntilStakers = entry.stake_free_until_stakers;
+      }
+      break;
+    }
+
     case "MINING_REWARD":
     case "FAUCET":
       _credit(to, token, amount);
+      // Route sponsor cut before tracking own earnings
+      if (entry.type === "MINING_REWARD" && to && token === "BTCPC") {
+        var spRec = sponsoredStakes.get(to);
+        if (spRec && spRec.sponsor && spRec.sharePercent > 0) {
+          var spCut = _round(amount * spRec.sharePercent / 100);
+          if (spCut > 0 && _debit(to, "BTCPC", spCut)) {
+            _credit(spRec.sponsor, "BTCPC", spCut);
+            var spE = earnings.get(spRec.sponsor) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
+            spE.service = _round(spE.service + spCut);
+            spE.total   = _round(spE.total   + spCut);
+            earnings.set(spRec.sponsor, spE);
+          }
+        }
+      }
       // Track earnings by source for the earnings breakdown endpoint
       if (entry.type === "MINING_REWARD" && to) {
         var earningRecord = earnings.get(to) || { mining: 0, clock: 0, storage: 0, iot: 0, verifier: 0, service: 0, inference_split: 0, total: 0 };
@@ -1419,6 +1480,8 @@ function applyEntry(entry) {
           challenge_deadline_epoch: ijOpen.challenge_deadline_epoch || 0,
           review_stage: ijOpen.review_stage || "initial",
           review_epoch: null,
+          assigned_reviewers: ijOpen.assigned_reviewers || [],
+          review_committee_hash: ijOpen.review_committee_hash || null,
           miner: null,
           proof_hash: null,
           actual_cost: null,
@@ -1430,6 +1493,11 @@ function applyEntry(entry) {
           challenge_status: null,
           challenge_escrow_id: null,
           challenge_epoch: null,
+          review_votes: [],
+          review_vote_count: 0,
+          review_winner: null,
+          review_dissenters: [],
+          review_resolved_epoch: null,
           finality_epoch: null,
           finality_hash: null,
           finality_outcome: null,
@@ -1496,9 +1564,33 @@ function applyEntry(entry) {
           ijReview.challenge_escrow_id = entry.job_data.challenge_escrow_id || ijReview.challenge_escrow_id || null;
           ijReview.review_stage = entry.job_data.review_stage || ijReview.review_stage || "initial";
           ijReview.challenge_status = entry.job_data.challenge_status || ijReview.challenge_status || null;
+          if (Array.isArray(entry.job_data.review_votes)) {
+            ijReview.review_votes = entry.job_data.review_votes.slice();
+            ijReview.review_vote_count = ijReview.review_votes.length;
+          }
+          if (entry.job_data.review_winner) {
+            ijReview.review_winner = entry.job_data.review_winner;
+          }
+          if (Array.isArray(entry.job_data.review_dissenters)) {
+            ijReview.review_dissenters = entry.job_data.review_dissenters.slice();
+          }
           ijReview.review_epoch = entry.epoch;
           ijReview.status = entry.job_data.status || (entry.job_data.verdict === "accepted" ? "awaiting_challenge" : "review_rejected");
           inferenceJobs.set(entry.job_data.job_id, ijReview);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_REVIEW_ASSIGNMENT":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijAssign = inferenceJobs.get(entry.job_data.job_id);
+        if (ijAssign) {
+          ijAssign.review_mode = entry.job_data.review_mode || ijAssign.review_mode || "computer";
+          ijAssign.review_stage = entry.job_data.review_stage || ijAssign.review_stage || "initial";
+          ijAssign.assigned_reviewers = Array.isArray(entry.job_data.assigned_reviewers) ? entry.job_data.assigned_reviewers.slice() : [];
+          ijAssign.review_committee_hash = entry.job_data.review_committee_hash || ijAssign.review_committee_hash || null;
+          ijAssign.review_status = entry.job_data.status || "review_assigned";
+          inferenceJobs.set(entry.job_data.job_id, ijAssign);
         }
       }
       break;
@@ -1514,6 +1606,13 @@ function applyEntry(entry) {
           ijChallenge.challenge_escrow_id = entry.job_data.challenge_escrow_id || ijChallenge.challenge_escrow_id || null;
           ijChallenge.challenge_epoch = entry.epoch;
           ijChallenge.challenge_deadline_epoch = entry.job_data.challenge_deadline_epoch || ijChallenge.challenge_deadline_epoch || 0;
+          ijChallenge.assigned_reviewers = Array.isArray(entry.job_data.assigned_reviewers) ? entry.job_data.assigned_reviewers.slice() : (ijChallenge.assigned_reviewers || []);
+          ijChallenge.review_committee_hash = entry.job_data.review_committee_hash || ijChallenge.review_committee_hash || null;
+          ijChallenge.review_stage = entry.job_data.review_stage || ijChallenge.review_stage || "challenge";
+          if (Array.isArray(entry.job_data.review_votes)) {
+            ijChallenge.review_votes = entry.job_data.review_votes.slice();
+            ijChallenge.review_vote_count = ijChallenge.review_votes.length;
+          }
           ijChallenge.challenge_status = "challenged";
           ijChallenge.status = "challenged";
           inferenceJobs.set(entry.job_data.job_id, ijChallenge);
@@ -1530,8 +1629,82 @@ function applyEntry(entry) {
           ijFinal.finality_outcome = entry.job_data.finality_outcome || ijFinal.finality_outcome || null;
           ijFinal.review_stage = entry.job_data.review_stage || ijFinal.review_stage || null;
           ijFinal.challenge_status = entry.job_data.challenge_status || ijFinal.challenge_status || null;
+          if (Array.isArray(entry.job_data.review_dissenters)) {
+            ijFinal.review_dissenters = entry.job_data.review_dissenters.slice();
+          }
+          if (entry.job_data.review_winner) {
+            ijFinal.review_winner = entry.job_data.review_winner;
+          }
           ijFinal.status = entry.job_data.status || "finalized";
           inferenceJobs.set(entry.job_data.job_id, ijFinal);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_REVIEW_VOTE":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijVote = inferenceJobs.get(entry.job_data.job_id);
+        if (ijVote) {
+          var voteKey = entry.job_data.job_id;
+          var reviewVoteList = inferenceReviewVotes.get(voteKey) || [];
+          if (!Array.isArray(ijVote.review_votes)) ijVote.review_votes = [];
+          var voteRecord = {
+            reviewer: entry.job_data.reviewer || entry.from || null,
+            verdict: entry.job_data.verdict || "accepted",
+            epoch: entry.epoch,
+            review_mode: entry.job_data.review_mode || ijVote.review_mode || "computer",
+            review_stage: entry.job_data.review_stage || ijVote.review_stage || "initial",
+            status: entry.job_data.status || "review_voting",
+          };
+          if (entry.job_data.review_committee_hash) {
+            voteRecord.review_committee_hash = entry.job_data.review_committee_hash;
+          }
+          var existingVoteIndex = ijVote.review_votes.findIndex(function (vote) {
+            return vote.reviewer === voteRecord.reviewer && vote.review_stage === voteRecord.review_stage;
+          });
+          if (existingVoteIndex >= 0) {
+            ijVote.review_votes[existingVoteIndex] = voteRecord;
+          } else {
+            ijVote.review_votes.push(voteRecord);
+          }
+          var existingReviewVoteIndex = reviewVoteList.findIndex(function (vote) {
+            return vote.reviewer === voteRecord.reviewer && vote.review_stage === voteRecord.review_stage;
+          });
+          if (existingReviewVoteIndex >= 0) {
+            reviewVoteList[existingReviewVoteIndex] = voteRecord;
+          } else {
+            reviewVoteList.push(voteRecord);
+          }
+          inferenceReviewVotes.set(voteKey, reviewVoteList);
+          ijVote.review_vote_count = ijVote.review_votes.length;
+          ijVote.review_status = entry.job_data.status || ijVote.review_status || "review_voting";
+          inferenceJobs.set(entry.job_data.job_id, ijVote);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_REVIEW_OUTCOME":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijOutcome = inferenceJobs.get(entry.job_data.job_id);
+        if (ijOutcome) {
+          ijOutcome.review_verdict = entry.job_data.review_verdict || ijOutcome.review_verdict || null;
+          ijOutcome.challenge_status = entry.job_data.challenge_status || ijOutcome.challenge_status || null;
+          ijOutcome.review_status = entry.job_data.status || ijOutcome.review_status || "review_resolved";
+          ijOutcome.review_winner = entry.job_data.review_winner || ijOutcome.review_winner || null;
+          ijOutcome.review_dissenters = Array.isArray(entry.job_data.review_dissenters)
+            ? entry.job_data.review_dissenters.slice()
+            : (ijOutcome.review_dissenters || []);
+          ijOutcome.review_vote_count = entry.job_data.review_vote_count != null
+            ? entry.job_data.review_vote_count
+            : (Array.isArray(ijOutcome.review_votes) ? ijOutcome.review_votes.length : 0);
+          ijOutcome.review_resolved_epoch = entry.epoch;
+          if (entry.job_data.status) {
+            ijOutcome.status = entry.job_data.status;
+          }
+          if (Array.isArray(ijOutcome.review_votes)) {
+            inferenceReviewVotes.set(entry.job_data.job_id, ijOutcome.review_votes.slice());
+          }
+          inferenceJobs.set(entry.job_data.job_id, ijOutcome);
         }
       }
       break;
@@ -4209,6 +4382,50 @@ function getSlashRecords(username) {
   return slashRecords.get(username) || [];
 }
 
+function getAllSlashRecords() {
+  var result = {};
+  for (var entry of slashRecords) {
+    result[entry[0]] = entry[1].slice();
+  }
+  return result;
+}
+
+function getInferenceReviewVotes(jobId) {
+  return (inferenceReviewVotes.get(jobId) || []).slice();
+}
+
+function addSlashRecord(username, record) {
+  if (!username || !record) return;
+  var records = slashRecords.get(username) || [];
+  records.push(record);
+  slashRecords.set(username, records);
+}
+
+function _debitStake(username, amount) {
+  var pool = stakes.get(username);
+  if (!pool) return false;
+  var amt = _coerceAmount(amount);
+  if (amt === null) return false;
+  if (toUnits(pool.total_staked) < toUnits(amt)) return false;
+  pool.total_staked = _round(pool.total_staked - amt);
+  if (pool.total_staked <= 0) stakes.delete(username);
+  else stakes.set(username, pool);
+  return true;
+}
+
+function deductStake(username, amount) {
+  return _debitStake(username, amount);
+}
+
+function restoreStake(username, amount) {
+  if (!username) return;
+  var amt = _coerceAmount(amount);
+  if (amt === null) return;
+  var pool = stakes.get(username) || { total_staked: 0, purpose: null, first_stake_epoch: 0 };
+  pool.total_staked = _round(pool.total_staked + amt);
+  stakes.set(username, pool);
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Stateful compute getters (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
@@ -4300,7 +4517,7 @@ function getOpenInferenceJobs() {
 function getInferenceJobsAwaitingFinality() {
   var result = [];
   for (var job of inferenceJobs.values()) {
-    if (job.status === "awaiting_challenge" || job.status === "challenged" || job.status === "review_rejected") result.push(job);
+    if (job.status === "awaiting_challenge" || job.status === "challenged" || job.status === "review_rejected" || job.status === "review_assigned") result.push(job);
   }
   return result;
 }
@@ -4694,6 +4911,8 @@ function snapshot() {
     orders: Array.from(orders.entries()),
     reputation: Array.from(reputation.entries()),
     reputation_votes: Array.from(reputationVotes.entries()),
+    slash_records: Array.from(slashRecords.entries()),
+    inference_review_votes: Array.from(inferenceReviewVotes.entries()),
     blobs: Array.from(blobs.entries()),
   };
 }
@@ -4714,6 +4933,8 @@ function stats() {
     orders: orders.size,
     reputation: reputation.size,
     reputation_votes: reputationVotes.size,
+    slash_records: slashRecords.size,
+    inference_review_votes: inferenceReviewVotes.size,
     blobs: blobs.size,
     storage_heartbeats: storageHeartbeats.size,
     blob_challenges: blobChallenges.size,
@@ -4850,6 +5071,7 @@ function resetAll() {
   computeProofsByEpoch.clear();
   anchorLog.splice(0);
   slashRecords.clear();
+  inferenceReviewVotes.clear();
   services.clear();
   snapshots.clear();
   sensors.clear();
@@ -4958,6 +5180,8 @@ module.exports = {
   getStake: getStake,
   getStakePool: getStakePool,
   getAllStakePools: getAllStakePools,
+  getSponsoredStake: function(beneficiary) { return sponsoredStakes.get(beneficiary) || null; },
+  getNetworkPolicy: function() { return Object.assign({}, networkPolicy); },
   getDelegation: getDelegation,
   getDelegationsByDelegator: getDelegationsByDelegator,
   getDelegationsByRecipient: getDelegationsByRecipient,
@@ -5078,6 +5302,12 @@ module.exports = {
   getAllCrossChainCredits,
   CROSS_CHAIN_SUPPORTED,
   getNodeReputation,
+  deductStake,
+  restoreStake,
+  addSlashRecord,
+  getSlashRecords,
+  getAllSlashRecords,
+  getInferenceReviewVotes,
   // Inference Marketplace (v3.1.119+)
   getInferenceJob,
   getOpenInferenceJobs,

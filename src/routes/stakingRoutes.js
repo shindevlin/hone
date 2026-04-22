@@ -8,6 +8,8 @@ const {
   getStakingInfo,
   getNetworkStaking,
   getStakeRequirements,
+  sponsorStake,
+  setStakePolicy,
 } = require('../controllers/stakingController');
 const { authenticateToken } = require('../middlewares/auth');
 const { requireTOTP } = require('../services/totp');
@@ -22,5 +24,9 @@ router.get('/info', authenticateToken, getStakingInfo);
 router.get('/network', getNetworkStaking);
 // Public per-role stake requirements (dynamic based on demand)
 router.get('/requirements', getStakeRequirements);
+// Sponsor another account's stake (anyone can sponsor, earns share of rewards)
+router.post('/sponsor', authenticateToken, sponsorStake);
+// Admin: set stake policy (free period threshold)
+router.post('/policy', authenticateToken, setStakePolicy);
 
 module.exports = router;

@@ -70,20 +70,30 @@ public class ChainApi {
     }
 
     public static class StakeRoleInfo {
-        public final double minStake;
-        public final int    unlockDays;
-        public final String description;
-        public final double demandMultiplier;
-        public StakeRoleInfo(double minStake, int unlockDays, String description, double demandMultiplier) {
+        public final double  minStake;
+        public final int     unlockDays;
+        public final String  description;
+        public final double  demandMultiplier;
+        public final boolean alwaysFree;
+        public final boolean bootstrapFree;
+        public StakeRoleInfo(double minStake, int unlockDays, String description,
+                             double demandMultiplier, boolean alwaysFree, boolean bootstrapFree) {
             this.minStake = minStake;
             this.unlockDays = unlockDays;
             this.description = description;
             this.demandMultiplier = demandMultiplier;
+            this.alwaysFree = alwaysFree;
+            this.bootstrapFree = bootstrapFree;
         }
     }
 
     public interface StakeCallback {
         void onSuccess(double amount, String role);
+        void onError(String message);
+    }
+
+    public interface SponsorStakeCallback {
+        void onSuccess(String beneficiary, double amount, double sharePercent);
         void onError(String message);
     }
 
@@ -428,10 +438,12 @@ public class ChainApi {
                             JSONObject r = reqs.optJSONObject(role);
                             if (r == null) continue;
                             map.put(role, new StakeRoleInfo(
-                                    r.optDouble("minStake", 1000),
+                                    r.optDouble("minStake", 0),
                                     r.optInt("unlockDays", 7),
                                     r.optString("description", ""),
-                                    r.optDouble("demandMultiplier", 1.0)
+                                    r.optDouble("demandMultiplier", 1.0),
+                                    r.optBoolean("alwaysFree", false),
+                                    r.optBoolean("bootstrapFree", false)
                             ));
                         }
                     }
@@ -473,6 +485,49 @@ public class ChainApi {
                         double amt = json.optDouble("amount", amount);
                         String r   = json.optString("role", role);
                         MAIN.post(() -> callback.onSuccess(amt, r));
+                    } catch (Exception e) {
+                        MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                    }
+                }
+            });
+        } catch (Exception e) {
+            MAIN.post(() -> callback.onError(e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/staking/sponsor — sponsor another user's stake.
+     * Sponsor's BTCPC is locked as collateral; sponsor earns sharePercent of beneficiary's rewards.
+     */
+    public static void sponsorStake(String beneficiary, double amount, double sharePercent,
+                                    String jwt, String apiBase, SponsorStakeCallback callback) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("beneficiary", beneficiary);
+            body.put("amount", amount);
+            body.put("sharePercent", sharePercent);
+            Request request = new Request.Builder()
+                    .url(apiBase + "/api/staking/sponsor")
+                    .addHeader("Authorization", "Bearer " + jwt)
+                    .post(RequestBody.create(body.toString(), MediaType.parse("application/json")))
+                    .build();
+            CLIENT.newCall(request).enqueue(new Callback() {
+                @Override public void onFailure(Call call, IOException e) {
+                    MAIN.post(() -> callback.onError(e.getMessage()));
+                }
+                @Override public void onResponse(Call call, Response response) throws IOException {
+                    try (ResponseBody rb = response.body()) {
+                        String raw = rb != null ? rb.string() : "{}";
+                        JSONObject json = new JSONObject(raw);
+                        if (!response.isSuccessful()) {
+                            String err = json.optString("error", "HTTP " + response.code());
+                            MAIN.post(() -> callback.onError(err));
+                            return;
+                        }
+                        String ben  = json.optString("beneficiary", beneficiary);
+                        double amt  = json.optDouble("amount", amount);
+                        double pct  = json.optDouble("sharePercent", sharePercent);
+                        MAIN.post(() -> callback.onSuccess(ben, amt, pct));
                     } catch (Exception e) {
                         MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
                     }

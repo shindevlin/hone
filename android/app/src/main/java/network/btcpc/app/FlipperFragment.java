@@ -94,20 +94,13 @@ public class FlipperFragment extends Fragment {
                 prefs.clearFlipperSession();
                 refreshPairingUI();
             } else {
-                // Scan QR — try ZXing first, fall back to web
+                // Try ZXing QR scanner first; fall back to manual entry
                 Intent scanIntent = new Intent("com.google.zxing.client.android.SCAN");
                 scanIntent.putExtra("SCAN_MODE", "QR_CODE_MODE");
                 try {
                     startActivityForResult(scanIntent, REQ_QR_SCAN);
                 } catch (ActivityNotFoundException e) {
-                    Toast.makeText(requireContext(),
-                            "Install a QR scanner app, or open btcpc://pair?sid=<your-session-id> directly",
-                            Toast.LENGTH_LONG).show();
-                    // Fallback: open pairing web page
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW,
-                                Uri.parse("https://btcpc.net/pair")));
-                    } catch (ActivityNotFoundException ignored) {}
+                    showManualPairDialog();
                 }
             }
         });
@@ -181,6 +174,35 @@ public class FlipperFragment extends Fragment {
             pairHint.setVisibility(View.VISIBLE);
             pairBtn.setText("Scan QR");
         }
+    }
+
+    // ---- manual pair dialog (fallback when no QR scanner installed) ----
+
+    private void showManualPairDialog() {
+        if (!isAdded()) return;
+        android.widget.EditText input = new android.widget.EditText(requireContext());
+        input.setHint("Session ID from btcpc.net/pair");
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        int pad = (int)(16 * requireContext().getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad, pad, pad);
+
+        new android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Pair Flipper Zero")
+                .setMessage("Paste the session ID shown on btcpc.net/pair:")
+                .setView(input)
+                .setPositiveButton("Pair", (dialog, which) -> {
+                    String sid = input.getText() != null ? input.getText().toString().trim() : "";
+                    if (sid.isEmpty()) {
+                        Toast.makeText(requireContext(), "Enter a session ID", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    prefs.setFlipperSessionId(sid);
+                    refreshPairingUI();
+                    Toast.makeText(requireContext(),
+                            "Flipper paired (session: " + sid + ")", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     // ---- polling ----

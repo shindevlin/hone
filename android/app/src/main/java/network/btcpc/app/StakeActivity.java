@@ -1,6 +1,7 @@
 package network.btcpc.app;
 
 import android.app.AlertDialog;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
@@ -39,8 +40,11 @@ public class StakeActivity extends AppCompatActivity {
     };
 
     private SwipeRefreshLayout swipeRefresh;
+    private TextView bootstrapBanner;
+    private MaterialButton sponsorBtn;
     private AppPrefs prefs;
     private Map<String, ChainApi.StakeRoleInfo> requirements;
+    private boolean bootstrapFree = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +65,10 @@ public class StakeActivity extends AppCompatActivity {
         swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF161B25);
         swipeRefresh.setOnRefreshListener(this::loadRequirements);
 
+        bootstrapBanner = findViewById(R.id.stake_bootstrap_banner);
+        sponsorBtn = findViewById(R.id.stake_sponsor_btn);
+        sponsorBtn.setOnClickListener(v -> showSponsorDialog());
+
         loadRequirements();
     }
 
@@ -70,7 +78,16 @@ public class StakeActivity extends AppCompatActivity {
             @Override
             public void onSuccess(Map<String, ChainApi.StakeRoleInfo> reqs) {
                 requirements = reqs;
+                // Derive bootstrap state from any non-always-free role
+                bootstrapFree = false;
+                for (ChainApi.StakeRoleInfo info : reqs.values()) {
+                    if (!info.alwaysFree && info.bootstrapFree) {
+                        bootstrapFree = true;
+                        break;
+                    }
+                }
                 swipeRefresh.setRefreshing(false);
+                updateBanner();
                 bindCards();
             }
 
@@ -79,9 +96,19 @@ public class StakeActivity extends AppCompatActivity {
                 swipeRefresh.setRefreshing(false);
                 Toast.makeText(StakeActivity.this,
                         "Could not load requirements: " + message, Toast.LENGTH_SHORT).show();
-                bindCards(); // bind with null to show "--" placeholders
+                bindCards();
             }
         });
+    }
+
+    private void updateBanner() {
+        if (bootstrapBanner == null) return;
+        if (bootstrapFree) {
+            bootstrapBanner.setVisibility(View.VISIBLE);
+            bootstrapBanner.setText("Bootstrap period — all roles free until the network reaches its threshold. Join now.");
+        } else {
+            bootstrapBanner.setVisibility(View.GONE);
+        }
     }
 
     private void bindCards() {
@@ -91,25 +118,42 @@ public class StakeActivity extends AppCompatActivity {
             View card = findViewById(CARD_IDS[i]);
             if (card == null) continue;
 
-            TextView titleView   = card.findViewById(R.id.stake_role_title);
-            TextView descView    = card.findViewById(R.id.stake_role_description);
+            TextView titleView    = card.findViewById(R.id.stake_role_title);
+            TextView badgeView    = card.findViewById(R.id.stake_role_badge);
+            TextView descView     = card.findViewById(R.id.stake_role_description);
             TextView minStakeView = card.findViewById(R.id.stake_role_min_stake);
-            TextView unlockView  = card.findViewById(R.id.stake_role_unlock);
-            MaterialButton btn   = card.findViewById(R.id.stake_role_btn);
+            TextView unlockView   = card.findViewById(R.id.stake_role_unlock);
+            MaterialButton btn    = card.findViewById(R.id.stake_role_btn);
 
             titleView.setText(roleTitle);
 
             ChainApi.StakeRoleInfo info = requirements != null ? requirements.get(roleId) : null;
             if (info != null) {
                 descView.setText(info.description);
-                minStakeView.setText(formatAmount(info.minStake));
-                unlockView.setText(info.unlockDays + (info.unlockDays == 1 ? " day" : " days"));
+                if (info.alwaysFree) {
+                    minStakeView.setText("Free");
+                    minStakeView.setTextColor(Color.parseColor("#22C55E"));
+                    unlockView.setText("No lock");
+                    badgeView.setText("ALWAYS FREE");
+                } else if (info.bootstrapFree || info.minStake == 0) {
+                    minStakeView.setText("Free");
+                    minStakeView.setTextColor(Color.parseColor("#22C55E"));
+                    unlockView.setText(info.unlockDays > 0
+                            ? info.unlockDays + (info.unlockDays == 1 ? " day" : " days") : "None");
+                    badgeView.setText("BOOTSTRAP");
+                } else {
+                    minStakeView.setText(formatAmount(info.minStake));
+                    minStakeView.setTextColor(0xFFF7931A);
+                    unlockView.setText(info.unlockDays + (info.unlockDays == 1 ? " day" : " days"));
+                    badgeView.setText("OPEN");
+                }
             } else {
                 minStakeView.setText("--");
+                minStakeView.setTextColor(0xFFF7931A);
                 unlockView.setText("-- days");
             }
 
-            double minRequired = info != null ? info.minStake : 0;
+            double minRequired = (info != null) ? info.minStake : 0;
             btn.setOnClickListener(v -> showStakeDialog(roleId, roleTitle, minRequired));
         }
     }
@@ -121,12 +165,14 @@ public class StakeActivity extends AppCompatActivity {
         }
 
         EditText amountField = new EditText(this);
-        amountField.setHint("Amount (min " + formatAmount(minRequired) + " BTCPC)");
+        if (minRequired > 0) {
+            amountField.setHint("Amount (min " + formatAmount(minRequired) + " BTCPC)");
+            amountField.setText(formatAmount(minRequired));
+        } else {
+            amountField.setHint("Amount (BTCPC) — optional during bootstrap");
+        }
         amountField.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
                 | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        if (minRequired > 0) {
-            amountField.setText(formatAmount(minRequired));
-        }
 
         int pad = (int)(16 * getResources().getDisplayMetrics().density);
         android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
@@ -136,7 +182,7 @@ public class StakeActivity extends AppCompatActivity {
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Stake for " + roleTitle)
-                .setMessage("Stake BTCPC as collateral to participate as a " + roleTitle + " node.")
+                .setMessage("Lock BTCPC as collateral to run a " + roleTitle + " node.")
                 .setView(layout)
                 .setPositiveButton("Stake", null)
                 .setNegativeButton("Cancel", null)
@@ -146,15 +192,13 @@ public class StakeActivity extends AppCompatActivity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String amtStr = amountField.getText() != null
                         ? amountField.getText().toString().trim() : "";
-                if (amtStr.isEmpty()) {
-                    Toast.makeText(this, "Enter an amount", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                double amount;
-                try { amount = Double.parseDouble(amtStr); }
-                catch (NumberFormatException e) {
-                    Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show();
-                    return;
+                double amount = 0;
+                if (!amtStr.isEmpty()) {
+                    try { amount = Double.parseDouble(amtStr); }
+                    catch (NumberFormatException e) {
+                        Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                 }
                 if (minRequired > 0 && amount < minRequired) {
                     Toast.makeText(this,
@@ -166,19 +210,107 @@ public class StakeActivity extends AppCompatActivity {
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Staking…");
 
-                ChainApi.stake(roleId, amount, prefs.getJwt(), prefs.getApiUrl(),
+                final double finalAmount = amount;
+                ChainApi.stake(roleId, finalAmount, prefs.getJwt(), prefs.getApiUrl(),
                         new ChainApi.StakeCallback() {
                     @Override public void onSuccess(double newAmount, String role) {
                         dialog.dismiss();
                         Toast.makeText(StakeActivity.this,
-                                "Staked " + formatAmount(newAmount) + " BTCPC as " + roleTitle,
+                                "Staked" + (newAmount > 0 ? " " + formatAmount(newAmount) + " BTCPC" : "") + " as " + roleTitle,
                                 Toast.LENGTH_LONG).show();
                     }
                     @Override public void onError(String message) {
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Stake");
+                        Toast.makeText(StakeActivity.this, "Error: " + message, Toast.LENGTH_LONG).show();
+                    }
+                });
+            });
+        });
+        dialog.show();
+    }
+
+    private void showSponsorDialog() {
+        if (prefs.getAccount().isEmpty() || prefs.getJwt().isEmpty()) {
+            Toast.makeText(this, "Sign in via the Wallet tab first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+
+        EditText beneficiaryField = new EditText(this);
+        beneficiaryField.setHint("Account to sponsor (e.g. alice)");
+        beneficiaryField.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+
+        EditText amountField = new EditText(this);
+        amountField.setHint("Amount (BTCPC)");
+        amountField.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        amountField.setPadding(0, pad / 2, 0, 0);
+
+        EditText shareField = new EditText(this);
+        shareField.setHint("Your reward share % (default 15)");
+        shareField.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        shareField.setText("15");
+        shareField.setPadding(0, pad / 2, 0, 0);
+
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad, pad, 0);
+        layout.addView(beneficiaryField);
+        layout.addView(amountField);
+        layout.addView(shareField);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Sponsor a Stake")
+                .setMessage("Your BTCPC covers another user's staking requirement. You earn a share of their node rewards.")
+                .setView(layout)
+                .setPositiveButton("Sponsor", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String beneficiary = beneficiaryField.getText() != null
+                        ? beneficiaryField.getText().toString().trim() : "";
+                String amtStr = amountField.getText() != null
+                        ? amountField.getText().toString().trim() : "";
+                String pctStr = shareField.getText() != null
+                        ? shareField.getText().toString().trim() : "15";
+
+                if (beneficiary.isEmpty() || amtStr.isEmpty()) {
+                    Toast.makeText(this, "Fill in account and amount", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                double amount, sharePct;
+                try { amount = Double.parseDouble(amtStr); }
+                catch (NumberFormatException e) {
+                    Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try { sharePct = Double.parseDouble(pctStr); }
+                catch (NumberFormatException e) { sharePct = 15; }
+                sharePct = Math.max(0, Math.min(50, sharePct));
+
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Sponsoring…");
+
+                final double finalShare = sharePct;
+                ChainApi.sponsorStake(beneficiary, amount, sharePct,
+                        prefs.getJwt(), prefs.getApiUrl(),
+                        new ChainApi.SponsorStakeCallback() {
+                    @Override public void onSuccess(String ben, double amt, double pct) {
+                        dialog.dismiss();
                         Toast.makeText(StakeActivity.this,
-                                "Error: " + message, Toast.LENGTH_LONG).show();
+                                "Sponsored " + formatAmount(amt) + " BTCPC for " + ben
+                                + " — earning " + (int)pct + "% of their rewards",
+                                Toast.LENGTH_LONG).show();
+                    }
+                    @Override public void onError(String message) {
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Sponsor");
+                        Toast.makeText(StakeActivity.this, "Error: " + message, Toast.LENGTH_LONG).show();
                     }
                 });
             });

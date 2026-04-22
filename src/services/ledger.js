@@ -693,6 +693,36 @@ async function recordUnstake(account, amount, epoch, memo) {
 }
 
 /**
+ * Record a sponsored stake — sponsor puts up collateral for a beneficiary.
+ * Sponsor earns sharePercent of beneficiary's future mining rewards.
+ */
+async function recordSponsorStake(sponsor, beneficiary, amount, sharePercent, epoch) {
+  const entry = _entry({
+    type: 'SPONSOR_STAKE',
+    from: sponsor,
+    to: beneficiary,
+    token: 'BTCPC',
+    amount,
+    share_percent: sharePercent,
+    epoch,
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a network policy update (admin only — shin/natoshi).
+ */
+async function recordNetworkPolicy(account, patch, epoch) {
+  const entry = _entry({
+    type: 'NETWORK_POLICY',
+    from: account,
+    epoch,
+    ...patch,
+  });
+  return _persist(entry);
+}
+
+/**
  * Record delegation on the ledger.
  */
 async function recordDelegate(from, to, amount, purpose, epoch) {
@@ -2777,7 +2807,61 @@ async function recordInferenceJobReview(jobId, reviewer, reviewData, epoch) {
       challenge_escrow_id: reviewData.challenge_escrow_id || null,
       review_stage: reviewData.review_stage || "initial",
       challenge_status: reviewData.challenge_status || null,
+      assigned_reviewers: reviewData.assigned_reviewers || [],
+      review_committee_hash: reviewData.review_committee_hash || null,
       status: reviewData.status || (reviewData.verdict === 'accepted' ? 'awaiting_challenge' : 'review_rejected'),
+    },
+  }));
+}
+
+async function recordInferenceJobReviewVote(jobId, reviewer, voteData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!reviewer) throw new Error('reviewer required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_REVIEW_VOTE',
+    from: reviewer,
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      reviewer,
+      verdict: voteData.verdict || 'accepted',
+      review_mode: voteData.review_mode || 'human',
+      review_stage: voteData.review_stage || 'appeal',
+      status: voteData.status || 'review_voting',
+      review_committee_hash: voteData.review_committee_hash || null,
+    },
+  }));
+}
+
+async function recordInferenceJobReviewOutcome(jobId, outcomeData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_REVIEW_OUTCOME',
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      review_verdict: outcomeData.review_verdict || null,
+      challenge_status: outcomeData.challenge_status || null,
+      review_winner: outcomeData.review_winner || null,
+      review_dissenters: outcomeData.review_dissenters || [],
+      review_vote_count: outcomeData.review_vote_count || 0,
+      status: outcomeData.status || 'challenged',
+    },
+  }));
+}
+
+async function recordInferenceJobReviewAssignment(jobId, assignmentData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_REVIEW_ASSIGNMENT',
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      review_mode: assignmentData.review_mode || 'computer',
+      review_stage: assignmentData.review_stage || 'initial',
+      assigned_reviewers: assignmentData.assigned_reviewers || [],
+      review_committee_hash: assignmentData.review_committee_hash || null,
+      status: assignmentData.status || 'review_assigned',
     },
   }));
 }
@@ -2818,6 +2902,22 @@ async function recordInferenceJobFinality(jobId, finalityData, epoch) {
       challenge_closed: !!finalityData.challenge_closed,
     },
   }));
+}
+
+async function recordSlash(account, amount, epoch, reason, slashData) {
+  if (!account) throw new Error('account required');
+  if (!amount || amount <= 0) throw new Error('amount must be positive');
+  const entry = _entry({
+    type: 'SLASH',
+    from: account,
+    to: 'btcpc_recycle',
+    token: 'BTCPC',
+    amount,
+    epoch: epoch || 0,
+    memo: reason || null,
+    slash_data: slashData || null,
+  });
+  return _persist(entry);
 }
 
 async function recordInferenceJobRefund(jobId, buyer, reason, epoch) {
@@ -3063,6 +3163,8 @@ module.exports = {
   recordTokenCreate,
   recordStake,
   recordUnstake,
+  recordSponsorStake,
+  recordNetworkPolicy,
   recordDelegate,
   recordUndelegate,
   recordInferenceCharge,
@@ -3184,8 +3286,12 @@ module.exports = {
   recordInferenceJobSubmit,
   recordInferenceJobSettle,
   recordInferenceJobReview,
+  recordInferenceJobReviewVote,
+  recordInferenceJobReviewOutcome,
+  recordInferenceJobReviewAssignment,
   recordInferenceJobChallenge,
   recordInferenceJobFinality,
+  recordSlash,
   recordInferenceJobRefund,
   recordInferenceJobToolCall,
   recordInferenceJobToolResult,
