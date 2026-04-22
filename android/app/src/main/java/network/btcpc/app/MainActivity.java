@@ -1,8 +1,12 @@
 package network.btcpc.app;
 
 import android.Manifest;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -133,8 +137,37 @@ public class MainActivity extends AppCompatActivity {
 
     private void handlePairIntent(Intent intent, AppPrefs prefs,
                                    BottomNavigationView bottomNav, FragmentManager fm) {
-        // btcpc://pair deep-links are no longer used — pairing is now done via BLE scan
-        // triggered by USB plug-in or the "Pair via BLE" button in the Flipper tab.
+        if (intent == null) return;
+        if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+            UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            if (device != null
+                    && device.getVendorId()  == 0x0483
+                    && device.getProductId() == 0x5740) {
+                handleFlipperAttached(device);
+            }
+        }
+    }
+
+    /**
+     * System delivers ACTION_USB_DEVICE_ATTACHED only to activities (not services).
+     * We request the USB permission here; LocalRelayService.usbReceiver handles the grant.
+     */
+    private void handleFlipperAttached(UsbDevice device) {
+        UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        if (usbManager == null) return;
+        if (usbManager.hasPermission(device)) {
+            // Permission already granted — restart service so it picks up the device
+            ContextCompat.startForegroundService(this,
+                    new Intent(this, LocalRelayService.class));
+        } else {
+            String permAction = "network.btcpc.app.USB_PERMISSION";
+            Intent permIntent = new Intent(permAction);
+            permIntent.setPackage(getPackageName());
+            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? PendingIntent.FLAG_MUTABLE : 0;
+            PendingIntent pi = PendingIntent.getBroadcast(this, 0, permIntent, flags);
+            usbManager.requestPermission(device, pi);
+        }
     }
 
     // ---- fragment lookup ----
