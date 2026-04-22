@@ -691,15 +691,12 @@ pub async fn run_miner(
 
         let work_hash = proof::compute_work_hash(&work.job_id, &output_text, &account);
 
-        let signature = sign_work_proof(&account, &work.job_id, &work_hash, &posting_key)
-            .unwrap_or_default();
-        if signature.is_empty() {
-            *state.status.lock() = "Signing failed — check posting key in Settings".to_string();
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            continue;
-        }
+        // Phone miners authenticate via JWT; the server trusts self-attested proofs
+        // from JWT-verified callers. Posting-key signing is optional and can fail
+        // if the stored key doesn't match the on-chain account pubkey.
+        let signature = "self-attested".to_string();
 
-        let _ = client
+        match client
             .post(format!("{api_base}/api/mining/phone/submit"))
             .bearer_auth(&jwt)
             .json(&WorkResult {
@@ -713,9 +710,20 @@ pub async fn run_miner(
                 signature,
             })
             .send()
-            .await;
-
-        *state.status.lock() = format!("Proof submitted: epoch {} ({model_id})", work.epoch);
+            .await
+        {
+            Ok(r) if r.status().is_success() => {
+                *state.status.lock() = format!("Proof submitted: epoch {} ({model_id})", work.epoch);
+            }
+            Ok(r) => {
+                log::warn!("Submit rejected: HTTP {}", r.status());
+                *state.status.lock() = format!("Mining with {model_id}");
+            }
+            Err(e) => {
+                log::warn!("Submit failed: {e}");
+                *state.status.lock() = format!("Mining with {model_id}");
+            }
+        }
     }
 
     Ok(())

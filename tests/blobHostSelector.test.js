@@ -17,6 +17,7 @@ jest.mock('../src/p2p/mempool', () => ({
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const selector = require('../src/services/blobHostSelector');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const CID_A = 'a'.repeat(64);
 const CID_B = 'b'.repeat(64);
@@ -66,9 +67,14 @@ async function seedHost(name, opts) {
 describe('blobHostSelector (v2.11.2)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    // Seed common test accounts with enough EB
+    ['alice', 'bob', 'carol', 'dave', 'eve', 'frank', 'grace', 'henry', 'ida', 'jack', 'protocol'].forEach(
+      a => epochBandwidth.seedForTest(a)
+    );
   });
 
   describe('basic selection', () => {

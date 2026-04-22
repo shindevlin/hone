@@ -238,9 +238,9 @@ function computeRewards(input) {
           const pool = _ss.getDeviceStakerPool(sid);
           const SMULT = (_ss.SLOT_MULTIPLIERS) || [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
           if (pool && pool.length > 0) {
-            // 70/20/10 split
-            const ownerBase = round(perDevice * 0.70);
-            const stakerPool = round(perDevice * 0.20);
+            // 60/30/10 split
+            const ownerBase = round(perDevice * 0.60);
+            const stakerPool = round(perDevice * 0.30);
             const recycleShare = round(perDevice - ownerBase - stakerPool);
 
             // Weighted staker pool
@@ -275,7 +275,7 @@ function computeRewards(input) {
               }
             }
 
-            if (ownerBase > 0) rewards.push({ to: sensor.account, amount: ownerBase, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, yield_staking: true, split: "owner_70" } });
+            if (ownerBase > 0) rewards.push({ to: sensor.account, amount: ownerBase, type: "SENSOR_EPOCH_REWARD", meta: { readings: sensor.readings_count, sensor_id: sid, yield_staking: true, split: "owner_60" } });
             if (rentCollected > 0) rewards.push({ to: sensor.account, amount: round(rentCollected), type: "SENSOR_RENT_COLLECTED", meta: { sensor_id: sid } });
             recycled += recycleShare;
           } else {

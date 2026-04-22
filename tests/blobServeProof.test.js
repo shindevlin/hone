@@ -18,15 +18,18 @@ jest.mock('../src/p2p/mempool', () => ({
 
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const TEST_CID = 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9';
 
 describe('BLOB_SERVE_PROOF (v2.11.1)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'shindevlin'].forEach(a => epochBandwidth.seedForTest(a));
   });
 
   describe('recordBlobServeProof validation', () => {

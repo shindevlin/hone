@@ -15,6 +15,7 @@ jest.mock('../src/p2p/mempool', () => ({
 const payouts = require('../src/services/blobPayouts');
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const CID_A = 'a'.repeat(64);
 const CID_B = 'b'.repeat(64);
@@ -22,9 +23,12 @@ const CID_B = 'b'.repeat(64);
 describe('blobPayouts (v2.11.1)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    // Seed test accounts with enough EB to cover all test operations
+    ['shindevlin', 'alice', 'bob', 'carol'].forEach(account => epochBandwidth.seedForTest(account));
   });
 
   describe('computePayouts (pure)', () => {

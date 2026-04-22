@@ -27,6 +27,7 @@ const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const blobBandwidth = require('../src/services/blobBandwidth');
 const blobServeProofRoutes = require('../src/routes/blobServeProofRoutes');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const CID_A = 'a'.repeat(64);
 const CID_B = 'b'.repeat(64);
@@ -92,10 +93,12 @@ describe('blob serve proof routes (v2.11.1)', () => {
 
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     blobBandwidth.resetForTests();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'mallory', 'shindevlin'].forEach(a => epochBandwidth.seedForTest(a));
   });
 
   describe('auth + validation', () => {

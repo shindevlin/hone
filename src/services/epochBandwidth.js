@@ -130,4 +130,21 @@ checkAndDeduct.__peek = function(account) {
   return { eb: pool.eb, max_eb: maxEB, last_epoch: pool.last_epoch };
 };
 
-module.exports = { checkAndDeduct, getBalance, OPERATION_COSTS, BANDWIDTH_PER_STAKE_PER_EPOCH };
+/**
+ * Reset all in-memory bandwidth pools. Intended for test isolation only —
+ * production code should never call this.
+ */
+function resetAll() {
+  bandwidthPool.clear();
+}
+
+/**
+ * Pre-seed an account with a large EB balance so test operations don't run
+ * out of bandwidth. Intended for test isolation only.
+ */
+function seedForTest(account, eb) {
+  if (eb === undefined) eb = 1e9;
+  bandwidthPool.set(account, { eb: eb, last_epoch: 0 });
+}
+
+module.exports = { checkAndDeduct, getBalance, resetAll, seedForTest, OPERATION_COSTS, BANDWIDTH_PER_STAKE_PER_EPOCH };

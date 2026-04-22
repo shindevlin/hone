@@ -91,7 +91,7 @@ const sensorsRouter = express.Router();
  * Body: { name, type, unit, decimals, region, lora_gateway?, hardware_model?, firmware_version? }
  * sensor_id is computed server-side as "<owner>/<name>".
  */
-sensorsRouter.post('/', async (req, res) => {
+sensorsRouter.post('/', authenticateToken, async (req, res) => {
   try {
     const owner = (req.user && req.user.username) || (req.body && req.body.account);
     if (!owner) return res.status(401).json({ error: 'unauthenticated' });
@@ -136,7 +136,7 @@ sensorsRouter.post('/', async (req, res) => {
  * (owners relay directly; gateways relay on behalf of sensors).
  * Body: { value, metadata? }
  */
-sensorsRouter.post('/:id/readings', async (req, res) => {
+sensorsRouter.post('/:id/readings', authenticateToken, async (req, res) => {
   try {
     const caller = (req.user && req.user.username) || (req.body && req.body.account);
     if (!caller) return res.status(400).json({ error: 'account required (body.account or JWT)' });
@@ -168,11 +168,14 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
 
     const epoch = await getCurrentEpoch();
 
-    // Optional relay_account — the node that physically received the signal
+    // Optional relay_account — the node that physically received the signal.
+    // Defaults to the authenticated caller so each node's submission is
+    // tracked independently for multi-gateway witnessing.
     var relayAccount = null;
     if (body.relay_account && typeof body.relay_account === 'string') {
       relayAccount = sanitizeString(body.relay_account, 64) || null;
     }
+    if (!relayAccount && caller) relayAccount = caller;
     if (relayAccount) metadata.relay_account = relayAccount;
 
     // Optional: run requester-side tools to enrich the reading before submission
@@ -215,30 +218,8 @@ sensorsRouter.post('/:id/readings', async (req, res) => {
         });
       }
 
-      // Auto-register sensor on first reading (self-heal — never 404)
       if (/not found/i.test(err.message)) {
-        try {
-          const owner = sensorId.split('/')[0];
-          const type = (metadata && metadata.type) || 'custom';
-          const unit = (metadata && metadata.unit) || 'auto';
-          sensorRegistry.registerSensor(owner, sensorId, {
-            type, unit, decimals: 2, region: 'auto',
-            hardware_model: 'auto-registered',
-          });
-          const reading = sensorRegistry.submitReading(sensorId, numeric, metadata, epoch);
-          return res.status(201).json({ success: true, reading: reading, auto_registered: true });
-        } catch (regErr) {
-          if (/duplicate reading/i.test(regErr.message)) {
-            return res.status(200).json({
-              success: true,
-              duplicate: true,
-              sensor_id: sensorId,
-              epoch: epoch,
-              message: regErr.message,
-            });
-          }
-          return res.status(422).json({ error: regErr.message });
-        }
+        return res.status(404).json({ error: err.message });
       }
       return res.status(422).json({ error: err.message });
     }
@@ -425,10 +406,10 @@ const gatewaysRouter = express.Router();
  * Body: { name, region, latitude, longitude, antenna_gain_dbi?, hardware_model?, firmware_version?, max_sensors? }
  * gateway_id is computed server-side as "<owner>/<name>".
  */
-gatewaysRouter.post('/', async (req, res) => {
+gatewaysRouter.post('/', authenticateToken, async (req, res) => {
   try {
     const owner = (req.user && req.user.username) || (req.body && req.body.account);
-    if (!owner) return res.status(400).json({ error: 'account required' });
+    if (!owner) return res.status(401).json({ error: 'unauthenticated' });
 
     const body = req.body || {};
     const name = sanitizeString(body.name, 63);
@@ -472,10 +453,10 @@ gatewaysRouter.post('/', async (req, res) => {
  * Gateway reports it is online. Auth: owner only.
  * Body: { sensors_connected?, packets_relayed_this_epoch?, uptime_seconds?, battery_pct? }
  */
-gatewaysRouter.post('/:id/heartbeat', async (req, res) => {
+gatewaysRouter.post('/:id/heartbeat', authenticateToken, async (req, res) => {
   try {
     const owner = (req.user && req.user.username) || (req.body && req.body.account);
-    if (!owner) return res.status(400).json({ error: 'account required' });
+    if (!owner) return res.status(401).json({ error: 'unauthenticated' });
 
     const gatewayId = decodeId(req.params.id);
     if (!gatewayId) return res.status(400).json({ error: 'invalid gateway id encoding' });

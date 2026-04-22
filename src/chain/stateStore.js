@@ -2741,52 +2741,48 @@ function applyEntry(entry) {
       var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
       if (!dysDebitOk) break; // insufficient balance
 
-      // Tribute: 1% of stake_amount to owner (unless staker === owner)
+      // Tribute: 5% of stake_amount to owner (unless staker === owner).
+      // If the entry carries an explicit tribute value, honour it; otherwise
+      // fall back to the 5% formula so replayed blocks remain deterministic.
       var dysTribute = 0;
       if (dysOwner && dysStaker !== dysOwner) {
-        dysTribute = _round(dysStakeAmount * 0.01);
+        var _explicitTribute = dysData.tribute !== undefined ? _round(dysData.tribute) : null;
+        dysTribute = _explicitTribute !== null ? _explicitTribute : _round(dysStakeAmount * 0.05);
         if (dysTribute > 0) _credit(dysOwner, "BTCPC", dysTribute);
       }
 
-      // Get or create pool for this device
+      // Single-slot competitive staking: each device has exactly one top staker.
+      // If a staker already holds the slot, outbid them: refund their net_stake
+      // (original stake minus tribute), then install the new staker.
       if (!deviceStakerPools.has(dysDeviceId)) {
         deviceStakerPools.set(dysDeviceId, new Map());
       }
       var dysPool = deviceStakerPools.get(dysDeviceId);
 
-      // Add/update staker record
+      // Evict any existing staker (other than the same staker re-staking)
+      for (var _dysK of dysPool.keys()) {
+        if (_dysK !== dysStaker) {
+          var _dysPrev = dysPool.get(_dysK);
+          // Refund their net stake (original_stake minus tribute)
+          var _dysRefund = _round((_dysPrev.original_stake || _dysPrev.stake_amount) - (_dysPrev.tribute_paid || 0));
+          if (_dysRefund > 0) _credit(_dysK, "BTCPC", _dysRefund);
+          dysPool.delete(_dysK);
+        }
+      }
+
+      var dysNetStake = dysData.net_stake !== undefined ? _round(dysData.net_stake) : _round(dysStakeAmount - dysTribute);
       dysPool.set(dysStaker, {
         staker: dysStaker,
         stake_amount: dysStakeAmount,
         original_stake: dysStakeAmount,
+        net_stake: dysNetStake,
         tribute_paid: dysTribute,
-        slot: 0, // recomputed below
+        slot: 1,
         rent_bid: dysRentBid,
         rent_mode: dysRentMode,
         entry_epoch: dysEntryEpoch,
         rent_paid_total: 0,
       });
-
-      // If pool > MAX_STAKERS, evict the lowest rent_bid staker
-      if (dysPool.size > MAX_STAKERS) {
-        var dysArr = Array.from(dysPool.values()).sort(function (a, b) {
-          if (a.rent_bid !== b.rent_bid) return a.rent_bid - b.rent_bid; // ascending
-          return a.stake_amount - b.stake_amount;
-        });
-        var dysEvicted = dysArr[0];
-        // Return their remaining stake_amount
-        if (dysEvicted.stake_amount > 0) _credit(dysEvicted.staker, "BTCPC", _round(dysEvicted.stake_amount));
-        dysPool.delete(dysEvicted.staker);
-      }
-
-      // Recompute slot rankings: sort desc by rent_bid, tie-break stake_amount desc
-      var dysSorted = Array.from(dysPool.values()).sort(function (a, b) {
-        if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
-        return b.stake_amount - a.stake_amount;
-      });
-      for (var _si = 0; _si < dysSorted.length; _si++) {
-        dysSorted[_si].slot = _si + 1;
-      }
       break;
     }
 
@@ -2802,18 +2798,16 @@ function applyEntry(entry) {
       if (!dyuPool || !dyuPool.has(dyuStaker)) break;
 
       var dyuRecord = dyuPool.get(dyuStaker);
-      // Return remaining stake_amount to staker
-      if (dyuRecord.stake_amount > 0) _credit(dyuStaker, "BTCPC", _round(dyuRecord.stake_amount));
-      dyuPool.delete(dyuStaker);
-
-      // Recompute slots
-      var dyuSorted = Array.from(dyuPool.values()).sort(function (a, b) {
-        if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
-        return b.stake_amount - a.stake_amount;
-      });
-      for (var _dyui = 0; _dyui < dyuSorted.length; _dyui++) {
-        dyuSorted[_dyui].slot = _dyui + 1;
+      // Return net stake (original_stake minus tribute). If entry specifies
+      // returned_amount explicitly, honour that; otherwise compute from record.
+      var dyuReturnAmount;
+      if (dyuData.returned_amount !== undefined && dyuData.returned_amount > 0) {
+        dyuReturnAmount = _round(dyuData.returned_amount);
+      } else {
+        dyuReturnAmount = _round((dyuRecord.original_stake || dyuRecord.stake_amount) - (dyuRecord.tribute_paid || 0));
       }
+      if (dyuReturnAmount > 0) _credit(dyuStaker, "BTCPC", dyuReturnAmount);
+      dyuPool.delete(dyuStaker);
       break;
     }
 
@@ -3796,7 +3790,7 @@ function getDeviceYieldStake(deviceId) {
   var pool = getDeviceStakerPool(deviceId);
   if (pool.length === 0) return null;
   var r = pool[0];
-  return { staker: r.staker, stake_amount: r.stake_amount, net_stake: r.stake_amount, tribute_paid: r.tribute_paid, stake_epoch: r.entry_epoch };
+  return { staker: r.staker, stake_amount: r.stake_amount, net_stake: r.net_stake !== undefined ? r.net_stake : r.stake_amount, tribute_paid: r.tribute_paid, stake_epoch: r.entry_epoch };
 }
 
 function getTopYieldStakerForAccount(account) {

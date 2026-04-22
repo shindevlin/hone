@@ -33,6 +33,7 @@ const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const blobStore = require('../src/services/blobStore');
 const blobRoutes = require('../src/routes/blobRoutes');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 function makeTestServer() {
   const app = express();
@@ -114,10 +115,12 @@ describe('blob routes (v2.11.0)', () => {
 
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     if (fs.existsSync(TEST_ROOT)) {
       fs.rmSync(TEST_ROOT, { recursive: true, force: true });
     }
+    epochBandwidth.seedForTest('alice');
     stateStore.applyEntry({
       type: 'ACCOUNT_CREATE',
       to: 'alice',

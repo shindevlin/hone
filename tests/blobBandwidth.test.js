@@ -17,6 +17,7 @@ jest.mock('../src/p2p/mempool', () => ({
 const bw = require('../src/services/blobBandwidth');
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const CID_A = 'a'.repeat(64);
 const CID_B = 'b'.repeat(64);
@@ -26,9 +27,11 @@ describe('blobBandwidth (v2.11.1)', () => {
   beforeEach(() => {
     bw.resetForTests();
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol'].forEach(a => epochBandwidth.seedForTest(a));
   });
 
   describe('accumulate / getPending', () => {

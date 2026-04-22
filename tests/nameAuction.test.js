@@ -7,8 +7,11 @@
  * getAuctionHistory, getAvailableReservedNames).
  */
 
+jest.mock('../src/p2p/mempool', () => ({ submit: jest.fn().mockReturnValue({ accepted: true }) }));
+
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const SHIN = 'shindevlin';
 const TEST_NAME = 'btctest';
@@ -86,6 +89,7 @@ function ensureReservedAccount(name) {
 
 beforeEach(function() {
   stateStore.resetAll();
+  epochBandwidth.resetAll();
   ensureReservedAccount(TEST_NAME);
 });
 

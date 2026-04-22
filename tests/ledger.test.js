@@ -21,6 +21,7 @@ process.env.BTCPC_DATA_DIR = ISOLATED_DATA_DIR;
 
 const User = require('../src/models/User');
 const ledger = require('../src/services/ledger');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const PENDING_FILE = path.join(ISOLATED_DATA_DIR, 'pending-entries.jsonl');
 function wipePendingFile() {
@@ -33,6 +34,7 @@ describe('ledger service', () => {
     wipePendingFile();
     ledger.flushPendingEntries();
     wipePendingFile();
+    epochBandwidth.resetAll();
   });
 
   afterAll(() => {

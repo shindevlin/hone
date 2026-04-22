@@ -29,7 +29,10 @@ function freshLoad(envOverrides) {
     });
   });
 
-  // Bust module cache for finalityAnchoring so env re-reads happen
+  // Bust module cache for finalityAnchoring so env re-reads happen.
+  // In Jest, also call jest.resetModules() so Jest's own module registry
+  // is flushed (jest.resetModules is a no-op outside Jest).
+  if (typeof jest !== "undefined") jest.resetModules();
   var modKey = require.resolve("../src/chain/finalityAnchoring");
   delete require.cache[modKey];
 
@@ -69,7 +72,14 @@ async function runAll() {
     }
   }
   console.log("\n" + (passed + failed) + " tests: " + passed + " passed, " + failed + " failed");
-  if (failed > 0) process.exit(1);
+  if (failed > 0) {
+    // In Jest, throwing causes the test suite to fail properly.
+    // Outside Jest, fall back to process.exit.
+    if (typeof jest !== "undefined") {
+      throw new Error(failed + " finality anchoring test(s) failed — see console.error above");
+    }
+    process.exit(1);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -345,10 +355,20 @@ test("stateStore applyEntry handles BTC_ANCHOR without throwing", function () {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Run
+// Run — Jest-aware wrapper
 // ─────────────────────────────────────────────────────────────────
 
-runAll().catch(function (err) {
-  console.error("Test runner error:", err);
-  process.exit(1);
-});
+if (typeof it !== "undefined" && typeof describe !== "undefined") {
+  // Running inside Jest: wrap the entire custom suite in a single Jest test
+  // so Jest awaits completion and reports the result correctly.
+  it("finality anchoring — all custom tests pass", function () {
+    jest.setTimeout(30000);
+    return runAll();
+  });
+} else {
+  // Running directly via node
+  runAll().catch(function (err) {
+    console.error("Test runner error:", err);
+    process.exit(1);
+  });
+}

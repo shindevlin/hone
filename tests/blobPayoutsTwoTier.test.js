@@ -17,6 +17,7 @@ jest.mock('../src/p2p/mempool', () => ({
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const payouts = require('../src/services/blobPayoutsTwoTier');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 const CID_A = 'a'.repeat(64);
 const CID_B = 'b'.repeat(64);
@@ -24,9 +25,11 @@ const CID_B = 'b'.repeat(64);
 describe('blobPayouts two-tier (v2.11.2-delta)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'shindevlin'].forEach(a => epochBandwidth.seedForTest(a));
     // Seed uploader with BTCPC
     stateStore.applyEntry({
       type: 'FAUCET',

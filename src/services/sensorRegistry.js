@@ -649,6 +649,7 @@ function resetForTests() {
   readingHistory.clear();
   lastEpochBySensor.clear();
   divergenceStrikes.clear();
+  witnessedByGateway.clear();
 }
 
 module.exports = {
