@@ -20,6 +20,7 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <furi_hal_version.h>
+#include <furi_hal_usb.h>
 #include <furi_hal_usb_cdc.h>
 #include <string.h>
 
@@ -97,8 +98,8 @@ static void draw_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, 2, 25, "On your Android phone:");
         canvas_draw_str(c, 2, 35, "  Open BTCPC app");
         canvas_draw_str(c, 2, 45, "  Tap Flipper tab");
-        canvas_draw_str(c, 2, 55, "  Plug USB  OR");
-        canvas_draw_str(c, 2, 63, "  Tap \"Pair via BLE\"");
+        canvas_draw_str(c, 2, 55, "  Plug in USB — auto-pairs");
+        canvas_draw_str(c, 2, 63, "  OR tap Pair via BLE");
         draw_nav(c, true, true);
         break;
 
@@ -144,7 +145,14 @@ int32_t btcpc_relay_app(void* p) {
 
     FURI_LOG_I(TAG, "BLE MAC: %s", app->mac);
 
-    /* Announce MAC over USB CDC so the BTCPC phone app can pair automatically */
+    /* Ensure USB CDC mode is active, then announce MAC for auto-pairing */
+    FuriHalUsbInterface* usb_prev = furi_hal_usb_get_config();
+    bool usb_changed = (usb_prev != &usb_cdc_single);
+    if(usb_changed) {
+        furi_hal_usb_unlock();
+        furi_hal_usb_set(&usb_cdc_single, NULL);
+        furi_delay_ms(200); /* allow host to re-enumerate */
+    }
     char mac_announce[32];
     int mac_len = snprintf(mac_announce, sizeof(mac_announce), "BTCPC_MAC:%s\n", app->mac);
     furi_hal_cdc_send(0, (uint8_t*)mac_announce, (uint16_t)mac_len);
@@ -201,6 +209,12 @@ int32_t btcpc_relay_app(void* p) {
     furi_message_queue_free(queue);
     furi_mutex_free(app->mutex);
     free(app);
+
+    /* Restore previous USB mode if we changed it */
+    if(usb_changed) {
+        furi_hal_usb_set(usb_prev, NULL);
+        furi_hal_usb_lock();
+    }
 
     return 0;
 }
