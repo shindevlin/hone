@@ -35,6 +35,7 @@ const { sanitizeString, sanitizeAmount } = require("../middlewares/validate");
 const { PROTOCOL_TOOL_SCHEMAS } = require("../services/protocolTools");
 
 const BLOB_DIR = process.env.BTCPC_BLOB_DIR || path.resolve(__dirname, "../../data/blobs");
+const memoryService = require("../services/memoryService");
 
 const MAX_PROMPT_LENGTH = 8000;
 const MAX_RESULT_LENGTH = 32000;
@@ -70,6 +71,9 @@ router.post("/", authenticateToken, async (req, res) => {
     const tier = req.body.tier || "standard";
     const ragCids = Array.isArray(req.body.rag_cids) ? req.body.rag_cids.slice(0, 10) : [];
     const sessionId = req.body.session_id ? sanitizeString(req.body.session_id, 64) : null;
+    const autoMemory = !!req.body.auto_memory;
+    const memoryProject = req.body.memory_project ? sanitizeString(req.body.memory_project, 64) : null;
+    const memoryIds = Array.isArray(req.body.memory_ids) ? req.body.memory_ids.slice(0, 20) : [];
 
     // Images: accept pre-uploaded CIDs or inline base64 — stored as blobs, chain only sees CIDs
     let imageCids = Array.isArray(req.body.image_cids) ? req.body.image_cids.slice(0, 5) : [];
@@ -99,9 +103,20 @@ router.post("/", authenticateToken, async (req, res) => {
       } catch (_) {}
     }
 
+    // Inject relevant memories into system prompt if requested
+    let effectiveSystemPrompt = systemPrompt;
+    if (autoMemory || memoryIds.length > 0) {
+      const memCtx = memoryService.loadMemoriesForJob(buyer, memoryIds, memoryProject);
+      if (memCtx) {
+        effectiveSystemPrompt = effectiveSystemPrompt
+          ? `${effectiveSystemPrompt}\n\n${memCtx}`
+          : memCtx;
+      }
+    }
+
     const result = await market.openJob(buyer, prompt, maxFee, {
       model,
-      systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       ttlEpochs,
       tools,
       maxTurns,
@@ -111,6 +126,8 @@ router.post("/", authenticateToken, async (req, res) => {
       imageCids,
       audioCid,
       sessionId,
+      autoMemory,
+      memoryProject,
     });
     res.json(result);
   } catch (err) {

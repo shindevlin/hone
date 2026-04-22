@@ -99,6 +99,12 @@ var toolRegistry = new Map();
 // Miner capabilities (v3.1.125+): miner → { miner, models, vision, vision_model, audio, code_exec, browser, finetune, tiers, version, updated_epoch }
 var minerCapabilities = new Map();
 
+// Inference memory (v3.1.131+):
+// userMemories: account → Map<memory_id, { memory_id, cid, tags, project_id, linked_memory_ids, created_epoch, size_bytes }>
+// memoryProjects: account → Map<project_id, { project_id, name, memory_ids, created_epoch }>
+var userMemories = new Map();
+var memoryProjects = new Map();
+
 // Storage payout holds (v3.1.119+): hold_id → { hold_id, host, cid, amount, hold_epoch, release_epoch, status }
 var storagePayoutHolds = new Map();
 
@@ -1382,6 +1388,8 @@ function applyEntry(entry) {
           audio_cid: ijOpen.audio_cid || null,
           batch_id: ijOpen.batch_id || null,
           session_id: ijOpen.session_id || null,
+          auto_memory: !!ijOpen.auto_memory,
+          memory_project: ijOpen.memory_project || null,
           miner: null,
           proof_hash: null,
           actual_cost: null,
@@ -1733,6 +1741,66 @@ function applyEntry(entry) {
     case "TOOL_UNREGISTER":
       if (entry.tool_data && entry.tool_data.name) {
         toolRegistry.delete(entry.tool_data.name);
+      }
+      break;
+
+    // ── Inference memory (v3.1.131+) ────────────────────────────────
+    case "INFERENCE_MEMORY_SAVE":
+      if (entry.memory_data && entry.memory_data.memory_id && from) {
+        var md = entry.memory_data;
+        if (!/^[a-f0-9]{64}$/.test(md.cid || "")) break;
+        if (!userMemories.has(from)) userMemories.set(from, new Map());
+        userMemories.get(from).set(md.memory_id, {
+          memory_id: md.memory_id,
+          cid: md.cid,
+          tags: Array.isArray(md.tags) ? md.tags : [],
+          project_id: md.project_id || null,
+          linked_memory_ids: Array.isArray(md.linked_memory_ids) ? md.linked_memory_ids : [],
+          created_epoch: entry.epoch,
+          size_bytes: md.size_bytes || 0,
+        });
+        // Add memory to project's memory_ids list
+        if (md.project_id) {
+          if (!memoryProjects.has(from)) memoryProjects.set(from, new Map());
+          var projMap = memoryProjects.get(from);
+          var existingProj = projMap.get(md.project_id);
+          if (existingProj && !existingProj.memory_ids.includes(md.memory_id)) {
+            existingProj.memory_ids.push(md.memory_id);
+          }
+        }
+      }
+      break;
+
+    case "INFERENCE_MEMORY_DELETE":
+      if (entry.memory_data && entry.memory_data.memory_id && from) {
+        var delMap = userMemories.get(from);
+        if (delMap) delMap.delete(entry.memory_data.memory_id);
+        // Remove from project
+        var delProjId = entry.memory_data.project_id;
+        if (delProjId) {
+          var delProjMap = memoryProjects.get(from);
+          if (delProjMap) {
+            var delProj = delProjMap.get(delProjId);
+            if (delProj) {
+              delProj.memory_ids = delProj.memory_ids.filter(function(id) { return id !== entry.memory_data.memory_id; });
+            }
+          }
+        }
+      }
+      break;
+
+    case "MEMORY_PROJECT_CREATE":
+      if (entry.memory_data && entry.memory_data.project_id && from) {
+        if (!memoryProjects.has(from)) memoryProjects.set(from, new Map());
+        var projCreateMap = memoryProjects.get(from);
+        if (!projCreateMap.has(entry.memory_data.project_id)) {
+          projCreateMap.set(entry.memory_data.project_id, {
+            project_id: entry.memory_data.project_id,
+            name: entry.memory_data.name || entry.memory_data.project_id,
+            memory_ids: [],
+            created_epoch: entry.epoch,
+          });
+        }
       }
       break;
 
@@ -2849,15 +2917,26 @@ function applyEntry(entry) {
       if (!nabName) break;
       var nabAuction = nameAuctions.get(nabName);
       if (!nabAuction || nabAuction.status !== "open") break;
+      // Validate bid amount: must meet start_price or beat current_top + increment
+      var nabBidUsd = nabData.bid_usd || 0;
+      var nabTopBid = nabAuction.bids.length > 0
+        ? nabAuction.bids[nabAuction.bids.length - 1].bid_usd
+        : 0;
+      var nabMinRequired = nabAuction.bids.length === 0
+        ? nabAuction.start_price_usd
+        : nabTopBid + nabAuction.min_bid_increment_usd;
+      if (nabBidUsd < nabMinRequired) break;
       nabAuction.bids.push({
         bidder: nabData.bidder || from,
-        bid_usd: nabData.bid_usd || 0,
+        bid_usd: nabBidUsd,
         chain: nabData.chain,
         tx_hash: nabData.tx_hash,
         btcpc_account: nabData.btcpc_account,
         btcpc_pubkeys: nabData.btcpc_pubkeys || {},
         bid_epoch: entry.epoch || 0,
       });
+      // Keep bids sorted ascending by bid_usd (last entry = highest)
+      nabAuction.bids.sort(function(a, b) { return a.bid_usd - b.bid_usd; });
       break;
     }
 
@@ -2874,6 +2953,8 @@ function applyEntry(entry) {
           nasWinBid = nasAuction.bids[_nb];
         }
       }
+      // No bids — settle is a no-op; leave status as open
+      if (!nasWinBid) break;
       nasAuction.status = "settled";
       nasAuction.winner = nasWinBid ? nasWinBid.bidder : null;
       if (nasWinBid && nasWinBid.btcpc_pubkeys) {
@@ -2893,6 +2974,7 @@ function applyEntry(entry) {
       var nacAuction = nameAuctions.get(nacName);
       if (!nacAuction || nacAuction.status !== "open") break;
       nacAuction.status = "cancelled";
+      if (!nacAuction.cancelled_epoch) nacAuction.cancelled_epoch = entry.epoch || 0;
       break;
     }
 
@@ -4228,6 +4310,58 @@ function getNetworkCapabilitySummary() {
   };
 }
 
+// ── Inference memory getters (v3.1.131+) ───────────────────────────────────
+
+function getUserMemories(account) {
+  var map = userMemories.get(account);
+  if (!map) return [];
+  return Array.from(map.values()).sort(function(a, b) { return (b.created_epoch || 0) - (a.created_epoch || 0); });
+}
+
+function getMemory(account, memoryId) {
+  var map = userMemories.get(account);
+  return (map && map.get(memoryId)) || null;
+}
+
+function getUserProjects(account) {
+  var map = memoryProjects.get(account);
+  if (!map) return [];
+  return Array.from(map.values()).sort(function(a, b) { return (a.name || "").localeCompare(b.name || ""); });
+}
+
+function getMemoryProject(account, projectId) {
+  var map = memoryProjects.get(account);
+  return (map && map.get(projectId)) || null;
+}
+
+/**
+ * Obsidian-style graph: returns nodes and edges for an account's memories.
+ * Nodes: memories + projects. Edges: memory→project, memory→memory (linked_memory_ids).
+ */
+function getMemoryGraph(account) {
+  var memories = getUserMemories(account);
+  var projects = getUserProjects(account);
+  var nodes = [];
+  var edges = [];
+
+  for (var p of projects) {
+    nodes.push({ id: "project:" + p.project_id, type: "project", label: p.name, data: p });
+  }
+  for (var m of memories) {
+    nodes.push({ id: "memory:" + m.memory_id, type: "memory", label: m.tags.slice(0, 3).join(", ") || m.memory_id, data: m });
+    if (m.project_id) {
+      edges.push({ source: "memory:" + m.memory_id, target: "project:" + m.project_id, type: "belongs_to" });
+    }
+    for (var linkedId of (m.linked_memory_ids || [])) {
+      // Only emit each edge once (lower→higher id ordering)
+      if (m.memory_id < linkedId) {
+        edges.push({ source: "memory:" + m.memory_id, target: "memory:" + linkedId, type: "related" });
+      }
+    }
+  }
+  return { nodes, edges };
+}
+
 function getInferenceJobsByBuyer(buyer) {
   var result = [];
   for (var job of inferenceJobs.values()) {
@@ -4584,17 +4718,26 @@ function resetAll() {
   iotDeviceKeys.clear();
   deviceStakerPools.clear();
   deviceAutoStake.clear();
+  nameAuctions.clear();
   nameDelegate.clear();
   childrenMap.clear();
   parentMap.clear();
   aliasMap.clear();
   accountAliases.clear();
+  communityModels.clear();
+  storagePayoutHolds.clear();
+  storedFiles.clear();
+  shardPtrs.clear();
+  nodeReputation.clear();
+  crossChainCredits.clear();
   inferenceJobs.clear();
   sessions.clear();
   finetuneJobs.clear();
   browserJobs.clear();
   toolRegistry.clear();
   minerCapabilities.clear();
+  userMemories.clear();
+  memoryProjects.clear();
   chainHeight = -1;
   currentBlockCap = 1 * 1024 * 1024;
   recycleRate = null;
@@ -4813,6 +4956,12 @@ module.exports = {
   getCapableMiners,
   getNetworkCapabilitySummary,
   CAPABILITY_STALE_EPOCHS,
+  // Inference memory (v3.1.131+)
+  getUserMemories,
+  getMemory,
+  getUserProjects,
+  getMemoryProject,
+  getMemoryGraph,
   // Storage settlement lag (v3.1.119+)
   getPendingStorageHolds,
   getStorageHoldsForHost,

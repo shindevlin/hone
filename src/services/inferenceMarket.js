@@ -68,6 +68,8 @@ async function openJob(buyer, prompt, maxFee, opts) {
   const audioCid = opts.audioCid || null;
   const batchId = opts.batchId || null;
   const sessionId = opts.sessionId || null;
+  const autoMemory = !!opts.autoMemory;
+  const memoryProject = opts.memoryProject || null;
 
   // If session_id provided, prepend session summary to system prompt
   let systemPrompt = opts.systemPrompt || null;
@@ -98,6 +100,8 @@ async function openJob(buyer, prompt, maxFee, opts) {
     audio_cid: audioCid,
     batch_id: batchId,
     session_id: sessionId,
+    auto_memory: autoMemory,
+    memory_project: memoryProject,
   }, epoch);
 
   // Register job with session if provided
@@ -105,7 +109,7 @@ async function openJob(buyer, prompt, maxFee, opts) {
     try { await ledger.recordSessionAddJob(sessionId, jobId, epoch); } catch (_) {}
   }
 
-  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, image_cids: imageCids, audio_cid: audioCid, batch_id: batchId, session_id: sessionId };
+  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, image_cids: imageCids, audio_cid: audioCid, batch_id: batchId, session_id: sessionId, auto_memory: autoMemory, memory_project: memoryProject };
 }
 
 /**

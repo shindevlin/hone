@@ -1822,6 +1822,22 @@ async function startMarketplacePoller() {
         }
       } catch (_) {}
 
+      // Post-settle: auto-save memory blob for the buyer if requested
+      if (job.auto_memory) {
+        try {
+          const memoryService = require('../services/memoryService');
+          await memoryService.extractAndSaveMemory(
+            job.buyer,
+            job.job_id,
+            job.prompt || '',
+            finalResult,
+            job.memory_project || null
+          );
+        } catch (memErr) {
+          console.warn(`[Marketplace] Memory save failed for ${job.job_id}: ${memErr.message}`);
+        }
+      }
+
       console.log(`[Marketplace] Job ${job.job_id} complete — ${totalTokens} tokens, ${elapsed}s, ${actualCost.toFixed(4)} BTCPC earned`);
     } catch (err) {
       if (err.message && !err.message.includes('not open') && !err.message.includes('expired')) {

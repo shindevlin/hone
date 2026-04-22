@@ -2695,6 +2695,8 @@ async function recordInferenceJobOpen(buyer, jobId, jobData, epoch) {
       audio_cid: jobData.audio_cid || null,
       batch_id: jobData.batch_id || null,
       session_id: jobData.session_id || null,
+      auto_memory: !!jobData.auto_memory,
+      memory_project: jobData.memory_project || null,
       status: 'open',
     },
   }));
@@ -2906,6 +2908,47 @@ async function recordMinerCapability(miner, capabilities, epoch) {
   }));
 }
 
+async function recordMemorySave(account, memoryId, cid, tags, projectId, linkedMemoryIds, sizeBytes, epoch) {
+  if (!account) throw new Error('account required');
+  if (!memoryId) throw new Error('memoryId required');
+  if (!cid) throw new Error('cid required');
+  return _persist(_entry({
+    type: 'INFERENCE_MEMORY_SAVE',
+    from: account,
+    epoch: epoch || 0,
+    memory_data: {
+      memory_id: memoryId,
+      cid,
+      tags: Array.isArray(tags) ? tags : [],
+      project_id: projectId || null,
+      linked_memory_ids: Array.isArray(linkedMemoryIds) ? linkedMemoryIds : [],
+      size_bytes: sizeBytes || 0,
+    },
+  }));
+}
+
+async function recordMemoryDelete(account, memoryId, projectId, epoch) {
+  if (!account) throw new Error('account required');
+  if (!memoryId) throw new Error('memoryId required');
+  return _persist(_entry({
+    type: 'INFERENCE_MEMORY_DELETE',
+    from: account,
+    epoch: epoch || 0,
+    memory_data: { memory_id: memoryId, project_id: projectId || null },
+  }));
+}
+
+async function recordMemoryProjectCreate(account, projectId, name, epoch) {
+  if (!account) throw new Error('account required');
+  if (!projectId) throw new Error('projectId required');
+  return _persist(_entry({
+    type: 'MEMORY_PROJECT_CREATE',
+    from: account,
+    epoch: epoch || 0,
+    memory_data: { project_id: projectId, name: name || projectId },
+  }));
+}
+
 async function recordInferenceJobToolCall(jobId, miner, toolCalls, turn, epoch) {
   if (!jobId) throw new Error('jobId required');
   if (!miner) throw new Error('miner required');
@@ -3090,4 +3133,8 @@ module.exports = {
   recordToolRegister,
   recordToolUnregister,
   recordMinerCapability,
+  // Inference memory (v3.1.131+)
+  recordMemorySave,
+  recordMemoryDelete,
+  recordMemoryProjectCreate,
 };
