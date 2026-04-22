@@ -93,7 +93,12 @@ public class MinerService extends Service {
         String postingKey = prefs.getPostingKey();
         String apiBase    = prefs.getApiUrl();
         String modelId    = prefs.getMinerModel();
-        String modelDir   = getFilesDir().getAbsolutePath() + "/miner-models/" + modelId;
+        // Use external files dir so models survive app reinstalls/updates.
+        // Fall back to internal storage if external isn't mounted.
+        java.io.File extBase = getExternalFilesDir("miner-models");
+        if (extBase == null) extBase = new java.io.File(getFilesDir(), "miner-models");
+        java.io.File modelDirFile = new java.io.File(extBase, modelId);
+        String modelDir = modelDirFile.getAbsolutePath();
 
         new File(modelDir).mkdirs();
 

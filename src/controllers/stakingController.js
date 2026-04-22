@@ -250,11 +250,48 @@ async function getNetworkStaking(req, res) {
   }
 }
 
+// Per-role base requirements — multiplied by a demand factor at query time.
+const ROLE_BASE = {
+  inference:      { minStake: 1000, unlockDays: 7,  description: 'Run AI inference proofs. Rewards scale with verified compute delivered.' },
+  sensor_data:    { minStake: 500,  unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
+  storage:        { minStake: 2000, unlockDays: 14, description: 'Host files on BTCPC-FS. Paid per byte delivered; slashed for unavailability.' },
+  clock:          { minStake: 1500, unlockDays: 7,  description: 'Provide verified timestamps for chain sync. Requires reliable uptime.' },
+  verify_node:    { minStake: 5000, unlockDays: 30, description: 'Validate inference proofs and transaction signatures.' },
+  review_node:    { minStake: 3000, unlockDays: 30, description: 'Audit flagged work and handle dispute resolution.' },
+  human_reviewer: { minStake: 250,  unlockDays: 3,  description: 'Manual quality review — human oracle for subjective assessment.' },
+};
+
+async function getStakeRequirements(req, res) {
+  try {
+    const allPools = stateStore.getAllStakePools ? stateStore.getAllStakePools() : {};
+    let stakerCount = 0;
+    for (const pool of Object.values(allPools)) {
+      if (pool && pool.total_staked > 0) stakerCount++;
+    }
+    // +5% per 50 active stakers above a baseline of 10
+    const demandMultiplier = Math.max(1.0, 1 + Math.max(0, stakerCount - 10) / 50 * 0.05);
+
+    const requirements = {};
+    for (const [role, base] of Object.entries(ROLE_BASE)) {
+      requirements[role] = {
+        ...base,
+        minStake: Math.ceil(base.minStake * demandMultiplier),
+        demandMultiplier: Math.round(demandMultiplier * 100) / 100,
+      };
+    }
+
+    res.json({ success: true, requirements, stakerCount, unlockPeriodDays: UNLOCK_PERIOD_DAYS });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   stake,
   unstake,
   withdrawStake,
   getStakingInfo,
   getNetworkStaking,
+  getStakeRequirements,
   activeKeyChallenge
 };

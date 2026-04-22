@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/btcpc_bg">
+
+    <!-- Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/stake_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/btcpc_surface"
+        android:elevation="4dp"
+        android:title="Stake"
+        android:titleTextColor="@color/btcpc_text" />
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/stake_swipe_refresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Header -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="Choose a Node Role"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/stake_header_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="20dp"
+                    android:text="Minimum stake requirements adjust dynamically with network demand."
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+
+                <!-- Inference card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_inference" />
+
+                <!-- Sensor Data card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_sensor_data" />
+
+                <!-- Storage card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_storage" />
+
+                <!-- Clock card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_clock" />
+
+                <!-- Verify Node card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_verify_node" />
+
+                <!-- Review Node card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_review_node" />
+
+                <!-- Human Reviewer card -->
+                <include layout="@layout/item_stake_role"
+                    android:id="@+id/stake_card_human_reviewer" />
+
+                <View android:layout_width="match_parent" android:layout_height="16dp" />
+
+            </LinearLayout>
+        </ScrollView>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+</LinearLayout>

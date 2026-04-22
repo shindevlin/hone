@@ -279,7 +279,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginTop="10dp"
-                android:text="Delegate / Stake"
+                android:text="Stake a Node Role"
                 android:textColor="@color/btcpc_orange"
                 android:backgroundTint="@color/btcpc_surface_alt"
                 android:strokeColor="@color/btcpc_orange"

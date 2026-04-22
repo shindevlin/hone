@@ -82,7 +82,11 @@ public class WalletFragment extends Fragment {
 
         sendBtn.setOnClickListener(v -> showSendDialog());
         receiveBtn.setOnClickListener(v -> showReceiveDialog());
-        delegateBtn.setOnClickListener(v -> showDelegateDialog());
+        delegateBtn.setOnClickListener(v -> {
+            android.content.Intent intent = new android.content.Intent(
+                    requireContext(), StakeActivity.class);
+            startActivity(intent);
+        });
 
         loginBtn.setOnClickListener(v -> attemptLogin());
         createAccountBtn.setOnClickListener(v -> {

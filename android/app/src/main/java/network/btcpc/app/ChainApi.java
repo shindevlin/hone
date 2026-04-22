@@ -63,6 +63,30 @@ public class ChainApi {
         void onError(String message);
     }
 
+    public interface StakeRequirementsCallback {
+        /** role id → {minStake, unlockDays, description, demandMultiplier} */
+        void onSuccess(java.util.Map<String, StakeRoleInfo> requirements);
+        void onError(String message);
+    }
+
+    public static class StakeRoleInfo {
+        public final double minStake;
+        public final int    unlockDays;
+        public final String description;
+        public final double demandMultiplier;
+        public StakeRoleInfo(double minStake, int unlockDays, String description, double demandMultiplier) {
+            this.minStake = minStake;
+            this.unlockDays = unlockDays;
+            this.description = description;
+            this.demandMultiplier = demandMultiplier;
+        }
+    }
+
+    public interface StakeCallback {
+        void onSuccess(double amount, String role);
+        void onError(String message);
+    }
+
     public interface RelayStatusCallback {
         /** Called on the main thread with parsed relay status fields. */
         void onSuccess(boolean ok, boolean usbConnected, boolean bleConnected, String lastReading);
@@ -373,6 +397,90 @@ public class ChainApi {
                 }
             }
         });
+    }
+
+    /**
+     * GET /api/staking/requirements — per-role minimum stake, dynamic based on network demand.
+     */
+    public static void fetchStakeRequirements(String apiBase, StakeRequirementsCallback callback) {
+        Request request = new Request.Builder()
+                .url(apiBase + "/api/staking/requirements")
+                .get()
+                .build();
+        CLIENT.newCall(request).enqueue(new Callback() {
+            @Override public void onFailure(Call call, IOException e) {
+                MAIN.post(() -> callback.onError("Network error: " + e.getMessage()));
+            }
+            @Override public void onResponse(Call call, Response response) throws IOException {
+                try (ResponseBody rb = response.body()) {
+                    String raw = rb != null ? rb.string() : "{}";
+                    JSONObject json = new JSONObject(raw);
+                    if (!response.isSuccessful()) {
+                        MAIN.post(() -> callback.onError("Server error " + response.code()));
+                        return;
+                    }
+                    JSONObject reqs = json.optJSONObject("requirements");
+                    java.util.Map<String, StakeRoleInfo> map = new java.util.LinkedHashMap<>();
+                    if (reqs != null) {
+                        java.util.Iterator<String> keys = reqs.keys();
+                        while (keys.hasNext()) {
+                            String role = keys.next();
+                            JSONObject r = reqs.optJSONObject(role);
+                            if (r == null) continue;
+                            map.put(role, new StakeRoleInfo(
+                                    r.optDouble("minStake", 1000),
+                                    r.optInt("unlockDays", 7),
+                                    r.optString("description", ""),
+                                    r.optDouble("demandMultiplier", 1.0)
+                            ));
+                        }
+                    }
+                    MAIN.post(() -> callback.onSuccess(map));
+                } catch (Exception e) {
+                    MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                }
+            }
+        });
+    }
+
+    /**
+     * POST /api/staking/stake — stake BTCPC for a node role.
+     */
+    public static void stake(String role, double amount, String jwt, String apiBase,
+                             StakeCallback callback) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("role", role);
+            body.put("amount", amount);
+            Request request = new Request.Builder()
+                    .url(apiBase + "/api/staking/stake")
+                    .addHeader("Authorization", "Bearer " + jwt)
+                    .post(RequestBody.create(body.toString(), MediaType.parse("application/json")))
+                    .build();
+            CLIENT.newCall(request).enqueue(new Callback() {
+                @Override public void onFailure(Call call, IOException e) {
+                    MAIN.post(() -> callback.onError(e.getMessage()));
+                }
+                @Override public void onResponse(Call call, Response response) throws IOException {
+                    try (ResponseBody rb = response.body()) {
+                        String raw = rb != null ? rb.string() : "{}";
+                        JSONObject json = new JSONObject(raw);
+                        if (!response.isSuccessful()) {
+                            String err = json.optString("error", "HTTP " + response.code());
+                            MAIN.post(() -> callback.onError(err));
+                            return;
+                        }
+                        double amt = json.optDouble("amount", amount);
+                        String r   = json.optString("role", role);
+                        MAIN.post(() -> callback.onSuccess(amt, r));
+                    } catch (Exception e) {
+                        MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                    }
+                }
+            });
+        } catch (Exception e) {
+            MAIN.post(() -> callback.onError(e.getMessage()));
+        }
     }
 
     /**

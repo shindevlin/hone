@@ -6,7 +6,8 @@ const {
   unstake,
   withdrawStake,
   getStakingInfo,
-  getNetworkStaking
+  getNetworkStaking,
+  getStakeRequirements,
 } = require('../controllers/stakingController');
 const { authenticateToken } = require('../middlewares/auth');
 const { requireTOTP } = require('../services/totp');
@@ -19,5 +20,7 @@ router.get('/info', authenticateToken, getStakingInfo);
 
 // Public network stats
 router.get('/network', getNetworkStaking);
+// Public per-role stake requirements (dynamic based on demand)
+router.get('/requirements', getStakeRequirements);
 
 module.exports = router;

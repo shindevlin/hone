@@ -40,6 +40,13 @@
 
         </activity>
 
+        <activity
+            android:name=".StakeActivity"
+            android:label="Stake"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
