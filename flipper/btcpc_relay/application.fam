@@ -5,7 +5,7 @@ App(
     entry_point="btcpc_relay_app",
     requires=["gui"],
     stack_size=2 * 1024,
-    fap_category="GPIO",
+    fap_category="BTCPC",
     fap_description="BTCPC sensor relay — pairs with the BTCPC Android app via BLE",
     fap_author="Shin Devlin / btcpc.network",
     fap_version="1.0",
