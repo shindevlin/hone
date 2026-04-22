@@ -545,9 +545,10 @@ public class LocalRelayService extends Service {
     // -----------------------------------------------------------------------
 
     private void startBleScan() {
+        if (bleConnected) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                Log.i(TAG, "BLUETOOTH_SCAN permission not granted — skipping BLE scan. Grant from app settings to enable Flipper BLE relay.");
+            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "BLUETOOTH_CONNECT permission not granted — skipping BLE");
                 return;
             }
         }
@@ -555,28 +556,41 @@ public class LocalRelayService extends Service {
         if (bm == null) return;
         BluetoothAdapter adapter = bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) {
-            Log.i(TAG, "Bluetooth not available/enabled — skipping BLE scan");
+            Log.i(TAG, "Bluetooth not available/enabled — skipping BLE");
             return;
+        }
+
+        String savedMac = new AppPrefs(this).getFlipperBleMac();
+        if (!savedMac.isEmpty()) {
+            // Known MAC — connect directly without scanning. This is more reliable than
+            // scanning when the device may not include the service UUID in its ad packet.
+            try {
+                BluetoothDevice device = adapter.getRemoteDevice(savedMac);
+                Log.i(TAG, "BLE direct connect to paired Flipper " + savedMac);
+                bleGatt = device.connectGatt(this, false, new FlipperGattCallback(),
+                        BluetoothDevice.TRANSPORT_LE);
+            } catch (Exception e) {
+                Log.e(TAG, "BLE direct connect failed: " + e.getMessage());
+            }
+            return;
+        }
+
+        // No MAC yet — scan for any NUS device to discover the Flipper
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "BLUETOOTH_SCAN permission not granted — skipping BLE scan");
+                return;
+            }
         }
         bleScanner = adapter.getBluetoothLeScanner();
         if (bleScanner == null) return;
-
-        AppPrefs prefs = new AppPrefs(this);
-        String savedMac = prefs.getFlipperBleMac();
         java.util.List<ScanFilter> filters = new java.util.ArrayList<>();
-        if (!savedMac.isEmpty()) {
-            // Target the specific paired device by MAC address when known.
-            filters.add(new ScanFilter.Builder().setDeviceAddress(savedMac).build());
-            Log.i(TAG, "BLE scan started — looking for paired Flipper " + savedMac);
-        } else {
-            // No remembered MAC yet — discover any Flipper UART device and learn its address.
-            filters.add(new ScanFilter.Builder().setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID)).build());
-            Log.i(TAG, "BLE scan started — discovering Flipper UART devices");
-        }
+        filters.add(new ScanFilter.Builder().setServiceUuid(new ParcelUuid(NUS_SERVICE_UUID)).build());
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
         bleScanner.startScan(filters, settings, bleScanCallback);
+        Log.i(TAG, "BLE scan started — discovering Flipper UART devices");
     }
 
     private void stopBleScan() {
@@ -619,7 +633,7 @@ public class LocalRelayService extends Service {
                 Log.i(TAG, "BLE connected — discovering services");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                Log.i(TAG, "BLE disconnected — will re-scan");
+                Log.i(TAG, "BLE disconnected status=" + status + " — will retry");
                 bleConnected = false;
                 gatt.close();
                 bleGatt = null;
@@ -637,6 +651,9 @@ public class LocalRelayService extends Service {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "Service discovery failed: " + status);
                 return;
+            }
+            for (BluetoothGattService s : gatt.getServices()) {
+                Log.i(TAG, "discovered service: " + s.getUuid());
             }
             BluetoothGattService nus = gatt.getService(NUS_SERVICE_UUID);
             if (nus == null) {

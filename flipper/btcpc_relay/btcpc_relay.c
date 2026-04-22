@@ -137,11 +137,11 @@ int32_t btcpc_relay_app(void* p) {
     app->mutex     = furi_mutex_alloc(FuriMutexTypeNormal);
     app->page      = 0;
 
-    /* Read BLE public address — returned MSB-first, display as-is */
+    /* Read BLE public address — returned LSB-first, reverse for Android GATT */
     const uint8_t* mac = furi_hal_version_get_ble_mac();
     snprintf(app->mac, sizeof(app->mac),
              "%02X:%02X:%02X:%02X:%02X:%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+             mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
 
     FURI_LOG_I(TAG, "BLE MAC: %s", app->mac);
 
