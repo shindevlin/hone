@@ -27,10 +27,12 @@ var nodes = new Map();
 /**
  * Register a node. Called when processing NODE_REGISTER ledger entries.
  */
-function registerNode(username, nodeType, stake, p2pAddress, epoch, permissioned) {
+function registerNode(username, nodeType, stake, p2pAddress, epoch, permissioned, nodeTypes) {
+  var types = Array.isArray(nodeTypes) && nodeTypes.length > 0 ? nodeTypes : null;
   nodes.set(username, {
     username: username,
-    type: nodeType || "clock",
+    type: (types ? types[0] : null) || nodeType || "clock",
+    node_types: types || (nodeType ? [nodeType] : ["clock"]),
     stake: stake || 0,
     p2pAddress: p2pAddress || null,
     registeredEpoch: epoch || 0,
@@ -112,21 +114,37 @@ function processLedgerEntry(entry) {
   if (!entry) return;
 
   switch (entry.type) {
-    case "NODE_REGISTER":
+    case "NODE_REGISTER": {
+      var _nrData = entry.account_data || {};
+      var _nrTypes = Array.isArray(_nrData.node_types) && _nrData.node_types.length > 0
+        ? _nrData.node_types
+        : null;
+      var _nrType = entry.memo || _nrData.node_type || "clock";
       registerNode(
-        entry.from || (entry.account_data && entry.account_data.username),
-        entry.memo || (entry.account_data && entry.account_data.node_type) || "clock",
+        entry.from || _nrData.username,
+        _nrType,
         0,
-        entry.account_data && entry.account_data.p2p_address,
+        _nrData.p2p_address,
         entry.epoch,
-        entry.account_data && entry.account_data.permissioned
+        _nrData.permissioned,
+        _nrTypes
       );
       break;
+    }
 
     case "MINING_REWARD":
       // Any account that receives a mining reward is implicitly a miner node
-      if (entry.to && !nodes.has(entry.to)) {
-        registerNode(entry.to, "miner", 0, null, entry.epoch);
+      if (entry.to) {
+        if (!nodes.has(entry.to)) {
+          registerNode(entry.to, "miner", 0, null, entry.epoch);
+        } else {
+          // Add "miner" role to existing node if not already present
+          var _mrNode = nodes.get(entry.to);
+          if (!Array.isArray(_mrNode.node_types)) _mrNode.node_types = [_mrNode.type || "clock"];
+          if (_mrNode.node_types.indexOf("miner") === -1) {
+            _mrNode.node_types.push("miner");
+          }
+        }
       }
       break;
 

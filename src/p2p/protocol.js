@@ -17,6 +17,7 @@ const blockchain = require("../chain/blockchain");
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
 const messageAuth = require("./messageAuth");
+const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 const PROTOCOL_EPOCH_DURATION_MS = 30 * 1000;
 
 // ---------------------------------------------------------------------------
@@ -202,7 +203,9 @@ function flushSeenMessages() {
   }
 }
 
-setInterval(flushSeenMessages, 30000);
+if (shouldStartBackgroundTimers()) {
+  setInterval(flushSeenMessages, 30000);
+}
 
 function markSeen(msgId) {
   seenMessages.set(msgId, Date.now());

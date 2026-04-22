@@ -286,6 +286,7 @@ function _nameTier(name) {
 // ─────────────────────────────────────────────────────────────────
 var deviceStakerPools = new Map(); // device_id → Map<staker_account, StakerRecord>
 var deviceAutoStake = new Map();   // device_id → pct (0-50)
+var deviceStakerIndex = new Map(); // staker_account → Set<device_id>
 
 var SLOT_MULTIPLIERS = [1.85, 1.60, 1.38, 1.19, 1.03, 0.89, 0.77, 0.67, 0.58, 0.50];
 var MAX_STAKERS = 10;
@@ -399,19 +400,29 @@ function _round(n) {
   return parseFloat(Number(n).toFixed(10));
 }
 
+function _coerceAmount(amount) {
+  var parsed = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 function _credit(username, token, amount) {
-  if (!username || !amount) return;
+  var parsed = _coerceAmount(amount);
+  if (!username || parsed === null) return;
   var key = _balanceKey(username, token);
   var currentUnits = balances.get(key) || 0;
-  var addUnits = toUnits(amount);
+  var addUnits = toUnits(parsed);
+  if (!Number.isFinite(addUnits) || addUnits <= 0) return;
   balances.set(key, currentUnits + addUnits);
 }
 
 function _debit(username, token, amount) {
-  if (!username || !amount) return false;
+  var parsed = _coerceAmount(amount);
+  if (!username || parsed === null) return false;
   var key = _balanceKey(username, token);
   var currentUnits = balances.get(key) || 0;
-  var debitUnits = toUnits(amount);
+  var debitUnits = toUnits(parsed);
+  if (!Number.isFinite(debitUnits) || debitUnits <= 0) return false;
   // System/issuance accounts may go negative; all others are floor-checked.
   if (!_isSystemAccount(username) && currentUnits < debitUnits) {
     return false; // insufficient balance — reject silently (Vuln 6 fix)
@@ -421,17 +432,22 @@ function _debit(username, token, amount) {
 }
 
 function _creditDelegated(username, token, amount) {
-  if (!username || !amount) return;
+  var parsed = _coerceAmount(amount);
+  if (!username || parsed === null) return;
   var key = _balanceKey(username, token);
   var current = delegatedReceived.get(key) || 0;
-  delegatedReceived.set(key, current + toUnits(amount));
+  var creditUnits = toUnits(parsed);
+  if (!Number.isFinite(creditUnits) || creditUnits <= 0) return;
+  delegatedReceived.set(key, current + creditUnits);
 }
 
 function _debitDelegated(username, token, amount) {
-  if (!username || !amount) return false;
+  var parsed = _coerceAmount(amount);
+  if (!username || parsed === null) return false;
   var key = _balanceKey(username, token);
   var current = delegatedReceived.get(key) || 0;
-  var units = toUnits(amount);
+  var units = toUnits(parsed);
+  if (!Number.isFinite(units) || units <= 0) return false;
   if (current < units) return false;
   delegatedReceived.set(key, current - units);
   return true;
@@ -615,6 +631,7 @@ function applyEntry(entry) {
   var from = entry.from;
   var to = entry.to;
   var amount = entry.amount || 0;
+  var parsedAmount = _coerceAmount(amount);
   var token = entry.token || "BTCPC";
 
   switch (entry.type) {
@@ -717,8 +734,8 @@ function applyEntry(entry) {
       // Accrues claimable wBTCPC on each supported chain alongside mining rewards.
       var cccAccount = to || from;
       var cccChain = entry.chain;
-      var cccAmount = amount || 0;
-      if (!cccAccount || !cccChain || cccAmount <= 0) break;
+      var cccAmount = parsedAmount;
+      if (!cccAccount || !cccChain || cccAmount === null) break;
       var cccKey = cccAccount + '|' + cccChain;
       crossChainCredits.set(cccKey, (crossChainCredits.get(cccKey) || 0) + cccAmount);
       break;
@@ -728,8 +745,8 @@ function applyEntry(entry) {
       // Consumes accumulated credit when user claims wBTCPC on a chain.
       var clAccount = from || to;
       var clChain = entry.chain;
-      var clAmount = amount || 0;
-      if (!clAccount || !clChain || clAmount <= 0) break;
+      var clAmount = parsedAmount;
+      if (!clAccount || !clChain || clAmount === null) break;
       var clKey = clAccount + '|' + clChain;
       var clBal = crossChainCredits.get(clKey) || 0;
       crossChainCredits.set(clKey, Math.max(0, clBal - clAmount));
@@ -790,22 +807,22 @@ function applyEntry(entry) {
 
     case "TRANSFER":
       // Integer-unit validation: amount must convert to a positive integer
-      if (toUnits(amount) <= 0) break;
-      if (!_debit(from, token, amount)) break; // insufficient balance — delegated balance NOT eligible
-      _credit(to, token, amount);
+      if (parsedAmount === null) break;
+      if (!_debit(from, token, parsedAmount)) break; // insufficient balance — delegated balance NOT eligible
+      _credit(to, token, parsedAmount);
       break;
 
     case "INFERENCE_CHARGE":
       // Deduct network service fee from delegated balance first, then owned balance.
       // to = miner/pool that receives payment; from = requester
-      if (toUnits(amount) <= 0) break;
+      if (parsedAmount === null) break;
       var chargeToken = token || "BTCPC";
-      var chargedFromDelegated = _debitDelegated(from, chargeToken, amount);
+      var chargedFromDelegated = _debitDelegated(from, chargeToken, parsedAmount);
       if (!chargedFromDelegated) {
         // fall back to owned balance
-        if (!_debit(from, chargeToken, amount)) break;
+        if (!_debit(from, chargeToken, parsedAmount)) break;
       }
-      _credit(to, chargeToken, amount);
+      _credit(to, chargeToken, parsedAmount);
       break;
 
     case "MINING_REWARD":
@@ -862,6 +879,7 @@ function applyEntry(entry) {
       break;
 
     case "STAKE":
+      if (_coerceAmount(amount) === null) break;
       if (!_debit(from, "BTCPC", amount)) break;
       if (from) {
         var s = stakes.get(from) || { total_staked: 0, purpose: entry.memo, first_stake_epoch: entry.epoch };
@@ -873,9 +891,9 @@ function applyEntry(entry) {
     case "UNSTAKE":
       if (to) {
         var us = stakes.get(to);
-        if (!us || toUnits(us.total_staked) < toUnits(amount)) break;
-        _credit(to, "BTCPC", amount);
-        us.total_staked = _round(us.total_staked - amount);
+        if (!us || parsedAmount === null || toUnits(us.total_staked) < toUnits(parsedAmount)) break;
+        _credit(to, "BTCPC", parsedAmount);
+        us.total_staked = _round(us.total_staked - parsedAmount);
         if (us.total_staked <= 0) stakes.delete(to);
         else stakes.set(to, us);
       }
@@ -885,18 +903,19 @@ function applyEntry(entry) {
       // Multi-layer delegation: draw from owned balance first, then delegated balance.
       // recipient always receives into their delegatedReceived pool (network-use only).
       var delegSource = 'owned';
-      var ownedOk = _debit(from, "BTCPC", amount);
+      if (parsedAmount === null) break;
+      var ownedOk = _debit(from, "BTCPC", parsedAmount);
       if (!ownedOk) {
         // from doesn't have enough owned — try re-delegating from their received pool
-        var delegOk = _debitDelegated(from, "BTCPC", amount);
+        var delegOk = _debitDelegated(from, "BTCPC", parsedAmount);
         if (delegOk) delegSource = 'delegated';
         // if neither succeeds, the entry is a no-op (silently rejected)
       }
       if (from && to && (ownedOk || delegSource === 'delegated')) {
-        _creditDelegated(to, "BTCPC", amount);
+        _creditDelegated(to, "BTCPC", parsedAmount);
         var dkey = from + "|" + to;
         var d = delegations.get(dkey) || { amount: 0, purpose: (entry.delegation_data && entry.delegation_data.purpose) || entry.memo, epoch: entry.epoch, source: delegSource };
-        d.amount = _round(d.amount + amount);
+        d.amount = _round(d.amount + parsedAmount);
         d.source = delegSource;
         delegations.set(dkey, d);
       }
@@ -910,19 +929,19 @@ function applyEntry(entry) {
       var delegator2 = ddata.delegator || from;
       var miner2 = ddata.miner || to;
       var returnTo = ddata.return_to || to; // who gets tokens back
-      if (from && to) {
+      if (from && to && parsedAmount !== null) {
         var dkey2 = delegator2 + "|" + miner2;
         var d2 = delegations.get(dkey2);
         var delegSrc2 = (d2 && d2.source) || 'owned';
         if (delegSrc2 === 'delegated') {
-          _creditDelegated(returnTo, "BTCPC", amount);
+          _creditDelegated(returnTo, "BTCPC", parsedAmount);
         } else {
-          _credit(returnTo, "BTCPC", amount);
+          _credit(returnTo, "BTCPC", parsedAmount);
         }
         // Debit the undelegated amount from recipient's delegatedReceived
-        _debitDelegated(miner2, "BTCPC", amount);
+        _debitDelegated(miner2, "BTCPC", parsedAmount);
         if (d2) {
-          d2.amount = _round(d2.amount - amount);
+          d2.amount = _round(d2.amount - parsedAmount);
           if (d2.amount <= 0) delegations.delete(dkey2);
           else delegations.set(dkey2, d2);
         }
@@ -932,11 +951,12 @@ function applyEntry(entry) {
 
     case "ESCROW_LOCK": {
       var escrowSource = "owned";
-      var escrowPaid = _debitDelegated(from, "BTCPC", amount);
+      if (parsedAmount === null) break;
+      var escrowPaid = _debitDelegated(from, "BTCPC", parsedAmount);
       if (escrowPaid) {
         escrowSource = "delegated";
       } else {
-        escrowPaid = _debit(from, "BTCPC", amount);
+        escrowPaid = _debit(from, "BTCPC", parsedAmount);
       }
       if (!escrowPaid) break;
       if (entry.memo) {
@@ -944,7 +964,7 @@ function applyEntry(entry) {
         var rid = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
         escrows.set(rid, {
           payer: from,
-          amount: amount,
+          amount: parsedAmount,
           source: escrowSource,
           status: "locked",
           locked_epoch: entry.epoch,
@@ -960,19 +980,20 @@ function applyEntry(entry) {
         var e2 = escrows.get(rid2);
         if (e2) {
           var alreadyReleased = e2.released_amount || 0;
-          if (toUnits(alreadyReleased + amount) > toUnits(e2.amount)) break;
-          _credit(to, "BTCPC", amount);
+          if (parsedAmount === null) break;
+          if (toUnits(alreadyReleased + parsedAmount) > toUnits(e2.amount)) break;
+          _credit(to, "BTCPC", parsedAmount);
           e2.status = "released";
           e2.released_to = to;
-          e2.released_amount = _round(alreadyReleased + amount);
+          e2.released_amount = _round(alreadyReleased + parsedAmount);
           escrows.set(rid2, e2);
         } else if (!entry.escrow_id && entry.memo && !entry.memo.startsWith("escrow:")) {
           // Legacy release entries sometimes used memo for a human payout note
           // instead of escrow identity. Preserve historical replay behavior.
-          _credit(to, "BTCPC", amount);
+          _credit(to, "BTCPC", parsedAmount);
         }
       } else {
-        _credit(to, "BTCPC", amount);
+        _credit(to, "BTCPC", parsedAmount);
       }
       break;
 
@@ -981,15 +1002,15 @@ function applyEntry(entry) {
         var rid3 = entry.memo.startsWith("escrow:") ? entry.memo.slice(7) : entry.memo;
         var e3 = escrows.get(rid3);
         if (e3) {
-          if (e3.source === "delegated") _creditDelegated(to, "BTCPC", amount);
-          else _credit(to, "BTCPC", amount);
+          if (e3.source === "delegated") _creditDelegated(to, "BTCPC", parsedAmount);
+          else _credit(to, "BTCPC", parsedAmount);
           e3.status = "refunded";
           escrows.set(rid3, e3);
         } else {
-          _credit(to, "BTCPC", amount);
+          _credit(to, "BTCPC", parsedAmount);
         }
       } else {
-        _credit(to, "BTCPC", amount);
+        _credit(to, "BTCPC", parsedAmount);
       }
       break;
 
@@ -1390,9 +1411,28 @@ function applyEntry(entry) {
           session_id: ijOpen.session_id || null,
           auto_memory: !!ijOpen.auto_memory,
           memory_project: ijOpen.memory_project || null,
+          escrow_amount: ijOpen.escrow_amount || 0,
+          review_mode: ijOpen.review_mode || "computer",
+          review_fee: ijOpen.review_fee || 0,
+          challenge_fee: ijOpen.challenge_fee || 0,
+          challenge_window_epochs: ijOpen.challenge_window_epochs || 24,
+          challenge_deadline_epoch: ijOpen.challenge_deadline_epoch || 0,
+          review_stage: ijOpen.review_stage || "initial",
+          review_epoch: null,
           miner: null,
           proof_hash: null,
           actual_cost: null,
+          review_status: null,
+          reviewer: null,
+          review_verdict: null,
+          challenged_by: null,
+          challenge_reason: null,
+          challenge_status: null,
+          challenge_escrow_id: null,
+          challenge_epoch: null,
+          finality_epoch: null,
+          finality_hash: null,
+          finality_outcome: null,
           status: "open",
           open_epoch: entry.epoch,
           claimed_epoch: null,
@@ -1419,6 +1459,7 @@ function applyEntry(entry) {
         var ijSubmit = inferenceJobs.get(entry.job_data.job_id);
         if (ijSubmit && ijSubmit.status === "claimed") {
           ijSubmit.proof_hash = entry.job_data.proof_hash;
+          ijSubmit.actual_cost = entry.job_data.actual_cost != null ? entry.job_data.actual_cost : ijSubmit.actual_cost;
           ijSubmit.status = "submitted";
           ijSubmit.submitted_epoch = entry.epoch;
           inferenceJobs.set(entry.job_data.job_id, ijSubmit);
@@ -1437,6 +1478,60 @@ function applyEntry(entry) {
           ijSettle.settled_epoch = entry.epoch;
           ijSettle.settled_by = entry.job_data.settled_by || "auto";
           inferenceJobs.set(entry.job_data.job_id, ijSettle);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_REVIEW":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijReview = inferenceJobs.get(entry.job_data.job_id);
+        if (ijReview) {
+          ijReview.review_status = entry.job_data.status || "awaiting_challenge";
+          ijReview.review_verdict = entry.job_data.verdict || "accepted";
+          ijReview.reviewer = entry.job_data.reviewer || entry.from || null;
+          ijReview.review_mode = entry.job_data.review_mode || ijReview.review_mode || "computer";
+          ijReview.review_fee = entry.job_data.review_fee || ijReview.review_fee || 0;
+          ijReview.challenge_window_epochs = entry.job_data.challenge_window_epochs || ijReview.challenge_window_epochs || 24;
+          ijReview.challenge_deadline_epoch = entry.job_data.challenge_deadline_epoch || ijReview.challenge_deadline_epoch || 0;
+          ijReview.challenge_escrow_id = entry.job_data.challenge_escrow_id || ijReview.challenge_escrow_id || null;
+          ijReview.review_stage = entry.job_data.review_stage || ijReview.review_stage || "initial";
+          ijReview.challenge_status = entry.job_data.challenge_status || ijReview.challenge_status || null;
+          ijReview.review_epoch = entry.epoch;
+          ijReview.status = entry.job_data.status || (entry.job_data.verdict === "accepted" ? "awaiting_challenge" : "review_rejected");
+          inferenceJobs.set(entry.job_data.job_id, ijReview);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_CHALLENGE":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijChallenge = inferenceJobs.get(entry.job_data.job_id);
+        if (ijChallenge) {
+          ijChallenge.challenged_by = entry.job_data.challenger || entry.from || null;
+          ijChallenge.challenge_reason = entry.job_data.reason || "quality_dispute";
+          ijChallenge.challenge_fee = entry.job_data.challenge_fee || ijChallenge.challenge_fee || 0;
+          ijChallenge.challenge_bond = entry.job_data.challenge_bond || 0;
+          ijChallenge.challenge_escrow_id = entry.job_data.challenge_escrow_id || ijChallenge.challenge_escrow_id || null;
+          ijChallenge.challenge_epoch = entry.epoch;
+          ijChallenge.challenge_deadline_epoch = entry.job_data.challenge_deadline_epoch || ijChallenge.challenge_deadline_epoch || 0;
+          ijChallenge.challenge_status = "challenged";
+          ijChallenge.status = "challenged";
+          inferenceJobs.set(entry.job_data.job_id, ijChallenge);
+        }
+      }
+      break;
+
+    case "INFERENCE_JOB_FINALITY":
+      if (entry.job_data && entry.job_data.job_id) {
+        var ijFinal = inferenceJobs.get(entry.job_data.job_id);
+        if (ijFinal) {
+          ijFinal.finality_epoch = entry.job_data.finality_epoch || entry.epoch || 0;
+          ijFinal.finality_hash = entry.job_data.finality_hash || null;
+          ijFinal.finality_outcome = entry.job_data.finality_outcome || ijFinal.finality_outcome || null;
+          ijFinal.review_stage = entry.job_data.review_stage || ijFinal.review_stage || null;
+          ijFinal.challenge_status = entry.job_data.challenge_status || ijFinal.challenge_status || null;
+          ijFinal.status = entry.job_data.status || "finalized";
+          inferenceJobs.set(entry.job_data.job_id, ijFinal);
         }
       }
       break;
@@ -2734,6 +2829,7 @@ function applyEntry(entry) {
       var dysRentBid = _round(dysData.rent_bid || 0);
       var dysRentMode = dysData.rent_mode === "stake" ? "stake" : "earnings";
       var dysEntryEpoch = dysData.entry_epoch || entry.epoch || 0;
+      var DYS_MAX_SLOTS = 10;
 
       if (!dysDeviceId || !dysStaker || dysStakeAmount <= 0) break;
 
@@ -2741,48 +2837,100 @@ function applyEntry(entry) {
       var dysDebitOk = _debit(dysStaker, "BTCPC", dysStakeAmount);
       if (!dysDebitOk) break; // insufficient balance
 
-      // Tribute: 5% of stake_amount to owner (unless staker === owner).
+      // Tribute: to owner (unless staker === owner).
       // If the entry carries an explicit tribute value, honour it; otherwise
-      // fall back to the 5% formula so replayed blocks remain deterministic.
+      // fall back to the 1% formula so replayed blocks remain deterministic.
       var dysTribute = 0;
       if (dysOwner && dysStaker !== dysOwner) {
         var _explicitTribute = dysData.tribute !== undefined ? _round(dysData.tribute) : null;
-        dysTribute = _explicitTribute !== null ? _explicitTribute : _round(dysStakeAmount * 0.05);
+        dysTribute = _explicitTribute !== null ? _explicitTribute : _round(dysStakeAmount * 0.01);
         if (dysTribute > 0) _credit(dysOwner, "BTCPC", dysTribute);
       }
 
-      // Single-slot competitive staking: each device has exactly one top staker.
-      // If a staker already holds the slot, outbid them: refund their net_stake
-      // (original stake minus tribute), then install the new staker.
+      // Multi-slot rent-auction model (up to 10 slots per device).
+      // Slots are ordered by rent_bid desc, then stake_amount desc.
+      // If pool is full (10 slots), the new staker must beat the lowest slot.
       if (!deviceStakerPools.has(dysDeviceId)) {
         deviceStakerPools.set(dysDeviceId, new Map());
       }
       var dysPool = deviceStakerPools.get(dysDeviceId);
 
-      // Evict any existing staker (other than the same staker re-staking)
-      for (var _dysK of dysPool.keys()) {
-        if (_dysK !== dysStaker) {
-          var _dysPrev = dysPool.get(_dysK);
-          // Refund their net stake (original_stake minus tribute)
-          var _dysRefund = _round((_dysPrev.original_stake || _dysPrev.stake_amount) - (_dysPrev.tribute_paid || 0));
-          if (_dysRefund > 0) _credit(_dysK, "BTCPC", _dysRefund);
-          dysPool.delete(_dysK);
+      // Re-staking: update existing position
+      if (dysPool.has(dysStaker)) {
+        var _dysExisting = dysPool.get(dysStaker);
+        // Additional stake — add to existing position
+        _dysExisting.stake_amount = _round((_dysExisting.stake_amount || 0) + dysStakeAmount);
+        _dysExisting.rent_bid = dysRentBid;
+        _dysExisting.rent_mode = dysRentMode;
+        _dysExisting.tribute_paid = _round((_dysExisting.tribute_paid || 0) + dysTribute);
+      } else if (dysPool.size < DYS_MAX_SLOTS) {
+        // Pool has room — just add
+        var dysNetStake = dysData.net_stake !== undefined ? _round(dysData.net_stake) : _round(dysStakeAmount - dysTribute);
+        dysPool.set(dysStaker, {
+          staker: dysStaker,
+          stake_amount: dysStakeAmount,
+          original_stake: dysStakeAmount,
+          net_stake: dysNetStake,
+          tribute_paid: dysTribute,
+          slot: dysPool.size + 1,
+          rent_bid: dysRentBid,
+          rent_mode: dysRentMode,
+          entry_epoch: dysEntryEpoch,
+          rent_paid_total: 0,
+        });
+      } else {
+        // Pool is full — evict lowest-ranked staker if new staker beats them
+        var _dysSortedFull = Array.from(dysPool.values()).sort(function (a, b) {
+          if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+          return b.stake_amount - a.stake_amount;
+        });
+        var _dysLowest = _dysSortedFull[_dysSortedFull.length - 1];
+        var _dysNewBeats = dysRentBid > _dysLowest.rent_bid ||
+          (dysRentBid === _dysLowest.rent_bid && dysStakeAmount > _dysLowest.stake_amount);
+        if (_dysNewBeats) {
+          // Refund the evicted staker
+          var _dysEvictRefund = _round((_dysLowest.original_stake || _dysLowest.stake_amount) - (_dysLowest.tribute_paid || 0));
+          if (_dysEvictRefund > 0) _credit(_dysLowest.staker, "BTCPC", _dysEvictRefund);
+          dysPool.delete(_dysLowest.staker);
+          // Add new staker
+          var dysNetStake2 = dysData.net_stake !== undefined ? _round(dysData.net_stake) : _round(dysStakeAmount - dysTribute);
+          dysPool.set(dysStaker, {
+            staker: dysStaker,
+            stake_amount: dysStakeAmount,
+            original_stake: dysStakeAmount,
+            net_stake: dysNetStake2,
+            tribute_paid: dysTribute,
+            slot: DYS_MAX_SLOTS,
+            rent_bid: dysRentBid,
+            rent_mode: dysRentMode,
+            entry_epoch: dysEntryEpoch,
+            rent_paid_total: 0,
+          });
+        } else {
+          // New staker doesn't beat anyone — refund their stake + tribute
+          _credit(dysStaker, "BTCPC", dysStakeAmount);
+          if (dysTribute > 0 && dysOwner) {
+            _debit(dysOwner, "BTCPC", dysTribute);
+            _credit(dysStaker, "BTCPC", dysTribute);
+          }
+          break;
         }
       }
 
-      var dysNetStake = dysData.net_stake !== undefined ? _round(dysData.net_stake) : _round(dysStakeAmount - dysTribute);
-      dysPool.set(dysStaker, {
-        staker: dysStaker,
-        stake_amount: dysStakeAmount,
-        original_stake: dysStakeAmount,
-        net_stake: dysNetStake,
-        tribute_paid: dysTribute,
-        slot: 1,
-        rent_bid: dysRentBid,
-        rent_mode: dysRentMode,
-        entry_epoch: dysEntryEpoch,
-        rent_paid_total: 0,
+      // Re-sort pool and assign slots
+      var _dysSorted = Array.from(dysPool.values()).sort(function (a, b) {
+        if (b.rent_bid !== a.rent_bid) return b.rent_bid - a.rent_bid;
+        return b.stake_amount - a.stake_amount;
       });
+      for (var _dysi = 0; _dysi < _dysSorted.length; _dysi++) {
+        _dysSorted[_dysi].slot = _dysi + 1;
+      }
+
+      // Track staker→device mapping
+      if (!deviceStakerIndex) deviceStakerIndex = new Map();
+      if (!deviceStakerIndex.has(dysStaker)) deviceStakerIndex.set(dysStaker, new Set());
+      deviceStakerIndex.get(dysStaker).add(dysDeviceId);
+
       break;
     }
 
@@ -2798,13 +2946,13 @@ function applyEntry(entry) {
       if (!dyuPool || !dyuPool.has(dyuStaker)) break;
 
       var dyuRecord = dyuPool.get(dyuStaker);
-      // Return net stake (original_stake minus tribute). If entry specifies
-      // returned_amount explicitly, honour that; otherwise compute from record.
+      // Return current remaining stake_amount (already reduced by rent deductions).
+      // If entry specifies returned_amount explicitly, honour that.
       var dyuReturnAmount;
       if (dyuData.returned_amount !== undefined && dyuData.returned_amount > 0) {
         dyuReturnAmount = _round(dyuData.returned_amount);
       } else {
-        dyuReturnAmount = _round((dyuRecord.original_stake || dyuRecord.stake_amount) - (dyuRecord.tribute_paid || 0));
+        dyuReturnAmount = _round(dyuRecord.stake_amount || 0);
       }
       if (dyuReturnAmount > 0) _credit(dyuStaker, "BTCPC", dyuReturnAmount);
       dyuPool.delete(dyuStaker);
@@ -4149,6 +4297,14 @@ function getOpenInferenceJobs() {
   return result;
 }
 
+function getInferenceJobsAwaitingFinality() {
+  var result = [];
+  for (var job of inferenceJobs.values()) {
+    if (job.status === "awaiting_challenge" || job.status === "challenged" || job.status === "review_rejected") result.push(job);
+  }
+  return result;
+}
+
 function getJobsAwaitingToolResults(buyer) {
   var result = [];
   for (var job of inferenceJobs.values()) {
@@ -4712,6 +4868,7 @@ function resetAll() {
   iotDeviceKeys.clear();
   deviceStakerPools.clear();
   deviceAutoStake.clear();
+  deviceStakerIndex.clear();
   nameAuctions.clear();
   nameDelegate.clear();
   childrenMap.clear();
@@ -4924,6 +5081,7 @@ module.exports = {
   // Inference Marketplace (v3.1.119+)
   getInferenceJob,
   getOpenInferenceJobs,
+  getInferenceJobsAwaitingFinality,
   getInferenceJobsByBuyer,
   getInferenceJobsByMiner,
   getJobsAwaitingToolResults,

@@ -46,6 +46,9 @@ public class AppPrefs {
     public static final String KEY_SENSORS_ENABLED = "sensorsEnabled";
     public static final String KEY_STORAGE_ENABLED = "storageEnabled";
 
+    // ---- Flipper Zero pairing ----
+    public static final String KEY_FLIPPER_SESSION_ID = "flipperSessionId";
+
     // ---- service status (written by background services) ----
     public static final String KEY_RELAY_STATE   = "relay_state";
     public static final String KEY_CLOCK_STATE   = "clock_state";
@@ -212,6 +215,20 @@ public class AppPrefs {
 
     public void setStorageEnabled(boolean enabled) {
         prefs.edit().putBoolean(KEY_STORAGE_ENABLED, enabled).apply();
+    }
+
+    // ---- Flipper pairing ----
+
+    public String getFlipperSessionId() {
+        return prefs.getString(KEY_FLIPPER_SESSION_ID, "");
+    }
+
+    public void setFlipperSessionId(String sid) {
+        prefs.edit().putString(KEY_FLIPPER_SESSION_ID, sid.trim()).apply();
+    }
+
+    public void clearFlipperSession() {
+        prefs.edit().remove(KEY_FLIPPER_SESSION_ID).apply();
     }
 
     /** Bulk-save all user-facing settings in one edit. */

@@ -1814,15 +1814,9 @@ async function startMarketplacePoller() {
       const costPerToken = job.max_fee / Math.max(totalTokens, 1);
       const actualCost = Math.min(job.max_fee, parseFloat((costPerToken * totalTokens).toFixed(10)));
 
-      await market.submitJob(job.job_id, MINER_ACCOUNT, finalResult, null);
-      try {
-        const submitted = storeRef.getInferenceJob(job.job_id);
-        if (submitted && submitted.status === 'submitted') {
-          await market.settleJob(job.job_id, actualCost, MINER_ACCOUNT);
-        }
-      } catch (_) {}
+      await market.submitJob(job.job_id, MINER_ACCOUNT, finalResult, null, actualCost);
 
-      // Post-settle: auto-save memory blob for the buyer if requested
+      // Post-submit: auto-save memory blob for the buyer if requested
       if (job.auto_memory) {
         try {
           const memoryService = require('../services/memoryService');

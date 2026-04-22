@@ -22,6 +22,7 @@
  */
 
 var POLL_INTERVAL_MS = parseInt(process.env.BTCPC_MONITOR_INTERVAL_MS || "60000", 10);
+var shouldStartBackgroundTimers = require("./backgroundTimers").shouldStartBackgroundTimers;
 
 var EVM_CHAINS = [
   { name: "base",     rpcUrl: "https://mainnet.base.org" },
@@ -433,11 +434,13 @@ function createChainMonitor(options) {
       _warn("initial poll error: " + err.message);
     });
 
-    _timer = setInterval(function () {
-      _pollAllAccounts().catch(function (err) {
-        _warn("poll error: " + err.message);
-      });
-    }, POLL_INTERVAL_MS);
+    if (shouldStartBackgroundTimers()) {
+      _timer = setInterval(function () {
+        _pollAllAccounts().catch(function (err) {
+          _warn("poll error: " + err.message);
+        });
+      }, POLL_INTERVAL_MS);
+    }
   }
 
   function stop() {

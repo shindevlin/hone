@@ -30,6 +30,7 @@
 const axios = require("axios").default;
 const { hashToolTrace } = require("./toolRegistry");
 const mcpServer = require("./btcpcMcpServer");
+const { isPublicHttpUrl } = require("../services/urlSafety");
 
 const BUILTIN_TOOLS = new Set([
   "calculator", "hash", "btcpc_fs_read", "epoch_info", "web_fetch",
@@ -79,7 +80,7 @@ async function executeTools({ tools, toolContext, mcpServers, savedMcpServers } 
   });
 
   // ── 2. External MCP servers — SSRF-safe ──────────────────────────────────
-  const allServers = _mergeServers(mcpServers, savedMcpServers);
+  const allServers = await _mergeServers(mcpServers, savedMcpServers);
 
   const externalPromises = externalNames.map(async name => {
     const server = allServers.find(s => s.tools && s.tools.includes(name));
@@ -152,7 +153,7 @@ async function verifyToolTrace(toolTraceHash, toolCallLog) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function _mergeServers(inline, saved) {
+async function _mergeServers(inline, saved) {
   const result = [];
 
   for (const list of [inline, saved]) {
@@ -162,6 +163,7 @@ function _mergeServers(inline, saved) {
         const parsed = new URL(s.url);
         if (!["http:", "https:"].includes(parsed.protocol)) continue;
         if (SSRF_BLOCKED.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) continue;
+        if (!await isPublicHttpUrl(s.url)) continue;
         result.push(s);
       } catch (_) {}
     }

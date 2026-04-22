@@ -27,12 +27,17 @@ const ledger = require('../src/services/ledger');
 const sensorRegistry = require('../src/services/sensorRegistry');
 const gatewayRegistry = require('../src/services/loraGatewayRegistry');
 const nanoRewards = require('../src/services/nanoRewards');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 beforeEach(() => {
   stateStore.resetAll();
+  epochBandwidth.resetAll();
   sensorRegistry.resetForTests();
   gatewayRegistry.resetForTests();
   jest.clearAllMocks();
+  ['shindevlin', 'natoshisakamoto', 'alice', 'bob', 'carol', 'miner', 'protocol'].forEach(
+    a => epochBandwidth.seedForTest(a)
+  );
 });
 
 // ─── Sensor ledger entries ───────────────────────────────────────────────────

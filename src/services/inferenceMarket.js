@@ -5,12 +5,14 @@
  * Shin Devlin
  *
  * Connects compute buyers to miners. Buyers post jobs with a BTCPC escrow.
- * Miners claim, run inference via Ollama, submit a result hash. Verifier
- * nodes confirm. Protocol takes 10% on settlement.
+ * Miners claim, run inference via Ollama, submit a result hash. Reviewers
+ * verify work, challenge windows gate disputes, and finality closes the job.
+ * Protocol takes 10% of the inference payout.
  *
  * Job lifecycle:
- *   open → claimed → submitted → settled
+ *   open → claimed → submitted → reviewed → finalized
  *                 ↘ expired → refunded
+ *                ↘ challenged → appeal-reviewed → finalized
  *
  * All money moves through the existing escrow system. Job metadata is
  * tracked via INFERENCE_JOB_* ledger entries and the inferenceJobs Map
@@ -25,10 +27,38 @@ const protocolTools = require("./protocolTools");
 const PROTOCOL_FEE_ACCOUNT = "btcpc_fees";
 const PROTOCOL_FEE_PCT = 0.10;
 const DEFAULT_TTL_EPOCHS = 20; // 10 minutes at 30s/epoch
+const DEFAULT_REVIEW_FEE_PCT = 0.05;
+const DEFAULT_CHALLENGE_FEE_PCT = 0.02;
+const DEFAULT_CHALLENGE_WINDOW_EPOCHS = parseInt(process.env.BTCPC_CHALLENGE_WINDOW_EPOCHS, 10) || 2880;
 const MIN_JOB_FEE = 0.01; // 0.01 BTCPC minimum
 
 function _jobId() {
   return "job_" + crypto.randomBytes(8).toString("hex");
+}
+
+function _challengeEscrowId(jobId) {
+  return `${jobId}:challenge`;
+}
+
+function _jobFinalityHash(job) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({
+      job_id: job.job_id,
+      buyer: job.buyer,
+      miner: job.miner,
+      review_mode: job.review_mode,
+      review_verdict: job.review_verdict,
+      review_stage: job.review_stage,
+      challenge_status: job.challenge_status,
+      challenge_reason: job.challenge_reason,
+      finality_epoch: job.finality_epoch,
+      actual_cost: job.actual_cost,
+      max_fee: job.max_fee,
+      review_fee: job.review_fee,
+      challenge_fee: job.challenge_fee,
+    }))
+    .digest("hex");
 }
 
 /**
@@ -47,9 +77,24 @@ async function openJob(buyer, prompt, maxFee, opts) {
     throw new Error(`maxFee must be at least ${MIN_JOB_FEE} BTCPC`);
   }
 
+  const reviewMode = ["computer", "human"].includes(opts.reviewMode || opts.review_mode)
+    ? (opts.reviewMode || opts.review_mode)
+    : "computer";
+  const reviewFee = opts.reviewFee != null
+    ? parseFloat(opts.reviewFee)
+    : parseFloat((maxFee * DEFAULT_REVIEW_FEE_PCT).toFixed(10));
+  const challengeFee = opts.challengeFee != null
+    ? parseFloat(opts.challengeFee)
+    : parseFloat((maxFee * DEFAULT_CHALLENGE_FEE_PCT).toFixed(10));
+  const challengeWindowEpochs = Math.max(
+    parseInt(opts.challengeWindowEpochs || opts.challenge_window_epochs || DEFAULT_CHALLENGE_WINDOW_EPOCHS, 10) || DEFAULT_CHALLENGE_WINDOW_EPOCHS,
+    1
+  );
+  const totalEscrow = parseFloat((maxFee + reviewFee).toFixed(10));
+
   const balance = stateStore.getBalance(buyer, "BTCPC");
-  if (balance < maxFee) {
-    throw new Error(`Insufficient balance: have ${balance} BTCPC, need ${maxFee}`);
+  if (balance < totalEscrow) {
+    throw new Error(`Insufficient balance: have ${balance} BTCPC, need ${totalEscrow}`);
   }
 
   const jobId = _jobId();
@@ -57,7 +102,7 @@ async function openJob(buyer, prompt, maxFee, opts) {
   const ttlEpochs = opts.ttlEpochs || DEFAULT_TTL_EPOCHS;
 
   // Lock escrow first
-  await ledger.recordEscrowLock(buyer, jobId, maxFee, epoch);
+  await ledger.recordEscrowLock(buyer, jobId, totalEscrow, epoch);
 
   const tools = Array.isArray(opts.tools) ? opts.tools : [];
   const maxTurns = Math.min(parseInt(opts.maxTurns) || 1, 20);
@@ -87,6 +132,7 @@ async function openJob(buyer, prompt, maxFee, opts) {
   await ledger.recordInferenceJobOpen(buyer, jobId, {
     prompt,
     max_fee: maxFee,
+    escrow_amount: totalEscrow,
     model: opts.model || null,
     system_prompt: systemPrompt,
     ttl_epochs: ttlEpochs,
@@ -102,6 +148,12 @@ async function openJob(buyer, prompt, maxFee, opts) {
     session_id: sessionId,
     auto_memory: autoMemory,
     memory_project: memoryProject,
+    review_mode: reviewMode,
+    review_fee: reviewFee,
+    challenge_fee: challengeFee,
+    challenge_window_epochs: challengeWindowEpochs,
+    challenge_deadline_epoch: 0,
+    review_stage: "initial",
   }, epoch);
 
   // Register job with session if provided
@@ -109,7 +161,27 @@ async function openJob(buyer, prompt, maxFee, opts) {
     try { await ledger.recordSessionAddJob(sessionId, jobId, epoch); } catch (_) {}
   }
 
-  return { job_id: jobId, buyer, max_fee: maxFee, status: "open", epoch, tools, max_turns: maxTurns, tier, image_cids: imageCids, audio_cid: audioCid, batch_id: batchId, session_id: sessionId, auto_memory: autoMemory, memory_project: memoryProject };
+  return {
+    job_id: jobId,
+    buyer,
+    max_fee: maxFee,
+    escrow_amount: totalEscrow,
+    review_fee: reviewFee,
+    challenge_fee: challengeFee,
+    challenge_window_epochs: challengeWindowEpochs,
+    status: "open",
+    epoch,
+    tools,
+    max_turns: maxTurns,
+    tier,
+    review_mode: reviewMode,
+    image_cids: imageCids,
+    audio_cid: audioCid,
+    batch_id: batchId,
+    session_id: sessionId,
+    auto_memory: autoMemory,
+    memory_project: memoryProject,
+  };
 }
 
 /**
@@ -283,7 +355,7 @@ async function submitToolResults(jobId, buyer, toolResults) {
  * @param {string} result - The actual response text
  * @param {string} proofHash - sha256(prompt + result + miner) for light verification
  */
-async function submitJob(jobId, miner, result, proofHash) {
+async function submitJob(jobId, miner, result, proofHash, actualCost) {
   const job = stateStore.getInferenceJob(jobId);
   if (!job) throw new Error("Job not found: " + jobId);
   // Allow submission from 'claimed' (normal) or 'tool_pending' (miner got final answer after tools)
@@ -303,69 +375,75 @@ async function submitJob(jobId, miner, result, proofHash) {
       .digest("hex");
   }
 
-  await ledger.recordInferenceJobSubmit(jobId, miner, proofHash, epoch);
-  return { job_id: jobId, miner, status: "submitted", proof_hash: proofHash, epoch };
+  const submittedCost = Math.min(
+    actualCost != null ? actualCost : job.max_fee,
+    job.max_fee
+  );
+  await ledger.recordInferenceJobSubmit(jobId, miner, proofHash, submittedCost, epoch);
+  return { job_id: jobId, miner, status: "submitted", proof_hash: proofHash, actual_cost: submittedCost, epoch };
 }
 
 /**
- * Settle a submitted job. Verifier (or auto-settle after timeout) calls this.
- * Releases 90% escrow to miner, 10% to btcpc_fees, refunds overpayment.
- *
- * @param {string} jobId
- * @param {number} actualCost - How much BTCPC the job actually cost (≤ maxFee)
- * @param {string} settledBy - Account settling (verifier or 'auto')
+ * Record an initial verifier review or an appeal review.
+ * Initial review opens the challenge window. Appeal review resolves
+ * challenged work and can be finalized immediately.
  */
-async function settleJob(jobId, actualCost, settledBy) {
+async function reviewJob(jobId, reviewer, verdict, reviewData) {
   const job = stateStore.getInferenceJob(jobId);
   if (!job) throw new Error("Job not found: " + jobId);
-  if (job.status !== "submitted") throw new Error("Job not submitted (status: " + job.status + ")");
+  if (!reviewer) throw new Error("reviewer required");
+  if (reviewer === job.buyer || reviewer === job.miner) {
+    throw new Error("Reviewer cannot be the buyer or miner");
+  }
+  if (!["submitted", "review_rejected", "challenged", "awaiting_challenge"].includes(job.status)) {
+    throw new Error("Job not in reviewable state (status: " + job.status + ")");
+  }
 
   const epoch = await ledger.getCurrentEpoch();
+  const reviewMode = reviewData && reviewData.review_mode ? reviewData.review_mode : job.review_mode || "computer";
+  const reviewStage = job.status === "challenged" ? "appeal" : (reviewData && reviewData.review_stage) || "initial";
+  const normalizedVerdict = (verdict === "rejected" || verdict === false) ? "rejected" : "accepted";
+  const challengeWindowEpochs = Math.max(
+    parseInt((reviewData && reviewData.challenge_window_epochs) || job.challenge_window_epochs || DEFAULT_CHALLENGE_WINDOW_EPOCHS, 10) || DEFAULT_CHALLENGE_WINDOW_EPOCHS,
+    1
+  );
+  const reviewStatus = reviewStage === "appeal"
+    ? "challenged"
+    : (normalizedVerdict === "accepted" ? "awaiting_challenge" : "review_rejected");
+  const reviewDeadline = reviewStage === "appeal"
+    ? job.challenge_deadline_epoch || (epoch + challengeWindowEpochs)
+    : (epoch + challengeWindowEpochs);
+  const appealChallengeStatus = reviewStage === "appeal"
+    ? (normalizedVerdict === "accepted" ? "denied" : "upheld")
+    : null;
 
-  // Clamp actual cost to max_fee
-  actualCost = Math.min(actualCost || job.max_fee, job.max_fee);
-
-  const protocolFee = parseFloat((actualCost * PROTOCOL_FEE_PCT).toFixed(10));
-  const minerPayout = parseFloat((actualCost - protocolFee).toFixed(10));
-  const overpayment = parseFloat((job.max_fee - actualCost).toFixed(10));
-
-  // Release miner payout from escrow
-  if (minerPayout > 0) {
-    await ledger.recordEscrowRelease(job.miner, jobId, minerPayout, epoch, "Inference job settlement");
-  }
-
-  // Protocol fee — separate ESCROW_RELEASE to protocol account
-  if (protocolFee > 0) {
-    await ledger.recordEscrowRelease(PROTOCOL_FEE_ACCOUNT, jobId, protocolFee, epoch, "Inference protocol fee 10%");
-  }
-
-  // Refund overpayment to buyer
-  if (overpayment > 0.000001) {
-    await ledger.recordEscrowRefund(job.buyer, jobId, overpayment, epoch);
-  }
-
-  // Record settlement on chain for explorer + reputation
-  await ledger.recordInferenceJobSettle(jobId, job.miner, job.buyer, {
-    actual_cost: actualCost,
-    miner_payout: minerPayout,
-    protocol_fee: protocolFee,
-    overpayment,
-    settled_by: settledBy || "auto",
+  await ledger.recordInferenceJobReview(jobId, reviewer, {
+    verdict: normalizedVerdict,
+    review_mode: reviewMode,
+    review_fee: job.review_fee,
+    challenge_window_epochs: challengeWindowEpochs,
+    challenge_deadline_epoch: reviewDeadline,
+    review_stage: reviewStage,
+    challenge_status: appealChallengeStatus,
+    status: reviewStatus,
   }, epoch);
 
-  // Update miner reputation
-  try {
-    await ledger.recordNodeReputationUpdate(job.miner, "inference", true, epoch);
-  } catch (_) {}
+  const updated = stateStore.getInferenceJob(jobId);
+  if (!updated) throw new Error("Job not found after review update");
+
+  if (reviewStage === "appeal") {
+    return finalizeJob(jobId, reviewer);
+  }
 
   return {
     job_id: jobId,
-    status: "settled",
-    miner: job.miner,
-    buyer: job.buyer,
-    miner_payout: minerPayout,
-    protocol_fee: protocolFee,
-    overpayment,
+    status: reviewStatus,
+    reviewer,
+    verdict: normalizedVerdict,
+    review_stage: reviewStage,
+    challenge_deadline_epoch: reviewDeadline,
+    challenge_window_epochs: challengeWindowEpochs,
+    epoch,
   };
 }
 
@@ -375,7 +453,7 @@ async function settleJob(jobId, actualCost, settledBy) {
 async function refundJob(jobId) {
   const job = stateStore.getInferenceJob(jobId);
   if (!job) throw new Error("Job not found: " + jobId);
-  if (job.status === "settled" || job.status === "refunded") {
+  if (job.status === "finalized" || job.status === "settled" || job.status === "refunded") {
     throw new Error("Job already " + job.status);
   }
 
@@ -385,7 +463,7 @@ async function refundJob(jobId) {
 }
 
 async function _expireJob(jobId, job, epoch) {
-  await ledger.recordEscrowRefund(job.buyer, jobId, job.max_fee, epoch);
+  await ledger.recordEscrowRefund(job.buyer, jobId, job.escrow_amount || job.max_fee, epoch);
   await ledger.recordInferenceJobRefund(jobId, job.buyer, "expired", epoch);
 }
 
@@ -399,7 +477,7 @@ async function sweepExpiredJobs() {
   let swept = 0;
 
   for (const job of open) {
-    if (job.expires_epoch && epoch > job.expires_epoch) {
+    if (job.status === "open" && job.expires_epoch && epoch > job.expires_epoch) {
       try {
         await _expireJob(job.job_id, job, epoch);
         swept++;
@@ -411,6 +489,167 @@ async function sweepExpiredJobs() {
     console.log(`[InferenceMarket] Swept ${swept} expired jobs at epoch ${epoch}`);
   }
   return { swept, epoch };
+}
+
+async function challengeJob(jobId, challenger, reason) {
+  const job = stateStore.getInferenceJob(jobId);
+  if (!job) throw new Error("Job not found: " + jobId);
+  if (!challenger) throw new Error("challenger required");
+  if (!["awaiting_challenge", "review_rejected"].includes(job.status)) {
+    throw new Error("Job not challengeable (status: " + job.status + ")");
+  }
+
+  const epoch = await ledger.getCurrentEpoch();
+  const deadline = job.challenge_deadline_epoch || 0;
+  if (deadline && epoch > deadline) {
+    throw new Error("Challenge window closed");
+  }
+  if (job.buyer !== challenger) {
+    throw new Error("Only the buyer may challenge this job");
+  }
+
+  const challengeFee = parseFloat(job.challenge_fee || 0);
+  const challengeEscrowId = _challengeEscrowId(jobId);
+  if (challengeFee > 0) {
+    await ledger.recordEscrowLock(challenger, challengeEscrowId, challengeFee, epoch);
+  }
+
+  await ledger.recordInferenceJobChallenge(jobId, challenger, {
+    reason: reason || "quality_dispute",
+    challenge_fee: challengeFee,
+    challenge_bond: challengeFee,
+    challenge_escrow_id: challengeEscrowId,
+    challenge_deadline_epoch: deadline,
+  }, epoch);
+
+  return {
+    job_id: jobId,
+    status: "challenged",
+    challenger,
+    challenge_fee: challengeFee,
+    challenge_deadline_epoch: deadline,
+    epoch,
+  };
+}
+
+async function finalizeJob(jobId, finalizer) {
+  const job = stateStore.getInferenceJob(jobId);
+  if (!job) throw new Error("Job not found: " + jobId);
+  if (job.status === "finalized" || job.status === "refunded") {
+    throw new Error("Job already " + job.status);
+  }
+  if (job.status === "submitted") {
+    throw new Error("Job not reviewed yet");
+  }
+
+  const epoch = await ledger.getCurrentEpoch();
+  const challengeEscrowId = _challengeEscrowId(jobId);
+  const actualCost = Math.min(
+    job.actual_cost != null ? job.actual_cost : job.max_fee,
+    job.max_fee
+  );
+  const protocolFee = parseFloat((actualCost * PROTOCOL_FEE_PCT).toFixed(10));
+  const minerPayout = parseFloat((actualCost - protocolFee).toFixed(10));
+  const reviewPayout = parseFloat((job.review_fee || 0).toFixed(10));
+  const inferenceRefund = parseFloat((job.max_fee - actualCost).toFixed(10));
+  const reviewStage = job.review_stage || "initial";
+  const finalityHash = _jobFinalityHash(job);
+
+  if (job.status === "challenged" && !["upheld", "denied"].includes(job.challenge_status || "")) {
+    throw new Error("Challenge has not been resolved yet");
+  }
+  if ((job.status === "awaiting_challenge" || job.status === "review_rejected") && job.challenge_deadline_epoch && epoch <= job.challenge_deadline_epoch) {
+    throw new Error("Challenge window still open");
+  }
+
+  if (job.challenge_status === "upheld") {
+    if (reviewPayout > 0) {
+      await ledger.recordEscrowRelease(job.reviewer || PROTOCOL_FEE_ACCOUNT, jobId, reviewPayout, epoch, "Inference review fee");
+    }
+    if (job.max_fee > 0) {
+      await ledger.recordEscrowRefund(job.buyer, jobId, job.max_fee, epoch);
+    }
+    if (challengeEscrowId && job.challenge_fee > 0) {
+      await ledger.recordEscrowRefund(job.buyer, challengeEscrowId, job.challenge_fee, epoch);
+    }
+  } else if (job.status === "review_rejected" && !job.challenge_status) {
+    if (reviewPayout > 0) {
+      await ledger.recordEscrowRelease(job.reviewer || PROTOCOL_FEE_ACCOUNT, jobId, reviewPayout, epoch, "Inference review fee");
+    }
+    if (job.max_fee > 0) {
+      await ledger.recordEscrowRefund(job.buyer, jobId, job.max_fee, epoch);
+    }
+  } else if (job.challenge_status === "denied" || job.status === "awaiting_challenge" || job.status === "review_rejected") {
+    if (minerPayout > 0) {
+      await ledger.recordEscrowRelease(job.miner, jobId, minerPayout, epoch, "Inference job payout");
+    }
+    if (protocolFee > 0) {
+      await ledger.recordEscrowRelease(PROTOCOL_FEE_ACCOUNT, jobId, protocolFee, epoch, "Inference protocol fee 10%");
+    }
+    if (reviewPayout > 0) {
+      await ledger.recordEscrowRelease(job.reviewer || PROTOCOL_FEE_ACCOUNT, jobId, reviewPayout, epoch, "Inference review fee");
+    }
+    if (inferenceRefund > 0.000001) {
+      await ledger.recordEscrowRefund(job.buyer, jobId, inferenceRefund, epoch);
+    }
+    if (job.challenge_status === "denied" && challengeEscrowId && job.challenge_fee > 0) {
+      await ledger.recordEscrowRelease(PROTOCOL_FEE_ACCOUNT, challengeEscrowId, job.challenge_fee, epoch, "Inference challenge fee forfeited");
+    }
+  }
+
+  await ledger.recordInferenceJobFinality(jobId, {
+    finality_epoch: epoch,
+    finality_hash: finalityHash,
+    finality_outcome: job.challenge_status || (job.review_verdict || "accepted"),
+    review_stage: reviewStage,
+    challenge_status: job.challenge_status || null,
+    status: "finalized",
+    challenge_closed: true,
+  }, epoch);
+
+  try {
+    if (job.miner) {
+      await ledger.recordNodeReputationUpdate(job.miner, "inference", job.challenge_status !== "upheld", epoch);
+    }
+  } catch (_) {}
+
+  return {
+    job_id: jobId,
+    status: "finalized",
+    miner: job.miner,
+    buyer: job.buyer,
+    finality_epoch: epoch,
+    finality_hash: finalityHash,
+    challenge_status: job.challenge_status || null,
+    review_stage: reviewStage,
+  };
+}
+
+async function sweepReadyForFinality() {
+  const epoch = await ledger.getCurrentEpoch();
+  const jobs = stateStore.getInferenceJobsAwaitingFinality();
+  let finalized = 0;
+
+  for (const job of jobs) {
+    try {
+      if (job.status === "submitted") continue;
+      if (job.status === "awaiting_challenge" || job.status === "review_rejected") {
+        if (job.challenge_deadline_epoch && epoch <= job.challenge_deadline_epoch) continue;
+        await finalizeJob(job.job_id, "sweep");
+        finalized++;
+        continue;
+      }
+      if (job.status === "challenged" && ["upheld", "denied"].includes(job.challenge_status || "")) {
+        await finalizeJob(job.job_id, "sweep");
+        finalized++;
+      }
+    } catch (_) {}
+  }
+
+  if (finalized > 0) {
+    console.log(`[InferenceMarket] Finalized ${finalized} reviewed jobs at epoch ${epoch}`);
+  }
+  return { finalized, epoch };
 }
 
 /**
@@ -456,9 +695,12 @@ module.exports = {
   submitToolCalls,
   submitToolResults,
   submitJob,
-  settleJob,
+  reviewJob,
+  challengeJob,
+  finalizeJob,
   refundJob,
   sweepExpiredJobs,
+  sweepReadyForFinality,
   getOpenJobs,
   getBuyerJobs,
   getMinerJobs,

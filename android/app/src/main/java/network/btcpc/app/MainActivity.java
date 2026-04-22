@@ -3,8 +3,10 @@ package network.btcpc.app;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -101,6 +103,9 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        // Handle deep-link intent that launched this activity
+        handlePairIntent(getIntent(), prefs, bottomNav, fm);
+
         bottomNav.setOnItemSelectedListener(item -> {
             Fragment target = fragmentForNavId(fm, item.getItemId());
             if (target == null || target == activeFragment) return true;
@@ -112,6 +117,42 @@ public class MainActivity extends AppCompatActivity {
             activeFragment = target;
             return true;
         });
+    }
+
+    // ---- deep-link pairing ----
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        AppPrefs prefs = new AppPrefs(this);
+        BottomNavigationView bottomNav = findViewById(R.id.bottom_nav);
+        FragmentManager fm = getSupportFragmentManager();
+        handlePairIntent(intent, prefs, bottomNav, fm);
+    }
+
+    private void handlePairIntent(Intent intent, AppPrefs prefs,
+                                   BottomNavigationView bottomNav, FragmentManager fm) {
+        if (intent == null) return;
+        Uri data = intent.getData();
+        if (data == null) return;
+        if (!"btcpc".equals(data.getScheme()) || !"pair".equals(data.getHost())) return;
+
+        String sid = data.getQueryParameter("sid");
+        if (sid == null || sid.trim().isEmpty()) return;
+
+        prefs.setFlipperSessionId(sid.trim());
+
+        // Navigate to Flipper tab
+        Fragment flipperFrag = fm.findFragmentByTag(TAG_FLIPPER);
+        if (flipperFrag != null && activeFragment != null && activeFragment != flipperFrag) {
+            fm.beginTransaction().hide(activeFragment).show(flipperFrag).commit();
+            activeFragment = flipperFrag;
+            bottomNav.setSelectedItemId(R.id.nav_flipper);
+        }
+
+        Toast.makeText(this, "Flipper paired (session: " + sid.trim() + ")",
+                Toast.LENGTH_LONG).show();
     }
 
     // ---- fragment lookup ----

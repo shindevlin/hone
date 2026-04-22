@@ -19,7 +19,10 @@
  *   POST   /api/jobs/:id/tool-calls      — miner submits tool calls (agentic)
  *   POST   /api/jobs/:id/tool-result     — buyer submits tool execution results (agentic)
  *   POST   /api/jobs/:id/submit          — miner submits final result
- *   POST   /api/jobs/:id/settle          — settle (auto or verifier)
+ *   POST   /api/jobs/:id/review           — reviewer records verdict
+ *   POST   /api/jobs/:id/challenge        — buyer pays challenge bond
+ *   POST   /api/jobs/:id/finalize         — finalize after challenge window
+ *   POST   /api/jobs/:id/settle          — legacy alias for /review
  *   POST   /api/jobs/:id/refund          — refund expired job
  */
 
@@ -56,6 +59,13 @@ router.post("/", authenticateToken, async (req, res) => {
       480 // max 4 hours
     );
     const maxTurns = Math.min(parseInt(req.body.max_turns) || 1, 20);
+    const reviewMode = req.body.review_mode ? sanitizeString(req.body.review_mode, 16) : null;
+    const reviewFee = req.body.review_fee != null ? sanitizeAmount(req.body.review_fee) : null;
+    const challengeFee = req.body.challenge_fee != null ? sanitizeAmount(req.body.challenge_fee) : null;
+    const challengeWindowEpochs = Math.min(
+      Math.max(parseInt(req.body.challenge_window_epochs) || 2880, 1),
+      10080
+    );
 
     // tools: array of tool name strings (protocol tools) or full schema objects (custom)
     let tools = [];
@@ -128,6 +138,10 @@ router.post("/", authenticateToken, async (req, res) => {
       sessionId,
       autoMemory,
       memoryProject,
+      reviewMode,
+      reviewFee,
+      challengeFee,
+      challengeWindowEpochs,
     });
     res.json(result);
   } catch (err) {
@@ -235,6 +249,11 @@ router.get("/:id", (req, res) => {
     job_id: job.job_id,
     buyer: job.buyer,
     max_fee: job.max_fee,
+    escrow_amount: job.escrow_amount,
+    review_fee: job.review_fee,
+    challenge_fee: job.challenge_fee,
+    challenge_window_epochs: job.challenge_window_epochs,
+    review_mode: job.review_mode,
     model: job.model,
     prompt: isOwner ? job.prompt : job.prompt.slice(0, 100) + (job.prompt.length > 100 ? "…" : ""),
     system_prompt: isOwner ? job.system_prompt : null,
@@ -255,6 +274,15 @@ router.get("/:id", (req, res) => {
     claimed_epoch: job.claimed_epoch,
     submitted_epoch: job.submitted_epoch,
     settled_epoch: job.settled_epoch,
+    review_status: job.review_status,
+    reviewer: job.reviewer,
+    review_verdict: job.review_verdict,
+    challenged_by: job.challenged_by,
+    challenge_reason: job.challenge_reason,
+    challenge_status: job.challenge_status,
+    finality_epoch: job.finality_epoch,
+    finality_hash: job.finality_hash,
+    finality_outcome: job.finality_outcome,
   });
 });
 
@@ -331,13 +359,16 @@ router.post("/:id/tool-result", authenticateToken, async (req, res) => {
 });
 
 // ── POST /api/jobs/:id/submit ─────────────────────────────────────────────────
-// Miner submits the inference result. Triggers auto-settle.
+// Miner submits the inference result. Reviews/finality happen separately.
 router.post("/:id/submit", authenticateToken, async (req, res) => {
   try {
     const miner = req.user.username;
     const result_text = sanitizeString(req.body.result, MAX_RESULT_LENGTH);
     const proof_hash = req.body.proof_hash
       ? sanitizeString(req.body.proof_hash, 64)
+      : null;
+    const actualCost = req.body.actual_cost != null
+      ? sanitizeAmount(req.body.actual_cost)
       : null;
 
     if (!result_text)
@@ -347,21 +378,11 @@ router.post("/:id/submit", authenticateToken, async (req, res) => {
       req.params.id,
       miner,
       result_text,
-      proof_hash
+      proof_hash,
+      actualCost
     );
-
-    // Auto-settle immediately (no separate verifier step for v1 marketplace)
-    // Full verifier quorum is a v2 feature. For now, miner self-reports cost.
-    const job = stateStore.getInferenceJob(req.params.id);
-    const actualCost = req.body.actual_cost
-      ? Math.min(parseFloat(req.body.actual_cost), job ? job.max_fee : 0)
-      : job ? job.max_fee : 0;
-
-    const settlement = await market.settleJob(req.params.id, actualCost, "auto");
-
     res.json({
       submitted,
-      settlement,
       result_preview: result_text.slice(0, 200),
     });
   } catch (err) {
@@ -373,23 +394,71 @@ router.post("/:id/submit", authenticateToken, async (req, res) => {
   }
 });
 
-// ── POST /api/jobs/:id/settle ─────────────────────────────────────────────────
-// Manual settle — for verifier nodes or admin.
-router.post("/:id/settle", authenticateToken, async (req, res) => {
+// ── POST /api/jobs/:id/review ─────────────────────────────────────────────────
+// Reviewer records a verdict. Initial review opens the challenge window.
+router.post("/:id/review", authenticateToken, async (req, res) => {
   try {
-    const settledBy = req.user.username;
-    const job = stateStore.getInferenceJob(req.params.id);
-    if (!job) return res.status(404).json({ error: "Job not found" });
-
-    const actualCost = req.body.actual_cost
-      ? Math.min(parseFloat(req.body.actual_cost), job.max_fee)
-      : job.max_fee;
-
-    const result = await market.settleJob(req.params.id, actualCost, settledBy);
+    const reviewer = req.user.username;
+    const verdict = req.body.verdict || "accepted";
+    const result = await market.reviewJob(req.params.id, reviewer, verdict, {
+      review_mode: req.body.review_mode || null,
+      review_stage: req.body.review_stage || null,
+      challenge_window_epochs: req.body.challenge_window_epochs ? parseInt(req.body.challenge_window_epochs, 10) : null,
+    });
     res.json(result);
   } catch (err) {
     const status = err.message.includes("not found") ? 404 :
-      err.message.includes("not submitted") ? 409 : 400;
+      err.message.includes("not reviewable") ? 409 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/challenge ─────────────────────────────────────────────
+// Buyer pays a challenge bond to contest a reviewed job.
+router.post("/:id/challenge", authenticateToken, async (req, res) => {
+  try {
+    const challenger = req.user.username;
+    const reason = req.body.reason ? sanitizeString(req.body.reason, 200) : null;
+    const result = await market.challengeJob(req.params.id, challenger, reason);
+    res.json(result);
+  } catch (err) {
+    const status = err.message.includes("not found") ? 404 :
+      err.message.includes("not challengeable") ? 409 :
+      err.message.includes("window closed") ? 410 :
+      err.message.includes("Only the buyer") ? 403 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/finalize ──────────────────────────────────────────────
+// Finalize a reviewed job after the challenge window closes.
+router.post("/:id/finalize", authenticateToken, async (req, res) => {
+  try {
+    const result = await market.finalizeJob(req.params.id, req.user.username);
+    res.json(result);
+  } catch (err) {
+    const status = err.message.includes("not found") ? 404 :
+      err.message.includes("open") ? 409 :
+      err.message.includes("resolved") ? 409 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── POST /api/jobs/:id/settle ─────────────────────────────────────────────────
+// Legacy alias for /review.
+router.post("/:id/settle", authenticateToken, async (req, res) => {
+  try {
+    const reviewer = req.user.username;
+    const verdict = req.body.verdict || "accepted";
+    const result = await market.reviewJob(req.params.id, reviewer, verdict, {
+      review_mode: req.body.review_mode || null,
+      review_stage: req.body.review_stage || null,
+      challenge_window_epochs: req.body.challenge_window_epochs ? parseInt(req.body.challenge_window_epochs, 10) : null,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.message.includes("not found") ? 404 :
+      err.message.includes("not reviewable") ? 409 : 400;
     res.status(status).json({ error: err.message });
   }
 });
@@ -458,6 +527,10 @@ router.post("/batch", authenticateToken, async (req, res) => {
           tier: def.tier || shared.tier || "standard",
           ragCids: Array.isArray(def.rag_cids) ? def.rag_cids : (shared.rag_cids || []),
           sessionId: def.session_id || shared.session_id || null,
+          reviewMode: def.review_mode || shared.review_mode || null,
+          reviewFee: def.review_fee != null ? def.review_fee : shared.review_fee,
+          challengeFee: def.challenge_fee != null ? def.challenge_fee : shared.challenge_fee,
+          challengeWindowEpochs: def.challenge_window_epochs || shared.challenge_window_epochs || 2880,
           batchId,
         });
         results.push({ index: i, ...job });
@@ -486,7 +559,7 @@ router.get("/stats/overview", (req, res) => {
     const open = stateStore.getOpenInferenceJobs();
     const openCount = open.filter((j) => j.status === "open").length;
     const claimedCount = open.filter((j) => j.status === "claimed").length;
-    const totalOpenFees = open.reduce((s, j) => s + (j.max_fee || 0), 0);
+    const totalOpenFees = open.reduce((s, j) => s + (j.escrow_amount || j.max_fee || 0), 0);
 
     res.json({
       open_jobs: openCount,

@@ -89,6 +89,10 @@ describe("audioTranscriber — transcribe()", () => {
     copyFileSyncSpy = jest.spyOn(fs, "copyFileSync").mockReturnValue(undefined);
     readFileSyncSpy = jest.spyOn(fs, "readFileSync");
     unlinkSyncSpy   = jest.spyOn(fs, "unlinkSync").mockReturnValue(undefined);
+    // Mock low-level fd ops used for magic-byte detection
+    jest.spyOn(fs, "openSync").mockReturnValue(42);
+    jest.spyOn(fs, "readSync").mockReturnValue(12);
+    jest.spyOn(fs, "closeSync").mockReturnValue(undefined);
   });
 
   afterEach(() => {

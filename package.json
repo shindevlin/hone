@@ -1,12 +1,12 @@
 {
   "name": "btcpc",
-  "version": "3.1.133",
+  "version": "3.1.134",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest --coverage",
+    "test": "node scripts/run-jest.js --coverage",
     "lint": "eslint src/**/*.js",
     "test:watch": "jest --watch",
     "cli": "node bin/btcpc-cli",
@@ -75,6 +75,7 @@
   "jest": {
     "testPathIgnorePatterns": [
       "/node_modules/",
+      "<rootDir>/camofox-browser/",
       "<rootDir>/btcpc/",
       "<rootDir>/.claude/"
     ]

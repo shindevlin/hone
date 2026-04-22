@@ -15,7 +15,7 @@
 
 const stateStore = require("../chain/stateStore");
 const ledger = require("./ledger");
-const { sweepExpiredJobs } = require("./inferenceMarket");
+const { sweepExpiredJobs, sweepReadyForFinality } = require("./inferenceMarket");
 
 async function _sweepBrowserJobs(epoch) {
   const active = stateStore.getOpenBrowserJobs ? stateStore.getOpenBrowserJobs() : [];
@@ -73,11 +73,18 @@ async function sweepAllMarketplaces() {
   const epoch = await ledger.getCurrentEpoch();
   const results = await Promise.allSettled([
     sweepExpiredJobs(),
+    sweepReadyForFinality(),
     _sweepBrowserJobs(epoch),
     _sweepFinetuneJobs(epoch),
   ]);
 
-  const counts = results.map((r) => (r.status === "fulfilled" ? r.value || 0 : 0));
+  const counts = results.map((r, idx) => {
+    if (r.status !== "fulfilled") return 0;
+    const value = r.value || 0;
+    if (idx === 0 && value && typeof value === "object") return value.swept || 0;
+    if (idx === 1 && value && typeof value === "object") return value.finalized || 0;
+    return value || 0;
+  });
   const total = counts.reduce((a, b) => a + b, 0);
   if (total > 0) {
     console.log(`[MarketplaceSweep] Swept ${counts[0]} inference, ${counts[1]} browser, ${counts[2]} finetune expired jobs`);

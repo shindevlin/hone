@@ -2697,6 +2697,13 @@ async function recordInferenceJobOpen(buyer, jobId, jobData, epoch) {
       session_id: jobData.session_id || null,
       auto_memory: !!jobData.auto_memory,
       memory_project: jobData.memory_project || null,
+      escrow_amount: jobData.escrow_amount || 0,
+      review_mode: jobData.review_mode || "computer",
+      review_fee: jobData.review_fee || 0,
+      challenge_fee: jobData.challenge_fee || 0,
+      challenge_window_epochs: jobData.challenge_window_epochs || 24,
+      challenge_deadline_epoch: jobData.challenge_deadline_epoch || 0,
+      review_stage: jobData.review_stage || "initial",
       status: 'open',
     },
   }));
@@ -2713,14 +2720,21 @@ async function recordInferenceJobClaim(jobId, miner, epoch) {
   }));
 }
 
-async function recordInferenceJobSubmit(jobId, miner, proofHash, epoch) {
+async function recordInferenceJobSubmit(jobId, miner, proofHash, actualCostOrEpoch, epochMaybe) {
   if (!jobId) throw new Error('jobId required');
   if (!miner) throw new Error('miner required');
+  let actualCost = null;
+  let epoch = epochMaybe;
+  if (typeof epochMaybe === 'undefined') {
+    epoch = actualCostOrEpoch;
+  } else {
+    actualCost = actualCostOrEpoch;
+  }
   return _persist(_entry({
     type: 'INFERENCE_JOB_SUBMIT',
     from: miner,
     epoch: epoch || 0,
-    job_data: { job_id: jobId, miner, proof_hash: proofHash, status: 'submitted' },
+    job_data: { job_id: jobId, miner, proof_hash: proofHash, actual_cost: actualCost, status: 'submitted' },
   }));
 }
 
@@ -2741,6 +2755,67 @@ async function recordInferenceJobSettle(jobId, miner, buyer, settlementData, epo
       overpayment: settlementData.overpayment,
       settled_by: settlementData.settled_by || 'auto',
       status: 'settled',
+    },
+  }));
+}
+
+async function recordInferenceJobReview(jobId, reviewer, reviewData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!reviewer) throw new Error('reviewer required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_REVIEW',
+    from: reviewer,
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      reviewer,
+      verdict: reviewData.verdict || 'accepted',
+      review_mode: reviewData.review_mode || 'computer',
+      review_fee: reviewData.review_fee || 0,
+      challenge_window_epochs: reviewData.challenge_window_epochs || 24,
+      challenge_deadline_epoch: reviewData.challenge_deadline_epoch || 0,
+      challenge_escrow_id: reviewData.challenge_escrow_id || null,
+      review_stage: reviewData.review_stage || "initial",
+      challenge_status: reviewData.challenge_status || null,
+      status: reviewData.status || (reviewData.verdict === 'accepted' ? 'awaiting_challenge' : 'review_rejected'),
+    },
+  }));
+}
+
+async function recordInferenceJobChallenge(jobId, challenger, challengeData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  if (!challenger) throw new Error('challenger required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_CHALLENGE',
+    from: challenger,
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      challenger,
+      reason: challengeData.reason || 'quality_dispute',
+      challenge_fee: challengeData.challenge_fee || 0,
+      challenge_bond: challengeData.challenge_bond || 0,
+      challenge_escrow_id: challengeData.challenge_escrow_id || null,
+      challenge_deadline_epoch: challengeData.challenge_deadline_epoch || 0,
+      status: 'challenged',
+    },
+  }));
+}
+
+async function recordInferenceJobFinality(jobId, finalityData, epoch) {
+  if (!jobId) throw new Error('jobId required');
+  return _persist(_entry({
+    type: 'INFERENCE_JOB_FINALITY',
+    epoch: epoch || 0,
+    job_data: {
+      job_id: jobId,
+      finality_epoch: finalityData.finality_epoch || epoch || 0,
+      finality_hash: finalityData.finality_hash || null,
+      finality_outcome: finalityData.finality_outcome || null,
+      review_stage: finalityData.review_stage || null,
+      challenge_status: finalityData.challenge_status || null,
+      status: finalityData.status || 'finalized',
+      challenge_closed: !!finalityData.challenge_closed,
     },
   }));
 }
@@ -3108,6 +3183,9 @@ module.exports = {
   recordInferenceJobClaim,
   recordInferenceJobSubmit,
   recordInferenceJobSettle,
+  recordInferenceJobReview,
+  recordInferenceJobChallenge,
+  recordInferenceJobFinality,
   recordInferenceJobRefund,
   recordInferenceJobToolCall,
   recordInferenceJobToolResult,

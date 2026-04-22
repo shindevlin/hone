@@ -21,6 +21,7 @@ const express = require("express");
 const router = express.Router();
 const ledger = require("../services/ledger");
 const stateStore = require("../chain/stateStore");
+const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 
 const FAUCET_ACCOUNT = "btcpc_faucet";      // holds the faucet reserve
 const DELEGATION_EPOCHS = 720;              // ~6 hours at 30s epochs — expires automatically
@@ -52,12 +53,14 @@ function checkIPLimit(ip) {
   return true;
 }
 
-setInterval(() => {
-  const cutoff = Date.now() - CLAIM_WINDOW_MS;
-  for (const [ip, rec] of claimsByIP) {
-    if (rec.lastClaim < cutoff) claimsByIP.delete(ip);
-  }
-}, 60 * 60 * 1000);
+if (shouldStartBackgroundTimers()) {
+  setInterval(() => {
+    const cutoff = Date.now() - CLAIM_WINDOW_MS;
+    for (const [ip, rec] of claimsByIP) {
+      if (rec.lastClaim < cutoff) claimsByIP.delete(ip);
+    }
+  }, 60 * 60 * 1000);
+}
 
 /**
  * POST /api/faucet/claim

@@ -148,7 +148,7 @@ describe('finalizationConsensus', () => {
 
     expect(result.consensus).toBe(true);
     expect(consensus.getWinner(105).proposer).toBe('miner-a');
-    expect(consensus.getWinner(105).consensus_hash).toBe(consensus.hashRewards(majorityRewards));
+    expect(consensus.getWinner(105).consensus_hash).toBe(consensus.hashRewards(majorityRewards, 10, 1, 105));
   });
 
   test('hashRewards is order-independent by miner name', () => {

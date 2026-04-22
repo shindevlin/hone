@@ -364,34 +364,39 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
       }
     } catch (_) {}
 
-    // Track this client as an active browser clock (for the dashboard)
-    activeBrowserClocks.set(clientId, {
-      account,
-      lastHeartbeat: Date.now(),
-      ip: req.ip,
-      verified,
-    });
-    pruneActiveClocks();
-
-    // ALSO record into the P2P clock tracker so the miner sees this clock
-    // when computing rewards. Without this, browser/HTTP clocks don't earn.
-    try {
-      const { recordNodeActivity } = require('../p2p/protocol');
-      recordNodeActivity(clientId, account, epochNumber);
-    } catch (_) {}
-
-    // Broadcast P2P heartbeat
-    try {
-      const p2p = require('../p2p/network');
-      const { createMessage } = require('../p2p/protocol');
-      const heartbeat = createMessage('CLOCK_HEARTBEAT', {
+    let credited = false;
+    if (verified) {
+      // Track this client as an active browser clock only when it is
+      // cryptographically linked to the account.
+      activeBrowserClocks.set(clientId, {
         account,
-        epoch_number: epochNumber,
-        source: 'browser',
-        client_id: clientId,
-      }, p2p.NODE_ID || 'browser-relay');
-      if (typeof p2p.broadcast === 'function') p2p.broadcast(heartbeat);
-    } catch (_) {}
+        lastHeartbeat: Date.now(),
+        ip: req.ip,
+        verified,
+      });
+      pruneActiveClocks();
+
+      // ALSO record into the P2P clock tracker so the miner sees this clock
+      // when computing rewards. Without this, browser/HTTP clocks don't earn.
+      try {
+        const { recordNodeActivity } = require('../p2p/protocol');
+        recordNodeActivity(clientId, account, epochNumber);
+        credited = true;
+      } catch (_) {}
+
+      // Broadcast P2P heartbeat
+      try {
+        const p2p = require('../p2p/network');
+        const { createMessage } = require('../p2p/protocol');
+        const heartbeat = createMessage('CLOCK_HEARTBEAT', {
+          account,
+          epoch_number: epochNumber,
+          source: 'browser',
+          client_id: clientId,
+        }, p2p.NODE_ID || 'browser-relay');
+        if (typeof p2p.broadcast === 'function') p2p.broadcast(heartbeat);
+      } catch (_) {}
+    }
 
     res.json({
       success: true,
@@ -399,6 +404,7 @@ router.post('/clock-heartbeat', clockLimiter, async (req, res) => {
       epoch: epochNumber,
       client_id: clientId,
       verified,
+      credited,
       active_browser_clocks: activeBrowserClocks.size,
       next_heartbeat_in: 35,
     });

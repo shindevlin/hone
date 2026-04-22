@@ -24,6 +24,24 @@ const router = express.Router();
 const toolRegistry = require("../mcp/toolRegistry");
 const mcpServer = require("../mcp/btcpcMcpServer");
 
+function isLoopbackAddress(value) {
+  if (!value) return false;
+  const normalized = String(value).trim().toLowerCase().replace(/^::ffff:/, "");
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
+}
+
+function isLocalRequest(req) {
+  const remoteAddress = req.socket && req.socket.remoteAddress;
+  if (isLoopbackAddress(remoteAddress) || isLoopbackAddress(req.ip)) return true;
+  if (Array.isArray(req.ips) && req.ips.some(isLoopbackAddress)) return true;
+  return false;
+}
+
+function requireLocalRequest(req, res, next) {
+  if (isLocalRequest(req)) return next();
+  return res.status(403).json({ error: "local request required" });
+}
+
 // ── List available tools ──────────────────────────────────────────────────────
 
 router.get("/api/tools/list", (req, res) => {
@@ -33,7 +51,7 @@ router.get("/api/tools/list", (req, res) => {
 
 // ── Call a builtin tool ───────────────────────────────────────────────────────
 
-router.post("/api/tools/call", async (req, res) => {
+router.post("/api/tools/call", requireLocalRequest, async (req, res) => {
   const { tool, input } = req.body;
   if (!tool) return res.status(400).json({ error: "tool name required" });
 
@@ -47,7 +65,7 @@ router.post("/api/tools/call", async (req, res) => {
 
 // ── Register CLI tool capability on-chain ─────────────────────────────────────
 
-router.post("/api/tools/register", async (req, res) => {
+router.post("/api/tools/register", requireLocalRequest, async (req, res) => {
   const { name, command, kind, description, account } = req.body;
   if (!name || !command) return res.status(400).json({ error: "name and command required" });
   if (!account) return res.status(400).json({ error: "account required" });
@@ -100,7 +118,7 @@ router.get("/api/tools/mcp/status", (req, res) => {
   req2.end();
 });
 
-router.post("/api/tools/mcp/start", (req, res) => {
+router.post("/api/tools/mcp/start", requireLocalRequest, (req, res) => {
   try {
     mcpServer.start();
     res.json({ ok: true, port: mcpServer.PORT, message: "MCP server started" });
@@ -109,7 +127,7 @@ router.post("/api/tools/mcp/start", (req, res) => {
   }
 });
 
-router.post("/api/tools/mcp/stop", (req, res) => {
+router.post("/api/tools/mcp/stop", requireLocalRequest, (req, res) => {
   mcpServer.stop();
   res.json({ ok: true, message: "MCP server stopped" });
 });

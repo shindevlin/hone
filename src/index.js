@@ -6,6 +6,7 @@
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -19,17 +20,25 @@ if (!process.env.JWT_SECRET && process.env.BTCPC_JWT_SECRET) {
   process.env.JWT_SECRET = process.env.BTCPC_JWT_SECRET;
 }
 
+// Persist JWT material outside the repo so restarts remain stable without
+// rewriting .env in-place.
+const jwtSecretPath = path.join(os.homedir(), '.btcpc', 'jwt_secret');
+
+if (!process.env.JWT_SECRET && fs.existsSync(jwtSecretPath)) {
+  try {
+    process.env.JWT_SECRET = fs.readFileSync(jwtSecretPath, 'utf8').trim();
+  } catch (_) {}
+}
+
 // Auto-generate JWT_SECRET if not set (self-heal: never ask user to configure)
 if (!process.env.JWT_SECRET) {
   const crypto = require('crypto');
   process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
-  console.log('[BTCPC] JWT_SECRET auto-generated (will change on restart — set BTCPC_JWT_SECRET in .env for persistence)');
-  // Try to persist to .env so subsequent restarts keep the same secret
+  console.log('[BTCPC] JWT_SECRET auto-generated (persisted under ~/.btcpc/jwt_secret)');
   try {
-    const envPath = path.resolve(__dirname, '..', '.env');
-    const envLine = '\nBTCPC_JWT_SECRET=' + process.env.JWT_SECRET + '\nJWT_SECRET=' + process.env.JWT_SECRET + '\n';
-    fs.appendFileSync(envPath, envLine);
-    console.log('[BTCPC] JWT_SECRET saved to .env');
+    fs.mkdirSync(path.dirname(jwtSecretPath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(jwtSecretPath, process.env.JWT_SECRET + '\n', { mode: 0o600 });
+    console.log('[BTCPC] JWT_SECRET saved to ' + jwtSecretPath);
   } catch (_) {
     // Container filesystem may be read-only — that's fine, just volatile
   }

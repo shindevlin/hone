@@ -50,16 +50,13 @@ function ensureDirForCid(cid) {
 
 function putBlob(buffer) {
   if (!Buffer.isBuffer(buffer)) {
-    console.error("[blobStore] putBlob requires a Buffer");
-    return null;
+    throw new Error("[blobStore] putBlob requires a Buffer");
   }
   if (buffer.length === 0) {
-    console.error("[blobStore] putBlob: blob is empty");
-    return null;
+    throw new Error("[blobStore] putBlob: blob is empty");
   }
   if (buffer.length > MAX_BLOB_BYTES) {
-    console.error("[blobStore] putBlob: blob exceeds max size of " + MAX_BLOB_BYTES + " bytes");
-    return null;
+    throw new Error("[blobStore] putBlob: blob exceeds max size of " + MAX_BLOB_BYTES + " bytes");
   }
 
   try {
@@ -85,18 +82,18 @@ function putBlob(buffer) {
 
 function getBlob(cid) {
   if (!isValidCid(cid)) {
-    console.error("[blobStore] getBlob: invalid CID: " + cid);
-    return null;
+    throw new Error("[blobStore] getBlob: invalid CID: " + cid);
   }
   try {
     var p = blobPath(cid);
     if (!fs.existsSync(p)) {
-      return null;
+      throw new Error("[blobStore] getBlob: blob not found: " + cid);
     }
     return fs.readFileSync(p);
   } catch (e) {
+    if (e.message.includes("not found") || e.message.includes("invalid")) throw e;
     console.error("[blobStore] getBlob error for " + cid + ": " + e.message);
-    return null;
+    throw e;
   }
 }
 
@@ -168,15 +165,13 @@ function totalBytesStored() {
 
 function readBlobRange(cid, start, length) {
   if (!isValidCid(cid)) {
-    console.error("[blobStore] readBlobRange: invalid CID: " + cid);
-    return null;
+    throw new Error("[blobStore] readBlobRange: invalid CID: " + cid);
+  }
+  var p = blobPath(cid);
+  if (!fs.existsSync(p)) {
+    throw new Error("[blobStore] readBlobRange: blob not found: " + cid);
   }
   try {
-    var p = blobPath(cid);
-    if (!fs.existsSync(p)) {
-      console.error("[blobStore] readBlobRange: blob not found: " + cid);
-      return null;
-    }
     var buf = Buffer.alloc(length);
     var fd = fs.openSync(p, "r");
     try {
@@ -186,8 +181,9 @@ function readBlobRange(cid, start, length) {
       fs.closeSync(fd);
     }
   } catch (e) {
+    if (e.message.includes("not found") || e.message.includes("invalid")) throw e;
     console.error("[blobStore] readBlobRange error for " + cid + ": " + e.message);
-    return null;
+    throw e;
   }
 }
 

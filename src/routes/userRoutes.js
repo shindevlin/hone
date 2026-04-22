@@ -4,6 +4,7 @@ const router = express.Router();
 const { registerUser, loginUser, linkTelegram, enable2FA } = require('../controllers/authController');
 const { authenticateToken } = require('../middlewares/auth');
 const { rejectObjectInputs, sanitizeString, validUrl } = require('../middlewares/validate');
+const { isPublicHttpUrl } = require('../services/urlSafety');
 
 // Public routes
 router.post('/register', registerUser);
@@ -56,8 +57,7 @@ router.post('/mcp-servers', authenticateToken, async (req, res) => {
     if (!['https:', 'http:'].includes(parsed.protocol)) {
       return res.status(400).json({ error: 'MCP server URL must use http or https' });
     }
-    const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254', '10.', '192.168.', '172.16.'];
-    if (blocked.some(b => parsed.hostname.startsWith(b) || parsed.hostname === b)) {
+    if (!await isPublicHttpUrl(url)) {
       return res.status(400).json({ error: 'MCP server URL cannot point to internal addresses' });
     }
   } catch (_) {

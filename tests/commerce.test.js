@@ -16,13 +16,18 @@ jest.mock('../src/p2p/mempool', () => ({
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const bondingCurve = require('../src/services/stakeBondingCurve');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 describe('commerce (v2.10)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'mallory', 'miner', 'shindevlin', 'verifier1', 'verifier2', 'protocol'].forEach(
+      a => epochBandwidth.seedForTest(a)
+    );
   });
 
   describe('bonding curve', () => {

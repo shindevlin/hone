@@ -32,6 +32,7 @@ jest.mock('../src/middlewares/auth', () => ({
 const stateStore = require('../src/chain/stateStore');
 const ledger = require('../src/services/ledger');
 const commerceRoutes = require('../src/routes/commerceRoutes');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 // Helper: make a tiny fetch-like client against an ephemeral express server
 function makeTestServer() {
@@ -92,9 +93,13 @@ describe('commerce HTTP routes (v2.10.1)', () => {
 
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'mallory', 'shindevlin', 'protocol'].forEach(
+      a => epochBandwidth.seedForTest(a)
+    );
     // Give Alice some BTCPC so she can stake
     stateStore.applyEntry({
       type: 'FAUCET',

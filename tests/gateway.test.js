@@ -23,6 +23,7 @@ const ledger = require('../src/services/ledger');
 const resolver = require('../src/gateway/resolver');
 const storefront = require('../src/gateway/storefront');
 const { createGatewayRouter } = require('../src/gateway/server');
+const epochBandwidth = require('../src/services/epochBandwidth');
 
 function makeTestServer() {
   const app = express();
@@ -75,9 +76,13 @@ async function seedStore(seller, products) {
 describe('gateway (v2.10.2)', () => {
   beforeEach(() => {
     stateStore.resetAll();
+    epochBandwidth.resetAll();
     ledger.flushPendingEntries();
     mockMempoolSubmit.mockReset();
     mockMempoolSubmit.mockReturnValue({ accepted: true });
+    ['alice', 'bob', 'carol', 'mallory', 'shindevlin', 'protocol'].forEach(
+      a => epochBandwidth.seedForTest(a)
+    );
   });
 
   describe('resolver.parsePath', () => {
@@ -337,6 +342,8 @@ describe('gateway (v2.10.2)', () => {
   describe('NODE_REGISTER multi-capability (v2.10.2)', () => {
     beforeEach(() => {
       stateStore.resetAll();
+      epochBandwidth.resetAll();
+      ['shindevlin', 'alice', 'bob'].forEach(a => epochBandwidth.seedForTest(a));
       stateStore.applyEntry({
         type: 'FAUCET',
         from: 'btcpc_genesis',

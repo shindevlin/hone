@@ -2,6 +2,7 @@
 
 const stateStore = require('../chain/stateStore');
 const { getBlockReward, getCurrentPeriod } = require('./emissionSchedule');
+const { shouldStartBackgroundTimers } = require('./backgroundTimers');
 
 /**
  * BTCPC Epoch Manager
@@ -402,7 +403,9 @@ async function startEpochLoop() {
   }
 
   // Start the interval
-  epochInterval = setInterval(epochTick, EPOCH_DURATION_MS);
+  if (shouldStartBackgroundTimers()) {
+    epochInterval = setInterval(epochTick, EPOCH_DURATION_MS);
+  }
   console.log(`[BTCPC] Epoch loop running — ${EPOCH_DURATION_MS / 1000}s interval`);
 }
 

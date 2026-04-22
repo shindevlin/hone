@@ -15,6 +15,59 @@
         android:textSize="22sp"
         android:textStyle="bold" />
 
+    <!-- Pairing card -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/flipper_pair_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        style="@style/BtcpcCard">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/flipper_pair_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No Flipper paired"
+                android:textColor="@color/btcpc_text"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/flipper_pair_gps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text=""
+                android:textColor="@color/btcpc_green"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/flipper_pair_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Scan the QR code shown on your Flipper's screen to pair it."
+                android:textColor="@color/btcpc_muted"
+                android:textSize="13sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/flipper_pair_btn"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Scan QR"
+                android:textColor="@color/btcpc_orange" />
+
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
     <!-- Transport indicators -->
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"

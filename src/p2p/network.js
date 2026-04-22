@@ -13,6 +13,7 @@ const WebSocket = require("ws");
 const crypto = require("crypto");
 const { handleMessage, createHandshake, knownPeers, startPeerAnnounce, stopPeerAnnounce } = require("./protocol");
 const transport = require("./encryptedTransport");
+const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 
 // Node identity — generated once on first start, persisted in env or memory
 const NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
@@ -123,7 +124,9 @@ function startServer(port) {
   });
 
   // Start heartbeat loop
-  heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
+  if (shouldStartBackgroundTimers()) {
+    heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
+  }
 
   // Start peer announce relay — every 5 minutes, broadcast known peers
   startPeerAnnounce({ broadcast, NODE_ID });

@@ -117,25 +117,24 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     expect(round(aliceBalBefore - aliceBalAfter)).toBeCloseTo(1000, 8);
   });
 
-  // ── Test 4: Outbid — old staker refunded net stake, new staker pays tribute
-  test("4. outbid: old staker refunded net amount, new staker pays tribute to owner", () => {
+  // ── Test 4: Higher stake claims slot 1, both stakers coexist (multi-slot pool)
+  test("4. higher stake claims slot 1; previous staker moves to slot 2 (multi-slot pool)", () => {
     // Alice stakes first
     const aliceEntry = makeStakeEntry("owner1/sensor-x", "alice", 500, "owner1", 1);
     stateStore.applyEntry(aliceEntry);
 
-    const aliceNetStake = round(500 * 0.95); // 475
     const aliceBalAfterFirstStake = stateStore.getBalance("alice", "BTCPC");
 
-    // Bob outbids with a higher stake
+    // Bob stakes with a higher amount
     const bobBalBefore = stateStore.getBalance("bob", "BTCPC");
     const bobEntry = makeStakeEntry("owner1/sensor-x", "bob", 800, "owner1", 2);
     stateStore.applyEntry(bobEntry);
 
-    // Alice should be refunded her net stake
+    // Alice is NOT refunded — she stays in pool at slot 2
     const aliceBalFinal = stateStore.getBalance("alice", "BTCPC");
-    expect(round(aliceBalFinal - aliceBalAfterFirstStake)).toBeCloseTo(aliceNetStake, 8);
+    expect(round(aliceBalFinal - aliceBalAfterFirstStake)).toBeCloseTo(0, 8);
 
-    // Bob is now top staker
+    // Bob is now top staker (slot 1)
     const stake = stateStore.getDeviceYieldStake("owner1/sensor-x");
     expect(stake.staker).toBe("bob");
     expect(stake.stake_amount).toBe(800);
@@ -258,23 +257,24 @@ describe("Device Yield Staking — stateStore mechanics", () => {
     expect(deviceIds).toEqual(["owner1/device-a", "owner1/device-b", "owner1/device-c"]);
   });
 
-  // ── Test 13: Multiple outbids track correctly ──────────────────────────────
-  test("13. multiple sequential outbids — each previous staker refunded", () => {
-    // Alice: 100 → net 95
+  // ── Test 13: Multiple stakers fill pool — highest staker is top (multi-slot)
+  test("13. multiple stakes — highest stake holds slot 1, all coexist (multi-slot pool)", () => {
+    // Alice: 100
     stateStore.applyEntry(makeStakeEntry("owner1/s", "alice", 100, "owner1", 1));
     const aliceBal1 = stateStore.getBalance("alice", "BTCPC");
 
-    // Bob outbids: 200 → alice refunded 95
+    // Bob stakes 200 — alice NOT refunded, stays at slot 2
     stateStore.applyEntry(makeStakeEntry("owner1/s", "bob", 200, "owner1", 2));
     const aliceBal2 = stateStore.getBalance("alice", "BTCPC");
-    expect(round(aliceBal2 - aliceBal1)).toBeCloseTo(95, 8);
+    expect(round(aliceBal2 - aliceBal1)).toBeCloseTo(0, 8); // no refund
 
     const bobBal1 = stateStore.getBalance("bob", "BTCPC");
-    // Charlie outbids: 400 → bob refunded 190
+    // Charlie stakes 400 — bob and alice NOT refunded
     stateStore.applyEntry(makeStakeEntry("owner1/s", "charlie", 400, "owner1", 3));
     const bobBal2 = stateStore.getBalance("bob", "BTCPC");
-    expect(round(bobBal2 - bobBal1)).toBeCloseTo(190, 8); // 200 * 0.95
+    expect(round(bobBal2 - bobBal1)).toBeCloseTo(0, 8); // no refund
 
+    // Charlie holds slot 1 (highest stake)
     const stake = stateStore.getDeviceYieldStake("owner1/s");
     expect(stake.staker).toBe("charlie");
   });
@@ -294,7 +294,7 @@ describe("Device Yield Staking — stateStore mechanics", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Reward engine: 60/30/10 and 90/10 splits
+// Reward engine: 70/20/10 and 90/10 splits
 // ─────────────────────────────────────────────────────────────────
 
 describe("Device Yield Staking — reward engine splits", () => {
@@ -304,8 +304,8 @@ describe("Device Yield Staking — reward engine splits", () => {
     stateStore.applyEntry({ type: "MINING_REWARD", to: "alice", amount: 10000, token: "BTCPC", epoch: 0, timestamp: 2 });
   });
 
-  // ── Test 16: 60/30/10 split when active staker ────────────────────────────
-  test("16. sensor income splits 60/30/10 when device has an active yield staker", () => {
+  // ── Test 16: 70/20/10 split when active staker ────────────────────────────
+  test("16. sensor income splits 70/20/10 when device has an active yield staker", () => {
     // Set up a yield stake
     const stakeEntry = {
       type: "DEVICE_YIELD_STAKE",
@@ -333,8 +333,8 @@ describe("Device Yield Staking — reward engine splits", () => {
     });
 
     const sensorPool = round(1000 * 0.07);
-    const expectedOwner = round(sensorPool * 0.60);
-    const expectedStaker = round(sensorPool * 0.30);
+    const expectedOwner = round(sensorPool * 0.70);
+    const expectedStaker = round(sensorPool * 0.20);
     // Recycle gets the 10% remainder from yield split + the standard 2% reserve
     const expectedYieldRecycle = round(sensorPool - expectedOwner - expectedStaker);
 

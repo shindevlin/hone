@@ -29,6 +29,7 @@ const http = require("http");
 const crypto = require("crypto");
 const { exec } = require("child_process");
 const { promisify } = require("util");
+const { isPublicHttpUrl } = require("../services/urlSafety");
 const execAsync = promisify(exec);
 
 const PORT = parseInt(process.env.BTCPC_MCP_PORT) || 3101;
@@ -87,10 +88,20 @@ const LOCAL_HANDLERS = {
     if (!url || typeof url !== "string") throw new Error("url required");
     // Only allow http/https
     if (!/^https?:\/\//i.test(url)) throw new Error("url must be http/https");
+    if (!await isPublicHttpUrl(url)) throw new Error("url must resolve to a public address");
+    const verb = String(method || "GET").toUpperCase();
+    if (!["GET", "HEAD"].includes(verb)) {
+      throw new Error("web_fetch only allows GET or HEAD");
+    }
 
     const https = url.startsWith("https") ? require("https") : require("http");
     const result = await new Promise((resolve, reject) => {
-      const req = https.request(url, { method: method || "GET", headers: headers || {}, timeout: 8000 }, res => {
+      const safeHeaders = {};
+      const allowedHeaders = headers && typeof headers === "object" ? headers : {};
+      for (const key of ["accept", "user-agent"]) {
+        if (allowedHeaders[key]) safeHeaders[key] = String(allowedHeaders[key]).slice(0, 256);
+      }
+      const req = https.request(url, { method: verb, headers: safeHeaders, timeout: 8000 }, res => {
         const chunks = [];
         res.on("data", c => chunks.push(c));
         res.on("end", () => resolve({
