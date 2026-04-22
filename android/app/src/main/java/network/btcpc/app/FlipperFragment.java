@@ -96,14 +96,22 @@ public class FlipperFragment extends Fragment {
     private boolean             pairingScanActive = false;
 
     // -----------------------------------------------------------------------
-    // Broadcast receiver — USB Flipper detected from LocalRelayService
+    // Broadcast receivers — USB detection + auto MAC from LocalRelayService
     // -----------------------------------------------------------------------
     private final BroadcastReceiver usbDetectReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(intent.getAction())) {
-                appendLog("Flipper Zero detected via USB — starting BLE pairing scan…");
-                startBlePairingScan();
+            String action = intent.getAction();
+            if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(action)) {
+                // MAC not yet known — start BLE scan to find it
+                appendLog("Flipper Zero detected via USB — reading BLE address…");
+            } else if (LocalRelayService.ACTION_FLIPPER_MAC_FOUND.equals(action)) {
+                // Service read the MAC from the Flipper CLI automatically
+                String mac = intent.getStringExtra(LocalRelayService.EXTRA_FLIPPER_MAC);
+                if (mac != null && !mac.isEmpty()) {
+                    appendLog("Flipper BLE address auto-detected: " + mac);
+                    completePairing(mac, "Flipper Zero");
+                }
             }
         }
     };
@@ -157,6 +165,7 @@ public class FlipperFragment extends Fragment {
         startPolling();
 
         IntentFilter filter = new IntentFilter(LocalRelayService.ACTION_FLIPPER_USB_DETECTED);
+        filter.addAction(LocalRelayService.ACTION_FLIPPER_MAC_FOUND);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requireContext().registerReceiver(usbDetectReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {

@@ -102,6 +102,9 @@ public class LocalRelayService extends Service {
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
     /** Broadcast when a Flipper Zero is detected via USB and not yet BLE-paired. */
     public static final String ACTION_FLIPPER_USB_DETECTED = "network.btcpc.app.FLIPPER_USB_DETECTED";
+    /** Broadcast when we auto-read the BLE MAC from the Flipper CLI over USB. */
+    public static final String ACTION_FLIPPER_MAC_FOUND = "network.btcpc.app.FLIPPER_MAC_FOUND";
+    public static final String EXTRA_FLIPPER_MAC = "mac";
 
     // WiFi HTTP server (NanoHTTPD) — Method 1
     private static final int WIFI_HTTP_PORT = 6942;
@@ -374,14 +377,15 @@ public class LocalRelayService extends Service {
             Log.e(TAG, "Failed to open USB device");
             return;
         }
-        // Find CDC ACM bulk-IN endpoint
-        UsbEndpoint bulkIn = findBulkInEndpoint(device, connection);
+        UsbEndpoint[] endpoints = findBulkEndpoints(device, connection);
+        UsbEndpoint bulkIn  = endpoints[0];
+        UsbEndpoint bulkOut = endpoints[1];
         if (bulkIn == null) {
             Log.e(TAG, "No bulk-IN endpoint found on Flipper Zero");
             connection.close();
             return;
         }
-        usbReaderThread = new UsbReaderThread(connection, bulkIn);
+        usbReaderThread = new UsbReaderThread(connection, bulkIn, bulkOut);
         usbReaderThread.start();
         Log.i(TAG, "USB serial reader started");
     }
@@ -394,37 +398,44 @@ public class LocalRelayService extends Service {
     }
 
     /**
-     * Claim all interfaces and return the first bulk-IN endpoint (CDC ACM data interface).
+     * Claim all interfaces; return [bulkIn, bulkOut] from the CDC ACM data interface.
+     * Either element may be null if not found.
      */
-    private UsbEndpoint findBulkInEndpoint(UsbDevice device, UsbDeviceConnection conn) {
+    private UsbEndpoint[] findBulkEndpoints(UsbDevice device, UsbDeviceConnection conn) {
+        UsbEndpoint bulkIn = null, bulkOut = null;
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface iface = device.getInterface(i);
             conn.claimInterface(iface, true);
             for (int e = 0; e < iface.getEndpointCount(); e++) {
                 UsbEndpoint ep = iface.getEndpoint(e);
-                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK
-                        && ep.getDirection() == UsbConstants.USB_DIR_IN) {
-                    return ep;
+                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    if (ep.getDirection() == UsbConstants.USB_DIR_IN  && bulkIn  == null) bulkIn  = ep;
+                    if (ep.getDirection() == UsbConstants.USB_DIR_OUT && bulkOut == null) bulkOut = ep;
                 }
             }
         }
-        return null;
+        return new UsbEndpoint[]{bulkIn, bulkOut};
     }
 
     /**
-     * Background thread: reads raw bytes from USB bulk-IN, reassembles newline-delimited JSON lines.
+     * Background thread: reads raw bytes from USB bulk-IN, reassembles newline-delimited lines.
+     * On start, sends "bt info\r\n" to the Flipper CLI and watches the response for the BLE
+     * MAC address — saving it automatically so no manual entry is needed.
      */
     private class UsbReaderThread extends Thread {
         private final UsbDeviceConnection connection;
-        private final UsbEndpoint endpoint;
+        private final UsbEndpoint inEndpoint;
+        private final UsbEndpoint outEndpoint; // may be null
         private volatile boolean running = true;
         private static final int TIMEOUT_MS = 500;
         private static final int BUF_SIZE = 512;
+        private boolean macQueried = false;
 
-        UsbReaderThread(UsbDeviceConnection connection, UsbEndpoint endpoint) {
+        UsbReaderThread(UsbDeviceConnection connection, UsbEndpoint inEndpoint, UsbEndpoint outEndpoint) {
             super("USB-Flipper-Reader");
-            this.connection = connection;
-            this.endpoint = endpoint;
+            this.connection  = connection;
+            this.inEndpoint  = inEndpoint;
+            this.outEndpoint = outEndpoint;
             setDaemon(true);
         }
 
@@ -433,21 +444,32 @@ public class LocalRelayService extends Service {
             connection.close();
         }
 
+        private void sendCommand(String cmd) {
+            if (outEndpoint == null) return;
+            byte[] bytes = cmd.getBytes(StandardCharsets.UTF_8);
+            connection.bulkTransfer(outEndpoint, bytes, bytes.length, 1000);
+        }
+
         @Override
         public void run() {
+            // Give the Flipper a moment to initialise its CLI after USB connect
+            try { Thread.sleep(600); } catch (InterruptedException ignored) {}
+            sendCommand("bt info\r\n");
+            macQueried = true;
+
             byte[] buf = new byte[BUF_SIZE];
             StringBuilder lineBuffer = new StringBuilder();
             while (running) {
-                int read = connection.bulkTransfer(endpoint, buf, BUF_SIZE, TIMEOUT_MS);
+                int read = connection.bulkTransfer(inEndpoint, buf, BUF_SIZE, TIMEOUT_MS);
                 if (read > 0) {
                     String chunk = new String(buf, 0, read, StandardCharsets.UTF_8);
                     lineBuffer.append(chunk);
-                    // Process complete lines
                     int nl;
                     while ((nl = lineBuffer.indexOf("\n")) >= 0) {
                         String line = lineBuffer.substring(0, nl).trim();
                         lineBuffer.delete(0, nl + 1);
                         if (!line.isEmpty()) {
+                            if (macQueried) checkForMac(line);
                             handleSensorLine(line, "USB");
                         }
                     }
@@ -457,6 +479,26 @@ public class LocalRelayService extends Service {
                 }
             }
             Log.i(TAG, "USB reader thread exiting");
+        }
+
+        /** Scans a CLI response line for a hex MAC address and saves it if not yet paired. */
+        private void checkForMac(String line) {
+            AppPrefs prefs = new AppPrefs(LocalRelayService.this);
+            if (!prefs.getFlipperBleMac().isEmpty()) return; // already paired
+            // Match AA:BB:CC:DD:EE:FF (upper or lower case)
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
+                    .matcher(line);
+            if (m.find()) {
+                String mac = m.group(0).toUpperCase();
+                Log.i(TAG, "Auto-detected Flipper BLE MAC: " + mac);
+                prefs.setFlipperBle(mac, "Flipper Zero");
+                Intent broadcast = new Intent(ACTION_FLIPPER_MAC_FOUND);
+                broadcast.setPackage(getPackageName());
+                broadcast.putExtra(EXTRA_FLIPPER_MAC, mac);
+                sendBroadcast(broadcast);
+                macQueried = false; // stop checking further lines
+            }
         }
     }
 

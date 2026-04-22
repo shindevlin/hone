@@ -49,7 +49,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="1. Install BTCPC Relay from the App Hub (or sideload from flipper/ in this repo)\n2. Open it: Apps &gt; GPIO &gt; BTCPC Relay\n3. Navigate to page 2 - note the BLE address shown\n4. Open BLE UART Bridge: Apps &gt; GPIO &gt; UART BLE Bridge"
+                android:text="1. Install BTCPC Relay from the App Hub (or sideload from flipper/ in this repo)\n2. Open BLE UART Bridge: Apps &gt; GPIO &gt; UART BLE Bridge\n3. Leave it running in the background"
                 android:textColor="@color/btcpc_muted"
                 android:textSize="13sp"
                 android:lineSpacingExtra="3dp" />
@@ -67,7 +67,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="5. Plug Flipper into phone via USB - pairing scan starts automatically\n   OR tap &quot;Pair via BLE&quot; below to scan wirelessly\n6. Select your Flipper from the list\n7. Done - future connections are BLE only"
+                android:text="4. Plug Flipper into phone via USB - the app reads the BLE address and pairs automatically\n   OR tap &quot;Pair via BLE&quot; below to scan wirelessly\n5. Done - future connections are BLE only"
                 android:textColor="@color/btcpc_muted"
                 android:textSize="13sp"
                 android:lineSpacingExtra="3dp" />
@@ -76,7 +76,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="If scan finds nothing: open BTCPC Relay on Flipper, go to page 2, and enter the address manually."
+                android:text="If auto-pair fails, tap &quot;Pair via BLE&quot; to scan manually."
                 android:textColor="@color/btcpc_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace" />
@@ -121,7 +121,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Plug in your Flipper via USB - the app will scan for it over BLE and pair automatically. Or tap below to scan manually."
+                android:text="Plug in your Flipper via USB - the app reads its BLE address automatically and pairs. Or tap below to scan manually."
                 android:textColor="@color/btcpc_muted"
                 android:textSize="13sp" />
 
