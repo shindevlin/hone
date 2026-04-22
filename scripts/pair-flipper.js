@@ -28,6 +28,7 @@
 'use strict';
 
 const http         = require('http');
+const crypto       = require('crypto');
 const { execSync } = require('child_process');
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
@@ -159,12 +160,15 @@ function readMacFromSerial(portPath, timeoutMs) {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (line.startsWith('BTCPC_MAC:')) {
-            const mac = line.slice('BTCPC_MAC:'.length).trim().toUpperCase();
+            const parts = line.split(' ');
+            const mac = parts[0].slice('BTCPC_MAC:'.length).trim().toUpperCase();
+            const sigPart = parts.find(p => p.startsWith('BTCPC_SIG:'));
+            const sig = sigPart ? sigPart.slice('BTCPC_SIG:'.length).trim().toLowerCase() : null;
             if (mac.match(/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/)) {
               resolved = true;
               clearTimeout(timer);
               port.close();
-              resolve(mac);
+              resolve({ mac, sig });
             }
           }
         }
@@ -226,11 +230,29 @@ async function main() {
   }
   ok(`Flipper found at ${portPath}`);
 
-  // 4. Read MAC
+  // 4. Read MAC + signature
   log(`Waiting for BLE MAC from Flipper (up to ${timeoutSec}s)...`);
   log('  → If btcpc_relay.fap is not open yet, open it now.');
-  const mac = await readMacFromSerial(portPath, timeoutSec * 1000);
+  const { mac, sig } = await readMacFromSerial(portPath, timeoutSec * 1000);
   ok(`Got BLE MAC: ${mac}`);
+  if (sig) {
+    log(`Signature present — verifying...`);
+    // Caller can pass --posting-key <hex> to verify; skip if not provided
+    const keyArg = args[args.indexOf('--posting-key') + 1] || args[args.indexOf('--key') + 1];
+    if (keyArg && /^[0-9a-fA-F]{64}$/.test(keyArg)) {
+      const expected = crypto.createHmac('sha256', Buffer.from(keyArg, 'hex'))
+                             .update(mac).digest('hex');
+      if (expected !== sig) {
+        fail(`Signature mismatch — wrong posting key or tampered Flipper.\n  expected: ${expected}\n  got:      ${sig}`);
+      }
+      ok('Signature verified');
+    } else {
+      log('  (pass --posting-key <hex> to verify signature)');
+    }
+  } else {
+    log('  No signature in announce — key not loaded on Flipper yet.');
+    log('  Run: node scripts/set-flipper-key.js --key <hex>');
+  }
 
   // 5. POST to phone
   log('Sending MAC to phone...');

@@ -3,10 +3,11 @@ App(
     name="BTCPC Relay",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="btcpc_relay_app",
-    requires=["gui"],
+    requires=["gui", "storage"],
+    sources=["btcpc_relay.c", "sha256.c"],
     stack_size=2 * 1024,
     fap_category="BTCPC",
     fap_description="BTCPC sensor relay — pairs with the BTCPC Android app via BLE",
     fap_author="Shin Devlin / btcpc.network",
-    fap_version="1.0",
+    fap_version="1.1",
 )
