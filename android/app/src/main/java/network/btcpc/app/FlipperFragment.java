@@ -101,17 +101,7 @@ public class FlipperFragment extends Fragment {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (LocalRelayService.ACTION_FLIPPER_USB_DETECTED.equals(action)) {
-                appendLog("Flipper Zero detected via USB — auto-pairing…");
-                if (pairStatus != null) pairStatus.setText("Waiting for Flipper MAC…");
-                if (pairBtn != null) pairBtn.setEnabled(false);
-                // Wait up to 12 s for the MAC announcement (covers 2 × Flipper 5-s re-announce)
-                handler.postDelayed(() -> {
-                    if (!isAdded()) return;
-                    if (prefs.getFlipperBleMac().isEmpty()) {
-                        appendLog("No MAC via USB — open btcpc_relay.fap on Flipper or use BLE.");
-                        refreshPairingUI(); // re-enable button
-                    }
-                }, 12_000);
+                appendLog("Flipper Zero detected via USB — waiting for MAC…");
             } else if (LocalRelayService.ACTION_FLIPPER_MAC_FOUND.equals(action)) {
                 handler.removeCallbacksAndMessages(null); // cancel any pending fallback timer
                 String mac = intent.getStringExtra(LocalRelayService.EXTRA_FLIPPER_MAC);
@@ -175,6 +165,19 @@ public class FlipperFragment extends Fragment {
             requireContext().registerReceiver(usbDetectReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             requireContext().registerReceiver(usbDetectReceiver, filter);
+        }
+
+        // If not yet paired, immediately enter USB-wait state.
+        // The Flipper re-announces its MAC every 5 s, so we'll get ACTION_FLIPPER_MAC_FOUND
+        // within one interval if USB is connected — no button tap required.
+        if (prefs.getFlipperBleMac().isEmpty()) {
+            pairStatus.setText("Checking for Flipper via USB…");
+            pairBtn.setEnabled(false);
+            handler.postDelayed(() -> {
+                if (!isAdded() || !prefs.getFlipperBleMac().isEmpty()) return;
+                refreshPairingUI(); // timed out — show "Add Flipper" so user can fall back to BLE
+                appendLog("No Flipper found via USB — tap Add Flipper to pair via BLE.");
+            }, 12_000);
         }
     }
 
