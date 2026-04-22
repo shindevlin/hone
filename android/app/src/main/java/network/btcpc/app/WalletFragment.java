@@ -42,6 +42,7 @@ public class WalletFragment extends Fragment {
     private TextView statusView;
     private MaterialButton sendBtn;
     private MaterialButton receiveBtn;
+    private MaterialButton delegateBtn;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -73,6 +74,7 @@ public class WalletFragment extends Fragment {
         statusView    = view.findViewById(R.id.wallet_status);
         sendBtn       = view.findViewById(R.id.wallet_send_btn);
         receiveBtn    = view.findViewById(R.id.wallet_receive_btn);
+        delegateBtn   = view.findViewById(R.id.wallet_delegate_btn);
 
         swipeRefresh.setColorSchemeColors(0xFFF7931A);
         swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF161B25);
@@ -80,6 +82,7 @@ public class WalletFragment extends Fragment {
 
         sendBtn.setOnClickListener(v -> showSendDialog());
         receiveBtn.setOnClickListener(v -> showReceiveDialog());
+        delegateBtn.setOnClickListener(v -> showDelegateDialog());
 
         loginBtn.setOnClickListener(v -> attemptLogin());
         createAccountBtn.setOnClickListener(v -> {
@@ -280,6 +283,71 @@ public class WalletFragment extends Fragment {
                 .setPositiveButton("Copy address", (dialog, which) -> copyToClipboard(finalAddress))
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    private void showDelegateDialog() {
+        if (!isAdded()) return;
+        Context ctx = requireContext();
+
+        final android.widget.EditText minerField = new android.widget.EditText(ctx);
+        minerField.setHint("Miner account (e.g. shindevlin)");
+        minerField.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+
+        final android.widget.EditText amountField = new android.widget.EditText(ctx);
+        amountField.setHint("Amount (BTCPC)");
+        amountField.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(ctx);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (16 * ctx.getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad, pad, 0);
+        layout.addView(minerField);
+        amountField.setPadding(0, pad / 2, 0, 0);
+        layout.addView(amountField);
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(ctx)
+                .setTitle("Delegate BTCPC")
+                .setMessage("Delegating increases a miner's work weight and earns you a share of their rewards.")
+                .setView(layout)
+                .setPositiveButton("Delegate", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String miner = minerField.getText() != null ? minerField.getText().toString().trim() : "";
+                String amtStr = amountField.getText() != null ? amountField.getText().toString().trim() : "";
+                if (miner.isEmpty() || amtStr.isEmpty()) {
+                    android.widget.Toast.makeText(ctx, "Fill in all fields", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                double amount;
+                try { amount = Double.parseDouble(amtStr); } catch (NumberFormatException e) {
+                    android.widget.Toast.makeText(ctx, "Invalid amount", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setText("Delegating…");
+
+                ChainApi.delegate(miner, amount, prefs.getJwt(), prefs.getApiUrl(),
+                        new ChainApi.DelegateCallback() {
+                    @Override public void onSuccess(double newAmount, String m) {
+                        if (!isAdded()) return;
+                        dialog.dismiss();
+                        statusView.setText("Delegated " + formatBtcpc(amount) + " BTCPC to " + m);
+                        loadBalance();
+                    }
+                    @Override public void onError(String message) {
+                        if (!isAdded()) return;
+                        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setText("Delegate");
+                        android.widget.Toast.makeText(ctx, "Error: " + message, android.widget.Toast.LENGTH_LONG).show();
+                    }
+                });
+            });
+        });
+        dialog.show();
     }
 
     /**

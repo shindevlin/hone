@@ -7,8 +7,8 @@ android {
         applicationId "network.btcpc.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 133
-        versionName "3.1.133"
+        versionCode 134
+        versionName "3.1.134"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters "arm64-v8a", "x86_64"

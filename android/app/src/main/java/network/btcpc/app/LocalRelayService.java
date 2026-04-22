@@ -30,6 +30,8 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelUuid;
@@ -610,6 +612,13 @@ public class LocalRelayService extends Service {
      */
     private void forwardReading(String sensorId, String jsonBody, String transport) {
         lastReading = jsonBody;
+
+        // Attach GPS when a Flipper session is paired — phone provides location for Flipper data
+        String sid = new AppPrefs(this).getFlipperSessionId();
+        if (!sid.isEmpty()) {
+            jsonBody = attachGps(jsonBody);
+        }
+
         String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
         String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
 
@@ -631,6 +640,48 @@ public class LocalRelayService extends Service {
                 Log.e(TAG, "[" + transport + "] both endpoints failed for " + sensorId
                         + ": " + remoteEx.getMessage());
             }
+        }
+    }
+
+    /** Inject relay_gps into jsonBody using last-known location (no active scan). */
+    private String attachGps(String jsonBody) {
+        try {
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED
+                && checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) {
+                return jsonBody;
+            }
+            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            if (lm == null) return jsonBody;
+
+            Location loc = null;
+            for (String provider : new String[]{LocationManager.GPS_PROVIDER,
+                                                LocationManager.NETWORK_PROVIDER}) {
+                try {
+                    Location candidate = lm.getLastKnownLocation(provider);
+                    if (candidate != null) {
+                        if (loc == null || candidate.getTime() > loc.getTime()) loc = candidate;
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            if (loc == null) return jsonBody;
+            long ageMs = System.currentTimeMillis() - loc.getTime();
+            if (ageMs > 5 * 60 * 1000L) return jsonBody; // skip if > 5 min old
+
+            JSONObject json = new JSONObject(jsonBody);
+            JSONObject gps  = new JSONObject();
+            gps.put("lat",       loc.getLatitude());
+            gps.put("lon",       loc.getLongitude());
+            gps.put("accuracy",  loc.getAccuracy());
+            gps.put("timestamp", loc.getTime());
+            gps.put("provider",  loc.getProvider());
+            json.put("relay_gps", gps);
+            return json.toString();
+        } catch (Exception e) {
+            Log.w(TAG, "GPS attach failed: " + e.getMessage());
+            return jsonBody;
         }
     }
 

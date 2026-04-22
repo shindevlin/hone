@@ -58,6 +58,11 @@ public class ChainApi {
         void onError(String message);
     }
 
+    public interface DelegateCallback {
+        void onSuccess(double newAmount, String miner);
+        void onError(String message);
+    }
+
     public interface RelayStatusCallback {
         /** Called on the main thread with parsed relay status fields. */
         void onSuccess(boolean ok, boolean usbConnected, boolean bleConnected, String lastReading);
@@ -368,5 +373,47 @@ public class ChainApi {
                 }
             }
         });
+    }
+
+    /**
+     * POST /api/delegation/delegate — delegate BTCPC to a miner.
+     * Body: { miner, amount }
+     */
+    public static void delegate(String miner, double amount, String jwt, String apiBase,
+                                DelegateCallback callback) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("miner", miner);
+            body.put("amount", amount);
+            Request request = new Request.Builder()
+                    .url(apiBase + "/api/delegation/delegate")
+                    .addHeader("Authorization", "Bearer " + jwt)
+                    .post(RequestBody.create(body.toString(),
+                            MediaType.parse("application/json")))
+                    .build();
+            CLIENT.newCall(request).enqueue(new Callback() {
+                @Override public void onFailure(Call call, IOException e) {
+                    MAIN.post(() -> callback.onError(e.getMessage()));
+                }
+                @Override public void onResponse(Call call, Response response) throws IOException {
+                    try (ResponseBody rb = response.body()) {
+                        String raw = rb != null ? rb.string() : "{}";
+                        JSONObject json = new JSONObject(raw);
+                        if (!response.isSuccessful()) {
+                            String err = json.optString("error", "HTTP " + response.code());
+                            MAIN.post(() -> callback.onError(err));
+                            return;
+                        }
+                        double amt = json.optDouble("amount", amount);
+                        String m   = json.optString("miner", miner);
+                        MAIN.post(() -> callback.onSuccess(amt, m));
+                    } catch (Exception e) {
+                        MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                    }
+                }
+            });
+        } catch (Exception e) {
+            MAIN.post(() -> callback.onError(e.getMessage()));
+        }
     }
 }

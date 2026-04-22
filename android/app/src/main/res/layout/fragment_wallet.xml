@@ -274,6 +274,19 @@
 
             </LinearLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/wallet_delegate_btn"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="10dp"
+                android:text="Delegate / Stake"
+                android:textColor="@color/btcpc_orange"
+                android:backgroundTint="@color/btcpc_surface_alt"
+                android:strokeColor="@color/btcpc_orange"
+                android:strokeWidth="1"
+                android:textSize="15sp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
             <!-- Status / error label -->
             <TextView
                 android:id="@+id/wallet_status"
