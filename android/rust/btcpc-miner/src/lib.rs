@@ -68,12 +68,6 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeStart(
     }
     *st.status.lock() = "Starting…".to_string();
 
-    if posting_key.is_empty() {
-        *st.status.lock() = "No posting key — set it in Settings to mine".to_string();
-        st.running.store(false, Ordering::SeqCst);
-        return;
-    }
-
     runtime().spawn(async move {
         *state().status.lock() = format!("Loading {model_id}…");
         match miner::run_miner(account, jwt, api_base, model_id.clone(), model_dir, posting_key, state()).await {

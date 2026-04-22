@@ -15,8 +15,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-ecdsa = { version = "0.16", default-features = false }
 # Pure-Rust ONNX runtime — no native library dependency, works with cargo-ndk
 tract-onnx = "0.21"
 tract-core = "0.21"

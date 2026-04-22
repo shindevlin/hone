@@ -33,27 +33,6 @@ fn model_cache() -> &'static std::sync::Mutex<ModelCacheState> {
 }
 
 // ---- posting-key signing ----
-// Signs {account, job_id, work_hash} (keys sorted alphabetically, canonical JSON)
-// with SHA256 → secp256k1 ECDSA, matching keyManager.signTransaction on the server.
-fn sign_work_proof(account: &str, job_id: &str, work_hash: &str, posting_key_hex: &str) -> Option<String> {
-    use k256::ecdsa::{SigningKey, signature::hazmat::PrehashSigner};
-    use sha2::{Sha256, Digest};
-
-    let key_bytes = hex::decode(posting_key_hex).ok()?;
-    let signing_key = SigningKey::from_bytes(key_bytes.as_slice().into()).ok()?;
-
-    // Server canonical: JSON.stringify(data, Object.keys(data).sort())
-    // Keys in alphabetical order: account < job_id < work_hash
-    let canonical = format!(
-        r#"{{"account":"{}","job_id":"{}","work_hash":"{}"}}"#,
-        account, job_id, work_hash
-    );
-    let hash = Sha256::digest(canonical.as_bytes());
-
-    let (sig, _recovery): (k256::ecdsa::Signature, _) =
-        signing_key.sign_prehash_recoverable(&hash).ok()?;
-    Some(hex::encode(sig.to_bytes()))
-}
 
 // ---- chain API types ----
 
@@ -609,6 +588,7 @@ pub async fn run_miner(
     api_base: String,
     model_id: String,
     model_dir: String,
+    #[allow(unused)]
     posting_key: String,
     state: &Arc<MinerState>,
 ) -> anyhow::Result<()> {
@@ -659,8 +639,21 @@ pub async fn run_miner(
                     }
                 }
             }
-            _ => {
-                *state.status.lock() = format!("Mining with {model_id} (waiting…)");
+            Ok(r) => {
+                let code = r.status().as_u16();
+                log::warn!("Claim failed: HTTP {code}");
+                let msg = if code == 401 || code == 403 {
+                    format!("Auth error ({code}) — check account settings")
+                } else {
+                    format!("Mining with {model_id} (waiting…)")
+                };
+                *state.status.lock() = msg;
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                continue;
+            }
+            Err(e) => {
+                log::warn!("Claim network error: {e}");
+                *state.status.lock() = format!("Mining with {model_id} (offline…)");
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                 continue;
             }
