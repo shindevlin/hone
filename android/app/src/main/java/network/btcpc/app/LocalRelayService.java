@@ -99,7 +99,7 @@ public class LocalRelayService extends Service {
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     // API endpoints — local node first, remote fallback
-    private static final String LOCAL_API_BASE  = "http://localhost:4242/api";
+    private static final String LOCAL_API_BASE  = "http://127.0.0.1:4242/api";
     private static final String REMOTE_API_BASE = "https://btcpc.net/api";
 
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
@@ -818,6 +818,10 @@ public class LocalRelayService extends Service {
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "application/json");
         conn.setRequestProperty("User-Agent", "BTCPC-Android-Relay/1.0");
+        String jwt = new AppPrefs(this).getJwt();
+        if (jwt != null && !jwt.isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + jwt);
+        }
         conn.setConnectTimeout(5_000);
         conn.setReadTimeout(10_000);
         conn.setDoOutput(true);
