@@ -58,9 +58,9 @@ function generateJobId() {
 }
 
 function currentEpoch() {
-    try {
-        return stateStore.getChainHeight() || 0;
-    } catch (_) { return 0; }
+    const GENESIS_TS = 1776236400000; // 2026-04-15T07:00:00.000Z
+    const EPOCH_MS = 30000;
+    return Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
 }
 
 /**
