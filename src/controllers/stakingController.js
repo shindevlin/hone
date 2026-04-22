@@ -250,16 +250,23 @@ async function getNetworkStaking(req, res) {
   }
 }
 
-// Per-role base requirements — multiplied by a demand factor at query time.
+// Per-role base requirements at genesis (near-zero network).
+// These are floors — actual requirements = base × demandMultiplier(stakerCount).
+// At 0 stakers: 1x. Doubles every 1 000 stakers. Caps at 100x so the math stays bounded.
 const ROLE_BASE = {
-  inference:      { minStake: 1000, unlockDays: 7,  description: 'Run AI inference proofs. Rewards scale with verified compute delivered.' },
-  sensor_data:    { minStake: 500,  unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
-  storage:        { minStake: 2000, unlockDays: 14, description: 'Host files on BTCPC-FS. Paid per byte delivered; slashed for unavailability.' },
-  clock:          { minStake: 1500, unlockDays: 7,  description: 'Provide verified timestamps for chain sync. Requires reliable uptime.' },
-  verify_node:    { minStake: 5000, unlockDays: 30, description: 'Validate inference proofs and transaction signatures.' },
-  review_node:    { minStake: 3000, unlockDays: 30, description: 'Audit flagged work and handle dispute resolution.' },
-  human_reviewer: { minStake: 250,  unlockDays: 3,  description: 'Manual quality review — human oracle for subjective assessment.' },
+  inference:      { minStake: 10,  unlockDays: 7,  description: 'Run AI inference proofs. Rewards scale with verified compute delivered.' },
+  sensor_data:    { minStake: 5,   unlockDays: 7,  description: 'Relay GNSS / environmental sensor readings from hardware nodes.' },
+  storage:        { minStake: 20,  unlockDays: 14, description: 'Host files on BTCPC-FS. Paid per byte delivered; slashed for unavailability.' },
+  clock:          { minStake: 15,  unlockDays: 7,  description: 'Provide verified timestamps for chain sync. Requires reliable uptime.' },
+  verify_node:    { minStake: 50,  unlockDays: 30, description: 'Validate inference proofs and transaction signatures.' },
+  review_node:    { minStake: 30,  unlockDays: 30, description: 'Audit flagged work and handle dispute resolution.' },
+  human_reviewer: { minStake: 1,   unlockDays: 3,  description: 'Manual quality review — human oracle for subjective assessment.' },
 };
+
+// Doubles every 1 000 active stakers; caps at 100×.
+function demandMultiplier(stakerCount) {
+  return Math.min(100, Math.pow(2, stakerCount / 1000));
+}
 
 async function getStakeRequirements(req, res) {
   try {
@@ -268,15 +275,14 @@ async function getStakeRequirements(req, res) {
     for (const pool of Object.values(allPools)) {
       if (pool && pool.total_staked > 0) stakerCount++;
     }
-    // +5% per 50 active stakers above a baseline of 10
-    const demandMultiplier = Math.max(1.0, 1 + Math.max(0, stakerCount - 10) / 50 * 0.05);
+    const multiplier = demandMultiplier(stakerCount);
 
     const requirements = {};
     for (const [role, base] of Object.entries(ROLE_BASE)) {
       requirements[role] = {
         ...base,
-        minStake: Math.ceil(base.minStake * demandMultiplier),
-        demandMultiplier: Math.round(demandMultiplier * 100) / 100,
+        minStake: Math.max(base.minStake, Math.ceil(base.minStake * multiplier)),
+        demandMultiplier: Math.round(multiplier * 100) / 100,
       };
     }
 
