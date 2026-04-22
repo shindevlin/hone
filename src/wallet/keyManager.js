@@ -361,6 +361,26 @@ async function deriveChainWallets(mnemonic) {
 }
 
 // ---------------------------------------------------------------------------
+// BTCPC Native Address (btcpc1q...)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a BTCPC native bech32 address from a compressed secp256k1 public key.
+ * Format: btcpc1q<bech32(HASH160(pubkey))>
+ * Mirrors Bitcoin P2WPKH (witness v0) with HRP "btcpc".
+ * @param {string|Buffer} publicKey - Hex string or Buffer (compressed, 33 bytes)
+ * @returns {string} btcpc1q... address
+ */
+function deriveBtcpcAddress(publicKey) {
+  const pubBuf = Buffer.isBuffer(publicKey) ? publicKey : Buffer.from(publicKey, "hex");
+  const sha = crypto.createHash("sha256").update(pubBuf).digest();
+  const hash160 = crypto.createHash("ripemd160").update(sha).digest();
+  const words = bech32.toWords(hash160);
+  words.unshift(0); // witness version 0
+  return bech32.encode("btcpc", words);
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -369,6 +389,7 @@ module.exports = {
   validateMnemonic,
   mnemonicToKeys,
   deriveChainWallets,
+  deriveBtcpcAddress,
   deriveSecondFactor,
   signTransaction,
   verifySignature,

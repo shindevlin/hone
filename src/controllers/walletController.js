@@ -6,6 +6,17 @@ const { createTransactionMessage } = require('../p2p/protocol');
 const stateStore = require('../chain/stateStore');
 const { rejectObjectInputs, sanitizeString, sanitizeAmount, validAddress, validChain } = require('../middlewares/validate');
 const { resolveUserFromAuth } = require('../services/userResolver');
+const { deriveBtcpcAddress } = require('../wallet/keyManager');
+
+function _btcpcAddress(username) {
+  const acct = stateStore.getAccount ? stateStore.getAccount(username) : null;
+  const ownerKey = acct && acct.public_keys && acct.public_keys.owner;
+  if (ownerKey) {
+    try { return deriveBtcpcAddress(ownerKey); } catch (_) {}
+  }
+  // Legacy fallback for accounts without stored public keys
+  return 'BTCPC' + crypto.createHash('sha256').update(username).digest('hex').slice(0, 40);
+}
 
 /**
  * Create Wallet for Authenticated User
@@ -26,8 +37,7 @@ async function createWallet(req, res) {
     const user = await resolveUserFromAuth(req.user);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Address is derived from username (BTCPC chain uses username as identity)
-    const address = 'BTCPC' + crypto.createHash('sha256').update(user.username + chain).digest('hex').slice(0, 40);
+    const address = _btcpcAddress(user.username);
 
     res.status(201).json({
       success: true,
@@ -56,8 +66,7 @@ async function getBalance(req, res) {
     if (tokenBalances.BTCPC === undefined) tokenBalances.BTCPC = btcpcBalance;
     const delegatedBalance = stateStore.getDelegatedBalance ? stateStore.getDelegatedBalance(username, 'BTCPC') : 0;
 
-    // Generate deterministic address from username for display
-    const address = 'BTCPC' + crypto.createHash('sha256').update(username).digest('hex').slice(0, 40);
+    const address = _btcpcAddress(username);
 
     res.json({
       success: true,
