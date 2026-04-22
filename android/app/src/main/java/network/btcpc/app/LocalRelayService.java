@@ -277,6 +277,38 @@ public class LocalRelayService extends Service {
                 return r;
             }
 
+            // PC-side pairing: POST /flipper/pair {"mac":"XX:XX:XX:XX:XX:XX"}
+            if (Method.POST.equals(method) && uri.equals("/flipper/pair")) {
+                try {
+                    Map<String, String> bodyMap = new java.util.HashMap<>();
+                    session.parseBody(bodyMap);
+                    String body = bodyMap.containsKey("postData") ? bodyMap.get("postData") : "";
+                    JSONObject json = new JSONObject(body == null ? "{}" : body);
+                    String mac = json.optString("mac", "").trim().toUpperCase();
+                    if (!mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) {
+                        Response r = newFixedLengthResponse(Response.Status.BAD_REQUEST,
+                                "application/json", "{\"error\":\"invalid mac\"}");
+                        r.addHeader("Access-Control-Allow-Origin", "*");
+                        return r;
+                    }
+                    new AppPrefs(getApplicationContext()).setFlipperBle(mac, "Flipper Zero");
+                    Intent broadcast = new Intent(ACTION_FLIPPER_MAC_FOUND);
+                    broadcast.setPackage(getPackageName());
+                    broadcast.putExtra(EXTRA_FLIPPER_MAC, mac);
+                    sendBroadcast(broadcast);
+                    Log.i(TAG, "[PC pair] MAC saved: " + mac);
+                    Response r = newFixedLengthResponse(Response.Status.OK,
+                            "application/json", "{\"ok\":true,\"mac\":\"" + mac + "\"}");
+                    r.addHeader("Access-Control-Allow-Origin", "*");
+                    return r;
+                } catch (Exception e) {
+                    Response r = newFixedLengthResponse(Response.Status.INTERNAL_ERROR,
+                            "application/json", "{\"error\":\"" + e.getMessage() + "\"}");
+                    r.addHeader("Access-Control-Allow-Origin", "*");
+                    return r;
+                }
+            }
+
             // Only handle POST /sensors/:id/readings
             if (!Method.POST.equals(method) || !uri.matches("/sensors/[^/]+/readings")) {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND,
