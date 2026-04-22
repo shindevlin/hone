@@ -52,6 +52,12 @@ public class ChainApi {
         void onError(String message);
     }
 
+    public interface MiningStatusCallback {
+        /** proofs_submitted = total proofs the server accepted for this account */
+        void onSuccess(long proofsSubmitted, long epoch, long lastEpoch);
+        void onError(String message);
+    }
+
     public interface RelayStatusCallback {
         /** Called on the main thread with parsed relay status fields. */
         void onSuccess(boolean ok, boolean usbConnected, boolean bleConnected, String lastReading);
@@ -278,6 +284,45 @@ public class ChainApi {
                     if (history == null) history = new JSONArray();
                     final JSONArray result = history;
                     MAIN.post(() -> callback.onSuccess(result));
+                } catch (Exception e) {
+                    MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
+                }
+            }
+        });
+    }
+
+    /**
+     * Fetch on-chain mining status for the authenticated account.
+     * GET /api/mining/phone/status — returns proofs_submitted, epoch, last_epoch.
+     * This is the ground-truth indicator: a non-zero and growing proof count means
+     * the chain has actually accepted work from this device.
+     */
+    public static void fetchMiningStatus(String jwt, String apiBase, MiningStatusCallback callback) {
+        String url = apiBase + "/api/mining/phone/status";
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer " + jwt)
+                .get()
+                .build();
+
+        CLIENT.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                MAIN.post(() -> callback.onError("Network error: " + e.getMessage()));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                try (ResponseBody body = response.body()) {
+                    if (!response.isSuccessful() || body == null) {
+                        MAIN.post(() -> callback.onError("Server error " + response.code()));
+                        return;
+                    }
+                    JSONObject json = new JSONObject(body.string());
+                    long proofs    = json.optLong("proofs_submitted", 0);
+                    long epoch     = json.optLong("epoch", 0);
+                    long lastEpoch = json.optLong("last_epoch", 0);
+                    MAIN.post(() -> callback.onSuccess(proofs, epoch, lastEpoch));
                 } catch (Exception e) {
                     MAIN.post(() -> callback.onError("Parse error: " + e.getMessage()));
                 }

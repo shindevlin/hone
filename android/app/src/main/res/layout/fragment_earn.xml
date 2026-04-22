@@ -20,7 +20,20 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
-        <!-- Miner card -->
+        <!-- ── Start Mining button ── -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/earn_start_btn"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginBottom="20dp"
+            android:backgroundTint="@color/btcpc_orange"
+            android:text="Start Mining"
+            android:textColor="@android:color/black"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.02" />
+
+        <!-- ── Miner card ── -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -38,6 +51,16 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
+
+                    <!-- Status dot -->
+                    <TextView
+                        android:id="@+id/earn_miner_dot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:text="●"
+                        android:textSize="10sp"
+                        android:textColor="@color/btcpc_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -98,10 +121,25 @@
                     android:textColor="@color/btcpc_muted"
                     android:textSize="13sp" />
 
+                <!-- Chain-verified proof count — only populated after API confirms -->
+                <TextView
+                    android:id="@+id/earn_miner_chain_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:background="@color/btcpc_bg"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="8dp"
+                    android:text=""
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Clock peer card -->
+        <!-- ── Clock peer card ── -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -119,6 +157,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/earn_clock_dot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:text="●"
+                        android:textSize="10sp"
+                        android:textColor="@color/btcpc_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -165,7 +212,7 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Sensor rig card -->
+        <!-- ── Sensor rig card ── -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -183,6 +230,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/earn_sensors_dot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:text="●"
+                        android:textSize="10sp"
+                        android:textColor="@color/btcpc_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -215,7 +271,6 @@
 
                 </LinearLayout>
 
-                <!-- Per-sensor opt-in checkboxes (visible when toggle is on) -->
                 <LinearLayout
                     android:id="@+id/earn_sensors_options"
                     android:layout_width="match_parent"
@@ -303,7 +358,7 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Storage card -->
+        <!-- ── Storage card ── -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -321,6 +376,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/earn_storage_dot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:text="●"
+                        android:textSize="10sp"
+                        android:textColor="@color/btcpc_muted" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -353,7 +417,6 @@
 
                 </LinearLayout>
 
-                <!-- Storage quota picker -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
