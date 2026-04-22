@@ -412,9 +412,6 @@ function handleMessage(peer, msg, ctx) {
     case MESSAGE_TYPES.MEMPOOL_ENTRY:
       handleMempoolEntry(peer, msg, ctx);
       break;
-    case MESSAGE_TYPES.FINALIZATION_PROPOSAL:
-      handleFinalizationProposal(peer, msg, ctx);
-      break;
     case MESSAGE_TYPES.BLOCK_PROPOSAL:
       handleBlockProposal(peer, msg, ctx);
       break;
@@ -585,13 +582,20 @@ function handleBlock(peer, msg, ctx) {
       // Store in the formal blockchain and write to disk
       blockchain.addBlock(block);
 
+      var payload = {
+        ledger_entries: data.ledger_entries || [],
+        rewards: data.rewards || [],
+        compute_proofs: data.compute_proofs || [],
+        mining_proofs: data.mining_proofs || [],
+        state_root: data.state_root || block.state_root || null,
+        consensus_hash: data.consensus_hash || null,
+        block_reward: data.block_reward || 0,
+        total_work: data.total_work || 0
+      };
+
+      _applySyncedBlockPayload(block.epoch_number, payload, block);
+
       if (!blockStore.hasBlock(block.epoch_number)) {
-        var payload = {
-          ledger_entries: data.ledger_entries || [],
-          rewards: data.rewards || [],
-          compute_proofs: data.compute_proofs || [],
-          mining_proofs: data.mining_proofs || []
-        };
         blockStore.writeBlock(block, payload);
       }
 
@@ -702,6 +706,48 @@ function handleRequestBlocks(peer, msg, ctx) {
   ctx.send(peer.ws, response);
 }
 
+function _applySyncedBlockPayload(epochNumber, payload, block) {
+  if (!payload) return false;
+
+  var stateStore = require("../chain/stateStore");
+  var existingEpoch = stateStore.getEpoch ? stateStore.getEpoch(epochNumber) : null;
+  if (existingEpoch && existingEpoch.status === "finalized") {
+    return false;
+  }
+
+  var ledgerEntries = Array.isArray(payload.ledger_entries) ? payload.ledger_entries : [];
+  if (ledgerEntries.length > 0) {
+    stateStore.applyEntries(ledgerEntries);
+    stateManager.applyLedgerEntries(ledgerEntries);
+
+    var nodeRegistry = require("../chain/nodeRegistry");
+    if (nodeRegistry && typeof nodeRegistry.processLedgerEntries === "function") {
+      try { nodeRegistry.processLedgerEntries(ledgerEntries); } catch (_) {}
+    }
+  }
+
+  if (Array.isArray(payload.mining_proofs)) {
+    stateStore.setMiningProofs(epochNumber, payload.mining_proofs);
+  }
+  if (Array.isArray(payload.compute_proofs)) {
+    stateStore.setComputeProofs(epochNumber, payload.compute_proofs);
+  }
+
+  stateStore.setEpoch(epochNumber, {
+    started_at: block && block.timestamp ? new Date(block.timestamp) : null,
+    ended_at: block && block.timestamp ? new Date(block.timestamp) : null,
+    consensus_hash: payload.consensus_hash || (block && block.computeHash ? block.computeHash() : null),
+    state_root: payload.state_root || (block && block.state_root) || null,
+    status: "finalized",
+    rewards_distributed: payload.rewards || [],
+    block_reward: payload.block_reward || 0,
+    total_work: payload.total_work || 0,
+    miner_id: block ? block.miner_id || null : null,
+  });
+
+  return true;
+}
+
 /**
  * RESPONSE_BLOCKS — Process blocks received from a sync request.
  */
@@ -747,8 +793,13 @@ function handleResponseBlocks(peer, msg, ctx) {
             ledger_entries: blockData.ledger_entries || [],
             rewards: blockData.rewards || [],
             compute_proofs: blockData.compute_proofs || [],
-            mining_proofs: blockData.mining_proofs || []
+            mining_proofs: blockData.mining_proofs || [],
+            state_root: blockData.state_root || block.state_root || null,
+            consensus_hash: blockData.consensus_hash || null,
+            block_reward: blockData.block_reward || 0,
+            total_work: blockData.total_work || 0
           };
+          _applySyncedBlockPayload(block.epoch_number, payload, block);
           blockStore.writeBlock(block, payload);
           blockchain.addBlock(block);
         } catch (e) {
@@ -938,6 +989,9 @@ async function handleEpochFinalized(peer, msg, ctx) {
     if (gap > 10) {
       console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " jumps " + gap + " ahead of last=" + _lastFinalizedEpoch + " (max gap 10)");
       return;
+    }
+    if (gap > 1) {
+      console.log("[BTCPC Consensus] Epochs " + (_lastFinalizedEpoch + 1) + "–" + (epochNum - 1) + " finalization missed — catching up on epoch " + epochNum + ". This is normal after a brief disconnect.");
     }
   }
 
@@ -1207,27 +1261,6 @@ async function handleMempoolEntry(peer, msg, ctx) {
 // ---------------------------------------------------------------------------
 
 /**
- * FINALIZATION_PROPOSAL — A miner proposes their reward split for an epoch.
- * Collected by all nodes. When majority agrees, the earliest proposer broadcasts EPOCH_FINALIZED.
- *
- * NOTE: This is the legacy multi-message ceremony. New code uses BLOCK_PROPOSAL.
- */
-function handleFinalizationProposal(peer, msg, ctx) {
-  var data = msg.data || {};
-  if (!data.epoch_number || !data.proposer) return;
-
-  console.log("[BTCPC P2P] Finalization proposal from " + data.proposer +
-    " for epoch " + data.epoch_number +
-    " (hash: " + (data.consensus_hash || "?").slice(0, 12) + "...)");
-
-  // Submit to local consensus collector
-  var finConsensus = require("../chain/finalizationConsensus");
-  finConsensus.submitProposal(data.epoch_number, data);
-
-  // Rebroadcast
-  ctx.broadcast(msg, peer.address);
-}
-
 /**
  * BLOCK_PROPOSAL — Unified block proposal from a clock node.
  * Bundles epoch, work attestations, rewards, and consensus_hash in one message.

@@ -341,18 +341,11 @@ function buildProposal(options) {
   // ── Sort rewards deterministically (by recipient name) for hashing ──
   rewards.sort(function (a, b) { return a.to < b.to ? -1 : a.to > b.to ? 1 : 0; });
 
-  // ── Compute deterministic consensus hash ──
-  // Same gossip → same hash on every clock running this function
-  var consensusInput = JSON.stringify({
-    epoch: epochNumber,
-    block_reward: blockReward,
-    total_work: totalWorkValue,
-    miners: miners,
-    verifiers: activeVerifiers,
-    clocks: activeClocks,
-    rewards: rewards.map(function (r) { return [r.to, r.amount, r.type]; }),
-  });
-  var consensusHash = crypto.createHash("sha256").update(consensusInput).digest("hex");
+  // ── Compute deterministic consensus hash via canonical function ──
+  // Uses finalizationConsensus.hashRewards so every code path hashes identically.
+  var finConsensus = require("./finalizationConsensus");
+  var rewardsForHash = rewards.map(function (r) { return { miner: r.to, amount: r.amount }; });
+  var consensusHash = finConsensus.hashRewards(rewardsForHash, totalWorkValue, miners.length, epochNumber);
 
   return {
     epoch_number: epochNumber,

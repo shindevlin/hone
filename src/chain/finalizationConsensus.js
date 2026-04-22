@@ -21,7 +21,6 @@
 var crypto = require("crypto");
 
 var PROPOSAL_WINDOW_MS = parseInt(process.env.BTCPC_PROPOSAL_WINDOW_MS) || 30000; // 30s
-var PROPOSAL_TIMEOUT_MS = parseInt(process.env.BTCPC_PROPOSAL_TIMEOUT_MS) || 60000; // 60s fallback
 
 // Per-epoch state
 // Map<epochNumber, { proposals: [], windowStart: number, resolved: boolean, winner: object|null }>
@@ -300,6 +299,5 @@ module.exports = {
   getWinner: getWinner,
   getProposals: getProposals,
   amIBroadcaster: amIBroadcaster,
-  PROPOSAL_WINDOW_MS: PROPOSAL_WINDOW_MS,
-  PROPOSAL_TIMEOUT_MS: PROPOSAL_TIMEOUT_MS
+  PROPOSAL_WINDOW_MS: PROPOSAL_WINDOW_MS
 };

@@ -163,3 +163,19 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 7. Reports back to the driver
 
 Each agent gets a fresh context. The codebase + this PRD + the memory files are the source of truth. The conversation is just the dispatcher.
+
+---
+
+## Consensus / Finality Hardening (post-v3.1.135)
+
+Items from code review of finalizationConsensus.js. Non-blocking for genesis but should be addressed before mainnet scale.
+
+- [ ] **Stake-weighted voting in consensus** — currently all proposals count as 1 vote regardless of proposer stake. Weight by registered stake so a Sybil network of low-stake nodes cannot outvote honest high-stake nodes. Modify `checkConsensus()` to sum stake instead of counting proposals. (`src/chain/finalizationConsensus.js`)
+
+- [ ] **Minimum proposal count for auto-resolve** — after `PROPOSAL_WINDOW_MS`, a single proposal auto-wins. Add optional `BTCPC_MIN_CONSENSUS_PROPOSALS` env var (default 1) so operators can require ≥N proposals before finalizing. (`src/chain/finalizationConsensus.js`)
+
+- [ ] **Consensus state persistence** — finalization results live only in memory; a crash before `EPOCH_FINALIZED` broadcast loses the round. Add a `FINALIZATION_CONSENSUS` ledger entry type so resolved epochs survive restarts. (`src/chain/stateStore.js`, `src/services/ledger.js`)
+
+- [ ] **Proposal validation against known work** — `submitProposal()` accepts any reward distribution without checking it against recorded mining proofs. Add a validation step that verifies proposed amounts are consistent with `stateStore.getMiningProofs()` for that epoch.
+
+- [ ] **finalizationConsensus test gap fill** — add tests for: replay across epochs, empty-epoch resolution, hash mismatch detection (blockProposal hash matches hashRewards output), memory cleanup after 10 epochs, minimum node count config. (`tests/finalizationConsensus.test.js`)
