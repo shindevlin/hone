@@ -150,7 +150,7 @@ int32_t btcpc_relay_app(void* p) {
     bool usb_changed = (usb_prev != &usb_cdc_single);
     if(usb_changed) {
         furi_hal_usb_unlock();
-        furi_hal_usb_set(&usb_cdc_single, NULL);
+        furi_hal_usb_set_config(&usb_cdc_single, NULL);
         furi_delay_ms(200); /* allow host to re-enumerate */
     }
     char mac_announce[32];
@@ -212,7 +212,7 @@ int32_t btcpc_relay_app(void* p) {
 
     /* Restore previous USB mode if we changed it */
     if(usb_changed) {
-        furi_hal_usb_set(usb_prev, NULL);
+        furi_hal_usb_set_config(usb_prev, NULL);
         furi_hal_usb_lock();
     }
 
