@@ -154,11 +154,15 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-            <!-- Balance card -->
+            <!-- Balance card — tap to toggle BTCPC ↔ dreams -->
             <androidx.cardview.widget.CardView
+                android:id="@+id/wallet_balance_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
+                android:foreground="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
                 style="@style/BtcpcCard">
 
                 <LinearLayout
@@ -186,6 +190,7 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/wallet_unit"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"

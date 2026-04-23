@@ -78,7 +78,7 @@ import fi.iki.elonen.NanoHTTPD;
  *    "flipper_session_id":"...", "flipper_packet_tag":"..."}}
  * Legacy payloads without this envelope still work.
  *
- * API target: local node on localhost:4242 with fallback to btcpc.net.
+ * API target: btcpc.net
  */
 public class LocalRelayService extends Service {
 
@@ -90,16 +90,21 @@ public class LocalRelayService extends Service {
     private static final int FLIPPER_VID = 0x0483;
     private static final int FLIPPER_PID = 0x5740;
 
-    // Nordic UART Service UUIDs (used by Flipper BLE UART Bridge app)
+    // Flipper Zero serial service UUID (custom, not standard NUS)
     private static final UUID NUS_SERVICE_UUID =
-            UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
-    private static final UUID NUS_TX_CHAR_UUID =           // Flipper → phone (notify)
-            UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
+            UUID.fromString("8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000");
+    // TX characteristic UUID resolved dynamically at connect time (NOTIFY property)
+    private volatile UUID activeTxCharUuid = null;
+    // RX characteristic UUID — Android writes commands TO the Flipper
+    private static final UUID NUS_RX_CHAR_UUID =
+            UUID.fromString("19ed82ae-ed21-4c9d-4145-228e62fe0000");
+    private volatile BluetoothGattCharacteristic bleRxChar = null;
+    private final StringBuilder bleResponseBuf = new StringBuilder();
+    private static final long BLE_FLUSH_INTERVAL_MS = 30_000;
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     // API endpoints — local node first, remote fallback
-    private static final String LOCAL_API_BASE  = "http://127.0.0.1:4242/api";
     private static final String REMOTE_API_BASE = "https://btcpc.net/api";
 
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
@@ -119,7 +124,8 @@ public class LocalRelayService extends Service {
     private BluetoothLeScanner bleScanner;
     private BluetoothGatt bleGatt;
     private final ScanCallback bleScanCallback = new FlipperBleScanCallback();
-    private boolean bleConnected = false;
+    private volatile boolean bleConnected  = false;
+    private volatile boolean bleConnecting = false;
 
     private final ExecutorService httpExecutor = Executors.newCachedThreadPool();
     private volatile String lastReading = null;
@@ -545,7 +551,8 @@ public class LocalRelayService extends Service {
     // -----------------------------------------------------------------------
 
     private void startBleScan() {
-        if (bleConnected) return;
+        if (bleConnected || bleConnecting) return;
+        bleConnecting = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 Log.i(TAG, "BLUETOOTH_CONNECT permission not granted — skipping BLE");
@@ -575,7 +582,7 @@ public class LocalRelayService extends Service {
             return;
         }
 
-        // No MAC yet — scan for any NUS device to discover the Flipper
+        // No MAC yet — scan for the Flipper serial service to discover it
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 Log.i(TAG, "BLUETOOTH_SCAN permission not granted — skipping BLE scan");
@@ -613,8 +620,7 @@ public class LocalRelayService extends Service {
                         device.getName() != null ? device.getName() : "Flipper Zero");
             }
             stopBleScan();
-            bleConnected = true;
-            // Connect on main thread is fine; GATT callbacks are delivered on Binder thread
+            // bleConnected set to true in onConnectionStateChange once GATT is up
             bleGatt = device.connectGatt(LocalRelayService.this, false, new FlipperGattCallback());
         }
 
@@ -631,12 +637,17 @@ public class LocalRelayService extends Service {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "BLE connected — discovering services");
+                bleConnected = true;
+                bleConnecting = false;
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "BLE disconnected status=" + status + " — will retry");
                 bleConnected = false;
+                bleConnecting = false;
+                bleRxChar = null;
+                synchronized (bleResponseBuf) { bleResponseBuf.setLength(0); }
                 gatt.close();
-                bleGatt = null;
+                if (bleGatt == gatt) bleGatt = null;
                 lineBuffer.setLength(0);
                 // Re-start scan after a short delay via retry thread
                 new Thread(() -> {
@@ -657,42 +668,158 @@ public class LocalRelayService extends Service {
             }
             BluetoothGattService nus = gatt.getService(NUS_SERVICE_UUID);
             if (nus == null) {
-                Log.e(TAG, "NUS service not found after discovery");
+                Log.e(TAG, "Flipper serial service not found — Flipper may not be in relay mode yet; retrying in 8s");
+                bleConnected = false;
+                bleConnecting = false;
+                gatt.disconnect();  // triggers onConnectionStateChange → retry after 5s
                 return;
             }
-            BluetoothGattCharacteristic txChar = nus.getCharacteristic(NUS_TX_CHAR_UUID);
+            // Find the TX characteristic: NOTIFY or INDICATE property
+            BluetoothGattCharacteristic txChar = null;
+            boolean useIndicate = false;
+            for (BluetoothGattCharacteristic c : nus.getCharacteristics()) {
+                Log.i(TAG, "  char " + c.getUuid() + " props=0x" + Integer.toHexString(c.getProperties()));
+                if ((c.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+                    txChar = c; useIndicate = false; break;
+                }
+                if ((c.getProperties() & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
+                    txChar = c; useIndicate = true;
+                }
+            }
             if (txChar == null) {
-                Log.e(TAG, "NUS TX characteristic not found");
+                Log.e(TAG, "Flipper serial TX characteristic (NOTIFY/INDICATE) not found");
                 return;
             }
-            // Enable notifications on TX characteristic
+            activeTxCharUuid = txChar.getUuid();
+            Log.i(TAG, "Flipper serial TX char: " + activeTxCharUuid + " indicate=" + useIndicate);
+
+            // Find RX write characteristic (Android writes commands TO Flipper)
+            BluetoothGattCharacteristic rxChar = nus.getCharacteristic(NUS_RX_CHAR_UUID);
+            if (rxChar != null) {
+                bleRxChar = rxChar;
+                Log.i(TAG, "Flipper RX write char found");
+            } else {
+                for (BluetoothGattCharacteristic c : nus.getCharacteristics()) {
+                    if ((c.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+                            && !c.getUuid().equals(activeTxCharUuid)) {
+                        bleRxChar = c;
+                        Log.i(TAG, "Flipper RX char fallback: " + c.getUuid());
+                        break;
+                    }
+                }
+            }
+
+            // Enable notifications/indications on TX characteristic
             gatt.setCharacteristicNotification(txChar, true);
             BluetoothGattDescriptor descriptor = txChar.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
             if (descriptor != null) {
-                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                descriptor.setValue(useIndicate
+                        ? BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+                        : BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                 gatt.writeDescriptor(descriptor);
-                Log.i(TAG, "BLE NUS TX notifications enabled");
+                Log.i(TAG, "Flipper serial TX subscribed (indicate=" + useIndicate + ")");
+            } else {
+                Log.w(TAG, "CCCD descriptor not found on TX char");
             }
+        }
+
+        @Override
+        public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            Log.i(TAG, "CCCD write status=" + status);
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                // Request larger MTU so the full JSON response fits in one notify
+                gatt.requestMtu(512);
+            }
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+            Log.i(TAG, "MTU=" + mtu + " status=" + status);
+            // Send first flush command immediately, then start periodic loop
+            sendBleFlushCommand(gatt);
+            startBleFlushLoop(gatt);
+        }
+
+        @Override
+        public void onCharacteristicWrite(BluetoothGatt gatt,
+                                          BluetoothGattCharacteristic characteristic, int status) {
+            Log.i(TAG, "BLE write status=" + status);
         }
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt,
                                             BluetoothGattCharacteristic characteristic) {
-            if (!NUS_TX_CHAR_UUID.equals(characteristic.getUuid())) return;
             byte[] data = characteristic.getValue();
             if (data == null || data.length == 0) return;
 
             String chunk = new String(data, StandardCharsets.UTF_8);
-            lineBuffer.append(chunk);
-            // Process complete lines
-            int nl;
-            while ((nl = lineBuffer.indexOf("\n")) >= 0) {
-                String line = lineBuffer.substring(0, nl).trim();
-                lineBuffer.delete(0, nl + 1);
-                if (!line.isEmpty()) {
-                    handleSensorLine(line, "BLE");
+            Log.i(TAG, "BLE notify: " + data.length + "b: " + chunk.replaceAll("[\\x00-\\x1f]", "."));
+
+            synchronized (bleResponseBuf) {
+                bleResponseBuf.append(chunk);
+                String json = extractJsonObject(bleResponseBuf.toString());
+                if (json != null) {
+                    bleResponseBuf.setLength(0);
+                    processBleResponse(json);
                 }
             }
+        }
+
+        private void sendBleFlushCommand(BluetoothGatt gatt) {
+            if (bleRxChar == null || !bleConnected) return;
+            byte[] cmd = "{\"cmd\":\"flush_readings\"}\n".getBytes(StandardCharsets.UTF_8);
+            bleRxChar.setValue(cmd);
+            bleRxChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            boolean ok = gatt.writeCharacteristic(bleRxChar);
+            Log.i(TAG, "BLE flush command written: " + ok);
+        }
+
+        private void startBleFlushLoop(BluetoothGatt gatt) {
+            new Thread(() -> {
+                while (bleConnected) {
+                    try { Thread.sleep(BLE_FLUSH_INTERVAL_MS); } catch (InterruptedException e) { break; }
+                    if (bleConnected) sendBleFlushCommand(gatt);
+                }
+            }, "BLE-Flush").start();
+        }
+    }
+
+    /** Extract first complete top-level JSON object from s using brace matching. */
+    private static String extractJsonObject(String s) {
+        int start = s.indexOf('{');
+        if (start < 0) return null;
+        int depth = 0;
+        boolean inStr = false, esc = false;
+        for (int i = start; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (esc)        { esc = false; continue; }
+            if (c == '\\')  { esc = true;  continue; }
+            if (c == '"')   { inStr = !inStr; continue; }
+            if (!inStr) {
+                if (c == '{') depth++;
+                else if (c == '}') { depth--; if (depth == 0) return s.substring(start, i + 1); }
+            }
+        }
+        return null;
+    }
+
+    private void processBleResponse(String json) {
+        Log.i(TAG, "BLE response: " + json);
+        try {
+            JSONObject obj = new JSONObject(json);
+            if (obj.has("readings")) {
+                org.json.JSONArray readings = obj.getJSONArray("readings");
+                for (int i = 0; i < readings.length(); i++) {
+                    JSONObject r = readings.getJSONObject(i);
+                    String id = r.optString("id", "flipper/unknown").trim();
+                    final String fId  = id;
+                    final String fLine = r.toString();
+                    httpExecutor.execute(() -> forwardReading(fId, fLine, "BLE"));
+                }
+                Log.i(TAG, "BLE: forwarding " + readings.length() + " readings");
+            }
+        } catch (JSONException e) {
+            Log.w(TAG, "BLE JSON error: " + e.getMessage());
         }
     }
 
@@ -734,37 +861,19 @@ public class LocalRelayService extends Service {
     }
 
     /**
-     * POST sensor reading to BTCPC API. Tries local node first, falls back to remote.
+     * POST sensor reading to btcpc.net API.
      */
     private void forwardReading(String sensorId, String jsonBody, String transport) {
         lastReading = jsonBody;
-        // Always try to attach phone GPS to readings (silently skipped if no permission/location).
-        // The phone remains the authoritative location source for the paired Flipper session.
         jsonBody = attachGps(jsonBody);
-        // Inject account so the server can attribute the reading even if JWT lookup fails.
         jsonBody = injectAccount(jsonBody);
 
-        String localUrl  = LOCAL_API_BASE  + "/sensors/" + sensorId + "/readings";
-        String remoteUrl = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
-
-        boolean sent = false;
+        String url = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
         try {
-            String resp = httpPost(localUrl, jsonBody);
-            Log.i(TAG, "[" + transport + "] local API OK for " + sensorId + ": " + resp);
-            sent = true;
-        } catch (IOException localEx) {
-            Log.d(TAG, "[" + transport + "] local API unreachable (" + localEx.getMessage()
-                    + ") — trying remote");
-        }
-
-        if (!sent) {
-            try {
-                String resp = httpPost(remoteUrl, jsonBody);
-                Log.i(TAG, "[" + transport + "] remote API OK for " + sensorId + ": " + resp);
-            } catch (IOException remoteEx) {
-                Log.e(TAG, "[" + transport + "] both endpoints failed for " + sensorId
-                        + ": " + remoteEx.getMessage());
-            }
+            String resp = httpPost(url, jsonBody);
+            Log.i(TAG, "[" + transport + "] API OK for " + sensorId + ": " + resp);
+        } catch (IOException ex) {
+            Log.e(TAG, "[" + transport + "] API failed for " + sensorId + ": " + ex.getMessage());
         }
     }
 

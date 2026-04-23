@@ -91,7 +91,7 @@ async function detectCapabilities() {
     vision,
     vision_model: visionModel || null,
     audio: _isWhisperAvailable(),
-    code_exec: process.env.BTCPC_CODE_EXEC_ENABLED !== "false",
+    code_exec: process.env.BTCPC_CODE_EXEC_ENABLED === "true",
     browser: process.env.BTCPC_BROWSER_ENABLED !== "false" && _isPlaywrightAvailable(),
     finetune: process.env.BTCPC_FINETUNE_ENABLED === "true",
     tiers,

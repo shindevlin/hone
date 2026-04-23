@@ -63,6 +63,28 @@ describe('ledger service', () => {
     }));
   });
 
+  test('recordAuthorizedTransfer records private-auth metadata', async () => {
+    mockMempoolSubmit.mockReturnValue({ accepted: true });
+
+    const entry = await ledger.recordAuthorizedTransfer('alice', 'bob', 7, 'BTCPC', null, 42, 'memo', {
+      signedBy: 'private_auth',
+      requestId: 'req-1',
+      threshold: 2,
+      approvalCount: 2,
+      factors: [{ factorId: 'f-1', chain: 'evm', commitment: 'abc' }]
+    });
+
+    expect(entry).toEqual(expect.objectContaining({
+      type: 'TRANSFER',
+      signed_by: 'private_auth',
+      authorization: expect.objectContaining({
+        requestId: 'req-1',
+        threshold: 2,
+        approvalCount: 2
+      })
+    }));
+  });
+
   test('getBalance reads from stateStore', async () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();

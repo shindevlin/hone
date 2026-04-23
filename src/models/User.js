@@ -72,6 +72,27 @@ var userSchema = new Schema({
     type: String,
     default: null
   },
+  privateAuth: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    threshold: {
+      type: Number,
+      default: 1
+    },
+    factors: [{
+      factorId: { type: String, required: true },
+      chain: { type: String, required: true },
+      commitment: { type: String, required: true },
+      label: { type: String, default: null },
+      createdAt: { type: Date, default: Date.now }
+    }],
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
   lastLogin: {
     type: Date,
     default: Date.now

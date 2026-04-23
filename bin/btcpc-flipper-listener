@@ -118,97 +118,94 @@ function configureTty(port) {
 }
 
 /**
+ * Open the Flipper serial port and return the fd.
+ * The caller is responsible for closing it with fs.closeSync(fd).
+ */
+function openFlipperPort(port) {
+    configureTty(port);
+    return fs.openSync(port, "r+");
+}
+
+/**
+ * Read bytes from fd until a complete top-level JSON object is found or
+ * timeoutMs elapses.  Uses brace-depth counting so embedded newlines in
+ * string values (e.g. a leading \n in the account name) don't break parsing.
+ */
+function readJsonFromFd(fd, timeoutMs) {
+    var readBuf = "";
+    var chunkBuf = Buffer.alloc(256);
+    var deadline = Date.now() + (timeoutMs || 4000);
+
+    while (Date.now() < deadline) {
+        try {
+            var n = fs.readSync(fd, chunkBuf, 0, chunkBuf.length);
+            if (n > 0) readBuf += chunkBuf.slice(0, n).toString("utf8");
+        } catch (e) {
+            if (e.code !== "EAGAIN" && e.code !== "EWOULDBLOCK") throw e;
+            var waitEnd = Date.now() + 50;
+            while (Date.now() < waitEnd) {}
+        }
+
+        // Find the first '{' and walk to its matching '}'
+        var start = readBuf.indexOf("{");
+        if (start < 0) continue;
+
+        var depth = 0, inStr = false, esc = false;
+        for (var i = start; i < readBuf.length; i++) {
+            var c = readBuf[i];
+            if (esc)          { esc = false; continue; }
+            if (c === "\\")   { esc = true;  continue; }
+            if (c === '"')    { inStr = !inStr; continue; }
+            if (!inStr) {
+                if (c === "{") depth++;
+                else if (c === "}") {
+                    depth--;
+                    if (depth === 0) {
+                        var candidate = readBuf.slice(start, i + 1);
+                        try {
+                            return JSON.parse(candidate);
+                        } catch (_) {
+                            // malformed — skip past this '{' and retry
+                            readBuf = readBuf.slice(start + 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return { raw: readBuf };
+}
+
+/**
+ * Send one JSON command on an already-open fd and return the parsed response.
+ * Does NOT close the fd — caller owns the lifecycle.
+ */
+function sendCommandOnFd(fd, cmd) {
+    var json = JSON.stringify(cmd) + "\n";
+    fs.writeSync(fd, Buffer.from(json, "utf8"));
+    return readJsonFromFd(fd, 4000);
+}
+
+/**
  * Send a JSON command to the Flipper and wait for a JSON response.
- * Uses serialport if available, else falls back to raw file I/O (with stty config).
+ * Opens and closes its own port connection each call (legacy helper;
+ * prefer openFlipperPort + sendCommandOnFd for multi-command sessions).
  */
 function sendCommand(port, cmd) {
     return new Promise(function(resolve, reject) {
-        var serialport;
+        var fd;
         try {
-            serialport = require("serialport");
-        } catch (_) {
-            serialport = null;
+            fd = openFlipperPort(port);
+        } catch (e) {
+            return reject(e);
         }
-
-        if (serialport) {
-            // ── serialport path ─────────────────────────────────────
-            var sp = new serialport.SerialPort({ path: port, baudRate: 115200 });
-            var data = "";
-            sp.on("data", function(chunk) { data += chunk.toString(); });
-            sp.on("open", function() {
-                sp.write(JSON.stringify(cmd) + "\n");
-                setTimeout(function() {
-                    sp.close(function() {});
-                    var lines = data.trim().split("\n");
-                    // Find the last non-empty line that parses as JSON
-                    for (var i = lines.length - 1; i >= 0; i--) {
-                        var line = lines[i].trim();
-                        if (!line) continue;
-                        try { return resolve(JSON.parse(line)); } catch (_) {}
-                    }
-                    resolve({ raw: data });
-                }, 2000);
-            });
-            sp.on("error", reject);
-        } else {
-            // ── raw file I/O fallback ────────────────────────────────
-            // Configure the tty first (required for raw binary mode)
-            try {
-                configureTty(port);
-            } catch (e) {
-                return reject(new Error("stty config failed: " + e.message));
-            }
-
-            var fd;
-            try {
-                fd = fs.openSync(port, "r+");
-            } catch (e) {
-                return reject(new Error("open failed: " + e.message));
-            }
-
-            var json = JSON.stringify(cmd) + "\n";
-            try {
-                fs.writeSync(fd, Buffer.from(json, "utf8"));
-            } catch (e) {
-                try { fs.closeSync(fd); } catch (_) {}
-                return reject(new Error("write failed: " + e.message));
-            }
-
-            // Poll for a complete JSON line (up to 4 s)
-            var readBuf = "";
-            var chunkBuf = Buffer.alloc(256);
-            var deadline = Date.now() + 4000;
-            var result = null;
-
-            while (Date.now() < deadline) {
-                try {
-                    var n = fs.readSync(fd, chunkBuf, 0, chunkBuf.length);
-                    if (n > 0) readBuf += chunkBuf.slice(0, n).toString("utf8");
-                } catch (e) {
-                    if (e.code !== "EAGAIN" && e.code !== "EWOULDBLOCK") {
-                        try { fs.closeSync(fd); } catch (_) {}
-                        return reject(e);
-                    }
-                    // no data yet — spin briefly
-                    var waitEnd = Date.now() + 50;
-                    while (Date.now() < waitEnd) {}
-                }
-
-                var nl = readBuf.indexOf("\n");
-                if (nl >= 0) {
-                    var line = readBuf.slice(0, nl).trim();
-                    readBuf = readBuf.slice(nl + 1);
-                    if (!line) continue;
-                    try { result = JSON.parse(line); break; } catch (_) { /* skip non-JSON debug output */ }
-                }
-            }
-
+        try {
+            resolve(sendCommandOnFd(fd, cmd));
+        } catch (e) {
+            reject(e);
+        } finally {
             try { fs.closeSync(fd); } catch (_) {}
-            if (result) {
-                resolve(result);
-            } else {
-                resolve({ raw: readBuf });
-            }
         }
     });
 }
@@ -316,11 +313,12 @@ async function drainBuffer() {
     return drained;
 }
 
-async function flushReadings(port) {
+async function flushReadings(fd) {
     try {
         log("Flushing readings from Flipper...");
-        var resp = await sendCommand(port, { cmd: "flush_readings" });
+        var resp = sendCommandOnFd(fd, { cmd: "flush_readings" });
 
+        log("flush raw: " + JSON.stringify(resp));
         if (resp && resp.readings && resp.readings.length > 0) {
             log("Got " + resp.readings.length + " readings from Flipper");
 
@@ -334,7 +332,7 @@ async function flushReadings(port) {
             for (var i = 0; i < resp.readings.length; i++) {
                 var r = resp.readings[i];
                 var sensorType = r.type || "unknown";
-                var sensorId   = ACCOUNT + "/flipper-" + sensorType;
+                var sensorId   = r.id || (ACCOUNT + "/flipper-" + sensorType);
                 var value      = (r.rssi !== undefined) ? r.rssi : (r.value !== undefined ? r.value : 0);
                 var metadata   = {
                     type:               sensorType,
@@ -396,17 +394,21 @@ setInterval(async function() {
     if (port) {
         var now = Date.now();
         if (now - lastFlush > FLUSH_INTERVAL_MS) {
+            var fd = null;
             try {
-                var ping = await sendCommand(port, { cmd: "ping" });
+                fd = openFlipperPort(port);
+                var ping = sendCommandOnFd(fd, { cmd: "ping" });
                 if (ping && ping.status === "ok") {
                     log("Flipper connected on " + port + " (v" + (ping.version || "?") + ")");
-                    await flushReadings(port);
+                    await flushReadings(fd);
                     lastFlush = now;
                 } else {
                     log("Flipper ping: no BTCPC app response on " + port);
                 }
             } catch (e) {
                 log("Serial error: " + e.message);
+            } finally {
+                if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
             }
         }
     }

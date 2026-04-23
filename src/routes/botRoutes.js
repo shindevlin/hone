@@ -18,6 +18,7 @@ const { getDreams: getDreamsForAccount } = require('../controllers/dreamControll
 const { getJob: getInferenceJob } = require('../inference/p2pRouter');
 const { getBlockReward } = require('../services/emissionSchedule');
 const secretStore = require('../services/secretStore');
+const privateAuthorization = require('../services/privateAuthorization');
 const { authenticateToken } = require('../middlewares/auth');
 const { createAccountForUser } = require('../services/accountCreation');
 
@@ -1462,12 +1463,40 @@ router.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'Insufficient balance: ' + balance + ' BTCPC available' });
     }
 
+    var authorization = null;
+    if (sender.privateAuth && sender.privateAuth.enabled) {
+      if (!req.body.private_auth) {
+        return res.status(403).json({ error: 'Private authorization required for this account' });
+      }
+      try {
+        authorization = await privateAuthorization.verifyTransferAuthorization(
+          sender.username,
+          { from: sender.username, to: toAccount, amount, token: 'BTCPC', memo: 'Telegram bot send' },
+          req.body.private_auth
+        );
+      } catch (authErr) {
+        return res.status(403).json({ error: authErr.message });
+      }
+    }
+
     // Execute transfer
     var epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
-    var entry = await ledger.recordTransfer(
-      sender.username, toAccount, amount, 'BTCPC', null, epoch,
-      'Telegram bot send'
-    );
+    var entry = authorization
+      ? await ledger.recordAuthorizedTransfer(
+          sender.username, toAccount, amount, 'BTCPC', null, epoch,
+          'Telegram bot send',
+          {
+            signedBy: 'private_auth',
+            requestId: authorization.requestId,
+            threshold: authorization.threshold,
+            approvalCount: authorization.approvalCount,
+            factors: authorization.factors
+          }
+        )
+      : await ledger.recordTransfer(
+          sender.username, toAccount, amount, 'BTCPC', null, epoch,
+          'Telegram bot send'
+        );
 
     var newBalance = stateStore.getBalance(sender.username, 'BTCPC');
 

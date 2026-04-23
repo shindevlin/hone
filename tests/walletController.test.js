@@ -6,7 +6,12 @@ jest.mock('../src/models/User', () => ({
 
 jest.mock('../src/services/ledger', () => ({
   getCurrentEpoch: jest.fn(),
-  recordTransfer: jest.fn()
+  recordTransfer: jest.fn(),
+  recordAuthorizedTransfer: jest.fn()
+}));
+
+jest.mock('../src/services/privateAuthorization', () => ({
+  verifyTransferAuthorization: jest.fn()
 }));
 
 jest.mock('../src/chain/stateStore', () => ({
@@ -31,6 +36,7 @@ jest.mock('../src/chain/blockStore', () => ({
 
 const User = require('../src/models/User');
 const ledger = require('../src/services/ledger');
+const privateAuthorization = require('../src/services/privateAuthorization');
 const stateStore = require('../src/chain/stateStore');
 const {
   createWallet,
@@ -135,6 +141,60 @@ describe('walletController', () => {
       success: true,
       txHash: 'tx-hash-123'
     }));
+  });
+
+  test('transfer enforces private authorization when enabled', async () => {
+    User.findById.mockResolvedValue({
+      username: 'alice',
+      privateAuth: { enabled: true, threshold: 1, factors: [] }
+    });
+    User.findOne.mockResolvedValue({ username: 'bobaccount' });
+    stateStore.getBalance.mockReturnValue(100);
+    ledger.getCurrentEpoch.mockResolvedValue(42);
+    privateAuthorization.verifyTransferAuthorization.mockResolvedValue({
+      requestId: 'req-1',
+      threshold: 1,
+      approvalCount: 1,
+      factors: [{ factorId: 'f-1', chain: 'evm', commitment: 'abc' }]
+    });
+    ledger.recordAuthorizedTransfer.mockResolvedValue({
+      toObject: () => ({ epoch: 42, from: 'alice', to: 'bobaccount', amount: 10 }),
+      timestamp: new Date('2026-04-08T00:00:00.000Z')
+    });
+
+    const req = {
+      user: { id: 'user-1' },
+      body: {
+        toAddress: 'bobaccount',
+        amount: 10,
+        memo: 'payment',
+        private_auth: { requestId: 'req-1', approvals: [{ factorId: 'f-1', chain: 'evm', signature: '0x01' }] }
+      }
+    };
+    const res = createRes();
+
+    await transfer(req, res);
+
+    expect(privateAuthorization.verifyTransferAuthorization).toHaveBeenCalledWith(
+      'alice',
+      { from: 'alice', to: 'bobaccount', amount: 10, token: 'BTCPC', memo: 'payment' },
+      req.body.private_auth
+    );
+    expect(ledger.recordAuthorizedTransfer).toHaveBeenCalledWith(
+      'alice',
+      'bobaccount',
+      10,
+      'BTCPC',
+      null,
+      42,
+      'payment',
+      expect.objectContaining({
+        signedBy: 'private_auth',
+        requestId: 'req-1',
+        threshold: 1,
+        approvalCount: 1
+      })
+    );
   });
 
   test('getTransactionHistory returns note about block replay', async () => {

@@ -6,12 +6,91 @@ const { authenticateToken } = require('../middlewares/auth');
 const { requireTOTP } = require('../services/totp');
 const ledger = require('../services/ledger');
 const stateStore = require('../chain/stateStore');
+const privateAuthorization = require('../services/privateAuthorization');
 
 // All wallet routes require authentication
 router.post('/create', authenticateToken, createWallet);
 router.get('/balance', authenticateToken, getBalance);
 router.post('/transfer', authenticateToken, requireTOTP, transfer);
 router.get('/transactions', authenticateToken, getTransactionHistory);
+
+router.get('/private-auth', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user && req.user.username ? req.user.username : null;
+    if (!user) return res.status(401).json({ error: 'unauthenticated' });
+    const policy = await privateAuthorization.getPolicy(user);
+    res.json({ success: true, policy });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/private-auth/policy', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user && req.user.username ? req.user.username : null;
+    if (!user) return res.status(401).json({ error: 'unauthenticated' });
+    const threshold = req.body && req.body.threshold;
+    const enabled = req.body && req.body.enabled;
+    const policy = await privateAuthorization.setPolicy(user, { threshold, enabled });
+    res.json({ success: true, policy });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/private-auth/enroll/request', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user && req.user.username ? req.user.username : null;
+    if (!user) return res.status(401).json({ error: 'unauthenticated' });
+    const chain = req.body && req.body.chain;
+    const label = req.body && req.body.label;
+    const address = req.body && req.body.address;
+    const challenge = await privateAuthorization.requestEnrollment(user, chain, label, address);
+    res.json({ success: true, challenge });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/private-auth/enroll/verify', authenticateToken, async (req, res) => {
+  try {
+    const challengeId = req.body && req.body.challengeId;
+    const signature = req.body && req.body.signature;
+    if (!challengeId || !signature) {
+      return res.status(400).json({ error: 'challengeId and signature required' });
+    }
+    const result = await privateAuthorization.verifyEnrollment(challengeId, signature);
+    if (!result.success) return res.status(400).json({ error: result.error });
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/private-auth/transfer/request', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user && req.user.username ? req.user.username : null;
+    if (!user) return res.status(401).json({ error: 'unauthenticated' });
+    const toAddress = req.body && req.body.toAddress;
+    const amount = req.body && req.body.amount;
+    const token = req.body && req.body.token ? req.body.token : 'BTCPC';
+    const memo = req.body && req.body.memo ? req.body.memo : null;
+    const approvalChain = req.body && req.body.approval_chain ? req.body.approval_chain : req.body.chain;
+    const proofBackend = req.body && req.body.proof_backend ? req.body.proof_backend : null;
+    const challenge = await privateAuthorization.requestTransferAuthorization(user, {
+      from: user,
+      to: toAddress,
+      amount,
+      token,
+      memo,
+      approval_chain: approvalChain,
+      proof_backend: proofBackend
+    });
+    res.json({ success: true, challenge });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // ── Nested wallet routes (v3.3) ─────────────────────────────────────────────
 

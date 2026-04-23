@@ -60,7 +60,25 @@ var GEO_CORROBORATION_TOLERANCE = 0.10; // 10%
 var GEO_MIN_CORROBORATORS = 2;
 
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-var VALID_TYPES = ["temperature", "humidity", "air_quality", "gps", "soil", "uwb_position", "uwb_range", "motion", "power", "noise", "light", "pressure", "rf-scanner", "custom"];
+var VALID_TYPES = [
+  // environmental
+  "temperature", "humidity", "air_quality", "soil", "noise", "light", "pressure",
+  // location / positioning
+  "gps", "gps-location", "uwb_position", "uwb_range",
+  // motion / IMU (phone sensors)
+  "accelerometer", "linear-acceleration", "gravity",
+  "gyroscope", "gyroscope-raw",
+  "orientation", "orientation-game", "orientation-geo",
+  "magnetometer", "magnetometer-raw",
+  "barometer",
+  "proximity", "heading", "hinge-angle",
+  // activity / biometrics
+  "motion", "stationary", "steps", "step-detector", "heart-rate",
+  // power / infrastructure
+  "power", "battery",
+  // other
+  "rf-scanner", "custom"
+];
 
 // Number of epochs of silence before a sensor transitions to "idle"
 var IDLE_EPOCH_THRESHOLD = 100;

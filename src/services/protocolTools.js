@@ -87,32 +87,6 @@ const PROTOCOL_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "execute_code",
-      description: "Execute code in a sandboxed subprocess. Returns stdout, stderr, and exit code. Supports javascript (Node.js), python, and bash. Has a hard timeout. No network access inside the sandbox.",
-      parameters: {
-        type: "object",
-        properties: {
-          language: {
-            type: "string",
-            enum: ["javascript", "python", "bash"],
-            description: "Programming language to execute",
-          },
-          code: {
-            type: "string",
-            description: "The code to execute",
-          },
-          timeout_ms: {
-            type: "number",
-            description: "Execution timeout in milliseconds (default: 5000, max: 30000)",
-          },
-        },
-        required: ["language", "code"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "web_fetch",
       description: "Fetch the content of a URL. UNVERIFIED — executed by the miner's machine. Result is flagged trusted: false. Only use for public, non-sensitive URLs.",
       parameters: {
@@ -160,7 +134,6 @@ const PROTOCOL_NATIVE_TOOLS = new Set([
   "btcpc_balance",
   "btcpc_chain_query",
   "btcpc_sensor_query",
-  "execute_code",
 ]);
 
 // Tools that are miner-executed but not chain-verifiable
@@ -202,8 +175,8 @@ async function executeProtocolTool(name, input) {
     return _execSensorQuery(input);
   }
   if (name === "execute_code") {
-    if (process.env.BTCPC_CODE_EXEC_ENABLED === "false") {
-      return { content: "This miner has disabled code execution jobs.", trusted: true, error: "disabled" };
+    if (process.env.BTCPC_CODE_EXEC_ENABLED !== "true") {
+      return { content: "Code execution is disabled on this miner.", trusted: true, error: "disabled" };
     }
     return _execCode(input);
   }
@@ -381,9 +354,16 @@ async function _execWebFetch(input) {
   if (!/^https?:\/\//i.test(url)) {
     return { content: "Only http/https URLs are supported", trusted: false, error: "invalid_url" };
   }
+  const { isPublicHttpUrl } = require("./urlSafety");
+  const safe = await isPublicHttpUrl(url);
+  if (!safe) {
+    return { content: "URL rejected: private or internal addresses are not allowed", trusted: false, error: "ssrf_blocked" };
+  }
   try {
     const axios = require("axios");
-    const resp = await axios.get(url, { timeout: 10000, maxContentLength: 512 * 1024 });
+    // maxRedirects: 0 — redirects are disabled because each hop must be
+    // re-validated against the SSRF guard and we cannot do that inside axios.
+    const resp = await axios.get(url, { timeout: 10000, maxContentLength: 512 * 1024, maxRedirects: 0 });
     const body = input.format === "json" ? resp.data : String(resp.data).slice(0, 8000);
     return { trusted: false, content: body };
   } catch (err) {

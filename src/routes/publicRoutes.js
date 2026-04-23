@@ -82,14 +82,13 @@ router.get('/machine-status', async (req, res) => {
     const path = require('path');
     const axios = require('axios');
 
-    // Hostname + uptime
-    const hostname = os.hostname();
     const uptimeSec = Math.round(os.uptime());
     const loadAvg = os.loadavg()[0].toFixed(2);
     const freeMem = Math.round(os.freemem() / 1024 / 1024);
     const totalMem = Math.round(os.totalmem() / 1024 / 1024);
 
-    // Detect running btcpc processes by scanning /proc/*/cmdline
+    // Detect running btcpc processes by scanning /proc/*/cmdline.
+    // Only role names are returned — no PIDs or memory stats.
     const btcpcRoles = {
       'src/index.js': 'api',
       'btcpc-mine': 'mine',
@@ -98,25 +97,20 @@ router.get('/machine-status', async (req, res) => {
       'btcpc-chain-monitor': 'chain-monitor',
       'btcpc-auto-update': 'auto-update',
       'btcpc-gnss-bridge': 'gnss-bridge',
-      // 'btcpc-gnss-relay' deprecated — replaced by btcpc-gnss-bridge (HTTP poll, no root required)
       'btcpc-nebra': 'nebra',
       'btcpc-all': 'all',
       'btcpc-gateway': 'gateway',
       'btcpc-verifier': 'verifier',
     };
     const btcpcBins = Object.keys(btcpcRoles);
-    const running = [];
+    const runningRoles = new Set();
     function matchesBtcpcProcess(parts, binName) {
       if (!parts.length) return false;
       if (parts[0] === binName || path.basename(parts[0]) === binName) return true;
-
-      // Node-launched roles appear as: node bin/btcpc-mine. Do not scan every
-      // argument, or paths like /mnt/btcpc-storage get misreported as daemons.
       const exe = path.basename(parts[0]);
       if (exe === 'node' || exe === 'nodejs') {
         return parts.slice(1, 3).some(part => part === binName || path.basename(part) === binName);
       }
-
       return false;
     }
     try {
@@ -126,46 +120,17 @@ router.get('/machine-status', async (req, res) => {
           const cmd = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ').trim();
           const parts = cmd.split(/\s+/).filter(Boolean);
           const match = btcpcBins.find(b => matchesBtcpcProcess(parts, b));
-          if (match) {
-            // Get memory usage from /proc/PID/status
-            let rss = 0;
-            try {
-              const status = fs.readFileSync('/proc/' + pid + '/status', 'utf8');
-              const m = status.match(/VmRSS:\s*(\d+)/);
-              if (m) rss = Math.round(parseInt(m[1]) / 1024);
-            } catch (_) {}
-            running.push({ role: btcpcRoles[match], pid: parseInt(pid), rss_mb: rss });
-          }
+          if (match) runningRoles.add(btcpcRoles[match]);
         } catch (_) {}
       }
     } catch (_) {}
 
-    // Ollama models currently loaded
-    let models = [];
+    // Check if Ollama is reachable — return boolean only, not the model list.
     let ollamaRunning = false;
     try {
       const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
-      const tagsResp = await axios.get(ollamaUrl + '/api/tags', { timeout: 3000 });
-      models = (tagsResp.data.models || []).map(m => ({
-        name: m.name,
-        size_gb: m.size ? (m.size / 1e9).toFixed(1) : null,
-        modified: m.modified_at,
-      }));
+      await axios.get(ollamaUrl + '/api/tags', { timeout: 3000 });
       ollamaRunning = true;
-    } catch (_) {}
-
-    // Connected P2P peers
-    let peers = [];
-    try {
-      const p2p = require('../p2p/network');
-      if (typeof p2p.getPeers === 'function') {
-        const peerMap = p2p.getPeers();
-        peers = Array.from(peerMap.values()).map(p => ({
-          address: p.address || '?',
-          connected: p.ws && p.ws.readyState === 1,
-          nodeId: p.nodeId ? p.nodeId.slice(0, 12) + '...' : null,
-        }));
-      }
     } catch (_) {}
 
     // Chain height from block files
@@ -180,14 +145,12 @@ router.get('/machine-status', async (req, res) => {
     } catch (_) {}
 
     res.json({
-      hostname,
       uptime_sec: uptimeSec,
       load_avg: parseFloat(loadAvg),
       mem_free_mb: freeMem,
       mem_total_mb: totalMem,
-      processes: running,
-      ollama: { running: ollamaRunning, models },
-      peers,
+      processes: Array.from(runningRoles).map(role => ({ role })),
+      ollama: { running: ollamaRunning },
       chain_height: chainHeight,
       timestamp: Date.now(),
     });

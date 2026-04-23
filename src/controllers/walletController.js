@@ -1,6 +1,7 @@
 "use strict";
 const crypto = require('crypto');
 const ledger = require('../services/ledger');
+const privateAuthorization = require('../services/privateAuthorization');
 const p2p = require('../p2p/network');
 const { createTransactionMessage } = require('../p2p/protocol');
 const stateStore = require('../chain/stateStore');
@@ -134,9 +135,43 @@ async function transfer(req, res) {
       return res.status(400).json({ error: 'Cannot transfer to your own wallet' });
     }
 
+    const privateAuth = senderUser.privateAuth && senderUser.privateAuth.enabled ? req.body.private_auth : null;
+    let authorization = null;
+    if (senderUser.privateAuth && senderUser.privateAuth.enabled) {
+      if (!privateAuth) {
+        return res.status(403).json({ error: 'Private authorization required for this account' });
+      }
+      try {
+        authorization = await privateAuthorization.verifyTransferAuthorization(
+          senderName,
+          { from: senderName, to: recipientName, amount, token: 'BTCPC', memo },
+          privateAuth
+        );
+      } catch (authErr) {
+        return res.status(403).json({ error: authErr.message });
+      }
+    }
+
     // Record on permanent ledger
     const epoch = await ledger.getCurrentEpoch();
-    const entry = await ledger.recordTransfer(senderName, recipientName, amount, 'BTCPC', null, epoch, memo || null);
+    const entry = authorization
+      ? await ledger.recordAuthorizedTransfer(
+          senderName,
+          recipientName,
+          amount,
+          'BTCPC',
+          null,
+          epoch,
+          memo || null,
+          {
+            signedBy: 'private_auth',
+            requestId: authorization.requestId,
+            threshold: authorization.threshold,
+            approvalCount: authorization.approvalCount,
+            factors: authorization.factors
+          }
+        )
+      : await ledger.recordTransfer(senderName, recipientName, amount, 'BTCPC', null, epoch, memo || null);
     const txHash = require('../chain/blockStore').hashLedgerEntry(entry && entry.toObject ? entry.toObject() : entry);
 
     // Broadcast to P2P network

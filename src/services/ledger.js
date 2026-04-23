@@ -416,6 +416,13 @@ async function recordAccountAliasTransfer(alias, fromAccount, toAccount, ownerKe
  * Validates via mempool (double-spend protection), then applies to stateStore.
  */
 async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
+  return recordAuthorizedTransfer(from, to, amount, token, signature, epoch, memo, {
+    signedBy: 'active',
+    authorization: null
+  });
+}
+
+async function recordAuthorizedTransfer(from, to, amount, token, signature, epoch, memo, authorization) {
   if (amount <= 0) throw new Error('Amount must be positive');
   if (!from) throw new Error('Sender required');
   if (!to) throw new Error('Recipient required');
@@ -447,8 +454,9 @@ async function recordTransfer(from, to, amount, token, signature, epoch, memo) {
     amount,
     epoch,
     signature,
-    signed_by: 'active',
+    signed_by: (authorization && authorization.signedBy) || 'active',
     memo,
+    authorization: authorization || null,
   });
   return _persist(entry);
 }
@@ -3151,6 +3159,7 @@ async function recordInferenceJobToolResult(jobId, buyer, toolResults, turn, epo
 module.exports = {
   recordAccountCreate,
   recordTransfer,
+  recordAuthorizedTransfer,
   recordMiningReward,
   recordProjectRevenueSplit,
   recordModelUpload,

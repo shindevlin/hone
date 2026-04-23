@@ -65,6 +65,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private volatile boolean running;
     private volatile String account;
     private volatile String deviceName;
+    private volatile String jwt;
     private SensorManager sensorManager;
     private LocationManager locationManager;
     private BroadcastReceiver batteryReceiver;
@@ -293,6 +294,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             body.put("name", deviceName + "-" + snapshot.type);
             body.put("type", snapshot.type);
             body.put("unit", snapshot.unit);
+            body.put("decimals", 6);
             body.put("region", "phone");
             body.put("hardware_model", Build.MODEL);
             body.put("firmware_version", Build.VERSION.RELEASE);
@@ -331,13 +333,15 @@ public class NativeSensorService extends Service implements SensorEventListener,
     }
 
     private void postJson(String url, JSONObject body) throws Exception {
-        Request request = new Request.Builder()
+        Request.Builder rb = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create(body.toString(), JSON))
-                .build();
+                .post(RequestBody.create(body.toString(), JSON));
+        if (jwt != null && !jwt.isEmpty()) rb.addHeader("Authorization", "Bearer " + jwt);
+        Request request = rb.build();
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                throw new IllegalStateException("HTTP " + response.code());
+                String errBody = response.body() != null ? response.body().string() : "";
+                throw new IllegalStateException("HTTP " + response.code() + " " + errBody);
             }
         }
     }
@@ -345,6 +349,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private void loadSettings() {
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         account = prefs.getString("account", "btcpc-phone");
+        jwt     = prefs.getString("jwt", "");
         String saved = prefs.getString("sensor_device_name", null);
         if (saved == null || saved.isEmpty()) {
             saved = sanitize(Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));

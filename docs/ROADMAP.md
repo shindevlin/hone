@@ -59,6 +59,9 @@
 - [ ] Premium pricing tier (N× standard rate)
 - [ ] Proof of Silicon — hardware attestation for miner verification
 - [ ] Encrypted inference with client-side decryption
+- [ ] Private authorization stack — BTCPC spends approved by Bitcoin, Lightning, zkVM, or other supported chains
+  - Implementation plan: [docs/PRIVATE_AUTH_IMPLEMENTATION_PLAN.md](PRIVATE_AUTH_IMPLEMENTATION_PLAN.md)
+- [ ] BTCPC-native ZK verifier backend for private authorization receipts
 
 ## Phase 4 — Maturity
 

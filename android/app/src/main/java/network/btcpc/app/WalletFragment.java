@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,6 +24,8 @@ import java.util.Locale;
 
 public class WalletFragment extends Fragment {
 
+    private static final String TAG = "BTCPCWallet";
+
     private AppPrefs prefs;
 
     private View loginSection;
@@ -36,13 +39,19 @@ public class WalletFragment extends Fragment {
     private TextView loginError;
 
     private SwipeRefreshLayout swipeRefresh;
+    private View balanceCard;
     private TextView balanceView;
+    private TextView unitView;
     private TextView delegatedView;
     private TextView addressView;
     private TextView statusView;
     private MaterialButton sendBtn;
     private MaterialButton receiveBtn;
     private MaterialButton delegateBtn;
+
+    private static final long DREAMS_PER_BTCPC = 100_000_000L;
+    private double lastBalance = 0;
+    private boolean showingDreams = false;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -68,7 +77,9 @@ public class WalletFragment extends Fragment {
         loginError          = view.findViewById(R.id.wallet_login_error);
 
         swipeRefresh  = view.findViewById(R.id.wallet_swipe_refresh);
+        balanceCard   = view.findViewById(R.id.wallet_balance_card);
         balanceView   = view.findViewById(R.id.wallet_balance);
+        unitView      = view.findViewById(R.id.wallet_unit);
         delegatedView = view.findViewById(R.id.wallet_delegated);
         addressView   = view.findViewById(R.id.wallet_address);
         statusView    = view.findViewById(R.id.wallet_status);
@@ -79,6 +90,9 @@ public class WalletFragment extends Fragment {
         swipeRefresh.setColorSchemeColors(0xFFF7931A);
         swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF161B25);
         swipeRefresh.setOnRefreshListener(this::loadBalance);
+
+        Log.d(TAG, "balanceCard null? " + (balanceCard == null));
+        if (balanceCard != null) balanceCard.setOnClickListener(v -> toggleBalanceUnit());
 
         sendBtn.setOnClickListener(v -> showSendDialog());
         receiveBtn.setOnClickListener(v -> showReceiveDialog());
@@ -193,7 +207,10 @@ public class WalletFragment extends Fragment {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
 
-                balanceView.setText(formatBtcpc(btcpcBalance));
+                Log.d(TAG, "balance loaded: " + btcpcBalance + " BTCPC");
+                lastBalance = btcpcBalance;
+                showingDreams = false;
+                updateBalanceDisplay();
 
                 if (delegatedBalance > 0) {
                     delegatedView.setText(formatBtcpc(delegatedBalance) + " BTCPC delegated");
@@ -220,8 +237,11 @@ public class WalletFragment extends Fragment {
             public void onError(String message) {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
+                Log.e(TAG, "balance load error: " + message);
                 statusView.setText("Error: " + message);
                 balanceView.setText("--");
+                unitView.setText("BTCPC");
+                showingDreams = false;
             }
         });
     }
@@ -352,6 +372,24 @@ public class WalletFragment extends Fragment {
             });
         });
         dialog.show();
+    }
+
+    private void toggleBalanceUnit() {
+        Log.d(TAG, "toggleBalanceUnit: showingDreams=" + showingDreams + " lastBalance=" + lastBalance);
+        showingDreams = !showingDreams;
+        updateBalanceDisplay();
+    }
+
+    private void updateBalanceDisplay() {
+        if (showingDreams) {
+            long dreams = Math.round(lastBalance * DREAMS_PER_BTCPC);
+            balanceView.setText(String.format(Locale.US, "%,d", dreams));
+            unitView.setText("dreams");
+        } else {
+            balanceView.setText(lastBalance > 0 ? formatBtcpc(lastBalance) : "--");
+            unitView.setText("BTCPC");
+        }
+        Log.d(TAG, "updateBalanceDisplay: showing " + (showingDreams ? "dreams" : "BTCPC"));
     }
 
     /**

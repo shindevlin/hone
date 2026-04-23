@@ -31,6 +31,7 @@ const mempool = require("../p2p/mempool");
 // Emission schedule
 const { getCurrentPeriod, getPeriodTable, TOTAL_SUPPLY } = require("../services/emissionSchedule");
 const ledger = require("../services/ledger");
+const privateAuthorization = require("../services/privateAuthorization");
 
 // Views
 const dashboardView = require("./views/dashboard");
@@ -250,13 +251,47 @@ app.post("/api/wallet/transfer", validateTelegramInitData, requireVerifiedTelegr
     if (!recipient) return res.status(404).json({ error: "Recipient wallet not found" });
     if (user.username === recipient.username) return res.status(400).json({ error: "Cannot transfer to your own wallet" });
 
+    const memo = sanitizeString(req.body.memo, 500) || null;
+
     // Balance check via stateStore (chain state)
     const balance = stateStore.getBalance(user.username, "BTCPC");
     if (balance < amount) return res.status(400).json({ error: "Insufficient BTCPC balance" });
 
+    let authorization = null;
+    if (user.privateAuth && user.privateAuth.enabled) {
+      if (!req.body.private_auth) {
+        return res.status(403).json({ error: "Private authorization required for this account" });
+      }
+      try {
+        authorization = await privateAuthorization.verifyTransferAuthorization(
+          user.username,
+          { from: user.username, to: recipient.username, amount, token: "BTCPC", memo },
+          req.body.private_auth
+        );
+      } catch (authErr) {
+        return res.status(403).json({ error: authErr.message });
+      }
+    }
+
     const epoch = await ledger.getCurrentEpoch();
-    const memo = sanitizeString(req.body.memo, 500) || null;
-    const entry = await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, memo);
+    const entry = authorization
+      ? await ledger.recordAuthorizedTransfer(
+          user.username,
+          recipient.username,
+          amount,
+          "BTCPC",
+          null,
+          epoch,
+          memo,
+          {
+            signedBy: "private_auth",
+            requestId: authorization.requestId,
+            threshold: authorization.threshold,
+            approvalCount: authorization.approvalCount,
+            factors: authorization.factors
+          }
+        )
+      : await ledger.recordTransfer(user.username, recipient.username, amount, "BTCPC", null, epoch, memo);
     const txHash = blockStore.hashLedgerEntry(entry);
     res.json({ success: true, txHash, epoch });
   } catch (err) {
