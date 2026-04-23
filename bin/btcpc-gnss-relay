@@ -11,27 +11,36 @@
  *
  * HOW IT WORKS
  * ────────────
- * The Hyfix must be directly connected to this machine — either via a
- * WiFi hotspot this machine hosts, or a WireGuard/USB tunnel. When this
- * machine is the Hyfix's gateway, ALL Hyfix traffic (including its RTCM3
- * stream to GEODNET) passes through us naturally. No ARP spoofing or packet
- * injection needed — just passive capture on the tunnel/hotspot interface.
+ * Two topologies are supported:
  *
- * This machine IS in the path. tcpdump sees everything.
+ * A) TUNNELED (hotspot/WireGuard) — machine IS the Hyfix's gateway.
+ *    All Hyfix traffic passes through this machine naturally.
+ *    Set BTCPC_GNSS_ARP_SPOOF=false (or omit).
+ *    Just passive tcpdump on the tunnel/hotspot interface.
+ *
+ * B) SAME LAN — machine and Hyfix share a home router.
+ *    Hyfix sends RTCM3 directly to the router — doesn't pass through here.
+ *    ARP spoofing is used to intercept: we tell the Hyfix "I'm the router"
+ *    and the router "I'm the Hyfix", so traffic routes through us.
+ *    Set BTCPC_GNSS_ARP_SPOOF=true (default for same-LAN setups).
  *
  * FOR OTHERS
  * ──────────
- * 1. Create a WiFi hotspot on an interface (hostapd or `nmcli`).
- * 2. Connect your Hyfix to that hotspot so it gets an IP from this machine.
- * 3. Set BTCPC_GNSS_DEVICE_IP to the Hyfix's IP on that interface.
- * 4. Set BTCPC_GNSS_IFACE to the hotspot interface (or leave blank for auto).
- * 5. systemctl start btcpc-gnss-relay
+ * Option 1 (recommended, no root tricks): Create a WiFi hotspot, connect
+ *   your Hyfix to it. Set BTCPC_GNSS_DEVICE_IP and BTCPC_GNSS_IFACE.
+ *   Set BTCPC_GNSS_ARP_SPOOF=false.
+ *
+ * Option 2 (same LAN): Set BTCPC_GNSS_GATEWAY_IP to your router's IP.
+ *   Set BTCPC_GNSS_ARP_SPOOF=true (default).
+ *   Service runs as root for ARP spoof + tcpdump.
  *
  * Environment:
- *   BTCPC_GNSS_DEVICE_IP    — Hyfix IP on the tunnel/hotspot subnet (required)
+ *   BTCPC_GNSS_DEVICE_IP    — Hyfix IP on the LAN (required)
+ *   BTCPC_GNSS_GATEWAY_IP   — LAN router IP (required for ARP spoof mode)
  *   BTCPC_GNSS_GEODNET_IP   — GEODNET server (default: 52.8.236.207)
  *   BTCPC_GNSS_GEODNET_PORT — GEODNET port (default: 2201)
  *   BTCPC_GNSS_IFACE        — interface to capture on (default: auto-detect)
+ *   BTCPC_GNSS_ARP_SPOOF    — "false" to disable (default: true when GATEWAY_IP set)
  *   BTCPC_GNSS_MINER        — BTCPC account to earn sensor rewards
  *   BTCPC_API_PORT          — local BTCPC API port (default: 4242)
  *   BTCPC_AUTH_TOKEN        — JWT for local API
@@ -43,7 +52,6 @@
 var { execSync, spawn } = require("child_process");
 var net  = require("net");
 var http = require("http");
-var os   = require("path");
 var path = require("path");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
@@ -51,12 +59,17 @@ require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 // ─── Config ──────────────────────────────────────────────────────
 
 var DEVICE_IP     = process.env.BTCPC_GNSS_DEVICE_IP || process.env.BTCPC_GNSS_HOST || "192.168.68.54";
+var GATEWAY_IP    = process.env.BTCPC_GNSS_GATEWAY_IP || "";
 var GEODNET_IP    = process.env.BTCPC_GNSS_GEODNET_IP  || "52.8.236.207";
 var GEODNET_PORT  = parseInt(process.env.BTCPC_GNSS_GEODNET_PORT) || 2201;
 var MINER_ACCOUNT = process.env.BTCPC_GNSS_MINER || process.env.BTCPC_MINER || "shindevlin";
 var API_PORT      = parseInt(process.env.BTCPC_API_PORT) || 4242;
 var AUTH_TOKEN    = process.env.BTCPC_AUTH_TOKEN || "";
 var FORWARD_CASTERS = process.env.BTCPC_GNSS_FORWARD_CASTERS === "true";
+
+// ARP spoof: default true when GATEWAY_IP is set, unless explicitly disabled
+var _arpEnv = process.env.BTCPC_GNSS_ARP_SPOOF;
+var ARP_SPOOF = _arpEnv === "false" ? false : !!GATEWAY_IP;
 
 // Auto-detect which interface the Hyfix is reachable on
 var IFACE = process.env.BTCPC_GNSS_IFACE || process.env.BTCPC_GNSS_WIFI_IFACE || autoDetectIface();
@@ -67,7 +80,6 @@ function autoDetectIface() {
     var m = out.match(/dev\s+(\S+)/);
     if (m) return m[1];
   } catch (_) {}
-  // Fall back: find any interface on the same /24
   var prefix = DEVICE_IP.split(".").slice(0, 3).join(".");
   var ifaces = require("os").networkInterfaces();
   for (var name in ifaces) {
@@ -75,7 +87,7 @@ function autoDetectIface() {
       if (info.family === "IPv4" && info.address.startsWith(prefix)) return name;
     }
   }
-  return "wlp0s20f3";
+  return "enp0s31f6";
 }
 
 // NTRIP caster destinations (only used when FORWARD_CASTERS=true)
@@ -100,8 +112,49 @@ var CASTERS = [
   },
 ];
 
-function log(msg) { console.log("[gnss-relay] " + msg); }
+function log(msg)  { console.log("[gnss-relay] " + msg); }
 function warn(msg) { console.warn("[gnss-relay] WARN: " + msg); }
+
+// ─── ARP Spoof ───────────────────────────────────────────────────
+// Used when machine and Hyfix share a home router (same LAN).
+// Intercepts Hyfix→router and router→Hyfix flows through this machine.
+
+var arpProcs = [];
+
+function startArpSpoof() {
+  if (!ARP_SPOOF || !GATEWAY_IP) return;
+  if (!execSync("which arpspoof 2>/dev/null", { encoding: "utf8" }).trim()) {
+    warn("arpspoof not found — install dsniff: apt-get install -y dsniff");
+    return;
+  }
+
+  // Enable IP forwarding so intercepted packets still reach their destination
+  try { execSync("sysctl -w net.ipv4.ip_forward=1 2>/dev/null"); } catch (_) {}
+
+  log("ARP spoof: intercept " + DEVICE_IP + " ↔ " + GATEWAY_IP + " on " + IFACE);
+
+  function spawnArp(target, host) {
+    var p = spawn("arpspoof", ["-i", IFACE, "-t", target, host], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    p.on("exit", function (code) {
+      if (code !== 0) {
+        setTimeout(function () { spawnArp(target, host); }, 5000);
+      }
+    });
+    arpProcs.push(p);
+  }
+
+  spawnArp(DEVICE_IP, GATEWAY_IP);   // tell Hyfix: "I'm the router"
+  spawnArp(GATEWAY_IP, DEVICE_IP);   // tell router: "I'm the Hyfix"
+}
+
+function stopArpSpoof() {
+  for (var p of arpProcs) {
+    try { p.kill(); } catch (_) {}
+  }
+  arpProcs = [];
+}
 
 // ─── NTRIP Caster Forwarding ─────────────────────────────────────
 
@@ -233,16 +286,17 @@ function recordOnChain(rtcmType, payloadBytes) {
   });
 }
 
-// ─── Passive Packet Capture ───────────────────────────────────────
-// The Hyfix is tunneled/hotspot-connected to this machine, so this
-// machine IS its gateway. All Hyfix traffic passes through IFACE
-// naturally — no interception tricks needed. Just tcpdump and filter.
+// ─── Packet Capture ──────────────────────────────────────────────
 
 var stats = { captured: 0, bytes: 0, chainRecords: 0 };
-var CHAIN_RECORD_INTERVAL = 30; // record every Nth frame (avoid flooding ledger)
+var CHAIN_RECORD_INTERVAL = 30;
 
 function startCapture() {
-  log("Passive capture on " + IFACE + " (this machine is the Hyfix gateway)");
+  if (ARP_SPOOF) {
+    log("ARP-spoof mode: intercepting " + DEVICE_IP + " traffic via " + IFACE);
+  } else {
+    log("Passive mode: " + IFACE + " (this machine is the Hyfix gateway)");
+  }
   log("Filter: src " + DEVICE_IP + " → " + GEODNET_IP + ":" + GEODNET_PORT);
 
   var tcpdump = spawn("tcpdump", [
@@ -329,10 +383,11 @@ function logStats() {
 // ─── Main ────────────────────────────────────────────────────────
 
 function main() {
-  log("BTCPC GNSS Relay — passive capture (Hyfix tunneled to this machine)");
+  log("BTCPC GNSS Relay");
   log("device: " + DEVICE_IP + "  geodnet: " + GEODNET_IP + ":" + GEODNET_PORT);
   log("interface: " + IFACE + "  miner: " + MINER_ACCOUNT);
   log("chain sensor: " + sensorId);
+  log("mode: " + (ARP_SPOOF ? "arp-spoof (same-LAN)" : "passive (gateway/tunnel)"));
   if (FORWARD_CASTERS) {
     log("caster forwarding: enabled");
     for (var c of CASTERS) connectCaster(c);
@@ -341,11 +396,12 @@ function main() {
   }
   log("");
 
+  if (ARP_SPOOF) startArpSpoof();
   startCapture();
   setInterval(logStats, 60000);
 }
 
-process.on("SIGINT",  function () { log("shutdown"); process.exit(0); });
-process.on("SIGTERM", function () { log("shutdown"); process.exit(0); });
+process.on("SIGINT",  function () { stopArpSpoof(); log("shutdown"); process.exit(0); });
+process.on("SIGTERM", function () { stopArpSpoof(); log("shutdown"); process.exit(0); });
 
 main();
