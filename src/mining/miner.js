@@ -13,6 +13,7 @@ const axios = require('axios');
 const p2p = require('../p2p/network');
 const { createBlockMessage, createMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
+const { getAdvertisedP2PAddress } = require('../p2p/address');
 const silicon = require('../silicon');
 const { startInferenceHandler } = require('../inference/handler');
 const { startAutoUpdater } = require('../services/autoUpdater');
@@ -1069,13 +1070,16 @@ async function startMiner() {
         }
 
         // Register ourselves
-        const myPort = process.env.P2P_PORT || 6942;
-        const myAddr = `ws://${process.env.P2P_ADVERTISE_IP || 'localhost'}:${myPort}`;
-        await axios.post(`${peerRegistryUrl}/peers/register`, {
-          address: myAddr,
-          username: MINER_ACCOUNT,
-          gpu: null,
-        }, { timeout: 5000 }).catch(() => {});
+        const myAddr = getAdvertisedP2PAddress();
+        if (myAddr) {
+          await axios.post(`${peerRegistryUrl}/peers/register`, {
+            address: myAddr,
+            username: MINER_ACCOUNT,
+            gpu: null,
+          }, { timeout: 5000 }).catch(() => {});
+        } else {
+          console.warn('[BTCPC] Skipping peer-registry registration — no routable P2P address available');
+        }
       } catch (err) {
         console.warn('[BTCPC] Peer registry unreachable:', err.message);
       }
@@ -1200,7 +1204,7 @@ async function startMiner() {
 
   // Phase E: Node model deleted — register in nodeRegistry in-memory
   if (!nodeRegistry.isRegistered(MINER_ACCOUNT)) {
-    nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, process.env.OLLAMA_URL || 'http://localhost:11434', 0, MINER_ACCOUNT === GENESIS_MINER);
+    nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, getAdvertisedP2PAddress(), 0, MINER_ACCOUNT === GENESIS_MINER);
     console.log(`[BTCPC] Mining node registered for ${MINER_ACCOUNT} (nodeRegistry)`);
   }
 
@@ -1318,27 +1322,33 @@ async function startMiner() {
 
   console.log(`[BTCPC] Miner ${MINER_ACCOUNT} — waiting for EPOCH_START from clock nodes...`);
 
-  let lastEpoch = -1;
+  // Seed lastEpoch from startup currentEpoch so we never regress to a
+  // genesis-derived epoch when block files already have a higher chain tip.
+  let lastEpoch = currentEpoch > 0 ? currentEpoch - 1 : -1;
 
-  // Self-tick fallback: if no EPOCH_START arrives within 2 epochs, derive
-  // the current epoch from genesis and mine it. Prevents stalling when the
-  // local clock's P2P messages don't reach the miner process.
+  // Self-tick fallback: fires when no EPOCH_START has been received for the
+  // next epoch.  Uses whichever epoch is higher — genesis-time-derived or the
+  // P2P network consensus epoch — so the miner stays in sync with the live
+  // chain even when early block files (epoch 0–N) aren't stored locally.
   const GENESIS_TIME = 1776236400000;
   console.log(`[BTCPC] Self-tick timer registered (interval: ${EPOCH_DURATION_MS * 2}ms)`);
   setInterval(() => {
     const now = Date.now();
-    const derivedEpoch = Math.floor((now - GENESIS_TIME) / EPOCH_DURATION_MS);
-    if (derivedEpoch > 0 && derivedEpoch > lastEpoch) {
-      console.log(`[BTCPC] Self-tick: epoch ${derivedEpoch} (no EPOCH_START received, deriving from genesis)`);
-      lastEpoch = derivedEpoch;
-      currentEpoch = derivedEpoch;
+    const timeDerived = Math.floor((now - GENESIS_TIME) / EPOCH_DURATION_MS);
+    const protocolMod = require('../p2p/protocol');
+    const networkEpoch = protocolMod.getCurrentEpochCache ? protocolMod.getCurrentEpochCache() : -1;
+    const targetEpoch = Math.max(timeDerived, networkEpoch > 0 ? networkEpoch : 0);
+    if (targetEpoch > 0 && targetEpoch > lastEpoch) {
+      console.log(`[BTCPC] Self-tick: epoch ${targetEpoch} (time=${timeDerived}, network=${networkEpoch})`);
+      lastEpoch = targetEpoch;
+      currentEpoch = targetEpoch;
       setImmediate(async () => {
         try {
           const { syncLocalModels } = require('../services/modelRegistry');
           syncLocalModels(null).catch(() => {});
-          await mineEpoch(derivedEpoch);
+          await mineEpoch(targetEpoch);
         } catch (err) {
-          console.error(`[BTCPC] Epoch ${derivedEpoch} mining error:`, err.message);
+          console.error(`[BTCPC] Epoch ${targetEpoch} mining error:`, err.message);
         }
       });
     }

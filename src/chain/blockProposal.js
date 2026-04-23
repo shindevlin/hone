@@ -119,8 +119,8 @@ function buildProposal(options) {
     }
   }
 
-  // ── Filter clocks by minimum stake (skip during bootstrap) ──
-  if (epochNumber >= BOOTSTRAP_EPOCHS) {
+  // ── Filter clocks by minimum stake (skip during bootstrap or when stake=0) ──
+  if (epochNumber >= BOOTSTRAP_EPOCHS && MIN_CLOCK_STAKE > 0) {
     activeClocks = activeClocks.filter(function (clock) {
       var pool = stateStore.getStakePool(clock);
       if (pool && pool.total_staked >= MIN_CLOCK_STAKE) return true;

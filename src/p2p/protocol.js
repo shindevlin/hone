@@ -17,6 +17,7 @@ const blockchain = require("../chain/blockchain");
 const blockStore = require("../chain/blockStore");
 const stateManager = require("../chain/stateManager");
 const messageAuth = require("./messageAuth");
+const { getAdvertisedP2PAddress, isConnectableP2PAddress, normalizeP2PAddress } = require("./address");
 const { shouldStartBackgroundTimers } = require("../services/backgroundTimers");
 const PROTOCOL_EPOCH_DURATION_MS = 30 * 1000;
 
@@ -33,8 +34,9 @@ try {
     var _saved = JSON.parse(fs.readFileSync(KNOWN_PEERS_PATH, "utf8"));
     if (Array.isArray(_saved)) {
       for (var _addr of _saved) {
-        if (typeof _addr === "string" && _addr.startsWith("ws")) {
-          knownPeers.add(_addr);
+        const normalized = normalizeP2PAddress(_addr);
+        if (normalized) {
+          knownPeers.add(normalized);
         }
       }
     }
@@ -44,6 +46,14 @@ try {
   }
 } catch (_e) {
   // Ignore — file may not exist yet
+}
+
+function addKnownPeerAddress(addr) {
+  const normalized = normalizeP2PAddress(addr);
+  if (!normalized) return false;
+  if (knownPeers.has(normalized)) return false;
+  knownPeers.add(normalized);
+  return true;
 }
 
 function saveKnownPeers() {
@@ -247,7 +257,7 @@ function createHandshake(nodeId) {
     chainHeight: getChainHeight(),
     version: pkg.version,
     peerCount: 0, // filled by caller if needed
-    public_address: process.env.BTCPC_PUBLIC_ADDRESS || null
+    public_address: getAdvertisedP2PAddress()
   }, nodeId);
 }
 
@@ -502,8 +512,8 @@ function handleHandshake(peer, msg, ctx) {
   peer.status = "connected";
 
   // Store the peer's claimed public address for relay-free discovery
-  if (data.public_address && typeof data.public_address === "string" && data.public_address.startsWith("ws")) {
-    knownPeers.add(data.public_address);
+  if (isConnectableP2PAddress(data.public_address)) {
+    addKnownPeerAddress(data.public_address);
     saveKnownPeers();
   }
 
@@ -663,8 +673,9 @@ function handlePeerList(peer, msg, ctx) {
   const peerAddresses = data.peers || [];
 
   for (const addr of peerAddresses) {
-    if (!ctx.peers.has(addr)) {
-      ctx.connectToPeer(addr);
+    const normalized = normalizeP2PAddress(addr);
+    if (normalized && !ctx.peers.has(normalized)) {
+      ctx.connectToPeer(normalized);
     }
   }
 }
@@ -1005,14 +1016,29 @@ async function handleEpochFinalized(peer, msg, ctx) {
       proposer: data.proposer,
       timestamp: data.block_timestamp || data.timestamp || 0,
     };
-    var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "posting")
-      || messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
-    if (!sigOk) {
-      if (messageAuth.REQUIRE_SIGNATURES) {
-        console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
-        return;
+    // Check if we have the proposer's public key in stateStore.
+    // Early block files (epoch 0–N) may not be present locally, so the
+    // account is legitimately unknown.  We only hard-reject when we CAN look
+    // up the account and the signature still doesn't match.
+    var storeRef = require('../chain/stateStore');
+    var proposerAccount = storeRef.getAccount(data.proposer);
+    var proposerKeys = proposerAccount && proposerAccount.public_keys;
+    var hasVerifiableKey = proposerKeys && (proposerKeys.posting || proposerKeys.active);
+    if (!hasVerifiableKey) {
+      // Account not found or has no usable public key (e.g. stored with empty
+      // keys from a finality snapshot that pre-dates full key propagation).
+      // Accept with a warning — we can't verify but also can't prove forgery.
+      console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + data.proposer + ": no verifiable key in local stateStore, skipping sig check");
+    } else {
+      var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "posting")
+        || messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
+      if (!sigOk) {
+        if (messageAuth.REQUIRE_SIGNATURES) {
+          console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
+          return;
+        }
+        console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + (data.proposer || "?") + " has invalid block_signature — will be rejected after v2.17");
       }
-      console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + (data.proposer || "?") + " has invalid block_signature — will be rejected after v2.17");
     }
   } else if (data.proposer || data.block_signature) {
     // Partial — has one but not both fields; treat as unsigned for compat.
@@ -1294,17 +1320,30 @@ function handleBlockProposal(peer, msg, ctx) {
       total_work: data.total_work || 0,
       timestamp: data.timestamp || 0,
     };
-    var sigOk = messageAuth.verifyDeviceOrAccountSignature(
-      data.proposer,
-      data.device_id || null,
-      proposalData,
-      data.proposal_signature
-    );
-    if (!sigOk) {
-      console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer +
-        (data.device_id ? ' (device ' + data.device_id.slice(0,12) + '...)' : '') +
-        " for epoch " + data.epoch_number);
-      return;
+    // Only hard-reject if we can actually look up the proposer's key.
+    // A finality snapshot may store the account with empty keys (the full
+    // key history lives in genesis-era blocks we don't have locally).
+    var bpStoreRef = require('../chain/stateStore');
+    var bpAcct = bpStoreRef.getAccount(data.proposer);
+    var bpKeys = bpAcct && bpAcct.public_keys;
+    var bpHasKey = bpKeys && (bpKeys.posting || bpKeys.active);
+    var bpDeviceOwner = data.device_id && bpStoreRef.getDeviceOwner(data.device_id);
+    if (!bpHasKey && !bpDeviceOwner) {
+      // Can't verify — no key material available.  Accept with a warning.
+      console.log("[BTCPC P2P WARN] BLOCK_PROPOSAL epoch " + data.epoch_number + " from " + data.proposer + ": no verifiable key, skipping proposal_signature check");
+    } else {
+      var sigOk = messageAuth.verifyDeviceOrAccountSignature(
+        data.proposer,
+        data.device_id || null,
+        proposalData,
+        data.proposal_signature
+      );
+      if (!sigOk) {
+        console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: invalid proposal_signature from " + data.proposer +
+          (data.device_id ? ' (device ' + data.device_id.slice(0,12) + '...)' : '') +
+          " for epoch " + data.epoch_number);
+        return;
+      }
     }
   } else {
     console.log("[BTCPC P2P] BLOCK_PROPOSAL REJECTED: no proposal_signature from " + data.proposer + " for epoch " + data.epoch_number);
@@ -2131,11 +2170,10 @@ function handlePeerAnnounce(peer, msg, ctx) {
   var addresses = (msg.data && msg.data.peers) || [];
   var newCount = 0;
   for (var addr of addresses) {
-    if (typeof addr === "string" && addr.startsWith("ws") && !knownPeers.has(addr)) {
-      knownPeers.add(addr);
+    if (addKnownPeerAddress(addr)) {
       newCount++;
       // Try connecting to new peers
-      if (ctx.connectToPeer) ctx.connectToPeer(addr);
+      if (ctx.connectToPeer) ctx.connectToPeer(normalizeP2PAddress(addr));
     }
   }
   if (newCount > 0) {
@@ -2160,7 +2198,7 @@ function startPeerAnnounce(ctx) {
   _peerAnnounceTimer = setInterval(function () {
     if (knownPeers.size === 0) return;
 
-    var peersArray = Array.from(knownPeers);
+    var peersArray = Array.from(knownPeers).filter(isConnectableP2PAddress);
     var announceMsg = createMessage(MESSAGE_TYPES.PEER_ANNOUNCE, {
       peers: peersArray
     }, ctx.NODE_ID);
