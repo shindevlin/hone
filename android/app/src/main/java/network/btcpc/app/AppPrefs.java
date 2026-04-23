@@ -19,6 +19,7 @@ public class AppPrefs {
     public static final String KEY_API_URL     = "apiUrl";
     public static final String KEY_RELAY_URL   = "relayUrl";   // WebSocket relay for clock peer
     public static final String KEY_DEVICE_NAME = "sensor_device_name";
+    public static final String KEY_TRUSTED_WIFI_SSIDS = "trustedWifiSsids";
 
     // ---- posting key (secp256k1 private key for signing work proofs) ----
     public static final String KEY_POSTING_KEY = "postingKey";
@@ -109,6 +110,29 @@ public class AppPrefs {
     public String getDeviceName() {
         String d = prefs.getString(KEY_DEVICE_NAME, DEFAULT_DEVICE_NAME);
         return (d == null || d.trim().isEmpty()) ? DEFAULT_DEVICE_NAME : d;
+    }
+
+    public String getTrustedWifiSsids() {
+        String raw = prefs.getString(KEY_TRUSTED_WIFI_SSIDS, "");
+        return raw == null ? "" : raw.trim();
+    }
+
+    public void setTrustedWifiSsids(String value) {
+        prefs.edit().putString(KEY_TRUSTED_WIFI_SSIDS, value == null ? "" : value.trim()).apply();
+    }
+
+    public java.util.Set<String> getTrustedWifiSsidSet() {
+        return TrustedWifiPolicy.parseSsids(getTrustedWifiSsids());
+    }
+
+    public void addTrustedWifiSsid(String ssid) {
+        setTrustedWifiSsids(TrustedWifiPolicy.serializeSsids(
+                TrustedWifiPolicy.addSsid(getTrustedWifiSsidSet(), ssid)));
+    }
+
+    public void removeTrustedWifiSsid(String ssid) {
+        setTrustedWifiSsids(TrustedWifiPolicy.serializeSsids(
+                TrustedWifiPolicy.removeSsid(getTrustedWifiSsidSet(), ssid)));
     }
 
     public boolean isSensorEnabled(String key) {

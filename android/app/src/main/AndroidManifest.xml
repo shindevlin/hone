@@ -72,36 +72,45 @@
             android:name=".LocalRelayService"
             android:enabled="true"
             android:exported="false"
+            android:process=":relay"
             android:foregroundServiceType="connectedDevice" />
 
         <service
             android:name=".NativeClockService"
             android:enabled="true"
             android:exported="false"
+            android:process=":clock"
             android:foregroundServiceType="remoteMessaging" />
 
         <service
             android:name=".NativeSensorService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:process=":sensor"
+            android:foregroundServiceType="dataSync|location" />
 
         <service
             android:name=".MinerService"
             android:enabled="true"
             android:exported="false"
+            android:process=":miner"
             android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".StorageService"
             android:enabled="true"
             android:exported="false"
+            android:process=":storage"
             android:foregroundServiceType="dataSync" />
 
     </application>
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
     <!-- In-app APK install (OTA updates) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Auto-start on boot -->

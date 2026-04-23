@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/btcpc_bg"
@@ -198,6 +199,78 @@
             android:textColorHint="@color/btcpc_muted"
             android:textSize="15sp" />
 
+        <!-- Wi-Fi privacy allowlist -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wi-Fi Privacy"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Add home, office, or doctor Wi-Fi names here. GPS pauses on private Wi-Fi to protect your location privacy, while it can still broadcast when you are on other Wi-Fi away from home."
+            android:textColor="@color/btcpc_muted"
+            android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Nearby Wi-Fi you can add"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <AutoCompleteTextView
+            android:id="@+id/settings_wifi_suggestion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@color/btcpc_surface"
+            android:hint="Tap a Wi-Fi name"
+            android:inputType="text"
+            android:padding="14dp"
+            android:textColor="@color/btcpc_text"
+            android:textColorHint="@color/btcpc_muted"
+            android:textSize="15sp"
+            android:completionThreshold="0" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/settings_wifi_add_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/btcpc_surface_alt"
+            android:text="Add to Privacy List"
+            android:textColor="@color/btcpc_orange"
+            android:textSize="12sp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:strokeColor="@color/btcpc_orange"
+            android:strokeWidth="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Privacy List"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="13sp"
+            android:letterSpacing="0.06" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/settings_trusted_wifi_chips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="14dp"
+            app:singleLine="false"
+            app:chipSpacingHorizontal="8dp"
+            app:chipSpacingVertical="8dp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/settings_save_btn"
             android:layout_width="match_parent"
@@ -217,6 +290,145 @@
             android:text=""
             android:textColor="@color/btcpc_green"
             android:textSize="13sp" />
+
+        <!-- Process status -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="10dp"
+            android:text="PROCESS STATUS"
+            android:textColor="@color/btcpc_muted"
+            android:textSize="12sp"
+            android:letterSpacing="0.12" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/btcpc_surface"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Relay"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_relay_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Clock"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_clock_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Sensor"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_sensor_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Miner"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_miner_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Storage"
+                    android:textColor="@color/btcpc_text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/settings_storage_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="--"
+                    android:textColor="@color/btcpc_muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <!-- Services section -->
         <TextView

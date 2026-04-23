@@ -10,6 +10,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.BroadcastReceiver;
 import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -17,6 +20,8 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -68,13 +73,17 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private volatile String jwt;
     private SensorManager sensorManager;
     private LocationManager locationManager;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
     private BroadcastReceiver batteryReceiver;
+    private volatile boolean gpsUpdatesActive;
 
     @Override
     public void onCreate() {
         super.onCreate();
         sensorManager   = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         createNotificationChannel();
         loadSettings();
     }
@@ -93,7 +102,8 @@ public class NativeSensorService extends Service implements SensorEventListener,
             return START_NOT_STICKY;
         }
         registerSensors();
-        registerLocationUpdates();
+        registerNetworkMonitor();
+        applyGpsPolicy();
         registerBatteryReceiver();
         scheduler.scheduleAtFixedRate(this::flushSnapshotsSafe, 10, 30, TimeUnit.SECONDS);
         persistState("Sensors: running");
@@ -106,9 +116,8 @@ public class NativeSensorService extends Service implements SensorEventListener,
         scheduler.shutdownNow();
         io.shutdownNow();
         if (sensorManager != null) sensorManager.unregisterListener(this);
-        if (locationManager != null) {
-            try { locationManager.removeUpdates(this); } catch (SecurityException ignored) {}
-        }
+        stopLocationUpdates();
+        unregisterNetworkMonitor();
         if (batteryReceiver != null) {
             try { unregisterReceiver(batteryReceiver); } catch (IllegalArgumentException ignored) {}
         }
@@ -192,23 +201,100 @@ public class NativeSensorService extends Service implements SensorEventListener,
         }
     }
 
-    private void registerLocationUpdates() {
-        if (locationManager == null) return;
-        if (!new AppPrefs(this).isSensorEnabled(AppPrefs.KEY_SENSOR_GPS)) return;
+    private void registerNetworkMonitor() {
+        if (connectivityManager == null || networkCallback != null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                applyGpsPolicy();
+            }
+
+            @Override
+            public void onLost(Network network) {
+                applyGpsPolicy();
+            }
+
+            @Override
+            public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                applyGpsPolicy();
+            }
+        };
         try {
-            // Check permission
+            connectivityManager.registerDefaultNetworkCallback(networkCallback);
+        } catch (Exception e) {
+            Log.w(TAG, "network monitor failed: " + e.getMessage());
+        }
+    }
+
+    private void unregisterNetworkMonitor() {
+        if (connectivityManager == null || networkCallback == null) return;
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+        } catch (Exception ignored) {}
+        networkCallback = null;
+    }
+
+    private void applyGpsPolicy() {
+        if (locationManager == null) return;
+        AppPrefs prefs = new AppPrefs(this);
+        boolean gpsEnabled = prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_GPS);
+        boolean trustedWifi = isOnTrustedWifi(prefs);
+        boolean shouldRun = gpsEnabled && !trustedWifi;
+        try {
+            stopLocationUpdates();
+            if (!shouldRun) {
+                persistState(trustedWifi ? "GPS paused on trusted Wi-Fi" : "GPS paused");
+                return;
+            }
             if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
-            // Request updates every 60s or 50m movement
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                persistState("GPS waiting for permission");
+                return;
+            }
             locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER, 60_000L, 50f, this);
-            // Passive fallback (no extra battery — uses other apps' fixes)
             locationManager.requestLocationUpdates(
                     LocationManager.PASSIVE_PROVIDER, 120_000L, 100f, this);
+            gpsUpdatesActive = true;
+            persistState("GPS active");
         } catch (SecurityException e) {
             Log.w(TAG, "GPS permission denied: " + e.getMessage());
         } catch (Exception e) {
             Log.w(TAG, "GPS registration failed: " + e.getMessage());
+        }
+    }
+
+    private void stopLocationUpdates() {
+        if (locationManager == null) return;
+        try { locationManager.removeUpdates(this); } catch (SecurityException ignored) {}
+        gpsUpdatesActive = false;
+    }
+
+    private boolean isOnTrustedWifi(AppPrefs prefs) {
+        if (connectivityManager == null) return false;
+
+        Network active = connectivityManager.getActiveNetwork();
+        if (active == null) return false;
+
+        NetworkCapabilities capabilities = connectivityManager.getNetworkCapabilities(active);
+        if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            return false;
+        }
+
+        String ssid = currentWifiSsid();
+        return TrustedWifiPolicy.matches(ssid, prefs.getTrustedWifiSsidSet());
+    }
+
+    private String currentWifiSsid() {
+        try {
+            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager == null) return "";
+            WifiInfo info = wifiManager.getConnectionInfo();
+            if (info == null) return "";
+            return TrustedWifiPolicy.normalizeSsid(info.getSSID());
+        } catch (Exception e) {
+            Log.w(TAG, "wifi ssid lookup failed: " + e.getMessage());
+            return "";
         }
     }
 

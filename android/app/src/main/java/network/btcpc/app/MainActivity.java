@@ -238,6 +238,16 @@ public class MainActivity extends AppCompatActivity {
                 needed.add(Manifest.permission.ACTIVITY_RECOGNITION);
             }
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            }
+        }
         if (!needed.isEmpty()) {
             ActivityCompat.requestPermissions(
                     this,
