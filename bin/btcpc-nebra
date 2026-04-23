@@ -232,6 +232,30 @@ async function sendHeartbeat(account, name, stats) {
   } catch (_) {}
 }
 
+// Track which sensors have been successfully registered to avoid redundant calls
+const _registeredSensors = new Set();
+
+async function ensureSensorRegistered(sensorId, metadata) {
+  if (_registeredSensors.has(sensorId)) return;
+  const parts = sensorId.split('/');
+  const account = parts[0];
+  const name = parts.slice(1).join('/');
+  const type = (metadata && metadata.type) || 'custom';
+  const unit = (metadata && metadata.unit) || 'raw';
+  const region = (metadata && metadata.region) || 'onboard/' + ACCOUNT;
+  try {
+    const resp = await apiRequest('POST', '/api/sensors', { account, name, type, unit, region, decimals: 4 });
+    if (resp.status === 201 || resp.status === 409) {
+      _registeredSensors.add(sensorId);
+      if (resp.status === 201) console.log('[btcpc-nebra] Registered sensor:', sensorId);
+    } else {
+      console.warn('[btcpc-nebra] Sensor registration failed for', sensorId, 'HTTP', resp.status, (resp.body || {}).error || '');
+    }
+  } catch (err) {
+    console.warn('[btcpc-nebra] Sensor registration error:', err.message);
+  }
+}
+
 async function submitSensorReading(sensorId, value, metadata) {
   const encId = encodeURIComponent(sensorId);
   if (DRY_RUN) {
@@ -241,6 +265,18 @@ async function submitSensorReading(sensorId, value, metadata) {
   try {
     const account = sensorId.split('/')[0];
     const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
+    if (resp.status === 404) {
+      // Sensor not registered yet — auto-register and retry once
+      await ensureSensorRegistered(sensorId, metadata);
+      const retry = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
+      if (retry.status !== 201 && retry.status !== 200) {
+        const b = retry.body || {};
+        if (!(retry.status === 422 && b.error && /duplicate/i.test(b.error))) {
+          console.warn('[btcpc-nebra] Reading retry failed for', sensorId, 'HTTP', retry.status, b.error || '');
+        }
+      }
+      return;
+    }
     if (resp.status !== 201 && resp.status !== 200) {
       const body = resp.body || {};
       // Duplicate reading in same epoch is normal — suppress it

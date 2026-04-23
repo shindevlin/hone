@@ -54,6 +54,9 @@ const OPERATION_COSTS = {
   IDENTITY_LINK:           5,
   STORAGE_MIGRATION:       0,
   NODE_REPUTATION_UPDATE:  0,
+  STORAGE_HEARTBEAT:       0,   // Free — infrastructure heartbeat, no stake required
+  SENSOR_READING:          0,   // Free — sensor data submission
+  GATEWAY_HEARTBEAT:       0,   // Free — IoT gateway heartbeat
   _DEFAULT:           5,
 };
 

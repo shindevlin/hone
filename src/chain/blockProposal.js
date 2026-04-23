@@ -254,17 +254,16 @@ function buildProposal(options) {
       }
     }
 
-    // Storage hosts — 12% pool, split equally among active hosts
+    // Storage hosts — 12% pool, split equally among hosts that heartbeated
+    // within the last 10 epochs. Uses stateStore.getActiveStorageHosts which
+    // is populated by STORAGE_HEARTBEAT ledger entries (not nodeRegistry).
     var storagePool = roundAmount(blockReward * STORAGE_PCT);
     var activeStorageHosts = [];
     try {
-      var sensorRegistry = require("../services/sensorRegistry");
-      // Storage hosts are tracked in stateStore as nodes with type 'storage'
-      var allNodes = require("../chain/nodeRegistry").getRegisteredNodes();
-      activeStorageHosts = allNodes
-        .filter(function (n) { return n.type === "storage" && isValidAccount(n.account); })
-        .map(function (n) { return n.account; });
-      // Deduplicate
+      var storageHostRecords = stateStore.getActiveStorageHosts(epochNumber, 10);
+      activeStorageHosts = storageHostRecords
+        .map(function (h) { return h.host || h.account; })
+        .filter(isValidAccount);
       activeStorageHosts = Array.from(new Set(activeStorageHosts));
     } catch (_) {}
 
@@ -288,17 +287,16 @@ function buildProposal(options) {
     var activeGateways = [];
     try {
       var sr = require("../services/sensorRegistry");
-      // Get sensors that submitted readings this epoch
-      var allSensors = sr.getRegisteredSensors ? sr.getRegisteredSensors() : [];
+      var allSensors = sr.getAllSensors ? sr.getAllSensors() : [];
       activeSensors = allSensors
-        .filter(function (s) { return s.last_reading_epoch >= epochNumber - 10; })
+        .filter(function (s) { return s.last_reading_epoch != null && s.last_reading_epoch >= epochNumber - 10; })
         .map(function (s) { return s.owner; });
       activeSensors = Array.from(new Set(activeSensors));
 
-      // Gateways with recent heartbeats
-      var allGateways = sr.getRegisteredGateways ? sr.getRegisteredGateways() : [];
+      var gwReg = require("../services/loraGatewayRegistry");
+      var allGateways = gwReg.getAllGateways ? gwReg.getAllGateways() : [];
       activeGateways = allGateways
-        .filter(function (g) { return g.last_heartbeat_epoch >= epochNumber - 10; })
+        .filter(function (g) { return g.last_heartbeat_epoch != null && g.last_heartbeat_epoch >= epochNumber - 10; })
         .map(function (g) { return g.owner; });
       activeGateways = Array.from(new Set(activeGateways));
     } catch (_) {}
