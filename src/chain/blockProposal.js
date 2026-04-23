@@ -34,8 +34,10 @@ var IDLE_VERIFIER_PCT = 0.01;
 var IDLE_CLOCK_PCT = 0.01;
 
 // Staking thresholds
-var MIN_CLOCK_STAKE = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE) || 10;
-var MIN_MINER_STAKE = parseInt(process.env.BTCPC_MIN_MINER_STAKE) || 10;
+var _csEnv = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE);
+var MIN_CLOCK_STAKE = isNaN(_csEnv) ? 10 : _csEnv;
+var _msEnv = parseInt(process.env.BTCPC_MIN_MINER_STAKE);
+var MIN_MINER_STAKE = isNaN(_msEnv) ? 10 : _msEnv;
 var BOOTSTRAP_EPOCHS = 1000;
 
 // Account name validation — same as everywhere else

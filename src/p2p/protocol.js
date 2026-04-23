@@ -2091,11 +2091,12 @@ function recordNodeActivity(nodeId, username, epochNumber) {
   // Store username if known, otherwise nodeId
   clockUptimeByEpoch.get(epochNumber).add(username || nodeId);
 
-  // Prune old epochs (keep last 5)
+  // Prune old epochs (keep last 20 — wide window handles restarts where
+  // _currentEpochCache jumps several epochs before the next proposal runs)
   if (epochNumber > _currentClockEpoch) {
     _currentClockEpoch = epochNumber;
     for (var key of clockUptimeByEpoch.keys()) {
-      if (key < epochNumber - 5) clockUptimeByEpoch.delete(key);
+      if (key < epochNumber - 20) clockUptimeByEpoch.delete(key);
     }
   }
 }
@@ -2107,7 +2108,7 @@ function recordNodeActivity(nodeId, username, epochNumber) {
  * the epoch boundary, so we use a small window).
  */
 function getActiveClockNodes(epochNumber) {
-  var WINDOW = 3; // accept heartbeats from current epoch and last 3 epochs
+  var WINDOW = 15; // accept heartbeats from current epoch and last 15 epochs
   var union = new Set();
   for (var i = 0; i <= WINDOW; i++) {
     var nodes = clockUptimeByEpoch.get(epochNumber - i);
@@ -2146,7 +2147,15 @@ function handleClockHeartbeat(peer, msg, ctx) {
   // not the sender's claim. Heartbeats can arrive several epochs after they
   // were sent (relay delay, sender's view stale). Crediting them as "active
   // now" is more accurate than crediting an old epoch number.
-  var fileEpoch = _currentEpochCache > 0 ? _currentEpochCache : claimedEpoch;
+  // Use time-derived epoch as a floor so a stale _currentEpochCache on restart
+  // doesn't file heartbeats far behind the actual chain tip.
+  var GENESIS_TS = 1776236400000;
+  var EPOCH_MS = 30000;
+  var timeDerivedEpoch = Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
+  var fileEpoch = Math.max(
+    _currentEpochCache > 0 ? _currentEpochCache : 0,
+    timeDerivedEpoch
+  );
 
   console.log("[BTCPC P2P] CLOCK_HEARTBEAT from " + account + " (claimed epoch " + claimedEpoch + ", filing under " + fileEpoch + ", source: " + source + ")");
 
