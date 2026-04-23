@@ -2,83 +2,83 @@
 "use strict";
 
 /**
- * btcpc-gnss-relay — RTCM3 stream interceptor + multi-caster
+ * btcpc-gnss-relay — RTCM3 stream interceptor + BTCPC chain recorder
  * Shin Devlin
  *
- * Intercepts RTCM3 correction data from a Hyfix GNSS base station via
- * ARP spoofing, then forwards copies to NTRIP casters (onocoy, RTK Direct)
- * and records data on the BTCPC chain as IoT sensor readings.
+ * Passively captures RTCM3 correction data from a Hyfix GNSS base station
+ * and records each frame on the BTCPC chain as an IoT sensor reading.
+ * Optionally forwards copies to NTRIP casters (onocoy, RTK Direct).
  *
- * Architecture:
- *   Hyfix (BTCPC_GNSS_DEVICE_IP) → UDP → GEODNET
- *                                 ↓ (intercepted via ARP spoof + tcpdump)
- *                           This relay
- *                             ├→ onocoy   (NTRIP/TCP)
- *                             ├→ RTK Direct (NTRIP/TCP)
- *                             └→ BTCPC chain (sensor reading via local API)
+ * HOW IT WORKS
+ * ────────────
+ * The Hyfix must be directly connected to this machine — either via a
+ * WiFi hotspot this machine hosts, or a WireGuard/USB tunnel. When this
+ * machine is the Hyfix's gateway, ALL Hyfix traffic (including its RTCM3
+ * stream to GEODNET) passes through us naturally. No ARP spoofing or packet
+ * injection needed — just passive capture on the tunnel/hotspot interface.
  *
- * Requires root (or cap_net_raw + cap_net_admin on tcpdump/arpspoof).
- * Run via the btcpc-gnss-relay.service system service.
+ * This machine IS in the path. tcpdump sees everything.
  *
- * Usage:
- *   sudo node bin/btcpc-gnss-relay
- *   (or: systemctl start btcpc-gnss-relay)
+ * FOR OTHERS
+ * ──────────
+ * 1. Create a WiFi hotspot on an interface (hostapd or `nmcli`).
+ * 2. Connect your Hyfix to that hotspot so it gets an IP from this machine.
+ * 3. Set BTCPC_GNSS_DEVICE_IP to the Hyfix's IP on that interface.
+ * 4. Set BTCPC_GNSS_IFACE to the hotspot interface (or leave blank for auto).
+ * 5. systemctl start btcpc-gnss-relay
  *
- * Environment (all have defaults, configure in .env):
- *   BTCPC_GNSS_DEVICE_IP    — Hyfix IP on local network (default: 192.168.68.54)
- *   BTCPC_GNSS_GATEWAY_IP   — Router/gateway IP (default: 192.168.68.1)
- *   BTCPC_GNSS_IFACE        — Network interface to sniff (default: auto-detect)
- *   BTCPC_GNSS_GEODNET_IP   — GEODNET server IP (default: 52.8.236.207)
+ * Environment:
+ *   BTCPC_GNSS_DEVICE_IP    — Hyfix IP on the tunnel/hotspot subnet (required)
+ *   BTCPC_GNSS_GEODNET_IP   — GEODNET server (default: 52.8.236.207)
  *   BTCPC_GNSS_GEODNET_PORT — GEODNET port (default: 2201)
+ *   BTCPC_GNSS_IFACE        — interface to capture on (default: auto-detect)
  *   BTCPC_GNSS_MINER        — BTCPC account to earn sensor rewards
  *   BTCPC_API_PORT          — local BTCPC API port (default: 4242)
- *   BTCPC_AUTH_TOKEN        — JWT for local API (from .env)
+ *   BTCPC_AUTH_TOKEN        — JWT for local API
+ *   BTCPC_GNSS_FORWARD_CASTERS — "true" to forward stream to onocoy/RTK Direct
  *   BTCPC_ONOCOY_USER/PASS  — onocoy NTRIP credentials
  *   BTCPC_RTK_USER/PASS/MOUNT — RTK Direct NTRIP credentials
- *   BTCPC_GNSS_FORWARD_CASTERS — set "true" to enable caster forwarding
  */
 
 var { execSync, spawn } = require("child_process");
-var net = require("net");
+var net  = require("net");
 var http = require("http");
-var os = require("os");
+var os   = require("path");
 var path = require("path");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 
 // ─── Config ──────────────────────────────────────────────────────
 
-var DEVICE_IP   = process.env.BTCPC_GNSS_DEVICE_IP || "192.168.68.54";
-var GATEWAY_IP  = process.env.BTCPC_GNSS_GATEWAY_IP || "192.168.68.1";
-var GEODNET_IP  = process.env.BTCPC_GNSS_GEODNET_IP || "52.8.236.207";
-var GEODNET_PORT = parseInt(process.env.BTCPC_GNSS_GEODNET_PORT) || 2201;
+var DEVICE_IP     = process.env.BTCPC_GNSS_DEVICE_IP || process.env.BTCPC_GNSS_HOST || "192.168.68.54";
+var GEODNET_IP    = process.env.BTCPC_GNSS_GEODNET_IP  || "52.8.236.207";
+var GEODNET_PORT  = parseInt(process.env.BTCPC_GNSS_GEODNET_PORT) || 2201;
 var MINER_ACCOUNT = process.env.BTCPC_GNSS_MINER || process.env.BTCPC_MINER || "shindevlin";
-var API_PORT    = parseInt(process.env.BTCPC_API_PORT) || 4242;
-var AUTH_TOKEN  = process.env.BTCPC_AUTH_TOKEN || "";
+var API_PORT      = parseInt(process.env.BTCPC_API_PORT) || 4242;
+var AUTH_TOKEN    = process.env.BTCPC_AUTH_TOKEN || "";
 var FORWARD_CASTERS = process.env.BTCPC_GNSS_FORWARD_CASTERS === "true";
 
-// Auto-detect the network interface that can reach DEVICE_IP
+// Auto-detect which interface the Hyfix is reachable on
 var IFACE = process.env.BTCPC_GNSS_IFACE || process.env.BTCPC_GNSS_WIFI_IFACE || autoDetectIface();
 
 function autoDetectIface() {
   try {
-    // Use `ip route get` to find which interface reaches the device
-    var out = execSync("ip route get " + DEVICE_IP + " 2>/dev/null", { encoding: "utf8" }).trim();
+    var out = execSync("ip route get " + DEVICE_IP + " 2>/dev/null", { encoding: "utf8" });
     var m = out.match(/dev\s+(\S+)/);
     if (m) return m[1];
   } catch (_) {}
-  // Fall back to scanning interfaces for one on the same /24
+  // Fall back: find any interface on the same /24
   var prefix = DEVICE_IP.split(".").slice(0, 3).join(".");
-  var ifaces = os.networkInterfaces();
+  var ifaces = require("os").networkInterfaces();
   for (var name in ifaces) {
     for (var info of ifaces[name]) {
       if (info.family === "IPv4" && info.address.startsWith(prefix)) return name;
     }
   }
-  return "enp0s31f6"; // last-resort default
+  return "wlp0s20f3";
 }
 
-// NTRIP caster destinations
+// NTRIP caster destinations (only used when FORWARD_CASTERS=true)
 var CASTERS = [
   {
     name: "onocoy",
@@ -103,30 +103,7 @@ var CASTERS = [
 function log(msg) { console.log("[gnss-relay] " + msg); }
 function warn(msg) { console.warn("[gnss-relay] WARN: " + msg); }
 
-// ─── ARP Spoofing ────────────────────────────────────────────────
-
-var arpProcesses = [];
-
-function startArpSpoof() {
-  log("ARP spoof: " + DEVICE_IP + " ↔ " + GATEWAY_IP + " on " + IFACE);
-  try { execSync("sysctl -w net.ipv4.ip_forward=1", { stdio: "ignore" }); } catch (_) {}
-
-  var arp1 = spawn("arpspoof", ["-i", IFACE, "-t", DEVICE_IP, GATEWAY_IP], { stdio: "ignore" });
-  var arp2 = spawn("arpspoof", ["-i", IFACE, "-t", GATEWAY_IP, DEVICE_IP], { stdio: "ignore" });
-  arpProcesses.push(arp1, arp2);
-
-  arp1.on("exit", function (c) { if (c !== null) warn("arpspoof[1] exited " + c); });
-  arp2.on("exit", function (c) { if (c !== null) warn("arpspoof[2] exited " + c); });
-  log("ARP spoof active");
-}
-
-function stopArpSpoof() {
-  arpProcesses.forEach(function (p) { try { p.kill("SIGTERM"); } catch (_) {} });
-  arpProcesses = [];
-  try { execSync("sysctl -w net.ipv4.ip_forward=0", { stdio: "ignore" }); } catch (_) {}
-}
-
-// ─── NTRIP Caster Connections ────────────────────────────────────
+// ─── NTRIP Caster Forwarding ─────────────────────────────────────
 
 var casterConns = {};
 
@@ -154,7 +131,6 @@ function connectCaster(caster) {
     sock.write(buildNtripRequest(caster));
     casterConns[key] = sock;
     casterConns[key].ready = false;
-    log(caster.name + ": connected, awaiting ICY 200");
   });
   sock.on("data", function (data) {
     var r = data.toString();
@@ -162,7 +138,7 @@ function connectCaster(caster) {
       log(caster.name + ": streaming ✓");
       casterConns[key].ready = true;
     } else if (r.indexOf("401") !== -1) {
-      warn(caster.name + ": auth failed (401)");
+      warn(caster.name + ": auth failed");
     } else {
       log(caster.name + ": " + r.trim().slice(0, 80));
     }
@@ -173,7 +149,6 @@ function connectCaster(caster) {
     setTimeout(function () { connectCaster(caster); }, 30000);
   });
   sock.on("close", function () {
-    log(caster.name + ": disconnected — retry in 30s");
     casterConns[key] = null;
     setTimeout(function () { connectCaster(caster); }, 30000);
   });
@@ -233,7 +208,7 @@ function ensureSensorRegistered(cb) {
   }, function (err, status) {
     if (!err && (status === 201 || status === 409)) {
       _sensorRegistered = true;
-      if (status === 201) log("sensor registered: " + sensorId);
+      if (status === 201) log("sensor registered on chain: " + sensorId);
     }
     cb();
   });
@@ -251,26 +226,32 @@ function recordOnChain(rtcmType, payloadBytes) {
         device_ip: DEVICE_IP,
       },
     }, function (err, status) {
-      if (err) warn("chain record error: " + err.message);
-      else if (status !== 201 && status !== 200 && status !== 422) {
+      if (err) { warn("chain record error: " + err.message); return; }
+      if (status !== 201 && status !== 200 && status !== 422)
         warn("chain record HTTP " + status);
-      }
     });
   });
 }
 
-// ─── Packet Capture ──────────────────────────────────────────────
+// ─── Passive Packet Capture ───────────────────────────────────────
+// The Hyfix is tunneled/hotspot-connected to this machine, so this
+// machine IS its gateway. All Hyfix traffic passes through IFACE
+// naturally — no interception tricks needed. Just tcpdump and filter.
 
 var stats = { captured: 0, bytes: 0, chainRecords: 0 };
-var chainRecordInterval = 30; // record every Nth RTCM packet
+var CHAIN_RECORD_INTERVAL = 30; // record every Nth frame (avoid flooding ledger)
 
 function startCapture() {
-  log("Starting capture on " + IFACE);
-  log("Filter: src " + DEVICE_IP + " → " + GEODNET_IP + ":" + GEODNET_PORT + " (UDP)");
+  log("Passive capture on " + IFACE + " (this machine is the Hyfix gateway)");
+  log("Filter: src " + DEVICE_IP + " → " + GEODNET_IP + ":" + GEODNET_PORT);
 
   var tcpdump = spawn("tcpdump", [
-    "-i", IFACE, "-n", "-l", "-B", "4096", "-w", "-",
-    "src host " + DEVICE_IP + " and dst host " + GEODNET_IP +
+    "-i", IFACE,
+    "-n", "-l",
+    "-B", "4096",
+    "-w", "-",
+    "src host " + DEVICE_IP +
+    " and dst host " + GEODNET_IP +
     " and udp and dst port " + GEODNET_PORT,
   ], { stdio: ["ignore", "pipe", "ignore"] });
 
@@ -281,7 +262,6 @@ function startCapture() {
     buf = Buffer.concat([buf, chunk]);
 
     while (buf.length >= 16) {
-      // Skip pcap global header (magic 0xa1b2c3d4 or 0xd4c3b2a1)
       var magic = buf.readUInt32LE(0);
       if (!seenGlobal && (magic === 0xa1b2c3d4 || magic === 0xd4c3b2a1)) {
         buf = buf.slice(24);
@@ -308,11 +288,12 @@ function startCapture() {
             stats.captured++;
             stats.bytes += payloadLen;
 
-            forwardToCasters(payload);
+            if (FORWARD_CASTERS) forwardToCasters(payload);
 
-            // Record on chain every Nth packet to avoid flooding
-            if (stats.captured % chainRecordInterval === 0) {
-              var rtcmType = ((payload[1] & 0x03) << 10) | (payload[2] << 2) | ((payload[3] >> 6) & 0x03);
+            if (stats.captured % CHAIN_RECORD_INTERVAL === 0) {
+              var rtcmType = ((payload[1] & 0x03) << 10) |
+                             (payload[2] << 2) |
+                             ((payload[3] >> 6) & 0x03);
               recordOnChain(rtcmType, payloadLen);
               stats.chainRecords++;
             }
@@ -325,7 +306,7 @@ function startCapture() {
   });
 
   tcpdump.on("exit", function (code) {
-    warn("tcpdump exited " + code + " — restarting in 5s");
+    if (code !== 0) warn("tcpdump exited " + code + " — retry in 5s");
     setTimeout(startCapture, 5000);
   });
 }
@@ -333,52 +314,38 @@ function startCapture() {
 // ─── Stats ───────────────────────────────────────────────────────
 
 function logStats() {
-  var activeCasters = CASTERS
+  var casterStatus = CASTERS
     .filter(function (c) { return c.enabled; })
     .map(function (c) {
       var conn = casterConns[c.name];
       return c.name + "=" + (conn && conn.ready ? "live" : "offline");
     }).join(" ");
-  log("captured=" + stats.captured + " bytes=" + stats.bytes +
+  log("frames=" + stats.captured +
+    " bytes=" + stats.bytes +
     " chain=" + stats.chainRecords +
-    (activeCasters ? " | " + activeCasters : ""));
+    (casterStatus ? " | " + casterStatus : ""));
 }
 
 // ─── Main ────────────────────────────────────────────────────────
 
 function main() {
-  log("BTCPC GNSS Relay — Hyfix MobileCM → BTCPC chain");
-  log("device: " + DEVICE_IP + "  gateway: " + GATEWAY_IP);
-  log("interface: " + IFACE + "  geodnet: " + GEODNET_IP + ":" + GEODNET_PORT);
-  log("miner: " + MINER_ACCOUNT + "  sensor: " + sensorId);
-  log("caster forwarding: " + (FORWARD_CASTERS ? "enabled" : "disabled (set BTCPC_GNSS_FORWARD_CASTERS=true to enable)"));
+  log("BTCPC GNSS Relay — passive capture (Hyfix tunneled to this machine)");
+  log("device: " + DEVICE_IP + "  geodnet: " + GEODNET_IP + ":" + GEODNET_PORT);
+  log("interface: " + IFACE + "  miner: " + MINER_ACCOUNT);
+  log("chain sensor: " + sensorId);
+  if (FORWARD_CASTERS) {
+    log("caster forwarding: enabled");
+    for (var c of CASTERS) connectCaster(c);
+  } else {
+    log("caster forwarding: off (BTCPC_GNSS_FORWARD_CASTERS=true to enable)");
+  }
   log("");
 
-  startArpSpoof();
-
-  if (FORWARD_CASTERS) {
-    for (var c of CASTERS) connectCaster(c);
-  }
-
-  // Give ARP spoof 3 seconds to poison caches before capturing
-  setTimeout(function () {
-    startCapture();
-    log("Relay active — intercepting RTCM3 stream");
-  }, 3000);
-
-  setInterval(logStats, 30000);
+  startCapture();
+  setInterval(logStats, 60000);
 }
 
-function shutdown(sig) {
-  log("Shutdown (" + sig + ")");
-  stopArpSpoof();
-  Object.keys(casterConns).forEach(function (k) {
-    if (casterConns[k]) { try { casterConns[k].destroy(); } catch (_) {} }
-  });
-  process.exit(0);
-}
-
-process.on("SIGINT",  function () { shutdown("SIGINT"); });
-process.on("SIGTERM", function () { shutdown("SIGTERM"); });
+process.on("SIGINT",  function () { log("shutdown"); process.exit(0); });
+process.on("SIGTERM", function () { log("shutdown"); process.exit(0); });
 
 main();
