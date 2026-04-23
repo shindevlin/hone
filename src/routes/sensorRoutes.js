@@ -20,6 +20,7 @@
  * Route summary:
  *   POST   /api/sensors                    register sensor (auth: owner)
  *   POST   /api/sensors/:id/readings       submit reading (auth: any authenticated user)
+ *   GET    /api/sensors/:id/readings       fetch readings for epoch (auth: JWT)
  *   POST   /api/sensors/:id/retire         retire sensor (auth: owner)
  *   GET    /api/sensors                    list (public, filterable)
  *   GET    /api/sensors/:id               single sensor + stats
@@ -223,6 +224,36 @@ sensorsRouter.post('/:id/readings', authenticateToken, async (req, res) => {
       }
       return res.status(422).json({ error: err.message });
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sensors/:id/readings
+ * Fetch readings for a sensor in a given epoch (defaults to current).
+ * Auth: JWT required. Returns raw readings array + finalized record if available.
+ */
+sensorsRouter.get('/:id/readings', authenticateToken, async (req, res) => {
+  try {
+    const sensorId = decodeId(req.params.id);
+    if (!sensorId) return res.status(400).json({ error: 'invalid sensor id encoding' });
+
+    const sensor = sensorRegistry.getSensor(sensorId);
+    if (!sensor) return res.status(404).json({ error: 'sensor not found' });
+
+    const epoch = req.query.epoch !== undefined
+      ? parseInt(req.query.epoch, 10)
+      : await getCurrentEpoch();
+
+    if (!Number.isFinite(epoch) || epoch < 0) {
+      return res.status(400).json({ error: 'invalid epoch' });
+    }
+
+    const readings = sensorRegistry.getReadingsForEpoch(sensorId, epoch);
+    const finalized = sensorRegistry.getFinalizedReading(sensorId, epoch);
+
+    return res.json({ sensor_id: sensorId, epoch, readings, finalized: finalized || null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
