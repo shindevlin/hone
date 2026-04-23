@@ -155,8 +155,38 @@ function _stepsFor(node, hw, username) {
   }
 
   if (node.id === "sensor") {
+    // Install the GNSS relay as a system service (needs root for ARP spoof + tcpdump).
+    // auto-detect: interface and GEODNET destination are derived at runtime from .env.
+    var relayServicePath = "/etc/systemd/system/btcpc-gnss-relay.service";
+    var relayServiceContent = [
+      "[Unit]",
+      "Description=BTCPC GNSS Relay — Hyfix RTCM3 intercept + chain recording",
+      "After=network-online.target",
+      "Wants=network-online.target",
+      "",
+      "[Service]",
+      "Type=simple",
+      "User=root",
+      `WorkingDirectory=${repoDir}`,
+      "ExecStart=/usr/bin/node bin/btcpc-gnss-relay",
+      "Restart=on-failure",
+      "RestartSec=15",
+      `EnvironmentFile=${repoDir}/.env`,
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+    ].join("\\n");
     return [
-      { desc: "install sensor bridge (auto-detects GPS, Meshtastic, Flipper)", cmd: `node ${repoDir}/bin/btcpc-gnss-bridge --auto`, required: false },
+      {
+        desc: "install arpspoof + tcpdump (required for RTCM3 stream interception)",
+        cmd: "apt-get install -y dsniff tcpdump 2>/dev/null || true",
+        required: false,
+      },
+      {
+        desc: "create btcpc-gnss-relay system service (runs as root for ARP spoof)",
+        cmd: `sudo bash -c 'printf "${relayServiceContent}" > ${relayServicePath} && systemctl daemon-reload && systemctl enable --now btcpc-gnss-relay'`,
+        required: false,
+      },
     ];
   }
 

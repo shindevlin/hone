@@ -64,16 +64,17 @@ const NODE_TYPES = [
   {
     id: "sensor",
     name: "Sensor Node",
-    ask: "Stream real-world data to the chain? (GPS, weather, IoT, GNSS)",
+    ask: "Stream real-world data to the chain? (GPS, weather, IoT, GNSS base station)",
     explain: [
       "Publishes sensor readings as signed chain transactions.",
-      "Works with GPS dongles, Meshtastic radios, Flipper Zero, weather stations.",
-      "Earns sensor data rewards for valid, verified readings.",
+      "Works with Hyfix GNSS base stations, GPS dongles, Meshtastic, Flipper Zero, weather stations.",
+      "Hyfix GNSS: intercepts RTCM3 stream via ARP spoof and records corrections on chain.",
+      "Earns IoT sensor data rewards for valid, verified readings.",
     ],
     requires: { ram_gb: 0.5, ollama: false },
-    env_keys: ["BTCPC_SENSOR_TYPE"],
-    bin: "btcpc-gnss-bridge",
-    systemd: null,
+    env_keys: ["BTCPC_GNSS_DEVICE_IP", "BTCPC_GNSS_GATEWAY_IP", "BTCPC_GNSS_IFACE", "BTCPC_GNSS_MINER"],
+    bin: "btcpc-gnss-relay",
+    systemd: "btcpc-gnss-relay",
   },
   {
     id: "flipper",
