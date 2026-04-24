@@ -464,7 +464,7 @@
                     android:textSize="14sp" />
 
                 <TextView
-                    android:id="@+id/settings_relay_status"
+                    android:id="@+id/settings_relay_status2"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="--"
@@ -494,7 +494,7 @@
                     android:textSize="14sp" />
 
                 <TextView
-                    android:id="@+id/settings_clock_status"
+                    android:id="@+id/settings_clock_status2"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="--"
@@ -524,7 +524,7 @@
                     android:textSize="14sp" />
 
                 <TextView
-                    android:id="@+id/settings_sensor_status"
+                    android:id="@+id/settings_sensor_status2"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="--"
