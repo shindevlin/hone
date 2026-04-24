@@ -33,6 +33,13 @@ var epochConsensus = require("../src/chain/authorityRotation");
 var mempool = require("../src/p2p/mempool");
 var { getBlockReward } = require("../src/services/emissionSchedule");
 var messageAuth = require("../src/p2p/messageAuth");
+var blockProposal = require("../src/chain/blockProposal");
+var finalizationConsensus = require("../src/chain/finalizationConsensus");
+var { applyFinalization } = require("../src/chain/epochFinalizer");
+// Protocol gossip tracking (recordMinerWork, getActiveVerifiers, etc.)
+// Importing protocol here populates the same in-memory gossip maps
+// that blockProposal.buildProposal() reads from.
+var protocolGossip = require("../src/p2p/protocol");
 
 // ─── Configuration ───────────────────────────────────────────────
 
@@ -213,6 +220,12 @@ function handleMessage(msg, fromAddress) {
       broadcast(msg, fromAddress);
       break;
 
+    case "BLOCK_PROPOSAL":
+      // Clock receives proposals from peers — feed into consensus
+      handleBlockProposal(msg, fromAddress);
+      broadcast(msg, fromAddress);
+      break;
+
     case "TRANSACTION":
       mempool.addTransaction(msg.data || {});
       broadcast(msg, fromAddress);
@@ -221,6 +234,27 @@ function handleMessage(msg, fromAddress) {
     case "RESPONSE_LEDGER":
       handleLedgerResponse(msg);
       break;
+
+    case "INFERENCE_REVEAL":
+    case "INFERENCE_RESULT": {
+      // Track gossiped miner work for reward calculation
+      var rd = msg.data || {};
+      if (rd.miner && rd.epoch_number != null && rd.work_value != null) {
+        protocolGossip.recordMinerWork(rd.miner, rd.epoch_number, rd.work_value);
+      }
+      broadcast(msg, fromAddress);
+      break;
+    }
+
+    case "VERIFY_RESPONSE": {
+      // Track verifier activity for reward calculation
+      var vd = msg.data || {};
+      if (vd.verifier && vd.epoch != null && vd.epoch > 0) {
+        try { protocolGossip.recordNodeActivity && protocolGossip.recordNodeActivity(vd.verifier, vd.epoch, "verifier"); } catch (_) {}
+      }
+      broadcast(msg, fromAddress);
+      break;
+    }
 
     default:
       // Relay everything else (inference, mining proofs, etc.)
@@ -293,6 +327,91 @@ function handleLedgerResponse(msg) {
   }
 }
 
+// ─── Block Proposal Handler ──────────────────────────────────────
+
+function handleBlockProposal(msg) {
+  var data = msg.data || {};
+  if (!data.epoch_number || !data.proposer || !data.consensus_hash) return;
+
+  // Feed into consensus tracker — same source-tag logic as protocol.js
+  var sourceTag = "peer:" + (data.proposer || "unknown");
+  finalizationConsensus.submitProposal(data.epoch_number, {
+    proposer: data.proposer,
+    rewards: (data.rewards || []).map(function (r) {
+      return { miner: r.to || r.miner, amount: r.amount, type: r.type };
+    }),
+    total_work: data.total_work || 0,
+    consensus_hash: data.consensus_hash,
+    settled_jobs: data.miners_active || 0,
+    block_reward: data.block_reward,
+    timestamp: data.timestamp
+  }, sourceTag);
+}
+
+// ─── Clock Finalization Callback ─────────────────────────────────
+// When consensus resolves, the clock applies rewards and broadcasts EPOCH_FINALIZED.
+// This is gated by BTCPC_CLOCK_PROPOSE=true so it only runs when the clock
+// is designated as the proposal authority (not the miner fallback).
+
+var CLOCK_PROPOSES = process.env.BTCPC_CLOCK_PROPOSE === "true";
+
+if (CLOCK_PROPOSES) {
+  finalizationConsensus.onResolved(function (epochNumber, winner) {
+    if (!finalizationConsensus.amIBroadcaster(epochNumber, CLOCK_ACCOUNT)) {
+      console.log("[CLOCK] Epoch " + epochNumber + " consensus — " + winner.proposer + " will broadcast");
+      return;
+    }
+
+    console.log("[CLOCK] Epoch " + epochNumber + " consensus reached — I am the broadcaster");
+
+    applyFinalization(epochNumber, winner, CLOCK_ACCOUNT).then(function (epoch) {
+      if (!epoch) return;
+      var bd = epoch._blockData || {};
+
+      var blockSignature = null;
+      var signKey = POSTING_KEY || ACTIVE_KEY;
+      if (signKey) {
+        try {
+          var blockHeaderData = {
+            epoch_number: epochNumber,
+            consensus_hash: winner.consensus_hash || "",
+            state_root: bd.state_root || "",
+            proposer: CLOCK_ACCOUNT,
+            timestamp: bd.timestamp || 0,
+          };
+          var sig = messageAuth.signMessage(blockHeaderData, signKey);
+          blockSignature = sig.signature;
+        } catch (_) {}
+      }
+
+      var finalizedMsg = createMessage("EPOCH_FINALIZED", {
+        epoch_number: epochNumber,
+        block_reward: winner.block_reward,
+        reward_number: winner.reward_number,
+        epochs_deferred: winner.epochs_deferred,
+        settled_jobs: winner.settled_jobs || 0,
+        rewards: (winner.rewards || []).map(function (r) { return { miner: r.miner, amount: r.amount }; }),
+        total_work: winner.total_work,
+        consensus_hash: winner.consensus_hash,
+        consensus_nodes: winner.consensus_nodes || 1,
+        consensus_proposals: winner.consensus_proposals || 1,
+        authority: CLOCK_ACCOUNT,
+        proposer: CLOCK_ACCOUNT,
+        block_signature: blockSignature,
+        ledger: bd.ledger || [],
+        header_hex: bd.header_hex || null,
+        block_hash: bd.block_hash || null,
+        state_root: bd.state_root || null,
+        is_finality: bd.is_finality || false
+      });
+      broadcast(finalizedMsg);
+      console.log("[CLOCK] Block " + epochNumber + " broadcast to network");
+    }).catch(function (err) {
+      console.error("[CLOCK] Finalization error for epoch " + epochNumber + ": " + err.message);
+    });
+  });
+}
+
 // ─── Epoch Clock Loop ────────────────────────────────────────────
 
 function startEpochClock() {
@@ -301,7 +420,8 @@ function startEpochClock() {
     return;
   }
 
-  console.log("[CLOCK] Epoch clock started (" + CLOCK_ACCOUNT + ")");
+  console.log("[CLOCK] Epoch clock started (" + CLOCK_ACCOUNT + ")" +
+    (CLOCK_PROPOSES ? " [PROPOSAL MODE]" : " [relay mode — set BTCPC_CLOCK_PROPOSE=true to enable proposals]"));
 
   setInterval(function () {
     if (!running) return;
@@ -363,6 +483,78 @@ function startEpochClock() {
     console.log("[CLOCK] Epoch " + currentEpoch + " START (this node)");
 
   }, 30000); // Check every 30 seconds
+
+  // ── Block proposal loop (only when BTCPC_CLOCK_PROPOSE=true) ──
+  // Runs every 5s, proposes a block for the next epoch when wall clock reaches it.
+  if (CLOCK_PROPOSES) {
+    var lastProposedEpoch = -1;
+    var highestFinalizedEpoch = currentEpoch - 1;
+
+    finalizationConsensus.onResolved(function (epochNumber) {
+      if (epochNumber > highestFinalizedEpoch) highestFinalizedEpoch = epochNumber;
+    });
+
+    setInterval(function () {
+      if (!running) return;
+      var wallEpoch = epochConsensus.computeEpochNumber(genesisTimestamp, EPOCH_DURATION_MS);
+      var targetEpoch = highestFinalizedEpoch + 1;
+      if (wallEpoch < targetEpoch) return;
+      if (targetEpoch <= lastProposedEpoch) return;
+
+      lastProposedEpoch = targetEpoch;
+
+      try {
+        var reward = getBlockReward(targetEpoch);
+        var proposal = blockProposal.buildProposal({
+          epochNumber: targetEpoch,
+          blockReward: reward,
+          proposerAccount: CLOCK_ACCOUNT,
+          protocol: protocolGossip,
+        });
+
+        var signKey = POSTING_KEY || ACTIVE_KEY;
+        if (signKey) {
+          try {
+            var proposalSignData = {
+              epoch_number: proposal.epoch_number,
+              proposer: proposal.proposer,
+              consensus_hash: proposal.consensus_hash,
+              total_work: proposal.total_work || 0,
+              timestamp: proposal.timestamp || 0,
+            };
+            var sig = messageAuth.signMessage(proposalSignData, signKey);
+            proposal.proposal_signature = sig.signature;
+          } catch (sigErr) {
+            console.warn("[CLOCK] Failed to sign block proposal: " + sigErr.message);
+          }
+        } else {
+          console.warn("[CLOCK] No signing key — proposal will be unsigned");
+        }
+
+        var propMsg = createMessage("BLOCK_PROPOSAL", proposal);
+        broadcast(propMsg);
+        console.log("[CLOCK] Block proposal epoch " + targetEpoch + ": " +
+          proposal.miners_active + " miner(s), " + proposal.clocks_active + " clock(s), work=" + proposal.total_work);
+
+        // Submit locally to consensus tracker
+        finalizationConsensus.submitProposal(targetEpoch, {
+          proposer: CLOCK_ACCOUNT,
+          rewards: proposal.rewards.map(function (r) {
+            return { miner: r.to, amount: r.amount, type: r.type };
+          }),
+          total_work: proposal.total_work,
+          consensus_hash: proposal.consensus_hash,
+          settled_jobs: proposal.miners_active,
+          block_reward: reward,
+          timestamp: proposal.timestamp,
+        }, "self");
+      } catch (err) {
+        console.error("[CLOCK] Block proposal error for epoch " + targetEpoch + ": " + err.message);
+      }
+    }, 5000);
+
+    console.log("[CLOCK] Block proposal loop active");
+  }
 }
 
 // ─── Startup ─────────────────────────────────────────────────────

@@ -29,7 +29,12 @@ const nodeRegistry = require('../chain/nodeRegistry');
 const mempool = require('../p2p/mempool');
 
 const finalityAnchoring = require('../chain/finalityAnchoring');
-const FINALITY_INTERVAL = parseInt(process.env.BTCPC_FINALITY_INTERVAL) || 100;
+const { applyFinalization: _applyFinalizationShared, FINALITY_INTERVAL } = require('../chain/epochFinalizer');
+
+// BTCPC_MINER_CLOCK=false disables block-proposal broadcasting from the miner.
+// Set this when running a dedicated btcpc-clock node so the clock owns proposals.
+// Default true for single-node genesis compatibility.
+const MINER_ACTS_AS_CLOCK = process.env.BTCPC_MINER_CLOCK !== 'false';
 const WORK_ITEMS_PER_EPOCH = parseInt(process.env.BTCPC_WORK_PER_EPOCH) || 3;
 const resourceManager = require('../services/resourceManager');
 const { notifyUpdate, notifyMining } = require('../services/systemNotify');
@@ -503,195 +508,11 @@ async function computeFinalization(epochNumber) {
 }
 
 /**
- * applyFinalization — write the winning proposal to DB, ledger, and disk.
- * Called by the consensus winner OR when receiving EPOCH_FINALIZED.
+ * applyFinalization — delegates to the shared epochFinalizer module.
+ * Kept here (as a thin wrapper) so callers inside miner.js don't need changes.
  */
 async function applyFinalization(epochNumber, proposal) {
-  // Phase D: epoch metadata lives in stateStore + block payload, not Mongo.
-  let epoch = stateStore.getEpoch(epochNumber);
-  if (!epoch) {
-    epoch = {
-      epoch_number: epochNumber,
-      status: 'active',
-      started_at: new Date(),
-      block_reward: proposal.block_reward || 0,
-      commitments: [],
-    };
-  }
-  if (epoch.status === 'finalized') return epoch; // already done
-
-  const rewards = proposal.rewards || [];
-
-  // Write rewards to permanent ledger — stateStore balances update via
-  // the MINING_REWARD entry dispatcher, and the mining proof reward_earned
-  // is updated in-place on the in-memory proof entry.
-  const epochProofs = stateStore.getMiningProofs(epochNumber).slice();
-  for (const r of rewards) {
-    await ledger.recordMiningReward(r.miner, r.amount, epochNumber, null, null, r.type || 'mining');
-
-    // Update reward_earned on the matching proof
-    for (const proof of epochProofs) {
-      if (proof.miner === r.miner) {
-        proof.reward_earned = r.amount;
-        break;
-      }
-    }
-
-    console.log(`[BTCPC]   ${r.miner}: ${r.amount.toFixed(4)} BTCPC (${r.type || 'mining'})`);
-  }
-  stateStore.setMiningProofs(epochNumber, epochProofs);
-
-  // Finalize epoch record in stateStore
-  epoch.consensus_hash = proposal.consensus_hash || '0'.repeat(64);
-  epoch.total_work = proposal.total_work || 0;
-  epoch.consensus_nodes = proposal.consensus_nodes || 1;
-  epoch.consensus_proposals = proposal.consensus_proposals || 1;
-  epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount, type: r.type || 'mining' }));
-  epoch.block_reward = proposal.block_reward || 0;
-  epoch.reward_number = proposal.reward_number;
-  epoch.epochs_deferred = proposal.epochs_deferred || 0;
-  epoch.ended_at = new Date();
-  epoch.status = 'finalized';
-  epoch.settled_jobs = proposal.settled_jobs || 0;
-  stateStore.setEpoch(epochNumber, epoch);
-
-  const rewardNumber = proposal.reward_number !== undefined ? proposal.reward_number : epochNumber;
-  console.log(`[BTCPC] Epoch ${epochNumber} finalized | reward #${rewardNumber} | ${rewards.length} reward(s) | ${(proposal.block_reward || 0).toFixed(4)} BTCPC`);
-
-  // ── Write block to disk — source of truth ──
-  try {
-    // Get ledger entries for this epoch (already flushed to pending)
-    const epochLedgerEntries = ledger.flushPendingEntries();
-
-    // Apply entries to SMT for state root
-    stateManager.applyLedgerEntries(epochLedgerEntries);
-    // Phase B: also apply to stateStore so the in-memory cache tracks live writes
-    try {
-      const stateStore = require('../chain/stateStore');
-      stateStore.applyEntries(epochLedgerEntries);
-    } catch (_) {}
-    const stateRoot = stateManager.getStateRoot();
-
-    // Compute Merkle roots
-    const txHashes = epochLedgerEntries.map(e => blockStore.hashLedgerEntry(e));
-    const txMerkleRoot = Block.computeMerkleRoot(txHashes);
-
-    // Phase D: compute proofs live exclusively in stateStore (added live
-    // via addComputeProof in the mining loop, hydrated on replay).
-    // Sweep last 3 epochs — fire-and-forget inference may complete in N+1 or N+2.
-    const epochProofs = stateStore.getRecentComputeProofs
-      ? stateStore.getRecentComputeProofs(epochNumber, 3)
-      : stateStore.getComputeProofs(epochNumber);
-    const proofHashes = epochProofs.map(p => blockStore.hashComputeProof(p));
-    const cpMerkleRoot = Block.computeMerkleRoot(proofHashes);
-
-    // Get previous block hash
-    let prevHash = '0'.repeat(64);
-    if (epochNumber > 0) {
-      const prevHeader = blockStore.readBlockHeader(epochNumber - 1);
-      if (prevHeader) {
-        prevHash = prevHeader.computeHash();
-      }
-    }
-
-    const block = new Block({
-      version: 1,
-      epoch_number: epochNumber,
-      previous_block_hash: prevHash,
-      merkle_root_transactions: txMerkleRoot,
-      merkle_root_compute_proofs: cpMerkleRoot,
-      state_root: stateRoot,
-      timestamp: epoch.ended_at.getTime(),
-      difficulty: epoch.difficulty || 1,
-      miner_id: MINER_ACCOUNT
-    });
-
-    // Phase D: mining proofs come exclusively from stateStore
-    const miningProofs = stateStore.getMiningProofs(epochNumber);
-
-    const payload = {
-      ledger_entries: epochLedgerEntries,
-      consensus_nodes: proposal.consensus_nodes || 1,
-      consensus_proposals: proposal.consensus_proposals || 1,
-      rewards: rewards.map(r => ({ miner: r.node_id, amount: r.amount })),
-      compute_proofs: epochProofs.map(p => ({
-        node_id: p.node_id, prompt_hash: p.prompt_hash,
-        result_hash: p.result_hash, model: p.model,
-        tokens_generated: p.tokens_generated, work_value: p.work_value,
-        tools_used: p.tools_used || null,
-        tool_trace_hash: p.tool_trace_hash || null,
-      })),
-      mining_proofs: miningProofs.map(p => ({
-        miner: p.miner, reward_earned: p.reward_earned,
-        model: p.model, tokens_computed: p.tokens_computed,
-        work_value: p.work_value, state_hash: p.state_hash
-      }))
-    };
-
-    blockStore.writeBlock(block, payload);
-    blockchain.addBlock(block);
-
-    const blockHash = block.computeHash();
-    console.log(`[BTCPC] Block ${epochNumber} written to disk: ${blockHash.slice(0, 16)}... | state: ${stateRoot.slice(0, 16)}...`);
-
-    // ── Finality block every N epochs ──
-    if (epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0) {
-      const snapshot = stateManager.generateFinalitySnapshot();
-      // Rolling commitment: SHA256(prev_finality_hash + current_state_root)
-      const prevFinalityEpoch = epochNumber - FINALITY_INTERVAL;
-      let prevFinalityHash = '0'.repeat(64);
-      if (prevFinalityEpoch >= 0 && blockStore.hasFinality(prevFinalityEpoch)) {
-        const prevFin = blockStore.readFinality(prevFinalityEpoch);
-        if (prevFin && prevFin.snapshot.rolling_commitment) {
-          prevFinalityHash = prevFin.snapshot.rolling_commitment;
-        }
-      }
-      const crypto = require('crypto');
-      snapshot.rolling_commitment = crypto.createHash('sha256')
-        .update(prevFinalityHash + stateRoot)
-        .digest('hex');
-      snapshot.finality_epoch = epochNumber;
-      snapshot.block_hash = blockHash;
-
-      blockStore.writeFinality(block, snapshot);
-      console.log(`[BTCPC] Finality block ${epochNumber} written | ${snapshot.account_count} accounts | commitment: ${snapshot.rolling_commitment.slice(0, 16)}...`);
-
-      // Four-tier finality anchoring — fire async, non-blocking
-      finalityAnchoring.anchorIfDue(epochNumber, snapshot).catch(function (err) {
-        console.warn('[BTCPC][anchor] anchorIfDue error (non-fatal):', err.message);
-      });
-
-      // Lucid Pruning — remove block files before this finality block
-      const pruned = blockStore.pruneBeforeFinality(epochNumber);
-      if (pruned > 0) {
-        console.log(`[BTCPC] Lucid Pruning: ${pruned} block files pruned (before epoch ${epochNumber})`);
-      }
-    }
-
-    // Clear mempool — transactions are now in the block
-    const mempoolTxs = mempool.getTransactions();
-    const clearedHashes = mempoolTxs.map(t => t.txHash).filter(Boolean);
-    if (clearedHashes.length > 0) {
-      mempool.removeTransactions(clearedHashes);
-      console.log(`[BTCPC] Mempool: ${clearedHashes.length} transactions included in block ${epochNumber}`);
-    }
-
-    // Attach block data to epoch for broadcast
-    epoch._blockData = {
-      header_hex: block.serialize().toString('hex'),
-      block_hash: blockHash,
-      state_root: stateRoot,
-      ledger: epochLedgerEntries,
-      is_finality: epochNumber > 0 && epochNumber % FINALITY_INTERVAL === 0
-    };
-  } catch (err) {
-    console.error(`[BTCPC] Failed to write block to disk: ${err.message}`);
-    // Non-fatal: chain continues, block can be reconstructed later
-    // Still flush ledger entries so they make it to P2P broadcast
-    epoch._blockData = { ledger: ledger.flushPendingEntries() };
-  }
-
-  return epoch;
+  return _applyFinalizationShared(epochNumber, proposal, MINER_ACCOUNT);
 }
 
 /**
@@ -1388,187 +1209,165 @@ async function startMiner() {
     // The unified BLOCK_PROPOSAL flow handles all consensus.
   });
 
-  // ── Consensus resolution callback — when the network agrees, apply and broadcast ──
+  // ── Consensus resolution + block proposal: only when acting as clock ──
+  // Set BTCPC_MINER_CLOCK=false to run miner-only (pure inference).
+  // Leave unset or BTCPC_MINER_CLOCK=true for single-node genesis (default).
   const finConsensus = require('../chain/finalizationConsensus');
-  finConsensus.onResolved(async (epochNumber, winner) => {
-    try {
-      // Only the designated broadcaster applies and broadcasts
-      if (!finConsensus.amIBroadcaster(epochNumber, MINER_ACCOUNT)) {
-        console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — ${winner.proposer} will broadcast`);
-        return;
-      }
-
-      console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — I am the broadcaster`);
-
-      // Apply the winning proposal to DB + ledger
-      const epoch = await applyFinalization(epochNumber, winner);
-      if (!epoch) return;
-
-      const bd = epoch._blockData || {};
-
-      // Sign the finalized block so peers can verify it came from the authorized miner
-      let blockSignature = null;
-      const activeKeyForSign = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
-      if (activeKeyForSign) {
-        try {
-          const messageAuth = require('../p2p/messageAuth');
-          // Must match verifier's blockHeaderData in protocol.js
-          const blockHeaderData = {
-            epoch_number: epochNumber,
-            consensus_hash: winner.consensus_hash || '',
-            state_root: bd.state_root || '',
-            proposer: MINER_ACCOUNT,
-            timestamp: bd.timestamp || 0,
-          };
-          const sig = messageAuth.signMessage(blockHeaderData, activeKeyForSign);
-          blockSignature = sig.signature;
-        } catch (_) {}
-      }
-
-      const blockMsg = createMessage('EPOCH_FINALIZED', {
-        epoch_number: epochNumber,
-        block_reward: winner.block_reward,
-        reward_number: winner.reward_number,
-        epochs_deferred: winner.epochs_deferred,
-        settled_jobs: winner.settled_jobs || 0,
-        rewards: (winner.rewards || []).map(r => ({
-          miner: r.miner,
-          amount: r.amount
-        })),
-        total_work: winner.total_work,
-        consensus_hash: winner.consensus_hash,
-        consensus_nodes: winner.consensus_nodes || 1,
-        consensus_proposals: winner.consensus_proposals || 1,
-        authority: MINER_ACCOUNT,
-        proposer: MINER_ACCOUNT,
-        block_signature: blockSignature,
-        ledger: bd.ledger || [],
-        header_hex: bd.header_hex || null,
-        block_hash: bd.block_hash || null,
-        state_root: bd.state_root || null,
-        is_finality: bd.is_finality || false
-      }, p2p.NODE_ID);
-      p2p.broadcast(blockMsg);
-      console.log(`[BTCPC] Block ${epochNumber} broadcast to network (consensus)`);
-
-      // Auto-submit cross-chain claims for this miner's rewards
+  if (MINER_ACTS_AS_CLOCK) {
+    finConsensus.onResolved(async (epochNumber, winner) => {
       try {
-        const myReward = (winner.rewards || []).find(r => r.miner === MINER_ACCOUNT);
-        if (myReward && myReward.amount > 0) {
-          const { submitAllClaims } = require('../claims/evmClaimSubmitter');
-          const postingKey = process.env.BTCPC_SHIN_POSTING_KEY || process.env.BTCPC_POSTING_KEY;
-          if (postingKey) {
-            const linkedChains = { evm: process.env.BTCPC_EVM_ADDRESS };
-            submitAllClaims(MINER_ACCOUNT, epochNumber, myReward.amount, linkedChains, postingKey)
-              .then(results => {
-                if (results.length > 0) console.log(`[BTCPC] Cross-chain claims: ${results.length} submitted`);
-              })
-              .catch(() => {});
+        // Only the designated broadcaster applies and broadcasts
+        if (!finConsensus.amIBroadcaster(epochNumber, MINER_ACCOUNT)) {
+          console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — ${winner.proposer} will broadcast`);
+          return;
+        }
+
+        console.log(`[BTCPC] Epoch ${epochNumber} consensus reached — I am the broadcaster`);
+
+        const epoch = await applyFinalization(epochNumber, winner);
+        if (!epoch) return;
+
+        const bd = epoch._blockData || {};
+
+        let blockSignature = null;
+        const activeKeyForSign = process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
+        if (activeKeyForSign) {
+          try {
+            const messageAuth = require('../p2p/messageAuth');
+            const blockHeaderData = {
+              epoch_number: epochNumber,
+              consensus_hash: winner.consensus_hash || '',
+              state_root: bd.state_root || '',
+              proposer: MINER_ACCOUNT,
+              timestamp: bd.timestamp || 0,
+            };
+            const sig = messageAuth.signMessage(blockHeaderData, activeKeyForSign);
+            blockSignature = sig.signature;
+          } catch (_) {}
+        }
+
+        const blockMsg = createMessage('EPOCH_FINALIZED', {
+          epoch_number: epochNumber,
+          block_reward: winner.block_reward,
+          reward_number: winner.reward_number,
+          epochs_deferred: winner.epochs_deferred,
+          settled_jobs: winner.settled_jobs || 0,
+          rewards: (winner.rewards || []).map(r => ({ miner: r.miner, amount: r.amount })),
+          total_work: winner.total_work,
+          consensus_hash: winner.consensus_hash,
+          consensus_nodes: winner.consensus_nodes || 1,
+          consensus_proposals: winner.consensus_proposals || 1,
+          authority: MINER_ACCOUNT,
+          proposer: MINER_ACCOUNT,
+          block_signature: blockSignature,
+          ledger: bd.ledger || [],
+          header_hex: bd.header_hex || null,
+          block_hash: bd.block_hash || null,
+          state_root: bd.state_root || null,
+          is_finality: bd.is_finality || false
+        }, p2p.NODE_ID);
+        p2p.broadcast(blockMsg);
+        console.log(`[BTCPC] Block ${epochNumber} broadcast to network (consensus)`);
+
+        try {
+          const myReward = (winner.rewards || []).find(r => r.miner === MINER_ACCOUNT);
+          if (myReward && myReward.amount > 0) {
+            const { submitAllClaims } = require('../claims/evmClaimSubmitter');
+            const postingKey = process.env.BTCPC_SHIN_POSTING_KEY || process.env.BTCPC_POSTING_KEY;
+            if (postingKey) {
+              const linkedChains = { evm: process.env.BTCPC_EVM_ADDRESS };
+              submitAllClaims(MINER_ACCOUNT, epochNumber, myReward.amount, linkedChains, postingKey)
+                .then(results => {
+                  if (results.length > 0) console.log(`[BTCPC] Cross-chain claims: ${results.length} submitted`);
+                })
+                .catch(() => {});
+            }
           }
-        }
-      } catch (_) {}
-    } catch (err) {
-      console.error(`[BTCPC] Consensus apply error for epoch ${epochNumber}:`, err.message);
-    }
-  });
-
-  // ── Unified clock loop: any node with this code is also a clock ──
-  // Wall clock advances → build BLOCK_PROPOSAL from gossiped attestations
-  // → broadcast → consensus picks winner. Single message, no ceremony.
-  //
-  // Miners do work. Verifiers check work. Clocks aggregate and propose blocks.
-  // This same loop runs in btcpc-clock too — both nodes are clocks.
-  const blockProposal = require('../chain/blockProposal');
-  let lastProposedEpoch = -1;
-  // The chain's "current epoch" is the latest finalized epoch. We propose
-  // a block for currentEpoch + 1 once wall clock reaches that boundary.
-  let highestFinalizedEpoch = currentEpoch - 1; // currentEpoch was max + 1
-
-  miningInterval = setInterval(() => {
-    if (!running) return;
-    const wallEpoch = getCurrentEpochNumber();
-    // Target: the next epoch to propose is highestFinalized + 1
-    const targetEpoch = highestFinalizedEpoch + 1;
-    // Only propose once wall clock has reached this epoch
-    if (wallEpoch < targetEpoch) return;
-    if (targetEpoch <= lastProposedEpoch) return;
-
-    lastProposedEpoch = targetEpoch;
-
-    try {
-      const reward = getBlockReward(targetEpoch);
-      const protocolModule = require('../p2p/protocol');
-      // Update protocol's epoch cache so subsequent heartbeats file correctly
-      if (protocolModule.setCurrentEpoch) protocolModule.setCurrentEpoch(targetEpoch);
-      const proposal = blockProposal.buildProposal({
-        epochNumber: targetEpoch,
-        blockReward: reward,
-        proposerAccount: MINER_ACCOUNT,
-        protocol: protocolModule,
-      });
-
-      // Sign proposal with device key (preferred) or account posting/active key (fallback).
-      // device_id is included so peers can look up the on-chain delegation.
-      const signingKey = _devicePrivKey || process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
-      if (signingKey) {
-        try {
-          const messageAuth = require('../p2p/messageAuth');
-          const proposalSignData = {
-            epoch_number: proposal.epoch_number,
-            proposer: proposal.proposer,
-            consensus_hash: proposal.consensus_hash,
-            total_work: proposal.total_work || 0,
-            timestamp: proposal.timestamp || 0,
-          };
-          const sig = messageAuth.signMessage(proposalSignData, signingKey);
-          proposal.proposal_signature = sig.signature;
-          // Include device_id so verifiers can check the on-chain delegation
-          if (_devicePubKey) proposal.device_id = _devicePubKey;
-        } catch (sigErr) {
-          console.warn(`[BTCPC] Failed to sign block proposal: ${sigErr.message}`);
-        }
-      } else {
-        console.warn('[BTCPC] No signing key available — block proposal will be unsigned (rejected by peers)');
+        } catch (_) {}
+      } catch (err) {
+        console.error(`[BTCPC] Consensus apply error for epoch ${epochNumber}:`, err.message);
       }
+    });
 
-      const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
-      p2p.broadcast(msg);
-      console.log(`[BTCPC] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
+    // Block proposal loop — runs only when miner acts as clock.
+    // Correct multi-node setup: btcpc-clock proposes, miner just does inference.
+    const blockProposal = require('../chain/blockProposal');
+    let lastProposedEpoch = -1;
+    let highestFinalizedEpoch = currentEpoch - 1;
 
-      // Also submit to local consensus tracker.
-      // Tag with our advertised IP so two processes on the same machine
-      // share the same source tag and count as ONE consensus source.
-      const finConsensus = require('../chain/finalizationConsensus');
-      const { getAdvertisedP2PAddress } = require('../p2p/address');
-      let _localSourceTag = "self";
+    miningInterval = setInterval(() => {
+      if (!running) return;
+      const wallEpoch = getCurrentEpochNumber();
+      const targetEpoch = highestFinalizedEpoch + 1;
+      if (wallEpoch < targetEpoch) return;
+      if (targetEpoch <= lastProposedEpoch) return;
+
+      lastProposedEpoch = targetEpoch;
+
       try {
-        const _ownAddr = getAdvertisedP2PAddress();
-        if (_ownAddr) _localSourceTag = new URL(_ownAddr).hostname;
-      } catch (_) {}
-      finConsensus.submitProposal(targetEpoch, {
-        proposer: MINER_ACCOUNT,
-        rewards: proposal.rewards.map(r => ({ miner: r.to, amount: r.amount, type: r.type })),
-        total_work: proposal.total_work,
-        consensus_hash: proposal.consensus_hash,
-        settled_jobs: proposal.miners_active,
-        block_reward: reward,
-        timestamp: proposal.timestamp,
-      }, _localSourceTag);
-    } catch (err) {
-      console.error(`[BTCPC] Block proposal error for epoch ${targetEpoch}:`, err.message);
-    }
-  }, 5000); // check every 5s
+        const reward = getBlockReward(targetEpoch);
+        const protocolModule = require('../p2p/protocol');
+        if (protocolModule.setCurrentEpoch) protocolModule.setCurrentEpoch(targetEpoch);
+        const proposal = blockProposal.buildProposal({
+          epochNumber: targetEpoch,
+          blockReward: reward,
+          proposerAccount: MINER_ACCOUNT,
+          protocol: protocolModule,
+        });
 
-  // When an epoch is resolved and applied, advance highestFinalizedEpoch
-  // so the loop proposes the next epoch when wall clock reaches it
-  const finConsensusForTracking = require('../chain/finalizationConsensus');
-  finConsensusForTracking.onResolved((epochNumber) => {
-    if (epochNumber > highestFinalizedEpoch) {
-      highestFinalizedEpoch = epochNumber;
-    }
-  });
+        const signingKey = _devicePrivKey || process.env.BTCPC_POSTING_KEY || process.env.BTCPC_ACTIVE_KEY;
+        if (signingKey) {
+          try {
+            const messageAuth = require('../p2p/messageAuth');
+            const proposalSignData = {
+              epoch_number: proposal.epoch_number,
+              proposer: proposal.proposer,
+              consensus_hash: proposal.consensus_hash,
+              total_work: proposal.total_work || 0,
+              timestamp: proposal.timestamp || 0,
+            };
+            const sig = messageAuth.signMessage(proposalSignData, signingKey);
+            proposal.proposal_signature = sig.signature;
+            if (_devicePubKey) proposal.device_id = _devicePubKey;
+          } catch (sigErr) {
+            console.warn(`[BTCPC] Failed to sign block proposal: ${sigErr.message}`);
+          }
+        } else {
+          console.warn('[BTCPC] No signing key available — block proposal will be unsigned (rejected by peers)');
+        }
 
-  console.log(`[BTCPC] Block proposal loop active — checking every 5s, epoch duration ${EPOCH_DURATION_MS / 1000}s`);
+        const msg = createMessage('BLOCK_PROPOSAL', proposal, p2p.NODE_ID);
+        p2p.broadcast(msg);
+        console.log(`[BTCPC] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
+
+        const { getAdvertisedP2PAddress } = require('../p2p/address');
+        let _localSourceTag = "self";
+        try {
+          const _ownAddr = getAdvertisedP2PAddress();
+          if (_ownAddr) _localSourceTag = new URL(_ownAddr).hostname;
+        } catch (_) {}
+        finConsensus.submitProposal(targetEpoch, {
+          proposer: MINER_ACCOUNT,
+          rewards: proposal.rewards.map(r => ({ miner: r.to, amount: r.amount, type: r.type })),
+          total_work: proposal.total_work,
+          consensus_hash: proposal.consensus_hash,
+          settled_jobs: proposal.miners_active,
+          block_reward: reward,
+          timestamp: proposal.timestamp,
+        }, _localSourceTag);
+      } catch (err) {
+        console.error(`[BTCPC] Block proposal error for epoch ${targetEpoch}:`, err.message);
+      }
+    }, 5000);
+
+    finConsensus.onResolved((epochNumber) => {
+      if (epochNumber > highestFinalizedEpoch) highestFinalizedEpoch = epochNumber;
+    });
+
+    console.log(`[BTCPC] Clock loop active — checking every 5s, epoch duration ${EPOCH_DURATION_MS / 1000}s`);
+  } else {
+    console.log('[BTCPC] BTCPC_MINER_CLOCK=false — miner-only mode, block proposals handled by btcpc-clock');
+  }
 
   // Start auto-updater (checks GitHub every 15min, stages + notifies)
   startAutoUpdater();
