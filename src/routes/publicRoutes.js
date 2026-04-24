@@ -215,9 +215,29 @@ router.get('/network', async (req, res) => {
       registeredClocks = registered.filter(n => n.type === 'clock').length;
     } catch (_) {}
 
-    // Active browser clocks (heartbeated within the last 2 min)
+    // Active browser clocks (heartbeated within the last 2 min via HTTP)
     const browserClocks = getActiveBrowserClocks();
-    const activeClockAccounts = new Set(browserClocks.map(c => c.account));
+
+    // Live P2P clock nodes — miners acting as clocks + Android phones sending
+    // CLOCK_HEARTBEAT via the relay. Both paths end up in clockUptimeByEpoch.
+    // These are often NOT in nodeRegistry (which only has on-chain registered nodes).
+    const p2pClockAccounts = new Set();
+    try {
+      const protocol = require('../p2p/protocol');
+      if (typeof protocol.getActiveClockNodes === 'function') {
+        const p2pClocks = protocol.getActiveClockNodes(latestEpoch);
+        p2pClocks.forEach(a => p2pClockAccounts.add(a));
+      }
+    } catch (_) {}
+
+    // Merge all clock sources into one deduplicated set
+    const activeClockAccounts = new Set();
+    browserClocks.forEach(c => { if (c.account) activeClockAccounts.add(c.account); });
+    p2pClockAccounts.forEach(a => activeClockAccounts.add(a));
+    // Also count any nodeRegistry-registered clock nodes
+    registered.filter(n => n.type === 'clock').forEach(n => {
+      if (n.account) activeClockAccounts.add(n.account);
+    });
 
     // Network is "alive" if the latest block file was written in the last 30 minutes
     const epochAgeMs = latestMtimeMs > 0 ? Date.now() - latestMtimeMs : Infinity;
@@ -227,6 +247,7 @@ router.get('/network', async (req, res) => {
     const uniqueAccounts = new Set();
     registered.forEach(n => { if (n.account) uniqueAccounts.add(n.account); });
     browserClocks.forEach(c => { if (c.account) uniqueAccounts.add(c.account); });
+    p2pClockAccounts.forEach(a => uniqueAccounts.add(a));
 
     // Role breakdown
     const storageNodes = registered.filter(n => n.type === 'storage').length;
@@ -236,13 +257,14 @@ router.get('/network', async (req, res) => {
     res.json({
       epoch: latestEpoch,
       nodes: uniqueAccounts.size,
-      peer_count: registered.length + browserClocks.length,
+      peer_count: registered.length + browserClocks.length + p2pClockAccounts.size,
       miners,
-      clocks: registeredClocks + browserClocks.length,
+      clocks: activeClockAccounts.size,
       storage: storageNodes,
       gateways: gatewayNodes,
       verifiers: verifierNodes,
       browser_clocks: browserClocks.length,
+      p2p_clocks: p2pClockAccounts.size,
       active_clock_accounts: Array.from(activeClockAccounts),
       alive,
       epoch_age_seconds: Math.round(epochAgeMs / 1000),

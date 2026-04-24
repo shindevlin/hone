@@ -50,8 +50,12 @@ public class WalletFragment extends Fragment {
     private MaterialButton delegateBtn;
 
     private static final long DREAMS_PER_BTCPC = 100_000_000L;
+    private static final long BALANCE_POLL_MS = 30_000L; // refresh every epoch
     private double lastBalance = 0;
     private boolean showingDreams = false;
+
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean polling = false;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -125,7 +129,36 @@ public class WalletFragment extends Fragment {
             showWallet();
             loadBalance();
         }
+        startPolling();
     }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        stopPolling();
+    }
+
+    private void startPolling() {
+        if (polling) return;
+        polling = true;
+        handler.postDelayed(pollRunnable, BALANCE_POLL_MS);
+    }
+
+    private void stopPolling() {
+        polling = false;
+        handler.removeCallbacks(pollRunnable);
+    }
+
+    private final Runnable pollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isAdded() || !polling) return;
+            if (!prefs.getAccount().isEmpty() && !prefs.getJwt().isEmpty()) {
+                loadBalance();
+            }
+            handler.postDelayed(this, BALANCE_POLL_MS);
+        }
+    };
 
     private void showLoginForm() {
         loginSection.setVisibility(View.VISIBLE);
