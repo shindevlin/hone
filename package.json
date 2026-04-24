@@ -1,6 +1,6 @@
 {
   "name": "btcpc",
-  "version": "3.1.153",
+  "version": "3.1.154",
   "description": "Bitcoin Proof of Compute — sovereign blockchain where mining means useful AI inference",
   "main": "src/index.js",
   "scripts": {
@@ -20,6 +20,7 @@
     "p2p": "node src/p2p/network.js",
     "update": "node bin/btcpc-update",
     "website": "npx serve website",
+    "docs:wiki": "node scripts/code-wiki.js",
     "desktop": "electron --no-sandbox desktop/main.js",
     "desktop:dev": "BTCPC_DESKTOP_DEV=1 electron --no-sandbox desktop/main.js",
     "android:sync": "npx cap sync android",

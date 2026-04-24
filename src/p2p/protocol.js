@@ -32,16 +32,23 @@ const knownPeers = new Set();
 try {
   if (fs.existsSync(KNOWN_PEERS_PATH)) {
     var _saved = JSON.parse(fs.readFileSync(KNOWN_PEERS_PATH, "utf8"));
+    var _needsPrune = false;
     if (Array.isArray(_saved)) {
       for (var _addr of _saved) {
         const normalized = normalizeP2PAddress(_addr);
         if (normalized) {
           knownPeers.add(normalized);
+        } else {
+          _needsPrune = true;
         }
       }
     }
     if (knownPeers.size > 0) {
       console.log("[BTCPC P2P] Loaded " + knownPeers.size + " known peers from disk");
+    }
+    if (_needsPrune) {
+      saveKnownPeers();
+      console.log("[BTCPC P2P] Pruned non-connectable known peers from disk");
     }
   }
 } catch (_e) {
@@ -505,6 +512,13 @@ function handleMessage(peer, msg, ctx) {
  */
 function handleHandshake(peer, msg, ctx) {
   const data = msg.data || {};
+
+  // Self-connection: same NODE_ID means we connected to ourselves — close immediately
+  if (msg.nodeId && msg.nodeId === ctx.NODE_ID) {
+    console.log("[BTCPC P2P] Self-connection detected (nodeId match) from " + peer.address + " — closing");
+    if (peer.ws) peer.ws.close();
+    return;
+  }
 
   peer.nodeId = msg.nodeId;
   peer.chainHeight = data.chainHeight || 0;
@@ -1096,6 +1110,8 @@ async function handleEpochFinalized(peer, msg, ctx) {
         // Build payload from message data
         const payload = {
           ledger_entries: data.ledger || [],
+          consensus_nodes: data.consensus_nodes || 1,
+          consensus_proposals: data.consensus_proposals || 1,
           rewards: data.rewards || [],
           compute_proofs: [],
           mining_proofs: []
@@ -1287,6 +1303,27 @@ async function handleMempoolEntry(peer, msg, ctx) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract a stable source tag from a peer address for consensus source tracking.
+ * Returns the peer's IP for direct connections, "relay" for relay connections,
+ * or "unknown" as fallback. Two processes on the same machine share the same IP
+ * and therefore the same source tag — they count as ONE consensus source.
+ */
+function extractConsensusSourceTag(address) {
+  if (!address) return "unknown";
+  // Relay connections — multi-tenant, treat as a single external source per relay URL
+  if (address.includes("workers.dev") || address.includes("relay")) return "relay:" + address.slice(0, 32);
+  // inbound:ip:port
+  var m = address.match(/^inbound:(.+):\d+$/);
+  if (m) return m[1]; // just the IP
+  // ws://host:port or wss://host:port
+  try {
+    var u = new URL(address);
+    return u.hostname;
+  } catch (_) {}
+  return "unknown";
+}
+
+/**
 /**
  * BLOCK_PROPOSAL — Unified block proposal from a clock node.
  * Bundles epoch, work attestations, rewards, and consensus_hash in one message.
@@ -1405,8 +1442,10 @@ function handleBlockProposal(peer, msg, ctx) {
   setCurrentEpoch(data.epoch_number);
 
   // Submit to local consensus collector — same logic as FINALIZATION_PROPOSAL
-  // but the data shape is the new unified format
+  // but the data shape is the new unified format.
+  // Source tag identifies the machine this proposal came from for quorum tracking.
   var finConsensus = require("../chain/finalizationConsensus");
+  var proposalSourceTag = extractConsensusSourceTag(peer.address);
   finConsensus.submitProposal(data.epoch_number, {
     proposer: data.proposer,
     rewards: (data.rewards || []).map(function (r) {
@@ -1417,7 +1456,7 @@ function handleBlockProposal(peer, msg, ctx) {
     settled_jobs: data.miners_active || 0,
     block_reward: data.block_reward,
     timestamp: data.timestamp,
-  });
+  }, proposalSourceTag);
 
   // Rebroadcast to peers
   ctx.broadcast(msg, peer.address);

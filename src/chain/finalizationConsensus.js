@@ -22,8 +22,14 @@ var crypto = require("crypto");
 
 var PROPOSAL_WINDOW_MS = parseInt(process.env.BTCPC_PROPOSAL_WINDOW_MS) || 30000; // 30s
 
+// Minimum distinct machine sources required before an epoch can be finalized.
+// "self" counts as one source; each distinct external peer IP counts as another.
+// Set BTCPC_MIN_CONSENSUS_PEERS=2 to require at least one external machine.
+// Default 1 allows solo operation during bootstrap.
+var MIN_CONSENSUS_SOURCES = parseInt(process.env.BTCPC_MIN_CONSENSUS_PEERS) || 1;
+
 // Per-epoch state
-// Map<epochNumber, { proposals: [], windowStart: number, resolved: boolean, winner: object|null }>
+// Map<epochNumber, { proposals: [], sourceTags: Set, windowStart: number, resolved: boolean, winner: object|null }>
 var epochs = new Map();
 
 // Callbacks
@@ -62,6 +68,7 @@ function _getEpoch(epochNumber) {
   if (!epochs.has(epochNumber)) {
     epochs.set(epochNumber, {
       proposals: [],
+      sourceTags: new Set(), // distinct machine sources: "self", peer IPs
       windowStart: null,
       resolved: false,
       winner: null,
@@ -77,9 +84,10 @@ function _getEpoch(epochNumber) {
  *
  * @param {number} epochNumber
  * @param {object} proposal — { proposer, rewards, total_work, consensus_hash, settled_jobs, timestamp }
+ * @param {string} [sourceTag] — caller-supplied tag identifying the source machine: "self", a peer IP, "relay", etc.
  * @returns {{ accepted: boolean, consensus: boolean, winner: object|null }}
  */
-function submitProposal(epochNumber, proposal) {
+function submitProposal(epochNumber, proposal, sourceTag) {
   var state = _getEpoch(epochNumber);
 
   // Already resolved — reject late proposals
@@ -91,15 +99,34 @@ function submitProposal(epochNumber, proposal) {
   if (!state.windowStart) {
     state.windowStart = Date.now();
 
-    // Set timeout for resolution
+    // Set timeout for resolution — only finalize if distinct-source requirement is met
     state.timer = setTimeout(function () {
-      resolve(epochNumber);
+      var s = epochs.get(epochNumber);
+      if (!s || s.resolved) return;
+      if (s.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+        resolve(epochNumber);
+      } else {
+        console.log("[BTCPC Consensus] Epoch " + epochNumber + " window expired but only " +
+          s.sourceTags.size + "/" + MIN_CONSENSUS_SOURCES + " distinct source(s) — waiting for peers");
+        // Reschedule — check again every 10s until sources arrive
+        s.timer = setInterval(function () {
+          var st = epochs.get(epochNumber);
+          if (!st || st.resolved) { clearInterval(st && st.timer); return; }
+          if (st.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+            clearInterval(st.timer);
+            st.timer = null;
+            resolve(epochNumber);
+          }
+        }, 10000);
+      }
     }, PROPOSAL_WINDOW_MS);
   }
 
   // Reject duplicate proposers
   var existing = state.proposals.find(function (p) { return p.proposer === proposal.proposer; });
   if (existing) {
+    // Duplicate proposer — still record source tag in case re-submitted from a different machine
+    state.sourceTags.add(sourceTag || ("proposer:" + (proposal.proposer || "unknown")));
     return { accepted: false, consensus: false, winner: null };
   }
 
@@ -107,6 +134,11 @@ function submitProposal(epochNumber, proposal) {
   if (!proposal.consensus_hash) {
     proposal.consensus_hash = hashRewards(proposal.rewards, proposal.total_work, proposal.settled_jobs, epochNumber);
   }
+
+  // Track distinct source machines.
+  // Fall back to proposer name when no source tag supplied (legacy callers / tests)
+  // so the source set always has at least one entry after the first proposal.
+  state.sourceTags.add(sourceTag || ("proposer:" + (proposal.proposer || "unknown")));
 
   state.proposals.push(proposal);
 
@@ -128,11 +160,10 @@ function checkConsensus(epochNumber) {
   if (state.resolved) return { consensus: true, winner: state.winner };
   if (state.proposals.length === 0) return { consensus: false, winner: null };
 
-  // Single proposal — immediate consensus (genesis phase / solo miner)
+  // Single proposal — wait for window. Only resolve if distinct-source requirement met.
   if (state.proposals.length === 1) {
-    // Don't resolve immediately — wait for window unless it's been > timeout
     var elapsed = Date.now() - (state.windowStart || Date.now());
-    if (elapsed >= PROPOSAL_WINDOW_MS) {
+    if (elapsed >= PROPOSAL_WINDOW_MS && state.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
       resolve(epochNumber);
       return { consensus: true, winner: state.winner };
     }
@@ -165,8 +196,8 @@ function checkConsensus(epochNumber) {
     }
   }
 
-  // Check if majority (> 50% of proposals)
-  if (bestCount > state.proposals.length / 2) {
+  // Check if majority (> 50% of proposals) AND distinct-source requirement met
+  if (bestCount > state.proposals.length / 2 && state.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
     resolve(epochNumber);
     return { consensus: true, winner: state.winner };
   }
@@ -224,11 +255,14 @@ function resolve(epochNumber) {
   winningGroup.sort(function (a, b) { return (a.timestamp || 0) - (b.timestamp || 0); });
   var winner = winningGroup[0];
 
+  winner.consensus_nodes = state.sourceTags.size;
+  winner.consensus_proposals = state.proposals.length;
+
   state.resolved = true;
   state.winner = winner;
 
   console.log("[BTCPC Consensus] Epoch " + epochNumber + " resolved: " +
-    state.proposals.length + " proposal(s), " +
+    state.proposals.length + " proposal(s) from " + state.sourceTags.size + " distinct source(s), " +
     hashes.length + " group(s), winner: " + winner.proposer +
     " (hash: " + winningHash.slice(0, 12) + "...)");
 

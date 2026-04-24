@@ -332,9 +332,11 @@ async function computeFinalization(epochNumber) {
   // Clock nodes: any account that heartbeated this epoch.
   // Filter out raw nodeIds (hex strings) and anonymous clock- prefixed nodes.
   // Open participation — no stake required.
-  const activeClocks = getActiveClockNodes(epochNumber).filter(a =>
+  const rawClockNodes = getActiveClockNodes(epochNumber);
+  const activeClocks = rawClockNodes.filter(a =>
     a && !a.startsWith('clock-') && !/^[a-f0-9]{32,}$/i.test(a) && /^[a-z0-9][a-z0-9-]{2,19}$/.test(a)
   );
+  console.log(`[BTCPC] Epoch ${epochNumber} clock nodes raw=${JSON.stringify(rawClockNodes)} filtered=${JSON.stringify(activeClocks)}`);
 
   // Verifiers: any account that submitted a VERIFY_RESPONSE this epoch.
   const activeVerifiers = getActiveVerifiers(epochNumber).filter(a =>
@@ -542,6 +544,8 @@ async function applyFinalization(epochNumber, proposal) {
   // Finalize epoch record in stateStore
   epoch.consensus_hash = proposal.consensus_hash || '0'.repeat(64);
   epoch.total_work = proposal.total_work || 0;
+  epoch.consensus_nodes = proposal.consensus_nodes || 1;
+  epoch.consensus_proposals = proposal.consensus_proposals || 1;
   epoch.rewards_distributed = rewards.map(r => ({ node_id: r.miner, amount: r.amount, type: r.type || 'mining' }));
   epoch.block_reward = proposal.block_reward || 0;
   epoch.reward_number = proposal.reward_number;
@@ -607,6 +611,8 @@ async function applyFinalization(epochNumber, proposal) {
 
     const payload = {
       ledger_entries: epochLedgerEntries,
+      consensus_nodes: proposal.consensus_nodes || 1,
+      consensus_proposals: proposal.consensus_proposals || 1,
       rewards: rewards.map(r => ({ miner: r.node_id, amount: r.amount })),
       compute_proofs: epochProofs.map(p => ({
         node_id: p.node_id, prompt_hash: p.prompt_hash,
@@ -1431,6 +1437,8 @@ async function startMiner() {
         })),
         total_work: winner.total_work,
         consensus_hash: winner.consensus_hash,
+        consensus_nodes: winner.consensus_nodes || 1,
+        consensus_proposals: winner.consensus_proposals || 1,
         authority: MINER_ACCOUNT,
         proposer: MINER_ACCOUNT,
         block_signature: blockSignature,
@@ -1527,8 +1535,16 @@ async function startMiner() {
       p2p.broadcast(msg);
       console.log(`[BTCPC] Block proposal for epoch ${targetEpoch}: ${proposal.miners_active} miner(s), ${proposal.verifiers_active} verifier(s), ${proposal.clocks_active} clock(s), work=${proposal.total_work}`);
 
-      // Also submit to local consensus tracker
+      // Also submit to local consensus tracker.
+      // Tag with our advertised IP so two processes on the same machine
+      // share the same source tag and count as ONE consensus source.
       const finConsensus = require('../chain/finalizationConsensus');
+      const { getAdvertisedP2PAddress } = require('../p2p/address');
+      let _localSourceTag = "self";
+      try {
+        const _ownAddr = getAdvertisedP2PAddress();
+        if (_ownAddr) _localSourceTag = new URL(_ownAddr).hostname;
+      } catch (_) {}
       finConsensus.submitProposal(targetEpoch, {
         proposer: MINER_ACCOUNT,
         rewards: proposal.rewards.map(r => ({ miner: r.to, amount: r.amount, type: r.type })),
@@ -1537,7 +1553,7 @@ async function startMiner() {
         settled_jobs: proposal.miners_active,
         block_reward: reward,
         timestamp: proposal.timestamp,
-      });
+      }, _localSourceTag);
     } catch (err) {
       console.error(`[BTCPC] Block proposal error for epoch ${targetEpoch}:`, err.message);
     }
