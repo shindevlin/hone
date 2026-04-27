@@ -116,6 +116,7 @@ sensorsRouter.post('/', authenticateToken, async (req, res) => {
     if (body.hardware_model !== undefined) spec.hardware_model = sanitizeString(body.hardware_model, 128) || null;
     if (body.firmware_version !== undefined) spec.firmware_version = sanitizeString(body.firmware_version, 32) || null;
     if (body.allow_precise_location !== undefined) spec.allow_precise_location = body.allow_precise_location === true;
+    if (body.public_key !== undefined) spec.public_key = sanitizeString(body.public_key, 256) || null;
 
     const options = { epoch: await getCurrentEpoch() };
 
@@ -166,6 +167,11 @@ sensorsRouter.post('/:id/readings', authenticateToken, async (req, res) => {
       if (body.metadata.signal_strength_dbm !== undefined) metadata.signal_strength_dbm = Number(body.metadata.signal_strength_dbm);
       if (body.metadata.gateway_id !== undefined) metadata.gateway_id = sanitizeString(body.metadata.gateway_id, 128) || null;
     }
+
+    // Sensor keypair fields — anti-replay + device authenticity
+    if (body.reading_sig !== undefined) metadata.reading_sig = sanitizeString(body.reading_sig, 256) || null;
+    if (body.device_timestamp !== undefined) metadata.device_timestamp = Number(body.device_timestamp) || null;
+    if (body.epoch_hash !== undefined) metadata.epoch_hash = sanitizeString(body.epoch_hash, 128) || null;
 
     const epoch = await getCurrentEpoch();
 
@@ -279,6 +285,57 @@ sensorsRouter.post('/:id/retire', authenticateToken, async (req, res) => {
     } catch (err) {
       if (/not found/i.test(err.message)) return res.status(404).json({ error: err.message });
       if (/only the owner/i.test(err.message)) return res.status(403).json({ error: err.message });
+      return res.status(422).json({ error: err.message });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/sensors/:id/register-key
+ * Register or rotate the ed25519 public key for a sensor device.
+ * Auth: owner JWT only.
+ * Body: { public_key }
+ *   public_key — hex-encoded SPKI DER ed25519 public key (88+ chars)
+ *
+ * Once registered, readings must include reading_sig + device_timestamp
+ * or their trust_weight is penalized.
+ */
+sensorsRouter.post('/:id/register-key', authenticateToken, async (req, res) => {
+  try {
+    const owner = req.user && req.user.username;
+    if (!owner) return res.status(401).json({ error: 'unauthenticated' });
+
+    const sensorId = decodeId(req.params.id);
+    if (!sensorId) return res.status(400).json({ error: 'invalid sensor id encoding' });
+
+    const sensor = sensorRegistry.getSensor(sensorId);
+    if (!sensor) return res.status(404).json({ error: 'sensor not found' });
+    if (sensor.owner !== owner) return res.status(403).json({ error: 'only the sensor owner can register a key' });
+
+    const body = req.body || {};
+    const publicKey = sanitizeString(body.public_key, 256);
+    if (!publicKey || publicKey.length < 88) {
+      return res.status(400).json({ error: 'public_key required: hex-encoded SPKI DER ed25519 public key' });
+    }
+
+    try {
+      const record = sensorRegistry.registerPublicKey(sensorId, publicKey);
+      const epoch = await getCurrentEpoch();
+
+      // Record on chain (non-blocking)
+      try {
+        const ledger = require('../services/ledger');
+        if (typeof ledger.recordSensorKeyRegister === 'function') {
+          await ledger.recordSensorKeyRegister(sensorId, publicKey, owner, epoch);
+        }
+      } catch (chainErr) {
+        console.error('[btcpc] SENSOR_KEY_REGISTER chain error:', chainErr.message);
+      }
+
+      return res.json({ success: true, sensor_id: sensorId, public_key: publicKey, epoch });
+    } catch (err) {
       return res.status(422).json({ error: err.message });
     }
   } catch (err) {
@@ -1118,4 +1175,86 @@ devicesRouter.get('/yield-stakes', async (req, res) => {
   return res.json({ stakes: stakes, count: stakes.length });
 });
 
-module.exports = { sensorsRouter, gatewaysRouter, devicesRouter };
+// ─────────────────────────────────────────────────────────────────
+// Vouch router — sensor/account vouching
+// ─────────────────────────────────────────────────────────────────
+
+const vouchRouter = express.Router();
+
+/**
+ * POST /api/vouch
+ * Issue a SENSOR_VOUCH on-chain. Any authenticated account can vouch.
+ * Body: { voucher, target_id, target_type, stake_amount, note? }
+ */
+vouchRouter.post('/', authenticateToken, async (req, res) => {
+  try {
+    const caller = req.user && req.user.username;
+    if (!caller) return res.status(401).json({ error: 'unauthenticated' });
+
+    const body = req.body || {};
+    const voucher = sanitizeString(body.voucher, 64) || caller;
+    if (voucher !== caller) return res.status(403).json({ error: 'voucher must match authenticated account' });
+
+    const targetId = sanitizeString(body.target_id, 128);
+    if (!targetId) return res.status(400).json({ error: 'target_id required' });
+
+    const targetType = sanitizeString(body.target_type, 16) || 'sensor';
+    const stakeAmount = parseFloat(body.stake_amount);
+    if (!Number.isFinite(stakeAmount) || stakeAmount <= 0) {
+      return res.status(400).json({ error: 'stake_amount must be a positive number' });
+    }
+
+    const epoch = await getCurrentEpoch();
+
+    try {
+      const ledgerMod = require('../services/ledger');
+      await ledgerMod.recordSensorVouch(voucher, targetId, targetType, stakeAmount, epoch);
+    } catch (chainErr) {
+      return res.status(500).json({ error: 'chain error: ' + chainErr.message });
+    }
+
+    return res.status(201).json({
+      success: true,
+      voucher,
+      target_id: targetId,
+      target_type: targetType,
+      stake_amount: stakeAmount,
+      epoch,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/vouch/:target_id
+ * Get all vouches for a target. Public.
+ */
+vouchRouter.get('/:target_id', async (req, res) => {
+  try {
+    const targetId = decodeId(req.params.target_id);
+    if (!targetId) return res.status(400).json({ error: 'invalid target id' });
+    const vouches = stateStore.getVouchesForTarget(targetId);
+    const totalStake = vouches.reduce(function (s, v) { return s + (v.stake_amount || 0); }, 0);
+    res.json({ target_id: targetId, vouches, total_stake: totalStake, count: vouches.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/vouch/by/:voucher
+ * Get all targets vouched by a given account. Public.
+ */
+vouchRouter.get('/by/:voucher', async (req, res) => {
+  try {
+    const voucher = decodeId(req.params.voucher);
+    if (!voucher) return res.status(400).json({ error: 'invalid voucher' });
+    const vouches = stateStore.getVouchesByVoucher(voucher);
+    res.json({ voucher, vouches, count: vouches.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = { sensorsRouter, gatewaysRouter, devicesRouter, vouchRouter };

@@ -27,6 +27,8 @@
 
 var oracle = require('./oracleFeeds');
 var stateStore = require('../chain/stateStore');
+var sensorKeystore = require('./sensorKeystore');
+var dynamicRewards = require('../chain/dynamicSensorRewards');
 
 // sensor_id → sensor record
 var sensors = new Map();
@@ -65,6 +67,8 @@ var VALID_TYPES = [
   "temperature", "humidity", "air_quality", "soil", "noise", "light", "pressure",
   // location / positioning
   "gps", "gps-location", "uwb_position", "uwb_range",
+  // geophysical
+  "seismic",
   // motion / IMU (phone sensors)
   "accelerometer", "linear-acceleration", "gravity",
   "gyroscope", "gyroscope-raw",
@@ -79,6 +83,9 @@ var VALID_TYPES = [
   // other
   "rf-scanner", "custom"
 ];
+
+// Max seconds between device_timestamp and server clock for signed readings.
+var MAX_TIMESTAMP_SKEW_MS = 90000; // 90 seconds
 
 // Number of epochs of silence before a sensor transitions to "idle"
 var IDLE_EPOCH_THRESHOLD = 100;
@@ -165,6 +172,25 @@ function registerSensor(owner, sensorId, spec, options) {
     record.last_updated_epoch = epoch;
     record.status = "active";
   } else {
+    // ── Sybil check: require stake for 3rd+ sensor per owner ──────────────────
+    var ownerSensorCount = 0;
+    for (var e of sensors) {
+      if (e[1].owner === owner && e[1].status !== "retired") ownerSensorCount++;
+    }
+    if (ownerSensorCount >= dynamicRewards.SYBIL_SENSOR_THRESHOLD - 1) {
+      // At or beyond the free threshold. Emit warning; hard-block if enforcement enabled.
+      var needed = dynamicRewards.getStakeRequirement(spec.type);
+      console.warn("[BTCPC Sensor] Sybil threshold: " + owner +
+        " registering sensor #" + (ownerSensorCount + 1) +
+        " (threshold=" + dynamicRewards.SYBIL_SENSOR_THRESHOLD + ")" +
+        " — requires " + needed + " BTCPC staked per sensor.");
+      if (process.env.BTCPC_SYBIL_ENFORCEMENT === 'true') {
+        // Future: verify stake before allowing. For now hard-block is behind flag.
+        throw new Error("sybil_stake_required: owner must stake " + needed +
+          " BTCPC to register more than " + (dynamicRewards.SYBIL_SENSOR_THRESHOLD - 1) + " sensors");
+      }
+    }
+
     record = {
       sensor_id: sensorId,
       owner: owner,
@@ -176,6 +202,7 @@ function registerSensor(owner, sensorId, spec, options) {
       hardware_model: spec.hardware_model || null,
       firmware_version: spec.firmware_version || null,
       allow_precise_location: spec.allow_precise_location === true,
+      public_key: spec.public_key || null,
       status: "active",
       created_epoch: epoch,
       last_updated_epoch: epoch,
@@ -192,6 +219,11 @@ function registerSensor(owner, sensorId, spec, options) {
       last_reading_epoch: null,
       outlier_epochs: new Set(),
     });
+  }
+
+  // Update public_key on re-registration if provided
+  if (spec.public_key && record.public_key !== spec.public_key) {
+    record.public_key = spec.public_key;
   }
 
   sensors.set(sensorId, record);
@@ -219,11 +251,30 @@ function retireSensor(owner, sensorId, epoch) {
 }
 
 /**
+ * Register or update the ed25519 public key for a sensor device.
+ * Once set, readings must include a valid reading_sig or trust_weight is penalized.
+ *
+ * @param {string} sensorId — "<owner>/<device-name>"
+ * @param {string} publicKey — hex-encoded SPKI DER public key
+ */
+function registerPublicKey(sensorId, publicKey) {
+  var record = sensors.get(sensorId);
+  if (!record) throw new Error("sensor not found");
+  if (!publicKey || typeof publicKey !== "string" || publicKey.length < 88) {
+    throw new Error("invalid public_key: expected hex-encoded SPKI DER (minimum 88 chars)");
+  }
+  record.public_key = publicKey;
+  sensors.set(sensorId, record);
+  return record;
+}
+
+/**
  * Submit a sensor reading for an epoch.
  *
  * @param {string} sensorId
  * @param {number} value — the measurement value
- * @param {object} metadata — { latitude, longitude, altitude, battery_pct, signal_strength_dbm, gateway_id }
+ * @param {object} metadata — { latitude, longitude, altitude, battery_pct, signal_strength_dbm, gateway_id,
+ *                             reading_sig?, device_timestamp?, epoch_hash? }
  * @param {number} epoch
  */
 function submitReading(sensorId, value, metadata, epoch) {
@@ -318,15 +369,44 @@ function submitReading(sensorId, value, metadata, epoch) {
   if (history.length > 10) history.shift();
   readingHistory.set(sensorId, history);
 
+  // ── Sensor reading signature verification ────────────────────────────────
+  var sigVerified = false;
+  var sigInvalid = false;
+  if (record.public_key && meta.reading_sig) {
+    var devTs = Number(meta.device_timestamp) || 0;
+    var skew = Math.abs(Date.now() - devTs);
+    if (skew > MAX_TIMESTAMP_SKEW_MS) {
+      sigInvalid = true;
+      console.warn("[BTCPC Sensor] Timestamp skew " + skew + "ms for sensor " + sensorId +
+        " epoch " + ep + " — reading_sig rejected (replay protection)");
+    } else {
+      sigVerified = sensorKeystore.verifyReading(
+        record.public_key, sensorId, numeric, devTs, meta.reading_sig, meta.epoch_hash || null
+      );
+      if (!sigVerified) {
+        sigInvalid = true;
+        console.warn("[BTCPC Sensor] Invalid reading_sig from sensor " + sensorId +
+          " epoch " + ep);
+      }
+    }
+  }
+
   // ── Fraud prevention: gateway attestation + signature verification ──
   var gatewayVerified = false;
   var gatewaySigValid = false;
   var trustWeight = 1;
-  if (meta.gateway_id) {
+
+  // Sensor keypair takes precedence: verified sig = full trust regardless of gateway
+  if (sigVerified) {
+    trustWeight = 1.0;
+  } else if (sigInvalid) {
+    // Sensor has a key but sig is wrong — heavily penalize
+    trustWeight = 0.1;
+    console.warn("[BTCPC Sensor] Low trust: invalid reading_sig for " + sensorId);
+  } else if (meta.gateway_id) {
     if (record.lora_gateway && meta.gateway_id === record.lora_gateway) {
       gatewayVerified = true;
     }
-    // Phase alpha: verify gateway signature if provided.
     if (meta.gateway_sig) {
       try {
         var gatewayReg = require("./loraGatewayRegistry");
@@ -341,11 +421,12 @@ function submitReading(sensorId, value, metadata, epoch) {
               " for sensor " + sensorId + " epoch " + ep);
           }
         } else if (gwRecord) {
-          gatewaySigValid = gatewayVerified; // no key registered, trust by ID
+          gatewaySigValid = gatewayVerified;
         }
       } catch (_) { /* non-fatal */ }
     }
-  } else {
+  } else if (!record.public_key) {
+    // No key registered yet — reduced trust but not penalized
     trustWeight = 0.5;
   }
 
@@ -358,6 +439,8 @@ function submitReading(sensorId, value, metadata, epoch) {
     outlier: outlier,
     gateway_verified: gatewayVerified,
     gateway_sig_valid: gatewaySigValid,
+    sig_verified: sigVerified,
+    sig_invalid: sigInvalid,
     trust_weight: trustWeight,
     witness_count: 1,
     witnesses: null, // populated lazily when a second witness arrives
@@ -676,6 +759,7 @@ module.exports = {
   retireSensor: retireSensor,
   submitReading: submitReading,
   finalizeEpochReadings: finalizeEpochReadings,
+  registerPublicKey: registerPublicKey,
   // Readers
   getSensor: getSensor,
   getAllSensors: getAllSensors,
@@ -690,6 +774,7 @@ module.exports = {
   SLUG_PATTERN: SLUG_PATTERN,
   VALID_TYPES: VALID_TYPES,
   IDLE_EPOCH_THRESHOLD: IDLE_EPOCH_THRESHOLD,
+  MAX_TIMESTAMP_SKEW_MS: MAX_TIMESTAMP_SKEW_MS,
   // Lifecycle thresholds (mirrors stateStore constants — source of truth is stateStore)
   DORMANT_THRESHOLD: 5760,
   CLAIMABLE_THRESHOLD: 201600,

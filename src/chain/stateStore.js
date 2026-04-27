@@ -255,6 +255,10 @@ var gatewayHeartbeats = new Map();
 // Tracks unique relay nodes that submitted a reading for a given sensor+epoch.
 var witnessMap = new Map();
 
+// sensorVouches: target_id → [{ voucher, target_id, target_type, stake_amount, epoch }]
+// Tracks who vouches for which sensor/account and how much they have at stake.
+var sensorVouches = new Map();
+
 // ─────────────────────────────────────────────────────────────────
 // Name Auctions (v3.6)
 // nameAuctions: name → AuctionRecord
@@ -542,6 +546,10 @@ function _entryKey(entry) {
     domainId = "dkr:" + (entry.device_key_data && entry.device_key_data.device_id || "");
   } else if (entry.type === "SENSOR_REGISTER") {
     domainId = "sr:" + (entry.sensor_data && entry.sensor_data.sensor_id || "");
+  } else if (entry.type === "SENSOR_KEY_REGISTER") {
+    domainId = "skr:" + (entry.sensor_data && entry.sensor_data.sensor_id || "") + ":" + (entry.epoch || 0);
+  } else if (entry.type === "SENSOR_VOUCH") {
+    domainId = "sv:" + (entry.vouch_data && entry.vouch_data.voucher || "") + ":" + (entry.vouch_data && entry.vouch_data.target_id || "") + ":" + (entry.epoch || 0);
   } else if (entry.type === "SENSOR_READING") {
     domainId = "srd:" + (entry.sensor_data && entry.sensor_data.sensor_id || "") + ":" + (entry.epoch || 0) + ":" + (entry.sensor_data && entry.sensor_data.value !== undefined ? entry.sensor_data.value : "") + ":" + (entry.timestamp || 0);
   } else if (entry.type === "SENSOR_DATA_COMMIT") {
@@ -2691,12 +2699,48 @@ function applyEntry(entry) {
           lora_gateway: ssd.lora_gateway || null,
           hardware_model: ssd.hardware_model || null,
           firmware_version: ssd.firmware_version || null,
+          public_key: ssd.public_key || existingSensor.public_key || null,
           status: existingSensor.status === "retired" ? "retired" : "active",
           created_epoch: existingSensor.created_epoch || entry.epoch || 0,
           last_updated_epoch: entry.epoch || 0,
           last_reading_epoch: existingSensor.last_reading_epoch || null,
           total_readings: existingSensor.total_readings || 0,
         }));
+      }
+      break;
+
+    case "SENSOR_KEY_REGISTER":
+      if (entry.sensor_data && entry.sensor_data.sensor_id && entry.sensor_data.public_key) {
+        var skrData = entry.sensor_data;
+        var skrSensor = sensors.get(skrData.sensor_id);
+        if (skrSensor) {
+          skrSensor.public_key = skrData.public_key;
+          skrSensor.key_registered_epoch = entry.epoch || 0;
+          sensors.set(skrData.sensor_id, skrSensor);
+        }
+      }
+      break;
+
+    case "SENSOR_VOUCH":
+      if (entry.vouch_data && entry.vouch_data.target_id) {
+        var svData = entry.vouch_data;
+        if (!sensorVouches) sensorVouches = new Map();
+        var existing_vouch = sensorVouches.get(svData.target_id) || [];
+        // Replace or add voucher entry (one voucher per target)
+        var vi = existing_vouch.findIndex(function (v) { return v.voucher === svData.voucher; });
+        var vouchRecord = {
+          voucher: svData.voucher,
+          target_id: svData.target_id,
+          target_type: svData.target_type || "sensor",
+          stake_amount: svData.stake_amount || 0,
+          epoch: entry.epoch || 0,
+        };
+        if (vi >= 0) {
+          existing_vouch[vi] = vouchRecord;
+        } else {
+          existing_vouch.push(vouchRecord);
+        }
+        sensorVouches.set(svData.target_id, existing_vouch);
       }
       break;
 
@@ -4180,6 +4224,28 @@ function getSensor(sensorId) {
   return sensors.get(sensorId) || null;
 }
 
+/**
+ * Get all vouches for a sensor_id or account.
+ * Returns [{ voucher, target_id, target_type, stake_amount, epoch }]
+ */
+function getVouchesForTarget(targetId) {
+  return (sensorVouches && sensorVouches.get(targetId)) || [];
+}
+
+/**
+ * Get all targets vouched for by a specific voucher.
+ */
+function getVouchesByVoucher(voucher) {
+  var result = [];
+  if (!sensorVouches) return result;
+  for (var entry of sensorVouches) {
+    for (var v of entry[1]) {
+      if (v.voucher === voucher) result.push(v);
+    }
+  }
+  return result;
+}
+
 function getAllSensors(filter) {
   var result = [];
   for (var entry of sensors) {
@@ -5261,6 +5327,8 @@ module.exports = {
   getAllSensors: getAllSensors,
   getSensorsForEpoch: getSensorsForEpoch,
   getSensorReadings: getSensorReadings,
+  getVouchesForTarget: getVouchesForTarget,
+  getVouchesByVoucher: getVouchesByVoucher,
   getGateway: getGateway,
   getAllGateways: getAllGateways,
   getGatewaysForEpoch: getGatewaysForEpoch,

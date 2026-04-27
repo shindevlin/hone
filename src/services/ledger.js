@@ -1670,6 +1670,66 @@ function recordSensorRegister(owner, sensorId, spec, epoch) {
       lora_gateway: spec.lora_gateway || null,
       hardware_model: spec.hardware_model || null,
       firmware_version: spec.firmware_version || null,
+      public_key: spec.public_key || null,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a sensor device key registration on chain.
+ * Entry type: SENSOR_KEY_REGISTER
+ *
+ * @param {string} sensorId  — "<owner>/<device-name>"
+ * @param {string} publicKey — hex-encoded SPKI DER ed25519 public key
+ * @param {string} owner     — authorizing account
+ * @param {number} epoch
+ */
+function recordSensorKeyRegister(sensorId, publicKey, owner, epoch) {
+  if (!sensorId) throw new Error('sensorId required');
+  if (!publicKey) throw new Error('publicKey required');
+
+  const entry = _entry({
+    type: 'SENSOR_KEY_REGISTER',
+    from: owner || sensorId.split('/')[0],
+    epoch: epoch || 0,
+    sensor_data: {
+      sensor_id: sensorId,
+      public_key: publicKey,
+    },
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a sensor/node vouch transaction on chain.
+ * natoshi (or any account) vouches for a sensor or miner by staking BTCPC on it.
+ * If the target is slashed, the voucher's staked amount is penalized.
+ * Entry type: SENSOR_VOUCH
+ *
+ * @param {string} voucher     — vouching account (e.g. 'natoshisakamoto')
+ * @param {string} targetId    — sensor_id or account name being vouched for
+ * @param {string} targetType  — 'sensor' | 'account' | 'gateway' | 'miner'
+ * @param {number} stakeAmount — BTCPC staked in support of target
+ * @param {number} epoch
+ */
+function recordSensorVouch(voucher, targetId, targetType, stakeAmount, epoch) {
+  if (!voucher) throw new Error('voucher required');
+  if (!targetId) throw new Error('targetId required');
+  if (!stakeAmount || stakeAmount <= 0) throw new Error('stakeAmount must be positive');
+
+  const entry = _entry({
+    type: 'SENSOR_VOUCH',
+    from: voucher,
+    to: targetId,
+    amount: stakeAmount,
+    token: 'BTCPC',
+    epoch: epoch || 0,
+    vouch_data: {
+      voucher: voucher,
+      target_id: targetId,
+      target_type: targetType || 'sensor',
+      stake_amount: stakeAmount,
     },
   });
   return _persist(entry);
@@ -3245,6 +3305,8 @@ module.exports = {
   recordSensorRegister,
   recordSensorReading,
   recordSensorDataCommit,
+  recordSensorKeyRegister,
+  recordSensorVouch,
   recordGatewayRegister,
   recordGatewayHeartbeat,
   // Bridge (v2.16-alpha)
