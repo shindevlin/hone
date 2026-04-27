@@ -10,7 +10,9 @@ const MINER_ACCOUNT = process.env.BTCPC_MINER || GENESIS_MINER;
 const { filterInscription } = require('../services/contentFilter');
 const { generateAllClaimProofs } = require('../claims/claimProofGenerator');
 const axios = require('axios');
-const p2p = require('../p2p/network');
+const p2p = process.env.BTCPC_USE_RUST_P2P === 'true'
+  ? require('../../../btcpc-p2p/js/ipc_client')
+  : require('../p2p/network');
 const { createBlockMessage, createMessage } = require('../p2p/protocol');
 const { loadFromDatabase: loadChainFromDB, cacheBlock } = require('../p2p/chainSync');
 const { getAdvertisedP2PAddress } = require('../p2p/address');
@@ -307,28 +309,36 @@ async function computeFinalization(epochNumber) {
   const miners = Object.keys(minerWork);
   const totalWorkValue = miners.reduce((sum, m) => sum + minerWork[m].work_value, 0);
 
-  // ── Reward split (v3.0-pre) ──
-  // Six-pool model. Each pool has eligible recipients; empty pools flow to
-  // btcpc_recycle (never burnt — see feedback_no_burn_all_recycle.md).
+  // ── Network-demand-driven reward distribution ──
+  // Pool weights are not fixed. Each epoch's distribution is computed from
+  // actual Economic Demand Units (EDU) — a normalized measure of real activity.
+  // See src/mining/rewardDistribution.js for the canonical pure function.
   //
-  //   Miner pool    55%  — proportional to work_value; only real inference jobs
-  //   Verifier pool 10%  — equal split among active verifiers this epoch
-  //   Clock pool     5%  — equal split among active clocks this epoch (ALWAYS paid)
-  //   Storage pool  12%  — equal split among hosts with STORAGE_HEARTBEAT this epoch
-  //   Service pool   8%  — equal split among service hosts with SERVICE_HEARTBEAT
-  //   IoT pool      10%  — 60/40 split between sensors and gateways via nanoRewards
-  //                ----
-  //                100%  — leftover per-pool goes to btcpc_recycle
+  // EDU per pool (inline version mirrors rewardDistribution.js):
+  //   Mining:    totalWorkValue        × 1.0   (inference work_value)
+  //   Verifiers: verifiers.length      × 10.0  (per active verifier)
+  //   Clocks:    clocks.length         × 20.0  (infrastructure)
+  //   Storage:   totalBlobOps          × 1.0
+  //   Services:  totalServiceOps       × 5.0
+  //   Sensors:   totalSensorReadings   × 2.0
+  //   Gateways:  gateways.length       × 15.0  (infrastructure)
   //
-  // Worst case (only clocks active): 5% to clocks, 95% to recycle.
-  // Genesis (miners + clocks + IoT): 70% claimed, 30% to recycle.
-  // All active: 100% claimed, 0% recycled.
-  const MINER_POOL_PCT    = 0.55;
-  const VERIFIER_POOL_PCT = 0.10;
-  const CLOCK_POOL_PCT    = 0.05;
-  const STORAGE_POOL_PCT  = 0.12;
-  const SERVICE_POOL_PCT  = 0.08;
-  const IOT_POOL_PCT      = 0.10;
+  // Utilization = min(1, totalEDU / BASELINE_EDU=500)
+  // Claimable   = utilization × blockReward
+  // Recycled    = (1 − utilization) × blockReward → btcpc_recycle
+  //
+  // Examples:
+  //   Idle (0 EDU): 0% claimed, 100% recycled
+  //   1 miner (50 wv) + 3 clocks (60 EDU) = 110 EDU → 22% claimed
+  //   Full network (≥500 EDU): 100% claimed, 0% recycled
+  const EDU_PER_WORK_VALUE     = 1.0;
+  const EDU_PER_VERIFICATION   = 10.0;
+  const EDU_PER_CLOCK_EPOCH    = 20.0;
+  const EDU_PER_BLOB_OP        = 1.0;
+  const EDU_PER_SERVICE_OP     = 5.0;
+  const EDU_PER_SENSOR_READING = 2.0;
+  const EDU_PER_GATEWAY_EPOCH  = 15.0;
+  const BASELINE_EDU           = 500;
 
   const rewards = [];
   let recycledAmount = 0;
@@ -367,98 +377,115 @@ async function computeFinalization(epochNumber) {
     // serviceRegistry not available — service pool goes to recycle
   }
 
-  // ── Miner pool: 60%, proportional to work_value ──
-  const minerPool = blockReward * MINER_POOL_PCT;
-  if (miners.length === 0 || totalWorkValue === 0) {
-    recycledAmount += minerPool;
-  } else {
+  // ── Compute EDU per pool ──────────────────────────────────────────────────
+  const activeGatewaysForEpoch = stateStore.getGatewaysForEpoch(epochNumber);
+  const activeSensorsForEpoch  = stateStore.getSensorsForEpoch(epochNumber);  // [{ owner, readings, uptime_pct }]
+  const totalSensorReadings    = activeSensorsForEpoch.reduce((s, r) => s + (r.readings || 0), 0);
+
+  const eduMining   = totalWorkValue               * EDU_PER_WORK_VALUE;
+  const eduVerifier = activeVerifiers.length       * EDU_PER_VERIFICATION;
+  const eduClock    = activeClocks.length          * EDU_PER_CLOCK_EPOCH;
+  const eduStorage  = storageHostsThisEpoch.length * EDU_PER_BLOB_OP;      // equal weight until blob-op tracking lands
+  const eduService  = serviceHostsThisEpoch.length * EDU_PER_SERVICE_OP;   // equal weight until service-op tracking lands
+  const eduSensor   = totalSensorReadings          * EDU_PER_SENSOR_READING;
+  const eduGateway  = activeGatewaysForEpoch.length * EDU_PER_GATEWAY_EPOCH;
+
+  const totalEDU = eduMining + eduVerifier + eduClock + eduStorage + eduService + eduSensor + eduGateway;
+
+  // ── Utilization-based claimable ───────────────────────────────────────────
+  const utilization = totalEDU === 0 ? 0 : Math.min(1.0, totalEDU / BASELINE_EDU);
+  const claimable   = blockReward * utilization;
+  recycledAmount   += blockReward - claimable; // utilization deficit recycles
+
+  if (totalEDU === 0) {
+    // Network completely idle
+    rewards.push({ miner: 'btcpc_recycle', amount: parseFloat(blockReward.toFixed(10)), type: 'recycle' });
+    return rewards;
+  }
+
+  // ── Distribute claimable proportional to EDU ─────────────────────────────
+
+  // Mining pool
+  if (eduMining > 0 && miners.length > 0) {
+    const poolReward = claimable * (eduMining / totalEDU);
     for (const miner of miners) {
-      const share = parseFloat((minerPool * (minerWork[miner].work_value / totalWorkValue)).toFixed(10));
+      const share = parseFloat((poolReward * (minerWork[miner].work_value / totalWorkValue)).toFixed(10));
       rewards.push({ miner, amount: share, type: 'mining' });
     }
   }
 
-  // ── Verifier pool: 10%, equal split ──
-  const verifierRewardPool = blockReward * VERIFIER_POOL_PCT;
-  if (activeVerifiers.length === 0) {
-    recycledAmount += verifierRewardPool;
-  } else {
-    const vShare = parseFloat((verifierRewardPool / activeVerifiers.length).toFixed(10));
+  // Verifier pool — equal split (per-verifier job counts not yet tracked)
+  if (eduVerifier > 0 && activeVerifiers.length > 0) {
+    const poolReward = claimable * (eduVerifier / totalEDU);
+    const vShare = parseFloat((poolReward / activeVerifiers.length).toFixed(10));
     for (const v of activeVerifiers) {
       rewards.push({ miner: v, amount: vShare, type: 'verifier' });
     }
   }
 
-  // ── Clock pool: 5%, equal split, ALWAYS paid if any clocks active ──
-  const clockRewardPool = blockReward * CLOCK_POOL_PCT;
-  if (activeClocks.length === 0) {
-    recycledAmount += clockRewardPool;
-  } else {
-    const cShare = parseFloat((clockRewardPool / activeClocks.length).toFixed(10));
+  // Clock pool — equal split (clocks contribute equally per epoch)
+  if (eduClock > 0 && activeClocks.length > 0) {
+    const poolReward = claimable * (eduClock / totalEDU);
+    const cShare = parseFloat((poolReward / activeClocks.length).toFixed(10));
     for (const c of activeClocks) {
       rewards.push({ miner: c, amount: cShare, type: 'clock' });
     }
   }
 
-  // ── Storage pool: 15%, equal split among hosts that heartbeated this epoch ──
-  const storageRewardPool = blockReward * STORAGE_POOL_PCT;
-  if (storageHostsThisEpoch.length === 0) {
-    recycledAmount += storageRewardPool;
-  } else {
-    const sShare = parseFloat((storageRewardPool / storageHostsThisEpoch.length).toFixed(10));
+  // Storage pool — equal split until blob-op tracking lands in stateStore
+  if (eduStorage > 0 && storageHostsThisEpoch.length > 0) {
+    const poolReward = claimable * (eduStorage / totalEDU);
+    const sShare = parseFloat((poolReward / storageHostsThisEpoch.length).toFixed(10));
     for (const h of storageHostsThisEpoch) {
       rewards.push({ miner: h, amount: sShare, type: 'storage' });
     }
   }
 
-  // ── Service pool: 10%, equal split among service hosts that heartbeated ──
-  const serviceRewardPool = blockReward * SERVICE_POOL_PCT;
-  if (serviceHostsThisEpoch.length === 0) {
-    recycledAmount += serviceRewardPool;
-  } else {
-    const svShare = parseFloat((serviceRewardPool / serviceHostsThisEpoch.length).toFixed(10));
+  // Service pool — equal split until per-host op tracking lands in serviceRegistry
+  if (eduService > 0 && serviceHostsThisEpoch.length > 0) {
+    const poolReward = claimable * (eduService / totalEDU);
+    const svShare = parseFloat((poolReward / serviceHostsThisEpoch.length).toFixed(10));
     for (const h of serviceHostsThisEpoch) {
       rewards.push({ miner: h, amount: svShare, type: 'service' });
     }
   }
 
-  // ── IoT pool: 10%, split 60/40 sensors/gateways via nanoRewards ──
-  const iotRewardPool = blockReward * IOT_POOL_PCT;
-  try {
-    const nanoRewards = require('../services/nanoRewards');
-    const activeGatewaysForEpoch = stateStore.getGatewaysForEpoch(epochNumber);
-    const activeSensorsForEpoch = stateStore.getSensorsForEpoch(epochNumber);
+  // IoT pool — delegate to nanoRewards which handles rich sensor/gateway objects
+  const iotPoolReward = (eduSensor + eduGateway) > 0
+    ? claimable * ((eduSensor + eduGateway) / totalEDU)
+    : 0;
 
-    if (activeGatewaysForEpoch.length === 0 && activeSensorsForEpoch.length === 0) {
-      recycledAmount += iotRewardPool;
-    } else {
+  if (iotPoolReward > 0) {
+    try {
+      const nanoRewards = require('../services/nanoRewards');
       const iotRewards = nanoRewards.computeIoTRewards(
         epochNumber,
-        iotRewardPool,
+        iotPoolReward,
         activeGatewaysForEpoch,
         activeSensorsForEpoch
       );
       for (const r of iotRewards) {
         rewards.push({ miner: r.account, amount: parseFloat(r.amount.toFixed(10)), type: r.type });
       }
-      // Any leftover (rounding) goes to recycle
       const totalIoTPaid = iotRewards.reduce((sum, r) => sum + r.amount, 0);
-      const iotRemainder = iotRewardPool - totalIoTPaid;
-      if (iotRemainder > 0.000000001) {
-        recycledAmount += iotRemainder;
-      }
+      const iotRemainder = iotPoolReward - totalIoTPaid;
+      if (iotRemainder > 0.000000001) recycledAmount += iotRemainder;
+    } catch (iotErr) {
+      recycledAmount += iotPoolReward;
+      console.error('[BTCPC] IoT reward computation failed:', iotErr.message);
     }
-  } catch (iotErr) {
-    // nanoRewards not available — IoT pool to recycle
-    recycledAmount += iotRewardPool;
-    console.error('[BTCPC] IoT reward computation failed:', iotErr.message);
   }
 
-  // ── Recycle unclaimed pools — never burnt ──
-  if (recycledAmount > 0) {
+  // ── Recycle remainder — never burnt ───────────────────────────────────────
+  // Covers: utilization deficit + rounding dust + any failed pool
+  const totalPaid = rewards.filter(r => r.type !== 'recycle').reduce((s, r) => s + r.amount, 0);
+  const finalRecycle = parseFloat((blockReward - totalPaid).toFixed(10));
+  recycledAmount = finalRecycle; // reset to precise value
+
+  if (finalRecycle > 0) {
     rewards.push({
       miner: 'btcpc_recycle',
-      amount: parseFloat(recycledAmount.toFixed(10)),
+      amount: finalRecycle,
       type: 'recycle',
     });
   }
@@ -1097,7 +1124,44 @@ async function startMiner() {
   // re-declare here or it creates a TDZ that crashes line 1030.
 
   // Register this miner in the node registry (permissioned if genesis miner)
-  nodeRegistry.registerNode(MINER_ACCOUNT, 'miner', 1000, null, 0, MINER_ACCOUNT === GENESIS_MINER);
+  // Keep the advertised P2P address so the registry and API can surface a
+  // real connectable endpoint instead of null.
+  const advertisedP2PAddress = getAdvertisedP2PAddress();
+  nodeRegistry.registerNode(
+    MINER_ACCOUNT,
+    'miner',
+    1000,
+    advertisedP2PAddress,
+    currentEpoch,
+    MINER_ACCOUNT === GENESIS_MINER
+  );
+  ledger.recordNodeRegister(
+    MINER_ACCOUNT,
+    'miner',
+    advertisedP2PAddress,
+    MINER_ACCOUNT === GENESIS_MINER,
+    currentEpoch
+  ).catch((err) => {
+    console.warn(`[BTCPC] Miner node registration record failed: ${err.message}`);
+  });
+  ledger.recordNodeAnnounce(
+    MINER_ACCOUNT,
+    advertisedP2PAddress,
+    currentEpoch,
+    { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
+  ).catch((err) => {
+    console.warn(`[BTCPC] Miner node announce failed: ${err.message}`);
+  });
+  setInterval(() => {
+    Promise.resolve(ledger.getCurrentEpoch ? ledger.getCurrentEpoch() : currentEpoch)
+      .then((ep) => ledger.recordNodeAnnounce(
+        MINER_ACCOUNT,
+        advertisedP2PAddress,
+        ep,
+        { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
+      ))
+      .catch(() => {});
+  }, 15 * 60 * 1000);
 
   // Load node registry from block files
   nodeRegistry.loadFromBlocks();

@@ -289,8 +289,10 @@ app.use((err, req, res, next) => {
 // BTCPC Epoch Manager
 const { startEpochLoop } = require('./services/epochManager');
 
-// BTCPC P2P Network
-const p2pNetwork = require('./p2p/network');
+// BTCPC P2P Network — feature flag selects Rust sidecar or Node.js WebSocket layer
+const p2pNetwork = process.env.BTCPC_USE_RUST_P2P === 'true'
+  ? require('../../btcpc-p2p/js/ipc_client')
+  : require('./p2p/network');
 const { loadFromDatabase } = require('./p2p/chainSync');
 
 const PORT = process.env.BTCPC_API_PORT || process.env.PORT || 3000;
