@@ -342,6 +342,49 @@
     .escrow-note { font-size: 11px; color: var(--muted); text-align: center; }
     .escrow-note b { color: var(--green); }
 
+    /* ── SHIPPING ADDRESS (cart) ── */
+    .cart-ship-wrap { display: flex; flex-direction: column; gap: 4px; }
+    .cart-ship-wrap label { font-size: 11px; font-weight: 700; color: var(--sub); }
+    .cart-ship-input {
+      width: 100%; padding: 7px 10px; font-size: 12px;
+      border: 1px solid var(--border2); border-radius: 4px; resize: none;
+      font-family: inherit; line-height: 1.4;
+    }
+    .cart-ship-input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .cart-ship-note { font-size: 10px; color: var(--muted); }
+
+    /* ── FLASH COUNTDOWN ── */
+    .flash-countdown {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--badge-deal); color: #fff;
+      font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+      margin-top: 2px;
+    }
+    .flash-countdown.expired { background: var(--muted); }
+
+    /* ── PRODUCT Q&A ── */
+    .pd-qa-section { padding: 24px; border-top: 1px solid var(--border); }
+    .pd-qa-section h4 { font-size: 15px; margin-bottom: 12px; }
+    .qa-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+    .qa-item { background: var(--bg2); border-radius: 6px; padding: 12px; }
+    .qa-q { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    .qa-q::before { content: 'Q: '; color: var(--orange); }
+    .qa-a { font-size: 13px; color: var(--sub); }
+    .qa-a::before { content: 'A: '; font-weight: 700; color: var(--green); }
+    .qa-unanswered { font-size: 12px; color: var(--muted); font-style: italic; }
+    .qa-ask-form { display: flex; gap: 8px; }
+    .qa-ask-input {
+      flex: 1; padding: 8px 10px; font-size: 13px;
+      border: 1px solid var(--border2); border-radius: 4px; font-family: inherit;
+    }
+    .qa-ask-input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .qa-ask-btn {
+      padding: 8px 16px; background: var(--navy); color: #fff;
+      border: none; border-radius: 4px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .qa-ask-btn:hover { background: var(--navy2); }
+    .qa-empty { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
     /* ── IMPORT MODAL ── */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 400; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
     .modal-overlay.open { opacity: 1; pointer-events: all; }
@@ -951,6 +994,11 @@
     <div class="cart-total-line"><span>Subtotal</span><span id="cart-sub">₿PC 0</span></div>
     <div class="cart-total-line"><span>Platform fee (1%)</span><span id="cart-fee">₿PC 0</span></div>
     <div class="cart-total-line grand"><span>Order Total</span><span id="cart-total">₿PC 0</span></div>
+    <div class="cart-ship-wrap" id="cart-ship-wrap" style="display:none">
+      <label for="cart-ship-addr">Shipping address</label>
+      <textarea class="cart-ship-input" id="cart-ship-addr" rows="2" placeholder="Street, City, State, ZIP, Country"></textarea>
+      <span class="cart-ship-note">Required for physical items. Skip for digital orders.</span>
+    </div>
     <button class="buy-now-checkout">Proceed to checkout</button>
     <button class="checkout-btn" onclick="doCheckout()">Pay with BTCPC →</button>
     <div class="escrow-note">Payment locks in <b>escrow</b>. Released when you confirm delivery.</div>
@@ -1018,6 +1066,15 @@
         <div class="pd-bars" id="pd-bars"></div>
       </div>
       <div class="pd-review-list" id="pd-review-list"></div>
+    </div>
+    <!-- Q&A -->
+    <div class="pd-qa-section" id="pd-qa-section">
+      <h4>Questions &amp; Answers</h4>
+      <div class="qa-list" id="qa-list"></div>
+      <div class="qa-ask-form">
+        <input class="qa-ask-input" id="qa-ask-input" type="text" placeholder="Ask a question about this product…" maxlength="280" />
+        <button class="qa-ask-btn" onclick="submitQuestion()">Ask</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1192,7 +1249,10 @@ function clearNode() {
   updateNodeIndicator();
   closeNodeModal();
 }
-document.addEventListener('DOMContentLoaded', updateNodeIndicator);
+document.addEventListener('DOMContentLoaded', function() {
+  updateNodeIndicator();
+  initFlashCountdowns();
+});
 
 // ── CART ────────────────────────────────────────────────────────────
 var cart = [];
@@ -1250,6 +1310,13 @@ function renderCart() {
   document.getElementById('cart-sub').textContent = '₿PC ' + sub;
   document.getElementById('cart-fee').textContent = '₿PC ' + fee;
   document.getElementById('cart-total').textContent = '₿PC ' + total;
+
+  // Show shipping address field if any physical item in cart
+  var hasPhysical = cart.some(function(item) {
+    var p = item.productKey && PRODUCTS[item.productKey];
+    return p ? !p.digital : true;
+  });
+  document.getElementById('cart-ship-wrap').style.display = hasPhysical ? '' : 'none';
 }
 
 function openCart() {
@@ -1266,6 +1333,7 @@ async function doCheckout() {
   if (!cart.length) return;
 
   var token = localStorage.getItem('btcpc_token') || '';
+  var shippingAddr = (document.getElementById('cart-ship-addr').value || '').trim();
   var btn = document.querySelector('.checkout-btn');
   btn.disabled = true;
   btn.textContent = 'Placing orders…';
@@ -1278,10 +1346,12 @@ async function doCheckout() {
     var item = cart[i];
     var p = null;
     if (item.productKey) {
-      // Catalog key (e.g. 'rtx3080') or raw product_id (e.g. 'seller/slug')
       p = PRODUCTS[item.productKey] || { productId: item.productKey, token: 'BTCPC' };
     }
     if (!p) continue;
+    var isDigital = p.digital === true || (p.inventory === null || p.inventory === undefined);
+    var orderBody = { product_id: p.productId, quantity: item.qty, token: p.token };
+    if (!isDigital && shippingAddr) orderBody.shipping_address = shippingAddr;
     try {
       var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
         method: 'POST',
@@ -1289,7 +1359,7 @@ async function doCheckout() {
           'Content-Type': 'application/json',
           'Authorization': token ? 'Bearer ' + token : '',
         },
-        body: JSON.stringify({ product_id: p.productId, quantity: item.qty, token: p.token }),
+        body: JSON.stringify(orderBody),
       });
       apiReachable = true;
       if (resp.status === 401) { authFailed = true; break; }
@@ -1659,16 +1729,22 @@ document.getElementById('import-modal').addEventListener('click', function(e) {
 });
 
 // ── PRODUCT CATALOG ─────────────────────────────────────────────────
+var _nowEpoch = Math.floor((Date.now() - 1776236400000) / 30000);
 var PRODUCTS = {
   rtx3080: {
     key:'rtx3080', icon:'🖥️', bg:'#f0f4f8',
     title:'RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h, Ollama Compatible',
     seller:'shindevlin', productId:'shindevlin/rtx-3080-recertified',
     price:480, priceUsd:398, was:585, badge:'deal', badgeLabel:'-18% Deal', badgeColor:'var(--badge-deal)',
-    stars:4.9, reviews:94, inventory:3,
+    saleEndsEpoch: _nowEpoch + 1440,
+    stars:4.9, reviews:94, inventory:3, digital:false,
     ship:'FREE delivery — 2–3 days',
     desc:'Professionally recertified RTX 3080 10GB. Burn-tested for 500 hours on BTCPC Ollama mining workload before listing — GPU is confirmed stable at full inference load. Compatible with all major Ollama models up to 7B without quantization. Includes 90-day BTCPC Escrow buyer protection and a verified compute-hours certificate on-chain. Original cooler, replaced thermal paste, custom VBIOS for quiet mining. PCIe 4.0 slot required.',
     token:'BTCPC',
+    questions:[
+      {qa_id:'q1', asker:'loravan_king', question:'Does it work with PCIe 3.0 slots?', answer:'Yes — PCIe 3.0 ×16 works fine, you lose about 2% bandwidth vs 4.0. All Ollama models run at full speed.'},
+      {qa_id:'q2', asker:'btcpc_miner_77', question:'Is the thermal paste pre-applied?', answer:'Yes, replaced with Thermal Grizzly Kryonaut before shipping. Re-paste not needed.'},
+    ],
     reviews_data:[
       {user:'natoshisakamoto', stars:5, date:'2 weeks ago', text:'Flawless. Running qwen2.5:7b at full speed, no crashes in 3 weeks. Comes with a printed test certificate.', verified:true},
       {user:'mesh_relay_99', stars:5, date:'1 month ago', text:'Bought this for my validator node. Way cheaper than new and performs identically on Ollama benchmarks. Seller was fast.', verified:true},
@@ -1680,10 +1756,13 @@ var PRODUCTS = {
     title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware, GPS+WiFi+BLE',
     seller:'shindevlin', productId:'shindevlin/tbeam-v11-btcpc',
     price:22, priceUsd:18, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
-    stars:5.0, reviews:41, inventory:50,
+    stars:5.0, reviews:41, inventory:50, digital:false,
     ship:'FREE delivery — 3–5 days',
     desc:'T-Beam v1.1 pre-configured as a BTCPC mesh relay node. Comes with BTCPC sensor firmware, LoRa 915MHz (US) or 868MHz (EU — specify in notes), integrated GPS for GNSS sensor proofs, WiFi for local API, and BLE for phone pairing. Just plug in and your node starts earning sensor relay rewards. Includes USB-C cable and 3dBi antenna. IP65 enclosure optional (+₿PC 4).',
     token:'BTCPC',
+    questions:[
+      {qa_id:'q3', asker:'hamradio_btcpc', question:'Does it work with the 868MHz EU band?', answer:'Yes — specify "EU 868" in the order notes. We flash the correct firmware before shipping.'},
+    ],
     reviews_data:[
       {user:'loravan_king', stars:5, date:'1 week ago', text:'Set up in 10 minutes. Already accumulating sensor relay rewards. The pre-flash saves hours of setup.', verified:true},
       {user:'mesh_relay_99', stars:5, date:'3 weeks ago', text:'Running 4 of these across my property. Solid mesh. GPS lock within 2 minutes outdoors.', verified:true},
@@ -1694,10 +1773,14 @@ var PRODUCTS = {
     title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via BTCPC-FS',
     seller:'shindevlin', productId:'shindevlin/qwen25-7b-q5km',
     price:5, priceUsd:4, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
-    stars:4.8, reviews:212, inventory:null,
+    stars:4.8, reviews:212, inventory:null, digital:true,
     ship:'Instant digital delivery via BTCPC-FS',
     desc:'Qwen2.5-7B in GGUF Q5_K_M quantization — best quality-per-GB for 7B inference. Delivered as a BTCPC-FS content-addressed blob (CID included in order confirmation). Pull directly with Ollama: "ollama pull <cid>". Validated against the Qwen2.5 official weights hash. Includes a model card with prompt templates, system prompts tuned for BTCPC mining tasks, and benchmark results on RTX 3080/4090.',
     token:'BTCPC',
+    questions:[
+      {qa_id:'q4', asker:'ai_farm_hale', question:'Is a 13B version available?', answer:null},
+      {qa_id:'q5', asker:'vera_sensor', question:'Can I use this with llama.cpp directly?', answer:'Yes — the GGUF format works with llama.cpp, Ollama, LM Studio, and anything GGUF-compatible.'},
+    ],
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'Exactly what it says. CID in the order, pulled with Ollama in 2 minutes, runs great.', verified:true},
       {user:'natoshisakamoto', stars:5, date:'1 week ago', text:'Best Q5_K_M I\'ve used. Prompt templates are a huge bonus.', verified:true},
@@ -1709,10 +1792,10 @@ var PRODUCTS = {
     title:'Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible, SDR-Based, Calibrated',
     seller:'shindevlin', productId:'shindevlin/icom-ic7300-hf',
     price:310, priceUsd:257, badge:null,
-    stars:4.7, reviews:7, inventory:2,
+    stars:4.7, reviews:7, inventory:2, digital:false,
     ship:'FREE delivery — 5–7 days (large item)',
     desc:'Icom IC-7300 direct-sampling SDR HF transceiver. 100W output, 0.5–30MHz coverage. Professionally calibrated at 1, 7, 14, 21, 28MHz reference frequencies — calibration printout included. Paired with VARA HF modem for BTCPC emergency mesh comms. Minor cosmetic marks on front panel (pictured). Comes with power cable, mic, and IC-7300 manual. 30-day escrow protection — no questions asked returns.',
-    token:'BTCPC',
+    token:'BTCPC', questions:[],
     reviews_data:[
       {user:'hamradio_btcpc', stars:5, date:'1 month ago', text:'Calibration is real — checked on my own equipment. Great value.', verified:true},
       {user:'vara_relay', stars:4, date:'3 weeks ago', text:'Works perfectly with VARA HF. The cosmetic marks are barely visible.', verified:true},
@@ -1723,10 +1806,10 @@ var PRODUCTS = {
     title:'4TB NVMe SSD WD Black SN850X — PCIe 4.0, 7300MB/s, Sealed, 5yr Warranty',
     seller:'shindevlin', productId:'shindevlin/wd-sn850x-4tb',
     price:38, priceUsd:32, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
-    stars:4.9, reviews:29, inventory:18,
+    stars:4.9, reviews:29, inventory:18, digital:false,
     ship:'FREE delivery — 2–3 days',
     desc:'Western Digital WD Black SN850X 4TB NVMe SSD. Factory sealed, full 5-year manufacturer warranty. PCIe Gen 4 x4, sequential read 7300MB/s, write 6600MB/s. M.2 2280 form factor. Perfect for BTCPC-FS node storage — a single drive holds over 80,000 sensor data blobs at typical sizes. The SN850X has no DRAM-less cache stutter; sustained write performance is consistent across the full 4TB.',
-    token:'BTCPC',
+    token:'BTCPC', questions:[],
     reviews_data:[
       {user:'storage_relay', stars:5, date:'5 days ago', text:'Sealed as advertised. Running it as my BTCPC-FS blob store. Zero issues.', verified:true},
       {user:'loravan_king', stars:5, date:'2 weeks ago', text:'Great price. Faster than my old Samsung 980 Pro at sustained writes.', verified:true},
@@ -1737,10 +1820,13 @@ var PRODUCTS = {
     title:'BTCPC Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy',
     seller:'natoshisakamoto', productId:'natoshisakamoto/mining-guide-v3',
     price:2, priceUsd:1.66, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
-    stars:5.0, reviews:503, inventory:null,
+    stars:5.0, reviews:503, inventory:null, digital:true,
     ship:'Instant digital delivery via BTCPC-FS',
     desc:'The definitive BTCPC miner\'s handbook (v3). 38 pages covering: model selection for maximum work-value, epoch bandwidth optimization, stake curve theory with worked examples, multi-GPU setups, clock node co-location, validator reward splits, and self-heal automation patterns. Includes a spreadsheet template for tracking reward ROI. Written by natoshisakamoto — author of the BTCPC Whitepaper appendices.',
     token:'BTCPC',
+    questions:[
+      {qa_id:'q7', asker:'btcpc_miner_77', question:'Is there a v4 planned?', answer:'Yes, targeting v4 after the Phase G validator upgrade. Buyers of v3 get it free.'},
+    ],
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'1 day ago', text:'Increased my daily rewards 40% after following the model selection guide. 10/10.', verified:true},
       {user:'btcpc_miner_77', stars:5, date:'1 week ago', text:'The stake curve math alone is worth the 2 BTCPC. Read it twice.', verified:true},
@@ -1752,10 +1838,10 @@ var PRODUCTS = {
     title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, BTCPC Mesh Sensor Ready',
     seller:'shindevlin', productId:'shindevlin/rak-wisblock-sensor-kit',
     price:14, priceUsd:12, badge:null,
-    stars:4.6, reviews:18, inventory:30,
+    stars:4.6, reviews:18, inventory:30, digital:false,
     ship:'FREE delivery — 3–5 days',
     desc:'RAK WisBlock Starter Kit with nRF52840 CPU and SX1262 LoRa module. Pre-configured as a BTCPC environment sensor node — temperature, humidity, light, and air quality sensors included. Ships with BTCPC sensor firmware flashed and pre-paired to the BTCPC mesh. Just power on and the node begins publishing readings to the chain. Great for earning sensor relay income at low cost.',
-    token:'BTCPC',
+    token:'BTCPC', questions:[],
     reviews_data:[
       {user:'vera_sensor', stars:5, date:'2 weeks ago', text:'Running 6 of these. All earning. Setup is legitimately 5 minutes.', verified:true},
       {user:'hamradio_btcpc', stars:4, date:'1 month ago', text:'Solid kit. Air quality sensor needed calibration but LoRa is rock solid.', verified:true},
@@ -1766,10 +1852,14 @@ var PRODUCTS = {
     title:'RTX 4090 Founder\'s Edition 24GB — 9.4× Work Multiplier, Single Owner, Like New',
     seller:'shindevlin', productId:'shindevlin/rtx-4090-founders',
     price:920, priceUsd:764, was:1045, badge:'deal', badgeLabel:'-12% Deal', badgeColor:'var(--badge-deal)',
-    stars:4.9, reviews:14, inventory:1,
+    saleEndsEpoch: _nowEpoch + 720,
+    stars:4.9, reviews:14, inventory:1, digital:false,
     ship:'FREE delivery — 2–3 days (insured shipment)',
     desc:'RTX 4090 Founder\'s Edition, single owner, purchased new 8 months ago. Used exclusively for BTCPC Ollama inference — no gaming, no overclocking. BIOS never modified. Verified 9.4× work multiplier on Qwen2.5:14B vs baseline (test results on-chain, CID in listing). Comes with original box, GPU removal tool, and power adapters. BTCPC-verified compute history included — transparent provenance.',
     token:'BTCPC',
+    questions:[
+      {qa_id:'q6', asker:'mesh_relay_99', question:'Any warranty left on this?', answer:'Manufacturer warranty expired but we offer 30-day BTCPC escrow buyer protection — full refund if not as described.'},
+    ],
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'The on-chain work proof was the deciding factor. Legitimate history, no games. It\'s a beast.', verified:true},
       {user:'natoshisakamoto', stars:5, date:'1 week ago', text:'9.4x work multiplier checks out. Running it on our validator. Insured shipment arrived perfect.', verified:true},
@@ -1779,6 +1869,104 @@ var PRODUCTS = {
 
 var _pdCurrent = null;
 var _pdQty = 1;
+
+// ── FLASH SALE COUNTDOWNS ────────────────────────────────────────────
+function epochsToHms(epochs) {
+  var secs = epochs * 30;
+  var h = Math.floor(secs / 3600);
+  var m = Math.floor((secs % 3600) / 60);
+  var s = secs % 60;
+  return (h > 0 ? h + 'h ' : '') + (m > 0 || h > 0 ? String(m).padStart(2,'0') + 'm ' : '') + String(s).padStart(2,'0') + 's';
+}
+
+function renderFlashCountdowns() {
+  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  document.querySelectorAll('[data-sale-key]').forEach(function(el) {
+    var key = el.dataset.saleKey;
+    var p = PRODUCTS[key];
+    if (!p || !p.saleEndsEpoch) return;
+    var left = p.saleEndsEpoch - epoch;
+    if (left <= 0) {
+      el.textContent = '⏰ Sale ended';
+      el.className = 'flash-countdown expired';
+    } else {
+      el.textContent = '⏰ Ends in ' + epochsToHms(left);
+      el.className = 'flash-countdown';
+    }
+  });
+}
+
+function initFlashCountdowns() {
+  Object.values(PRODUCTS).forEach(function(p) {
+    if (!p.saleEndsEpoch) return;
+    var cards = document.querySelectorAll('.product-card');
+    cards.forEach(function(card) {
+      var onclick = card.getAttribute('onclick') || '';
+      var m = onclick.match(/openProduct\('([^']+)'\)/);
+      if (!m || m[1] !== p.key) return;
+      var priceRow = card.querySelector('.price-deal');
+      if (!priceRow) return;
+      var span = document.createElement('span');
+      span.dataset.saleKey = p.key;
+      span.className = 'flash-countdown';
+      priceRow.parentNode.insertBefore(span, priceRow.nextSibling);
+    });
+  });
+  renderFlashCountdowns();
+  setInterval(renderFlashCountdowns, 1000);
+}
+
+// ── PRODUCT Q&A ──────────────────────────────────────────────────────
+function renderQA(questions) {
+  var list = document.getElementById('qa-list');
+  if (!questions || !questions.length) {
+    list.innerHTML = '<div class="qa-empty">No questions yet. Be the first to ask!</div>';
+    return;
+  }
+  list.innerHTML = questions.map(function(qa) {
+    return '<div class="qa-item">' +
+      '<div class="qa-q">' + escHtml(qa.question) + '</div>' +
+      (qa.answer
+        ? '<div class="qa-a">' + escHtml(qa.answer) + '</div>'
+        : '<div class="qa-unanswered">Awaiting seller response…</div>') +
+      '</div>';
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function submitQuestion() {
+  if (!_pdCurrent) return;
+  var input = document.getElementById('qa-ask-input');
+  var q = input.value.trim();
+  if (!q) return;
+  var token = localStorage.getItem('btcpc_token') || '';
+  if (!token) { toast('Sign in to ask a question — click Account & Lists'); return; }
+
+  var parts = _pdCurrent.productId.split('/');
+  var seller = parts[0], slug = parts.slice(1).join('/');
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(seller) + '/' + encodeURIComponent(slug) + '/qa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ question: q }),
+    });
+    if (resp.ok) {
+      input.value = '';
+      var pending = (_pdCurrent.questions || []).concat([{ question: q, answer: null }]);
+      renderQA(pending);
+      toast('Question submitted — the seller will be notified', 'green');
+      return;
+    }
+  } catch(_) {}
+  // Demo fallback
+  input.value = '';
+  var demo = (_pdCurrent.questions || []).concat([{ question: q, answer: null }]);
+  renderQA(demo);
+  toast('Question submitted (demo mode)', 'green');
+}
 
 function starsHtml(n) {
   var full = Math.floor(n), half = n - full >= 0.5;
@@ -1835,12 +2023,26 @@ function openProduct(key, buyIntent) {
     invTag.textContent = 'Stock: ' + p.inventory;
   }
 
+  // Flash sale countdown in drawer
+  var pdDealBadge = document.getElementById('pd-deal-badge');
+  if (p.saleEndsEpoch) {
+    var epochNow = Math.floor((Date.now() - 1776236400000) / 30000);
+    var left = p.saleEndsEpoch - epochNow;
+    if (left > 0) {
+      pdDealBadge.style.display = '';
+      pdDealBadge.textContent = 'Flash sale — ends in ' + epochsToHms(left);
+    }
+  }
+
   // Reviews
   document.getElementById('pd-big-num').textContent = p.stars.toFixed(1);
   document.getElementById('pd-big-stars').textContent = starsHtml(p.stars);
   document.getElementById('pd-big-sub').textContent = p.reviews + ' ratings';
   renderBars(p.stars, p.reviews);
   renderReviews(p.reviews_data);
+
+  // Q&A
+  renderQA(p.questions || []);
 
   document.getElementById('pd-overlay').classList.add('open');
   document.getElementById('pd-drawer').classList.add('open');
@@ -1890,6 +2092,8 @@ async function pdBuyNow() {
         product_id: _pdCurrent.productId,
         quantity: _pdQty,
         token: _pdCurrent.token,
+        shipping_address: _pdCurrent.digital ? undefined
+          : (document.getElementById('cart-ship-addr').value || '').trim() || undefined,
       }),
     });
 

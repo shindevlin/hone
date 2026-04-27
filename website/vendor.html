@@ -682,6 +682,32 @@
           <input type="text" id="p-img" placeholder="sha256:..." />
           <span class="form-hint">Upload image via /api/blobs, paste the CID here.</span>
         </div>
+        <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="p-auto-deliver" onchange="toggleDeliveryCid()" />
+            Digital product — auto-deliver on purchase
+          </label>
+          <span class="form-hint">Buyer receives the file CID instantly after payment. No seller action needed.</span>
+        </div>
+        <div class="form-group form-full" id="p-delivery-cid-wrap" style="display:none">
+          <label>Delivery CID (BTCPC-FS blob hash of the file to deliver) *</label>
+          <input type="text" id="p-delivery-cid" placeholder="sha256:..." />
+          <span class="form-hint">The buyer will receive this CID in their order confirmation.</span>
+        </div>
+        <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
+          <label style="font-weight:700">Flash Sale (optional)</label>
+          <div style="display:flex;gap:10px;margin-top:6px">
+            <div style="flex:1">
+              <label style="font-size:12px;color:var(--sub)">Sale price (BTCPC)</label>
+              <input type="number" id="p-sale-price" placeholder="0.00" min="0" step="0.01" />
+            </div>
+            <div style="flex:1">
+              <label style="font-size:12px;color:var(--sub)">Sale ends (date &amp; time)</label>
+              <input type="datetime-local" id="p-sale-ends" />
+            </div>
+          </div>
+          <span class="form-hint">Leave blank to deactivate. Sale price is used at checkout when the window is active.</span>
+        </div>
       </div>
     </div>
     <div class="modal-foot">
@@ -1215,13 +1241,20 @@ function closeViewOrderModal() {
 }
 
 // ── CREATE / EDIT PRODUCT ─────────────────────────────────────────────────────
+function toggleDeliveryCid() {
+  var checked = document.getElementById('p-auto-deliver').checked;
+  document.getElementById('p-delivery-cid-wrap').style.display = checked ? '' : 'none';
+}
+
 function openCreateModal() {
   _editingProduct = null;
   document.getElementById('modal-title').textContent = 'New Listing';
   document.getElementById('modal-save-btn').textContent = 'Publish Listing';
-  ['p-title','p-slug','p-price','p-inv','p-desc','p-img'].forEach(function(id) {
+  ['p-title','p-slug','p-price','p-inv','p-desc','p-img','p-delivery-cid','p-sale-price','p-sale-ends'].forEach(function(id) {
     document.getElementById(id).value = '';
   });
+  document.getElementById('p-auto-deliver').checked = false;
+  document.getElementById('p-delivery-cid-wrap').style.display = 'none';
   document.getElementById('create-modal').classList.add('open');
 }
 
@@ -1235,6 +1268,18 @@ function editListing(l) {
   document.getElementById('p-inv').value = l.inventory || '';
   document.getElementById('p-desc').value = l.description || '';
   document.getElementById('p-img').value = l.image_cid || '';
+  var autoDeliver = !!l.auto_deliver;
+  document.getElementById('p-auto-deliver').checked = autoDeliver;
+  document.getElementById('p-delivery-cid-wrap').style.display = autoDeliver ? '' : 'none';
+  document.getElementById('p-delivery-cid').value = l.delivery_cid || '';
+  document.getElementById('p-sale-price').value = l.sale_price || '';
+  if (l.sale_ends_epoch) {
+    var saleMs = 1776236400000 + l.sale_ends_epoch * 30000;
+    var dt = new Date(saleMs);
+    document.getElementById('p-sale-ends').value = dt.toISOString().slice(0,16);
+  } else {
+    document.getElementById('p-sale-ends').value = '';
+  }
   document.getElementById('create-modal').classList.add('open');
 }
 
@@ -1244,16 +1289,28 @@ function closeCreateModal() {
 }
 
 async function saveProduct() {
-  var title = document.getElementById('p-title').value.trim();
-  var slug  = document.getElementById('p-slug').value.trim();
-  var price = parseFloat(document.getElementById('p-price').value);
-  var inv   = document.getElementById('p-inv').value.trim();
-  var desc  = document.getElementById('p-desc').value.trim();
-  var img   = document.getElementById('p-img').value.trim();
+  var title        = document.getElementById('p-title').value.trim();
+  var slug         = document.getElementById('p-slug').value.trim();
+  var price        = parseFloat(document.getElementById('p-price').value);
+  var inv          = document.getElementById('p-inv').value.trim();
+  var desc         = document.getElementById('p-desc').value.trim();
+  var img          = document.getElementById('p-img').value.trim();
+  var autoDeliver  = document.getElementById('p-auto-deliver').checked;
+  var deliveryCid  = document.getElementById('p-delivery-cid').value.trim();
+  var salePriceRaw = document.getElementById('p-sale-price').value.trim();
+  var saleEndsRaw  = document.getElementById('p-sale-ends').value;
 
   if (!title) { toast('Title is required'); return; }
   if (!_editingProduct && !slug) { toast('Slug is required'); return; }
   if (isNaN(price) || price < 0) { toast('Valid price required'); return; }
+  if (autoDeliver && !deliveryCid) { toast('Delivery CID required for auto-deliver'); return; }
+
+  var salePrice = salePriceRaw ? parseFloat(salePriceRaw) : undefined;
+  var saleEndsEpoch;
+  if (saleEndsRaw) {
+    var endsMs = new Date(saleEndsRaw).getTime();
+    saleEndsEpoch = Math.floor((endsMs - 1776236400000) / 30000);
+  }
 
   var btn = document.getElementById('modal-save-btn');
   btn.disabled = true;
@@ -1265,15 +1322,20 @@ async function saveProduct() {
 
     var url, body, method;
     if (_editingProduct) {
-      url = '/api/commerce/products/' + encodeURIComponent(_editingProduct.product_id);
+      url = BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(_editingProduct.product_id);
       method = 'PATCH';
-      body = { title, price, description: desc, image_cid: img || null, inventory: inv ? parseInt(inv) : -1 };
+      body = { title, price, description: desc, image_cid: img || null,
+               inventory: inv ? parseInt(inv) : -1,
+               auto_deliver: autoDeliver, delivery_cid: deliveryCid || null,
+               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch };
     } else {
-      url = '/api/commerce/products';
+      url = BTCPC_NODE + '/api/commerce/products';
       method = 'POST';
       body = { slug, title, price, description: desc, image_cid: img || null,
                inventory: inv ? parseInt(inv) : undefined, token: 'BTCPC',
-               categories: [document.getElementById('p-cat').value] };
+               categories: [document.getElementById('p-cat').value],
+               auto_deliver: autoDeliver, delivery_cid: deliveryCid || undefined,
+               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch };
     }
 
     var resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
