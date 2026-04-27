@@ -4,15 +4,24 @@
  * BTCPC Sensor Keystore
  * Shin Devlin
  *
- * ed25519 keypair management for IoT sensors. Each sensor gets a unique
- * keypair at registration. The private key stays on the device (or on
- * the node running the sensor daemon). The public key is registered
- * on-chain via SENSOR_KEY_REGISTER so readings can be verified.
+ * ed25519 keypair management for IoT sensors.
+ *
+ * Two key modes:
+ *
+ *   1. MNEMONIC-DERIVED (preferred for phones and nodes with a mnemonic)
+ *      Key = HKDF(SHA512(mnemonic), salt=0x00*32, info="btcpc-sensor-v1:<sensor_id>", len=32)
+ *      Same mnemonic + same sensor_id = same key on any device, survives reinstalls.
+ *      Set BTCPC_MNEMONIC (or BTCPC_MNEMONIC_NATOSHI etc.) to enable.
+ *
+ *   2. RANDOM (hardware devices — Hyfix, ESP32, Flipper)
+ *      Generates a random ed25519 keypair on first run and stores it in sensor-keys.json.
+ *      Key is device-local. If device storage is lost, key must be rotated via /register-key.
  *
  * Key storage: ~/.btcpc/sensor-keys.json (or BTCPC_SENSOR_KEYS env var)
- * Format: { "<sensor_id>": { privateKey: "<pkcs8-der-hex>", publicKey: "<spki-der-hex>" } }
+ * BTCPC_DATA_DIR is only used if that directory already exists on the current machine,
+ * so mobile devices (Termux) with a grouchly-specific BTCPC_DATA_DIR fall back to ~/.btcpc.
  *
- * Signing payload format (pipe-delimited for cross-platform compatibility):
+ * Signing payload format (pipe-delimited, matches btcpc-gnss-capture Rust):
  *   "<sensor_id>|<value>|<device_timestamp_ms>"
  *   or with epoch_hash:
  *   "<sensor_id>|<value>|<device_timestamp_ms>|<epoch_hash>"
@@ -25,8 +34,16 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const KEYSTORE_PATH = process.env.BTCPC_SENSOR_KEYS ||
-  path.join(process.env.BTCPC_DATA_DIR || path.join(os.homedir(), '.btcpc'), 'sensor-keys.json');
+function _resolveKeystorePath() {
+  if (process.env.BTCPC_SENSOR_KEYS) return process.env.BTCPC_SENSOR_KEYS;
+  // Use BTCPC_DATA_DIR only if that directory actually exists on this machine.
+  // Falls back to ~/.btcpc so mobile (Termux) doesn't try to write to a
+  // grouchly-specific mount that doesn't exist on the device.
+  const envDir = process.env.BTCPC_DATA_DIR;
+  if (envDir && fs.existsSync(envDir)) return path.join(envDir, 'sensor-keys.json');
+  return path.join(os.homedir(), '.btcpc', 'sensor-keys.json');
+}
+const KEYSTORE_PATH = _resolveKeystorePath();
 
 let _cache = null;
 
@@ -46,25 +63,100 @@ function _save(store) {
   fs.writeFileSync(KEYSTORE_PATH, JSON.stringify(store, null, 2), 'utf8');
 }
 
+// PKCS8 DER wrapper for a raw 32-byte ed25519 seed.
+// Structure: SEQUENCE { INTEGER 0, SEQUENCE { OID id-Ed25519 }, OCTET STRING { OCTET STRING seed } }
+function _seedToPkcs8(seed32) {
+  const header = Buffer.from('302e020100300506032b657004220420', 'hex');
+  return Buffer.concat([header, seed32]);
+}
+
 /**
- * Generate a new ed25519 keypair for a sensor, or return the existing one.
- * Returns { publicKey: spki-der-hex, existed: bool }.
+ * Derive a deterministic ed25519 keypair from a mnemonic and sensor_id.
+ * Same inputs → same key, on any device, after any reinstall.
+ *
+ * Derivation: HKDF-SHA512(key=SHA512(mnemonic), salt=0x00*32, info="btcpc-sensor-v1:<sensor_id>", len=32)
+ */
+function _deriveFromMnemonic(mnemonic, sensorId) {
+  const mnemonicSeed = crypto.createHash('sha512').update(mnemonic.trim()).digest();
+  const derived = crypto.hkdfSync(
+    'sha512',
+    mnemonicSeed,
+    Buffer.alloc(32),
+    Buffer.from('btcpc-sensor-v1:' + sensorId),
+    32
+  );
+  const pkcs8 = _seedToPkcs8(Buffer.from(derived));
+  const privateKey = crypto.createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  const publicKey = crypto.createPublicKey(privateKey);
+  return {
+    privateKey: pkcs8.toString('hex'),
+    publicKey: publicKey.export({ type: 'spki', format: 'der' }).toString('hex'),
+    derived: true,
+  };
+}
+
+/**
+ * Find the account mnemonic to use for sensor key derivation.
+ * Tries BTCPC_MNEMONIC, then mnemonic matching the sensor owner (BTCPC_MNEMONIC_<ACCOUNT>).
+ */
+function _findMnemonic(sensorId) {
+  if (process.env.BTCPC_MNEMONIC) return process.env.BTCPC_MNEMONIC;
+  // Try account-specific mnemonic: sensor "shindevlin/foo" → BTCPC_MNEMONIC_SHIN or BTCPC_MNEMONIC_SHINDEVLIN
+  const owner = sensorId.split('/')[0];
+  if (owner) {
+    const key1 = 'BTCPC_MNEMONIC_' + owner.toUpperCase();
+    if (process.env[key1]) return process.env[key1];
+    // Try short prefix (natoshisakamoto → NATOSHI)
+    const prefix = owner.replace(/[^a-z]/g, '').slice(0, 7).toUpperCase();
+    const key2 = 'BTCPC_MNEMONIC_' + prefix;
+    if (process.env[key2]) return process.env[key2];
+  }
+  return null;
+}
+
+/**
+ * Generate a keypair for a sensor.
+ *
+ * If the device has a mnemonic in env (BTCPC_MNEMONIC or BTCPC_MNEMONIC_<ACCOUNT>),
+ * the keypair is derived deterministically — no disk storage needed, survives reinstalls.
+ *
+ * Otherwise, a random keypair is generated and saved to sensor-keys.json.
+ *
+ * Returns { publicKey: spki-der-hex, existed: bool, derived: bool }.
  */
 function generateKeypair(sensorId) {
+  // Check for cached key first (fast path for non-mnemonic devices)
   const store = _load();
-  if (store[sensorId]) {
-    return { publicKey: store[sensorId].publicKey, existed: true };
+  if (store[sensorId] && !store[sensorId].derived) {
+    return { publicKey: store[sensorId].publicKey, existed: true, derived: false };
   }
+
+  // Mnemonic-derived key takes precedence
+  const mnemonic = _findMnemonic(sensorId);
+  if (mnemonic) {
+    const kp = _deriveFromMnemonic(mnemonic, sensorId);
+    // Cache in memory only — mnemonic devices don't need disk storage
+    // (the mnemonic IS the backup), but store for consistency
+    if (!store[sensorId] || store[sensorId].publicKey !== kp.publicKey) {
+      store[sensorId] = kp;
+      try { _save(store); _cache = store; } catch (_) { _cache = store; }
+    }
+    return { publicKey: kp.publicKey, existed: !!store[sensorId], derived: true };
+  }
+
+  // Random keypair for hardware devices with no mnemonic
+  const existed = !!store[sensorId];
+  if (existed) return { publicKey: store[sensorId].publicKey, existed: true, derived: false };
 
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
   const privHex = privateKey.export({ type: 'pkcs8', format: 'der' }).toString('hex');
   const pubHex = publicKey.export({ type: 'spki', format: 'der' }).toString('hex');
 
-  store[sensorId] = { privateKey: privHex, publicKey: pubHex };
+  store[sensorId] = { privateKey: privHex, publicKey: pubHex, derived: false };
   _save(store);
   _cache = store;
 
-  return { publicKey: pubHex, existed: false };
+  return { publicKey: pubHex, existed: false, derived: false };
 }
 
 /**
