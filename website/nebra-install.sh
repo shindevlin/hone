@@ -161,8 +161,8 @@ BTCPC_GATEWAY_NAME=$GATEWAY_NAME
 BTCPC_LORA_REGION=$LORA_REGION
 BTCPC_LAT=$BTCPC_LAT
 BTCPC_LON=$BTCPC_LON
-BTCPC_NODE_URL=http://localhost:4242
-BTCPC_ROLES=gateway
+BTCPC_NODE_URL=https://btcpc.net/testnet
+BTCPC_ROLES=gateway,clock
 ENVEOF
 success ".env written."
 
