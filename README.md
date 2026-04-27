@@ -2,6 +2,13 @@
 
 AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed by real work.
 
+## Stack
+
+- Node.js — core chain, P2P, API, explorer
+- MongoDB — optional legacy cache (disabled by default; all canonical state is on-disk blocks)
+- Ollama — AI inference backend, model-agnostic
+- Rust — `btcpc-market` commerce service (port 7042), vendor operations sidecar
+
 ## Install (one command)
 
 ```bash
@@ -75,6 +82,24 @@ Every device earns by doing useful work:
 | **Sensor** | Reports real-world data | Any sensor (temp, GPS, air quality) |
 
 Bigger stake = higher reward weight. More useful work = more earnings.
+
+## Commerce
+
+BTCPC Market is a sovereign, censorship-resistant marketplace for hardware, digital goods, and AI compute — built directly into the chain.
+
+**Decentralized catalog.** All commerce state (stores, products, orders) flows through the same append-only ledger as the rest of the chain. Every BTCPC node that replays the ledger holds a complete, verifiable copy of the market catalog. No central marketplace server is required. Catalog reads are served from any node via `GET /api/peer/commerce/stores` and `GET /api/peer/commerce/products`.
+
+**Public access without running a node.** The store frontend (`website/store.html`) is a static file that can be hosted anywhere. `API_BASE` defaults to same-origin for local nodes and is overridable via `?node=` query parameter or `localStorage`. Users without a local node point at any public BTCPC gateway — the gateway serves the catalog from its local ledger, and the data is verifiable on-chain.
+
+**Vendor features:**
+
+- Escrow-protected orders with automatic dispute resolution
+- Auto-deliver for digital goods: products with a BTCPC-FS `delivery_cid` fulfill instantly on order placement — zero seller action, trustless delivery
+- Flash sales and time-limited pricing
+- Shipping account integration: carrier credentials stored on-chain, auto-populated at fulfillment
+- Tor onion routing: vendors generate a `.onion` address, register it on-chain, buyers on Tor Browser route through it automatically
+
+**btcpc-market.** The `btcpc-market` Rust service (port 7042) is an optional sidecar that vendors run for full seller operations. Standard BTCPC nodes handle read-only catalog access without it.
 
 ## How it works
 

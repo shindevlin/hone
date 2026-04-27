@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vendor Dashboard — BTCPC Market</title>
+  <link rel="icon" href="/favicon-32.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --orange: #ff9900; --orange-d: #e47911; --orange-l: #fff3e0;
+      --navy: #131921; --navy2: #232f3e;
+      --bg: #eaeded; --bg2: #f3f3f3; --white: #ffffff;
+      --border: #ddd; --border2: #c8c8c8;
+      --text: #0f1111; --sub: #565959; --muted: #767676;
+      --link: #007185; --red: #cc0c39; --green: #067d62; --green-bg: #e6f4ea;
+      --star: #ff9900; --shadow: 0 2px 8px rgba(0,0,0,0.12);
+      --purple: #7b2ff7;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: Arial,'Helvetica Neue',sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+    a { color: var(--link); text-decoration: none; }
+    button { font-family: inherit; cursor: pointer; }
+    input, select, textarea { font-family: inherit; }
+
+    /* NAV */
+    .nav-top { background: var(--navy); display: flex; align-items: center; gap: 12px; padding: 10px 20px; min-height: 60px; }
+    .nav-logo { color: #fff; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .nav-logo img { width: 28px; height: 28px; border-radius: 4px; }
+    .nav-logo .sub { font-size: 10px; font-weight: 400; color: #ccc; }
+    .nav-sep { color: rgba(255,255,255,0.3); font-size: 20px; }
+    .nav-title { color: var(--orange); font-size: 15px; font-weight: 700; }
+    .nav-r { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .nav-r a { color: #ccc; font-size: 12px; }
+    .nav-r a:hover { color: #fff; }
+    .nav-pill { background: var(--orange); color: var(--navy); font-weight: 700; font-size: 12px; padding: 6px 16px; border-radius: 4px; border: none; }
+    .nav-pill:hover { background: var(--orange-d); }
+    .node-sel-btn {
+      display: flex; align-items: center; gap: 5px;
+      background: none; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px;
+      color: #ccc; padding: 4px 8px; font-size: 11px; white-space: nowrap; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .node-sel-btn:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+    .node-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .node-dot.local  { background: #4caf50; }
+    .node-dot.remote { background: var(--orange); }
+    #node-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9000;
+      align-items: flex-start; justify-content: center; padding-top: 80px;
+    }
+    #node-modal-overlay.open { display: flex; }
+    #node-modal {
+      background: #fff; border-radius: 8px; padding: 24px; width: 420px; max-width: 94vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    #node-modal h3 { margin-bottom: 6px; font-size: 16px; }
+    #node-modal p  { color: var(--sub); font-size: 13px; margin-bottom: 14px; }
+    #node-modal input {
+      width: 100%; padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 14px; margin-bottom: 12px;
+    }
+    #node-modal input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .node-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .node-modal-actions button { padding: 8px 18px; border-radius: 4px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-node-save   { background: var(--orange); color: var(--navy); }
+    .btn-node-clear  { background: #eee; color: #333; }
+    .btn-node-cancel { background: none; color: #666; }
+
+    /* LAYOUT */
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; min-height: calc(100vh - 60px); }
+
+    /* SIDEBAR */
+    .sidebar { background: var(--white); border-right: 1px solid var(--border); padding: 20px 0; }
+    .sidebar-seller { padding: 0 20px 16px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .seller-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--navy2); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 8px; }
+    .seller-name { font-weight: 700; font-size: 15px; }
+    .seller-rep { font-size: 12px; color: var(--green); }
+    .seller-since { font-size: 11px; color: var(--muted); }
+    .sidebar-nav a {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px; font-size: 13px; color: var(--text);
+      border-left: 3px solid transparent; transition: all .15s;
+    }
+    .sidebar-nav a:hover { background: var(--orange-l); border-left-color: var(--orange); color: var(--orange-d); text-decoration: none; }
+    .sidebar-nav a.active { background: var(--orange-l); border-left-color: var(--orange); color: var(--orange-d); font-weight: 700; }
+    .sidebar-nav .ico { font-size: 16px; width: 20px; text-align: center; }
+    .sidebar-nav .badge-cnt { margin-left: auto; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }
+    .sidebar-section-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding: 12px 20px 4px; }
+
+    /* MAIN */
+    .main { padding: 24px; overflow: auto; }
+    .page-header { margin-bottom: 20px; }
+    .page-header h1 { font-size: 22px; font-weight: 800; }
+    .page-header p { color: var(--sub); font-size: 13px; margin-top: 4px; }
+
+    /* STATS ROW */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 16px 20px; }
+    .stat-label { font-size: 12px; color: var(--sub); margin-bottom: 6px; }
+    .stat-val { font-size: 26px; font-weight: 800; }
+    .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .stat-up { color: var(--green); font-weight: 700; }
+    .stat-down { color: var(--red); font-weight: 700; }
+
+    /* CARDS */
+    .card { background: var(--white); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 20px; }
+    .card-head { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .card-head h3 { font-size: 15px; font-weight: 700; }
+    .card-body { padding: 0; }
+    .card-body-pad { padding: 20px; }
+
+    /* TABLES */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th { background: var(--bg2); padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--sub); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .data-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: var(--bg2); }
+    .td-product { display: flex; align-items: center; gap: 10px; }
+    .td-icon { font-size: 28px; flex-shrink: 0; }
+    .td-product-name { font-weight: 700; font-size: 13px; line-height: 1.3; }
+    .td-product-id { font-size: 11px; color: var(--muted); }
+    .badge-status { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+    .badge-active { background: var(--green-bg); color: var(--green); }
+    .badge-pending { background: #fff3e0; color: #b87333; }
+    .badge-fulfilled { background: #e3f2fd; color: #1565c0; }
+    .badge-delivered { background: var(--green-bg); color: var(--green); }
+    .badge-disputed { background: #fce4ec; color: var(--red); }
+    .badge-delisted { background: var(--bg2); color: var(--muted); }
+    .badge-digital { background: #ede7f6; color: var(--purple); }
+    .action-btn { padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; border: 1px solid; cursor: pointer; }
+    .btn-edit { background: var(--bg2); border-color: var(--border2); color: var(--text); }
+    .btn-edit:hover { background: var(--orange-l); border-color: var(--orange); }
+    .btn-delist { background: #fff5f5; border-color: #fcc; color: var(--red); }
+    .btn-delist:hover { background: #ffe0e0; }
+    .btn-fulfill { background: #e3f2fd; border-color: #90caf9; color: #1565c0; font-weight: 700; }
+    .btn-fulfill:hover { background: #bbdefb; }
+    .btn-view { background: var(--bg2); border-color: var(--border2); color: var(--link); }
+    .action-grp { display: flex; gap: 6px; flex-wrap: nowrap; }
+
+    /* FORM */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-full { grid-column: 1 / -1; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 12px; font-weight: 700; color: var(--text); }
+    .form-group input, .form-group select, .form-group textarea {
+      border: 1px solid var(--border2); border-radius: 4px; padding: 8px 10px; font-size: 13px;
+      outline: none; transition: border-color .15s;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--orange); }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .form-hint { font-size: 11px; color: var(--muted); }
+    .form-row { display: flex; gap: 10px; align-items: flex-end; }
+    .form-actions { display: flex; gap: 10px; padding-top: 4px; }
+    .btn-primary { padding: 10px 24px; background: var(--orange); color: var(--navy); font-weight: 700; font-size: 13px; border: none; border-radius: 4px; }
+    .btn-primary:hover { background: var(--orange-d); }
+    .btn-secondary { padding: 10px 20px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 4px; font-size: 13px; color: var(--text); }
+    .btn-secondary:hover { border-color: var(--orange); }
+
+    /* TABS */
+    .tabs { display: flex; border-bottom: 2px solid var(--border); background: var(--white); padding: 0 24px; margin-bottom: 24px; position: sticky; top: 0; z-index: 10; }
+    .tab { padding: 14px 18px; font-size: 13px; font-weight: 700; color: var(--sub); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--orange-d); border-bottom-color: var(--orange); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* CHART placeholder */
+    .chart-placeholder { background: var(--bg2); border: 1px dashed var(--border2); border-radius: 4px; height: 140px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+
+    /* EMPTY STATE */
+    .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); }
+    .empty-state .ico { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    /* MODAL overlay for create/edit product */
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .2s; }
+    .modal-bg.open { opacity: 1; pointer-events: all; }
+    .modal-box { background: var(--white); border-radius: 8px; width: 100%; max-width: 560px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+    .modal-head { background: var(--navy); color: #fff; padding: 16px 20px; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .modal-head h3 { font-size: 15px; }
+    .modal-x { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
+    .modal-body { padding: 20px; }
+    .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+
+    /* TOAST */
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; font-weight: 700; padding: 10px 20px; border-radius: 6px; z-index: 600; transition: transform .3s; white-space: nowrap; }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.green { background: var(--green); }
+
+    /* ORDER DETAIL INLINE */
+    .order-expand { background: var(--bg2); border-top: 1px solid var(--border); padding: 14px 20px; font-size: 13px; }
+    .order-expand-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .oe-label { font-size: 11px; color: var(--muted); }
+    .oe-val { font-weight: 700; }
+
+    /* REVENUE CHART bars */
+    .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; padding: 0 4px; }
+    .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+    .bar { background: var(--orange); border-radius: 3px 3px 0 0; width: 100%; min-height: 4px; transition: height .4s; }
+    .bar-label { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .bar-val { font-size: 9px; color: var(--sub); }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .form-grid { grid-template-columns: 1fr; }
+      .order-expand-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .stats-row { grid-template-columns: 1fr 1fr; }
+      .tabs { padding: 0 12px; }
+      .tab { padding: 12px 10px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<header>
+  <div class="nav-top">
+    <a href="/store" class="nav-logo" style="text-decoration:none">
+      <img src="/btcpc-logo.jpeg" alt="BTCPC" />
+      <div><div>BTCPC</div><span class="sub">Market</span></div>
+    </a>
+    <span class="nav-sep">/</span>
+    <span class="nav-title">Vendor Dashboard</span>
+    <div class="nav-r">
+      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch BTCPC node">
+        <span class="node-dot local" id="node-dot"></span>
+        <span id="node-label">Local</span>
+      </button>
+      <a href="/store">← Back to store</a>
+      <button class="nav-pill" onclick="openCreateModal()">+ New Listing</button>
+    </div>
+  </div>
+
+  <!-- Node selector modal -->
+  <div id="node-modal-overlay" onclick="if(event.target===this)closeNodeModal()">
+    <div id="node-modal">
+      <h3>BTCPC Node</h3>
+      <p>Enter the base URL of any public BTCPC gateway node. Leave blank to use the local node (same origin).</p>
+      <input id="node-input" type="url" placeholder="https://node.btcpc.network" />
+      <div class="node-modal-actions">
+        <button class="btn-node-cancel" onclick="closeNodeModal()">Cancel</button>
+        <button class="btn-node-clear" onclick="clearNode()">Use Local</button>
+        <button class="btn-node-save" onclick="saveNode()">Connect</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-seller">
+      <div class="seller-avatar">🔑</div>
+      <div class="seller-name" id="sb-name">shindevlin</div>
+      <div class="seller-rep">★ 4.9 · Chain-verified seller</div>
+      <div class="seller-since">Selling since epoch 1,200</div>
+    </div>
+    <div class="sidebar-nav">
+      <div class="sidebar-section-label">Manage</div>
+      <a href="#" class="active" onclick="switchTab('overview',this)">
+        <span class="ico">📊</span> Overview
+      </a>
+      <a href="#" onclick="switchTab('listings',this)">
+        <span class="ico">📦</span> My Listings
+        <span class="badge-cnt" id="sb-listings-cnt">0</span>
+      </a>
+      <a href="#" onclick="switchTab('orders',this)">
+        <span class="ico">🛍️</span> Orders
+        <span class="badge-cnt" id="sb-orders-cnt" style="background:var(--orange);color:var(--navy)">0</span>
+      </a>
+      <div class="sidebar-section-label">Store</div>
+      <a href="#" onclick="switchTab('settings',this)">
+        <span class="ico">⚙️</span> Store Settings
+      </a>
+      <a href="/store">
+        <span class="ico">🛒</span> View Storefront
+      </a>
+      <a href="#" onclick="openImportFromVendor()">
+        <span class="ico">⬆</span> Import from Amazon
+      </a>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- TABS (mobile) -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
+      <div class="tab" onclick="switchTab('listings',this)">Listings</div>
+      <div class="tab" onclick="switchTab('orders',this)">Orders</div>
+      <div class="tab" onclick="switchTab('settings',this)">Settings</div>
+    </div>
+
+    <!-- OVERVIEW TAB -->
+    <div class="tab-panel active" id="panel-overview">
+      <div class="page-header">
+        <h1>Store Overview</h1>
+        <p>TechSurplus · epoch 36,207 · Balance: <b style="color:var(--orange)">1,204.8 ₿PC</b></p>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Total Revenue</div>
+          <div class="stat-val" id="stat-revenue">₿PC 0</div>
+          <div class="stat-sub"><span class="stat-up" id="stat-rev-pct">+0%</span> this epoch</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Listings</div>
+          <div class="stat-val" id="stat-listings">0</div>
+          <div class="stat-sub" id="stat-listings-sub">of 20 capacity used</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pending Orders</div>
+          <div class="stat-val" id="stat-orders">0</div>
+          <div class="stat-sub">awaiting your fulfillment</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Reputation Score</div>
+          <div class="stat-val" id="stat-rep">—</div>
+          <div class="stat-sub">from <span id="stat-rep-cnt">0</span> reviews</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Revenue (last 7 epochs)</h3>
+        </div>
+        <div class="card-body-pad">
+          <div class="bar-chart" id="rev-chart"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Recent Activity</h3>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Event</th><th>Item</th><th>Amount</th><th>Epoch</th><th>Status</th>
+          </tr></thead>
+          <tbody id="activity-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px">Loading activity…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LISTINGS TAB -->
+    <div class="tab-panel" id="panel-listings">
+      <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+        <div>
+          <h1>My Listings</h1>
+          <p>Manage your active and delisted products.</p>
+        </div>
+        <button class="btn-primary" onclick="openCreateModal()">+ New Listing</button>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>All Products</h3>
+          <div style="display:flex;gap:8px">
+            <select id="listings-filter" onchange="filterListings()" style="border:1px solid var(--border2);border-radius:4px;padding:5px 8px;font-size:12px">
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="delisted">Delisted</option>
+            </select>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Product</th><th>Price</th><th>Stock</th><th>Sold</th><th>Revenue</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="listings-tbody">
+            <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:32px">Loading listings…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ORDERS TAB -->
+    <div class="tab-panel" id="panel-orders">
+      <div class="page-header">
+        <h1>Orders</h1>
+        <p>Orders placed for your products. Fulfill within 48 hours to maintain reputation.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>All Orders</h3>
+          <select id="orders-filter" onchange="filterOrders()" style="border:1px solid var(--border2);border-radius:4px;padding:5px 8px;font-size:12px">
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="fulfilled">Fulfilled</option>
+            <option value="delivered">Delivered</option>
+            <option value="disputed">Disputed</option>
+          </select>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Order ID</th><th>Buyer</th><th>Product</th><th>Qty</th><th>Total</th><th>Epoch</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="orders-tbody">
+            <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px">Loading orders…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div class="tab-panel" id="panel-settings">
+      <div class="page-header">
+        <h1>Store Settings</h1>
+        <p>Update your store profile. Changes are recorded on-chain.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Store Profile</h3></div>
+        <div class="card-body-pad">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Store Name</label>
+              <input type="text" id="s-name" value="TechSurplus" />
+            </div>
+            <div class="form-group">
+              <label>Store Slug (your BTCPC username)</label>
+              <input type="text" id="s-slug" value="shindevlin" readonly style="background:var(--bg2);color:var(--muted)" />
+              <span class="form-hint">Cannot be changed. Linked to your BTCPC account.</span>
+            </div>
+            <div class="form-group form-full">
+              <label>Store Description</label>
+              <textarea id="s-desc">Recertified GPU hardware, LoRa mesh devices, and digital AI resources. All products BTCPC-verified with on-chain provenance. Escrow protected.</textarea>
+            </div>
+            <div class="form-group form-full">
+              <label>Categories (comma-separated)</label>
+              <input type="text" id="s-cats" value="GPU & Compute, LoRa & Mesh, Digital Goods, Storage" />
+            </div>
+          </div>
+          <div class="form-actions" style="margin-top:16px">
+            <button class="btn-primary" onclick="saveSettings()">Save Changes</button>
+            <button class="btn-secondary" onclick="toast('No changes made')">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Capacity &amp; Stake</h3></div>
+        <div class="card-body-pad">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
+            <div>
+              <div style="font-size:11px;color:var(--muted)">Current capacity</div>
+              <div style="font-size:22px;font-weight:800" id="cap-current">20 slots</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted)">Used</div>
+              <div style="font-size:22px;font-weight:800" id="cap-used">8 / 20</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted)">Stake locked</div>
+              <div style="font-size:22px;font-weight:800">₿PC 20</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <input type="number" id="cap-add" placeholder="Add slots" min="1" max="1000" style="width:120px;border:1px solid var(--border2);border-radius:4px;padding:8px;font-size:13px" />
+            <button class="btn-primary" onclick="quoteCapacity()">Get Quote</button>
+            <span id="cap-quote" style="font-size:13px;color:var(--sub)"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Shipping Accounts</h3>
+          <button class="btn-secondary btn-sm" onclick="toggleLinkCarrierForm()">+ Link Carrier</button>
+        </div>
+        <div class="card-body-pad">
+          <div id="shipping-accounts-list" style="margin-bottom:12px"></div>
+          <div id="link-carrier-form" style="display:none;border-top:1px solid var(--border2);padding-top:16px;margin-top:4px">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Carrier</label>
+                <select id="lc-carrier">
+                  <option value="ups">UPS</option>
+                  <option value="fedex">FedEx</option>
+                  <option value="usps">USPS</option>
+                  <option value="dhl">DHL</option>
+                  <option value="pirateship">Pirateship</option>
+                  <option value="shipstation">ShipStation</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Default Service</label>
+                <input type="text" id="lc-service" placeholder="ground, 2day, overnight…" value="ground" />
+              </div>
+              <div class="form-group form-full">
+                <label>Account Number / ID</label>
+                <input type="text" id="lc-account-id" placeholder="Your carrier account number" autocomplete="off" />
+                <span class="form-hint">Stored encrypted on-chain. Only last 4 digits shown in your dashboard.</span>
+              </div>
+            </div>
+            <div class="form-actions" style="margin-top:12px">
+              <button class="btn-primary btn-sm" onclick="submitLinkCarrier()">Save Carrier</button>
+              <button class="btn-secondary btn-sm" onclick="toggleLinkCarrierForm()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Privacy &amp; Routing</h3></div>
+        <div class="card-body-pad">
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:700;font-size:14px;margin-bottom:6px">Catalog Distribution (always on)</div>
+            <div style="font-size:13px;color:var(--sub);line-height:1.7;background:var(--bg2);border-radius:6px;padding:12px">
+              Your product listings are replicated across every BTCPC node that is online. Buyers
+              can browse your store from any node in the mesh — no single IP is required.
+              Your catalog is already censorship-resistant by default.
+            </div>
+            <div id="peer-node-count" style="margin-top:8px;font-size:12px;color:var(--muted)">Checking peer coverage…</div>
+          </div>
+
+          <div style="border-top:1px solid var(--border2);padding-top:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <div style="font-weight:700;font-size:14px">Onion Routing (Tor) for Orders</div>
+                <div style="font-size:12px;color:var(--muted)">Hides your server IP from buyers for order placement and fulfillment</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="tor-toggle" onchange="handleTorToggle(this.checked)" style="width:18px;height:18px;cursor:pointer" />
+                <span id="tor-toggle-label" style="font-size:13px;font-weight:600;color:var(--muted)">Disabled</span>
+              </label>
+            </div>
+
+            <div id="tor-setup-panel" style="display:none">
+              <div id="tor-status-box" style="background:var(--bg2);border-radius:6px;padding:14px;font-size:13px;line-height:1.8;color:var(--sub)">
+                Checking Tor status…
+              </div>
+              <div id="tor-onion-display" style="display:none;margin-top:12px;padding:12px;background:#f0f9f0;border:1px solid #c3e6c3;border-radius:6px">
+                <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:4px">YOUR .ONION ADDRESS</div>
+                <div id="tor-onion-addr" style="font-family:monospace;font-size:14px;font-weight:700;word-break:break-all"></div>
+                <div style="font-size:11px;color:var(--muted);margin-top:6px">Registered on-chain. Buyers using Tor Browser will be routed through this address.</div>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px">
+                <button class="btn-primary btn-sm" onclick="setupTor()">Generate .onion Address</button>
+                <button class="btn-secondary btn-sm" onclick="setupTor()">Refresh Status</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Auth &amp; Security</h3></div>
+        <div class="card-body-pad" style="font-size:13px;color:var(--sub);line-height:1.8">
+          <p>Your store mutations (create product, fulfill order, etc.) require authentication via:</p>
+          <ul style="margin:8px 0 8px 20px">
+            <li><b>JWT Bearer token</b> — generated at login</li>
+            <li><b>Posting key</b> — <code style="background:var(--bg2);padding:2px 6px;border-radius:3px">Authorization: PostingKey account:hex64key</code></li>
+          </ul>
+          <p>Transactions are recorded on-chain. Your posting key never leaves your device.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<!-- SHIP ORDER MODAL -->
+<div class="modal-bg" id="ship-modal">
+  <div class="modal-box" style="max-width:500px">
+    <div class="modal-head">
+      <h3>Ship Order</h3>
+      <button class="modal-x" onclick="closeShipModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="ship-order-info" style="background:var(--bg2);border-radius:6px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7;color:var(--sub)"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Carrier</label>
+          <select id="ship-carrier">
+            <option value="">Select carrier…</option>
+            <option value="ups">UPS</option>
+            <option value="fedex">FedEx</option>
+            <option value="usps">USPS</option>
+            <option value="dhl">DHL</option>
+            <option value="pirateship">Pirateship</option>
+            <option value="shipstation">ShipStation</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Service Level</label>
+          <input type="text" id="ship-service" placeholder="Ground, 2-Day, Overnight…" />
+        </div>
+        <div class="form-group form-full">
+          <label>Tracking Number</label>
+          <input type="text" id="ship-tracking" placeholder="1Z999AA10123456784" autocomplete="off" />
+        </div>
+        <div class="form-group form-full" id="ship-cid-row" style="display:none">
+          <label>BTCPC-FS CID (digital delivery)</label>
+          <input type="text" id="ship-cid" placeholder="Qm… content ID from BTCPC-FS" />
+        </div>
+        <div class="form-group form-full">
+          <label>Note to Buyer (optional)</label>
+          <input type="text" id="ship-note" placeholder="Handle with care, ships in 1 day…" />
+        </div>
+      </div>
+      <div id="ship-label-link" style="display:none;margin:12px 0;padding:10px;background:#e8f4fd;border-radius:6px;font-size:12px">
+        <b>Generate label:</b> <a id="ship-label-a" href="#" target="_blank" style="color:var(--primary)">Open in carrier portal →</a>
+      </div>
+      <div class="form-actions">
+        <button class="btn-primary" id="ship-submit-btn" onclick="submitShipOrder()">Mark Shipped</button>
+        <button class="btn-secondary" onclick="closeShipModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- VIEW ORDER MODAL -->
+<div class="modal-bg" id="view-order-modal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-head">
+      <h3>Order Details</h3>
+      <button class="modal-x" onclick="closeViewOrderModal()">✕</button>
+    </div>
+    <div class="modal-body" id="view-order-body" style="font-size:13px;line-height:1.9;color:var(--sub)"></div>
+  </div>
+</div>
+
+<!-- CREATE / EDIT PRODUCT MODAL -->
+<div class="modal-bg" id="create-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modal-title">New Listing</h3>
+      <button class="modal-x" onclick="closeCreateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full">
+          <label>Product Title *</label>
+          <input type="text" id="p-title" placeholder="e.g. RTX 3080 Recertified — 10GB VRAM" />
+        </div>
+        <div class="form-group">
+          <label>Slug * (URL-safe ID)</label>
+          <input type="text" id="p-slug" placeholder="rtx-3080-recertified" />
+          <span class="form-hint">Lowercase letters, numbers, dashes only.</span>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="p-cat">
+            <option>GPU &amp; Compute</option>
+            <option>LoRa &amp; Mesh</option>
+            <option>Digital Goods</option>
+            <option>Ham Radio</option>
+            <option>Storage</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Price (BTCPC) *</label>
+          <input type="number" id="p-price" placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Inventory (blank = unlimited)</label>
+          <input type="number" id="p-inv" placeholder="unlimited" min="0" />
+        </div>
+        <div class="form-group form-full">
+          <label>Description</label>
+          <textarea id="p-desc" placeholder="Full product description…"></textarea>
+        </div>
+        <div class="form-group form-full">
+          <label>Image CID (BTCPC-FS blob hash, optional)</label>
+          <input type="text" id="p-img" placeholder="sha256:..." />
+          <span class="form-hint">Upload image via /api/blobs, paste the CID here.</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-secondary" onclick="closeCreateModal()">Cancel</button>
+      <button class="btn-primary" id="modal-save-btn" onclick="saveProduct()">Publish Listing</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── NODE CONFIGURATION ───────────────────────────────────────────────────────
+var BTCPC_NODE = (function() {
+  var p = new URLSearchParams(window.location.search).get('node');
+  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('btcpc_node', n); return n; }
+  return (localStorage.getItem('btcpc_node') || '').replace(/\/$/, '');
+})();
+
+// ── NODE SELECTOR ────────────────────────────────────────────────────────────
+function updateNodeIndicator() {
+  var dot   = document.getElementById('node-dot');
+  var label = document.getElementById('node-label');
+  if (!dot || !label) return;
+  if (!BTCPC_NODE) {
+    dot.className = 'node-dot local';
+    label.textContent = 'Local';
+  } else {
+    dot.className = 'node-dot remote';
+    try { label.textContent = new URL(BTCPC_NODE).hostname; }
+    catch(_) { label.textContent = BTCPC_NODE.slice(0, 20); }
+  }
+}
+function openNodeModal() {
+  document.getElementById('node-input').value = BTCPC_NODE;
+  document.getElementById('node-modal-overlay').classList.add('open');
+  document.getElementById('node-input').focus();
+}
+function closeNodeModal() {
+  document.getElementById('node-modal-overlay').classList.remove('open');
+}
+function saveNode() {
+  var val = (document.getElementById('node-input').value || '').trim().replace(/\/$/, '');
+  localStorage.setItem('btcpc_node', val);
+  BTCPC_NODE = val;
+  updateNodeIndicator();
+  closeNodeModal();
+}
+function clearNode() {
+  localStorage.removeItem('btcpc_node');
+  BTCPC_NODE = '';
+  updateNodeIndicator();
+  closeNodeModal();
+}
+document.addEventListener('DOMContentLoaded', updateNodeIndicator);
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+var seller = localStorage.getItem('btcpc_username') || 'shindevlin';
+var authToken = localStorage.getItem('btcpc_token') || '';
+var _listings = [];
+var _orders   = [];
+var _editingProduct = null;
+var _linkedShippingAccounts = [];
+
+// Demo data (shown when API is unreachable)
+var DEMO_LISTINGS = [
+  { product_id:'shindevlin/rtx-3080-recertified', title:'RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h', price:480, token:'BTCPC', inventory:3, status:'active', sold:94, revenue:45120, category:'GPU & Compute', icon:'🖥️' },
+  { product_id:'shindevlin/tbeam-v11-btcpc', title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware', price:22, token:'BTCPC', inventory:50, status:'active', sold:41, revenue:902, category:'LoRa & Mesh', icon:'📡' },
+  { product_id:'shindevlin/qwen25-7b-q5km', title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready', price:5, token:'BTCPC', inventory:null, status:'active', sold:212, revenue:1060, category:'Digital Goods', icon:'🧠' },
+  { product_id:'shindevlin/wd-sn850x-4tb', title:'4TB NVMe SSD WD Black SN850X — PCIe 4.0, Sealed', price:38, token:'BTCPC', inventory:18, status:'active', sold:29, revenue:1102, category:'Storage', icon:'💾' },
+  { product_id:'shindevlin/rak-wisblock-sensor-kit', title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262', price:14, token:'BTCPC', inventory:30, status:'active', sold:18, revenue:252, category:'LoRa & Mesh', icon:'📶' },
+  { product_id:'shindevlin/rtx-4090-founders', title:'RTX 4090 Founder\'s Edition 24GB — 9.4× Work Multiplier', price:920, token:'BTCPC', inventory:1, status:'active', sold:14, revenue:12880, category:'GPU & Compute', icon:'⚡' },
+  { product_id:'shindevlin/icom-ic7300-hf', title:'Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible', price:310, token:'BTCPC', inventory:2, status:'active', sold:7, revenue:2170, category:'Ham Radio', icon:'📻' },
+  { product_id:'shindevlin/dj-controller-old', title:'Pioneer DJ DDJ-400 Controller (old listing)', price:80, token:'BTCPC', inventory:0, status:'delisted', sold:3, revenue:240, category:'Other', icon:'🎧' },
+];
+
+var DEMO_ORDERS = [
+  { order_id:'ord-a1b2c3d4e5f6789012345678', buyer:'natoshisakamoto', product_id:'shindevlin/rtx-3080-recertified', quantity:1, total:480, token:'BTCPC', status:'pending', placed_epoch:36200, escrow_id:'esc-abc123def456' },
+  { order_id:'ord-b2c3d4e5f6a7890123456789', buyer:'loravan_king',     product_id:'shindevlin/tbeam-v11-btcpc', quantity:4, total:88, token:'BTCPC', status:'pending', placed_epoch:36195, escrow_id:'esc-def456abc789' },
+  { order_id:'ord-c3d4e5f6a7b8901234567890', buyer:'mesh_relay_99',    product_id:'shindevlin/qwen25-7b-q5km', quantity:1, total:5, token:'BTCPC', status:'fulfilled', placed_epoch:36180, escrow_id:'esc-ghi789jkl012' },
+  { order_id:'ord-d4e5f6a7b8c9012345678901', buyer:'ai_farm_hale',     product_id:'shindevlin/wd-sn850x-4tb', quantity:2, total:76, token:'BTCPC', status:'delivered', placed_epoch:36150, escrow_id:'esc-jkl012mno345' },
+  { order_id:'ord-e5f6a7b8c9d0123456789012', buyer:'btcpc_miner_77',   product_id:'shindevlin/rtx-4090-founders', quantity:1, total:920, token:'BTCPC', status:'disputed', placed_epoch:36100, escrow_id:'esc-mno345pqr678' },
+];
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+document.getElementById('sb-name').textContent = seller;
+
+async function init() {
+  await Promise.all([loadListings(), loadOrders(), loadStore()]);
+  renderOverview();
+  renderRevenueChart();
+  renderActivity();
+  loadPrivacyStatus();
+}
+
+async function loadListings() {
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/products?seller=' + encodeURIComponent(seller));
+    if (resp.ok) {
+      var data = await resp.json();
+      _listings = (data.products || []).map(function(p) {
+        return Object.assign({ sold:0, revenue:0, icon:'📦' }, p);
+      });
+      return;
+    }
+  } catch(e) {}
+  _listings = DEMO_LISTINGS;
+}
+
+async function loadOrders() {
+  try {
+    var headers = authToken ? { Authorization: 'Bearer ' + authToken } : {};
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/my', { headers: headers });
+    if (resp.ok) {
+      var data = await resp.json();
+      _orders = (data.orders || []).filter(function(o) { return o.seller === seller; });
+      return;
+    }
+  } catch(e) {}
+  _orders = DEMO_ORDERS;
+}
+
+async function loadStore() {
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    if (resp.ok) {
+      var store = await resp.json();
+      if (store.name) document.getElementById('s-name').value = store.name;
+      if (store.capacity) {
+        document.getElementById('cap-current').textContent = store.capacity + ' slots';
+        document.getElementById('cap-used').textContent = store.used_capacity + ' / ' + store.capacity;
+      }
+      _linkedShippingAccounts = store.shipping_accounts || [];
+      renderShippingAccounts();
+    }
+  } catch(e) {
+    _linkedShippingAccounts = [];
+    renderShippingAccounts();
+  }
+}
+
+// ── SHIPPING ACCOUNTS ────────────────────────────────────────────────────────
+
+var CARRIER_ICONS = { ups:'🟤', fedex:'🟣', usps:'🔵', dhl:'🟡', pirateship:'🏴‍☠️', shipstation:'📦', easypost:'📬', other:'🚚' };
+
+function renderShippingAccounts() {
+  var el = document.getElementById('shipping-accounts-list');
+  if (!el) return;
+  if (!_linkedShippingAccounts.length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:13px;margin:0">No shipping accounts linked. Add a carrier to auto-fill shipping details when fulfilling orders.</p>';
+    return;
+  }
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr style="color:var(--muted);text-align:left">' +
+    '<th style="padding:4px 0;font-weight:600;width:32px"></th>' +
+    '<th style="padding:4px 0;font-weight:600">Carrier</th>' +
+    '<th style="padding:4px 0;font-weight:600">Account</th>' +
+    '<th style="padding:4px 0;font-weight:600">Default Service</th>' +
+    '<th style="padding:4px 0"></th>' +
+    '</tr></thead><tbody>' +
+    _linkedShippingAccounts.map(function(a) {
+      var icon = CARRIER_ICONS[a.carrier] || '🚚';
+      var label = (CARRIER_LABELS && CARRIER_LABELS[a.carrier]) || a.carrier.toUpperCase();
+      return '<tr style="border-top:1px solid var(--border2)">' +
+        '<td style="padding:8px 8px 8px 0;font-size:16px">' + icon + '</td>' +
+        '<td style="padding:8px 0"><b>' + label + '</b></td>' +
+        '<td style="padding:8px 0;color:var(--muted);font-family:monospace">' + (a.account_id_masked||'—') + '</td>' +
+        '<td style="padding:8px 0;color:var(--sub)">' + (a.default_service||'—') + '</td>' +
+        '<td style="padding:8px 0;text-align:right">' +
+          '<button class="action-btn" style="color:var(--red);border-color:var(--red)" onclick="unlinkCarrier(\'' + a.carrier + '\')">Remove</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+function toggleLinkCarrierForm() {
+  var f = document.getElementById('link-carrier-form');
+  f.style.display = f.style.display === 'none' ? '' : 'none';
+  if (f.style.display !== 'none') document.getElementById('lc-account-id').focus();
+}
+
+async function submitLinkCarrier() {
+  var carrier = document.getElementById('lc-carrier').value;
+  var accountId = document.getElementById('lc-account-id').value.trim();
+  var service = document.getElementById('lc-service').value.trim() || 'ground';
+  if (!accountId) { toast('Enter your account number', ''); return; }
+  try {
+    var headers = { 'Content-Type':'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping', {
+      method:'POST', headers:headers,
+      body: JSON.stringify({ carrier:carrier, account_id:accountId, default_service:service }),
+    });
+    if (resp.ok) {
+      var data = await resp.json();
+      var masked = data.account_id_masked;
+      var existing = _linkedShippingAccounts.findIndex(function(a){ return a.carrier===carrier; });
+      var entry = { carrier:carrier, account_id_masked:masked, default_service:service, linked_at:Date.now() };
+      if (existing > -1) _linkedShippingAccounts[existing] = entry;
+      else _linkedShippingAccounts.push(entry);
+      renderShippingAccounts();
+      toggleLinkCarrierForm();
+      document.getElementById('lc-account-id').value = '';
+      toast((CARRIER_LABELS && CARRIER_LABELS[carrier]||carrier.toUpperCase()) + ' account linked', 'green');
+      return;
+    }
+  } catch(e) {}
+  // Demo fallback
+  var masked = accountId.length > 4 ? '****' + accountId.slice(-4) : '****';
+  var existing = _linkedShippingAccounts.findIndex(function(a){ return a.carrier===carrier; });
+  var entry = { carrier:carrier, account_id_masked:masked, default_service:service, linked_at:Date.now() };
+  if (existing > -1) _linkedShippingAccounts[existing] = entry;
+  else _linkedShippingAccounts.push(entry);
+  renderShippingAccounts();
+  toggleLinkCarrierForm();
+  document.getElementById('lc-account-id').value = '';
+  toast((CARRIER_LABELS && CARRIER_LABELS[carrier]||carrier.toUpperCase()) + ' account linked', 'green');
+}
+
+async function unlinkCarrier(carrier) {
+  try {
+    var headers = {};
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping/' + encodeURIComponent(carrier), {
+      method:'DELETE', headers:headers,
+    });
+  } catch(e) {}
+  _linkedShippingAccounts = _linkedShippingAccounts.filter(function(a){ return a.carrier !== carrier; });
+  renderShippingAccounts();
+  toast('Carrier removed', '');
+}
+
+// ── OVERVIEW ─────────────────────────────────────────────────────────────────
+function renderOverview() {
+  var activeListings = _listings.filter(function(l){ return l.status === 'active'; });
+  var pendingOrders  = _orders.filter(function(o){ return o.status === 'pending'; });
+  var totalRevenue   = _listings.reduce(function(s, l){ return s + (l.revenue||0); }, 0);
+
+  document.getElementById('stat-revenue').textContent = '₿PC ' + totalRevenue.toLocaleString();
+  document.getElementById('stat-rev-pct').textContent = '+12%';
+  document.getElementById('stat-listings').textContent = activeListings.length;
+  document.getElementById('stat-listings-sub').textContent = 'of 20 capacity used';
+  document.getElementById('stat-orders').textContent = pendingOrders.length;
+  document.getElementById('stat-rep').textContent = '★ 4.9';
+  document.getElementById('stat-rep-cnt').textContent = '94';
+  document.getElementById('sb-listings-cnt').textContent = activeListings.length;
+  document.getElementById('sb-orders-cnt').textContent = pendingOrders.length;
+
+  renderListings();
+  renderOrders();
+}
+
+function renderRevenueChart() {
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var today = new Date().getDay();
+  var labels = [6,5,4,3,2,1,0].map(function(d){
+    var idx = (today - d + 7) % 7;
+    return d === 0 ? 'Today' : days[idx];
+  });
+  var vals   = [1240, 980, 1580, 2100, 1760, 2340, 1890];
+  var max    = Math.max.apply(null, vals);
+  var chart  = document.getElementById('rev-chart');
+  chart.innerHTML = vals.map(function(v, i) {
+    var pct = Math.round((v / max) * 100);
+    return '<div class="bar-wrap">' +
+      '<div class="bar-val">₿PC ' + v + '</div>' +
+      '<div class="bar" style="height:' + pct + '%"></div>' +
+      '<div class="bar-label">' + labels[i] + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderActivity() {
+  var rows = [
+    { event:'ORDER_PLACE',    item:'RTX 3080 Recertified',      amount:'₿PC 480',    epoch:36200, status:'pending' },
+    { event:'ORDER_PLACE',    item:'T-Beam v1.1 × 4',           amount:'₿PC 88',     epoch:36195, status:'pending' },
+    { event:'ORDER_FULFILLED',item:'Qwen2.5-7B GGUF',           amount:'₿PC 5',      epoch:36180, status:'fulfilled' },
+    { event:'ORDER_DELIVERED',item:'WD Black SN850X × 2',       amount:'₿PC 76',     epoch:36150, status:'delivered' },
+    { event:'REPUTATION_VOTE',item:'ai_farm_hale → ★★★★★',    amount:'+1 rep',     epoch:36140, status:'active' },
+  ];
+  var tbody = document.getElementById('activity-tbody');
+  tbody.innerHTML = rows.map(function(r) {
+    return '<tr>' +
+      '<td style="font-size:11px;font-family:monospace;color:var(--muted)">' + r.event + '</td>' +
+      '<td style="font-weight:700">' + r.item + '</td>' +
+      '<td style="color:var(--orange-d);font-weight:700">' + r.amount + '</td>' +
+      '<td>' + r.epoch.toLocaleString() + '</td>' +
+      '<td><span class="badge-status badge-' + r.status + '">' + r.status + '</span></td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ── LISTINGS ──────────────────────────────────────────────────────────────────
+function renderListings(filter) {
+  filter = filter || document.getElementById('listings-filter').value || 'all';
+  var tbody = document.getElementById('listings-tbody');
+  var items = _listings.filter(function(l) {
+    return filter === 'all' || l.status === filter;
+  });
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="ico">📦</div><p>No listings found.<br/><a href="#" onclick="openCreateModal()">Create your first listing →</a></p></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(function(l) {
+    var slug = l.product_id ? l.product_id.split('/')[1] || l.product_id : '—';
+    var invLabel = l.inventory === null ? '<span class="badge-status badge-digital">∞</span>' :
+                   l.inventory <= 5 ? '<span style="color:var(--red);font-weight:700">' + l.inventory + '</span>' : l.inventory;
+    return '<tr>' +
+      '<td><div class="td-product"><span class="td-icon">' + (l.icon||'📦') + '</span>' +
+        '<div><div class="td-product-name">' + l.title.slice(0,55) + (l.title.length>55?'…':'') + '</div>' +
+        '<div class="td-product-id">' + (l.product_id||'—') + '</div></div></div></td>' +
+      '<td style="font-weight:700;white-space:nowrap">₿PC ' + l.price + '</td>' +
+      '<td>' + invLabel + '</td>' +
+      '<td>' + (l.sold||0) + '</td>' +
+      '<td style="color:var(--orange-d);font-weight:700">₿PC ' + (l.revenue||0).toLocaleString() + '</td>' +
+      '<td><span class="badge-status badge-' + l.status + '">' + l.status + '</span></td>' +
+      '<td><div class="action-grp">' +
+        '<button class="action-btn btn-edit" onclick="editListing(' + JSON.stringify(l).split('"').join('&quot;') + ')">Edit</button>' +
+        (l.status==='active' ? '<button class="action-btn btn-delist" onclick="delistProduct(\'' + l.product_id + '\')">Delist</button>' : '') +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function filterListings() { renderListings(document.getElementById('listings-filter').value); }
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+function renderOrders(filter) {
+  filter = filter || document.getElementById('orders-filter').value || 'all';
+  var tbody = document.getElementById('orders-tbody');
+  var items = _orders.filter(function(o) {
+    return filter === 'all' || o.status === filter;
+  });
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="ico">🛍️</div><p>No orders yet. Share your store link to start selling!</p></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(function(o) {
+    var shortId = o.order_id ? o.order_id.slice(0, 16) + '…' : '—';
+    var productName = (o.product_id||'').split('/')[1] || o.product_id || '—';
+    return '<tr>' +
+      '<td style="font-family:monospace;font-size:12px;color:var(--link)" title="' + o.order_id + '">' + shortId + '</td>' +
+      '<td><b>' + (o.buyer||'—') + '</b></td>' +
+      '<td>' + productName + '</td>' +
+      '<td>' + (o.quantity||1) + '</td>' +
+      '<td style="font-weight:700;color:var(--orange-d)">₿PC ' + (o.total||0) + '</td>' +
+      '<td>' + (o.placed_epoch||'—') + '</td>' +
+      '<td><span class="badge-status badge-' + (o.status||'pending') + '">' + (o.status||'pending') + '</span></td>' +
+      '<td><div class="action-grp">' +
+        (o.status==='pending' ? '<button class="action-btn btn-fulfill" onclick="openShipModal(\'' + o.order_id + '\')">Ship It</button>' : '') +
+        '<button class="action-btn btn-view" onclick="viewOrder(\'' + o.order_id + '\')">View</button>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function filterOrders() { renderOrders(document.getElementById('orders-filter').value); }
+
+var _shipOrderId = null;
+
+function openShipModal(orderId) {
+  var o = _orders.find(function(x){ return x.order_id===orderId; });
+  if (!o) return;
+  _shipOrderId = orderId;
+
+  // Fill info summary
+  document.getElementById('ship-order-info').innerHTML =
+    '<b>Order:</b> ' + o.order_id + '<br/>' +
+    '<b>Buyer:</b> ' + o.buyer + '<br/>' +
+    '<b>Product:</b> ' + o.product_id + '<br/>' +
+    '<b>Qty:</b> ' + o.quantity + ' · <b>Total:</b> ₿PC ' + o.total;
+
+  // Reset fields
+  document.getElementById('ship-tracking').value = '';
+  document.getElementById('ship-note').value = '';
+  document.getElementById('ship-cid').value = '';
+  document.getElementById('ship-submit-btn').disabled = false;
+  document.getElementById('ship-submit-btn').textContent = 'Mark Shipped';
+
+  // Pre-populate carrier from linked accounts
+  var sel = document.getElementById('ship-carrier');
+  sel.innerHTML = '<option value="">Select carrier…</option>';
+  var linkedCarriers = _linkedShippingAccounts || [];
+  linkedCarriers.forEach(function(a) {
+    var label = CARRIER_LABELS[a.carrier] || a.carrier.toUpperCase();
+    var opt = document.createElement('option');
+    opt.value = a.carrier;
+    opt.textContent = label + ' (****' + a.account_id_masked.slice(-4) + ') · ' + a.default_service;
+    sel.appendChild(opt);
+  });
+  // Add unlinked carriers at bottom
+  ['ups','fedex','usps','dhl','pirateship','other'].forEach(function(c) {
+    if (!linkedCarriers.find(function(a){ return a.carrier===c; })) {
+      var opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = CARRIER_LABELS[c] || c.toUpperCase();
+      sel.appendChild(opt);
+    }
+  });
+
+  // Pre-select first linked carrier if any
+  if (linkedCarriers.length) {
+    sel.value = linkedCarriers[0].carrier;
+    document.getElementById('ship-service').value = linkedCarriers[0].default_service;
+    updateCarrierLabelLink(linkedCarriers[0].carrier);
+  } else {
+    updateCarrierLabelLink('');
+  }
+
+  // Digital goods? Show CID row
+  var isDigital = o.product_id && (o.product_id.indexOf('guide') > -1 || o.product_id.indexOf('gguf') > -1 || o.product_id.indexOf('q5km') > -1);
+  document.getElementById('ship-cid-row').style.display = isDigital ? '' : 'none';
+
+  document.getElementById('ship-modal').classList.add('open');
+}
+
+function closeShipModal() {
+  document.getElementById('ship-modal').classList.remove('open');
+  _shipOrderId = null;
+}
+
+var CARRIER_LABELS = { ups:'UPS', fedex:'FedEx', usps:'USPS', dhl:'DHL', pirateship:'Pirateship', shipstation:'ShipStation', easypost:'EasyPost', other:'Other' };
+var CARRIER_TRACKING_URLS = {
+  ups:   'https://wwwapps.ups.com/tracking/tracking.cgi?tracknum=',
+  fedex: 'https://www.fedex.com/apps/fedextrack/?action=track&tracknumbers=',
+  usps:  'https://tools.usps.com/go/TrackConfirmAction?tLabels=',
+  dhl:   'https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=',
+};
+
+function updateCarrierLabelLink(carrier) {
+  var tracking = document.getElementById('ship-tracking').value.trim();
+  var linkRow = document.getElementById('ship-label-link');
+  var url = CARRIER_TRACKING_URLS[carrier];
+  if (url && tracking) {
+    document.getElementById('ship-label-a').href = url + encodeURIComponent(tracking);
+    linkRow.style.display = '';
+  } else {
+    linkRow.style.display = 'none';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var carrierSel = document.getElementById('ship-carrier');
+  var trackInput = document.getElementById('ship-tracking');
+  var serviceInput = document.getElementById('ship-service');
+  if (carrierSel) {
+    carrierSel.addEventListener('change', function() {
+      updateCarrierLabelLink(this.value);
+      // Auto-fill service from linked account
+      var linked = (_linkedShippingAccounts||[]).find(function(a){ return a.carrier===carrierSel.value; });
+      if (linked) serviceInput.value = linked.default_service;
+    });
+  }
+  if (trackInput) trackInput.addEventListener('input', function() { updateCarrierLabelLink(carrierSel ? carrierSel.value : ''); });
+});
+
+async function submitShipOrder() {
+  if (!_shipOrderId) return;
+  var btn = document.getElementById('ship-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Shipping…';
+
+  var body = {
+    carrier: document.getElementById('ship-carrier').value || null,
+    tracking_number: document.getElementById('ship-tracking').value.trim() || null,
+    shipping_service: document.getElementById('ship-service').value.trim() || null,
+    shipping_note: document.getElementById('ship-note').value.trim() || null,
+    fulfillment_cid: document.getElementById('ship-cid').value.trim() || null,
+  };
+
+  var orderId = _shipOrderId;
+  try {
+    var headers = { 'Content-Type':'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/fulfill', {
+      method:'POST', headers:headers, body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+      var o = _orders.find(function(x){ return x.order_id===orderId; });
+      if (o) { o.status='fulfilled'; o.carrier=body.carrier; o.tracking_number=body.tracking_number; }
+      closeShipModal();
+      renderOrders();
+      renderOverview();
+      toast('Shipped! Escrow releases when buyer confirms delivery.', 'green');
+      return;
+    }
+  } catch(e) {}
+  // Demo fallback
+  var o = _orders.find(function(x){ return x.order_id===orderId; });
+  if (o) { o.status='fulfilled'; o.carrier=body.carrier; o.tracking_number=body.tracking_number; }
+  closeShipModal();
+  renderOrders();
+  renderOverview();
+  toast('Shipped! Escrow releases when buyer confirms delivery.', 'green');
+}
+
+function viewOrder(orderId) {
+  var o = _orders.find(function(x){ return x.order_id===orderId; });
+  if (!o) return;
+  var tracking = o.tracking_number
+    ? '<br/><b>Tracking:</b> ' + (CARRIER_LABELS[o.carrier]||o.carrier||'') + ' — ' + o.tracking_number
+    : '';
+  document.getElementById('view-order-body').innerHTML =
+    '<table style="width:100%;border-collapse:collapse">' +
+    ['Order ID:' + o.order_id,
+     'Buyer:' + o.buyer,
+     'Product:' + o.product_id,
+     'Qty:' + o.quantity,
+     'Total:₿PC ' + o.total,
+     'Status:' + o.status,
+     'Escrow:' + (o.escrow_id||'—'),
+     'Placed epoch:' + o.placed_epoch,
+    ].map(function(row){
+      var parts = row.split(':');
+      var label = parts.shift();
+      var val = parts.join(':');
+      return '<tr><td style="padding:4px 12px 4px 0;color:var(--muted);white-space:nowrap;font-weight:600">' + label + '</td>' +
+             '<td style="padding:4px 0">' + val + '</td></tr>';
+    }).join('') + '</table>' + (tracking ? '<div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:6px">' + tracking + '</div>' : '');
+  document.getElementById('view-order-modal').classList.add('open');
+}
+
+function closeViewOrderModal() {
+  document.getElementById('view-order-modal').classList.remove('open');
+}
+
+// ── CREATE / EDIT PRODUCT ─────────────────────────────────────────────────────
+function openCreateModal() {
+  _editingProduct = null;
+  document.getElementById('modal-title').textContent = 'New Listing';
+  document.getElementById('modal-save-btn').textContent = 'Publish Listing';
+  ['p-title','p-slug','p-price','p-inv','p-desc','p-img'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('create-modal').classList.add('open');
+}
+
+function editListing(l) {
+  _editingProduct = l;
+  document.getElementById('modal-title').textContent = 'Edit Listing';
+  document.getElementById('modal-save-btn').textContent = 'Save Changes';
+  document.getElementById('p-title').value = l.title || '';
+  document.getElementById('p-slug').value = (l.product_id||'').split('/')[1] || '';
+  document.getElementById('p-price').value = l.price || '';
+  document.getElementById('p-inv').value = l.inventory || '';
+  document.getElementById('p-desc').value = l.description || '';
+  document.getElementById('p-img').value = l.image_cid || '';
+  document.getElementById('create-modal').classList.add('open');
+}
+
+function closeCreateModal() {
+  document.getElementById('create-modal').classList.remove('open');
+  _editingProduct = null;
+}
+
+async function saveProduct() {
+  var title = document.getElementById('p-title').value.trim();
+  var slug  = document.getElementById('p-slug').value.trim();
+  var price = parseFloat(document.getElementById('p-price').value);
+  var inv   = document.getElementById('p-inv').value.trim();
+  var desc  = document.getElementById('p-desc').value.trim();
+  var img   = document.getElementById('p-img').value.trim();
+
+  if (!title) { toast('Title is required'); return; }
+  if (!_editingProduct && !slug) { toast('Slug is required'); return; }
+  if (isNaN(price) || price < 0) { toast('Valid price required'); return; }
+
+  var btn = document.getElementById('modal-save-btn');
+  btn.disabled = true;
+  btn.textContent = _editingProduct ? 'Saving…' : 'Publishing…';
+
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
+    var url, body, method;
+    if (_editingProduct) {
+      url = '/api/commerce/products/' + encodeURIComponent(_editingProduct.product_id);
+      method = 'PATCH';
+      body = { title, price, description: desc, image_cid: img || null, inventory: inv ? parseInt(inv) : -1 };
+    } else {
+      url = '/api/commerce/products';
+      method = 'POST';
+      body = { slug, title, price, description: desc, image_cid: img || null,
+               inventory: inv ? parseInt(inv) : undefined, token: 'BTCPC',
+               categories: [document.getElementById('p-cat').value] };
+    }
+
+    var resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
+    if (resp.ok) {
+      closeCreateModal();
+      await loadListings();
+      renderListings();
+      renderOverview();
+      toast((_editingProduct ? 'Listing updated' : 'Listing published') + ' on-chain!', 'green');
+      return;
+    }
+    var err = await resp.json().catch(function(){ return {}; });
+    toast('Error: ' + (err.error || resp.status));
+  } catch(e) {
+    // Demo fallback
+    if (!_editingProduct) {
+      _listings.push({ product_id:seller+'/'+slug, title, price, inventory: inv?parseInt(inv):null,
+        status:'active', sold:0, revenue:0, icon:'📦', description:desc });
+    }
+    closeCreateModal();
+    renderListings();
+    renderOverview();
+    toast((_editingProduct ? 'Listing updated' : 'Listing published') + ' (demo mode)', 'green');
+  }
+  btn.disabled = false;
+  btn.textContent = _editingProduct ? 'Save Changes' : 'Publish Listing';
+}
+
+async function delistProduct(productId) {
+  if (!confirm('Delist "' + productId + '"? The listing will be removed from the store.')) return;
+  try {
+    var headers = {};
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(productId), {
+      method: 'DELETE', headers
+    });
+    if (resp.ok) {
+      var l = _listings.find(function(x){ return x.product_id===productId; });
+      if (l) l.status = 'delisted';
+      renderListings();
+      renderOverview();
+      toast('Listing delisted', 'green');
+      return;
+    }
+  } catch(e) {}
+  // Demo
+  var l = _listings.find(function(x){ return x.product_id===productId; });
+  if (l) l.status = 'delisted';
+  renderListings();
+  renderOverview();
+  toast('Listing delisted (demo mode)');
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────────
+async function saveSettings() {
+  var name = document.getElementById('s-name').value.trim();
+  var desc = document.getElementById('s-desc').value.trim();
+  var cats = document.getElementById('s-cats').value.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
+
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller), {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ name, description_cid: null, categories: cats }),
+    });
+    if (resp.ok) { toast('Store settings saved!', 'green'); return; }
+  } catch(e) {}
+  toast('Saved (demo mode)', 'green');
+}
+
+// ── PRIVACY & ROUTING ────────────────────────────────────────────────────────
+
+async function loadPrivacyStatus() {
+  // Check peer node count
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/peer/commerce/health');
+    if (resp.ok) {
+      var d = await resp.json();
+      var el = document.getElementById('peer-node-count');
+      if (el) el.innerHTML = '✅ <b>This node</b> is serving your catalog. ' +
+        'Your store and ' + d.products + ' product(s) are available from this node\'s ledger.';
+    }
+  } catch(e) {
+    var el = document.getElementById('peer-node-count');
+    if (el) el.textContent = 'Node offline — start the BTCPC miner to enable peer relay.';
+  }
+
+  // Load current store Tor status
+  try {
+    var resp2 = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    if (resp2.ok) {
+      var store = await resp2.json();
+      var toggle = document.getElementById('tor-toggle');
+      if (toggle) {
+        toggle.checked = !!store.tor_enabled;
+        document.getElementById('tor-toggle-label').textContent = store.tor_enabled ? 'Enabled' : 'Disabled';
+        document.getElementById('tor-toggle-label').style.color = store.tor_enabled ? 'var(--green)' : 'var(--muted)';
+        if (store.tor_enabled) {
+          document.getElementById('tor-setup-panel').style.display = '';
+          if (store.onion_address) showOnionAddress(store.onion_address);
+        }
+      }
+    }
+  } catch(e) {}
+}
+
+function handleTorToggle(enabled) {
+  var label = document.getElementById('tor-toggle-label');
+  var panel = document.getElementById('tor-setup-panel');
+  label.textContent = enabled ? 'Enabled' : 'Disabled';
+  label.style.color = enabled ? 'var(--green)' : 'var(--muted)';
+  panel.style.display = enabled ? '' : 'none';
+  if (enabled) {
+    document.getElementById('tor-status-box').innerHTML =
+      'Tor routing <b>enabled</b>. Click <b>Generate .onion Address</b> to create your hidden service.<br/>' +
+      'Your server IP will be hidden from buyers for all order transactions.';
+  }
+}
+
+async function setupTor() {
+  var box = document.getElementById('tor-status-box');
+  box.innerHTML = '⏳ Contacting Tor setup endpoint…';
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/tor/setup', {
+      method: 'POST', headers: headers,
+    });
+    if (resp.ok) {
+      var d = await resp.json();
+      if (d.status === 'active') {
+        showOnionAddress(d.onion_address);
+        box.innerHTML = '✅ <b>Tor hidden service active.</b> Your .onion address is registered on-chain.';
+        toast('.onion address registered on-chain', 'green');
+        return;
+      }
+      // Pending — show setup instructions
+      box.innerHTML =
+        '<b>Tor not yet running.</b> Run the following to set it up:<br/>' +
+        '<ol style="margin:8px 0 8px 16px;line-height:2">' +
+        (d.next_steps||[]).map(function(s){ return '<li>' + s + '</li>'; }).join('') +
+        '</ol>' +
+        '<b>Torrc path:</b> <code style="background:#eee;padding:2px 5px;border-radius:3px">' + (d.torrc_path||'') + '</code><br/>' +
+        'Once Tor is running, click <b>Refresh Status</b> above.';
+      return;
+    }
+  } catch(e) {}
+  box.innerHTML = 'API offline — start the BTCPC miner and btcpc-market, then try again.';
+}
+
+function showOnionAddress(onion) {
+  var el = document.getElementById('tor-onion-display');
+  var addr = document.getElementById('tor-onion-addr');
+  if (el && addr) {
+    addr.textContent = onion;
+    el.style.display = '';
+  }
+}
+
+async function quoteCapacity() {
+  var units = parseInt(document.getElementById('cap-add').value) || 0;
+  if (!units) { toast('Enter number of slots'); return; }
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/quote/capacity?units=' + units);
+    if (resp.ok) {
+      var d = await resp.json();
+      document.getElementById('cap-quote').textContent =
+        units + ' slots → $' + d.cost_usd + ' USD + ₿PC ' + d.stake_btcpc_required + ' stake';
+      return;
+    }
+  } catch(e) {}
+  // Local bonding curve calc
+  var base=1.00, slope=0.05, start=20;
+  var end=start+units;
+  var slice=((end-1)*end-(start-1)*start)/2;
+  var cost=Math.round((base*units+slope*slice)*100)/100;
+  document.getElementById('cap-quote').textContent =
+    units + ' slots → $' + cost + ' USD + ₿PC ' + units + ' stake';
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  document.getElementById('panel-' + name).classList.add('active');
+  document.querySelectorAll('.tab, .sidebar-nav a').forEach(function(t){ t.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  // Sync both tab bars
+  var tabText = { overview:'Overview', listings:'Listings', orders:'Orders', settings:'Settings' };
+  document.querySelectorAll('.tab').forEach(function(t) {
+    if (t.textContent.trim() === tabText[name]) t.classList.add('active');
+  });
+}
+
+// ── TOAST ────────────────────────────────────────────────────────────────────
+function toast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type?' '+type:'') + ' show';
+  clearTimeout(t._t);
+  t._t = setTimeout(function(){ t.classList.remove('show'); }, 2800);
+}
+
+// ── AMAZON IMPORT SHORTCUT ────────────────────────────────────────────────────
+function openImportFromVendor() {
+  window.location.href = '/store#import';
+}
+
+// Modal close on bg click
+document.getElementById('create-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeCreateModal();
+});
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

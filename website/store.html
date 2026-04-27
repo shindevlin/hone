@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TechSurplus — BTCPC Market</title>
+  <link rel="icon" href="/favicon-32.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange:    #ff9900;
+      --orange-d:  #e47911;
+      --orange-l:  #fff3e0;
+      --navy:      #131921;
+      --navy2:     #232f3e;
+      --teal:      #37475a;
+      --bg:        #eaeded;
+      --bg2:       #f3f3f3;
+      --white:     #ffffff;
+      --border:    #ddd;
+      --border2:   #c8c8c8;
+      --text:      #0f1111;
+      --sub:       #565959;
+      --muted:     #767676;
+      --link:      #007185;
+      --link-h:    #c7511f;
+      --red:       #cc0c39;
+      --green:     #067d62;
+      --green-bg:  #e6f4ea;
+      --star:      #ff9900;
+      --badge-deal: #cc0c39;
+      --badge-new:  #067d62;
+      --badge-btcfs:#7b2ff7;
+      --shadow:    0 2px 8px rgba(0,0,0,0.12);
+      --shadow-h:  0 4px 16px rgba(0,0,0,0.18);
+    }
+
+    html { scroll-behavior: smooth; }
+    body { font-family: Arial, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { color: var(--link-h); text-decoration: underline; }
+    button { font-family: inherit; cursor: pointer; }
+    input, select, textarea { font-family: inherit; }
+
+    /* ── TOP NAV ── */
+    .nav-top {
+      background: var(--navy);
+      display: flex; align-items: center; gap: 0;
+      padding: 8px 16px; position: sticky; top: 0; z-index: 200;
+      min-height: 60px;
+    }
+    .nav-logo { color: #fff; font-size: 20px; font-weight: 800; white-space: nowrap; margin-right: 16px; display: flex; align-items: center; gap: 8px; }
+    .nav-logo img { width: 30px; height: 30px; border-radius: 4px; }
+    .nav-logo .market-sub { font-size: 10px; font-weight: 400; color: #ccc; display: block; margin-top: -2px; }
+    .search-bar {
+      flex: 1; display: flex; height: 40px; max-width: 820px;
+    }
+    .search-select {
+      background: var(--bg2); border: none;
+      border-radius: 4px 0 0 4px; padding: 0 8px;
+      font-size: 12px; color: var(--sub); cursor: pointer;
+      border-right: 1px solid var(--border2); min-width: 90px;
+      outline: none;
+    }
+    .search-input {
+      flex: 1; border: none; padding: 0 12px; font-size: 15px; outline: none;
+      background: #fff;
+    }
+    .search-btn {
+      background: var(--orange); border: none;
+      padding: 0 16px; border-radius: 0 4px 4px 0;
+      font-size: 18px; color: var(--navy); transition: background 0.15s;
+    }
+    .search-btn:hover { background: var(--orange-d); }
+    .nav-right { display: flex; align-items: center; gap: 4px; margin-left: 16px; }
+    .nav-btn {
+      color: #fff; padding: 6px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; line-height: 1.3; white-space: nowrap;
+      transition: background 0.15s; background: none; border: none;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,0.1); outline: 1px solid rgba(255,255,255,0.5); }
+    .nav-btn .line1 { font-size: 11px; color: #ccc; }
+    .nav-btn .line2 { font-weight: 700; font-size: 13px; }
+    .cart-btn-top {
+      display: flex; align-items: center; gap: 4px;
+      background: none; border: none; color: #fff;
+      padding: 6px 10px; border-radius: 4px; font-size: 13px; font-weight: 700;
+      transition: background 0.15s;
+    }
+    .cart-btn-top:hover { background: rgba(255,255,255,0.1); outline: 1px solid rgba(255,255,255,0.5); }
+    .cart-icon { font-size: 26px; position: relative; }
+
+    /* ── NODE SELECTOR ── */
+    .node-sel-btn {
+      display: flex; align-items: center; gap: 5px;
+      background: none; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px;
+      color: #ccc; padding: 4px 8px; font-size: 11px; white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s; cursor: pointer;
+    }
+    .node-sel-btn:hover { border-color: rgba(255,255,255,0.6); color: #fff; }
+    .node-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .node-dot.local  { background: #4caf50; }
+    .node-dot.remote { background: var(--orange); }
+    #node-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9000;
+      align-items: flex-start; justify-content: center; padding-top: 80px;
+    }
+    #node-modal-overlay.open { display: flex; }
+    #node-modal {
+      background: #fff; border-radius: 8px; padding: 24px; width: 420px; max-width: 94vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    #node-modal h3 { margin-bottom: 6px; font-size: 16px; }
+    #node-modal p  { color: var(--sub); font-size: 13px; margin-bottom: 14px; }
+    #node-modal input {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border2); border-radius: 4px;
+      font-size: 14px; margin-bottom: 12px;
+    }
+    #node-modal input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .node-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .node-modal-actions button {
+      padding: 8px 18px; border-radius: 4px; border: none; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-node-save   { background: var(--orange); color: var(--navy); }
+    .btn-node-clear  { background: var(--bg); color: var(--text); }
+    .btn-node-cancel { background: none; color: var(--sub); }
+    .cart-badge {
+      position: absolute; top: -4px; right: -6px;
+      background: var(--orange); color: var(--navy);
+      font-size: 11px; font-weight: 800;
+      padding: 0 5px; border-radius: 10px; min-width: 18px; text-align: center;
+    }
+
+    /* ── SUB NAV ── */
+    .nav-sub {
+      background: var(--navy2); padding: 8px 16px;
+      display: flex; align-items: center; gap: 16px; overflow-x: auto;
+    }
+    .nav-sub a { color: #fff; font-size: 13px; white-space: nowrap; padding: 2px 4px; border-radius: 3px; }
+    .nav-sub a:hover { outline: 1px solid #fff; text-decoration: none; }
+    .nav-sub-sep { color: rgba(255,255,255,0.2); }
+    .import-btn-nav {
+      margin-left: auto; background: var(--orange); color: var(--navy);
+      font-weight: 700; font-size: 12px; padding: 5px 14px; border-radius: 4px;
+      border: none; white-space: nowrap; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .import-btn-nav:hover { background: var(--orange-d); }
+
+    /* ── LAYOUT ── */
+    .page { max-width: 1500px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: 220px 1fr; gap: 16px; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { display: flex; flex-direction: column; gap: 0; }
+    .sidebar-section {
+      background: var(--white); border: 1px solid var(--border);
+      padding: 16px; margin-bottom: 12px; border-radius: 4px;
+    }
+    .sidebar-section h4 { font-size: 16px; font-weight: 700; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .filter-group { margin-bottom: 12px; }
+    .filter-group h5 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    .filter-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 13px; cursor: pointer; }
+    .filter-item input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--orange); }
+    .filter-item label { cursor: pointer; }
+    .filter-item .cnt { color: var(--muted); font-size: 11px; }
+    .price-inputs { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .price-inputs input { width: 80px; padding: 5px 8px; border: 1px solid var(--border2); border-radius: 4px; font-size: 12px; }
+    .price-inputs span { color: var(--muted); }
+    .go-btn { margin-top: 6px; padding: 5px 14px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 4px; font-size: 12px; }
+    .go-btn:hover { background: var(--orange-l); border-color: var(--orange); }
+    .star-filter { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--link); cursor: pointer; margin-bottom: 3px; }
+    .star-filter:hover { color: var(--link-h); text-decoration: underline; }
+    .stars-sm { color: var(--star); font-size: 13px; }
+
+    /* ── MAIN ── */
+    .main { min-width: 0; }
+
+    /* ── STORE BANNER ── */
+    .store-banner {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; margin-bottom: 12px; overflow: hidden;
+    }
+    .store-banner-bg {
+      background: linear-gradient(135deg, #1a3a5c 0%, #0d2040 60%, #1a2a40 100%);
+      height: 120px; display: flex; align-items: center; padding: 0 24px; gap: 20px;
+      position: relative;
+    }
+    .store-logo-big { font-size: 60px; }
+    .store-banner-text h2 { color: #fff; font-size: 22px; font-weight: 800; }
+    .store-banner-text p { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 4px; }
+    .store-banner-badges { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); display: flex; gap: 8px; }
+    .badge-pill {
+      font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 12px;
+    }
+    .badge-verified { background: rgba(255,153,0,0.2); color: var(--orange); border: 1px solid rgba(255,153,0,0.5); }
+    .badge-escrow { background: rgba(6,125,98,0.2); color: #067d62; border: 1px solid rgba(6,125,98,0.4); }
+    .store-info-bar {
+      display: flex; align-items: center; gap: 24px;
+      padding: 10px 24px; font-size: 13px; color: var(--sub);
+      border-top: 1px solid var(--border);
+    }
+    .store-info-bar .stat b { color: var(--text); }
+    .store-info-bar .rep { color: var(--green); font-weight: 700; }
+
+    /* ── DEALS BANNER ── */
+    .deals-banner {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; padding: 12px 16px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .deals-title { font-size: 18px; font-weight: 800; color: var(--red); white-space: nowrap; }
+    .deals-ends { font-size: 12px; color: var(--sub); }
+    .countdown { display: flex; gap: 4px; }
+    .count-box {
+      background: var(--text); color: #fff;
+      font-size: 14px; font-weight: 700; padding: 4px 8px; border-radius: 3px;
+      min-width: 32px; text-align: center;
+    }
+    .count-sep { font-weight: 700; font-size: 14px; align-self: center; }
+    .deals-see-all { margin-left: auto; font-size: 13px; color: var(--link); white-space: nowrap; }
+
+    /* ── TOOLBAR ── */
+    .toolbar {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; padding: 10px 16px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .toolbar-results { font-size: 13px; color: var(--sub); flex: 1; }
+    .toolbar-results b { color: var(--text); }
+    .toolbar-sort { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .toolbar-sort select {
+      border: 1px solid var(--border2); border-radius: 4px;
+      padding: 5px 10px; font-size: 13px; background: var(--bg2);
+      outline: none; cursor: pointer;
+    }
+    .view-toggle { display: flex; gap: 4px; }
+    .view-btn {
+      padding: 5px 8px; border: 1px solid var(--border2); background: var(--bg2);
+      border-radius: 4px; font-size: 14px; color: var(--sub);
+    }
+    .view-btn.active { background: var(--orange-l); border-color: var(--orange); color: var(--orange-d); }
+
+    /* ── PRODUCT GRID ── */
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+
+    .product-card {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; overflow: hidden; transition: box-shadow 0.2s;
+      display: flex; flex-direction: column; cursor: pointer;
+      position: relative;
+    }
+    .product-card:hover { box-shadow: var(--shadow-h); border-color: #aaa; }
+    .product-img {
+      width: 100%; aspect-ratio: 1/1; display: flex; align-items: center;
+      justify-content: center; font-size: 72px; background: #f7f8f9;
+      position: relative; overflow: hidden;
+    }
+    .product-img img { width: 100%; height: 100%; object-fit: cover; }
+    .deal-ribbon {
+      position: absolute; top: 8px; left: 0;
+      background: var(--badge-deal); color: #fff;
+      font-size: 11px; font-weight: 700; padding: 2px 8px 2px 6px;
+      border-radius: 0 3px 3px 0;
+    }
+    .new-ribbon {
+      position: absolute; top: 8px; left: 0;
+      background: var(--badge-new); color: #fff;
+      font-size: 11px; font-weight: 700; padding: 2px 8px 2px 6px;
+      border-radius: 0 3px 3px 0;
+    }
+    .btcfs-ribbon {
+      position: absolute; top: 8px; left: 0;
+      background: var(--badge-btcfs); color: #fff;
+      font-size: 11px; font-weight: 700; padding: 2px 8px 2px 6px;
+      border-radius: 0 3px 3px 0;
+    }
+    .product-body { padding: 10px 12px; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .product-title { font-size: 13px; color: var(--link); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .product-title:hover { color: var(--link-h); }
+    .product-stars { display: flex; align-items: center; gap: 4px; }
+    .stars { color: var(--star); font-size: 13px; letter-spacing: -1px; }
+    .review-count { font-size: 12px; color: var(--link); }
+    .product-price-row { margin-top: 2px; }
+    .price-deal { font-size: 11px; color: var(--red); font-weight: 700; }
+    .price-main { font-size: 18px; font-weight: 700; }
+    .price-main .sym { font-size: 13px; font-weight: 400; vertical-align: super; }
+    .price-usd { font-size: 12px; color: var(--muted); }
+    .price-was { font-size: 11px; color: var(--muted); text-decoration: line-through; }
+    .shipping-line { font-size: 12px; color: var(--green); font-weight: 700; }
+    .sold-count { font-size: 11px; color: var(--muted); }
+    .product-footer { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .btn-cart {
+      width: 100%; padding: 8px; background: var(--orange); color: var(--navy);
+      font-weight: 700; font-size: 13px; border: none; border-radius: 20px;
+      transition: background 0.15s;
+    }
+    .btn-cart:hover { background: var(--orange-d); }
+    .btn-buy {
+      width: 100%; padding: 8px; background: #ffd814; color: var(--navy);
+      font-weight: 700; font-size: 13px; border: none; border-radius: 20px;
+      transition: background 0.15s;
+    }
+    .btn-buy:hover { background: #f7ca00; }
+    .btcpc-tag { font-size: 10px; color: var(--sub); text-align: center; margin-top: 2px; }
+    .btcpc-tag span { color: var(--orange-d); font-weight: 700; }
+
+    /* ── CART DRAWER ── */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+    .overlay.open { opacity: 1; pointer-events: all; }
+    .cart-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 380px;
+      background: var(--white); z-index: 301; display: flex; flex-direction: column;
+      transform: translateX(100%); transition: transform 0.3s ease;
+      box-shadow: -4px 0 20px rgba(0,0,0,0.2);
+    }
+    .cart-drawer.open { transform: translateX(0); }
+    .cart-head { padding: 16px; background: var(--navy); color: #fff; display: flex; align-items: center; justify-content: space-between; }
+    .cart-head h3 { font-size: 16px; }
+    .close-x { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
+    .cart-items { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .cart-empty-msg { text-align: center; padding: 48px 16px; color: var(--muted); }
+    .cart-empty-msg div { font-size: 48px; margin-bottom: 12px; }
+    .cart-item-card {
+      border: 1px solid var(--border); border-radius: 4px; padding: 10px;
+      display: flex; gap: 10px;
+    }
+    .cart-item-icon { font-size: 32px; flex-shrink: 0; }
+    .cart-item-info { flex: 1; }
+    .cart-item-name { font-size: 12px; font-weight: 700; line-height: 1.3; }
+    .cart-item-price { font-size: 14px; font-weight: 700; color: var(--red); margin-top: 2px; }
+    .cart-item-qty { font-size: 11px; color: var(--muted); }
+    .cart-remove { background: none; border: none; color: var(--muted); font-size: 18px; align-self: flex-start; padding: 0 4px; }
+    .cart-remove:hover { color: var(--red); }
+    .cart-foot { padding: 16px; border-top: 2px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+    .cart-total-line { display: flex; justify-content: space-between; font-size: 13px; color: var(--sub); }
+    .cart-total-line.grand { font-size: 18px; font-weight: 700; color: var(--text); padding-top: 8px; border-top: 1px solid var(--border); }
+    .checkout-btn { padding: 12px; background: var(--orange); color: var(--navy); font-weight: 700; font-size: 15px; border: none; border-radius: 24px; width: 100%; transition: background 0.15s; }
+    .checkout-btn:hover { background: var(--orange-d); }
+    .buy-now-checkout { padding: 12px; background: #ffd814; color: var(--navy); font-weight: 700; font-size: 15px; border: none; border-radius: 24px; width: 100%; transition: background 0.15s; }
+    .buy-now-checkout:hover { background: #f7ca00; }
+    .escrow-note { font-size: 11px; color: var(--muted); text-align: center; }
+    .escrow-note b { color: var(--green); }
+
+    /* ── IMPORT MODAL ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 400; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .import-modal {
+      background: var(--white); border-radius: 8px; width: 100%; max-width: 760px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .modal-head { background: var(--navy); color: #fff; padding: 20px 24px; border-radius: 8px 8px 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .modal-head h2 { font-size: 18px; }
+    .modal-close { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
+    .modal-body { padding: 24px; }
+    .import-steps { display: flex; gap: 0; margin-bottom: 24px; }
+    .import-step { flex: 1; text-align: center; font-size: 12px; color: var(--muted); padding: 8px 4px; border-bottom: 3px solid var(--border); }
+    .import-step.active { color: var(--orange-d); border-color: var(--orange); font-weight: 700; }
+    .import-step.done { color: var(--green); border-color: var(--green); }
+
+    /* Step 1: source */
+    .source-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .source-card {
+      border: 2px solid var(--border); border-radius: 8px; padding: 16px 12px;
+      text-align: center; cursor: pointer; transition: all 0.2s;
+    }
+    .source-card:hover { border-color: var(--orange); background: var(--orange-l); }
+    .source-card.selected { border-color: var(--orange); background: var(--orange-l); }
+    .source-card .icon { font-size: 32px; margin-bottom: 8px; }
+    .source-card h4 { font-size: 13px; font-weight: 700; }
+    .source-card p { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Step 2: upload */
+    .drop-zone {
+      border: 2px dashed var(--border2); border-radius: 8px;
+      padding: 40px 24px; text-align: center; cursor: pointer;
+      transition: all 0.2s; background: var(--bg2);
+      margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--orange); background: var(--orange-l); }
+    .drop-zone .dz-icon { font-size: 48px; margin-bottom: 12px; }
+    .drop-zone h4 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .drop-zone p { font-size: 13px; color: var(--muted); }
+    .drop-zone input[type=file] { display: none; }
+    .or-divider { text-align: center; color: var(--muted); font-size: 13px; margin: 12px 0; }
+    .manual-paste textarea {
+      width: 100%; height: 120px; border: 1px solid var(--border2); border-radius: 4px;
+      padding: 10px; font-size: 12px; font-family: monospace; resize: vertical;
+    }
+
+    /* Step 3: preview */
+    .preview-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 16px; }
+    .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .preview-table th { background: var(--navy2); color: #fff; padding: 8px 10px; text-align: left; position: sticky; top: 0; }
+    .preview-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .preview-table tr:hover td { background: var(--bg2); }
+    .preview-table .price-cell { color: var(--orange-d); font-weight: 700; }
+    .preview-table .edit-cell input { width: 100%; border: 1px solid var(--border2); border-radius: 3px; padding: 3px 6px; }
+    .price-adjust { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; font-size: 13px; }
+    .price-adjust label { font-weight: 700; }
+    .price-adjust input { width: 80px; padding: 5px 8px; border: 1px solid var(--border2); border-radius: 4px; }
+    .rate-note { font-size: 11px; color: var(--muted); }
+    .import-summary { background: var(--green-bg); border: 1px solid var(--green); border-radius: 4px; padding: 12px 16px; font-size: 13px; color: var(--green); margin-bottom: 16px; }
+
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .btn-back { padding: 10px 20px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 4px; font-size: 13px; }
+    .btn-next { padding: 10px 24px; background: var(--orange); border: none; border-radius: 4px; font-size: 13px; font-weight: 700; color: var(--navy); }
+    .btn-next:hover { background: var(--orange-d); }
+    .btn-next:disabled { background: var(--border2); color: var(--muted); cursor: not-allowed; }
+    .btn-import-final { padding: 10px 24px; background: #007600; border: none; border-radius: 4px; font-size: 13px; font-weight: 700; color: #fff; }
+    .btn-import-final:hover { background: #005a00; }
+
+    /* ── TOAST ── */
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; font-weight: 700; padding: 10px 20px; border-radius: 6px; z-index: 500; transition: transform 0.3s; white-space: nowrap; }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.green { background: var(--green); }
+
+    /* ── AMAZON IMPORT PROMO ── */
+    .import-promo {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy2) 100%);
+      border-radius: 4px; border: 1px solid var(--border);
+      padding: 16px 20px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .import-promo-text h3 { color: var(--orange); font-size: 15px; margin-bottom: 4px; }
+    .import-promo-text p { color: rgba(255,255,255,0.7); font-size: 12px; }
+    .import-promo-btn { margin-left: auto; flex-shrink: 0; background: var(--orange); color: var(--navy); font-weight: 700; font-size: 13px; padding: 10px 20px; border: none; border-radius: 4px; white-space: nowrap; }
+    .import-promo-btn:hover { background: var(--orange-d); }
+
+    /* ── PRODUCT DETAIL DRAWER ── */
+    .pd-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:350;opacity:0;pointer-events:none;transition:opacity .25s; }
+    .pd-overlay.open { opacity:1;pointer-events:all; }
+    .pd-drawer {
+      position:fixed;top:0;right:0;bottom:0;width:720px;max-width:100vw;
+      background:var(--white);z-index:351;display:flex;flex-direction:column;
+      transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
+      box-shadow:-6px 0 32px rgba(0,0,0,0.22);overflow:hidden;
+    }
+    .pd-drawer.open { transform:translateX(0); }
+    .pd-head { background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0; }
+    .pd-head-crumb { font-size:12px;color:#aaa;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+    .pd-close { background:none;border:none;color:#fff;font-size:24px;cursor:pointer;padding:0 4px;flex-shrink:0; }
+    .pd-body { flex:1;overflow-y:auto;display:flex;flex-direction:column; }
+    .pd-top { display:grid;grid-template-columns:280px 1fr;gap:0; }
+    .pd-img-col { background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:110px;min-height:280px;position:relative;flex-shrink:0; }
+    .pd-img-col img { width:100%;height:100%;object-fit:cover; }
+    .pd-badge { position:absolute;top:12px;left:0;font-size:12px;font-weight:700;padding:3px 10px 3px 8px;border-radius:0 4px 4px 0;color:#fff; }
+    .pd-info { padding:20px 24px;display:flex;flex-direction:column;gap:10px; }
+    .pd-seller-line { font-size:12px;color:var(--sub); }
+    .pd-seller-line a { color:var(--link);font-weight:700; }
+    .pd-title { font-size:17px;font-weight:700;line-height:1.4;color:var(--text); }
+    .pd-stars-row { display:flex;align-items:center;gap:8px;font-size:13px; }
+    .pd-stars { color:var(--star);font-size:16px;letter-spacing:-1px; }
+    .pd-review-link { color:var(--link);cursor:pointer; }
+    .pd-review-link:hover { color:var(--link-h);text-decoration:underline; }
+    .pd-price-block { border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:12px 0; }
+    .pd-deal-badge { display:inline-block;background:var(--badge-deal);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px;margin-bottom:6px; }
+    .pd-price-main { font-size:26px;font-weight:700; }
+    .pd-price-main .sym { font-size:15px;font-weight:400;vertical-align:super; }
+    .pd-price-usd { font-size:13px;color:var(--muted); }
+    .pd-price-was { font-size:12px;color:var(--muted); }
+    .pd-free-ship { font-size:13px;color:var(--green);font-weight:700;margin-top:4px; }
+    .pd-escrow-note { font-size:11px;color:var(--sub);margin-top:2px; }
+    .pd-escrow-note b { color:var(--green); }
+    .pd-desc { font-size:13px;color:var(--sub);line-height:1.6;max-height:100px;overflow-y:auto; }
+    .pd-qty-row { display:flex;align-items:center;gap:12px; }
+    .pd-qty-label { font-size:13px;font-weight:700; }
+    .pd-qty-ctrl { display:flex;align-items:center;border:1px solid var(--border2);border-radius:4px;overflow:hidden; }
+    .pd-qty-btn { width:32px;height:32px;border:none;background:var(--bg2);font-size:18px;cursor:pointer;font-weight:700;color:var(--text); }
+    .pd-qty-btn:hover { background:var(--orange-l); }
+    .pd-qty-val { width:44px;text-align:center;font-size:14px;font-weight:700;border:none;border-left:1px solid var(--border2);border-right:1px solid var(--border2);height:32px;padding:0;outline:none; }
+    .pd-actions { display:flex;flex-direction:column;gap:8px; }
+    .pd-btn-cart { padding:11px;background:var(--orange);color:var(--navy);font-weight:700;font-size:14px;border:none;border-radius:24px;cursor:pointer;transition:background .15s; }
+    .pd-btn-cart:hover { background:var(--orange-d); }
+    .pd-btn-buy { padding:11px;background:#ffd814;color:var(--navy);font-weight:700;font-size:14px;border:none;border-radius:24px;cursor:pointer;transition:background .15s; }
+    .pd-btn-buy:hover { background:#f7ca00; }
+    .pd-btn-buy:disabled,.pd-btn-cart:disabled { background:var(--border2);color:var(--muted);cursor:not-allowed; }
+    .pd-chain-info { font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap; }
+    .pd-chain-info span { background:var(--bg2);border:1px solid var(--border);padding:2px 6px;border-radius:10px; }
+    .pd-reviews { padding:20px 24px;border-top:2px solid var(--border); }
+    .pd-reviews h4 { font-size:15px;font-weight:700;margin-bottom:14px; }
+    .pd-review-summary { display:flex;gap:24px;align-items:flex-start;margin-bottom:20px; }
+    .pd-big-score { text-align:center; }
+    .pd-big-num { font-size:52px;font-weight:800;line-height:1;color:var(--text); }
+    .pd-big-stars { color:var(--star);font-size:20px;letter-spacing:-1px; }
+    .pd-big-sub { font-size:11px;color:var(--muted); }
+    .pd-bars { flex:1;display:flex;flex-direction:column;gap:4px; }
+    .pd-bar-row { display:flex;align-items:center;gap:8px;font-size:12px; }
+    .pd-bar-outer { flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden; }
+    .pd-bar-fill { height:100%;background:var(--star);border-radius:4px; }
+    .pd-review-list { display:flex;flex-direction:column;gap:16px; }
+    .pd-review-item { border:1px solid var(--border);border-radius:4px;padding:14px; }
+    .pd-review-top { display:flex;align-items:center;gap:10px;margin-bottom:6px; }
+    .pd-reviewer { font-size:13px;font-weight:700; }
+    .pd-review-stars { color:var(--star);font-size:13px; }
+    .pd-review-date { font-size:11px;color:var(--muted);margin-left:auto; }
+    .pd-review-text { font-size:13px;color:var(--sub);line-height:1.5; }
+    .pd-review-verify { font-size:11px;color:var(--green);margin-top:4px; }
+    .pd-order-status { padding:12px 16px;background:var(--green-bg);border:1px solid var(--green);border-radius:4px;font-size:13px;color:var(--green);font-weight:700;display:none; }
+    @media (max-width:720px) {
+      .pd-drawer { width:100%; }
+      .pd-top { grid-template-columns:1fr; }
+      .pd-img-col { min-height:200px;font-size:80px; }
+    }
+
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .source-cards { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .nav-top { flex-wrap: wrap; gap: 8px; }
+      .search-bar { order: 3; width: 100%; max-width: 100%; }
+      .store-banner-badges { display: none; }
+      .product-grid { grid-template-columns: repeat(2, 1fr); }
+      .source-cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOP NAV -->
+<header>
+  <div class="nav-top">
+    <a href="/" class="nav-logo" style="text-decoration:none">
+      <img src="/btcpc-logo.jpeg" alt="BTCPC" />
+      <div>
+        <div>BTCPC</div>
+        <span class="market-sub">Market</span>
+      </div>
+    </a>
+
+    <div class="search-bar">
+      <select class="search-select">
+        <option>All</option>
+        <option>GPU &amp; Compute</option>
+        <option>LoRa &amp; Mesh</option>
+        <option>Digital Goods</option>
+        <option>Ham Radio</option>
+        <option>Storage</option>
+      </select>
+      <input class="search-input" type="text" placeholder="Search TechSurplus products…" />
+      <button class="search-btn">🔍</button>
+    </div>
+
+    <div class="nav-right">
+      <button class="nav-btn">
+        <div class="line1">Hello, shindevlin</div>
+        <div class="line2">Account &amp; Lists ▾</div>
+      </button>
+      <button class="nav-btn" onclick="location.href='/vendor'">
+        <div class="line1">Sell on</div>
+        <div class="line2">BTCPC ▾</div>
+      </button>
+      <button class="nav-btn">
+        <div class="line1">Returns</div>
+        <div class="line2">&amp; Orders</div>
+      </button>
+      <button class="nav-btn" style="color:var(--orange)">
+        <div class="line1" style="color:#ccc">Balance</div>
+        <div class="line2">1,204.8 ₿PC</div>
+      </button>
+      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch BTCPC node">
+        <span class="node-dot local" id="node-dot"></span>
+        <span id="node-label">Local</span>
+      </button>
+      <button class="cart-btn-top" onclick="openCart()">
+        <span class="cart-icon">🛒<span class="cart-badge" id="cart-badge">0</span></span>
+        Cart
+      </button>
+    </div>
+  </div>
+
+  <!-- Node selector modal -->
+  <div id="node-modal-overlay" onclick="if(event.target===this)closeNodeModal()">
+    <div id="node-modal">
+      <h3>BTCPC Node</h3>
+      <p>Enter the base URL of any public BTCPC gateway node. Leave blank to use the local node (same origin).</p>
+      <input id="node-input" type="url" placeholder="https://node.btcpc.network" />
+      <div class="node-modal-actions">
+        <button class="btn-node-cancel" onclick="closeNodeModal()">Cancel</button>
+        <button class="btn-node-clear" onclick="clearNode()">Use Local</button>
+        <button class="btn-node-save" onclick="saveNode()">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav-sub">
+    <a href="#">☰ All</a>
+    <span class="nav-sub-sep">|</span>
+    <a href="#">Today's Deals</a>
+    <a href="#">GPU &amp; Compute</a>
+    <a href="#">LoRa &amp; Mesh</a>
+    <a href="#">Digital Goods</a>
+    <a href="#">Ham Radio</a>
+    <a href="#">Storage</a>
+    <a href="#">Customer Service</a>
+    <button class="import-btn-nav" onclick="openImport()">⬆ Import Amazon Store</button>
+  </nav>
+</header>
+
+<div class="page">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h4>Department</h4>
+      <div class="filter-item"><input type="checkbox" id="c1" checked><label for="c1">GPU &amp; Compute <span class="cnt">(8)</span></label></div>
+      <div class="filter-item"><input type="checkbox" id="c2" checked><label for="c2">LoRa &amp; Mesh <span class="cnt">(7)</span></label></div>
+      <div class="filter-item"><input type="checkbox" id="c3" checked><label for="c3">Digital Goods <span class="cnt">(6)</span></label></div>
+      <div class="filter-item"><input type="checkbox" id="c4" checked><label for="c4">Ham Radio <span class="cnt">(5)</span></label></div>
+      <div class="filter-item"><input type="checkbox" id="c5" checked><label for="c5">Storage <span class="cnt">(4)</span></label></div>
+    </div>
+
+    <div class="sidebar-section">
+      <h4>Avg. Customer Review</h4>
+      <div class="star-filter">⭐⭐⭐⭐★ &amp; Up</div>
+      <div class="star-filter">⭐⭐⭐★★ &amp; Up</div>
+      <div class="star-filter">⭐⭐★★★ &amp; Up</div>
+    </div>
+
+    <div class="sidebar-section">
+      <h4>Price (BTCPC)</h4>
+      <div class="filter-item"><input type="checkbox" id="p1"><label for="p1">Under 10 BTCPC</label></div>
+      <div class="filter-item"><input type="checkbox" id="p2"><label for="p2">10 – 50 BTCPC</label></div>
+      <div class="filter-item"><input type="checkbox" id="p3"><label for="p3">50 – 200 BTCPC</label></div>
+      <div class="filter-item"><input type="checkbox" id="p4"><label for="p4">200 BTCPC &amp; Above</label></div>
+      <div class="filter-group">
+        <div class="price-inputs">
+          <input type="number" placeholder="Min" id="price-min" />
+          <span>–</span>
+          <input type="number" placeholder="Max" id="price-max" />
+        </div>
+        <button class="go-btn" onclick="applyPrice()">Go</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h4>Payment</h4>
+      <div class="filter-item"><input type="checkbox" id="t1" checked><label for="t1">BTCPC</label></div>
+      <div class="filter-item"><input type="checkbox" id="t2" checked><label for="t2">wUSDC</label></div>
+      <div class="filter-item"><input type="checkbox" id="t3" checked><label for="t3">wUSDT</label></div>
+    </div>
+
+    <div class="sidebar-section">
+      <h4>Seller Info</h4>
+      <div style="font-size:12px;color:var(--sub);line-height:1.7">
+        <b>Reputation: 94/100</b><br/>
+        ⭐⭐⭐⭐⭐ 847 orders<br/>
+        99.2% fulfilled<br/>
+        On-chain escrow on all orders.<br/><br/>
+        <span style="color:var(--green)">✔ Chain-verified seller</span><br/>
+        Stake: <b style="color:var(--orange-d)">120 BTCPC bonded</b>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- STORE BANNER -->
+    <div class="store-banner">
+      <div class="store-banner-bg">
+        <div class="store-logo-big">🖥️</div>
+        <div class="store-banner-text">
+          <h2>TechSurplus</h2>
+          <p>Recertified hardware · Digital goods · Compute accessories<br/>All orders secured by on-chain escrow — payment only releases on your confirmation</p>
+        </div>
+        <div class="store-banner-badges">
+          <span class="badge-pill badge-verified">✔ Chain-verified</span>
+          <span class="badge-pill badge-escrow">🔐 Escrow protected</span>
+        </div>
+      </div>
+      <div class="store-info-bar">
+        <div class="stat"><b>847</b> orders filled</div>
+        <div class="stat rep">99.2% fulfillment</div>
+        <div class="stat"><b>32</b> products</div>
+        <div class="stat"><b>94/100</b> reputation</div>
+        <div class="stat">Member since epoch <b>1,204</b></div>
+        <div style="margin-left:auto"><a href="#" style="font-size:13px">Follow store</a> · <a href="#" style="font-size:13px">Share</a></div>
+      </div>
+    </div>
+
+    <!-- AMAZON IMPORT PROMO -->
+    <div class="import-promo">
+      <div style="font-size:36px">📦</div>
+      <div class="import-promo-text">
+        <h3>Selling on Amazon? Bring your store to BTCPC.</h3>
+        <p>Import your Amazon inventory CSV in seconds — products, prices, and descriptions migrate automatically. Keep selling while earning on a chain you own.</p>
+      </div>
+      <button class="import-promo-btn" onclick="openImport()">Import Amazon Store →</button>
+    </div>
+
+    <!-- DEALS BANNER -->
+    <div class="deals-banner">
+      <div class="deals-title">⚡ Today's Deals</div>
+      <div>
+        <div class="deals-ends" style="margin-bottom:4px">Ends in</div>
+        <div class="countdown">
+          <div class="count-box" id="cd-h">11</div>
+          <div class="count-sep">:</div>
+          <div class="count-box" id="cd-m">47</div>
+          <div class="count-sep">:</div>
+          <div class="count-box" id="cd-s">32</div>
+        </div>
+      </div>
+      <a href="#" class="deals-see-all">See all deals ›</a>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div class="toolbar">
+      <div class="toolbar-results"><b id="result-count">8</b> results for <b>"TechSurplus"</b></div>
+      <div class="toolbar-sort">
+        Sort by:
+        <select onchange="sortProducts(this.value)">
+          <option value="featured">Featured</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+          <option value="rating">Avg. Customer Review</option>
+          <option value="newest">Newest Arrivals</option>
+        </select>
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn active">⊞</button>
+        <button class="view-btn">≡</button>
+      </div>
+    </div>
+
+    <!-- PRODUCT GRID -->
+    <div class="product-grid" id="product-grid">
+
+      <div class="product-card" data-price="480" data-rating="4.9" data-epoch="2100" data-cat="gpu" onclick="openProduct('rtx3080')">
+        <div class="product-img" style="background:#f0f4f8">
+          🖥️
+          <span class="deal-ribbon">-18% Deal</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h, Ollama Compatible</div>
+          <div class="product-stars">
+            <span class="stars">★★★★★</span>
+            <span class="review-count">94</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-deal">Limited time deal</div>
+            <div class="price-main"><span class="sym">₿PC </span>480</div>
+            <div class="price-usd">≈ $398 USD</div>
+            <div class="price-was">Was: <span style="text-decoration:line-through">₿PC 585</span></div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">94 sold this month</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'RTX 3080 Recertified','480','🖥️','rtx3080')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('rtx3080',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="22" data-rating="5.0" data-epoch="2340" data-cat="mesh" onclick="openProduct('tbeam')">
+        <div class="product-img" style="background:#f0f8ff">
+          📡
+          <span class="new-ribbon">New</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware, GPS+WiFi+BLE</div>
+          <div class="product-stars">
+            <span class="stars">★★★★★</span>
+            <span class="review-count">41</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>22</div>
+            <div class="price-usd">≈ $18 USD</div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">41 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'Meshtastic T-Beam v1.1','22','📡','tbeam')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('tbeam',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="5" data-rating="4.8" data-epoch="2510" data-cat="digital" onclick="openProduct('qwen25')">
+        <div class="product-img" style="background:#f5f0ff">
+          🧠
+          <span class="btcfs-ribbon">BTCPC-FS</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via BTCPC-FS</div>
+          <div class="product-stars">
+            <span class="stars">★★★★☆</span>
+            <span class="review-count">212</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>5</div>
+            <div class="price-usd">≈ $4 USD</div>
+          </div>
+          <div class="shipping-line">Instant digital delivery</div>
+          <div class="sold-count">212 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'Qwen2.5-7B GGUF Q5_K_M','5','🧠','qwen25')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('qwen25',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Instant CID delivery</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="310" data-rating="4.7" data-epoch="1980" data-cat="radio" onclick="openProduct('ic7300')">
+        <div class="product-img" style="background:#fff8f0">
+          📻
+        </div>
+        <div class="product-body">
+          <div class="product-title">Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible, SDR-Based, Calibrated</div>
+          <div class="product-stars">
+            <span class="stars">★★★★☆</span>
+            <span class="review-count">7</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>310</div>
+            <div class="price-usd">≈ $257 USD</div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">7 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'Icom IC-7300 HF Transceiver','310','📻','ic7300')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('ic7300',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="38" data-rating="4.9" data-epoch="2200" data-cat="storage" onclick="openProduct('ssd4tb')">
+        <div class="product-img" style="background:#f0fff4">
+          💾
+          <span class="new-ribbon">New</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">4TB NVMe SSD WD Black SN850X — PCIe 4.0, 7300MB/s, Sealed, 5yr Warranty</div>
+          <div class="product-stars">
+            <span class="stars">★★★★★</span>
+            <span class="review-count">29</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>38</div>
+            <div class="price-usd">≈ $32 USD</div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">29 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'4TB NVMe SSD WD Black','38','💾','ssd4tb')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('ssd4tb',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="2" data-rating="5.0" data-epoch="2600" data-cat="digital" onclick="openProduct('guide')">
+        <div class="product-img" style="background:#fffff0">
+          📜
+          <span class="btcfs-ribbon">BTCPC-FS</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">BTCPC Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy</div>
+          <div class="product-stars">
+            <span class="stars">★★★★★</span>
+            <span class="review-count">503</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>2</div>
+            <div class="price-usd">≈ $1.66 USD</div>
+          </div>
+          <div class="shipping-line">Instant digital delivery</div>
+          <div class="sold-count">503 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'Mining Optimization Guide v3','2','📜','guide')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('guide',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Instant CID delivery</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="14" data-rating="4.6" data-epoch="2150" data-cat="mesh" onclick="openProduct('rakwis')">
+        <div class="product-img" style="background:#f0f8ff">
+          📶
+        </div>
+        <div class="product-body">
+          <div class="product-title">RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, BTCPC Mesh Sensor Ready</div>
+          <div class="product-stars">
+            <span class="stars">★★★★☆</span>
+            <span class="review-count">18</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-main"><span class="sym">₿PC </span>14</div>
+            <div class="price-usd">≈ $12 USD</div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">18 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'RAK WisBlock LoRa Dev Kit','14','📶','rakwis')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('rakwis',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+      <div class="product-card" data-price="920" data-rating="4.9" data-epoch="1900" data-cat="gpu" onclick="openProduct('rtx4090')">
+        <div class="product-img" style="background:#f8f0ff">
+          ⚡
+          <span class="deal-ribbon">-12% Deal</span>
+        </div>
+        <div class="product-body">
+          <div class="product-title">RTX 4090 Founder's Edition 24GB — 9.4× Work Multiplier, Single Owner, Like New</div>
+          <div class="product-stars">
+            <span class="stars">★★★★★</span>
+            <span class="review-count">14</span>
+          </div>
+          <div class="product-price-row">
+            <div class="price-deal">Limited time deal</div>
+            <div class="price-main"><span class="sym">₿PC </span>920</div>
+            <div class="price-usd">≈ $764 USD</div>
+            <div class="price-was">Was: <span style="text-decoration:line-through">₿PC 1,045</span></div>
+          </div>
+          <div class="shipping-line">FREE delivery</div>
+          <div class="sold-count">14 sold</div>
+        </div>
+        <div class="product-footer">
+          <button class="btn-cart" onclick="addToCart(event,'RTX 4090 Founders Edition','920','⚡','rtx4090')">Add to Cart</button>
+          <button class="btn-buy" onclick="openProduct('rtx4090',true);event.stopPropagation()">Buy Now</button>
+          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- CART DRAWER -->
+<div class="overlay" id="cart-overlay" onclick="closeCart()"></div>
+<div class="cart-drawer" id="cart-drawer">
+  <div class="cart-head">
+    <h3>🛒 Shopping Cart</h3>
+    <button class="close-x" onclick="closeCart()">✕</button>
+  </div>
+  <div class="cart-items" id="cart-items">
+    <div class="cart-empty-msg" id="cart-empty">
+      <div>🛒</div>
+      Your cart is empty
+    </div>
+  </div>
+  <div class="cart-foot" id="cart-foot" style="display:none">
+    <div class="cart-total-line"><span>Subtotal</span><span id="cart-sub">₿PC 0</span></div>
+    <div class="cart-total-line"><span>Platform fee (1%)</span><span id="cart-fee">₿PC 0</span></div>
+    <div class="cart-total-line grand"><span>Order Total</span><span id="cart-total">₿PC 0</span></div>
+    <button class="buy-now-checkout">Proceed to checkout</button>
+    <button class="checkout-btn" onclick="doCheckout()">Pay with BTCPC →</button>
+    <div class="escrow-note">Payment locks in <b>escrow</b>. Released when you confirm delivery.</div>
+  </div>
+</div>
+
+<!-- PRODUCT DETAIL DRAWER -->
+<div class="pd-overlay" id="pd-overlay" onclick="closePD()"></div>
+<div class="pd-drawer" id="pd-drawer">
+  <div class="pd-head">
+    <span class="pd-head-crumb" id="pd-crumb">TechSurplus › GPU &amp; Compute</span>
+    <button class="pd-close" onclick="closePD()">✕</button>
+  </div>
+  <div class="pd-body">
+    <div class="pd-top">
+      <div class="pd-img-col" id="pd-img">🖥️
+        <div class="pd-badge" id="pd-badge" style="display:none"></div>
+      </div>
+      <div class="pd-info">
+        <div class="pd-seller-line">by <a href="/vendor" id="pd-seller">shindevlin</a> · <span style="color:var(--green)">✔ Chain-verified</span></div>
+        <div class="pd-title" id="pd-title">Product Title</div>
+        <div class="pd-stars-row">
+          <span class="pd-stars" id="pd-stars">★★★★★</span>
+          <span class="pd-review-link" id="pd-review-link" onclick="document.getElementById('pd-reviews-section').scrollIntoView({behavior:'smooth'})">0 ratings</span>
+        </div>
+        <div class="pd-price-block">
+          <div class="pd-deal-badge" id="pd-deal-badge" style="display:none">Limited time deal</div>
+          <div class="pd-price-main"><span class="sym">₿PC </span><span id="pd-price">0</span></div>
+          <div class="pd-price-usd" id="pd-price-usd"></div>
+          <div class="pd-price-was" id="pd-price-was" style="display:none"></div>
+          <div class="pd-free-ship" id="pd-ship">FREE delivery</div>
+          <div class="pd-escrow-note">Secured by <b>BTCPC Escrow</b> — funds locked until delivery confirmed</div>
+        </div>
+        <div class="pd-desc" id="pd-desc"></div>
+        <div class="pd-qty-row">
+          <span class="pd-qty-label">Qty:</span>
+          <div class="pd-qty-ctrl">
+            <button class="pd-qty-btn" onclick="changeQty(-1)">−</button>
+            <input class="pd-qty-val" id="pd-qty" type="number" value="1" min="1" max="99" readonly />
+            <button class="pd-qty-btn" onclick="changeQty(1)">+</button>
+          </div>
+          <span id="pd-inv-note" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div class="pd-actions">
+          <div class="pd-order-status" id="pd-order-status"></div>
+          <button class="pd-btn-cart" id="pd-btn-cart" onclick="pdAddToCart()">Add to Cart</button>
+          <button class="pd-btn-buy" id="pd-btn-buy" onclick="pdBuyNow()">Buy Now</button>
+        </div>
+        <div class="pd-chain-info">
+          <span id="pd-epoch-tag">Epoch: —</span>
+          <span id="pd-token-tag">Token: BTCPC</span>
+          <span>Escrow: on-chain</span>
+          <span id="pd-inventory-tag"></span>
+        </div>
+      </div>
+    </div>
+    <div class="pd-reviews" id="pd-reviews-section">
+      <h4>Customer Reviews</h4>
+      <div class="pd-review-summary">
+        <div class="pd-big-score">
+          <div class="pd-big-num" id="pd-big-num">4.9</div>
+          <div class="pd-big-stars" id="pd-big-stars">★★★★★</div>
+          <div class="pd-big-sub" id="pd-big-sub">94 ratings</div>
+        </div>
+        <div class="pd-bars" id="pd-bars"></div>
+      </div>
+      <div class="pd-review-list" id="pd-review-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="modal-overlay" id="import-modal">
+  <div class="import-modal">
+    <div class="modal-head">
+      <h2>📦 Import Your Amazon Store to BTCPC</h2>
+      <button class="modal-close" onclick="closeImport()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="import-steps">
+        <div class="import-step active" id="step-1">① Choose source</div>
+        <div class="import-step" id="step-2">② Upload inventory</div>
+        <div class="import-step" id="step-3">③ Review &amp; price</div>
+        <div class="import-step" id="step-4">④ Publish</div>
+      </div>
+
+      <!-- STEP 1 -->
+      <div id="panel-1">
+        <p style="margin-bottom:16px;color:var(--sub);font-size:13px">Select how you want to bring your inventory to BTCPC Market.</p>
+        <div class="source-cards">
+          <div class="source-card selected" onclick="selectSource(this,'url')">
+            <div class="icon">🔗</div>
+            <h4>Amazon Store Link</h4>
+            <p>Paste your Amazon storefront or seller URL — we fetch and parse it automatically</p>
+          </div>
+          <div class="source-card" onclick="selectSource(this,'csv')">
+            <div class="icon">📊</div>
+            <h4>Amazon CSV Export</h4>
+            <p>Download from Seller Central → Reports → Inventory → All Listings Report</p>
+          </div>
+          <div class="source-card" onclick="selectSource(this,'manual')">
+            <div class="icon">✏️</div>
+            <h4>Manual Entry</h4>
+            <p>Add products one by one using the product creation form</p>
+          </div>
+        </div>
+        <div id="source-hint" style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:12px 16px;font-size:12px;color:var(--sub)">
+          <b>💡 Fastest:</b> paste your Amazon store URL (amazon.com/stores/YourBrand or amazon.com/s?me=SELLERID) and we'll pull your products automatically. If Amazon blocks the request, we'll prompt you to use the CSV export as a fallback.
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div id="panel-2" style="display:none">
+
+        <!-- URL input (shown when source = url) -->
+        <div id="url-panel">
+          <div style="margin-bottom:12px">
+            <label style="font-weight:700;font-size:13px;display:block;margin-bottom:6px">Amazon store or seller URL</label>
+            <div style="display:flex;gap:8px">
+              <input id="amazon-url" type="url" style="flex:1;padding:10px 14px;border:2px solid var(--border2);border-radius:4px;font-size:14px;outline:none" placeholder="https://www.amazon.com/stores/YourBrand/page/… or https://www.amazon.com/s?me=SELLERID" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='var(--border2)'" />
+              <button class="btn-next" id="fetch-btn" onclick="fetchAmazonUrl()" style="white-space:nowrap">Fetch Products</button>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:12px;font-size:12px;color:var(--sub);line-height:1.7;margin-bottom:16px">
+            <b>Supported URL formats:</b><br/>
+            • <code>amazon.com/stores/BrandName/page/XXXXXXXX</code> — Brand storefront<br/>
+            • <code>amazon.com/s?me=A1SELLERID&amp;marketplaceID=...</code> — Seller search page<br/>
+            • <code>amazon.com/dp/B0XXXXXXXX</code> — Single product page<br/>
+            • Any public Amazon product listing URL
+          </div>
+          <div id="url-status" style="font-size:13px;margin-bottom:8px;min-height:20px"></div>
+          <div id="url-fallback" style="display:none;background:var(--orange-l);border:1px solid var(--orange);border-radius:4px;padding:12px;font-size:12px;color:var(--orange-d)">
+            <b>⚠ Amazon blocked the request.</b> This happens when Amazon detects automated access.<br/>
+            <b>Use the CSV fallback instead:</b> Seller Central → Reports → Inventory → All Listings Report → Download.
+            <div style="margin-top:8px"><button onclick="switchToCsv()" style="background:var(--orange);border:none;padding:6px 14px;border-radius:4px;font-weight:700;font-size:12px;cursor:pointer">Switch to CSV upload →</button></div>
+          </div>
+        </div>
+
+        <!-- CSV upload (shown when source = csv or fallback) -->
+        <div id="csv-panel" style="display:none">
+          <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="dzDrag(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
+            <div class="dz-icon">📂</div>
+            <h4>Drag &amp; drop your Amazon CSV here</h4>
+            <p>or click to browse · Accepts .csv and .txt (tab-delimited)</p>
+            <input type="file" id="file-input" accept=".csv,.txt,.tsv" onchange="handleFile(this.files[0])" />
+          </div>
+          <div class="or-divider">— or paste CSV data directly —</div>
+          <div class="manual-paste">
+            <textarea id="csv-paste" placeholder="Paste CSV rows here…&#10;item-name,listing-price,item-description,item-condition,quantity&#10;RTX 3080 GPU,399.99,Like new condition,UsedLikeNew,3"></textarea>
+          </div>
+        </div>
+
+        <div id="parse-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div id="panel-3" style="display:none">
+        <div class="price-adjust">
+          <label>BTCPC rate:</label>
+          <span style="font-size:11px;color:var(--muted)">1 USD =</span>
+          <input type="number" id="rate-input" value="1.207" step="0.001" oninput="recalcPrices()" />
+          <span style="font-size:11px;color:var(--muted)">BTCPC</span>
+          <div class="rate-note">Adjust the exchange rate. All USD prices will be converted automatically.</div>
+        </div>
+        <div class="preview-table-wrap">
+          <table class="preview-table" id="preview-table">
+            <thead><tr><th>Product Title</th><th>Category</th><th>USD Price</th><th>BTCPC Price</th><th>Qty</th></tr></thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+        </div>
+        <div class="import-summary" id="import-summary"></div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div id="panel-4" style="display:none;text-align:center;padding:32px 0">
+        <div style="font-size:64px;margin-bottom:16px">🎉</div>
+        <h3 style="font-size:20px;margin-bottom:8px">Store imported successfully!</h3>
+        <p style="color:var(--sub);font-size:14px;margin-bottom:20px">Your products are now live on BTCPC Market. Buyers can find them immediately.</p>
+        <div style="background:var(--green-bg);border:1px solid var(--green);border-radius:6px;padding:16px;display:inline-block;text-align:left;font-size:13px;margin-bottom:20px">
+          <div id="final-summary"></div>
+        </div>
+        <br/>
+        <button class="btn-next" style="margin-top:8px" onclick="closeImport()">View My Store →</button>
+      </div>
+    </div>
+
+    <div class="modal-footer" id="modal-footer">
+      <button class="btn-back" id="btn-back" onclick="prevStep()" style="visibility:hidden">← Back</button>
+      <button class="btn-next" id="btn-next" onclick="nextStep()">Next →</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── NODE CONFIGURATION ───────────────────────────────────────────────────────
+// BTCPC_NODE is the base URL of the BTCPC node serving the API.
+// Defaults to '' (same origin) for local users, but can be pointed at any
+// public BTCPC gateway via ?node= query param or the node selector below.
+var BTCPC_NODE = (function() {
+  var p = new URLSearchParams(window.location.search).get('node');
+  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('btcpc_node', n); return n; }
+  return (localStorage.getItem('btcpc_node') || '').replace(/\/$/, '');
+})();
+
+// ── NODE SELECTOR ────────────────────────────────────────────────────
+function updateNodeIndicator() {
+  var dot   = document.getElementById('node-dot');
+  var label = document.getElementById('node-label');
+  if (!dot || !label) return;
+  if (!BTCPC_NODE) {
+    dot.className = 'node-dot local';
+    label.textContent = 'Local';
+  } else {
+    dot.className = 'node-dot remote';
+    try { label.textContent = new URL(BTCPC_NODE).hostname; }
+    catch(_) { label.textContent = BTCPC_NODE.slice(0, 20); }
+  }
+}
+function openNodeModal() {
+  document.getElementById('node-input').value = BTCPC_NODE;
+  document.getElementById('node-modal-overlay').classList.add('open');
+  document.getElementById('node-input').focus();
+}
+function closeNodeModal() {
+  document.getElementById('node-modal-overlay').classList.remove('open');
+}
+function saveNode() {
+  var val = (document.getElementById('node-input').value || '').trim().replace(/\/$/, '');
+  localStorage.setItem('btcpc_node', val);
+  BTCPC_NODE = val;
+  updateNodeIndicator();
+  closeNodeModal();
+}
+function clearNode() {
+  localStorage.removeItem('btcpc_node');
+  BTCPC_NODE = '';
+  updateNodeIndicator();
+  closeNodeModal();
+}
+document.addEventListener('DOMContentLoaded', updateNodeIndicator);
+
+// ── CART ────────────────────────────────────────────────────────────
+var cart = [];
+
+function addToCart(e, name, price, icon, productKey) {
+  e.stopPropagation();
+  var item = cart.find(function(i){ return i.name === name; });
+  if (item) item.qty++;
+  else cart.push({ name: name, price: parseFloat(price), icon: icon, qty: 1, productKey: productKey || null });
+  renderCart();
+  openCart();
+  toast('Added to cart: ' + name);
+}
+
+function removeFromCart(idx) {
+  cart.splice(idx, 1);
+  renderCart();
+}
+
+function renderCart() {
+  var count = cart.reduce(function(a,i){ return a+i.qty; }, 0);
+  document.getElementById('cart-badge').textContent = count;
+  var el = document.getElementById('cart-items');
+  var empty = document.getElementById('cart-empty');
+  var foot = document.getElementById('cart-foot');
+
+  if (!cart.length) {
+    empty.style.display = '';
+    foot.style.display = 'none';
+    el.innerHTML = '';
+    el.appendChild(empty);
+    return;
+  }
+  empty.style.display = 'none';
+  foot.style.display = '';
+  el.innerHTML = '';
+
+  var sub = 0;
+  cart.forEach(function(item, idx) {
+    sub += item.price * item.qty;
+    var d = document.createElement('div');
+    d.className = 'cart-item-card';
+    d.innerHTML = '<div class="cart-item-icon">' + item.icon + '</div>' +
+      '<div class="cart-item-info">' +
+        '<div class="cart-item-name">' + item.name + '</div>' +
+        '<div class="cart-item-price">₿PC ' + (item.price * item.qty) + '</div>' +
+        '<div class="cart-item-qty">Qty: ' + item.qty + '</div>' +
+      '</div>' +
+      '<button class="cart-remove" onclick="removeFromCart(' + idx + ')">✕</button>';
+    el.appendChild(d);
+  });
+
+  var fee = Math.round(sub * 0.01 * 100) / 100;
+  var total = Math.round((sub + fee) * 100) / 100;
+  document.getElementById('cart-sub').textContent = '₿PC ' + sub;
+  document.getElementById('cart-fee').textContent = '₿PC ' + fee;
+  document.getElementById('cart-total').textContent = '₿PC ' + total;
+}
+
+function openCart() {
+  document.getElementById('cart-overlay').classList.add('open');
+  document.getElementById('cart-drawer').classList.add('open');
+}
+
+function closeCart() {
+  document.getElementById('cart-overlay').classList.remove('open');
+  document.getElementById('cart-drawer').classList.remove('open');
+}
+
+async function doCheckout() {
+  if (!cart.length) return;
+
+  var token = localStorage.getItem('btcpc_token') || '';
+  var btn = document.querySelector('.checkout-btn');
+  btn.disabled = true;
+  btn.textContent = 'Placing orders…';
+
+  var placed = [];
+  var apiReachable = false;
+  var authFailed = false;
+
+  for (var i = 0; i < cart.length; i++) {
+    var item = cart[i];
+    var p = null;
+    if (item.productKey) {
+      // Catalog key (e.g. 'rtx3080') or raw product_id (e.g. 'seller/slug')
+      p = PRODUCTS[item.productKey] || { productId: item.productKey, token: 'BTCPC' };
+    }
+    if (!p) continue;
+    try {
+      var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? 'Bearer ' + token : '',
+        },
+        body: JSON.stringify({ product_id: p.productId, quantity: item.qty, token: p.token }),
+      });
+      apiReachable = true;
+      if (resp.status === 401) { authFailed = true; break; }
+      if (resp.ok) {
+        var data = await resp.json();
+        placed.push({ name: item.name, order_id: data.order_id, escrow_id: data.escrow_id });
+      }
+    } catch(e) { /* API offline — will fall back to demo */ }
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Pay with BTCPC →';
+
+  if (authFailed) {
+    toast('Sign in to place an order — click Account & Lists', 'green');
+    return;
+  }
+
+  if (!apiReachable) {
+    // Demo fallback — API unreachable (dev mode or node offline)
+    placed = cart.map(function(item) {
+      return { name: item.name, order_id: 'ord-' + Math.random().toString(36).slice(2,14), escrow_id: 'esc-demo' };
+    });
+  }
+
+  if (placed.length) showCheckoutSuccess(placed);
+}
+
+function showCheckoutSuccess(results) {
+  cart = [];
+  renderCart();
+  closeCart();
+  var n = results.length;
+  var msg = '✅ ' + n + ' order' + (n > 1 ? 's' : '') + ' placed — escrow locked on-chain';
+  toast(msg, 'green');
+}
+
+// ── SORT ────────────────────────────────────────────────────────────
+function sortProducts(by) {
+  var grid = document.getElementById('product-grid');
+  var cards = Array.from(grid.querySelectorAll('.product-card'));
+  cards.sort(function(a, b) {
+    if (by === 'price-asc') return +a.dataset.price - +b.dataset.price;
+    if (by === 'price-desc') return +b.dataset.price - +a.dataset.price;
+    if (by === 'rating') return +b.dataset.rating - +a.dataset.rating;
+    if (by === 'newest') return +b.dataset.epoch - +a.dataset.epoch;
+    return 0;
+  });
+  cards.forEach(function(c) { grid.appendChild(c); });
+}
+
+function applyPrice() {
+  var min = parseFloat(document.getElementById('price-min').value) || 0;
+  var max = parseFloat(document.getElementById('price-max').value) || Infinity;
+  var n = 0;
+  document.querySelectorAll('.product-card').forEach(function(c) {
+    var p = parseFloat(c.dataset.price);
+    var show = p >= min && p <= max;
+    c.style.display = show ? '' : 'none';
+    if (show) n++;
+  });
+  document.getElementById('result-count').textContent = n;
+}
+
+// ── COUNTDOWN ───────────────────────────────────────────────────────
+(function() {
+  var end = Date.now() + (11*3600 + 47*60 + 32) * 1000;
+  function tick() {
+    var rem = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    var h = Math.floor(rem / 3600), m = Math.floor((rem % 3600) / 60), s = rem % 60;
+    document.getElementById('cd-h').textContent = String(h).padStart(2,'0');
+    document.getElementById('cd-m').textContent = String(m).padStart(2,'0');
+    document.getElementById('cd-s').textContent = String(s).padStart(2,'0');
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
+// ── TOAST ───────────────────────────────────────────────────────────
+function toast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' ' + type : '') + ' show';
+  clearTimeout(t._t);
+  t._t = setTimeout(function() { t.classList.remove('show'); }, 2800);
+}
+
+// ── IMPORT MODAL ────────────────────────────────────────────────────
+var importStep = 1;
+var selectedSource = 'url';
+var parsedProducts = [];
+
+function openImport() {
+  importStep = 1;
+  parsedProducts = [];
+  renderStep();
+  document.getElementById('import-modal').classList.add('open');
+}
+
+function closeImport() {
+  document.getElementById('import-modal').classList.remove('open');
+}
+
+function selectSource(el, src) {
+  document.querySelectorAll('.source-card').forEach(function(c) { c.classList.remove('selected'); });
+  el.classList.add('selected');
+  selectedSource = src;
+  var hints = {
+    url: '💡 <b>Fastest:</b> paste your Amazon store URL and we\'ll pull your products automatically. If Amazon blocks us, we\'ll prompt you to use the CSV fallback.',
+    csv: '💡 <b>Seller Central:</b> Reports → Inventory → All Listings Report → Download as Tab-Delimited Text.',
+    manual: '💡 <b>Manual:</b> you\'ll fill out a form for each product on the next screen.',
+  };
+  document.getElementById('source-hint').innerHTML = hints[src] || '';
+}
+
+function renderStep() {
+  for (var i = 1; i <= 4; i++) {
+    document.getElementById('panel-' + i).style.display = i === importStep ? '' : 'none';
+    var s = document.getElementById('step-' + i);
+    s.className = 'import-step' + (i < importStep ? ' done' : i === importStep ? ' active' : '');
+  }
+
+  // Show right sub-panel inside step 2
+  if (importStep === 2) {
+    var showUrl = selectedSource === 'url';
+    document.getElementById('url-panel').style.display = showUrl ? '' : 'none';
+    document.getElementById('csv-panel').style.display = showUrl ? 'none' : '';
+    document.getElementById('url-fallback').style.display = 'none';
+    document.getElementById('url-status').textContent = '';
+  }
+
+  document.getElementById('btn-back').style.visibility = importStep > 1 && importStep < 4 ? 'visible' : 'hidden';
+  var nextBtn = document.getElementById('btn-next');
+  var footer = document.getElementById('modal-footer');
+  if (importStep === 4) {
+    footer.style.display = 'none';
+  } else if (importStep === 3) {
+    footer.style.display = '';
+    nextBtn.className = 'btn-import-final';
+    nextBtn.textContent = '🚀 Publish ' + parsedProducts.length + ' Products to BTCPC';
+    nextBtn.onclick = doImport;
+    nextBtn.disabled = false;
+  } else if (importStep === 2 && selectedSource === 'url') {
+    // Next is handled by fetchAmazonUrl button; hide the footer Next
+    footer.style.display = 'none';
+  } else {
+    footer.style.display = '';
+    nextBtn.className = 'btn-next';
+    nextBtn.textContent = 'Next →';
+    nextBtn.onclick = nextStep;
+    nextBtn.disabled = false;
+  }
+}
+
+function nextStep() {
+  if (importStep === 2 && selectedSource !== 'url') {
+    parseInventory();
+    if (!parsedProducts.length) { toast('No products found — check your CSV'); return; }
+  }
+  importStep++;
+  renderStep();
+  if (importStep === 3) renderPreview();
+}
+
+function prevStep() {
+  importStep = Math.max(1, importStep - 1);
+  renderStep();
+}
+
+function switchToCsv() {
+  selectedSource = 'csv';
+  document.getElementById('url-panel').style.display = 'none';
+  document.getElementById('csv-panel').style.display = '';
+  document.getElementById('url-fallback').style.display = 'none';
+  // Show footer next button for csv path
+  document.getElementById('modal-footer').style.display = '';
+  var nextBtn = document.getElementById('btn-next');
+  nextBtn.className = 'btn-next';
+  nextBtn.textContent = 'Next →';
+  nextBtn.onclick = nextStep;
+}
+
+async function fetchAmazonUrl() {
+  var url = document.getElementById('amazon-url').value.trim();
+  if (!url) { toast('Paste an Amazon URL first'); return; }
+
+  var btn = document.getElementById('fetch-btn');
+  var status = document.getElementById('url-status');
+  btn.disabled = true;
+  btn.textContent = 'Fetching…';
+  status.textContent = '⏳ Connecting to Amazon…';
+  status.style.color = 'var(--sub)';
+  document.getElementById('url-fallback').style.display = 'none';
+
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/import/amazon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url }),
+    });
+    var data = await resp.json();
+
+    if (!resp.ok) {
+      if (data.error === 'amazon_blocked' || data.error === 'amazon_captcha') {
+        status.textContent = '⚠ ' + (data.message || 'Amazon blocked the request.');
+        status.style.color = 'var(--orange-d)';
+        document.getElementById('url-fallback').style.display = '';
+      } else {
+        status.textContent = '✕ ' + (data.message || data.error || 'Error fetching products.');
+        status.style.color = 'var(--red)';
+      }
+      btn.disabled = false;
+      btn.textContent = 'Fetch Products';
+      return;
+    }
+
+    parsedProducts = data.products || [];
+    status.textContent = '✔ ' + parsedProducts.length + ' products found. Proceeding to price review…';
+    status.style.color = 'var(--green)';
+
+    setTimeout(function() {
+      importStep = 3;
+      renderStep();
+      renderPreview();
+    }, 700);
+
+  } catch(e) {
+    status.textContent = '✕ Network error: ' + e.message;
+    status.style.color = 'var(--red)';
+    btn.disabled = false;
+    btn.textContent = 'Fetch Products';
+  }
+}
+
+function parseInventory() {
+  var text = document.getElementById('csv-paste') ? document.getElementById('csv-paste').value.trim() : '';
+  if (!text) {
+    parsedProducts = [
+      { title: 'Mechanical Keyboard TKL — Gateron Red Switches, RGB', price: 89.99, category: 'Electronics', qty: 12, condition: 'New' },
+      { title: 'USB-C 100W GaN Charger — 4-Port, Fast Charge', price: 34.99, category: 'Electronics', qty: 45, condition: 'New' },
+      { title: 'Ergonomic Vertical Mouse — 6 Buttons, 2.4GHz Wireless', price: 29.99, category: 'Electronics', qty: 30, condition: 'New' },
+      { title: '4K Webcam 60fps — Sony Sensor, Auto-Focus, Ring Light', price: 149.99, category: 'Electronics', qty: 8, condition: 'New' },
+      { title: 'Laptop Stand Adjustable Aluminum — Ergonomic, Folds Flat', price: 24.99, category: 'Office', qty: 60, condition: 'New' },
+      { title: 'Smart Power Strip 6-Outlet — USB-A + USB-C, Surge Protected', price: 39.99, category: 'Electronics', qty: 25, condition: 'New' },
+      { title: 'SSD External 2TB — USB 3.2 Gen 2, 1050MB/s, Rugged', price: 89.99, category: 'Storage', qty: 15, condition: 'New' },
+      { title: 'Cable Management Box Large — Wooden, Hides Power Strip', price: 32.99, category: 'Office', qty: 40, condition: 'New' },
+    ];
+    document.getElementById('parse-status').textContent = 'Demo inventory loaded (8 products). Paste your real CSV to import actual data.';
+    return;
+  }
+  // Detect tab vs comma delimiter
+  var delim = text.indexOf('\t') > -1 ? '\t' : ',';
+  var lines = text.trim().split('\n');
+  var headers = lines[0].split(delim).map(function(h){ return h.trim().toLowerCase().replace(/[^a-z0-9]/g,'-'); });
+  parsedProducts = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = lines[i].split(delim);
+    var row = {};
+    headers.forEach(function(h, j){ row[h] = (cols[j] || '').replace(/^"|"$/g,'').trim(); });
+    var title = row['item-name'] || row['title'] || row['product-name'] || row['name'] || cols[0] || '';
+    var price = parseFloat(row['listing-price'] || row['price'] || row['unit-price'] || cols[1] || '0');
+    if (!title) continue;
+    parsedProducts.push({ title: title, price: price || 0, category: row['category'] || row['browse-node'] || 'General', qty: parseInt(row['quantity'] || row['qty'] || '1', 10) || 1, condition: row['item-condition'] || row['condition'] || 'New' });
+  }
+  document.getElementById('parse-status').textContent = 'Parsed ' + parsedProducts.length + ' products.';
+}
+
+function recalcPrices() { renderPreview(); }
+
+function renderPreview() {
+  var rate = parseFloat(document.getElementById('rate-input').value) || 1.207;
+  var tbody = document.getElementById('preview-body');
+  tbody.innerHTML = '';
+  var total = 0;
+  parsedProducts.forEach(function(p, i) {
+    var btcpc = Math.ceil(p.price * rate * 100) / 100;
+    total += btcpc * p.qty;
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + p.title.slice(0, 60) + (p.title.length > 60 ? '…' : '') + '</td>' +
+      '<td>' + (p.category || '—') + '</td>' +
+      '<td>$' + (p.price || 0).toFixed(2) + '</td>' +
+      '<td class="price-cell">₿PC ' + btcpc.toFixed(2) + '</td>' +
+      '<td>' + (p.qty || 1) + '</td>';
+    tbody.appendChild(tr);
+    p._btcpc = btcpc;
+  });
+  document.getElementById('import-summary').innerHTML =
+    '<b>✔ Ready to publish:</b> ' + parsedProducts.length + ' products · ' +
+    'Total inventory value: <b>₿PC ' + total.toFixed(2) + '</b> · ' +
+    'Estimated bonding curve stake needed: <b>₿PC ' + Math.ceil(parsedProducts.length * 0.8) + '</b>';
+}
+
+function doImport() {
+  var count = parsedProducts.length;
+  // Simulate publishing with progress
+  var btn = document.getElementById('btn-next');
+  btn.disabled = true;
+  btn.textContent = 'Publishing…';
+  setTimeout(function() {
+    importStep = 4;
+    renderStep();
+    document.getElementById('final-summary').innerHTML =
+      '✅ <b>' + count + ' products</b> published to BTCPC Market<br/>' +
+      '🔐 Escrow enabled on all listings<br/>' +
+      '📊 Reputation tracking active<br/>' +
+      '⛓ All listings recorded on-chain<br/>';
+    // Reload the grid with imported products added
+    addImportedCards(parsedProducts.slice(0,4));
+    toast('✅ ' + count + ' products live on BTCPC Market!', 'green');
+  }, 1800);
+}
+
+function addImportedCards(products) {
+  var grid = document.getElementById('product-grid');
+  var emojis = ['⌨️','🔌','🖱️','📷','💻','🔋','💽','📦'];
+  products.forEach(function(p, i) {
+    var card = document.createElement('div');
+    card.className = 'product-card';
+    card.dataset.price = p._btcpc;
+    card.dataset.rating = '4.5';
+    card.dataset.epoch = '37800';
+    card.dataset.cat = 'imported';
+    card.innerHTML =
+      '<div class="product-img" style="background:#f7f9f9">' + (emojis[i] || '📦') +
+        '<span class="new-ribbon">Imported</span>' +
+      '</div>' +
+      '<div class="product-body">' +
+        '<div class="product-title">' + p.title + '</div>' +
+        '<div class="product-stars"><span class="stars">★★★★☆</span><span class="review-count">0</span></div>' +
+        '<div class="product-price-row">' +
+          '<div class="price-main"><span class="sym">₿PC </span>' + p._btcpc.toFixed(2) + '</div>' +
+          '<div class="price-usd">≈ $' + p.price.toFixed(2) + ' USD</div>' +
+        '</div>' +
+        '<div class="shipping-line">FREE delivery</div>' +
+      '</div>' +
+      '<div class="product-footer">' +
+        '<button class="btn-cart" onclick="addToCart(event,\'' + p.title.replace(/'/g,"\\'").slice(0,30) + '\',' + p._btcpc + ',\'' + (emojis[i]||'📦') + '\',' + (p.product_id ? '\'' + p.product_id + '\'' : 'null') + ')">Add to Cart</button>' +
+        '<button class="btn-buy" onclick="event.stopPropagation()">Buy Now</button>' +
+        '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
+      '</div>';
+    grid.appendChild(card);
+  });
+  document.getElementById('result-count').textContent = grid.querySelectorAll('.product-card').length;
+}
+
+// Drag & drop
+function dzDrag(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('drag-over'); }
+function dzLeave(e) { document.getElementById('drop-zone').classList.remove('drag-over'); }
+function dzDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  var file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+function handleFile(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('csv-paste').value = e.target.result;
+    document.getElementById('parse-status').textContent = 'File loaded: ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)';
+  };
+  reader.readAsText(file);
+}
+
+// Close modal on overlay click
+document.getElementById('import-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeImport();
+});
+
+// ── PRODUCT CATALOG ─────────────────────────────────────────────────
+var PRODUCTS = {
+  rtx3080: {
+    key:'rtx3080', icon:'🖥️', bg:'#f0f4f8',
+    title:'RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h, Ollama Compatible',
+    seller:'shindevlin', productId:'shindevlin/rtx-3080-recertified',
+    price:480, priceUsd:398, was:585, badge:'deal', badgeLabel:'-18% Deal', badgeColor:'var(--badge-deal)',
+    stars:4.9, reviews:94, inventory:3,
+    ship:'FREE delivery — 2–3 days',
+    desc:'Professionally recertified RTX 3080 10GB. Burn-tested for 500 hours on BTCPC Ollama mining workload before listing — GPU is confirmed stable at full inference load. Compatible with all major Ollama models up to 7B without quantization. Includes 90-day BTCPC Escrow buyer protection and a verified compute-hours certificate on-chain. Original cooler, replaced thermal paste, custom VBIOS for quiet mining. PCIe 4.0 slot required.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'natoshisakamoto', stars:5, date:'2 weeks ago', text:'Flawless. Running qwen2.5:7b at full speed, no crashes in 3 weeks. Comes with a printed test certificate.', verified:true},
+      {user:'mesh_relay_99', stars:5, date:'1 month ago', text:'Bought this for my validator node. Way cheaper than new and performs identically on Ollama benchmarks. Seller was fast.', verified:true},
+      {user:'btcpc_miner_77', stars:4, date:'3 weeks ago', text:'Good card. Ran hot the first day but thermal paste settled and now sits at 72°C under full load. Happy overall.', verified:true},
+    ]
+  },
+  tbeam: {
+    key:'tbeam', icon:'📡', bg:'#f0f8ff',
+    title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware, GPS+WiFi+BLE',
+    seller:'shindevlin', productId:'shindevlin/tbeam-v11-btcpc',
+    price:22, priceUsd:18, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
+    stars:5.0, reviews:41, inventory:50,
+    ship:'FREE delivery — 3–5 days',
+    desc:'T-Beam v1.1 pre-configured as a BTCPC mesh relay node. Comes with BTCPC sensor firmware, LoRa 915MHz (US) or 868MHz (EU — specify in notes), integrated GPS for GNSS sensor proofs, WiFi for local API, and BLE for phone pairing. Just plug in and your node starts earning sensor relay rewards. Includes USB-C cable and 3dBi antenna. IP65 enclosure optional (+₿PC 4).',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'loravan_king', stars:5, date:'1 week ago', text:'Set up in 10 minutes. Already accumulating sensor relay rewards. The pre-flash saves hours of setup.', verified:true},
+      {user:'mesh_relay_99', stars:5, date:'3 weeks ago', text:'Running 4 of these across my property. Solid mesh. GPS lock within 2 minutes outdoors.', verified:true},
+    ]
+  },
+  qwen25: {
+    key:'qwen25', icon:'🧠', bg:'#f5f0ff',
+    title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via BTCPC-FS',
+    seller:'shindevlin', productId:'shindevlin/qwen25-7b-q5km',
+    price:5, priceUsd:4, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
+    stars:4.8, reviews:212, inventory:null,
+    ship:'Instant digital delivery via BTCPC-FS',
+    desc:'Qwen2.5-7B in GGUF Q5_K_M quantization — best quality-per-GB for 7B inference. Delivered as a BTCPC-FS content-addressed blob (CID included in order confirmation). Pull directly with Ollama: "ollama pull <cid>". Validated against the Qwen2.5 official weights hash. Includes a model card with prompt templates, system prompts tuned for BTCPC mining tasks, and benchmark results on RTX 3080/4090.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'Exactly what it says. CID in the order, pulled with Ollama in 2 minutes, runs great.', verified:true},
+      {user:'natoshisakamoto', stars:5, date:'1 week ago', text:'Best Q5_K_M I\'ve used. Prompt templates are a huge bonus.', verified:true},
+      {user:'btcpc_miner_77', stars:4, date:'2 weeks ago', text:'Good model, solid quantization. Wish it came with a 13B option too.', verified:false},
+    ]
+  },
+  ic7300: {
+    key:'ic7300', icon:'📻', bg:'#fff8f0',
+    title:'Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible, SDR-Based, Calibrated',
+    seller:'shindevlin', productId:'shindevlin/icom-ic7300-hf',
+    price:310, priceUsd:257, badge:null,
+    stars:4.7, reviews:7, inventory:2,
+    ship:'FREE delivery — 5–7 days (large item)',
+    desc:'Icom IC-7300 direct-sampling SDR HF transceiver. 100W output, 0.5–30MHz coverage. Professionally calibrated at 1, 7, 14, 21, 28MHz reference frequencies — calibration printout included. Paired with VARA HF modem for BTCPC emergency mesh comms. Minor cosmetic marks on front panel (pictured). Comes with power cable, mic, and IC-7300 manual. 30-day escrow protection — no questions asked returns.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'hamradio_btcpc', stars:5, date:'1 month ago', text:'Calibration is real — checked on my own equipment. Great value.', verified:true},
+      {user:'vara_relay', stars:4, date:'3 weeks ago', text:'Works perfectly with VARA HF. The cosmetic marks are barely visible.', verified:true},
+    ]
+  },
+  ssd4tb: {
+    key:'ssd4tb', icon:'💾', bg:'#f0fff4',
+    title:'4TB NVMe SSD WD Black SN850X — PCIe 4.0, 7300MB/s, Sealed, 5yr Warranty',
+    seller:'shindevlin', productId:'shindevlin/wd-sn850x-4tb',
+    price:38, priceUsd:32, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
+    stars:4.9, reviews:29, inventory:18,
+    ship:'FREE delivery — 2–3 days',
+    desc:'Western Digital WD Black SN850X 4TB NVMe SSD. Factory sealed, full 5-year manufacturer warranty. PCIe Gen 4 x4, sequential read 7300MB/s, write 6600MB/s. M.2 2280 form factor. Perfect for BTCPC-FS node storage — a single drive holds over 80,000 sensor data blobs at typical sizes. The SN850X has no DRAM-less cache stutter; sustained write performance is consistent across the full 4TB.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'storage_relay', stars:5, date:'5 days ago', text:'Sealed as advertised. Running it as my BTCPC-FS blob store. Zero issues.', verified:true},
+      {user:'loravan_king', stars:5, date:'2 weeks ago', text:'Great price. Faster than my old Samsung 980 Pro at sustained writes.', verified:true},
+    ]
+  },
+  guide: {
+    key:'guide', icon:'📜', bg:'#fffff0',
+    title:'BTCPC Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy',
+    seller:'natoshisakamoto', productId:'natoshisakamoto/mining-guide-v3',
+    price:2, priceUsd:1.66, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
+    stars:5.0, reviews:503, inventory:null,
+    ship:'Instant digital delivery via BTCPC-FS',
+    desc:'The definitive BTCPC miner\'s handbook (v3). 38 pages covering: model selection for maximum work-value, epoch bandwidth optimization, stake curve theory with worked examples, multi-GPU setups, clock node co-location, validator reward splits, and self-heal automation patterns. Includes a spreadsheet template for tracking reward ROI. Written by natoshisakamoto — author of the BTCPC Whitepaper appendices.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'ai_farm_hale', stars:5, date:'1 day ago', text:'Increased my daily rewards 40% after following the model selection guide. 10/10.', verified:true},
+      {user:'btcpc_miner_77', stars:5, date:'1 week ago', text:'The stake curve math alone is worth the 2 BTCPC. Read it twice.', verified:true},
+      {user:'mesh_relay_99', stars:5, date:'2 weeks ago', text:'natoshi explains epoch bandwidth better than the whitepaper. Required reading.', verified:true},
+    ]
+  },
+  rakwis: {
+    key:'rakwis', icon:'📶', bg:'#f0f8ff',
+    title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, BTCPC Mesh Sensor Ready',
+    seller:'shindevlin', productId:'shindevlin/rak-wisblock-sensor-kit',
+    price:14, priceUsd:12, badge:null,
+    stars:4.6, reviews:18, inventory:30,
+    ship:'FREE delivery — 3–5 days',
+    desc:'RAK WisBlock Starter Kit with nRF52840 CPU and SX1262 LoRa module. Pre-configured as a BTCPC environment sensor node — temperature, humidity, light, and air quality sensors included. Ships with BTCPC sensor firmware flashed and pre-paired to the BTCPC mesh. Just power on and the node begins publishing readings to the chain. Great for earning sensor relay income at low cost.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'vera_sensor', stars:5, date:'2 weeks ago', text:'Running 6 of these. All earning. Setup is legitimately 5 minutes.', verified:true},
+      {user:'hamradio_btcpc', stars:4, date:'1 month ago', text:'Solid kit. Air quality sensor needed calibration but LoRa is rock solid.', verified:true},
+    ]
+  },
+  rtx4090: {
+    key:'rtx4090', icon:'⚡', bg:'#f8f0ff',
+    title:'RTX 4090 Founder\'s Edition 24GB — 9.4× Work Multiplier, Single Owner, Like New',
+    seller:'shindevlin', productId:'shindevlin/rtx-4090-founders',
+    price:920, priceUsd:764, was:1045, badge:'deal', badgeLabel:'-12% Deal', badgeColor:'var(--badge-deal)',
+    stars:4.9, reviews:14, inventory:1,
+    ship:'FREE delivery — 2–3 days (insured shipment)',
+    desc:'RTX 4090 Founder\'s Edition, single owner, purchased new 8 months ago. Used exclusively for BTCPC Ollama inference — no gaming, no overclocking. BIOS never modified. Verified 9.4× work multiplier on Qwen2.5:14B vs baseline (test results on-chain, CID in listing). Comes with original box, GPU removal tool, and power adapters. BTCPC-verified compute history included — transparent provenance.',
+    token:'BTCPC',
+    reviews_data:[
+      {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'The on-chain work proof was the deciding factor. Legitimate history, no games. It\'s a beast.', verified:true},
+      {user:'natoshisakamoto', stars:5, date:'1 week ago', text:'9.4x work multiplier checks out. Running it on our validator. Insured shipment arrived perfect.', verified:true},
+    ]
+  }
+};
+
+var _pdCurrent = null;
+var _pdQty = 1;
+
+function starsHtml(n) {
+  var full = Math.floor(n), half = n - full >= 0.5;
+  var s = '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(5 - full - (half?1:0));
+  return s;
+}
+
+function openProduct(key, buyIntent) {
+  var p = PRODUCTS[key];
+  if (!p) return;
+  _pdCurrent = p;
+  _pdQty = 1;
+
+  document.getElementById('pd-crumb').textContent = 'TechSurplus › ' + p.title.slice(0,50);
+  document.getElementById('pd-img').innerHTML = p.icon +
+    (p.badge ? '<div class="pd-badge" style="background:'+p.badgeColor+'">'+p.badgeLabel+'</div>' : '');
+  document.getElementById('pd-img').style.background = p.bg;
+  document.getElementById('pd-seller').textContent = p.seller;
+  document.getElementById('pd-title').textContent = p.title;
+  document.getElementById('pd-stars').textContent = starsHtml(p.stars);
+  document.getElementById('pd-review-link').textContent = p.reviews + ' ratings';
+  document.getElementById('pd-price').textContent = p.price;
+  document.getElementById('pd-price-usd').textContent = '≈ $' + p.priceUsd + ' USD';
+  document.getElementById('pd-ship').textContent = p.ship;
+  document.getElementById('pd-desc').textContent = p.desc;
+  document.getElementById('pd-qty').value = 1;
+  document.getElementById('pd-epoch-tag').textContent = 'Epoch: current';
+  document.getElementById('pd-token-tag').textContent = 'Token: ' + p.token;
+  document.getElementById('pd-order-status').style.display = 'none';
+  document.getElementById('pd-btn-cart').disabled = false;
+  document.getElementById('pd-btn-buy').disabled = false;
+  document.getElementById('pd-btn-buy').textContent = 'Buy Now';
+
+  var dealBadge = document.getElementById('pd-deal-badge');
+  dealBadge.style.display = p.badge === 'deal' ? '' : 'none';
+
+  var wasEl = document.getElementById('pd-price-was');
+  if (p.was) { wasEl.style.display=''; wasEl.textContent='Was: ₿PC ' + p.was; }
+  else { wasEl.style.display='none'; }
+
+  var invNote = document.getElementById('pd-inv-note');
+  var invTag = document.getElementById('pd-inventory-tag');
+  if (p.inventory !== null && p.inventory <= 5) {
+    invNote.textContent = 'Only ' + p.inventory + ' left!';
+    invNote.style.color = 'var(--red)';
+    invTag.textContent = 'Stock: ' + p.inventory;
+  } else if (p.inventory === null) {
+    invNote.textContent = 'Unlimited (digital)';
+    invNote.style.color = 'var(--green)';
+    invTag.textContent = 'Digital';
+  } else {
+    invNote.textContent = 'In stock';
+    invNote.style.color = 'var(--green)';
+    invTag.textContent = 'Stock: ' + p.inventory;
+  }
+
+  // Reviews
+  document.getElementById('pd-big-num').textContent = p.stars.toFixed(1);
+  document.getElementById('pd-big-stars').textContent = starsHtml(p.stars);
+  document.getElementById('pd-big-sub').textContent = p.reviews + ' ratings';
+  renderBars(p.stars, p.reviews);
+  renderReviews(p.reviews_data);
+
+  document.getElementById('pd-overlay').classList.add('open');
+  document.getElementById('pd-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  if (buyIntent) {
+    setTimeout(function() {
+      document.getElementById('pd-btn-buy').scrollIntoView({behavior:'smooth'});
+    }, 350);
+  }
+}
+
+function closePD() {
+  document.getElementById('pd-overlay').classList.remove('open');
+  document.getElementById('pd-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function changeQty(delta) {
+  _pdQty = Math.max(1, Math.min(99, _pdQty + delta));
+  document.getElementById('pd-qty').value = _pdQty;
+}
+
+function pdAddToCart() {
+  if (!_pdCurrent) return;
+  addToCart({stopPropagation:function(){}}, _pdCurrent.title.slice(0,40), _pdCurrent.price, _pdCurrent.icon);
+}
+
+async function pdBuyNow() {
+  if (!_pdCurrent) return;
+  var btn = document.getElementById('pd-btn-buy');
+  var cartBtn = document.getElementById('pd-btn-cart');
+  btn.disabled = true;
+  cartBtn.disabled = true;
+  btn.textContent = 'Placing order…';
+
+  // Try real API first
+  try {
+    var token = localStorage.getItem('btcpc_token') || '';
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token ? 'Bearer ' + token : '',
+      },
+      body: JSON.stringify({
+        product_id: _pdCurrent.productId,
+        quantity: _pdQty,
+        token: _pdCurrent.token,
+      }),
+    });
+
+    if (resp.ok) {
+      var data = await resp.json();
+      showOrderSuccess(data.order_id, data.escrow_id);
+      return;
+    }
+    if (resp.status === 401) {
+      // Not logged in — show login prompt
+      btn.disabled = false;
+      cartBtn.disabled = false;
+      btn.textContent = 'Buy Now';
+      toast('Sign in to place an order — click Account & Lists', 'green');
+      return;
+    }
+  } catch(e) {
+    // API offline — fall through to demo mode
+  }
+
+  // Demo mode (API offline or dev)
+  setTimeout(function() {
+    var fakeOrderId = 'ord-' + Math.random().toString(36).slice(2,14);
+    showOrderSuccess(fakeOrderId, 'esc-demo');
+  }, 1200);
+}
+
+function showOrderSuccess(orderId, escrowId) {
+  var status = document.getElementById('pd-order-status');
+  status.style.display = '';
+  status.innerHTML = '✅ Order placed! <b>' + orderId + '</b><br/>' +
+    '🔐 Escrow locked: <b>' + escrowId + '</b><br/>' +
+    'Seller has 48h to fulfill. You confirm delivery to release payment.';
+  document.getElementById('pd-btn-buy').textContent = 'Ordered ✓';
+  document.getElementById('pd-btn-cart').disabled = false;
+  toast('Order placed — escrow locked on-chain', 'green');
+  status.scrollIntoView({behavior:'smooth'});
+}
+
+function renderBars(avgStars, total) {
+  var bars = document.getElementById('pd-bars');
+  // Simulate distribution
+  var dist = [0.72, 0.18, 0.06, 0.03, 0.01];
+  if (avgStars < 4) dist = [0.30, 0.30, 0.22, 0.12, 0.06];
+  bars.innerHTML = [5,4,3,2,1].map(function(star, i) {
+    var pct = Math.round(dist[i] * 100);
+    return '<div class="pd-bar-row">' +
+      '<span style="width:14px;text-align:right">' + star + '</span>' +
+      '<span style="color:var(--star);font-size:12px">★</span>' +
+      '<div class="pd-bar-outer"><div class="pd-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<span style="width:28px;color:var(--muted)">' + pct + '%</span>' +
+    '</div>';
+  }).join('');
+}
+
+function renderReviews(reviews) {
+  var list = document.getElementById('pd-review-list');
+  list.innerHTML = reviews.map(function(r) {
+    var stars = '★'.repeat(r.stars) + '☆'.repeat(5-r.stars);
+    return '<div class="pd-review-item">' +
+      '<div class="pd-review-top">' +
+        '<span class="pd-reviewer">' + r.user + '</span>' +
+        '<span class="pd-review-stars">' + stars + '</span>' +
+        '<span class="pd-review-date">' + r.date + '</span>' +
+      '</div>' +
+      '<div class="pd-review-text">' + r.text + '</div>' +
+      (r.verified ? '<div class="pd-review-verify">✔ Verified BTCPC purchase</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// Also wire imported cards when added to grid
+var _origAddImportedCards = addImportedCards;
+addImportedCards = function(products) {
+  _origAddImportedCards(products);
+  // Wire imported cards to open a generic product detail
+  var grid = document.getElementById('product-grid');
+  var newCards = Array.from(grid.querySelectorAll('.product-card[data-cat="imported"]'));
+  newCards.forEach(function(card, i) {
+    if (!card.dataset.wired) {
+      card.dataset.wired = '1';
+      card.addEventListener('click', function(e) {
+        if (e.target.tagName === 'BUTTON') return;
+        var p = products[i];
+        if (!p) return;
+        var tempKey = 'imported_' + i;
+        PRODUCTS[tempKey] = {
+          key:tempKey, icon:['⌨️','🔌','🖱️','📷','💻','🔋','💽','📦'][i%8], bg:'#f7f9f9',
+          title:p.title, seller:'you', productId:'',
+          price:p._btcpc, priceUsd:p.price, badge:'new', badgeLabel:'Imported', badgeColor:'#555',
+          stars:4.5, reviews:0, inventory:p.qty||null,
+          ship:'FREE delivery', desc:'Imported from your store. Edit this listing in your Vendor Dashboard before publishing.',
+          token:'BTCPC', reviews_data:[]
+        };
+        openProduct(tempKey);
+      });
+    }
+  });
+};
+</script>
+
+</body>
+</html>

@@ -1327,6 +1327,132 @@ Every token earned. Every machine welcome.
 
 ---
 
+---
+
+## Appendix M: Decentralized Commerce Layer
+
+### M.1 Architecture
+
+All commerce state — stores, products, orders, shipping accounts, reputation votes — flows
+through the same append-only ledger as every other chain entry. Every BTCPC node that
+replays the ledger from genesis holds a complete, verifiable copy of the market. Commerce
+state is not a separate database: it is a projection of ledger entries, rebuilt deterministically
+from blocks on startup, identical across all nodes that have processed the same chain.
+
+No central marketplace server is required. The catalog is distributed across all nodes.
+Reads are served locally from each node's in-memory state store, derived from ledger replay.
+Because the data is on-chain, catalog responses from any node are independently verifiable
+against the Merkle root in the corresponding block header.
+
+`btcpc-market` is a Rust service (port 7042) that vendors run as an optional sidecar for
+full seller operations: order management, carrier label generation, flash sale scheduling,
+and Tor hidden service registration. Read-only catalog access — browsing stores and
+products — requires only a standard BTCPC node. Buyers do not need to run `btcpc-market`.
+
+### M.2 Public Access Without a Node
+
+The store frontend (`website/store.html`) is a static HTML file with no server-side
+dependencies. It can be served from any web host, IPFS gateway, or BTCPC-FS CID. The
+same file serves as the vendor control panel (`website/vendor.html`) when accessed with
+a signing key.
+
+`API_BASE` is configurable at runtime:
+
+- Default: same-origin (for operators running a local BTCPC node on port 6942)
+- Override via `?node=https://node.example.com` query parameter
+- Override persisted in `localStorage` for returning users
+
+A user without a local node points at any public BTCPC gateway. The gateway serves the
+catalog from its local ledger. Because catalog data is verifiable on-chain (hashes are
+committed to block headers), the user does not need to trust the gateway's responses —
+any discrepancy is detectable against the public chain state. Gateway nodes have no
+privileged access to buyer data: they relay catalog reads and route order placements but
+cannot modify ledger entries.
+
+### M.3 Vendor Privacy
+
+**Catalog reads.** Product and store listings are served by any node from its local ledger
+replay. The vendor's server IP is not involved in catalog delivery. A vendor does not need
+to be online for buyers to browse their listings.
+
+**Order placement.** Order transactions are P2P ledger entries signed by the buyer and
+broadcast to the network. The vendor's `btcpc-market` instance receives the order by
+monitoring for `ORDER_PLACE` entries addressed to their store. Optionally, the vendor
+registers a Tor hidden service (`.onion` address) on-chain via a `STORE_UPDATE` entry.
+Buyers running Tor Browser detect the `.onion` address and route order communication
+through it automatically, without the buyer or vendor exposing their IP to each other.
+
+**Shipping accounts.** Carrier credentials (UPS, FedEx, USPS, DHL account numbers and
+API keys) are stored on-chain under the store record. The API masks account numbers in
+responses — only the last four characters are visible in any JSON output. The full value
+lives in the ledger, readable only by the store's Active key. At order fulfillment, the
+`btcpc-market` service decrypts the shipping account and auto-populates the carrier
+dropdown, eliminating manual credential entry per shipment.
+
+**Blob delivery.** Digital products reference a BTCPC-FS content identifier (`delivery_cid`).
+The blob is content-addressed: its SHA-256 hash is both its identifier and its integrity
+proof. Multiple storage hosts replicate each CID. The vendor's server IP is not in the
+download path once the blob has been replicated to other storage hosts. Buyers download
+directly from storage hosts, not from the vendor.
+
+### M.4 Escrow Mechanics
+
+Order escrow is locked at `ORDER_PLACE`. The buyer's funds are held by the protocol —
+not by the vendor, not by a third party — until the order resolves.
+
+**Auto-deliver.** Digital products with a `delivery_cid` set in the product record fulfill
+instantly upon order placement. The protocol writes an `ORDER_FULFILL` entry in the same
+block that contains the `ORDER_PLACE`. No seller action is required. The buyer receives
+the BTCPC-FS CID immediately. Escrow releases to the vendor in the same block.
+
+**Manual fulfill.** Physical goods and services require the vendor to ship and record a
+tracking number via `ORDER_FULFILL`. The seller has 4,800 epochs (~40 hours at 30-second
+epochs) to fulfill after order placement. Unfulfilled orders auto-cancel after this
+deadline: the protocol writes an `ORDER_CANCEL` entry and returns escrow to the buyer.
+
+**Buyer confirmation.** On receipt of physical goods, the buyer submits `ORDER_DELIVER`.
+Escrow releases to the vendor minus the 1% platform fee (0.5% to `btcpc_recycle`,
+0.4% to store stakers pro-rata, 0.1% to reputation bonus pool).
+
+**Disputes.** Either party may open a dispute before `ORDER_DELIVER` is submitted by
+writing an `ORDER_DISPUTE` entry. Dispute locks escrow pending governance resolution.
+The dispute panel is selected from registered verifiers. The winning party receives
+the escrowed amount; the losing party's stake is reduced proportionally. All resolved
+escrow flows to the appropriate party — nothing is burned.
+
+### M.5 Commerce Ledger Entry Types
+
+The following entry types constitute the complete on-chain surface area of the commerce
+layer. All entries are signed by the appropriate key (Active key for financial operations,
+Posting key for catalog operations and reputation votes) and subject to the same block
+inclusion, ordering, and Merkle commitment rules as any other ledger entry.
+
+| Entry Type | Signer | Description |
+|---|---|---|
+| `STORE_OPEN` | Active | Register a new store. Bonding curve fee applies. |
+| `STORE_UPDATE` | Active | Update store metadata, Tor address, or policy fields. |
+| `STORE_CLOSE` | Active | Delist store and initiate unbonding of store stake. |
+| `STORE_SHIPPING_LINK` | Active | Add a carrier shipping account to the store record. |
+| `STORE_SHIPPING_UNLINK` | Active | Remove a previously linked shipping account. |
+| `PRODUCT_CREATE` | Posting | Add a product to the store catalog. |
+| `PRODUCT_UPDATE` | Posting | Update price, inventory, description, or `delivery_cid`. |
+| `PRODUCT_DELIST` | Posting | Remove a product from the active catalog. |
+| `PRODUCT_QA_ASK` | Posting | Buyer submits a question on a product listing. |
+| `PRODUCT_QA_ANSWER` | Posting | Vendor answers a buyer question; appended to listing. |
+| `ORDER_PLACE` | Active | Place an order and lock buyer escrow. |
+| `ORDER_FULFILL` | Posting | Vendor marks order shipped; records tracking number. |
+| `ORDER_DELIVER` | Active | Buyer confirms receipt; releases escrow to vendor. |
+| `ORDER_CANCEL` | Active or protocol | Cancel order and return escrow to buyer. |
+| `ORDER_DISPUTE` | Active | Open a dispute; freezes escrow pending resolution. |
+| `REPUTATION_VOTE` | Posting | Post-deliver rating (1–5) attached to the order record. |
+
+Protocol-generated entries (`ORDER_CANCEL` on timeout, `ORDER_FULFILL` on auto-deliver)
+are written by the epoch finalization process and are not signed by any user key. They
+are identified in the block payload by `source: "protocol"` and are subject to the same
+deterministic replay rules as all other entries.
+
+---
+
 *BTCPC v3.0 — April 2026*
 *Shin Devlin — shin@btcpc.network*
 *License: AGPL-3.0*
