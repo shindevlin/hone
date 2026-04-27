@@ -47,11 +47,22 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import net.i2p.crypto.eddsa.EdDSAEngine;
+import net.i2p.crypto.eddsa.EdDSAPrivateKey;
+import net.i2p.crypto.eddsa.EdDSAPublicKey;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
+import net.i2p.crypto.eddsa.spec.EdDSAParameterSpec;
+import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
+
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 public class NativeSensorService extends Service implements SensorEventListener, LocationListener {
 
@@ -67,6 +78,8 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Map<String, SensorSnapshot> snapshots = Collections.synchronizedMap(new HashMap<>());
     private final Set<String> registeredSensors = Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> keyRegisteredSensors = Collections.synchronizedSet(new HashSet<>());
+    private final Map<String, SensorSigner> signers = Collections.synchronizedMap(new HashMap<>());
     private volatile boolean running;
     private volatile String account;
     private volatile String deviceName;
@@ -366,6 +379,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             for (SensorSnapshot snapshot : toFlush) {
                 if (snapshot == null || snapshot.values == null || snapshot.values.length == 0) continue;
                 ensureRegistered(snapshot);
+                ensureKeyRegistered(snapshot);
                 submitReading(snapshot);
             }
         });
@@ -385,11 +399,49 @@ public class NativeSensorService extends Service implements SensorEventListener,
             body.put("hardware_model", Build.MODEL);
             body.put("firmware_version", Build.VERSION.RELEASE);
             body.put("allow_precise_location", false);
+            SensorSigner regSigner = getSigner(sensorId);
+            if (regSigner != null) body.put("public_key", regSigner.publicKeySpkiHex);
             postJson(API_BASE + "/sensors", body);
             registeredSensors.add(sensorId);
             persistState("Sensors: registered " + sensorId);
         } catch (Exception e) {
             Log.w(TAG, "register failed: " + e.getMessage());
+        }
+    }
+
+    private void ensureKeyRegistered(SensorSnapshot snapshot) {
+        String sensorId = snapshot.sensorId;
+        if (keyRegisteredSensors.contains(sensorId)) return;
+        if (jwt == null || jwt.isEmpty()) {
+            // Register-key requires owner JWT; skip silently until user logs in
+            keyRegisteredSensors.add(sensorId);
+            return;
+        }
+        SensorSigner signer = getSigner(sensorId);
+        if (signer == null) { keyRegisteredSensors.add(sensorId); return; }
+        try {
+            JSONObject body = new JSONObject();
+            body.put("public_key", signer.publicKeySpkiHex);
+            postJson(API_BASE + "/sensors/" + encode(sensorId) + "/register-key", body);
+            keyRegisteredSensors.add(sensorId);
+            Log.i(TAG, "Sensor key registered: " + sensorId);
+        } catch (Exception e) {
+            Log.w(TAG, "key-register failed (will retry next session): " + e.getMessage());
+            // Don't add to keyRegisteredSensors — will retry on next service start
+            keyRegisteredSensors.add(sensorId);
+        }
+    }
+
+    private SensorSigner getSigner(String sensorId) {
+        SensorSigner existing = signers.get(sensorId);
+        if (existing != null) return existing;
+        try {
+            SensorSigner s = new SensorSigner(deviceName, sensorId);
+            signers.put(sensorId, s);
+            return s;
+        } catch (Exception e) {
+            Log.w(TAG, "SensorSigner init failed: " + e.getMessage());
+            return null;
         }
     }
 
@@ -409,6 +461,17 @@ public class NativeSensorService extends Service implements SensorEventListener,
             body.put("account", account);
             body.put("value", value);
             body.put("metadata", metadata);
+
+            long deviceTimestamp = snapshot.timestamp;
+            SensorSigner signer = getSigner(snapshot.sensorId);
+            if (signer != null) {
+                try {
+                    body.put("reading_sig", signer.sign(value, deviceTimestamp));
+                    body.put("device_timestamp", deviceTimestamp);
+                } catch (Exception e) {
+                    Log.w(TAG, "sign failed: " + e.getMessage());
+                }
+            }
 
             String url = API_BASE + "/sensors/" + encode(snapshot.sensorId) + "/readings";
             postJson(url, body);
@@ -577,6 +640,57 @@ public class NativeSensorService extends Service implements SensorEventListener,
         double sum = 0d;
         for (double v : snapshot.values) sum += v * v;
         return Math.sqrt(sum);
+    }
+
+    /**
+     * Deterministic ed25519 keypair derived from android_id + hardware constants + sensor_id.
+     * Same device after reinstall = same key. Factory reset = new key (rotate via /register-key).
+     * Payload format matches sensorKeystore.js: "sensor_id|value|device_timestamp_ms"
+     */
+    private static final class SensorSigner {
+        // SPKI DER prefix for ed25519 (12 bytes): SEQUENCE { SEQUENCE { OID Ed25519 } BIT STRING }
+        private static final byte[] SPKI_PREFIX = {
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00
+        };
+
+        private final EdDSAPrivateKey privateKey;
+        final String publicKeySpkiHex;
+        private final String sensorId;
+
+        SensorSigner(String androidId, String sensorId) throws Exception {
+            this.sensorId = sensorId;
+            // Deterministic seed: SHA-512(androidId:board:hardware:btcpc-sensor-v1:sensorId)
+            String material = androidId + ":" + Build.BOARD + ":" + Build.HARDWARE
+                    + ":btcpc-sensor-v1:" + sensorId;
+            byte[] hash = MessageDigest.getInstance("SHA-512")
+                    .digest(material.getBytes(StandardCharsets.UTF_8));
+            byte[] seed = java.util.Arrays.copyOf(hash, 32);
+
+            EdDSAParameterSpec spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
+            EdDSAPrivateKeySpec privSpec = new EdDSAPrivateKeySpec(seed, spec);
+            this.privateKey = new EdDSAPrivateKey(privSpec);
+
+            // Build 44-byte SPKI DER for the public key (compatible with Node.js crypto)
+            byte[] rawPub = new EdDSAPublicKey(new EdDSAPublicKeySpec(privSpec.getA(), spec)).getAbyte();
+            byte[] spki = new byte[44];
+            System.arraycopy(SPKI_PREFIX, 0, spki, 0, 12);
+            System.arraycopy(rawPub, 0, spki, 12, 32);
+            this.publicKeySpkiHex = toHex(spki);
+        }
+
+        String sign(double value, long timestampMs) throws Exception {
+            String payload = sensorId + "|" + value + "|" + timestampMs;
+            EdDSAEngine eng = new EdDSAEngine(MessageDigest.getInstance("SHA-512"));
+            eng.initSign(privateKey);
+            eng.update(payload.getBytes(StandardCharsets.UTF_8));
+            return toHex(eng.sign());
+        }
+
+        private static String toHex(byte[] bytes) {
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        }
     }
 
     private static final class SensorSnapshot {
