@@ -72,6 +72,39 @@
 - [ ] Featured stores and trending products (ranked by order volume and reputation)
 - [ ] Store analytics dashboard with real ledger data: actual revenue, order counts, repeat buyer rate
 - [ ] Seller verification badge — stake-weighted reputation threshold required to unlock badge
+- [ ] **Saved searches + price-drop alerts**: buyer saves a search query or wishlist item; on-chain price-change events trigger a notification (Telegram or in-app); no ML, pure query matching
+- [ ] **Price guide from completed orders**: for hardware categories, aggregate median/low/high of completed orders by `item_model` tag over the last 90 epochs and display as a price guide on listing pages (Reverb pattern)
+- [ ] **Follow sellers + buyer feed**: buyers follow seller accounts; new listings from followed sellers appear in a chronological feed endpoint (`GET /api/commerce/feed`) — social discovery without a recommendation engine
+- [ ] **Public wishlist**: buyer marks listings as wished; wishlist is public and queryable; seller can see who has wishlisted their products and target discount codes at them
+
+## Phase I2 — Listing & Checkout UX
+
+- [ ] **Pay-what-you-want with floor**: `min_price` + `suggested_price` fields on listings; buyer sees the suggested amount pre-filled but can raise it; floor is enforced on-chain at ORDER_PLACE (Gumroad/Bandcamp pattern) — particularly useful for AI model weights and guides
+- [ ] **Offer / counter-offer**: buyer submits `OFFER_PLACE` entry (signed, amount + product_id, expires at `created_epoch + 2880`); seller accepts (`OFFER_ACCEPT` → becomes ORDER_PLACE) or counters (`OFFER_COUNTER`); all offers are on-chain signed messages (eBay/Reverb/Depop pattern)
+- [ ] **Early Access listings**: `expected_delivery_epoch` field on listings; listing shows "Expected: Epoch ~N"; payment held in escrow; auto-refunded if seller misses delivery epoch by 4,800 epochs (Steam Early Access pattern)
+- [ ] **Tiered product listings**: single listing page with multiple price tiers (e.g., Basic / Pro / Source) each unlocking a different delivery CID; one ORDER_PLACE references the selected tier (Gumroad pattern — useful for quantized vs full-precision model weights)
+- [ ] **Bundle orders**: buyer adds multiple products from one seller, proposes a single total price; `BUNDLE_ORDER` entry links multiple product_ids with one payment; seller accepts or counters (Depop/Newegg pattern)
+- [ ] **Listing bump for visibility**: seller pays X dreams to `btcpc_recycle`; listing gets `bumped_until_epoch` field; marketplace sorts bumped listings above non-bumped in the same category (Reverb pattern)
+- [ ] **Condition taxonomy for hardware**: enforced condition tiers (New / Like New / Very Good / Good / Fair) with mandatory condition notes and minimum one photo per non-new listing; validated at PRODUCT_CREATE (Newegg/Reverb pattern)
+- [ ] **Technical spec table**: structured `specs: {}` JSON field on listings for hardware; buyer-facing comparison view for up to 4 listings side-by-side; no ML required (Newegg pattern)
+- [ ] **Deterministic license key for software**: on ORDER_FULFILL, generate `sha256(order_id + seller_posting_pubkey)` as a license key; included in ORDER_FULFILL entry; buyer can re-derive it from their order ID at any time — no key server (Gumroad pattern)
+- [ ] **Multi-image gallery**: listings support multiple image CIDs stored in BTCPC-FS; displayed as a swipeable gallery; minimum one image required for hardware listings (Depop pattern)
+- [ ] **Shop share page with Open Graph tags**: static `/shop/:username` page with og:title, og:image, og:description populated from seller's on-chain store data — one-tap share to any social platform with a preview card
+- [ ] **Tip / above-floor payment**: optional tip input at checkout for digital goods; buyer can pay more than the listing price; `tip_amount` recorded separately in ORDER_PLACE; goes to seller in full (Bandcamp pattern)
+
+## Phase I3 — Trust & Reputation
+
+- [ ] **Structured review sub-scores**: reviews record `{ value: N, quality: N, accuracy: N, speed: N }` alongside the single aggregate star; aggregate and per-dimension scores shown on store and product pages (Newegg Egg Rating pattern)
+- [ ] **Seller response to reviews**: seller may post one public reply to any review; stored as an append-only entry linked to the original REPUTATION_VOTE; visible on the product page (eBay pattern)
+- [ ] **Seller performance scorecard**: `late_fulfill_rate`, `dispute_rate`, `avg_fulfill_epochs` computed from the seller's on-chain order history and displayed on the store page — auditable metrics, not just stars (Amazon seller scorecard pattern)
+- [ ] **Purchase protection escrow pool**: 0.25% of every order total routes to a `btcpc_commerce_protection` account; funds used to compensate verified claims of non-delivery or significant-not-as-described; governed by staked arbiters (Etsy purchase protection pattern)
+- [ ] **Seller handling time commitment**: seller sets `handling_epochs` at the store level; per-listing overrides allowed; buyer-facing deadline ("Ships by epoch N") is computed and displayed; late fulfillment increments `late_fulfill_rate` on-chain (eBay handling time pattern)
+
+## Phase I4 — Live Commerce
+
+- [ ] **Epoch-clock auctions**: `AUCTION_OPEN` listing type with `auction_end_epoch`; all nodes see the same epoch clock so the countdown is trustless; `BID_PLACE` entries replace fixed-price ORDER_PLACE; highest bid at `auction_end_epoch` wins; losing bids auto-refunded (Whatnot/eBay pattern)
+- [ ] **Verifiable giveaway**: during a live sale, `GIVEAWAY_DRAW` entry uses the epoch block hash as randomness seed to select a winner from all registered participants — publicly auditable, no trust in the seller (Whatnot pattern)
+- [ ] **Pre-authorized live checkout**: buyer pre-signs an escrow lock up to amount N with a TTL; during a live sale event they can claim items without a per-purchase confirmation step; authorization expires at `auth_end_epoch` (Whatnot one-tap pattern)
 
 ## Phase J — Payments & Tokens
 
