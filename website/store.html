@@ -634,16 +634,17 @@
     </a>
 
     <div class="search-bar">
-      <select class="search-select">
-        <option>All</option>
-        <option>GPU &amp; Compute</option>
-        <option>LoRa &amp; Mesh</option>
-        <option>Digital Goods</option>
-        <option>Ham Radio</option>
-        <option>Storage</option>
+      <select class="search-select" id="search-select" onchange="filterProducts()">
+        <option value="">All</option>
+        <option value="GPU">GPU &amp; Compute</option>
+        <option value="LoRa">LoRa &amp; Mesh</option>
+        <option value="Digital">Digital Goods</option>
+        <option value="Ham">Ham Radio</option>
+        <option value="Storage">Storage</option>
       </select>
-      <input class="search-input" type="text" placeholder="Search TechSurplus products…" />
-      <button class="search-btn">🔍</button>
+      <input class="search-input" id="search-input" type="text" placeholder="Search BTCPC Market…"
+             onkeydown="if(event.key==='Enter')filterProducts()" />
+      <button class="search-btn" onclick="filterProducts()">🔍</button>
     </div>
 
     <div class="nav-right">
@@ -852,7 +853,7 @@
 
     <!-- TOOLBAR -->
     <div class="toolbar">
-      <div class="toolbar-results"><b id="result-count">8</b> results for <b>"TechSurplus"</b></div>
+      <div class="toolbar-results"><b id="result-count">8</b> results</div>
       <div class="toolbar-sort">
         Sort by:
         <select onchange="sortProducts(this.value)">
@@ -1354,6 +1355,15 @@ document.addEventListener('DOMContentLoaded', function() {
   updateNodeIndicator();
   updateAccountNav();
   initFlashCountdowns();
+  // Stamp data-title on static cards so filterProducts() can search them
+  document.querySelectorAll('#product-grid .product-card').forEach(function(card) {
+    if (!card.dataset.title) {
+      var t = card.querySelector('.product-title');
+      if (t) card.dataset.title = t.textContent;
+    }
+  });
+  // Try to load real products from the configured node
+  loadProducts();
 });
 
 // ── BUYER AUTH ───────────────────────────────────────────────────────
@@ -2052,6 +2062,148 @@ function handleFile(file) {
 document.getElementById('import-modal').addEventListener('click', function(e) {
   if (e.target === this) closeImport();
 });
+
+// ── SEARCH / FILTER ─────────────────────────────────────────────────
+function filterProducts() {
+  var q   = (document.getElementById('search-input').value || '').toLowerCase().trim();
+  var cat = (document.getElementById('search-select').value || '').toLowerCase();
+  var n = 0;
+  document.querySelectorAll('#product-grid .product-card').forEach(function(card) {
+    var title = (card.dataset.title || card.querySelector('.product-title')?.textContent || '').toLowerCase();
+    var desc  = (card.dataset.desc  || '').toLowerCase();
+    var cardCat = (card.dataset.cat || '').toLowerCase();
+
+    var matchQ   = !q   || title.includes(q) || desc.includes(q);
+    var matchCat = !cat || cardCat.includes(cat);
+    var show = matchQ && matchCat;
+    card.style.display = show ? '' : 'none';
+    if (show) n++;
+  });
+  document.getElementById('result-count').textContent = n;
+}
+
+// ── DYNAMIC PRODUCT LOADING ──────────────────────────────────────────
+var CAT_EMOJI = {
+  'gpu': '🖥️', 'compute': '🖥️', 'lora': '📡', 'mesh': '📡',
+  'digital': '🧠', 'radio': '📻', 'ham': '📻', 'storage': '💾',
+  'iot': '📶', 'default': '📦'
+};
+
+function catEmoji(categories) {
+  if (!categories || !categories.length) return '📦';
+  var c = categories[0].toLowerCase();
+  for (var k in CAT_EMOJI) { if (c.includes(k)) return CAT_EMOJI[k]; }
+  return '📦';
+}
+
+function catKey(categories) {
+  if (!categories || !categories.length) return 'other';
+  return categories[0].toLowerCase().split(' ')[0];
+}
+
+function effectivePrice(p) {
+  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  if (p.sale_price != null && p.sale_ends_epoch != null && p.sale_ends_epoch > epoch) return p.sale_price;
+  return p.price;
+}
+
+function buildCard(p) {
+  var key = p.product_id || (p.seller + '/' + p.slug);
+  var ep  = effectivePrice(p);
+  var hasSale = p.sale_price != null && p.sale_ends_epoch != null;
+  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var saleActive = hasSale && p.sale_ends_epoch > epoch;
+  var imgSrc = p.image_cid
+    ? (BTCPC_NODE + '/api/commerce/media/' + p.image_cid.replace('sha256:',''))
+    : null;
+
+  var badge = '';
+  if (saleActive) {
+    var pct = p.price > 0 ? Math.round((1 - p.sale_price / p.price) * 100) : 0;
+    badge = '<span class="deal-ribbon">-' + pct + '% Deal</span>';
+  } else if (p.auto_deliver) {
+    badge = '<span class="btcfs-ribbon">BTCPC-FS</span>';
+  }
+
+  var imgHtml = imgSrc
+    ? '<img src="' + imgSrc + '" style="width:100%;height:100%;object-fit:cover;border-radius:4px" loading="lazy" />'
+    : catEmoji(p.categories);
+
+  var invLine = p.inventory != null ? '<div class="sold-count">' + p.inventory + ' in stock</div>' : '';
+  var shipLine = p.auto_deliver
+    ? '<div class="shipping-line">Instant digital delivery</div>'
+    : '<div class="shipping-line">FREE delivery</div>';
+  var saleWas = saleActive ? '<div class="price-was">Was: <span style="text-decoration:line-through">₿PC ' + p.price + '</span></div>' : '';
+  var dealLabel = saleActive ? '<div class="price-deal">Limited time deal</div>' : '';
+  var saleTimer = saleActive ? '<div class="flash-countdown" data-sale-key="' + key + '"></div>' : '';
+
+  // Merge into PRODUCTS for drawer
+  PRODUCTS[key] = {
+    key: key, icon: catEmoji(p.categories), bg: '#f7f9fb',
+    title: p.title, seller: p.seller, productId: p.product_id,
+    price: ep, was: saleActive ? p.price : null,
+    stars: 4.5, reviews: 0,
+    inventory: p.inventory, digital: !!p.auto_deliver,
+    ship: p.auto_deliver ? 'Instant digital delivery via BTCPC-FS' : 'FREE delivery',
+    desc: p.description || '', token: p.token || 'BTCPC',
+    questions: (p.questions || []).map(function(q) { return {
+      qa_id: q.qa_id, asker: q.asker, question: q.question, answer: q.answer
+    }; }),
+    saleEndsEpoch: p.sale_ends_epoch || null,
+    reviews_data: []
+  };
+
+  var safeTitle = p.title.replace(/'/g, "\\'").slice(0, 40);
+  var card = document.createElement('div');
+  card.className = 'product-card';
+  card.dataset.price  = ep;
+  card.dataset.rating = '4.5';
+  card.dataset.epoch  = p.created_epoch || epoch;
+  card.dataset.cat    = catKey(p.categories);
+  card.dataset.title  = p.title;
+  card.dataset.desc   = p.description || '';
+  card.setAttribute('onclick', "openProduct('" + key.replace(/'/g,"\\'") + "')");
+  card.innerHTML =
+    '<div class="product-img" style="background:#f0f4f8">' + imgHtml + badge + '</div>' +
+    '<div class="product-body">' +
+      '<div class="product-title">' + p.title + '</div>' +
+      '<div class="product-stars"><span class="stars">★★★★½</span><span class="review-count">0</span></div>' +
+      '<div class="product-price-row">' +
+        dealLabel +
+        '<div class="price-main"><span class="sym">₿PC </span>' + ep + '</div>' +
+        saleWas +
+      '</div>' +
+      shipLine + invLine + saleTimer +
+    '</div>' +
+    '<div class="product-footer">' +
+      '<button class="btn-cart" onclick="addToCart(event,\'' + safeTitle + '\',' + ep + ',\'' + catEmoji(p.categories) + '\',\'' + key.replace(/'/g,"\\'") + '\');event.stopPropagation()">Add to Cart</button>' +
+      '<button class="btn-buy" onclick="openProduct(\'' + key.replace(/'/g,"\\'") + '\',true);event.stopPropagation()">Buy Now</button>' +
+      '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
+    '</div>';
+  return card;
+}
+
+async function loadProducts() {
+  if (!BTCPC_NODE) return;
+  var grid = document.getElementById('product-grid');
+  try {
+    var r = await fetch(BTCPC_NODE + '/api/commerce/products?limit=100');
+    if (!r.ok) return;
+    var data = await r.json();
+    var products = data.products || [];
+    if (!products.length) return;
+
+    // Replace static cards with API cards
+    grid.innerHTML = '';
+    products.forEach(function(p) { grid.appendChild(buildCard(p)); });
+    document.getElementById('result-count').textContent = products.length;
+
+    // Re-init flash countdowns for any sale items
+    initFlashCountdowns();
+  } catch(e) {
+    // Network error — static demo cards stay
+  }
+}
 
 // ── PRODUCT CATALOG ─────────────────────────────────────────────────
 var _nowEpoch = Math.floor((Date.now() - 1776236400000) / 30000);
