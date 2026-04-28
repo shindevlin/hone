@@ -8,7 +8,19 @@
  * API keys stay local -- never touch the chain.
  */
 
-const DEFAULT_MODEL = "qwen3.5:27b";
+// Prefer the largest coding model available on the network.
+// When beastly (or any miner with a 27b+ model) is connected, P2P routing
+// will deliver the job there automatically. Falls back through smaller models.
+const CODING_MODEL_PREFERENCE = [
+  "gemma3:27b",
+  "gemma3:12b",
+  "qwen2.5-coder:14b",
+  "qwen2.5-coder:7b",
+  "qwen3.5:27b",
+  "gemma3:4b",
+  "gemma3:1b",
+];
+const DEFAULT_MODEL = CODING_MODEL_PREFERENCE[0]; // gemma3:27b
 
 // ---------------------------------------------------------------------------
 // Provider definitions
@@ -17,13 +29,15 @@ const DEFAULT_MODEL = "qwen3.5:27b";
 const providers = {
 
   // ---- BTCPC native (local node running OpenAI-compatible API) ------------
+  // Uses the relay key so local tools can submit without a user JWT.
+  // Port is read from env at startup — matches BTCPC_API_PORT in .env.
   btcpc: {
     name: "btcpc",
-    baseUrl: "http://localhost:3000/v1/chat/completions",
+    baseUrl: `http://localhost:${process.env.BTCPC_API_PORT || 4242}/v1/chat/completions`,
     getHeaders() {
       return {
         "Content-Type": "application/json",
-        Authorization: "Bearer btcpc-local"
+        Authorization: `Bearer ${process.env.BTCPC_RELAY_API_KEY || "btcpc-local"}`
       };
     },
     formatRequest(prompt, model, options) {
@@ -221,5 +235,6 @@ module.exports = {
   getProvider: getProvider,
   listProviders: listProviders,
   DEFAULT_MODEL: DEFAULT_MODEL,
+  CODING_MODEL_PREFERENCE: CODING_MODEL_PREFERENCE,
   providers: providers
 };

@@ -27,7 +27,7 @@ const {
 const { EPOCH_DURATION_MS, DIFFICULTY_ADJUSTMENT_INTERVAL } = require("../src/services/epochManager");
 const keyManager = require("../src/wallet/keyManager");
 const accountManager = require("../src/wallet/accountManager");
-const { getProvider, listProviders, DEFAULT_MODEL } = require("../src/inference/providers");
+const { getProvider, listProviders, DEFAULT_MODEL, CODING_MODEL_PREFERENCE } = require("../src/inference/providers");
 const axios = require("axios");
 const readline = require("readline");
 const fs = require("fs");
@@ -1716,8 +1716,24 @@ program
     try {
       const providerName = opts.provider;
       const provider = getProvider(providerName);
-      const model = opts.model || (providerName === "btcpc" ? DEFAULT_MODEL : undefined);
       const isExternal = providerName !== "btcpc";
+
+      // For the native btcpc provider, auto-select the best coding model available
+      // on the network unless the user explicitly chose one.
+      let model = opts.model;
+      if (!model && providerName === "btcpc") {
+        try {
+          const apiPort = process.env.BTCPC_API_PORT || 4242;
+          const netResp = await axios.get(
+            `http://localhost:${apiPort}/v1/network/models`,
+            { timeout: 5000 }
+          );
+          const available = (netResp.data.available || []).map(m => m.model);
+          model = CODING_MODEL_PREFERENCE.find(m => available.includes(m)) || DEFAULT_MODEL;
+        } catch (_) {
+          model = DEFAULT_MODEL;
+        }
+      }
 
       const options = {
         temperature: opts.temperature,
