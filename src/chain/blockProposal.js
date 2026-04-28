@@ -32,9 +32,34 @@ var STORAGE_SCORE_PER_HOST  = 2000;
 var SENSOR_SCORE_PER_SENSOR = 500;
 var GATEWAY_SCORE_PER_GW    = 1500;
 
+// Scarcity: below this node count, per-node score is multiplied to attract participation
+var SCARCITY_THRESHOLD  = 3;
+var SCARCITY_MULTIPLIER = 2.5;
+
+// Testnet carveout — 0.1% off the top for nodes running the public test network
+var TESTNET_FRACTION = 0.001;
+
+// Floors: minimum share of the distributable pool per active role
+var FLOOR_MINER    = 0.20;
+var FLOOR_VERIFIER = 0.03;
+var FLOOR_CLOCK    = 0.05;
+var FLOOR_STORAGE  = 0.03;
+
+// Caps: maximum share per role
+var CAP_MINER    = 0.75;
+var CAP_VERIFIER = 0.20;
+var CAP_CLOCK    = 0.15;
+var CAP_STORAGE  = 0.20;
+var CAP_IOT      = 0.15;
+
 // Idle-epoch infrastructure floor (when NO work exists across all roles)
 var IDLE_VERIFIER_PCT = 0.01;
 var IDLE_CLOCK_PCT    = 0.01;
+
+function scarcityScore(count, basePerNode) {
+  if (count === 0) return 0;
+  return count * (count < SCARCITY_THRESHOLD ? basePerNode * SCARCITY_MULTIPLIER : basePerNode);
+}
 
 // Staking thresholds
 var _csEnv = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE);
@@ -162,6 +187,12 @@ function buildProposal(options) {
   activeVerifiers.sort();
   activeClocks.sort();
 
+  // ── Testnet nodes ─────────────────────────────────────────────────────
+  var activeTestnetNodes = [];
+  try {
+    activeTestnetNodes = protocol.getActiveTestnetNodes(epochNumber).filter(isValidAccount);
+  } catch (_) {}
+
   // ── Gather infrastructure participants ────────────────────────────────
   var activeStorageHosts = [];
   try {
@@ -218,41 +249,76 @@ function buildProposal(options) {
     totalWeightedWork += ww;
   }
 
-  // ── Compute work scores for all roles ─────────────────────────────────
+  // ── 1. Testnet carveout (0.1%) ─────────────────────────────────────────
+  var testnetPool   = roundAmount(blockReward * TESTNET_FRACTION);
+  var distributable = roundAmount(blockReward - testnetPool);
+
+  if (activeTestnetNodes.length > 0) {
+    var tnShare = roundAmount(testnetPool / activeTestnetNodes.length);
+    for (var tn of activeTestnetNodes) {
+      rewards.push({ to: tn, amount: tnShare, type: "testnet" });
+    }
+  } else {
+    rewards.push({ to: "btcpc_recycle", amount: testnetPool, type: "recycle" });
+  }
+
+  // ── 2. Work scores with scarcity premium ──────────────────────────────
   var minerScore    = totalWeightedWork;
-  var clockScore    = activeClocks.length    * CLOCK_SCORE_PER_NODE;
-  var verifierScore = activeVerifiers.length * VERIFIER_SCORE_PER_NODE;
-  var storageScore  = activeStorageHosts.length * STORAGE_SCORE_PER_HOST;
-  var sensorScore   = activeSensors.length   * SENSOR_SCORE_PER_SENSOR
-                    + activeGateways.length  * GATEWAY_SCORE_PER_GW;
+  var clockScore    = scarcityScore(activeClocks.length,    CLOCK_SCORE_PER_NODE);
+  var verifierScore = scarcityScore(activeVerifiers.length, VERIFIER_SCORE_PER_NODE);
+  var storageScore  = scarcityScore(activeStorageHosts.length, STORAGE_SCORE_PER_HOST);
+  var sensorScore   = activeSensors.length  * SENSOR_SCORE_PER_SENSOR
+                    + activeGateways.length * GATEWAY_SCORE_PER_GW;
   var totalScore    = minerScore + clockScore + verifierScore + storageScore + sensorScore;
 
   if (totalScore === 0) {
-    // ── Truly idle: small infrastructure floor, rest unminted ──
+    // ── Truly idle: small infrastructure floor, rest → recycle ────────
     if (activeVerifiers.length > 0) {
-      var vShare = roundAmount(blockReward * IDLE_VERIFIER_PCT / activeVerifiers.length);
+      var vShare = roundAmount(distributable * IDLE_VERIFIER_PCT / activeVerifiers.length);
       for (var v of activeVerifiers) {
         rewards.push({ to: v, amount: vShare, type: "verifier" });
       }
     }
     if (activeClocks.length > 0) {
-      var cShare = roundAmount(blockReward * IDLE_CLOCK_PCT / activeClocks.length);
+      var cShare = roundAmount(distributable * IDLE_CLOCK_PCT / activeClocks.length);
       for (var c of activeClocks) {
         var existing = rewards.find(function (r) { return r.to === c; });
-        if (existing) {
-          existing.amount = roundAmount(existing.amount + cShare);
-        } else {
-          rewards.push({ to: c, amount: cShare, type: "clock" });
-        }
+        if (existing) existing.amount = roundAmount(existing.amount + cShare);
+        else rewards.push({ to: c, amount: cShare, type: "clock" });
       }
     }
   } else {
-    // ── Dynamic split: each role earns proportional to its work score ──
-    var minerPool    = roundAmount(blockReward * (minerScore    / totalScore));
-    var verifierPool = roundAmount(blockReward * (verifierScore / totalScore));
-    var clockPool    = roundAmount(blockReward * (clockScore    / totalScore));
-    var storagePool  = roundAmount(blockReward * (storageScore  / totalScore));
-    var iotPool      = roundAmount(blockReward * (sensorScore   / totalScore));
+    // ── 3. Raw fractions → floors + caps → renormalize ────────────────
+    var fracs = {
+      miner:    minerScore    / totalScore,
+      verifier: verifierScore / totalScore,
+      clock:    clockScore    / totalScore,
+      storage:  storageScore  / totalScore,
+      iot:      sensorScore   / totalScore,
+    };
+
+    // Clamp: apply floor only when the role has participants
+    fracs.miner    = Math.max(miners.length > 0 ? FLOOR_MINER : 0,
+                      Math.min(CAP_MINER,    fracs.miner));
+    fracs.verifier = Math.max(activeVerifiers.length > 0 ? FLOOR_VERIFIER : 0,
+                      Math.min(CAP_VERIFIER, fracs.verifier));
+    fracs.clock    = Math.max(activeClocks.length > 0 ? FLOOR_CLOCK : 0,
+                      Math.min(CAP_CLOCK,    fracs.clock));
+    fracs.storage  = Math.max(activeStorageHosts.length > 0 ? FLOOR_STORAGE : 0,
+                      Math.min(CAP_STORAGE,  fracs.storage));
+    fracs.iot      = Math.max(0, Math.min(CAP_IOT, fracs.iot));
+
+    // Renormalize
+    var fracSum = fracs.miner + fracs.verifier + fracs.clock + fracs.storage + fracs.iot;
+    if (fracSum > 0) {
+      for (var rk of Object.keys(fracs)) fracs[rk] = fracs[rk] / fracSum;
+    }
+
+    var minerPool    = roundAmount(distributable * fracs.miner);
+    var verifierPool = roundAmount(distributable * fracs.verifier);
+    var clockPool    = roundAmount(distributable * fracs.clock);
+    var storagePool  = roundAmount(distributable * fracs.storage);
+    var iotPool      = roundAmount(distributable * fracs.iot);
 
     // Miners — proportional to stake-weighted work
     if (minerScore > 0) {
@@ -277,11 +343,8 @@ function buildProposal(options) {
       var cEqual = roundAmount(clockPool / activeClocks.length);
       for (var clk of activeClocks) {
         var existing2 = rewards.find(function (r) { return r.to === clk; });
-        if (existing2) {
-          existing2.amount = roundAmount(existing2.amount + cEqual);
-        } else {
-          rewards.push({ to: clk, amount: cEqual, type: "clock" });
-        }
+        if (existing2) existing2.amount = roundAmount(existing2.amount + cEqual);
+        else rewards.push({ to: clk, amount: cEqual, type: "clock" });
       }
     }
 
@@ -290,15 +353,12 @@ function buildProposal(options) {
       var sEqual = roundAmount(storagePool / activeStorageHosts.length);
       for (var sh of activeStorageHosts) {
         var existingS = rewards.find(function (r) { return r.to === sh; });
-        if (existingS) {
-          existingS.amount = roundAmount(existingS.amount + sEqual);
-        } else {
-          rewards.push({ to: sh, amount: sEqual, type: "storage" });
-        }
+        if (existingS) existingS.amount = roundAmount(existingS.amount + sEqual);
+        else rewards.push({ to: sh, amount: sEqual, type: "storage" });
       }
     }
 
-    // IoT — split between sensors (by count) and gateways (by count)
+    // IoT — proportional by sub-role score
     if (sensorScore > 0) {
       var sensorOnlyScore  = activeSensors.length  * SENSOR_SCORE_PER_SENSOR;
       var gatewayOnlyScore = activeGateways.length * GATEWAY_SCORE_PER_GW;
@@ -309,22 +369,16 @@ function buildProposal(options) {
         var sensorEqual = roundAmount(sensorSubPool / activeSensors.length);
         for (var so of activeSensors) {
           var existingIot = rewards.find(function (r) { return r.to === so; });
-          if (existingIot) {
-            existingIot.amount = roundAmount(existingIot.amount + sensorEqual);
-          } else {
-            rewards.push({ to: so, amount: sensorEqual, type: "iot_sensor" });
-          }
+          if (existingIot) existingIot.amount = roundAmount(existingIot.amount + sensorEqual);
+          else rewards.push({ to: so, amount: sensorEqual, type: "iot_sensor" });
         }
       }
       if (activeGateways.length > 0) {
         var gwEqual = roundAmount(gatewaySubPool / activeGateways.length);
         for (var gw of activeGateways) {
           var existingGw = rewards.find(function (r) { return r.to === gw; });
-          if (existingGw) {
-            existingGw.amount = roundAmount(existingGw.amount + gwEqual);
-          } else {
-            rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
-          }
+          if (existingGw) existingGw.amount = roundAmount(existingGw.amount + gwEqual);
+          else rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
         }
       }
     }

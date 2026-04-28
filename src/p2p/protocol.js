@@ -138,6 +138,8 @@ const MESSAGE_TYPES = {
   // Peer relay — nodes announce their known peers so the network
   // doesn't depend on a single Cloudflare relay for discovery
   PEER_ANNOUNCE: "PEER_ANNOUNCE",
+  // Testnet heartbeat — nodes running the public test network for developers
+  TESTNET_HEARTBEAT: "TESTNET_HEARTBEAT",
   // Shard inference (Mode B — pipeline)
   SHARD_REGISTER: "SHARD_REGISTER",      // node announces a model layer shard
   SHARD_GROUP_FORM: "SHARD_GROUP_FORM",  // broadcast when a full group is assembled
@@ -434,6 +436,9 @@ function handleMessage(peer, msg, ctx) {
       break;
     case MESSAGE_TYPES.CLOCK_HEARTBEAT:
       handleClockHeartbeat(peer, msg, ctx);
+      break;
+    case MESSAGE_TYPES.TESTNET_HEARTBEAT:
+      handleTestnetHeartbeat(peer, msg, ctx);
       break;
     case MESSAGE_TYPES.VERIFY_REQUEST:
       handleVerifyRequest(peer, msg, ctx);
@@ -2161,6 +2166,57 @@ function getActiveClockNodes(epochNumber) {
   return Array.from(union);
 }
 
+// ---------------------------------------------------------------------------
+// Testnet node tracking — nodes running the public test network
+// ---------------------------------------------------------------------------
+
+var testnetNodesByEpoch = new Map();
+var _currentTestnetEpoch = -1;
+
+function recordTestnetNode(account, epochNumber) {
+  if (!epochNumber || epochNumber < 0 || !account) return;
+  if (!testnetNodesByEpoch.has(epochNumber)) {
+    testnetNodesByEpoch.set(epochNumber, new Set());
+  }
+  testnetNodesByEpoch.get(epochNumber).add(account);
+  if (epochNumber > _currentTestnetEpoch) {
+    _currentTestnetEpoch = epochNumber;
+    for (var key of testnetNodesByEpoch.keys()) {
+      if (key < epochNumber - 20) testnetNodesByEpoch.delete(key);
+    }
+  }
+}
+
+function getActiveTestnetNodes(epochNumber) {
+  var WINDOW = 15;
+  var union = new Set();
+  for (var i = 0; i <= WINDOW; i++) {
+    var nodes = testnetNodesByEpoch.get(epochNumber - i);
+    if (nodes) for (var n of nodes) union.add(n);
+  }
+  return Array.from(union);
+}
+
+/**
+ * TESTNET_HEARTBEAT — node announces it is running the public test network.
+ */
+function handleTestnetHeartbeat(peer, msg, ctx) {
+  var data = msg.data || {};
+  var account = data.account || msg.nodeId;
+  if (!account) return;
+
+  var GENESIS_TS = 1776236400000;
+  var EPOCH_MS = 30000;
+  var timeDerivedEpoch = Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
+  var fileEpoch = Math.max(_currentEpochCache > 0 ? _currentEpochCache : 0, timeDerivedEpoch);
+
+  console.log("[BTCPC P2P] TESTNET_HEARTBEAT from " + account + " (filing under epoch " + fileEpoch + ")");
+  recordTestnetNode(account, fileEpoch);
+  ctx.broadcast(msg, peer.address);
+}
+
+// ---------------------------------------------------------------------------
+
 /**
  * CLOCK_HEARTBEAT — clock node announces it's alive.
  */
@@ -2499,6 +2555,8 @@ module.exports = {
   recordNodeActivity,
   getActiveClockNodes,
   getHeartbeatWitnesses,
+  getActiveTestnetNodes,
+  recordTestnetNode,
   getActiveVerifiers,
   getVerifiedMiners,
   recordMinerWork,

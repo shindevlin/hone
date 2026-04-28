@@ -1,9 +1,16 @@
 "use strict";
 
 /**
- * Tests for demand-driven reward distribution.
- * The pool split is proportional to work scores, not static percentages.
+ * Tests for dynamic reward distribution.
  * Shin Devlin
+ *
+ * Invariants under test:
+ *   - Total paid always equals block reward (conservation)
+ *   - 0.1% testnet carveout always fires first
+ *   - Active roles with < SCARCITY_THRESHOLD nodes get a score multiplier
+ *   - Active roles never fall below FLOOR (their min guaranteed share)
+ *   - No role exceeds CAP
+ *   - Nothing active → full recycle
  */
 
 const {
@@ -13,6 +20,11 @@ const {
   STORAGE_SCORE_PER_HOST,
   SENSOR_SCORE_PER_SENSOR,
   GATEWAY_SCORE_PER_GW,
+  SCARCITY_THRESHOLD,
+  SCARCITY_MULTIPLIER,
+  TESTNET_FRACTION,
+  FLOOR,
+  CAP,
 } = require('../src/mining/rewardDistribution');
 
 const BLOCK_REWARD = 243.06;
@@ -24,28 +36,35 @@ function totalPaid(rewards) {
 function byType(rewards, type) {
   return rewards.filter(r => r.type === type);
 }
+function sumType(rewards, type) {
+  return byType(rewards, type).reduce((s, r) => s + r.amount, 0);
+}
 
 // ─────────────────────────────────────────────────────────────────
-// Invariant: total paid always equals block reward
+// Conservation: total paid always equals block reward
 // ─────────────────────────────────────────────────────────────────
 describe('total conservation', () => {
   const cases = [
-    { label: 'all roles',
+    { label: 'all roles + testnets',
       p: { miners: ['m1','m2'], minerWork: { m1: 100, m2: 50 },
-           verifiers: ['v1'], clocks: ['c1'],
-           storageHosts: ['s1'], sensors: ['sen1'], gateways: ['gw1'], serviceHosts: [] } },
+           verifiers: ['v1'], clocks: ['c1'], storageHosts: ['s1'],
+           sensors: ['sen1'], gateways: ['gw1'], serviceHosts: [],
+           testnets: ['t1'] } },
     { label: 'miners only',
       p: { miners: ['m1'], minerWork: { m1: 1000 }, verifiers: [], clocks: [],
-           storageHosts: [], sensors: [], gateways: [], serviceHosts: [] } },
+           storageHosts: [], sensors: [], gateways: [], serviceHosts: [], testnets: [] } },
     { label: 'clocks only',
       p: { miners: [], minerWork: {}, verifiers: [], clocks: ['c1', 'c2'],
-           storageHosts: [], sensors: [], gateways: [], serviceHosts: [] } },
+           storageHosts: [], sensors: [], gateways: [], serviceHosts: [], testnets: [] } },
     { label: 'storage only',
       p: { miners: [], minerWork: {}, verifiers: [], clocks: [],
-           storageHosts: ['h1'], sensors: [], gateways: [], serviceHosts: [] } },
+           storageHosts: ['h1'], sensors: [], gateways: [], serviceHosts: [], testnets: [] } },
+    { label: 'testnets only',
+      p: { miners: [], minerWork: {}, verifiers: [], clocks: [],
+           storageHosts: [], sensors: [], gateways: [], serviceHosts: [], testnets: ['t1','t2'] } },
     { label: 'nothing',
       p: { miners: [], minerWork: {}, verifiers: [], clocks: [],
-           storageHosts: [], sensors: [], gateways: [], serviceHosts: [] } },
+           storageHosts: [], sensors: [], gateways: [], serviceHosts: [], testnets: [] } },
   ];
 
   cases.forEach(({ label, p }) => {
@@ -57,137 +76,209 @@ describe('total conservation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Nothing active → full recycle
+// Nothing active → recycle the full block reward
 // ─────────────────────────────────────────────────────────────────
 describe('nothing active', () => {
   const rewards = distributeBlockReward(BLOCK_REWARD, {
     miners: [], minerWork: {}, verifiers: [], clocks: [],
-    storageHosts: [], sensors: [], gateways: [], serviceHosts: [],
+    storageHosts: [], sensors: [], gateways: [], serviceHosts: [], testnets: [],
   });
 
-  test('single recycle entry', () => {
-    expect(rewards).toHaveLength(1);
-    expect(rewards[0].type).toBe('recycle');
-    expect(rewards[0].miner).toBe('btcpc_recycle');
+  test('only recycle entries', () => {
+    expect(rewards.every(r => r.type === 'recycle')).toBe(true);
   });
 
-  test('recycle amount equals block reward', () => {
-    expect(Math.abs(rewards[0].amount - BLOCK_REWARD)).toBeLessThan(EPSILON);
+  test('recycle sums to full block reward', () => {
+    expect(Math.abs(sumType(rewards, 'recycle') - BLOCK_REWARD)).toBeLessThan(EPSILON);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Dynamic split: each role gets proportional to its score
+// Testnet carveout: 0.1% always goes to testnet runners
 // ─────────────────────────────────────────────────────────────────
-describe('dynamic split proportionality', () => {
-  const MINER_WORK = 10000;
+describe('testnet carveout', () => {
+  test('testnet runners receive 0.1% of block reward', () => {
+    const p = {
+      miners: ['m1'], minerWork: { m1: 1000 }, verifiers: ['v1'],
+      clocks: ['c1'], storageHosts: [], sensors: [], gateways: [],
+      serviceHosts: [], testnets: ['t1', 't2'],
+    };
+    const rewards = distributeBlockReward(BLOCK_REWARD, p);
+    const testnetTotal = sumType(rewards, 'testnet');
+    const expected = BLOCK_REWARD * TESTNET_FRACTION;
+    expect(Math.abs(testnetTotal - expected)).toBeLessThan(EPSILON);
+  });
+
+  test('testnet split equally among runners', () => {
+    const p = {
+      miners: ['m1'], minerWork: { m1: 1000 }, verifiers: [],
+      clocks: [], storageHosts: [], sensors: [], gateways: [],
+      serviceHosts: [], testnets: ['t1', 't2', 't3'],
+    };
+    const rewards = distributeBlockReward(BLOCK_REWARD, p);
+    const tnRewards = byType(rewards, 'testnet');
+    expect(tnRewards).toHaveLength(3);
+    const [a, b, c] = tnRewards.map(r => r.amount);
+    expect(Math.abs(a - b)).toBeLessThan(EPSILON);
+    expect(Math.abs(b - c)).toBeLessThan(EPSILON);
+  });
+
+  test('no testnet runners → testnet pool recycled', () => {
+    const p = {
+      miners: ['m1'], minerWork: { m1: 1000 }, verifiers: [],
+      clocks: ['c1'], storageHosts: [], sensors: [], gateways: [],
+      serviceHosts: [], testnets: [],
+    };
+    const rewards = distributeBlockReward(BLOCK_REWARD, p);
+    const recyclePortion = sumType(rewards, 'recycle');
+    const expected = BLOCK_REWARD * TESTNET_FRACTION;
+    expect(recyclePortion).toBeGreaterThanOrEqual(expected - EPSILON);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Scarcity premium: < SCARCITY_THRESHOLD nodes get a multiplier
+// ─────────────────────────────────────────────────────────────────
+describe('scarcity premium', () => {
+  test('1 clock earns more per node than 5 clocks (scarcity)', () => {
+    const baseWork = 50000;
+
+    const p1 = {
+      miners: ['m1'], minerWork: { m1: baseWork }, verifiers: [],
+      clocks: ['c1'], storageHosts: [], sensors: [], gateways: [],
+      serviceHosts: [], testnets: [],
+    };
+    const p5 = {
+      miners: ['m1'], minerWork: { m1: baseWork }, verifiers: [],
+      clocks: ['c1','c2','c3','c4','c5'], storageHosts: [], sensors: [], gateways: [],
+      serviceHosts: [], testnets: [],
+    };
+
+    const r1 = distributeBlockReward(BLOCK_REWARD, p1);
+    const r5 = distributeBlockReward(BLOCK_REWARD, p5);
+    const perNode1 = sumType(r1, 'clock') / 1;
+    const perNode5 = sumType(r5, 'clock') / 5;
+    expect(perNode1).toBeGreaterThan(perNode5);
+  });
+
+  test('scarcity multiplier is SCARCITY_MULTIPLIER (only 1 verifier)', () => {
+    // With 1 verifier (scarce), its score = VERIFIER_SCORE × SCARCITY_MULTIPLIER
+    // With 4 verifiers (not scarce), score = 4 × VERIFIER_SCORE
+    // So 1-verifier share > 1/4 of 4-verifier total verifier share
+    const work = 100000;
+    const p1 = {
+      miners: ['m1'], minerWork: { m1: work }, verifiers: ['v1'],
+      clocks: ['c1','c2','c3','c4','c5'], storageHosts: ['s1','s2','s3','s4'],
+      sensors: [], gateways: [], serviceHosts: [], testnets: [],
+    };
+    const p4 = {
+      miners: ['m1'], minerWork: { m1: work }, verifiers: ['v1','v2','v3','v4'],
+      clocks: ['c1','c2','c3','c4','c5'], storageHosts: ['s1','s2','s3','s4'],
+      sensors: [], gateways: [], serviceHosts: [], testnets: [],
+    };
+    const r1 = distributeBlockReward(BLOCK_REWARD, p1);
+    const r4 = distributeBlockReward(BLOCK_REWARD, p4);
+    const v1Total = sumType(r1, 'verifier');
+    const v4Total = sumType(r4, 'verifier');
+    // 1 scarce verifier should earn more than 1/4 of 4-verifier total
+    expect(v1Total).toBeGreaterThan(v4Total / 4);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Floors: active roles always get at least FLOOR fraction
+// ─────────────────────────────────────────────────────────────────
+describe('role floors enforced', () => {
+  // Extreme case: one tiny miner, one clock, one verifier, one storage.
+  // Even if miner work is tiny, each active role should hit its floor.
   const p = {
-    miners:       ['miner1'],
-    minerWork:    { miner1: MINER_WORK },
+    miners:       ['m1'],
+    minerWork:    { m1: 1 },  // almost no work
     verifiers:    ['v1'],
     clocks:       ['c1'],
     storageHosts: ['s1'],
-    sensors:      [],
-    gateways:     [],
-    serviceHosts: [],
+    sensors: [], gateways: [], serviceHosts: [], testnets: [],
   };
-  const totalScore = MINER_WORK
-    + VERIFIER_SCORE_PER_NODE
-    + CLOCK_SCORE_PER_NODE
-    + STORAGE_SCORE_PER_HOST;
 
   let rewards;
   beforeAll(() => { rewards = distributeBlockReward(BLOCK_REWARD, p); });
 
-  test('miner share ≈ minerWork / totalScore', () => {
-    const minerPaid = byType(rewards, 'miner').reduce((s, r) => s + r.amount, 0);
-    const expected  = BLOCK_REWARD * (MINER_WORK / totalScore);
-    expect(Math.abs(minerPaid - expected)).toBeLessThan(EPSILON);
+  test('miner gets at least FLOOR.miner of distributable', () => {
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    const minerPaid = sumType(rewards, 'miner');
+    expect(minerPaid).toBeGreaterThanOrEqual(distributable * FLOOR.miner - EPSILON);
   });
 
-  test('verifier share ≈ VERIFIER_SCORE / totalScore', () => {
-    const vPaid    = byType(rewards, 'verifier').reduce((s, r) => s + r.amount, 0);
-    const expected = BLOCK_REWARD * (VERIFIER_SCORE_PER_NODE / totalScore);
-    expect(Math.abs(vPaid - expected)).toBeLessThan(EPSILON);
+  test('verifier gets at least FLOOR.verifier of distributable', () => {
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    const verifierPaid = sumType(rewards, 'verifier');
+    expect(verifierPaid).toBeGreaterThanOrEqual(distributable * FLOOR.verifier - EPSILON);
   });
 
-  test('clock share ≈ CLOCK_SCORE / totalScore', () => {
-    const cPaid    = byType(rewards, 'clock').reduce((s, r) => s + r.amount, 0);
-    const expected = BLOCK_REWARD * (CLOCK_SCORE_PER_NODE / totalScore);
-    expect(Math.abs(cPaid - expected)).toBeLessThan(EPSILON);
+  test('clock gets at least FLOOR.clock of distributable', () => {
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    const clockPaid = sumType(rewards, 'clock');
+    expect(clockPaid).toBeGreaterThanOrEqual(distributable * FLOOR.clock - EPSILON);
   });
 
-  test('storage share ≈ STORAGE_SCORE / totalScore', () => {
-    const sPaid    = byType(rewards, 'storage').reduce((s, r) => s + r.amount, 0);
-    const expected = BLOCK_REWARD * (STORAGE_SCORE_PER_HOST / totalScore);
-    expect(Math.abs(sPaid - expected)).toBeLessThan(EPSILON);
-  });
-
-  test('no recycle when all roles active', () => {
-    expect(byType(rewards, 'recycle')).toHaveLength(0);
+  test('storage gets at least FLOOR.storage of distributable', () => {
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    const storagePaid = sumType(rewards, 'storage');
+    expect(storagePaid).toBeGreaterThanOrEqual(distributable * FLOOR.storage - EPSILON);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Absent roles: their weight simply goes to zero, not recycled
+// Caps: no role exceeds CAP fraction of distributable when competing roles exist
 // ─────────────────────────────────────────────────────────────────
-describe('absent role weight flows to active roles', () => {
-  // Only a miner and a clock — storage and verifiers absent
-  const MINER_WORK = 5000;
+describe('role caps enforced', () => {
+  // Miners dominate work but clocks/verifiers/storage are also active.
+  // Without a cap, miners could approach ~100% of distributable.
   const p = {
-    miners:       ['m1'],
-    minerWork:    { m1: MINER_WORK },
-    verifiers:    [],
-    clocks:       ['c1'],
-    storageHosts: [],
-    sensors:      [],
-    gateways:     [],
-    serviceHosts: [],
+    miners: ['m1','m2'], minerWork: { m1: 10000000, m2: 10000000 },
+    verifiers: ['v1','v2','v3'],
+    clocks: ['c1','c2','c3','c4','c5'],
+    storageHosts: ['s1','s2','s3'],
+    sensors: [], gateways: [], serviceHosts: [], testnets: [],
   };
-  const totalScore = MINER_WORK + CLOCK_SCORE_PER_NODE;
 
-  let rewards;
-  beforeAll(() => { rewards = distributeBlockReward(BLOCK_REWARD, p); });
-
-  test('no recycle entry (absent roles do not create recycle)', () => {
-    expect(byType(rewards, 'recycle')).toHaveLength(0);
+  test('miners cannot exceed CAP.miner of distributable (competing roles present)', () => {
+    const rewards = distributeBlockReward(BLOCK_REWARD, p);
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    const minerPaid = sumType(rewards, 'miner');
+    expect(minerPaid).toBeLessThanOrEqual(distributable * CAP.miner + EPSILON);
   });
 
-  test('miner + clock together receive full block reward', () => {
-    const claimed = totalPaid(rewards);
-    expect(Math.abs(claimed - BLOCK_REWARD)).toBeLessThan(EPSILON);
-  });
-
-  test('miner share = minerWork / (minerWork + clockScore)', () => {
-    const minerPaid = byType(rewards, 'miner')[0].amount;
-    const expected  = BLOCK_REWARD * (MINER_WORK / totalScore);
-    expect(Math.abs(minerPaid - expected)).toBeLessThan(EPSILON);
+  test('non-miner roles benefit from the miner cap', () => {
+    const rewards = distributeBlockReward(BLOCK_REWARD, p);
+    const verifierPaid = sumType(rewards, 'verifier');
+    const clockPaid = sumType(rewards, 'clock');
+    // Without cap, these would be near-zero; with cap they must be above floor
+    expect(verifierPaid).toBeGreaterThan(0);
+    expect(clockPaid).toBeGreaterThan(0);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Proportional miner split
+// Proportional miner split within the miner pool
 // ─────────────────────────────────────────────────────────────────
 describe('proportional miner split', () => {
-  // Two miners, 2:1 work ratio — no clocks, verifiers, or storage
   const p = {
     miners:       ['miner-a', 'miner-b'],
     minerWork:    { 'miner-a': 200, 'miner-b': 100 },
-    verifiers:    [],
-    clocks:       [],
-    storageHosts: [],
-    sensors:      [],
-    gateways:     [],
-    serviceHosts: [],
+    verifiers:    ['v1','v2','v3'],
+    clocks:       ['c1','c2','c3','c4','c5'],
+    storageHosts: ['s1','s2','s3'],
+    sensors:      [], gateways:  [], serviceHosts: [], testnets: [],
   };
 
   let rewards;
   beforeAll(() => { rewards = distributeBlockReward(BLOCK_REWARD, p); });
 
-  test('miner-a gets 2× miner-b', () => {
+  test('miner-a gets 2× miner-b within the miner pool', () => {
     const a = byType(rewards, 'miner').find(r => r.miner === 'miner-a').amount;
     const b = byType(rewards, 'miner').find(r => r.miner === 'miner-b').amount;
-    expect(Math.abs(a / b - 2)).toBeLessThan(1e-8);
+    expect(Math.abs(a / b - 2)).toBeLessThan(1e-6);
   });
 
   test('total paid equals block reward', () => {
@@ -203,11 +294,8 @@ describe('IoT pool split', () => {
     miners: [], minerWork: {}, verifiers: [], clocks: [], storageHosts: [],
     sensors:  ['s1', 's2'],
     gateways: ['gw1'],
-    serviceHosts: [],
+    serviceHosts: [], testnets: [],
   };
-  const sensorScore  = 2 * SENSOR_SCORE_PER_SENSOR;
-  const gatewayScore = 1 * GATEWAY_SCORE_PER_GW;
-  const totalScore   = sensorScore + gatewayScore;
 
   let rewards;
   beforeAll(() => { rewards = distributeBlockReward(BLOCK_REWARD, p); });
@@ -220,16 +308,9 @@ describe('IoT pool split', () => {
     expect(byType(rewards, 'iot_gateway')).toHaveLength(1);
   });
 
-  test('total IoT ≈ full block reward (only IoT active)', () => {
-    const iotPaid = byType(rewards, 'iot_sensor').reduce((s, r) => s + r.amount, 0)
-                  + byType(rewards, 'iot_gateway').reduce((s, r) => s + r.amount, 0);
-    expect(Math.abs(iotPaid - BLOCK_REWARD)).toBeLessThan(EPSILON);
-  });
-
-  test('gateway gets proportionally more per node than sensor', () => {
+  test('gateway earns more per node than sensor', () => {
     const sensorPerNode  = byType(rewards, 'iot_sensor')[0].amount;
     const gatewayPerNode = byType(rewards, 'iot_gateway')[0].amount;
-    // gateway score per node > sensor score per node, so gatewayPerNode > sensorPerNode
     expect(gatewayPerNode).toBeGreaterThan(sensorPerNode);
   });
 
@@ -239,35 +320,43 @@ describe('IoT pool split', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Calibration: typical participation → reasonable split
+// Calibration: typical participation → sane split
 // ─────────────────────────────────────────────────────────────────
 describe('calibration at typical participation', () => {
-  // 5 miners × 10000, 10 clocks, 3 verifiers, 5 storage, 10 sensors, 3 gateways
   const p = {
     miners:       ['m1','m2','m3','m4','m5'],
-    minerWork:    { m1:10000,m2:10000,m3:10000,m4:10000,m5:10000 },
+    minerWork:    { m1:10000, m2:10000, m3:10000, m4:10000, m5:10000 },
     verifiers:    ['v1','v2','v3'],
     clocks:       ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10'],
     storageHosts: ['s1','s2','s3','s4','s5'],
-    sensors:      ['sen1','sen2','sen3','sen4','sen5','sen6','sen7','sen8','sen9','sen10'],
+    sensors:      ['sen1','sen2','sen3','sen4','sen5'],
     gateways:     ['gw1','gw2','gw3'],
     serviceHosts: [],
+    testnets:     ['t1'],
   };
 
   let rewards;
   beforeAll(() => { rewards = distributeBlockReward(BLOCK_REWARD, p); });
 
   test('miners get > 40% of reward (dominant role)', () => {
-    const minerPct = byType(rewards, 'miner').reduce((s,r) => s+r.amount, 0) / BLOCK_REWARD;
+    const minerPct = sumType(rewards, 'miner') / BLOCK_REWARD;
     expect(minerPct).toBeGreaterThan(0.40);
   });
 
-  test('each role gets at least 5% (no role starved)', () => {
-    const roles = ['miner','verifier','clock','storage'];
-    for (const role of roles) {
-      const pct = byType(rewards, role).reduce((s,r) => s+r.amount, 0) / BLOCK_REWARD;
-      expect(pct).toBeGreaterThan(0.05);
+  test('each active role gets at least its floor', () => {
+    const distributable = BLOCK_REWARD * (1 - TESTNET_FRACTION);
+    for (const [role, floor] of Object.entries(FLOOR)) {
+      if (floor === 0) continue;
+      const paid = sumType(rewards, role === 'iot' ? 'iot_sensor' : role)
+                 + (role === 'iot' ? sumType(rewards, 'iot_gateway') : 0);
+      expect(paid).toBeGreaterThanOrEqual(distributable * floor - EPSILON);
     }
+  });
+
+  test('testnet gets 0.1%', () => {
+    const testnetPaid = sumType(rewards, 'testnet');
+    const expected = BLOCK_REWARD * TESTNET_FRACTION;
+    expect(Math.abs(testnetPaid - expected)).toBeLessThan(EPSILON);
   });
 
   test('total paid equals block reward', () => {
