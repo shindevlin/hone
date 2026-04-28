@@ -84,6 +84,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private volatile String account;
     private volatile String deviceName;
     private volatile String jwt;
+    private volatile String postingKey;
     private SensorManager sensorManager;
     private LocationManager locationManager;
     private ConnectivityManager connectivityManager;
@@ -433,10 +434,11 @@ public class NativeSensorService extends Service implements SensorEventListener,
     }
 
     private SensorSigner getSigner(String sensorId) {
+        if (postingKey == null || postingKey.length() != 64) return null;
         SensorSigner existing = signers.get(sensorId);
         if (existing != null) return existing;
         try {
-            SensorSigner s = new SensorSigner(deviceName, sensorId);
+            SensorSigner s = new SensorSigner(postingKey, deviceName, sensorId);
             signers.put(sensorId, s);
             return s;
         } catch (Exception e) {
@@ -499,6 +501,15 @@ public class NativeSensorService extends Service implements SensorEventListener,
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         account = prefs.getString("account", "btcpc-phone");
         jwt     = prefs.getString("jwt", "");
+
+        String newPostingKey = new AppPrefs(this).getPostingKey();
+        if (!newPostingKey.equals(postingKey != null ? postingKey : "")) {
+            // Posting key changed — invalidate cached signers so keys are rederived
+            signers.clear();
+            keyRegisteredSensors.clear();
+        }
+        postingKey = newPostingKey;
+
         String saved = prefs.getString("sensor_device_name", null);
         if (saved == null || saved.isEmpty()) {
             saved = sanitize(Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));
@@ -645,21 +656,25 @@ public class NativeSensorService extends Service implements SensorEventListener,
     /**
      * Deterministic ed25519 keypair for sensor signing.
      *
-     * Seed derivation: SHA-512(deviceId:board:hardware:btcpc-sensor-v1:sensorId)[0:32]
+     * Seed derivation:
+     *   SHA-512(postingKey + ":" + deviceId + ":" + board + ":" + hardware
+     *           + ":btcpc-sensor-v1:" + sensorId)[0:32]
+     *
+     * postingKey = account's 32-byte ed25519 seed (64 hex chars, from AppPrefs).
+     *   Required to derive any sensor key. An attacker with ADB access to the
+     *   device cannot forge signatures without also knowing this secret.
      *
      * deviceId = android_id (stored in SharedPreferences as sensor_device_name).
-     *   - Unique per device per Google account (Android 8+).
-     *   - Same across app reinstalls on the same device/account.
-     *   - Resets on factory reset.
+     *   Binds the key to this physical device. Same android_id survives reinstall
+     *   on the same device + Google account; resets on factory reset.
      *
-     * sensorId already encodes the owner account: "account/deviceId-sensorType"
-     *   → sovai on this phone gets a different key than mallory on the same phone,
-     *     because the sensor_id differs, while deviceId stays the same.
-     *   → The chain can see both owners used the same physical device (same deviceId fragment).
+     * sensorId encodes the owner account: "account/deviceId-sensorType"
+     *   → new owner on same device registers a different account → different sensorId
+     *     → different sensor key, while deviceId in the name shows it's the same hardware.
      *
-     * Recovery: same device + same BTCPC account → same key (survives reinstall).
-     * New owner: registers new account → different sensor_id → different key automatically.
-     * Factory reset: new deviceId → new key for all sensors → rotate via /register-key.
+     * Recovery: same posting key + same device → same sensor keys (survives reinstall).
+     * New owner: different account → different postingKey → entirely different keys.
+     * Factory reset: new deviceId → new keys → rotate via /register-key.
      *
      * Payload format (matches sensorKeystore.js readingPayload()):
      *   "sensor_id|value|device_timestamp_ms"
@@ -674,11 +689,13 @@ public class NativeSensorService extends Service implements SensorEventListener,
         final String publicKeySpkiHex;
         private final String sensorId;
 
-        SensorSigner(String deviceId, String sensorId) throws Exception {
+        SensorSigner(String postingKeyHex, String deviceId, String sensorId) throws Exception {
             this.sensorId = sensorId;
-            // Deterministic: same device + same account + same sensor type → same key always
-            String material = deviceId + ":" + Build.BOARD + ":" + Build.HARDWARE
-                    + ":btcpc-sensor-v1:" + sensorId;
+            // postingKeyHex is the account's 32-byte ed25519 seed (64 hex chars).
+            // Without it an attacker with ADB access cannot derive the sensor key.
+            // deviceId (android_id) binds the key to this specific device.
+            String material = postingKeyHex + ":" + deviceId + ":" + Build.BOARD + ":"
+                    + Build.HARDWARE + ":btcpc-sensor-v1:" + sensorId;
             byte[] hash = MessageDigest.getInstance("SHA-512")
                     .digest(material.getBytes(StandardCharsets.UTF_8));
             byte[] seed = java.util.Arrays.copyOf(hash, 32);
