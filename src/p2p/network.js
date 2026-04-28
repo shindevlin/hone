@@ -7,7 +7,20 @@
  * WebSocket-based peer-to-peer network layer for the BTCPC sovereign chain.
  * Handles peer discovery, connection management, message broadcasting,
  * and auto-reconnection with exponential backoff.
+ *
+ * When BTCPC_USE_RUST_P2P=true, delegates entirely to the Rust btcpc-p2p
+ * sidecar via Unix socket IPC. The sidecar uses libp2p (QUIC + TCP, Kademlia
+ * DHT, gossipsub) and exports the same interface as this module.
  */
+
+if (process.env.BTCPC_USE_RUST_P2P === "true") {
+  const sidecar = require("./rustP2pIpc");
+  module.exports = sidecar;
+  // startServer() is called by the chain process after require() —
+  // but if network.js is loaded standalone we start it here too.
+  if (require.main === module) sidecar.startServer();
+  return; // exit module wrapper; nothing below runs
+}
 
 const WebSocket = require("ws");
 const crypto = require("crypto");
