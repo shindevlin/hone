@@ -15,11 +15,10 @@
 
 if (process.env.BTCPC_USE_RUST_P2P === "true") {
   const sidecar = require("./rustP2pIpc");
-  module.exports = sidecar;
   // startServer() is called by the chain process after require() —
   // but if network.js is loaded standalone we start it here too.
   if (require.main === module) sidecar.startServer();
-  return; // exit module wrapper; nothing below runs
+  module.exports = sidecar; // overwritten at bottom only when NOT in rust mode
 }
 
 const WebSocket = require("ws");
@@ -591,20 +590,22 @@ process.on("SIGTERM", function () {
 // Exports
 // ---------------------------------------------------------------------------
 
-module.exports = {
-  startServer,
-  stopServer,
-  connectToPeer,
-  connectToSeeds,
-  connectToRelays,
-  broadcast,
-  send,
-  onMessage,
-  getPeers,
-  getConnectedCount,
-  getNodeId,
-  NODE_ID,
-  RELAY_URLS,
-  peers,
-  getKnownPeerKeys: transport.getKnownPeerKeys,
-};
+if (process.env.BTCPC_USE_RUST_P2P !== "true") {
+  module.exports = {
+    startServer,
+    stopServer,
+    connectToPeer,
+    connectToSeeds,
+    connectToRelays,
+    broadcast,
+    send,
+    onMessage,
+    getPeers,
+    getConnectedCount,
+    getNodeId,
+    NODE_ID,
+    RELAY_URLS,
+    peers,
+    getKnownPeerKeys: transport.getKnownPeerKeys,
+  };
+}

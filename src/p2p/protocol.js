@@ -1627,11 +1627,12 @@ function recordMinerWork(miner, jobId, workValue, epochNumber) {
   entry.jobs.add(jobId);
   entry.work_value += workValue;
 
-  // Prune old epochs (keep last 10)
+  // Prune old epochs (keep last 200 — large window so fast miner credit epochs
+  // don't get pruned before the clock finalizes them)
   if (epochNumber > _currentWorkEpoch) {
     _currentWorkEpoch = epochNumber;
     for (var key of minerWorkByEpoch.keys()) {
-      if (key < epochNumber - 10) minerWorkByEpoch.delete(key);
+      if (key < epochNumber - 200) minerWorkByEpoch.delete(key);
     }
   }
 }
@@ -1641,12 +1642,14 @@ function recordMinerWork(miner, jobId, workValue, epochNumber) {
  * Returns: { miner: { work_value, jobs: Set } }
  */
 function getMinerWorkForEpoch(epochNumber) {
-  // Check the target epoch plus recent prior epochs — fire-and-forget
-  // inference completes in future epochs, so work credited to epoch N
-  // may need to be picked up by the proposal for epoch N or N+1.
+  // Check a window around the target epoch. The miner credits work to the
+  // chain height at completion time, which can be ahead of the clock's
+  // finalization epoch during catch-up mode. Look forward 50 epochs to
+  // capture work that was credited to near-future epochs.
   var result = {};
-  var lookback = 10; // check up to 10 epochs back for uncredited work
-  for (var ep = Math.max(0, epochNumber - lookback); ep <= epochNumber; ep++) {
+  var lookback = 10;
+  var lookahead = 50;
+  for (var ep = Math.max(0, epochNumber - lookback); ep <= epochNumber + lookahead; ep++) {
     var epochMap = minerWorkByEpoch.get(ep);
     if (!epochMap) continue;
     for (var entry of epochMap) {

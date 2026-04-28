@@ -61,8 +61,8 @@ var ACTIVE_KEY = process.env.BTCPC_ACTIVE_KEY || null;
 // ─── State ───────────────────────────────────────────────────────
 
 var currentEpoch = -1;
-// Genesis: 2026-04-15T07:00:00.000Z (midnight California)
-var genesisTimestamp = 1776236400000;
+// Genesis: 2026-04-14T16:27:00.000Z (derived from block timestamps)
+var genesisTimestamp = 1776184020000;
 var peers = new Map();
 var seenMessages = new Set();
 var running = false;
@@ -240,7 +240,8 @@ function handleMessage(msg, fromAddress) {
       // Track gossiped miner work for reward calculation
       var rd = msg.data || {};
       if (rd.miner && rd.epoch_number != null && rd.work_value != null) {
-        protocolGossip.recordMinerWork(rd.miner, rd.epoch_number, rd.work_value);
+        var jobKey = rd.request_id || rd.result_hash || String(rd.epoch_number);
+        protocolGossip.recordMinerWork(rd.miner, jobKey, rd.work_value, rd.epoch_number);
       }
       broadcast(msg, fromAddress);
       break;

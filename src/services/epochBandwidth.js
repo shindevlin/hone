@@ -71,7 +71,7 @@ function _operationCost(entryType) {
 
 function _maxEB(account) {
   const stake = stateStore.getStake ? stateStore.getStake(account) : 0;
-  return Math.max(10, stake * BANDWIDTH_PER_STAKE_PER_EPOCH * MAX_BANDWIDTH_CAP_EPOCHS);
+  return Math.max(100, stake * BANDWIDTH_PER_STAKE_PER_EPOCH * MAX_BANDWIDTH_CAP_EPOCHS);
 }
 
 /**
@@ -93,7 +93,10 @@ function checkAndDeduct(account, entryType) {
   // Accrue EB since last epoch
   const epochsElapsed = Math.max(0, currentEpoch - pool.last_epoch);
   if (epochsElapsed > 0) {
-    const stake = stateStore.getStake ? stateStore.getStake(account) : 1;
+    const stakeRaw = stateStore.getStake ? stateStore.getStake(account) : 0;
+    // Minimum effective stake of 1 so accounts earn at least 1 EB/epoch
+    // even before their first staking deposit.
+    const stake = Math.max(stakeRaw, 1);
     const earned = epochsElapsed * stake * BANDWIDTH_PER_STAKE_PER_EPOCH;
     pool.eb = Math.min(maxEB, pool.eb + earned);
     pool.last_epoch = currentEpoch;
@@ -125,8 +128,9 @@ checkAndDeduct.__peek = function(account) {
   let pool = bandwidthPool.get(account) || { eb: maxEB, last_epoch: currentEpoch };
   const epochsElapsed = Math.max(0, currentEpoch - pool.last_epoch);
   if (epochsElapsed > 0) {
-    const stake = stateStore.getStake ? stateStore.getStake(account) : 1;
-    pool.eb = Math.min(maxEB, pool.eb + epochsElapsed * stake * BANDWIDTH_PER_STAKE_PER_EPOCH);
+    const stakeRaw2 = stateStore.getStake ? stateStore.getStake(account) : 0;
+    const stake2 = Math.max(stakeRaw2, 1);
+    pool.eb = Math.min(maxEB, pool.eb + epochsElapsed * stake2 * BANDWIDTH_PER_STAKE_PER_EPOCH);
     pool.last_epoch = currentEpoch;
     bandwidthPool.set(account, pool);
   }

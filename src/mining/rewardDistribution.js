@@ -1,126 +1,173 @@
 "use strict";
 
 /**
- * BTCPC Block Emission — five-pool reward distribution (v2.13.4)
+ * BTCPC Block Emission — demand-driven reward distribution
  * Shin Devlin
  *
- * Pure function — no I/O, no DB, no P2P. Accepts a participants object and
- * the block reward amount; returns an array of reward entries plus an
- * optional recycle entry.
+ * Each role earns proportional to its normalized work score, not a static
+ * percentage. The pool split self-adjusts to actual network activity each
+ * epoch. If AI inference is 90% of demand, miners get 90% of the reward.
  *
- * Pool split:
- *   Miner pool    60%  — proportional to work_value (real inference jobs only)
- *   Verifier pool 10%  — equal split among active verifiers
- *   Clock pool     5%  — equal split among active clocks (ALWAYS paid if any active)
- *   Storage pool  15%  — equal split among storage hosts that heartbeated this epoch
- *   Service pool  10%  — equal split among service hosts that heartbeated this epoch
- *                ----
- *                100%
+ * Work scores (normalized compute units):
+ *   Miner        = sum of work_value (verified parameter × job quality)
+ *   Verifier     = active_verifiers × VERIFIER_SCORE_PER_NODE
+ *   Clock        = active_clocks    × CLOCK_SCORE_PER_NODE
+ *   Storage host = active_hosts     × STORAGE_SCORE_PER_HOST
+ *   IoT sensor   = active_sensors   × SENSOR_SCORE_PER_SENSOR
+ *   IoT gateway  = active_gateways  × GATEWAY_SCORE_PER_GW
+ *   Service host = active_services  × SERVICE_SCORE_PER_HOST
  *
- * Empty pools flow to btcpc_recycle. Nothing is ever burnt.
- * See feedback_no_burn_all_recycle.md.
+ * Calibrated so at typical participation levels the split approximates the
+ * original whitepaper ratios (~56% miners, ~10% each verifier/storage/IoT,
+ * ~5% clocks), but shifts naturally with actual demand.
+ *
+ * Empty pools: nothing recycles from non-participation — the weight just
+ * goes to zero and other active roles proportionally inherit it.
+ * True recycle only when totalScore = 0 (no activity at all).
  *
  * Participants shape:
  *   {
- *     miners:       string[]           // account names with work_value > 0
- *     minerWork:    { [account]: number }  // raw work_value per miner
+ *     miners:       string[]
+ *     minerWork:    { [account]: number }   // raw work_value per miner
  *     verifiers:    string[]
  *     clocks:       string[]
  *     storageHosts: string[]
- *     serviceHosts: string[]
+ *     sensors:      string[]                // optional, IoT sensor owners
+ *     gateways:     string[]                // optional, IoT gateway owners
+ *     serviceHosts: string[]                // optional, future service hosting
  *   }
  */
 
-const MINER_POOL_PCT    = 0.60;
-const VERIFIER_POOL_PCT = 0.10;
-const CLOCK_POOL_PCT    = 0.05;
-const STORAGE_POOL_PCT  = 0.15;
-const SERVICE_POOL_PCT  = 0.10;
+// Per-node work scores — each equals the compute units that role contributes
+const CLOCK_SCORE_PER_NODE    = 1000;
+const VERIFIER_SCORE_PER_NODE = 3000;
+const STORAGE_SCORE_PER_HOST  = 2000;
+const SENSOR_SCORE_PER_SENSOR = 500;
+const GATEWAY_SCORE_PER_GW    = 1500;
+const SERVICE_SCORE_PER_HOST  = 2500;
+
+function round(n) {
+  return parseFloat(Number(n).toFixed(10));
+}
 
 function distributeBlockReward(blockReward, participants) {
   const rewards = [];
-  let recycledAmount = 0;
 
   const miners       = participants.miners       || [];
   const minerWork    = participants.minerWork    || {};
   const verifiers    = participants.verifiers    || [];
   const clocks       = participants.clocks       || [];
   const storageHosts = participants.storageHosts || [];
+  const sensors      = participants.sensors      || [];
+  const gateways     = participants.gateways     || [];
   const serviceHosts = participants.serviceHosts || [];
 
-  // ── Miner pool: 60%, proportional to work_value ──
-  const minerPool = blockReward * MINER_POOL_PCT;
-  const totalWork = miners.reduce((s, m) => s + (minerWork[m] || 0), 0);
-  if (miners.length === 0 || totalWork === 0) {
-    recycledAmount += minerPool;
-  } else {
+  // ── Compute work scores per role ──────────────────────────────────────
+  const minerScore    = miners.reduce((s, m) => s + (minerWork[m] || 0), 0);
+  const verifierScore = verifiers.length * VERIFIER_SCORE_PER_NODE;
+  const clockScore    = clocks.length    * CLOCK_SCORE_PER_NODE;
+  const storageScore  = storageHosts.length * STORAGE_SCORE_PER_HOST;
+  const sensorScore   = sensors.length   * SENSOR_SCORE_PER_SENSOR
+                      + gateways.length  * GATEWAY_SCORE_PER_GW;
+  const serviceScore  = serviceHosts.length * SERVICE_SCORE_PER_HOST;
+
+  const totalScore = minerScore + verifierScore + clockScore + storageScore
+                   + sensorScore + serviceScore;
+
+  // ── Nothing happening — full recycle ─────────────────────────────────
+  if (totalScore === 0) {
+    rewards.push({ miner: 'btcpc_recycle', amount: round(blockReward), type: 'recycle' });
+    return rewards;
+  }
+
+  // ── Dynamic pool sizes ────────────────────────────────────────────────
+  const minerPool    = round(blockReward * (minerScore    / totalScore));
+  const verifierPool = round(blockReward * (verifierScore / totalScore));
+  const clockPool    = round(blockReward * (clockScore    / totalScore));
+  const storagePool  = round(blockReward * (storageScore  / totalScore));
+  const sensorPool   = round(blockReward * (sensorScore   / totalScore));
+  const servicePool  = round(blockReward * (serviceScore  / totalScore));
+
+  // ── Miner pool — proportional to work_value ───────────────────────────
+  if (minerScore > 0) {
     for (const m of miners) {
-      const share = parseFloat((minerPool * ((minerWork[m] || 0) / totalWork)).toFixed(10));
-      rewards.push({ miner: m, amount: share, type: 'miner' });
+      const w = minerWork[m] || 0;
+      if (w > 0) {
+        rewards.push({ miner: m, amount: round(minerPool * (w / minerScore)), type: 'miner' });
+      }
     }
   }
 
-  // ── Verifier pool: 10%, equal split ──
-  const verifierPool = blockReward * VERIFIER_POOL_PCT;
-  if (verifiers.length === 0) {
-    recycledAmount += verifierPool;
-  } else {
-    const share = parseFloat((verifierPool / verifiers.length).toFixed(10));
+  // ── Verifier pool — equal split ───────────────────────────────────────
+  if (verifierScore > 0) {
+    const share = round(verifierPool / verifiers.length);
     for (const v of verifiers) {
       rewards.push({ miner: v, amount: share, type: 'verifier' });
     }
   }
 
-  // ── Clock pool: 5%, equal split, ALWAYS paid if any clocks active ──
-  const clockPool = blockReward * CLOCK_POOL_PCT;
-  if (clocks.length === 0) {
-    recycledAmount += clockPool;
-  } else {
-    const share = parseFloat((clockPool / clocks.length).toFixed(10));
+  // ── Clock pool — equal split ──────────────────────────────────────────
+  if (clockScore > 0) {
+    const share = round(clockPool / clocks.length);
     for (const c of clocks) {
       rewards.push({ miner: c, amount: share, type: 'clock' });
     }
   }
 
-  // ── Storage pool: 15%, equal split ──
-  const storagePool = blockReward * STORAGE_POOL_PCT;
-  if (storageHosts.length === 0) {
-    recycledAmount += storagePool;
-  } else {
-    const share = parseFloat((storagePool / storageHosts.length).toFixed(10));
+  // ── Storage pool — equal split ────────────────────────────────────────
+  if (storageScore > 0) {
+    const share = round(storagePool / storageHosts.length);
     for (const h of storageHosts) {
       rewards.push({ miner: h, amount: share, type: 'storage' });
     }
   }
 
-  // ── Service pool: 10%, equal split ──
-  const servicePool = blockReward * SERVICE_POOL_PCT;
-  if (serviceHosts.length === 0) {
-    recycledAmount += servicePool;
-  } else {
-    const share = parseFloat((servicePool / serviceHosts.length).toFixed(10));
+  // ── IoT pool — 60% sensors (proportional) + 40% gateways (equal) ─────
+  if (sensorScore > 0) {
+    const sensorOnlyScore  = sensors.length  * SENSOR_SCORE_PER_SENSOR;
+    const gatewayOnlyScore = gateways.length * GATEWAY_SCORE_PER_GW;
+    const sensorSubPool    = round(sensorPool * (sensorOnlyScore  / sensorScore));
+    const gatewaySubPool   = round(sensorPool * (gatewayOnlyScore / sensorScore));
+
+    if (sensors.length > 0) {
+      const share = round(sensorSubPool / sensors.length);
+      for (const s of sensors) {
+        rewards.push({ miner: s, amount: share, type: 'iot_sensor' });
+      }
+    }
+    if (gateways.length > 0) {
+      const share = round(gatewaySubPool / gateways.length);
+      for (const g of gateways) {
+        rewards.push({ miner: g, amount: share, type: 'iot_gateway' });
+      }
+    }
+  }
+
+  // ── Service pool — equal split (future) ───────────────────────────────
+  if (serviceScore > 0) {
+    const share = round(servicePool / serviceHosts.length);
     for (const h of serviceHosts) {
       rewards.push({ miner: h, amount: share, type: 'service' });
     }
   }
 
-  // ── Recycle unclaimed pools — never burnt ──
-  if (recycledAmount > 0) {
-    rewards.push({
-      miner: 'btcpc_recycle',
-      amount: parseFloat(recycledAmount.toFixed(10)),
-      type: 'recycle',
-    });
+  // ── Rounding dust → recycle ───────────────────────────────────────────
+  const paid = rewards.reduce((s, r) => s + r.amount, 0);
+  const dust = round(blockReward - paid);
+  if (Math.abs(dust) > 1e-9) {
+    rewards.push({ miner: 'btcpc_recycle', amount: Math.abs(dust), type: 'recycle' });
   }
 
   return rewards;
 }
 
+// Expose scores so callers can display or reason about the dynamic split
 module.exports = {
   distributeBlockReward,
-  MINER_POOL_PCT,
-  VERIFIER_POOL_PCT,
-  CLOCK_POOL_PCT,
-  STORAGE_POOL_PCT,
-  SERVICE_POOL_PCT,
+  CLOCK_SCORE_PER_NODE,
+  VERIFIER_SCORE_PER_NODE,
+  STORAGE_SCORE_PER_HOST,
+  SENSOR_SCORE_PER_SENSOR,
+  GATEWAY_SCORE_PER_GW,
+  SERVICE_SCORE_PER_HOST,
 };

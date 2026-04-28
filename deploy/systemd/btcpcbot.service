@@ -1,0 +1,17 @@
+[Unit]
+Description=BTCPC Telegram Bot — thin client for BTCPC chain
+Documentation=https://btcpc.network
+After=network.target btcpc-node.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/btcpcbot
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=%h/repos/btcpcbot/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

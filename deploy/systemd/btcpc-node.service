@@ -1,0 +1,17 @@
+[Unit]
+Description=BTCPC Node — Bitcoin Proof of Compute
+Documentation=https://btcpc.network
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/btcpc-storage/repos/btcpc
+ExecStart=/usr/bin/node bin/btcpc-all
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=%h/.btcpc.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

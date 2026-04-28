@@ -1,39 +1,31 @@
-# Phase F: MongoDB is optional. By default the btcpc node starts without it.
-# Chain state lives on-disk in stateStore + blockStore. Auth uses secretStore.
+# BTCPC full-stack Docker Compose
 #
-# To use MongoDB for legacy migration, start with the legacy profile:
-#   docker compose --profile legacy up -d
+# Profiles:
+#   (default)  — btcpc-node + btcpc-market + nginx + ollama
+#   legacy     — adds MongoDB for legacy migration
 #
-# And set BTCPC_MONGO_MODE=enabled in your environment.
+# Usage:
+#   docker compose up -d                      # default stack
+#   docker compose --profile legacy up -d     # + MongoDB
+#
+# Secrets: copy .env.example → .env and fill in values before starting.
+
+env_file: .env
 
 services:
-  mongo:
-    image: mongo:7
-    container_name: btcpc-mongo
-    restart: unless-stopped
-    profiles: [legacy]
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in your environment}
-    volumes:
-      - mongo_data:/data/db
-    ports:
-      - "27017:27017"
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
+  # ── Ollama inference engine ────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: btcpc-ollama
     restart: unless-stopped
+    networks:
+      - btcpc-net
     volumes:
       - ollama_models:/root/.ollama
     ports:
       - "11434:11434"
-    # Uncomment to enable GPU support (NVIDIA)
+    # Uncomment for NVIDIA GPU support:
     # deploy:
     #   resources:
     #     reservations:
@@ -42,35 +34,122 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  btcpc:
+  # ── BTCPC sovereign chain node ────────────────────────────────────────────
+  btcpc-node:
     build: .
     container_name: btcpc-node
     restart: unless-stopped
+    networks:
+      - btcpc-net
     depends_on:
       ollama:
         condition: service_started
+    env_file: .env
     environment:
       NODE_ENV: production
       PORT: 3000
-      # Phase F: MongoDB disabled by default. Set BTCPC_MONGO_MODE=enabled and
-      # provide MONGODB_URI to opt back in (e.g. for legacy migration).
       BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
       MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
-      JWT_SECRET: ${JWT_SECRET:-change_me_in_env_file_please_seriously}
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
       BTCPC_MINER: ${BTCPC_MINER:-}
       BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
     ports:
-      - "3000:3000"   # Inference API
+      - "3000:3000"   # HTTP API
       - "4242:4242"   # Block explorer
+      - "4243:4243"   # Storage HTTP
       - "6942:6942"   # P2P
+      - "6943:6943"   # Clock P2P
     volumes:
-      - btcpc_data:/app/data
-      - btcpc_blocks:/app/blocks
+      - btcpc-data:/app/data
+      - btcpc-blocks:/app/blocks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ── BTCPC Market — Rust/Axum commerce sidecar ─────────────────────────────
+  btcpc-market:
+    build:
+      context: /home/ubuntclaw/repos/btcpc-market
+      dockerfile: Dockerfile
+    container_name: btcpc-market
+    restart: unless-stopped
+    networks:
+      - btcpc-net
+    depends_on:
+      btcpc-node:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BTCPC_MARKET_PORT: 7042
+      BTCPC_DATA_DIR: /data
+      JWT_SECRET: ${JWT_SECRET}
+      BTCPC_JWT_SECRET: ${JWT_SECRET}
+      BTCPC_TELEGRAM_BOT_TOKEN: ${BTCPC_TELEGRAM_BOT_TOKEN:-}
+      BTCPC_TELEGRAM_CHAT_ID: ${BTCPC_TELEGRAM_CHAT_ID:-}
+    ports:
+      - "7042:7042"   # Commerce API
+    volumes:
+      - btcpc-market-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7042/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Nginx reverse proxy ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: btcpc-nginx
+    restart: unless-stopped
+    networks:
+      - btcpc-net
+    depends_on:
+      btcpc-node:
+        condition: service_healthy
+      btcpc-market:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/btcpc.conf:/etc/nginx/conf.d/default.conf:ro
+      # Mount TLS certs when ready (e.g. via certbot):
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+
+  # ── MongoDB (legacy profile only) ─────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: btcpc-mongo
+    restart: unless-stopped
+    profiles: [legacy]
+    networks:
+      - btcpc-net
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  btcpc-net:
+    driver: bridge
 
 volumes:
-  mongo_data:
+  btcpc-data:
+  btcpc-blocks:
+  btcpc-market-data:
   ollama_models:
-  btcpc_data:
-  btcpc_blocks:
+  mongo-data:

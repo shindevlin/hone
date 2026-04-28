@@ -37,7 +37,7 @@ var cb   = require("../src/supervisor/circuitBreaker");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 
-var KNOWN_ROLES = ["api", "miner", "clock", "storage", "monitor", "updater", "gnss", "gateway", "flipper"];
+var KNOWN_ROLES = ["api", "miner", "clock", "storage", "monitor", "updater", "gnss", "gateway", "flipper", "betchu"];
 
 function wanted() {
   var raw = (process.env.BTCPC_ROLES || "all").toLowerCase();
@@ -294,6 +294,7 @@ var roleMap = {
   gateway: "bin/btcpc-nebra",
   // runs btcpc-flipper-listener; auto-detects any Flipper Zero on ttyACM*
   flipper: "bin/btcpc-flipper-listener",
+  betchu:  "bin/btcpc-betchu",
 };
 
 roles.forEach(function (role) {

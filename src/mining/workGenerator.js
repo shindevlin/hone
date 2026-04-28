@@ -181,6 +181,7 @@ async function generateWork(model, customPrompt, opts) {
       return {
         prompt_hash: promptHash,
         result_hash: resultHash,
+        result_text: resultText,
         tokens_generated: tokensGenerated,
         model: model,
         model_weight_factor: paramCount,
