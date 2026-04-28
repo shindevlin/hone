@@ -686,6 +686,24 @@ async function mineEpoch(epochNumber) {
           protocolMod.recordMinerWork(MINER_ACCOUNT, work.prompt_hash, work.work_value, creditEpoch);
         }
       } catch (_) {}
+
+      // Broadcast INFERENCE_REVEAL via P2P so the clock/finalizer process
+      // can credit this work across the process boundary.
+      try {
+        const revealMsg = createMessage('INFERENCE_REVEAL', {
+          request_id: work.prompt_hash,
+          miner: MINER_ACCOUNT,
+          node_id: p2p.NODE_ID,
+          node_name: MINER_ACCOUNT,
+          result_hash: work.result_hash,
+          tokens_generated: work.tokens_generated,
+          model: work.model,
+          model_weight: work.model_weight_factor,
+          work_value: work.work_value,
+          epoch_number: creditEpoch,
+        }, p2p.NODE_ID);
+        p2p.broadcast(revealMsg);
+      } catch (_) {}
     }).catch((err) => {
       console.error(`[BTCPC]   Work item ${itemNum} failed: ${err.message}`);
     });
@@ -856,7 +874,19 @@ async function mineEpoch(epochNumber) {
   console.log(`[BTCPC]   Duration:     ${elapsed}s`);
   console.log('[BTCPC] ------------------------------------------------');
 
-  sendAlert('ok', `Epoch ${epochNumber} mined: +${reward} BTCPC (${totalTokens} tokens, ${elapsed}s)`);
+  // Collect earners for this epoch so the alertbot can DM only those who earned
+  // rather than broadcasting to all linked users.
+  const epochProofs = stateStore.getMiningProofs(epochNumber);
+  const earnerUsernames = epochProofs
+    .filter(p => (p.reward_earned || 0) > 0 || p.miner)
+    .map(p => p.miner)
+    .filter(Boolean);
+  // Always include the local miner — they submitted work even if reward_earned
+  // hasn't been updated yet by the reward engine (which may fire asynchronously).
+  if (MINER_ACCOUNT && !earnerUsernames.includes(MINER_ACCOUNT)) {
+    earnerUsernames.push(MINER_ACCOUNT);
+  }
+  sendAlert('ok', `Epoch ${epochNumber} mined: +${reward} BTCPC (${totalTokens} tokens, ${elapsed}s)`, { earners: earnerUsernames, epoch: epochNumber });
 
   // Broadcast finalized epoch to P2P network
   try {
@@ -1096,8 +1126,8 @@ async function startMiner() {
   // 3. P2P chain height (blocks synced from other miners)
   let currentEpoch;
   if (genesis.alreadyExisted) {
-    // Genesis: 2026-04-15T07:00:00.000Z (midnight California)
-    const genesisTime = 1776236400000;
+    // Genesis: 2026-04-14T16:27:00.000Z (derived from block timestamps)
+    const genesisTime = 1776184020000;
     const timeBased = Math.floor((Date.now() - genesisTime) / EPOCH_DURATION_MS);
 
     const chainHeight = stateStore.getChainHeight();
@@ -1144,24 +1174,26 @@ async function startMiner() {
   ).catch((err) => {
     console.warn(`[BTCPC] Miner node registration record failed: ${err.message}`);
   });
-  ledger.recordNodeAnnounce(
-    MINER_ACCOUNT,
-    advertisedP2PAddress,
-    currentEpoch,
-    { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
-  ).catch((err) => {
-    console.warn(`[BTCPC] Miner node announce failed: ${err.message}`);
-  });
-  setInterval(() => {
-    Promise.resolve(ledger.getCurrentEpoch ? ledger.getCurrentEpoch() : currentEpoch)
-      .then((ep) => ledger.recordNodeAnnounce(
-        MINER_ACCOUNT,
-        advertisedP2PAddress,
-        ep,
-        { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
-      ))
-      .catch(() => {});
-  }, 15 * 60 * 1000);
+  if (typeof ledger.recordNodeAnnounce === 'function') {
+    ledger.recordNodeAnnounce(
+      MINER_ACCOUNT,
+      advertisedP2PAddress,
+      currentEpoch,
+      { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
+    ).catch((err) => {
+      console.warn(`[BTCPC] Miner node announce failed: ${err.message}`);
+    });
+    setInterval(() => {
+      Promise.resolve(ledger.getCurrentEpoch ? ledger.getCurrentEpoch() : currentEpoch)
+        .then((ep) => ledger.recordNodeAnnounce(
+          MINER_ACCOUNT,
+          advertisedP2PAddress,
+          ep,
+          { node_types: ['miner'], permissioned: MINER_ACCOUNT === GENESIS_MINER }
+        ))
+        .catch(() => {});
+    }, 15 * 60 * 1000);
+  }
 
   // Load node registry from block files
   nodeRegistry.loadFromBlocks();
@@ -1221,16 +1253,17 @@ async function startMiner() {
   // next epoch.  Uses whichever epoch is higher — genesis-time-derived or the
   // P2P network consensus epoch — so the miner stays in sync with the live
   // chain even when early block files (epoch 0–N) aren't stored locally.
-  const GENESIS_TIME = 1776236400000;
+  const GENESIS_TIME = 1776184020000;
   console.log(`[BTCPC] Self-tick timer registered (interval: ${EPOCH_DURATION_MS * 2}ms)`);
   setInterval(() => {
     const now = Date.now();
     const timeDerived = Math.floor((now - GENESIS_TIME) / EPOCH_DURATION_MS);
     const protocolMod = require('../p2p/protocol');
     const networkEpoch = protocolMod.getCurrentEpochCache ? protocolMod.getCurrentEpochCache() : -1;
-    const targetEpoch = Math.max(timeDerived, networkEpoch > 0 ? networkEpoch : 0);
+    const chainTip = stateStore.getChainHeight();
+    const targetEpoch = Math.max(timeDerived, networkEpoch > 0 ? networkEpoch : 0, chainTip >= 0 ? chainTip + 1 : 0);
     if (targetEpoch > 0 && targetEpoch > lastEpoch) {
-      console.log(`[BTCPC] Self-tick: epoch ${targetEpoch} (time=${timeDerived}, network=${networkEpoch})`);
+      console.log(`[BTCPC] Self-tick: epoch ${targetEpoch} (time=${timeDerived}, network=${networkEpoch}, chain=${chainTip})`);
       lastEpoch = targetEpoch;
       currentEpoch = targetEpoch;
       setImmediate(async () => {

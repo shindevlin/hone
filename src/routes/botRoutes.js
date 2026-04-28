@@ -878,6 +878,33 @@ router.get('/linked-users', async (_req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/bot/epoch-earners?epoch=N&earners=u1,u2
+// Returns linked Telegram users (telegramId + username) who earned in a given epoch.
+// The caller supplies the earner usernames (miner submitted proofs for that epoch).
+// If no earners param is given, falls back to returning all linked users.
+router.get('/epoch-earners', async (req, res) => {
+  try {
+    const earnerParam = typeof req.query.earners === 'string' ? req.query.earners : '';
+    const earnerList = earnerParam
+      ? earnerParam.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
+    if (earnerList.length === 0) {
+      // No earner list — fall back to all linked users so the caller can decide
+      const users = await User.find({ telegramId: { $ne: null } }).select('telegramId username').lean();
+      return res.json({ users, filtered: false });
+    }
+
+    // Return only linked users whose username is in the earner list
+    const users = await User.find({
+      telegramId: { $ne: null },
+      username: { $in: earnerList },
+    }).select('telegramId username').lean();
+
+    res.json({ users, filtered: true, earners: earnerList });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ════════════════════════════════════════════════════════════════════
 // UPDATE MANAGEMENT
 // ════════════════════════════════════════════════════════════════════
