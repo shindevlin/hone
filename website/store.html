@@ -220,6 +220,38 @@
     .count-sep { font-weight: 700; font-size: 14px; align-self: center; }
     .deals-see-all { margin-left: auto; font-size: 13px; color: var(--link); white-space: nowrap; }
 
+    /* ── FEATURED STORES ── */
+    .featured-stores-band {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; padding: 12px 16px; margin-bottom: 12px;
+      display: none;
+    }
+    .featured-stores-band.visible { display: block; }
+    .featured-stores-head {
+      font-size: 13px; font-weight: 700; color: var(--sub); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 10px;
+    }
+    .featured-stores-row {
+      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .featured-stores-row::-webkit-scrollbar { display: none; }
+    .store-pill {
+      flex: 0 0 auto; border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 14px; cursor: pointer; background: #fafafa;
+      display: flex; flex-direction: column; gap: 2px; min-width: 130px;
+      transition: border-color .15s, background .15s;
+    }
+    .store-pill:hover { border-color: var(--orange); background: #fff8f0; }
+    .store-pill.active { border-color: var(--orange); background: #fff3e0; }
+    .sp-name { font-weight: 700; font-size: 13px; }
+    .sp-score { font-size: 11px; color: var(--orange-d); }
+    .sp-cats { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    .store-pill-all { background: var(--navy2); color: #fff; border-color: var(--navy2); }
+    .store-pill-all:hover { background: var(--navy); border-color: var(--navy); }
+    .store-pill-all .sp-name { color: #fff; }
+    .store-pill-all .sp-cats { color: rgba(255,255,255,.6); }
+
     /* ── TOOLBAR ── */
     .toolbar {
       background: var(--white); border: 1px solid var(--border);
@@ -851,6 +883,12 @@
       <a href="#" class="deals-see-all">See all deals ›</a>
     </div>
 
+    <!-- FEATURED STORES -->
+    <div class="featured-stores-band" id="featured-stores-band">
+      <div class="featured-stores-head">Featured Stores</div>
+      <div class="featured-stores-row" id="featured-stores-row"></div>
+    </div>
+
     <!-- TOOLBAR -->
     <div class="toolbar">
       <div class="toolbar-results"><b id="result-count">8</b> results</div>
@@ -1362,8 +1400,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (t) card.dataset.title = t.textContent;
     }
   });
-  // Try to load real products from the configured node
-  loadProducts();
+  // Load stores first (for reputation scores), then products
+  loadFeaturedStores().then(loadProducts);
 });
 
 // ── BUYER AUTH ───────────────────────────────────────────────────────
@@ -2142,7 +2180,7 @@ function buildCard(p) {
     key: key, icon: catEmoji(p.categories), bg: '#f7f9fb',
     title: p.title, seller: p.seller, productId: p.product_id,
     price: ep, was: saleActive ? p.price : null,
-    stars: 4.5, reviews: 0,
+    stars: storeScore > 0 ? parseFloat(ratingVal) : 4.5, reviews: 0,
     inventory: p.inventory, digital: !!p.auto_deliver,
     ship: p.auto_deliver ? 'Instant digital delivery via BTCPC-FS' : 'FREE delivery',
     desc: p.description || '', token: p.token || 'BTCPC',
@@ -2153,21 +2191,26 @@ function buildCard(p) {
     reviews_data: []
   };
 
+  var storeScore = _storeScores[p.seller] || 0;
+  var ratingVal  = storeScore > 0 ? (storeScore / 20).toFixed(1) : '4.5';
+  var starsHtml  = storeScore > 0 ? starsFromScore(storeScore) : '★★★★☆';
+
   var safeTitle = p.title.replace(/'/g, "\\'").slice(0, 40);
   var card = document.createElement('div');
   card.className = 'product-card';
   card.dataset.price  = ep;
-  card.dataset.rating = '4.5';
+  card.dataset.rating = ratingVal;
   card.dataset.epoch  = p.created_epoch || epoch;
   card.dataset.cat    = catKey(p.categories);
   card.dataset.title  = p.title;
   card.dataset.desc   = p.description || '';
+  card.dataset.seller = p.seller;
   card.setAttribute('onclick', "openProduct('" + key.replace(/'/g,"\\'") + "')");
   card.innerHTML =
     '<div class="product-img" style="background:#f0f4f8">' + imgHtml + badge + '</div>' +
     '<div class="product-body">' +
       '<div class="product-title">' + p.title + '</div>' +
-      '<div class="product-stars"><span class="stars">★★★★½</span><span class="review-count">0</span></div>' +
+      '<div class="product-stars"><span class="stars">' + starsHtml + '</span><span class="review-count">' + (storeScore > 0 ? ratingVal : '') + '</span></div>' +
       '<div class="product-price-row">' +
         dealLabel +
         '<div class="price-main"><span class="sym">₿PC </span>' + ep + '</div>' +
@@ -2181,6 +2224,75 @@ function buildCard(p) {
       '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
     '</div>';
   return card;
+}
+
+// _storeScores maps seller → score (loaded from /stores before products)
+var _storeScores = {};
+
+async function loadFeaturedStores() {
+  if (!BTCPC_NODE) return;
+  var band = document.getElementById('featured-stores-band');
+  var row  = document.getElementById('featured-stores-row');
+  try {
+    var r = await fetch(BTCPC_NODE + '/api/commerce/stores?limit=20');
+    if (!r.ok) return;
+    var data = await r.json();
+    var stores = (data.stores || []).filter(function(s) { return s.status === 'active'; });
+    if (!stores.length) return;
+
+    // Build score map for buildCard() to use
+    stores.forEach(function(s) { _storeScores[s.seller] = s.score || 0; });
+
+    // Sort by score desc, show top 6
+    stores.sort(function(a, b) { return (b.score||0) - (a.score||0); });
+    var top = stores.slice(0, 6);
+
+    // "All" pill
+    row.innerHTML = '';
+    var allPill = document.createElement('div');
+    allPill.className = 'store-pill store-pill-all active';
+    allPill.id = 'pill-all';
+    allPill.innerHTML = '<div class="sp-name">All Stores</div><div class="sp-cats">' + stores.length + ' sellers</div>';
+    allPill.onclick = function() {
+      document.querySelectorAll('.store-pill').forEach(function(p){ p.classList.remove('active'); });
+      allPill.classList.add('active');
+      document.querySelectorAll('#product-grid .product-card').forEach(function(c){ c.style.display=''; });
+      document.getElementById('result-count').textContent = document.querySelectorAll('#product-grid .product-card').length;
+    };
+    row.appendChild(allPill);
+
+    top.forEach(function(s) {
+      var stars = starsFromScore(s.score);
+      var pill = document.createElement('div');
+      pill.className = 'store-pill';
+      pill.innerHTML =
+        '<div class="sp-name">' + s.name + '</div>' +
+        '<div class="sp-score">' + stars + ' ' + (s.score ? s.score.toFixed(1) : '—') + '</div>' +
+        '<div class="sp-cats">' + (s.categories || []).slice(0,2).join(' · ') + '</div>';
+      pill.onclick = function() {
+        document.querySelectorAll('.store-pill').forEach(function(p){ p.classList.remove('active'); });
+        pill.classList.add('active');
+        var n = 0;
+        document.querySelectorAll('#product-grid .product-card').forEach(function(c){
+          var show = (c.dataset.seller || '') === s.seller;
+          c.style.display = show ? '' : 'none';
+          if (show) n++;
+        });
+        document.getElementById('result-count').textContent = n;
+      };
+      row.appendChild(pill);
+    });
+
+    band.classList.add('visible');
+  } catch(e) {}
+}
+
+function starsFromScore(score) {
+  if (!score) return '☆☆☆☆☆';
+  var full  = Math.floor(score / 20);
+  var half  = (score % 20) >= 10 ? 1 : 0;
+  var empty = 5 - full - half;
+  return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(empty);
 }
 
 async function loadProducts() {

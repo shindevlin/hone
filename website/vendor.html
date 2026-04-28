@@ -1199,7 +1199,8 @@ function openShipModal(orderId) {
     '<b>Order:</b> ' + o.order_id + '<br/>' +
     '<b>Buyer:</b> ' + o.buyer + '<br/>' +
     '<b>Product:</b> ' + o.product_id + '<br/>' +
-    '<b>Qty:</b> ' + o.quantity + ' · <b>Total:</b> ₿PC ' + o.total;
+    '<b>Qty:</b> ' + o.quantity + ' · <b>Total:</b> ₿PC ' + o.total +
+    (o.shipping_address ? '<br/><b>Ship to:</b> ' + o.shipping_address : '');
 
   // Reset fields
   document.getElementById('ship-tracking').value = '';
@@ -1238,8 +1239,9 @@ function openShipModal(orderId) {
     updateCarrierLabelLink('');
   }
 
-  // Digital goods? Show CID row
-  var isDigital = o.product_id && (o.product_id.indexOf('guide') > -1 || o.product_id.indexOf('gguf') > -1 || o.product_id.indexOf('q5km') > -1);
+  // Digital goods? Show CID row — check auto_deliver from listing data
+  var listing = _listings.find(function(l){ return l.product_id === o.product_id; });
+  var isDigital = listing ? !!listing.auto_deliver : false;
   document.getElementById('ship-cid-row').style.display = isDigital ? '' : 'none';
 
   document.getElementById('ship-modal').classList.add('open');
@@ -1341,6 +1343,7 @@ function viewOrder(orderId) {
      'Status:' + o.status,
      'Escrow:' + (o.escrow_id||'—'),
      'Placed epoch:' + o.placed_epoch,
+     'Ship to:' + (o.shipping_address || '—'),
     ].map(function(row){
       var parts = row.split(':');
       var label = parts.shift();
@@ -1673,6 +1676,10 @@ function switchTab(name, el) {
   document.querySelectorAll('.tab').forEach(function(t) {
     if (t.textContent.trim() === tabText[name]) t.classList.add('active');
   });
+  // Refresh orders from API whenever the Orders tab is opened
+  if (name === 'orders') {
+    loadOrders().then(function() { renderOrders(); renderOverview(); });
+  }
 }
 
 // ── TOAST ────────────────────────────────────────────────────────────────────

@@ -75,7 +75,7 @@
 - [ ] Docker Compose for single-validator deployment: btcpc-node + btcpc-market + nginx in one `docker compose up`
 - [ ] Kubernetes for public gateway tier: btcpc-market replicas behind ingress, shared pending-entries via distributed log (Kafka or NATS)
 - [ ] BTCPC-FS CDN: content-addressed blob delivery from multiple storage nodes; buyers pull from nearest host
-- [ ] Telegram order notifications: seller receives a message on ORDER_PLACE via existing bot infrastructure, opt-in per store
+- [ ] Per-seller Telegram notifications: `telegram_chat_id` field on STORE_UPDATE so each vendor registers their own bot chat — today's global `BTCPC_TELEGRAM_CHAT_ID` env var is an admin fallback only; per-seller takes precedence when set
 - [ ] Mobile order tracking in the Android app: buyer sees live order status pulled from any BTCPC node
 
 ## Phase L — Governance & Compliance
