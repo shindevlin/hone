@@ -1,6 +1,6 @@
 # BTCPC Roadmap
 
-## Phase 0 — Genesis (current)
+## Phase 0 — Genesis (complete)
 
 - [x] Sovereign chain with 42M supply, 10 decimal precision
 - [x] BIP-39 mnemonic wallets with multi-chain derivation (7 chains)
@@ -19,6 +19,23 @@
 - [x] Shared epochs — multiple miners submit to same epoch, never double rewards
 - [x] Finalization delay (60s) to wait for all miners before splitting
 
+## Phase G — Commerce (complete)
+
+- [x] `btcpc-market` Rust/Axum sidecar (port 7042)
+- [x] Stores: open/update/close with on-chain signed ledger entries
+- [x] Products: create/update/delist; inventory tracking; flash sale pricing
+- [x] Auto-deliver digital goods via BTCPC-FS CID at order placement
+- [x] Orders: ORDER_PLACE / ORDER_FULFILL / ORDER_DELIVERED / ORDER_CANCEL / ORDER_DISPUTE
+- [x] Escrow: social commitment on-chain; active key debit is Phase H
+- [x] 40-hour auto-cancel sweep for unfulfilled orders (4,800 epochs)
+- [x] Shipping account integration: UPS, FedEx, USPS, DHL, PirateShip
+- [x] Tor hidden-service setup registered on-chain; buyer auto-routes
+- [x] Q&A per product listing; public read, auth-gated ask/answer
+- [x] Reputation votes; verified-buyer gate (must have a delivered order)
+- [x] P2P catalog mirror: every node serves `GET /api/peer/commerce/*`
+- [x] Posting key auth (JWT or X-Posting-Key header)
+- [x] BTCPC-FS content-addressed blob storage (sha256 CIDs)
+
 ## Pending (user-requested, not yet scheduled)
 
 - [ ] Wallet bot alerts only for users whose miner earned tokens (not broadcast to all)
@@ -28,6 +45,44 @@
 - [ ] Systemd services for bots (auto-restart, no zombies)
 - [ ] Cloudflare webhook mode for bots (eliminate polling entirely)
 - [ ] Scrub git history to remove leaked .env / bot tokens
+
+## Phase H — Auth & Wallet Integration (next)
+
+- [ ] **Active key escrow debit**: ORDER_PLACE signs an ESCROW_LOCK entry debiting the buyer's wallet on-chain using their active key — turns social commitment into a real fund hold
+- [ ] **Active key escrow release**: ORDER_DELIVERED triggers an ESCROW_RELEASE entry signed by the buyer's active key, sending held funds to the seller minus protocol fee
+- [ ] **Memo key reputation system**: after ORDER_DELIVERED both parties may write a REPUTATION_MEMO entry — buyer-to-seller and seller-to-buyer signed memos, memo text encrypted with the subject's memo key and stored as a BTCPC-FS blob, `vote` field (+1/-1/0) is public
+- [ ] **Buyer staking flow**: buyer stakes BTCPC via STAKE_LOCK entry; staked balance acts as a pre-authorized escrow pool — orders debit from the pool without requiring an active key per transaction; 4,800-epoch (40h) cooldown on unlock
+- [ ] **Multi-sig escrow**: 2-of-3 scheme (buyer + seller + protocol) for dispute resolution; winning party receives escrowed amount, losing party's stake reduced proportionally; nothing burned
+
+## Phase I — Discovery & Search
+
+- [ ] Full-text product search across all sellers, indexed from the P2P ledger
+- [ ] Category browsing with cross-seller result aggregation
+- [ ] Featured stores and trending products (ranked by order volume and reputation)
+- [ ] Store analytics dashboard with real ledger data: actual revenue, order counts, repeat buyer rate
+- [ ] Seller verification badge — stake-weighted reputation threshold required to unlock badge
+
+## Phase J — Payments & Tokens
+
+- [ ] Wrapped BTCPC (wBTCPC) bridge to Ethereum ERC-20 (Base deployment)
+- [ ] Multi-token checkout: accept any token with liquidity, settled to BTCPC via bonding curve at order time
+- [ ] Discount codes and bundle pricing as on-chain entry types
+- [ ] Subscription products: recurring ORDER_PLACE at a fixed epoch interval, buyer-authorized
+- [ ] Affiliate/referral system: referrer address gets a configurable % of order fee logged on-chain as a REFERRAL_CREDIT entry
+
+## Phase K — Infrastructure & Scale
+
+- [ ] Docker Compose for single-validator deployment: btcpc-node + btcpc-market + nginx in one `docker compose up`
+- [ ] Kubernetes for public gateway tier: btcpc-market replicas behind ingress, shared pending-entries via distributed log (Kafka or NATS)
+- [ ] BTCPC-FS CDN: content-addressed blob delivery from multiple storage nodes; buyers pull from nearest host
+- [ ] Telegram order notifications: seller receives a message on ORDER_PLACE via existing bot infrastructure, opt-in per store
+- [ ] Mobile order tracking in the Android app: buyer sees live order status pulled from any BTCPC node
+
+## Phase L — Governance & Compliance
+
+- [ ] On-chain dispute resolution: DISPUTE_ARBITRATE entry type; arbiters are staked validators elected by governance vote; losing party's stake is reduced
+- [ ] BTCPC Verified Seller program: stake threshold + minimum review count + minimum on-chain order history required for program badge
+- [ ] Privacy mode: all order data (shipping address, item detail) encrypted with buyer/seller memo keys; only the two parties can read; ledger records only hashes
 
 ## Phase 1 — Multi-Miner
 

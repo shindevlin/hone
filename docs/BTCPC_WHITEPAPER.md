@@ -1453,6 +1453,66 @@ deterministic replay rules as all other entries.
 
 ---
 
+## Appendix N — Key Architecture
+
+### N.1 Key Types
+
+Every BTCPC account may hold up to three cryptographic keys. Each key is a 64-character hex-encoded Ed25519 private key. They are separated by purpose so that compromising a low-privilege key does not expose funds.
+
+| Key | Purpose | Required for |
+|-----|---------|-------------|
+| **Posting key** | Signs chain entries: store operations, product listings, order actions, Q&A, reputation votes | Logging in to vendor.html and store.html; all non-financial on-chain actions |
+| **Active key** | Signs token transfers: escrow debit on order placement, escrow release on delivery | Placing orders with real funds (Phase H+); releasing escrow to seller |
+| **Memo key** | Encrypts and signs reputation memos written after a completed trade | Writing buyer-to-seller and seller-to-buyer reputation notes; reading encrypted memo text |
+
+**Key custody.** Keys never leave the client. The `btcpc-market` service verifies signatures on inbound requests — it never holds or sees private keys. The posting key is the only key required for Phase G operations.
+
+### N.2 Escrow Flow
+
+**Phase G (current) — social commitment.** ORDER_PLACE is a signed ledger entry that records the buyer's intent. Funds are not moved on-chain at order time. Escrow is a social and reputational commitment enforced by the auto-cancel sweep (4,800 epochs / ~40 hours) and by stake-weighted dispute resolution.
+
+**Phase H target — active key escrow.**
+
+1. Buyer places order — active key signs an `ESCROW_LOCK` entry, debiting the buyer's wallet balance into the protocol escrow pool.
+2. Seller ships — `ORDER_FULFILL` entry signed with seller's posting key (tracking number included).
+3. Buyer confirms receipt — buyer's active key signs `ORDER_DELIVER`; protocol writes `ESCROW_RELEASE` sending funds to the seller minus the 1% fee split (0.5% to `btcpc_recycle`, 0.4% to store stakers pro-rata, 0.1% to reputation bonus pool).
+4. Auto-cancel after 4,800 epochs if seller does not fulfill — protocol writes `ESCROW_REFUND` returning the full amount to the buyer.
+5. Dispute before ORDER_DELIVER — `ORDER_DISPUTE` entry freezes escrow; arbiters (staked validators) resolve; `ESCROW_RELEASE` or `ESCROW_REFUND` is written by the protocol with the arbiter decision attached.
+
+### N.3 Reputation Memos
+
+After ORDER_DELIVERED, both parties may write a `REPUTATION_MEMO` entry. Memos are independent: the buyer writes one about the seller, the seller writes one about the buyer. Both are permanent, append-only public records on the chain.
+
+**REPUTATION_MEMO entry fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from` | account name | Writer of the memo |
+| `to` | account name | Subject of the memo |
+| `order_id` | string | The ORDER_PLACE entry ID this memo relates to |
+| `memo_cid` | sha256 CID | BTCPC-FS blob containing the memo text, encrypted with the subject's memo key |
+| `vote` | +1 / -1 / 0 | Public sentiment signal; 0 means neutral/no vote |
+| `sig` | hex | Posting key signature over the above fields |
+
+**Memo privacy.** The `vote` and all structured fields are public and fully readable by any node. The memo text itself is encrypted: only the holder of the subject's memo key can decrypt and read it. The subject can choose to publish their memo key selectively — to a trusted party, a dispute arbiter, or publicly.
+
+**Reputation weighting.** Memos are weighted by the writer's stake and order history. A writer with zero stake and no prior completed orders contributes near-zero weight. A writer with significant stake and a long completed-order history contributes full weight. The weighted sum is the account's public reputation score, queryable at `GET /api/peer/commerce/stores/:seller`.
+
+### N.4 Buyer Staking
+
+Per-transaction active key signing creates UX friction for high-frequency buyers. The buyer staking alternative removes this friction without sacrificing trustlessness.
+
+**Mechanism:**
+
+1. Buyer submits a `STAKE_LOCK` entry signed with their active key, specifying an amount of BTCPC.
+2. The staked balance is held in the protocol stake pool, not the buyer's liquid wallet.
+3. Subsequent ORDER_PLACE entries reference the buyer's stake pool. The protocol deducts the order amount from the stake pool without requiring an active key signature per order — the initial STAKE_LOCK acts as standing authorization.
+4. To withdraw staked funds, the buyer submits `STAKE_UNLOCK` signed with their active key. A 4,800-epoch (~40-hour) cooldown applies. Funds return to the liquid wallet after the cooldown.
+
+**Safety.** The cooldown prevents a buyer from simultaneously draining their stake pool and reneging on open orders. Any in-flight orders are settled against the stake pool before the unlock is processed. If the stake pool balance falls below an open order's escrow amount, that order is auto-cancelled and the partial stake is returned to the buyer.
+
+---
+
 *BTCPC v3.0 — April 2026*
 *Shin Devlin — shin@btcpc.network*
 *License: AGPL-3.0*

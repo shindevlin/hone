@@ -173,6 +173,26 @@
     .empty-state .ico { font-size: 48px; margin-bottom: 12px; }
     .empty-state p { font-size: 14px; }
 
+    /* LOGIN WALL */
+    #login-wall { position: fixed; inset: 0; background: rgba(19,25,33,0.97); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    #login-wall.hidden { display: none; }
+    .login-card { background: #fff; border-radius: 12px; padding: 36px 40px; width: 100%; max-width: 420px; box-shadow: 0 24px 80px rgba(0,0,0,0.5); }
+    .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+    .login-logo span { font-size: 22px; font-weight: 800; color: var(--navy); }
+    .login-logo span small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+    .login-card h2 { font-size: 18px; margin-bottom: 6px; }
+    .login-card p { font-size: 13px; color: var(--sub); margin-bottom: 20px; }
+    .login-field { margin-bottom: 14px; }
+    .login-field label { display: block; font-size: 12px; font-weight: 700; color: var(--sub); margin-bottom: 5px; }
+    .login-field input { width: 100%; padding: 10px 12px; border: 1px solid var(--border2); border-radius: 4px; font-size: 14px; }
+    .login-field input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .login-field .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .login-btn { width: 100%; padding: 12px; background: var(--orange); color: var(--navy); font-weight: 700; font-size: 14px; border: none; border-radius: 4px; margin-top: 6px; transition: background .15s; }
+    .login-btn:hover { background: var(--orange-d); }
+    .login-demo-row { text-align: center; margin-top: 18px; font-size: 12px; color: var(--sub); }
+    .login-demo-row a { color: var(--orange); cursor: pointer; }
+    .login-err { color: var(--red); font-size: 12px; margin-top: 8px; display: none; }
+
     /* MODAL overlay for create/edit product */
     .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .2s; }
     .modal-bg.open { opacity: 1; pointer-events: all; }
@@ -678,9 +698,15 @@
           <textarea id="p-desc" placeholder="Full product description…"></textarea>
         </div>
         <div class="form-group form-full">
-          <label>Image CID (BTCPC-FS blob hash, optional)</label>
-          <input type="text" id="p-img" placeholder="sha256:..." />
-          <span class="form-hint">Upload image via /api/blobs, paste the CID here.</span>
+          <label>Product Image</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="p-img" placeholder="sha256:… (auto-filled on upload)" style="flex:1" />
+            <label style="cursor:pointer;background:var(--bg2);border:1px solid var(--border2);border-radius:4px;padding:9px 14px;font-size:12px;font-weight:700;white-space:nowrap;color:var(--text)">
+              📷 Upload
+              <input type="file" id="p-img-file" accept="image/*" style="display:none" onchange="uploadProductImage()" />
+            </label>
+          </div>
+          <span class="form-hint" id="p-img-hint">Upload an image (max 8 MB) or paste an existing BTCPC-FS CID.</span>
         </div>
         <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -719,6 +745,33 @@
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+
+<!-- LOGIN WALL -->
+<div id="login-wall">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:32px;height:32px;border-radius:4px" />
+      <span>BTCPC <small>Vendor Dashboard</small></span>
+    </div>
+    <h2>Sign in with your posting key</h2>
+    <p>Enter your BTCPC account name and posting key to manage your store.</p>
+    <div class="login-field">
+      <label>BTCPC Username</label>
+      <input id="login-username" type="text" placeholder="e.g. shindevlin" autocomplete="username" />
+    </div>
+    <div class="login-field">
+      <label>Posting Key (64 hex characters)</label>
+      <input id="login-posting-key" type="password" placeholder="0000…0001" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')submitVendorLogin()" />
+      <div class="hint">Your posting key never leaves this device. It's used to sign store entries on-chain.</div>
+    </div>
+    <div class="login-err" id="login-err"></div>
+    <button class="login-btn" onclick="submitVendorLogin()">Sign In →</button>
+    <div class="login-demo-row">
+      Want to explore first? <a onclick="fillDemoCredentials()">Use demo account</a>
+    </div>
+  </div>
+</div>
 
 <script>
 // ── NODE CONFIGURATION ───────────────────────────────────────────────────────
@@ -764,6 +817,68 @@ function clearNode() {
   closeNodeModal();
 }
 document.addEventListener('DOMContentLoaded', updateNodeIndicator);
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+async function submitVendorLogin() {
+  var username   = (document.getElementById('login-username').value || '').trim().toLowerCase();
+  var postingKey = (document.getElementById('login-posting-key').value || '').trim().toLowerCase();
+  var errEl = document.getElementById('login-err');
+  errEl.style.display = 'none';
+
+  if (!username) { errEl.textContent = 'Username required.'; errEl.style.display=''; return; }
+  if (postingKey.length !== 64) { errEl.textContent = 'Posting key must be exactly 64 hex characters.'; errEl.style.display=''; return; }
+
+  var btn = document.querySelector('.login-btn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, posting_key: postingKey }),
+    });
+    var data = await resp.json().catch(function(){ return {}; });
+    if (!resp.ok) {
+      errEl.textContent = data.error || ('Login failed (' + resp.status + ')');
+      errEl.style.display = '';
+      btn.disabled = false; btn.textContent = 'Sign In →';
+      return;
+    }
+    localStorage.setItem('btcpc_token', data.token);
+    localStorage.setItem('btcpc_username', data.username);
+    authToken = data.token;
+    seller    = data.username;
+    document.getElementById('login-wall').classList.add('hidden');
+    document.getElementById('sb-name').textContent = seller;
+    await init();
+    toast('Signed in as ' + seller, 'green');
+  } catch(e) {
+    errEl.textContent = 'Could not reach node — check BTCPC_NODE setting.';
+    errEl.style.display = '';
+    btn.disabled = false; btn.textContent = 'Sign In →';
+  }
+}
+
+function fillDemoCredentials() {
+  document.getElementById('login-username').value    = 'demovendor';
+  document.getElementById('login-posting-key').value = '0000000000000000000000000000000000000000000000000000000000000001';
+}
+
+function signOut() {
+  localStorage.removeItem('btcpc_token');
+  localStorage.removeItem('btcpc_username');
+  document.getElementById('login-wall').classList.remove('hidden');
+  authToken = ''; seller = '';
+}
+
+// Show login wall if no token
+(function() {
+  var token    = localStorage.getItem('btcpc_token') || '';
+  var username = localStorage.getItem('btcpc_username') || '';
+  if (token && username) {
+    document.getElementById('login-wall').classList.add('hidden');
+  }
+})();
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 var seller = localStorage.getItem('btcpc_username') || 'shindevlin';
@@ -1238,6 +1353,36 @@ function viewOrder(orderId) {
 
 function closeViewOrderModal() {
   document.getElementById('view-order-modal').classList.remove('open');
+}
+
+// ── IMAGE UPLOAD ──────────────────────────────────────────────────────────────
+async function uploadProductImage() {
+  var fileInput = document.getElementById('p-img-file');
+  var file = fileInput.files[0];
+  if (!file) return;
+  var hint = document.getElementById('p-img-hint');
+  hint.textContent = 'Uploading…';
+
+  var form = new FormData();
+  form.append('file', file);
+  try {
+    var headers = {};
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/media/upload', {
+      method: 'POST', headers, body: form
+    });
+    if (resp.ok) {
+      var data = await resp.json();
+      document.getElementById('p-img').value = data.cid;
+      hint.textContent = 'Uploaded — CID: ' + data.cid.slice(0, 30) + '… (' + Math.round(data.size / 1024) + ' KB)';
+      return;
+    }
+    var err = await resp.json().catch(function(){ return {}; });
+    hint.textContent = 'Upload failed: ' + (err.error || resp.status);
+  } catch(e) {
+    hint.textContent = 'Upload failed — is the market node running?';
+  }
+  fileInput.value = '';
 }
 
 // ── CREATE / EDIT PRODUCT ─────────────────────────────────────────────────────

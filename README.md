@@ -101,6 +101,20 @@ BTCPC Market is a sovereign, censorship-resistant marketplace for hardware, digi
 
 **btcpc-market.** The `btcpc-market` Rust service (port 7042) is an optional sidecar that vendors run for full seller operations. Standard BTCPC nodes handle read-only catalog access without it.
 
+## Key management
+
+BTCPC accounts support three separate keys, each scoped to a different privilege level:
+
+| Key | One-line description |
+|-----|---------------------|
+| **Posting key** | Signs all non-financial chain entries — store ops, product listings, order actions, Q&A |
+| **Active key** | Signs token transfers — escrow debit on order placement, escrow release on delivery |
+| **Memo key** | Encrypts and signs reputation memos written after a completed trade |
+
+Phase G ships with posting-key-only operations. Active key escrow and memo key reputation are Phase H.
+
+See [Appendix N of the whitepaper](docs/BTCPC_WHITEPAPER.md#appendix-n--key-architecture) for full details on key types, escrow flow, reputation memos, and buyer staking.
+
 ## How it works
 
 - 30-second epochs, 42M total supply

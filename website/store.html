@@ -385,6 +385,66 @@
     .qa-ask-btn:hover { background: var(--navy2); }
     .qa-empty { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 
+    /* ── BUYER AUTH MODAL ── */
+    #auth-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9100;
+      align-items: flex-start; justify-content: center; padding-top: 80px;
+    }
+    #auth-modal-overlay.open { display: flex; }
+    #auth-modal {
+      background: #fff; border-radius: 8px; padding: 28px 32px; width: 400px; max-width: 94vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    #auth-modal h3 { margin-bottom: 6px; font-size: 16px; }
+    #auth-modal p  { color: var(--sub); font-size: 13px; margin-bottom: 16px; }
+    .auth-field { margin-bottom: 12px; }
+    .auth-field label { display: block; font-size: 11px; font-weight: 700; color: var(--sub); margin-bottom: 4px; }
+    .auth-field input { width: 100%; padding: 9px 12px; border: 1px solid var(--border2); border-radius: 4px; font-size: 14px; }
+    .auth-field input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .auth-err { color: var(--red); font-size: 12px; margin-bottom: 8px; display: none; }
+    .auth-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+    .auth-modal-actions button { padding: 9px 18px; border-radius: 4px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-auth-submit { background: var(--orange); color: var(--navy); }
+    .btn-auth-cancel { background: none; color: var(--sub); }
+    .auth-demo-link { font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center; }
+    .auth-demo-link a { color: var(--link); cursor: pointer; }
+
+    /* ── ORDERS PANEL ── */
+    #orders-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9100;
+      align-items: flex-start; justify-content: center; padding: 60px 16px 24px;
+      overflow-y: auto;
+    }
+    #orders-modal-overlay.open { display: flex; }
+    #orders-modal {
+      background: #fff; border-radius: 8px; width: 100%; max-width: 680px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+    }
+    .om-head { background: var(--navy); color: #fff; padding: 16px 20px; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .om-head h3 { font-size: 16px; }
+    .om-close { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
+    .om-body { padding: 20px; }
+    .om-sign-in { text-align: center; padding: 32px 20px; color: var(--sub); font-size: 14px; }
+    .om-sign-in button { margin-top: 12px; padding: 10px 24px; background: var(--orange); color: var(--navy); border: none; border-radius: 4px; font-weight: 700; cursor: pointer; }
+    .order-card { border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; }
+    .order-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+    .order-card-id { font-size: 11px; color: var(--muted); }
+    .order-card-product { font-weight: 700; font-size: 13px; }
+    .order-card-meta { font-size: 12px; color: var(--sub); margin-top: 2px; }
+    .order-status-badge {
+      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; flex-shrink: 0;
+    }
+    .badge-pending   { background: var(--orange-l); color: var(--orange-d); }
+    .badge-fulfilled { background: #e3f2fd; color: #1565c0; }
+    .badge-delivered { background: var(--green-bg); color: var(--green); }
+    .badge-cancelled { background: #f5f5f5; color: var(--muted); }
+    .badge-disputed  { background: #fce4ec; color: var(--red); }
+    .order-card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .btn-om-confirm  { padding: 6px 14px; background: var(--green); color: #fff; border: none; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .btn-om-dispute  { padding: 6px 14px; background: none; border: 1px solid var(--red); color: var(--red); border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .btn-om-cancel   { padding: 6px 14px; background: none; border: 1px solid var(--border2); color: var(--sub); border-radius: 4px; font-size: 12px; cursor: pointer; }
+    .order-tracking  { background: var(--bg2); border-radius: 4px; padding: 8px 12px; font-size: 12px; margin-top: 8px; color: var(--sub); }
+
     /* ── IMPORT MODAL ── */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 400; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
     .modal-overlay.open { opacity: 1; pointer-events: all; }
@@ -587,15 +647,15 @@
     </div>
 
     <div class="nav-right">
-      <button class="nav-btn">
-        <div class="line1">Hello, shindevlin</div>
-        <div class="line2">Account &amp; Lists ▾</div>
+      <button class="nav-btn" onclick="openAuthModal()" id="nav-account-btn">
+        <div class="line1" id="nav-account-line1">Hello, sign in</div>
+        <div class="line2" id="nav-account-line2">Account &amp; Lists ▾</div>
       </button>
       <button class="nav-btn" onclick="location.href='/vendor'">
         <div class="line1">Sell on</div>
         <div class="line2">BTCPC ▾</div>
       </button>
-      <button class="nav-btn">
+      <button class="nav-btn" onclick="openOrdersPanel()">
         <div class="line1">Returns</div>
         <div class="line2">&amp; Orders</div>
       </button>
@@ -624,6 +684,47 @@
         <button class="btn-node-cancel" onclick="closeNodeModal()">Cancel</button>
         <button class="btn-node-clear" onclick="clearNode()">Use Local</button>
         <button class="btn-node-save" onclick="saveNode()">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Buyer auth modal -->
+  <div id="auth-modal-overlay" onclick="if(event.target===this)closeAuthModal()">
+    <div id="auth-modal">
+      <h3>Sign in to BTCPC Market</h3>
+      <p>Enter your BTCPC account name and posting key to place orders and track purchases.</p>
+      <div class="auth-field">
+        <label>BTCPC Username</label>
+        <input id="auth-username" type="text" placeholder="e.g. natoshisakamoto" autocomplete="username" />
+      </div>
+      <div class="auth-field">
+        <label>Posting Key (64 hex characters)</label>
+        <input id="auth-posting-key" type="password" placeholder="0000…0001"
+               onkeydown="if(event.key==='Enter')submitBuyerLogin()" />
+      </div>
+      <div class="auth-err" id="auth-err"></div>
+      <div class="auth-modal-actions">
+        <button class="btn-auth-cancel" onclick="closeAuthModal()">Cancel</button>
+        <button class="btn-auth-submit" onclick="submitBuyerLogin()">Sign In →</button>
+      </div>
+      <div class="auth-demo-link">
+        Exploring? <a onclick="fillBuyerDemo()">Use demo account</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Orders panel -->
+  <div id="orders-modal-overlay" onclick="if(event.target===this)closeOrdersPanel()">
+    <div id="orders-modal">
+      <div class="om-head">
+        <h3>Your Orders</h3>
+        <button class="om-close" onclick="closeOrdersPanel()">✕</button>
+      </div>
+      <div class="om-body" id="om-body">
+        <div class="om-sign-in">
+          <div>Sign in to view your orders.</div>
+          <button onclick="closeOrdersPanel();openAuthModal()">Sign In</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1251,8 +1352,232 @@ function clearNode() {
 }
 document.addEventListener('DOMContentLoaded', function() {
   updateNodeIndicator();
+  updateAccountNav();
   initFlashCountdowns();
 });
+
+// ── BUYER AUTH ───────────────────────────────────────────────────────
+var _buyerToken    = localStorage.getItem('btcpc_token') || '';
+var _buyerUsername = localStorage.getItem('btcpc_username') || '';
+
+function updateAccountNav() {
+  var l1 = document.getElementById('nav-account-line1');
+  var l2 = document.getElementById('nav-account-line2');
+  if (!l1) return;
+  if (_buyerUsername) {
+    l1.textContent = 'Hello, ' + _buyerUsername;
+    l2.innerHTML   = 'Account &amp; Lists ▾';
+  } else {
+    l1.textContent = 'Hello, sign in';
+    l2.innerHTML   = 'Account &amp; Lists ▾';
+  }
+}
+
+function openAuthModal() {
+  if (_buyerUsername) {
+    // Already signed in — show sign-out option via toast
+    if (confirm('Signed in as ' + _buyerUsername + '. Sign out?')) {
+      _buyerToken = ''; _buyerUsername = '';
+      localStorage.removeItem('btcpc_token');
+      localStorage.removeItem('btcpc_username');
+      updateAccountNav();
+      toast('Signed out');
+    }
+    return;
+  }
+  document.getElementById('auth-err').style.display = 'none';
+  document.getElementById('auth-username').value    = '';
+  document.getElementById('auth-posting-key').value = '';
+  document.getElementById('auth-modal-overlay').classList.add('open');
+  setTimeout(function(){ document.getElementById('auth-username').focus(); }, 100);
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal-overlay').classList.remove('open');
+}
+
+function fillBuyerDemo() {
+  document.getElementById('auth-username').value    = 'demobuyer';
+  document.getElementById('auth-posting-key').value = '0000000000000000000000000000000000000000000000000000000000000002';
+}
+
+async function submitBuyerLogin() {
+  var username   = (document.getElementById('auth-username').value || '').trim().toLowerCase();
+  var postingKey = (document.getElementById('auth-posting-key').value || '').trim().toLowerCase();
+  var errEl = document.getElementById('auth-err');
+  errEl.style.display = 'none';
+
+  if (!username)           { errEl.textContent = 'Username required.'; errEl.style.display=''; return; }
+  if (postingKey.length !== 64) { errEl.textContent = 'Posting key must be 64 hex characters.'; errEl.style.display=''; return; }
+
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, posting_key: postingKey }),
+    });
+    var data = await resp.json().catch(function(){ return {}; });
+    if (!resp.ok) {
+      errEl.textContent = data.error || ('Login failed (' + resp.status + ')');
+      errEl.style.display = '';
+      return;
+    }
+    _buyerToken    = data.token;
+    _buyerUsername = data.username;
+    localStorage.setItem('btcpc_token',    _buyerToken);
+    localStorage.setItem('btcpc_username', _buyerUsername);
+    closeAuthModal();
+    updateAccountNav();
+    toast('Signed in as ' + _buyerUsername, 'green');
+  } catch(e) {
+    errEl.textContent = 'Could not reach node.';
+    errEl.style.display = '';
+  }
+}
+
+// ── ORDERS PANEL ─────────────────────────────────────────────────────
+function openOrdersPanel() {
+  document.getElementById('orders-modal-overlay').classList.add('open');
+  loadOrders();
+}
+
+function closeOrdersPanel() {
+  document.getElementById('orders-modal-overlay').classList.remove('open');
+}
+
+function statusBadge(status) {
+  var classes = { pending:'badge-pending', placed:'badge-pending', fulfilled:'badge-fulfilled',
+                  delivered:'badge-delivered', cancelled:'badge-cancelled', disputed:'badge-disputed' };
+  var labels  = { pending:'Pending', placed:'Pending', fulfilled:'Shipped', delivered:'Delivered',
+                  cancelled:'Cancelled', disputed:'Disputed' };
+  return '<span class="order-status-badge ' + (classes[status]||'badge-cancelled') + '">' +
+         (labels[status] || status) + '</span>';
+}
+
+async function loadOrders() {
+  var body = document.getElementById('om-body');
+  if (!_buyerToken) {
+    body.innerHTML = '<div class="om-sign-in"><div>Sign in to view your orders.</div>' +
+      '<button onclick="closeOrdersPanel();openAuthModal()">Sign In</button></div>';
+    return;
+  }
+  body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">Loading…</div>';
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/my', {
+      headers: { 'Authorization': 'Bearer ' + _buyerToken }
+    });
+    if (resp.status === 401) {
+      _buyerToken = ''; _buyerUsername = '';
+      localStorage.removeItem('btcpc_token'); localStorage.removeItem('btcpc_username');
+      updateAccountNav();
+      body.innerHTML = '<div class="om-sign-in"><div>Session expired. Please sign in again.</div>' +
+        '<button onclick="closeOrdersPanel();openAuthModal()">Sign In</button></div>';
+      return;
+    }
+    var data = resp.ok ? await resp.json() : null;
+    var orders = (data && data.orders) ? data.orders : null;
+    if (!orders) throw new Error('no data');
+    renderOrders(orders);
+  } catch(e) {
+    // Demo fallback
+    renderOrders(DEMO_MY_ORDERS);
+  }
+}
+
+var DEMO_MY_ORDERS = [
+  { order_id:'ord-demo000000000000000001', product_id:'demovendor/tbeam-mesh-kit',
+    seller:'demovendor', quantity:1, total:24, token:'BTCPC', status:'fulfilled',
+    placed_epoch:34000, escrow_id:'esc-demo0001',
+    carrier:'usps', tracking_number:'9400111899223456789012', shipping_service:'ground',
+    shipping_note:'Ships in bubble wrap.' },
+  { order_id:'ord-demo000000000000000002', product_id:'demovendor/mining-starter-guide',
+    seller:'demovendor', quantity:1, total:1, token:'BTCPC', status:'delivered',
+    placed_epoch:33800, escrow_id:'esc-demo0002',
+    fulfillment_cid:'sha256:0000000000000000000000000000000000000000000000000000000000000001' },
+];
+
+function renderOrders(orders) {
+  var body = document.getElementById('om-body');
+  if (!orders.length) {
+    body.innerHTML = '<div class="om-sign-in"><div>No orders yet. Start shopping!</div></div>';
+    return;
+  }
+  body.innerHTML = orders.map(function(o) {
+    var tracking = '';
+    if (o.tracking_number) {
+      tracking = '<div class="order-tracking">📦 ' + (o.carrier || '') + ' · ' + o.tracking_number +
+        (o.shipping_service ? ' · ' + o.shipping_service : '') +
+        (o.shipping_note ? '<br><span style="color:var(--muted)">' + escHtml(o.shipping_note) + '</span>' : '') +
+        '</div>';
+    }
+    if (o.fulfillment_cid && !tracking) {
+      tracking = '<div class="order-tracking">📥 Digital delivery CID: <code>' + escHtml(o.fulfillment_cid) + '</code></div>';
+    }
+    var actions = '';
+    if (o.status === 'fulfilled') {
+      actions = '<button class="btn-om-confirm" onclick="confirmDelivery(\'' + o.order_id + '\')">Confirm Delivery</button>' +
+                '<button class="btn-om-dispute" onclick="disputeOrder(\'' + o.order_id + '\')">Dispute</button>';
+    } else if (o.status === 'pending' || o.status === 'placed') {
+      actions = '<button class="btn-om-cancel" onclick="cancelOrder(\'' + o.order_id + '\')">Cancel Order</button>';
+    } else if (o.status === 'delivered') {
+      actions = '<span style="color:var(--green);font-size:12px;font-weight:700">✔ Completed — escrow released</span>';
+    }
+    return '<div class="order-card">' +
+      '<div class="order-card-head">' +
+        '<div>' +
+          '<div class="order-card-id">' + o.order_id + '</div>' +
+          '<div class="order-card-product">' + escHtml(o.product_id) + '</div>' +
+          '<div class="order-card-meta">Seller: ' + escHtml(o.seller) + ' · Qty: ' + o.quantity +
+            ' · Total: ₿PC ' + o.total + ' · Epoch: ' + o.placed_epoch + '</div>' +
+        '</div>' +
+        statusBadge(o.status) +
+      '</div>' +
+      tracking +
+      (actions ? '<div class="order-card-actions">' + actions + '</div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+async function confirmDelivery(orderId) {
+  if (!confirm('Confirm delivery of order ' + orderId + '? This releases escrow to the seller.')) return;
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/deliver', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + _buyerToken }
+    });
+    if (resp.ok) { toast('Delivery confirmed — escrow released', 'green'); loadOrders(); return; }
+  } catch(_) {}
+  toast('Confirmed (demo mode)', 'green');
+  loadOrders();
+}
+
+async function cancelOrder(orderId) {
+  if (!confirm('Cancel order ' + orderId + '?')) return;
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/cancel', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + _buyerToken }
+    });
+    if (resp.ok) { toast('Order cancelled', 'green'); loadOrders(); return; }
+  } catch(_) {}
+  toast('Cancelled (demo mode)');
+  loadOrders();
+}
+
+async function disputeOrder(orderId) {
+  var memo = prompt('Briefly describe the issue:');
+  if (!memo) return;
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/dispute', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + _buyerToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memo })
+    });
+    if (resp.ok) { toast('Dispute filed — escrow frozen', 'green'); loadOrders(); return; }
+  } catch(_) {}
+  toast('Dispute filed (demo mode)', 'green');
+  loadOrders();
+}
+
+document.addEventListener('DOMContentLoaded', updateAccountNav);
 
 // ── CART ────────────────────────────────────────────────────────────
 var cart = [];
