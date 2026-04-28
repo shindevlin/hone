@@ -50,9 +50,20 @@
 
 - [ ] **Active key escrow debit**: ORDER_PLACE signs an ESCROW_LOCK entry debiting the buyer's wallet on-chain using their active key — turns social commitment into a real fund hold
 - [ ] **Active key escrow release**: ORDER_DELIVERED triggers an ESCROW_RELEASE entry signed by the buyer's active key, sending held funds to the seller minus protocol fee
+- [ ] **Memo key as universal inbox**: memo key pubkey stored on-chain at account registration; used for end-to-end encryption of reputation memos, digital goods delivery, and private order data — one key, one inbox
 - [ ] **Memo key reputation system**: after ORDER_DELIVERED both parties may write a REPUTATION_MEMO entry — buyer-to-seller and seller-to-buyer signed memos, memo text encrypted with the subject's memo key and stored as a BTCPC-FS blob, `vote` field (+1/-1/0) is public
 - [ ] **Buyer staking flow**: buyer stakes BTCPC via STAKE_LOCK entry; staked balance acts as a pre-authorized escrow pool — orders debit from the pool without requiring an active key per transaction; 4,800-epoch (40h) cooldown on unlock
 - [ ] **Multi-sig escrow**: 2-of-3 scheme (buyer + seller + protocol) for dispute resolution; winning party receives escrowed amount, losing party's stake reduced proportionally; nothing burned
+- [ ] **Owner key + KEY_ROTATE / KEY_REVOKE entry types**: root-of-trust key that can rotate any other key; cold-storage only; on-chain key rotation is permanent and immediate across all validators
+
+## Phase H2 — Service Keys & Digital Delivery
+
+- [ ] **Service key delegation**: `SERVICE_KEY_DELEGATE` entry (signed by posting key) authorizes a service node's Ed25519 pubkey to sign `HEARTBEAT`, `SERVICE_LOG`, `SERVICE_RESULT`; optional `service_image_cid` binds the key to a specific WASM binary; `SERVICE_KEY_REVOKE` invalidates immediately
+- [ ] **Fulfill key**: `FULFILL_KEY_REGISTER` entry (signed by posting key) registers a fulfill pubkey; fulfill privkey is stored AES-encrypted in BTCPC-FS using ECDH(fulfill_privkey, service_pubkey) — only the authorized service node can decrypt it; scoped to `ORDER_FULFILL` on `auto_deliver` products only
+- [ ] **Digital goods delivery encryption — on-chain buyer**: at ORDER_FULFILL, service ECDH-encrypts delivery content to buyer's memo pubkey; buyer decrypts with memo privkey; end-to-end, no plaintext on any node, permanent
+- [ ] **Digital goods delivery encryption — guest buyer with password**: browser derives Ed25519 keypair from HKDF(password, order_id); pubkey included in ORDER_PLACE; server never sees password; same ECDH fulfill path as on-chain buyer; buyer re-derives key from password + order ID at any future time
+- [ ] **Digital goods delivery encryption — guest buyer no account**: fulfill service issues a signed time-limited download token (signed by fulfill key); valid for 4,800 epochs; authenticated but not end-to-end encrypted; honest about the guarantee boundary
+- [ ] **Content encryption at rest**: `auto_deliver` product content stored encrypted in BTCPC-FS at listing time; fulfill key decrypts raw content then re-encrypts addressed to buyer's specific delivery pubkey; plaintext never exists on network after initial vendor upload
 
 ## Phase I — Discovery & Search
 
