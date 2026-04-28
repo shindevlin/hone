@@ -48,7 +48,7 @@ New accounts start with 0 BTCPC. There are three ways to get tokens:
 
 2. **Mine** — run a GPU miner node and earn BTCPC per epoch. See [install-miner.md](install-miner.md).
 
-3. **Request more** — email **shin@btcpc.network** with your username for additional tokens.
+3. **Request more** — email **shindevlin@proton.me** with your username for additional tokens.
 
 ## Link Telegram (Optional)
 

@@ -14,7 +14,7 @@
 
 const axios = require('axios');
 
-const BTCPC_URL = process.env.BTCPC_URL || 'http://localhost:3000';
+const BTCPC_URL = process.env.BTCPC_URL || process.env.BTCPC_API_URL || 'https://btcpc.net';
 const BTCPC_API_KEY = process.env.BTCPC_API_KEY || '';
 const BTCPC_MODEL = process.env.BTCPC_MODEL || 'qwen3.5:27b';
 

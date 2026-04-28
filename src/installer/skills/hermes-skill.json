@@ -2,7 +2,7 @@
   "name": "btcpc",
   "version": "1.0.0",
   "description": "Bitcoin Proof of Compute — manage your BTCPC nodes, wallet, and earnings",
-  "author": "Shin Devlin <shin@btcpc.network>",
+  "author": "Shin Devlin <shindevlin@proton.me>",
   "tools": [
     {
       "name": "btcpc_balance",

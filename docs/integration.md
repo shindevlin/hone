@@ -68,7 +68,7 @@ curl -X POST https://api.btcpc.network/api/projects/fund \
   -d '{"walletAddress": "btcpc_proj_def456...", "amount": 10}'
 ```
 
-Or ask for tokens: **shin@btcpc.network**
+Or ask for tokens: **shindevlin@proton.me**
 
 ## Step 4: Use Inference
 
@@ -288,5 +288,5 @@ async function generateLoop() {
 
 - Telegram: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
 - Bot: [@btcpcbot](https://t.me/btcpcbot)
-- Email: shin@btcpc.network
+- Email: shindevlin@proton.me
 - Issues: [github.com/shindevlin/btcpc/issues](https://github.com/shindevlin/btcpc/issues)

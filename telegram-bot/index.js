@@ -174,7 +174,7 @@ bot.onText(/\/claim/, async (msg) => {
 
     const alreadyClaimed = await Transaction.findOne({ to: wallet.address, type: 'faucet' });
     if (alreadyClaimed) {
-      return bot.sendMessage(msg.chat.id, `You've already claimed your starter tokens. To request more, email shin@btcpc.network with your username.`);
+      return bot.sendMessage(msg.chat.id, `You've already claimed your starter tokens. To request more, email shindevlin@proton.me with your username.`);
     }
 
     const balance = wallet.balance.get('BTCPC') || 0;

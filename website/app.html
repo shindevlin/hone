@@ -538,6 +538,8 @@
       <button class="sb-nav-item" data-tab="node"><span class="sb-icon">🖥</span>Node</button>
       <button class="sb-nav-item" data-tab="chat"><span class="sb-icon">💬</span>Chat</button>
       <button class="sb-nav-item" data-tab="data"><span class="sb-icon">📊</span>Data</button>
+      <button class="sb-nav-item" data-tab="wallet"><span class="sb-icon">💰</span>Wallet</button>
+      <button class="sb-nav-item" data-tab="staking"><span class="sb-icon">📈</span>Staking</button>
       <button class="sb-nav-item" data-tab="settings"><span class="sb-icon">⚙</span>Settings</button>
     </nav>
     <div class="sb-epoch" id="sb-epoch" style="display:none;">
@@ -2028,6 +2030,141 @@
       </div>
     </div>
 
+    <!-- Tab: Wallet -->
+    <div id="panel-wallet" class="tab-panel">
+      <div style="padding:12px 0 4px;font-size:13px;font-weight:600;color:var(--text);">Wallet</div>
+
+      <!-- Balance card -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px;">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Available Balance</div>
+        <div style="display:flex;align-items:baseline;gap:8px;">
+          <span id="wallet-balance-main" style="font-size:28px;font-weight:700;color:var(--orange);">—</span>
+          <span style="font-size:13px;color:var(--muted);">BTCPC</span>
+        </div>
+        <div id="wallet-delegated-row" style="margin-top:6px;font-size:11px;color:var(--muted);display:none;">
+          Delegated: <span id="wallet-balance-delegated" style="color:var(--text);">0</span> BTCPC
+          <span style="color:var(--muted);"> (services-only, non-transferable)</span>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted);">
+          Address: <span id="wallet-address" style="color:var(--text);word-break:break-all;"></span>
+        </div>
+        <button id="wallet-copy-addr" onclick="(function(){var a=document.getElementById('wallet-address').textContent;if(a){navigator.clipboard.writeText(a);var b=document.getElementById('wallet-copy-addr');b.textContent='Copied!';setTimeout(function(){b.textContent='Copy Address';},1500);}})()" style="margin-top:8px;padding:4px 12px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.25);color:var(--orange);border-radius:5px;font-family:inherit;font-size:11px;cursor:pointer;">Copy Address</button>
+        <button onclick="window._walletRefresh && window._walletRefresh()" style="margin-top:8px;margin-left:6px;padding:4px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--muted);border-radius:5px;font-family:inherit;font-size:11px;cursor:pointer;">Refresh</button>
+      </div>
+
+      <!-- Send -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Send</div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">To (username or address)</label>
+          <input type="text" id="wallet-send-to" autocapitalize="none" autocomplete="off" placeholder="e.g. shindevlin"
+            style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+            <input type="number" id="wallet-send-amount" min="0.00000001" step="0.0001" placeholder="0.0000"
+              style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Memo (optional)</label>
+            <input type="text" id="wallet-send-memo" placeholder="note"
+              style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Password (to confirm)</label>
+          <input type="password" id="wallet-send-pass" autocomplete="current-password"
+            style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+        </div>
+        <div id="wallet-send-status" style="font-size:11px;margin-bottom:8px;display:none;"></div>
+        <button id="wallet-send-btn" onclick="window._walletSend && window._walletSend()"
+          style="width:100%;padding:9px;background:var(--orange);border:none;color:#000;font-family:inherit;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;">
+          Send BTCPC
+        </button>
+      </div>
+
+      <!-- Recent transactions -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Recent Activity</div>
+        <div id="wallet-tx-list" style="font-size:11px;color:var(--muted);">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Tab: Staking -->
+    <div id="panel-staking" class="tab-panel">
+      <div style="padding:12px 0 4px;font-size:13px;font-weight:600;color:var(--text);">Staking</div>
+
+      <!-- My stake summary -->
+      <div id="staking-summary-card" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">My Stake</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:10px;color:var(--muted);">Staked</div>
+            <div id="staking-my-amount" style="font-size:20px;font-weight:700;color:var(--orange);">—</div>
+            <div style="font-size:10px;color:var(--muted);">BTCPC</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);">Status</div>
+            <div id="staking-my-status" style="font-size:14px;font-weight:600;color:var(--green);margin-top:4px;">—</div>
+          </div>
+        </div>
+        <div id="staking-unlock-row" style="margin-top:8px;font-size:11px;color:var(--muted);display:none;">
+          Unlock available: <span id="staking-unlock-time" style="color:var(--text);">—</span>
+        </div>
+      </div>
+
+      <!-- Network staking stats -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="staking-net-total" style="font-size:16px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Total Staked</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="staking-net-stakers" style="font-size:16px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Stakers</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;">
+          <div id="staking-net-min" style="font-size:16px;font-weight:700;color:var(--orange);">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">Min Stake</div>
+        </div>
+      </div>
+
+      <!-- Stake / Unstake form -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Stake / Unstake</div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <input type="number" id="staking-amount" min="0" step="1" placeholder="0"
+            style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Password</label>
+          <input type="password" id="staking-pass" autocomplete="current-password"
+            style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
+        </div>
+        <div id="staking-action-status" style="font-size:11px;margin-bottom:8px;display:none;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button onclick="window._stakingStake && window._stakingStake()"
+            style="padding:9px;background:var(--orange);border:none;color:#000;font-family:inherit;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;">
+            Stake
+          </button>
+          <button onclick="window._stakingUnstake && window._stakingUnstake()"
+            style="padding:9px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#ef4444;font-family:inherit;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;">
+            Unstake
+          </button>
+        </div>
+      </div>
+
+      <!-- What staking does -->
+      <div style="background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.15);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;font-weight:600;color:var(--orange);margin-bottom:6px;">Why Stake?</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.6;">
+          Staking BTCPC locks tokens in the network pool, grants elevated trust for job bidding, and earns you a share of protocol fees proportional to your stake weight. A 14-day unbonding period applies when unstaking.
+        </div>
+      </div>
+    </div>
+
     <!-- Tab: Settings -->
     <div id="panel-settings" class="tab-panel">
       <div class="settings-section">
@@ -2520,6 +2657,8 @@
       <button data-tab="node"><span class="tab-icon">&#x1F5A5;&#xFE0F;</span>Node</button>
       <button data-tab="chat"><span class="tab-icon">&#x1F4AC;</span>Chat</button>
       <button data-tab="data"><span class="tab-icon">&#x1F4CA;</span>Data</button>
+      <button data-tab="wallet"><span class="tab-icon">&#x1F4B0;</span>Wallet</button>
+      <button data-tab="staking"><span class="tab-icon">&#x1F4C8;</span>Staking</button>
       <button data-tab="settings"><span class="tab-icon">&#x2699;&#xFE0F;</span>Settings</button>
     </div>
   </div>
@@ -3893,6 +4032,12 @@ try {
         if (tab === 'node' && typeof window._nodeRefresh === 'function') {
           window._nodeRefresh();
         }
+        if (tab === 'wallet' && typeof window._walletRefresh === 'function') {
+          window._walletRefresh();
+        }
+        if (tab === 'staking' && typeof window._stakingRefresh === 'function') {
+          window._stakingRefresh();
+        }
       });
     });
 
@@ -4876,6 +5021,212 @@ if (account) {
         .catch(function() {}); // silently ignore if offline
     })();
   }
+
+  // ── Wallet tab ────────────────────────────────────────────────────────────
+  (function() {
+    function fmt6(n) { return Number(n || 0).toFixed(6).replace(/\.?0+$/, '') || '0'; }
+
+    async function loadWallet() {
+      var jwt = localStorage.getItem('btcpc-jwt');
+      if (!jwt) {
+        document.getElementById('wallet-tx-list').textContent = 'Log in to view wallet.';
+        document.getElementById('wallet-balance-main').textContent = '—';
+        return;
+      }
+      try {
+        var r = await fetch(API_BASE + '/api/wallet/balance', {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        var d = await r.json();
+        if (d.success) {
+          var bal = (d.balance && d.balance.BTCPC != null) ? d.balance.BTCPC : 0;
+          document.getElementById('wallet-balance-main').textContent = fmt6(bal);
+          if (d.address) document.getElementById('wallet-address').textContent = d.address;
+          var del = d.delegated_balance || 0;
+          if (del > 0) {
+            document.getElementById('wallet-balance-delegated').textContent = fmt6(del);
+            document.getElementById('wallet-delegated-row').style.display = '';
+          }
+        }
+      } catch(e) { /* network error — leave as — */ }
+
+      try {
+        var tr = await fetch(API_BASE + '/api/wallet/transactions', {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        var td = await tr.json();
+        var list = document.getElementById('wallet-tx-list');
+        var txs = (td && td.transactions) || [];
+        if (txs.length === 0) {
+          list.textContent = 'No transactions yet. Balance available via on-chain replay.';
+        } else {
+          list.innerHTML = txs.slice(0, 20).map(function(tx) {
+            var sign = tx.type === 'receive' ? '+' : '-';
+            var col = tx.type === 'receive' ? '#22c55e' : '#ef4444';
+            return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">' +
+              '<span style="color:var(--muted);">' + (tx.counterpart || tx.from || tx.to || 'network') + '</span>' +
+              '<span style="color:' + col + ';font-weight:600;">' + sign + fmt6(tx.amount) + ' BTCPC</span>' +
+              '</div>';
+          }).join('');
+        }
+      } catch(e) {
+        document.getElementById('wallet-tx-list').textContent = 'Could not load transactions.';
+      }
+    }
+
+    window._walletRefresh = loadWallet;
+
+    window._walletSend = async function() {
+      var jwt = localStorage.getItem('btcpc-jwt');
+      if (!jwt) { alert('You must be logged in to send.'); return; }
+      var to = (document.getElementById('wallet-send-to').value || '').trim();
+      var amount = parseFloat(document.getElementById('wallet-send-amount').value);
+      var memo = (document.getElementById('wallet-send-memo').value || '').trim();
+      var pass = document.getElementById('wallet-send-pass').value;
+      var status = document.getElementById('wallet-send-status');
+      if (!to) { status.style.display=''; status.style.color='#ef4444'; status.textContent='Enter a recipient.'; return; }
+      if (!amount || amount <= 0) { status.style.display=''; status.style.color='#ef4444'; status.textContent='Enter a valid amount.'; return; }
+      if (!pass) { status.style.display=''; status.style.color='#ef4444'; status.textContent='Password required.'; return; }
+      var btn = document.getElementById('wallet-send-btn');
+      btn.disabled = true; btn.textContent = 'Sending...';
+      status.style.display = 'none';
+      try {
+        var r = await fetch(API_BASE + '/api/wallet/transfer', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ toAddress: to, amount: amount, memo: memo || undefined, password: pass })
+        });
+        var d = await r.json();
+        if (d.success || d.txHash || d.tx) {
+          status.style.display = ''; status.style.color = '#22c55e';
+          status.textContent = 'Sent! ' + (d.txHash ? 'TX: ' + d.txHash.slice(0,16) + '…' : '');
+          document.getElementById('wallet-send-to').value = '';
+          document.getElementById('wallet-send-amount').value = '';
+          document.getElementById('wallet-send-pass').value = '';
+          document.getElementById('wallet-send-memo').value = '';
+          setTimeout(loadWallet, 1500);
+        } else {
+          status.style.display = ''; status.style.color = '#ef4444';
+          status.textContent = d.error || 'Send failed.';
+        }
+      } catch(e) {
+        status.style.display = ''; status.style.color = '#ef4444';
+        status.textContent = 'Network error.';
+      }
+      btn.disabled = false; btn.textContent = 'Send BTCPC';
+    };
+
+    // Load wallet when tab is opened
+    var tabBar = document.getElementById('tab-bar');
+    if (tabBar) {
+      tabBar.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-tab]');
+        if (btn && btn.dataset.tab === 'wallet') loadWallet();
+      });
+    }
+  })();
+
+  // ── Staking tab ───────────────────────────────────────────────────────────
+  (function() {
+    function fmt4(n) { return Number(n || 0).toFixed(4).replace(/\.?0+$/, '') || '0'; }
+
+    async function loadStaking() {
+      var jwt = localStorage.getItem('btcpc-jwt');
+
+      // Network stats (public)
+      try {
+        var nr = await fetch(API_BASE + '/api/staking/network');
+        var nd = await nr.json();
+        if (nd.success && nd.network) {
+          document.getElementById('staking-net-total').textContent = fmt4(nd.network.total_staked || 0);
+          document.getElementById('staking-net-stakers').textContent = nd.network.staker_count || 0;
+        }
+      } catch(e) {}
+
+      try {
+        var rr = await fetch(API_BASE + '/api/staking/requirements');
+        var rd = await rr.json();
+        if (rd.success || rd.requirements) {
+          var req = rd.requirements || rd;
+          document.getElementById('staking-net-min').textContent = fmt4(req.min_stake || req.minimum || 0);
+        }
+      } catch(e) {}
+
+      // My stake (requires auth)
+      if (!jwt) return;
+      try {
+        var sr = await fetch(API_BASE + '/api/staking/info', {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        var sd = await sr.json();
+        if (sd.success && sd.staking) {
+          var s = sd.staking;
+          document.getElementById('staking-my-amount').textContent = fmt4(s.staked_amount || 0);
+          var statusEl = document.getElementById('staking-my-status');
+          statusEl.textContent = s.status || 'active';
+          statusEl.style.color = s.status === 'unstaking' ? '#f59e0b' : '#22c55e';
+          if (s.unlock_available_at) {
+            document.getElementById('staking-unlock-time').textContent = new Date(s.unlock_available_at).toLocaleString();
+            document.getElementById('staking-unlock-row').style.display = '';
+          }
+        } else {
+          document.getElementById('staking-my-amount').textContent = '0';
+          document.getElementById('staking-my-status').textContent = 'no stake';
+          document.getElementById('staking-my-status').style.color = 'var(--muted)';
+        }
+      } catch(e) {}
+    }
+
+    async function stakingAction(action) {
+      var jwt = localStorage.getItem('btcpc-jwt');
+      if (!jwt) { alert('Log in first.'); return; }
+      var amount = parseFloat(document.getElementById('staking-amount').value);
+      var pass = document.getElementById('staking-pass').value;
+      var status = document.getElementById('staking-action-status');
+      if (action === 'stake' && (!amount || amount <= 0)) {
+        status.style.display=''; status.style.color='#ef4444'; status.textContent='Enter amount to stake.'; return;
+      }
+      if (!pass) {
+        status.style.display=''; status.style.color='#ef4444'; status.textContent='Password required.'; return;
+      }
+      status.style.display = 'none';
+      try {
+        var url = API_BASE + '/api/staking/' + action;
+        var body = action === 'stake' ? { amount: amount, password: pass } : { password: pass };
+        var r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        var d = await r.json();
+        if (d.success) {
+          status.style.display=''; status.style.color='#22c55e';
+          status.textContent = action === 'stake' ? 'Staked successfully.' : 'Unstake request submitted.';
+          document.getElementById('staking-amount').value = '';
+          document.getElementById('staking-pass').value = '';
+          setTimeout(loadStaking, 1000);
+        } else {
+          status.style.display=''; status.style.color='#ef4444';
+          status.textContent = d.error || action + ' failed.';
+        }
+      } catch(e) {
+        status.style.display=''; status.style.color='#ef4444';
+        status.textContent = 'Network error.';
+      }
+    }
+
+    window._stakingRefresh = loadStaking;
+    window._stakingStake   = function() { stakingAction('stake'); };
+    window._stakingUnstake = function() { stakingAction('unstake'); };
+
+    var tabBar = document.getElementById('tab-bar');
+    if (tabBar) {
+      tabBar.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-tab]');
+        if (btn && btn.dataset.tab === 'staking') loadStaking();
+      });
+    }
+  })();
 
   // Rust backend found a newer version on GitHub
   listen('update-available', function(event) {

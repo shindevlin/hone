@@ -6,7 +6,7 @@
 Claim 1 free BTCPC via the faucet — either through the API (`POST /api/faucet/claim`) or the Telegram bot (`/claim`). You can only claim once per account.
 
 ### I need more tokens
-Email **shin@btcpc.network** with your BTCPC username. Include what you plan to use them for.
+Email **shindevlin@proton.me** with your BTCPC username. Include what you plan to use them for.
 
 ### Can I mine without a GPU?
 Mining on CPU works but is very slow and earns minimal rewards. An NVIDIA GPU with 8GB+ VRAM is recommended.
@@ -38,5 +38,5 @@ Mining on CPU works but is very slow and earns minimal rewards. An NVIDIA GPU wi
 
 - Telegram Group: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
 - Telegram Bot: [@btcpcbot](https://t.me/btcpcbot)
-- Email: shin@btcpc.network
+- Email: shindevlin@proton.me
 - GitHub Issues: [shindevlin/btcpc](https://github.com/shindevlin/btcpc/issues)

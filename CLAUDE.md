@@ -5,7 +5,7 @@ Bitcoin Proof of Compute — sovereign chain for AI inference.
 ## Stack
 - Node.js, MongoDB, WebSocket P2P
 - Ollama for mining inference — model-agnostic. Miners run any Ollama model (qwen, llama, mistral, gemma, deepseek, etc.). Work value scales with verified parameter count from Ollama's /api/show, not the model name.
-- Git author: Shin Devlin <shin@btcpc.network> (NO Claude attribution ever)
+- Git author: Shin Devlin <shindevlin@proton.me> (NO Claude attribution ever)
 
 ## Key Files
 - `bin/btcpc-mine` — mining daemon CLI

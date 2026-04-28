@@ -97,7 +97,7 @@ Add a model stats tracker that records per-model: avg response time, success rat
 
 ## IMPORTANT RULES
 
-- Git author: Shin Devlin <shin@btcpc.network>
+- Git author: Shin Devlin <shindevlin@proton.me>
 - NO Claude attribution in commits
 - Bump version for each commit only when the user wants a commit. Always update `package.json` and `package-lock.json` together, and verify both files plus `package-lock.json.packages[""].version` match.
 - Don't modify: src/mining/miner.js, src/chain/finalizationConsensus.js, src/services/escrow.js, src/services/ledger.js (main engine is working on these)

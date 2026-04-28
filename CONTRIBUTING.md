@@ -61,7 +61,7 @@ Sub-phases use alpha/beta/gamma/delta suffixes:
 
 ## Security
 
-Report vulnerabilities to shin@btcpc.network. Do NOT file public issues for security bugs.
+Report vulnerabilities to shindevlin@proton.me. Do NOT file public issues for security bugs.
 
 The P2P protocol requires cryptographic signatures on messages (v2.16.1+). Set `BTCPC_REQUIRE_SIGNATURES=true` for strict enforcement.
 

@@ -1674,7 +1674,7 @@ Products with `auto_deliver = true` store their delivery content encrypted in BT
 ---
 
 *BTCPC v3.0 — April 2026*
-*Shin Devlin — shin@btcpc.network*
+*Shin Devlin — shindevlin@proton.me*
 *License: AGPL-3.0*
 *GitHub: https://github.com/shindevlin/btcpc*
 *Website: https://btcpc.net*

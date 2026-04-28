@@ -95,4 +95,4 @@ Check your project balance and usage stats.
 
 - GitHub: [shindevlin/btcpc](https://github.com/shindevlin/btcpc)
 - Telegram: [t.me/btcpcnetwork](https://t.me/btcpcnetwork)
-- Email: shin@btcpc.network
+- Email: shindevlin@proton.me
