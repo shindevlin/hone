@@ -643,9 +643,26 @@ public class NativeSensorService extends Service implements SensorEventListener,
     }
 
     /**
-     * Deterministic ed25519 keypair derived from android_id + hardware constants + sensor_id.
-     * Same device after reinstall = same key. Factory reset = new key (rotate via /register-key).
-     * Payload format matches sensorKeystore.js: "sensor_id|value|device_timestamp_ms"
+     * Deterministic ed25519 keypair for sensor signing.
+     *
+     * Seed derivation: SHA-512(deviceId:board:hardware:btcpc-sensor-v1:sensorId)[0:32]
+     *
+     * deviceId = android_id (stored in SharedPreferences as sensor_device_name).
+     *   - Unique per device per Google account (Android 8+).
+     *   - Same across app reinstalls on the same device/account.
+     *   - Resets on factory reset.
+     *
+     * sensorId already encodes the owner account: "account/deviceId-sensorType"
+     *   → sovai on this phone gets a different key than mallory on the same phone,
+     *     because the sensor_id differs, while deviceId stays the same.
+     *   → The chain can see both owners used the same physical device (same deviceId fragment).
+     *
+     * Recovery: same device + same BTCPC account → same key (survives reinstall).
+     * New owner: registers new account → different sensor_id → different key automatically.
+     * Factory reset: new deviceId → new key for all sensors → rotate via /register-key.
+     *
+     * Payload format (matches sensorKeystore.js readingPayload()):
+     *   "sensor_id|value|device_timestamp_ms"
      */
     private static final class SensorSigner {
         // SPKI DER prefix for ed25519 (12 bytes): SEQUENCE { SEQUENCE { OID Ed25519 } BIT STRING }
@@ -657,10 +674,10 @@ public class NativeSensorService extends Service implements SensorEventListener,
         final String publicKeySpkiHex;
         private final String sensorId;
 
-        SensorSigner(String androidId, String sensorId) throws Exception {
+        SensorSigner(String deviceId, String sensorId) throws Exception {
             this.sensorId = sensorId;
-            // Deterministic seed: SHA-512(androidId:board:hardware:btcpc-sensor-v1:sensorId)
-            String material = androidId + ":" + Build.BOARD + ":" + Build.HARDWARE
+            // Deterministic: same device + same account + same sensor type → same key always
+            String material = deviceId + ":" + Build.BOARD + ":" + Build.HARDWARE
                     + ":btcpc-sensor-v1:" + sensorId;
             byte[] hash = MessageDigest.getInstance("SHA-512")
                     .digest(material.getBytes(StandardCharsets.UTF_8));
@@ -669,8 +686,8 @@ public class NativeSensorService extends Service implements SensorEventListener,
             EdDSAParameterSpec spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
             EdDSAPrivateKeySpec privSpec = new EdDSAPrivateKeySpec(seed, spec);
             this.privateKey = new EdDSAPrivateKey(privSpec);
+            java.util.Arrays.fill(seed, (byte) 0);   // wipe seed from heap
 
-            // Build 44-byte SPKI DER for the public key (compatible with Node.js crypto)
             byte[] rawPub = new EdDSAPublicKey(new EdDSAPublicKeySpec(privSpec.getA(), spec)).getAbyte();
             byte[] spki = new byte[44];
             System.arraycopy(SPKI_PREFIX, 0, spki, 0, 12);
