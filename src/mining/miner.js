@@ -704,6 +704,24 @@ async function mineEpoch(epochNumber) {
         }, p2p.NODE_ID);
         p2p.broadcast(revealMsg);
       } catch (_) {}
+
+      // Broadcast VERIFY_REQUEST so verifiers can validate this work.
+      // blockProposal.js applies a 50% penalty to unverified miners.
+      try {
+        const latestEpoch = stateStore.getLatestEpoch ? stateStore.getLatestEpoch() : null;
+        const blockHash = (latestEpoch && latestEpoch.consensus_hash) || '0'.repeat(64);
+        const verifyMsg = createMessage('VERIFY_REQUEST', {
+          job_id: work.prompt_hash,
+          miner: MINER_ACCOUNT,
+          result: work.result_text || '',
+          model: work.model,
+          token_count: work.tokens_generated,
+          timing_ms: work.elapsed_ms || 0,
+          block_hash: blockHash,
+          epoch: creditEpoch,
+        }, p2p.NODE_ID);
+        p2p.broadcast(verifyMsg);
+      } catch (_) {}
     }).catch((err) => {
       console.error(`[BTCPC]   Work item ${itemNum} failed: ${err.message}`);
     });

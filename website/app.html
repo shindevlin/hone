@@ -168,7 +168,7 @@
     /* Hide the mobile dashboard header chrome */
     [data-desktop] .dash-header,
     [data-desktop] #chrome-banner { display: none !important; }
-    [data-desktop] #screen-dash > div:not(.tab-panel):not(#panel-sensors):not(#panel-mine):not(#panel-status):not(#panel-node):not(#panel-chat):not(#panel-data):not(#panel-settings):not(#bg-dl-banner) {
+    [data-desktop] #screen-dash > div:not(.tab-panel):not(#panel-home):not(#panel-sensors):not(#panel-mine):not(#panel-status):not(#panel-node):not(#panel-chat):not(#panel-data):not(#panel-wallet):not(#panel-staking):not(#panel-settings):not(#bg-dl-banner) {
       display: none !important;
     }
 
@@ -273,6 +273,10 @@
     .btn-primary:hover { background: #fbbf24; }
     .btn-secondary { background: var(--card); color: var(--orange); border: 1px solid var(--orange); margin-top: 12px; }
     .btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid var(--red); margin-top: 12px; }
+
+    .home-action-btn { border: 1px solid var(--border); background: var(--card); border-radius: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .home-action-btn:hover { border-color: var(--orange); background: rgba(247,147,26,0.06); }
+    .home-action-btn:active { background: rgba(247,147,26,0.12); }
 
     /* Dashboard */
     .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -532,7 +536,8 @@
       <div class="sb-roles" id="sb-roles" style="margin-top:8px;"></div>
     </div>
     <nav class="sb-nav" id="sb-nav">
-      <button class="sb-nav-item active" data-tab="sensors"><span class="sb-icon">📡</span>Sensors</button>
+      <button class="sb-nav-item active" data-tab="home"><span class="sb-icon">🏠</span>Home</button>
+      <button class="sb-nav-item" data-tab="sensors"><span class="sb-icon">📡</span>Sensors</button>
       <button class="sb-nav-item" data-tab="mine"><span class="sb-icon">⛏</span>Mine</button>
       <button class="sb-nav-item" data-tab="status"><span class="sb-icon">📶</span>Network</button>
       <button class="sb-nav-item" data-tab="node"><span class="sb-icon">🖥</span>Node</button>
@@ -695,8 +700,109 @@
       </div>
     </div>
 
+    <!-- Tab: Home -->
+    <div id="panel-home" class="tab-panel active">
+      <!-- Balance hero -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px;text-align:center;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Your Balance</div>
+        <div id="home-balance" style="font-size:32px;font-weight:700;color:var(--orange);">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">BTCPC</div>
+        <div id="home-faucet-wrap" style="display:none;margin-top:12px;">
+          <button id="home-faucet-btn" class="btn btn-primary" style="font-size:13px;padding:8px 20px;">Claim Faucet (free BTCPC)</button>
+        </div>
+      </div>
+
+      <!-- Epoch progress -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">Epoch</span>
+          <span id="home-epoch-num" style="font-size:14px;font-weight:700;color:var(--text);">—</span>
+        </div>
+        <div style="background:rgba(247,147,26,0.1);border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px;">
+          <div id="home-epoch-fill" style="height:100%;width:0%;background:var(--orange);border-radius:4px;transition:width 1s linear;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);">
+          <span id="home-epoch-elapsed">—</span>
+          <span>Reward: <span id="home-reward" style="color:var(--orange);">—</span> BTCPC</span>
+          <span id="home-epoch-remain">—</span>
+        </div>
+      </div>
+
+      <!-- Node status (hidden until detected) -->
+      <div id="home-node-card" style="display:none;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 6px #22c55e;"></span>
+          <span style="font-size:12px;font-weight:600;color:#22c55e;">Node Running</span>
+          <span id="home-node-roles" style="font-size:11px;color:var(--muted);margin-left:4px;"></span>
+        </div>
+        <div id="home-node-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;text-align:center;font-size:11px;color:var(--muted);">
+          <div>GPU <span id="home-node-peers" style="color:var(--text);font-weight:600;">—</span></div>
+          <div>Height <span id="home-node-height" style="color:var(--text);font-weight:600;">—</span></div>
+        </div>
+      </div>
+
+      <!-- Quick actions grid -->
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Quick Actions</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+        <button class="home-action-btn" data-goto="sensors" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">📡</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Sensors</div>
+        </button>
+        <button class="home-action-btn" data-goto="mine" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">⛏️</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Mine</div>
+        </button>
+        <button class="home-action-btn" data-goto="wallet" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">💸</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Send</div>
+        </button>
+        <button class="home-action-btn" data-goto="status" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">📶</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Network</div>
+        </button>
+        <button class="home-action-btn" data-goto="data" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">📊</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Explorer</div>
+        </button>
+        <button class="home-action-btn" data-goto="staking" style="padding:14px 8px;text-align:center;">
+          <div style="font-size:22px;margin-bottom:4px;">📈</div>
+          <div style="font-size:11px;color:var(--text);font-weight:500;">Stake</div>
+        </button>
+      </div>
+
+      <!-- Getting started checklist (hidden once all steps done) -->
+      <div id="home-checklist" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Getting Started</div>
+        <div id="home-step-wallet" class="home-step" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <span class="home-step-icon" style="font-size:16px;">✅</span>
+          <span style="font-size:13px;color:var(--text);">Wallet created</span>
+        </div>
+        <div id="home-step-faucet" class="home-step" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <span class="home-step-icon" style="font-size:16px;" id="home-step-faucet-icon">⬜</span>
+          <div>
+            <div style="font-size:13px;color:var(--text);">Claim your first BTCPC</div>
+            <div style="font-size:11px;color:var(--muted);">Use the faucet above to get started</div>
+          </div>
+        </div>
+        <div id="home-step-sensor" class="home-step" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <span class="home-step-icon" style="font-size:16px;" id="home-step-sensor-icon">⬜</span>
+          <div>
+            <div style="font-size:13px;color:var(--text);">Enable a sensor</div>
+            <div style="font-size:11px;color:var(--muted);">Turn on GPS, accelerometer, or any sensor</div>
+          </div>
+        </div>
+        <div id="home-step-node" class="home-step" style="display:flex;align-items:center;gap:10px;padding:6px 0;">
+          <span class="home-step-icon" style="font-size:16px;" id="home-step-node-icon">⬜</span>
+          <div>
+            <div style="font-size:13px;color:var(--text);">Run a node</div>
+            <div style="font-size:11px;color:var(--muted);">Mine &amp; earn clock rewards from your device</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab: Sensors -->
-    <div id="panel-sensors" class="tab-panel active">
+    <div id="panel-sensors" class="tab-panel">
       <div id="sensor-list"></div>
 
       <!-- Relay status card — only shown in native app -->
@@ -2651,7 +2757,8 @@
   <!-- Tab Bar (shown on dashboard) -->
   <div id="tab-bar">
     <div class="tab-inner">
-      <button class="active" data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
+      <button class="active" data-tab="home"><span class="tab-icon">&#x1F3E0;</span>Home</button>
+      <button data-tab="sensors"><span class="tab-icon">&#x1F4E1;</span>Sensors</button>
       <button data-tab="mine"><span class="tab-icon">&#x26CF;&#xFE0F;</span>Mine</button>
       <button data-tab="status"><span class="tab-icon">&#x1F4F6;</span>Network</button>
       <button data-tab="node"><span class="tab-icon">&#x1F5A5;&#xFE0F;</span>Node</button>
@@ -3016,6 +3123,9 @@ async function initDashboard() {
     }
   }
   updateDashStatus();
+  // Boot home tab
+  if (typeof updateAccount === 'function') updateAccount();
+  if (typeof window._homeRefresh === 'function') window._homeRefresh();
 }
 
 function saveAccountToDB() {
@@ -4023,6 +4133,7 @@ try {
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         const panel = document.getElementById('panel-' + tab);
         if (panel) panel.classList.add('active');
+        if (tab === 'home' && typeof window._homeRefresh === 'function') window._homeRefresh();
         // Always refresh account display when settings tab opens
         if (tab === 'settings') {
           const sa = document.getElementById('settings-account');
@@ -4843,6 +4954,14 @@ if (account) {
             : (d.balance !== undefined ? d.balance : (d.btcpc !== undefined ? d.btcpc : null));
           var el = document.getElementById('sb-balance');
           if (el && bal !== null) el.textContent = parseFloat(bal).toFixed(4) + ' BTCPC';
+          // Mirror to home panel balance
+          var hb = document.getElementById('home-balance');
+          if (hb && bal !== null) {
+            var amount = parseFloat(bal);
+            hb.textContent = amount.toFixed(4);
+            var fw = document.getElementById('home-faucet-wrap');
+            if (fw) fw.style.display = amount < 0.0001 ? '' : 'none';
+          }
         })
         .catch(function() {});
     }
@@ -4894,10 +5013,22 @@ if (account) {
     if (remEl) remEl.textContent = remain + 's left';
     if (epochCard) epochCard.style.display = 'block';
 
+    // Mirror to home panel epoch display
+    var hNum = document.getElementById('home-epoch-num');
+    var hFill = document.getElementById('home-epoch-fill');
+    var hEl = document.getElementById('home-epoch-elapsed');
+    var hRem = document.getElementById('home-epoch-remain');
+    if (hNum) hNum.textContent = '#' + epochNum;
+    if (hFill) hFill.style.width = pct.toFixed(1) + '%';
+    if (hEl) hEl.textContent = elapsed + 's';
+    if (hRem) hRem.textContent = remain + 's left';
+
     // Pull reward from node panel if available
     var rewardEl = document.getElementById('node-block-reward');
     if (rewEl && rewardEl && rewardEl.textContent && rewardEl.textContent !== '—') {
       rewEl.textContent = rewardEl.textContent;
+      var hRew = document.getElementById('home-reward');
+      if (hRew) hRew.textContent = rewardEl.textContent;
     }
   }
 
@@ -5075,6 +5206,99 @@ if (account) {
     }
 
     window._walletRefresh = loadWallet;
+
+    // ── Home Panel ──────────────────────────────────────────────────────────
+    (function() {
+      function loadHome() {
+        var jwt = localStorage.getItem('btcpc-jwt');
+        var acct = window.account || localStorage.getItem('btcpc-sensor-account') || '';
+
+        // Balance
+        if (acct && jwt) {
+          fetch(API_BASE + '/api/wallet/balance', { headers: { Authorization: 'Bearer ' + jwt } })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              var bal = d && d.balance && typeof d.balance === 'object'
+                ? d.balance.BTCPC
+                : (d.balance !== undefined ? d.balance : (d.btcpc !== undefined ? d.btcpc : null));
+              var el = document.getElementById('home-balance');
+              if (el && bal !== null) {
+                var amount = parseFloat(bal);
+                el.textContent = amount.toFixed(4);
+                // Show faucet if balance is zero
+                var fw = document.getElementById('home-faucet-wrap');
+                if (fw) fw.style.display = amount < 0.0001 ? '' : 'none';
+                // Update getting-started faucet step
+                var icon = document.getElementById('home-step-faucet-icon');
+                if (icon) icon.textContent = amount > 0 ? '✅' : '⬜';
+              }
+            })
+            .catch(function() {});
+        }
+
+        // Node status — check machine-status (same source as Node tab)
+        var ctrl = new AbortController();
+        var _t = setTimeout(function() { ctrl.abort(); }, 2500);
+        fetch(API_BASE + '/public/machine-status', { signal: ctrl.signal })
+          .then(function(r) { clearTimeout(_t); return r.json(); })
+          .then(function(d) {
+            var card = document.getElementById('home-node-card');
+            if (!card || d.error) return;
+            var procs = d.processes || [];
+            if (!procs.length) { card.style.display = 'none'; return; }
+            card.style.display = '';
+            var roleNames = procs.map(function(p) { return p.role; }).join(', ');
+            document.getElementById('home-node-roles').textContent = roleNames;
+            if (d.chain_height !== undefined) document.getElementById('home-node-height').textContent = d.chain_height;
+            var ollamaEl = document.getElementById('home-node-peers');
+            if (ollamaEl) ollamaEl.textContent = d.ollama && d.ollama.running ? 'Ollama ✓' : 'no GPU';
+            var ni = document.getElementById('home-step-node-icon');
+            if (ni) ni.textContent = '✅';
+          })
+          .catch(function() {
+            var card = document.getElementById('home-node-card');
+            if (card) card.style.display = 'none';
+          });
+
+        // Sensor step — check if any active
+        var hasSensor = Object.keys(window.sensorStates || {}).some(function(k) { return window.sensorStates[k]; });
+        var si = document.getElementById('home-step-sensor-icon');
+        if (si) si.textContent = hasSensor ? '✅' : '⬜';
+      }
+
+      // Quick action buttons navigate to target tab
+      document.querySelectorAll('.home-action-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var target = btn.dataset.goto;
+          var tabBtn = document.querySelector('#tab-bar [data-tab="' + target + '"]');
+          if (tabBtn) tabBtn.click();
+        });
+      });
+
+      // Faucet claim
+      var faucetBtn = document.getElementById('home-faucet-btn');
+      if (faucetBtn) {
+        faucetBtn.addEventListener('click', function() {
+          var jwt = localStorage.getItem('btcpc-jwt');
+          if (!jwt) return;
+          faucetBtn.disabled = true;
+          faucetBtn.textContent = 'Claiming...';
+          fetch(API_BASE + '/api/faucet/claim', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' }
+          })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              faucetBtn.textContent = d.success ? 'Claimed!' : (d.error || 'Already claimed');
+              if (d.success) setTimeout(loadHome, 1500);
+            })
+            .catch(function() { faucetBtn.textContent = 'Network error'; })
+            .finally(function() { setTimeout(function() { faucetBtn.disabled = false; faucetBtn.textContent = 'Claim Faucet (free BTCPC)'; }, 4000); });
+        });
+      }
+
+      window._homeRefresh = loadHome;
+    })();
 
     window._walletSend = async function() {
       var jwt = localStorage.getItem('btcpc-jwt');

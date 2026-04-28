@@ -233,6 +233,61 @@
       .tabs { padding: 0 12px; }
       .tab { padding: 12px 10px; font-size: 12px; }
     }
+
+    /* PERFORMANCE SCORECARD */
+    .scorecard-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 0; }
+    .scorecard-item { text-align: center; padding: 14px 10px; }
+    .scorecard-val { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+    .scorecard-label { font-size: 11px; color: var(--muted); }
+    .scorecard-sub { font-size: 10px; color: var(--sub); margin-top: 3px; }
+    @media (max-width: 900px) { .scorecard-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    /* BUMP POPOVER */
+    .bump-wrap { position: relative; display: inline-block; }
+    .bump-popover {
+      display: none; position: absolute; right: 0; top: calc(100% + 6px);
+      background: var(--white); border: 1px solid var(--border2); border-radius: 6px;
+      padding: 12px; width: 220px; box-shadow: var(--shadow); z-index: 200;
+    }
+    .bump-popover.open { display: block; }
+    .bump-popover label { display: block; font-size: 11px; font-weight: 700; color: var(--sub); margin-bottom: 6px; }
+    .bump-popover input[type=range] { width: 100%; margin-bottom: 4px; }
+    .bump-epoch-display { font-size: 12px; color: var(--orange-d); font-weight: 700; text-align: center; margin-bottom: 8px; }
+    .btn-bump { background: var(--orange); border: none; color: var(--navy); font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 4px; width: 100%; cursor: pointer; }
+    .btn-bump:hover { background: var(--orange-d); }
+    .badge-bumped { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #fff3e0; color: var(--orange-d); border: 1px solid var(--orange); margin-left: 4px; }
+
+    /* OFFERS TABLE */
+    .badge-offer { background: #ede7f6; color: var(--purple); }
+    .btn-accept { background: #e6f4ea; border-color: var(--green); color: var(--green); font-weight: 700; }
+    .btn-accept:hover { background: #c8e6c9; }
+    .btn-reject { background: #fce4ec; border-color: var(--red); color: var(--red); }
+    .btn-reject:hover { background: #ffcdd2; }
+    .counter-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    .counter-row input { width: 90px; padding: 4px 7px; border: 1px solid var(--border2); border-radius: 4px; font-size: 12px; }
+
+    /* REVIEWS TAB */
+    .review-card { background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; }
+    .review-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .review-score-pos { color: var(--green); font-weight: 800; font-size: 16px; }
+    .review-score-neg { color: var(--red); font-weight: 800; font-size: 16px; }
+    .review-buyer { font-weight: 700; font-size: 13px; }
+    .review-epoch { font-size: 11px; color: var(--muted); margin-left: auto; }
+    .review-memo { font-size: 13px; color: var(--sub); margin-bottom: 8px; line-height: 1.5; }
+    .review-reply { background: var(--bg2); border-radius: 4px; padding: 8px 10px; font-size: 12px; color: var(--sub); margin-top: 6px; border-left: 3px solid var(--orange); }
+    .review-reply-form { margin-top: 8px; display: flex; gap: 6px; }
+    .review-reply-form textarea { flex: 1; border: 1px solid var(--border2); border-radius: 4px; padding: 6px 8px; font-size: 12px; resize: vertical; min-height: 52px; }
+    .btn-reply { background: var(--orange); border: none; color: var(--navy); font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 4px; white-space: nowrap; align-self: flex-start; cursor: pointer; }
+
+    /* LICENSE KEY */
+    .license-key-block { background: var(--navy2); color: #00e676; font-family: monospace; font-size: 13px; font-weight: 700; padding: 10px 14px; border-radius: 5px; display: flex; align-items: center; gap: 10px; word-break: break-all; margin: 10px 0 0; }
+    .license-key-block .copy-btn { background: rgba(255,255,255,0.12); border: none; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 3px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .license-key-block .copy-btn:hover { background: rgba(255,255,255,0.25); }
+
+    /* SPECS KEY-VALUE */
+    .spec-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .spec-row input { flex: 1; padding: 6px 8px; border: 1px solid var(--border2); border-radius: 4px; font-size: 12px; }
+    .spec-row .btn-rm-spec { background: none; border: none; color: var(--red); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
   </style>
 </head>
 <body>
@@ -295,6 +350,13 @@
         <span class="ico">🛍️</span> Orders
         <span class="badge-cnt" id="sb-orders-cnt" style="background:var(--orange);color:var(--navy)">0</span>
       </a>
+      <a href="#" onclick="switchTab('offers',this)">
+        <span class="ico">🤝</span> Offers
+        <span class="badge-cnt" id="sb-offers-cnt" style="display:none;background:var(--purple);color:#fff">0</span>
+      </a>
+      <a href="#" onclick="switchTab('reviews',this)">
+        <span class="ico">⭐</span> Reviews
+      </a>
       <div class="sidebar-section-label">Store</div>
       <a href="#" onclick="switchTab('settings',this)">
         <span class="ico">⚙️</span> Store Settings
@@ -316,6 +378,8 @@
       <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
       <div class="tab" onclick="switchTab('listings',this)">Listings</div>
       <div class="tab" onclick="switchTab('orders',this)">Orders</div>
+      <div class="tab" onclick="switchTab('offers',this)">Offers</div>
+      <div class="tab" onclick="switchTab('reviews',this)">Reviews</div>
       <div class="tab" onclick="switchTab('settings',this)">Settings</div>
     </div>
 
@@ -346,6 +410,47 @@
           <div class="stat-label">Reputation Score</div>
           <div class="stat-val" id="stat-rep">—</div>
           <div class="stat-sub">from <span id="stat-rep-cnt">0</span> reviews</div>
+        </div>
+      </div>
+
+      <!-- PERFORMANCE SCORECARD -->
+      <div class="card" id="scorecard-card">
+        <div class="card-head"><h3>Performance Scorecard</h3></div>
+        <div class="card-body-pad" id="scorecard-body">
+          <div class="scorecard-grid" id="scorecard-grid">
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-total">—</div>
+              <div class="scorecard-label">Total Orders</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-fulfilled" style="color:var(--green)">—</div>
+              <div class="scorecard-label">Fulfilled</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-cancelled" style="color:var(--muted)">—</div>
+              <div class="scorecard-label">Cancelled</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-disputed" style="color:var(--red)">—</div>
+              <div class="scorecard-label">Disputed</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-late-rate">—</div>
+              <div class="scorecard-label">Late Fulfillment Rate</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-avg-time">—</div>
+              <div class="scorecard-label">Avg Fulfillment Time</div>
+              <div class="scorecard-sub">epochs</div>
+            </div>
+            <div class="scorecard-item">
+              <div class="scorecard-val" id="sc-repeat" style="color:var(--orange-d)">—</div>
+              <div class="scorecard-label">Repeat Buyers</div>
+            </div>
+            <div class="scorecard-item" id="sc-loading" style="color:var(--muted);font-size:12px;align-self:center">
+              Loading metrics…
+            </div>
+          </div>
         </div>
       </div>
 
@@ -431,6 +536,39 @@
             <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px">Loading orders…</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- OFFERS TAB -->
+    <div class="tab-panel" id="panel-offers">
+      <div class="page-header">
+        <h1>Incoming Offers</h1>
+        <p>Buyers who want to negotiate price. Accept, counter, or reject each offer.</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Pending Offers</h3>
+          <button class="btn-secondary" style="font-size:12px;padding:5px 12px" onclick="loadOffers()">Refresh</button>
+        </div>
+        <table class="data-table">
+          <thead><tr>
+            <th>Offer ID</th><th>Buyer</th><th>Product</th><th>Offered</th><th>Expires</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="offers-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px">Loading offers…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- REVIEWS TAB -->
+    <div class="tab-panel" id="panel-reviews">
+      <div class="page-header">
+        <h1>Reviews</h1>
+        <p>Reputation votes from your buyers. Reply to engage with your customers.</p>
+      </div>
+      <div id="reviews-list">
+        <div class="empty-state"><div class="ico">⭐</div><p>Loading reviews…</p></div>
       </div>
     </div>
 
@@ -733,6 +871,64 @@
             </div>
           </div>
           <span class="form-hint">Leave blank to deactivate. Sale price is used at checkout when the window is active.</span>
+        </div>
+
+        <!-- EXTENDED FIELDS -->
+        <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
+          <label style="font-weight:700;font-size:13px">Condition &amp; Pricing (optional)</label>
+        </div>
+        <div class="form-group">
+          <label>Condition</label>
+          <select id="p-condition">
+            <option value="">New</option>
+            <option value="like_new">Like New</option>
+            <option value="very_good">Very Good</option>
+            <option value="good">Good</option>
+            <option value="fair">Fair</option>
+          </select>
+        </div>
+        <div class="form-group form-full" id="p-condition-notes-wrap" style="display:none">
+          <label>Condition Notes</label>
+          <textarea id="p-condition-notes" placeholder="Describe any wear, scratches, or missing accessories…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Minimum price (leave blank for fixed)</label>
+          <input type="number" id="p-min-price" placeholder="e.g. 5.00 for PWYW floor" min="0" step="0.01" />
+          <span class="form-hint">Pay-what-you-want floor. Leave blank for a fixed price.</span>
+        </div>
+        <div class="form-group" id="p-suggested-price-wrap" style="display:none">
+          <label>Suggested price</label>
+          <input type="number" id="p-suggested-price" placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div class="form-group form-full">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="p-tip-enabled" />
+            Allow buyers to tip above price
+          </label>
+        </div>
+        <div class="form-group form-full">
+          <label>Expected delivery epoch (for pre-orders)</label>
+          <input type="number" id="p-expected-delivery-epoch" placeholder="e.g. 42000" min="0" />
+          <span class="form-hint">Epoch by which order will ship. Shown as a pre-order date to buyers.</span>
+        </div>
+
+        <!-- SPECS -->
+        <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
+          <label style="font-weight:700;font-size:13px;margin-bottom:8px">Specs (optional)</label>
+          <div id="p-specs-container"></div>
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:5px 12px;margin-top:6px" onclick="addSpecRow()">+ Add Spec</button>
+        </div>
+
+        <!-- ADDITIONAL IMAGES -->
+        <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
+          <label style="font-weight:700;font-size:13px;margin-bottom:8px">Additional Images (up to 5 CIDs)</label>
+          <div id="p-extra-images">
+            <div class="form-group" style="margin-bottom:8px"><label style="font-size:12px;color:var(--sub)">Image CID 2</label><input type="text" class="extra-img-cid" placeholder="sha256:…" /></div>
+            <div class="form-group" style="margin-bottom:8px"><label style="font-size:12px;color:var(--sub)">Image CID 3</label><input type="text" class="extra-img-cid" placeholder="sha256:…" /></div>
+            <div class="form-group" style="margin-bottom:8px"><label style="font-size:12px;color:var(--sub)">Image CID 4</label><input type="text" class="extra-img-cid" placeholder="sha256:…" /></div>
+            <div class="form-group" style="margin-bottom:8px"><label style="font-size:12px;color:var(--sub)">Image CID 5</label><input type="text" class="extra-img-cid" placeholder="sha256:…" /></div>
+            <div class="form-group" style="margin-bottom:0"><label style="font-size:12px;color:var(--sub)">Image CID 6</label><input type="text" class="extra-img-cid" placeholder="sha256:…" /></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1146,6 +1342,7 @@ function renderListings(filter) {
       '<td><div class="action-grp">' +
         '<button class="action-btn btn-edit" onclick="editListing(' + JSON.stringify(l).split('"').join('&quot;') + ')">Edit</button>' +
         (l.status==='active' ? '<button class="action-btn btn-delist" onclick="delistProduct(\'' + l.product_id + '\')">Delist</button>' : '') +
+        renderBumpControl(l) +
       '</div></td>' +
     '</tr>';
   }).join('');
@@ -1327,31 +1524,64 @@ async function submitShipOrder() {
   toast('Shipped! Escrow releases when buyer confirms delivery.', 'green');
 }
 
+function formatShippingAddress(addr) {
+  if (!addr) return '—';
+  if (typeof addr === 'string') return addr;
+  if (typeof addr === 'object') {
+    var parts = [];
+    if (addr.street) parts.push(addr.street);
+    var cityLine = [addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+    if (cityLine) parts.push(cityLine);
+    if (addr.country) parts.push(addr.country);
+    return parts.join('<br/>') || JSON.stringify(addr);
+  }
+  return String(addr);
+}
+
 function viewOrder(orderId) {
   var o = _orders.find(function(x){ return x.order_id===orderId; });
   if (!o) return;
   var tracking = o.tracking_number
     ? '<br/><b>Tracking:</b> ' + (CARRIER_LABELS[o.carrier]||o.carrier||'') + ' — ' + o.tracking_number
     : '';
+  var rows = [
+    ['Order ID', o.order_id],
+    ['Buyer', o.buyer],
+    ['Product', o.product_id],
+    ['Qty', o.quantity],
+    ['Total', '₿PC ' + o.total],
+    ['Status', o.status],
+    ['Escrow', o.escrow_id||'—'],
+    ['Placed epoch', o.placed_epoch],
+    ['Ship to', formatShippingAddress(o.shipping_address)],
+  ];
+  var tableHtml = '<table style="width:100%;border-collapse:collapse">' +
+    rows.map(function(r){
+      return '<tr><td style="padding:4px 12px 4px 0;color:var(--muted);white-space:nowrap;font-weight:600;vertical-align:top">' + r[0] + '</td>' +
+             '<td style="padding:4px 0">' + r[1] + '</td></tr>';
+    }).join('') + '</table>';
+  var licenseHtml = '';
+  if (o.license_key) {
+    licenseHtml = '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">LICENSE KEY</div>' +
+      '<div class="license-key-block">' +
+        '<span style="flex:1">' + o.license_key + '</span>' +
+        '<button class="copy-btn" onclick="copyToClipboard(\'' + o.license_key.replace(/'/g,"\\'") + '\',this)">Copy</button>' +
+      '</div></div>';
+  }
   document.getElementById('view-order-body').innerHTML =
-    '<table style="width:100%;border-collapse:collapse">' +
-    ['Order ID:' + o.order_id,
-     'Buyer:' + o.buyer,
-     'Product:' + o.product_id,
-     'Qty:' + o.quantity,
-     'Total:₿PC ' + o.total,
-     'Status:' + o.status,
-     'Escrow:' + (o.escrow_id||'—'),
-     'Placed epoch:' + o.placed_epoch,
-     'Ship to:' + (o.shipping_address || '—'),
-    ].map(function(row){
-      var parts = row.split(':');
-      var label = parts.shift();
-      var val = parts.join(':');
-      return '<tr><td style="padding:4px 12px 4px 0;color:var(--muted);white-space:nowrap;font-weight:600">' + label + '</td>' +
-             '<td style="padding:4px 0">' + val + '</td></tr>';
-    }).join('') + '</table>' + (tracking ? '<div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:6px">' + tracking + '</div>' : '');
+    tableHtml + licenseHtml +
+    (tracking ? '<div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:6px">' + tracking + '</div>' : '');
   document.getElementById('view-order-modal').classList.add('open');
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function(){ btn.textContent = orig; }, 1800);
+  }).catch(function() {
+    toast('Copy failed — select text manually');
+  });
 }
 
 function closeViewOrderModal() {
@@ -1394,6 +1624,34 @@ function toggleDeliveryCid() {
   document.getElementById('p-delivery-cid-wrap').style.display = checked ? '' : 'none';
 }
 
+function resetExtendedFields() {
+  ['p-condition-notes','p-min-price','p-suggested-price','p-expected-delivery-epoch'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('p-condition').value = '';
+  document.getElementById('p-condition-notes-wrap').style.display = 'none';
+  document.getElementById('p-suggested-price-wrap').style.display = 'none';
+  document.getElementById('p-tip-enabled').checked = false;
+  document.getElementById('p-specs-container').innerHTML = '';
+  document.querySelectorAll('.extra-img-cid').forEach(function(el){ el.value = ''; });
+  document.getElementById('p-condition').onchange = function() {
+    document.getElementById('p-condition-notes-wrap').style.display = this.value ? '' : 'none';
+  };
+  document.getElementById('p-min-price').oninput = function() {
+    document.getElementById('p-suggested-price-wrap').style.display = this.value ? '' : 'none';
+  };
+}
+
+function addSpecRow(key, val) {
+  var container = document.getElementById('p-specs-container');
+  var row = document.createElement('div');
+  row.className = 'spec-row';
+  row.innerHTML = '<input type="text" placeholder="Key (e.g. VRAM)" value="' + (key||'') + '" />' +
+    '<input type="text" placeholder="Value (e.g. 10 GB)" value="' + (val||'') + '" />' +
+    '<button type="button" class="btn-rm-spec" onclick="this.parentElement.remove()">×</button>';
+  container.appendChild(row);
+}
+
 function openCreateModal() {
   _editingProduct = null;
   document.getElementById('modal-title').textContent = 'New Listing';
@@ -1403,6 +1661,7 @@ function openCreateModal() {
   });
   document.getElementById('p-auto-deliver').checked = false;
   document.getElementById('p-delivery-cid-wrap').style.display = 'none';
+  resetExtendedFields();
   document.getElementById('create-modal').classList.add('open');
 }
 
@@ -1427,6 +1686,27 @@ function editListing(l) {
     document.getElementById('p-sale-ends').value = dt.toISOString().slice(0,16);
   } else {
     document.getElementById('p-sale-ends').value = '';
+  }
+  // Extended fields
+  resetExtendedFields();
+  if (l.condition) {
+    document.getElementById('p-condition').value = l.condition || '';
+    document.getElementById('p-condition-notes-wrap').style.display = l.condition ? '' : 'none';
+    document.getElementById('p-condition-notes').value = l.condition_notes || '';
+  }
+  if (l.min_price) {
+    document.getElementById('p-min-price').value = l.min_price || '';
+    document.getElementById('p-suggested-price-wrap').style.display = l.min_price ? '' : 'none';
+    document.getElementById('p-suggested-price').value = l.suggested_price || '';
+  }
+  document.getElementById('p-tip-enabled').checked = !!l.tip_enabled;
+  document.getElementById('p-expected-delivery-epoch').value = l.expected_delivery_epoch || '';
+  if (l.specs && typeof l.specs === 'object') {
+    Object.keys(l.specs).forEach(function(k){ addSpecRow(k, l.specs[k]); });
+  }
+  if (Array.isArray(l.additional_images)) {
+    var extraInputs = document.querySelectorAll('.extra-img-cid');
+    l.additional_images.forEach(function(cid, i){ if (extraInputs[i]) extraInputs[i].value = cid; });
   }
   document.getElementById('create-modal').classList.add('open');
 }
@@ -1460,6 +1740,32 @@ async function saveProduct() {
     saleEndsEpoch = Math.floor((endsMs - 1776236400000) / 30000);
   }
 
+  // Collect extended fields
+  var conditionVal = document.getElementById('p-condition').value || undefined;
+  var conditionNotes = conditionVal ? (document.getElementById('p-condition-notes').value.trim() || undefined) : undefined;
+  var minPriceRaw = document.getElementById('p-min-price').value.trim();
+  var minPrice = minPriceRaw ? parseFloat(minPriceRaw) : undefined;
+  var suggestedPriceRaw = minPrice ? document.getElementById('p-suggested-price').value.trim() : '';
+  var suggestedPrice = suggestedPriceRaw ? parseFloat(suggestedPriceRaw) : undefined;
+  var tipEnabled = document.getElementById('p-tip-enabled').checked || undefined;
+  var expectedDeliveryEpoch = document.getElementById('p-expected-delivery-epoch').value.trim();
+  expectedDeliveryEpoch = expectedDeliveryEpoch ? parseInt(expectedDeliveryEpoch) : undefined;
+  // Specs
+  var specs = {};
+  document.querySelectorAll('#p-specs-container .spec-row').forEach(function(row) {
+    var inputs = row.querySelectorAll('input');
+    var k = inputs[0] ? inputs[0].value.trim() : '';
+    var v = inputs[1] ? inputs[1].value.trim() : '';
+    if (k) specs[k] = v;
+  });
+  var specsObj = Object.keys(specs).length ? specs : undefined;
+  // Additional images
+  var additionalImages = [];
+  document.querySelectorAll('.extra-img-cid').forEach(function(el) {
+    var cid = el.value.trim(); if (cid) additionalImages.push(cid);
+  });
+  var additionalImagesVal = additionalImages.length ? additionalImages : undefined;
+
   var btn = document.getElementById('modal-save-btn');
   btn.disabled = true;
   btn.textContent = _editingProduct ? 'Saving…' : 'Publishing…';
@@ -1475,7 +1781,11 @@ async function saveProduct() {
       body = { title, price, description: desc, image_cid: img || null,
                inventory: inv ? parseInt(inv) : -1,
                auto_deliver: autoDeliver, delivery_cid: deliveryCid || null,
-               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch };
+               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch,
+               condition: conditionVal, condition_notes: conditionNotes,
+               min_price: minPrice, suggested_price: suggestedPrice,
+               tip_enabled: tipEnabled, expected_delivery_epoch: expectedDeliveryEpoch,
+               specs: specsObj, additional_images: additionalImagesVal };
     } else {
       url = BTCPC_NODE + '/api/commerce/products';
       method = 'POST';
@@ -1483,7 +1793,11 @@ async function saveProduct() {
                inventory: inv ? parseInt(inv) : undefined, token: 'BTCPC',
                categories: [document.getElementById('p-cat').value],
                auto_deliver: autoDeliver, delivery_cid: deliveryCid || undefined,
-               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch };
+               sale_price: salePrice, sale_ends_epoch: saleEndsEpoch,
+               condition: conditionVal, condition_notes: conditionNotes,
+               min_price: minPrice, suggested_price: suggestedPrice,
+               tip_enabled: tipEnabled, expected_delivery_epoch: expectedDeliveryEpoch,
+               specs: specsObj, additional_images: additionalImagesVal };
     }
 
     var resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
@@ -1672,13 +1986,17 @@ function switchTab(name, el) {
   document.querySelectorAll('.tab, .sidebar-nav a').forEach(function(t){ t.classList.remove('active'); });
   if (el) el.classList.add('active');
   // Sync both tab bars
-  var tabText = { overview:'Overview', listings:'Listings', orders:'Orders', settings:'Settings' };
+  var tabText = { overview:'Overview', listings:'Listings', orders:'Orders', offers:'Offers', reviews:'Reviews', settings:'Settings' };
   document.querySelectorAll('.tab').forEach(function(t) {
     if (t.textContent.trim() === tabText[name]) t.classList.add('active');
   });
-  // Refresh orders from API whenever the Orders tab is opened
+  // Refresh data from API whenever a data tab is opened
   if (name === 'orders') {
     loadOrders().then(function() { renderOrders(); renderOverview(); });
+  } else if (name === 'offers') {
+    loadOffers();
+  } else if (name === 'reviews') {
+    loadReviews();
   }
 }
 
@@ -1701,8 +2019,305 @@ document.getElementById('create-modal').addEventListener('click', function(e) {
   if (e.target === this) closeCreateModal();
 });
 
+// ── PERFORMANCE SCORECARD ─────────────────────────────────────────────────────
+async function loadMetrics() {
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/metrics');
+    if (!resp.ok) return;
+    var m = await resp.json();
+    var lateRate = m.total_orders > 0
+      ? Math.round((m.late_fulfillments / m.total_orders) * 100) + '%'
+      : '0%';
+    document.getElementById('sc-total').textContent = m.total_orders || 0;
+    document.getElementById('sc-fulfilled').textContent = m.fulfilled_orders || 0;
+    document.getElementById('sc-cancelled').textContent = m.cancelled_orders || 0;
+    document.getElementById('sc-disputed').textContent = m.disputed_orders || 0;
+    document.getElementById('sc-late-rate').textContent = lateRate;
+    document.getElementById('sc-avg-time').textContent =
+      m.avg_fulfill_epochs ? m.avg_fulfill_epochs.toFixed(1) : '—';
+    document.getElementById('sc-repeat').textContent = m.repeat_buyers || 0;
+    var loadingEl = document.getElementById('sc-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
+  } catch(e) {
+    // Use demo data for scorecard
+    document.getElementById('sc-total').textContent = _orders.length || 0;
+    var fulfilled = _orders.filter(function(o){ return o.status === 'fulfilled' || o.status === 'delivered'; }).length;
+    document.getElementById('sc-fulfilled').textContent = fulfilled;
+    document.getElementById('sc-cancelled').textContent = _orders.filter(function(o){ return o.status === 'cancelled'; }).length;
+    document.getElementById('sc-disputed').textContent = _orders.filter(function(o){ return o.status === 'disputed'; }).length;
+    document.getElementById('sc-late-rate').textContent = '0%';
+    document.getElementById('sc-avg-time').textContent = '—';
+    document.getElementById('sc-repeat').textContent = '—';
+    var loadingEl = document.getElementById('sc-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+// ── BUMP CONTROL ──────────────────────────────────────────────────────────────
+function renderBumpControl(l) {
+  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  if (l.status !== 'active') return '';
+  var bumpedUntil = l.bumped_until_epoch;
+  if (bumpedUntil && bumpedUntil > epoch) {
+    return '<span class="badge-bumped" title="Bumped until epoch ' + bumpedUntil + '">↑ Bumped</span>';
+  }
+  var safeId = 'bump-pop-' + (l.product_id || '').replace(/[^a-zA-Z0-9]/g,'_');
+  return '<div class="bump-wrap">' +
+    '<button class="action-btn" style="border-color:var(--orange);color:var(--orange-d)" ' +
+      'onclick="toggleBumpPopover(\'' + safeId + '\')">↑ Bump</button>' +
+    '<div class="bump-popover" id="' + safeId + '">' +
+      '<label>Bump duration</label>' +
+      '<input type="range" min="240" max="2880" step="120" value="720" ' +
+        'oninput="document.getElementById(\'bd-' + safeId + '\').textContent=Math.round(this.value/120)+\'h\'" />' +
+      '<div class="bump-epoch-display" id="bd-' + safeId + '">6h</div>' +
+      '<button class="btn-bump" onclick="submitBump(\'' + (l.product_id||'').replace(/'/g,"\\'") + '\',this.parentElement)">Bump Listing</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function toggleBumpPopover(id) {
+  var pop = document.getElementById(id);
+  if (!pop) return;
+  document.querySelectorAll('.bump-popover.open').forEach(function(p) { if (p.id !== id) p.classList.remove('open'); });
+  pop.classList.toggle('open');
+}
+
+async function submitBump(productId, popoverEl) {
+  var rangeEl = popoverEl ? popoverEl.querySelector('input[type=range]') : null;
+  var epochs = rangeEl ? parseInt(rangeEl.value) : 720;
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(productId) + '/bump', {
+      method: 'POST', headers, body: JSON.stringify({ epochs: epochs }),
+    });
+    if (resp.ok) {
+      var d = await resp.json();
+      var l = _listings.find(function(x){ return x.product_id === productId; });
+      if (l) l.bumped_until_epoch = d.bumped_until_epoch;
+      renderListings();
+      toast('Listing bumped for ' + Math.round(epochs/120) + 'h!', 'green');
+      return;
+    }
+  } catch(e) {}
+  toast('Bumped! (demo mode)', 'green');
+  if (popoverEl) popoverEl.classList.remove('open');
+}
+
+// Close bump popovers on outside click
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.bump-wrap')) {
+    document.querySelectorAll('.bump-popover.open').forEach(function(p){ p.classList.remove('open'); });
+  }
+});
+
+// ── OFFERS ────────────────────────────────────────────────────────────────────
+var _offers = [];
+
+async function loadOffers() {
+  try {
+    var headers = authToken ? { Authorization: 'Bearer ' + authToken } : {};
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/my', { headers: headers });
+    if (resp.ok) {
+      var data = await resp.json();
+      _offers = (data.offers || []).filter(function(o) {
+        return o.seller === seller && o.status === 'pending';
+      });
+      renderOffers();
+      var cnt = _offers.length;
+      var badge = document.getElementById('sb-offers-cnt');
+      if (badge) { badge.style.display = cnt > 0 ? '' : 'none'; badge.textContent = cnt; }
+      return;
+    }
+  } catch(e) {}
+  _offers = [];
+  renderOffers();
+}
+
+function renderOffers() {
+  var tbody = document.getElementById('offers-tbody');
+  if (!_offers.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="ico">🤝</div><p>No pending offers. When buyers make offers on your listings, they\'ll appear here.</p></div></td></tr>';
+    return;
+  }
+  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  tbody.innerHTML = _offers.map(function(o) {
+    var shortId = (o.offer_id||'').slice(0,14) + '…';
+    var pid = (o.product_id||'').split('/')[1] || o.product_id || '—';
+    var expiresIn = o.expires_epoch ? Math.max(0, o.expires_epoch - epoch) : '—';
+    return '<tr id="offer-row-' + (o.offer_id||'').replace(/[^a-zA-Z0-9]/g,'_') + '">' +
+      '<td style="font-family:monospace;font-size:12px;color:var(--link)">' + shortId + '</td>' +
+      '<td><b>' + (o.buyer||'—') + '</b></td>' +
+      '<td>' + pid + '</td>' +
+      '<td style="font-weight:700;color:var(--purple)">₿PC ' + (o.amount||0) + '</td>' +
+      '<td style="color:var(--muted)">' + (typeof expiresIn === 'number' ? expiresIn + ' epochs' : expiresIn) + '</td>' +
+      '<td><div class="action-grp">' +
+        '<button class="action-btn btn-accept" onclick="acceptOffer(\'' + o.offer_id + '\',this)">Accept</button>' +
+        '<button class="action-btn btn-reject" onclick="rejectOffer(\'' + o.offer_id + '\',this)">Reject</button>' +
+        '<button class="action-btn btn-edit" onclick="showCounterRow(\'' + o.offer_id + '\',this,' + (o.amount||0) + ')">Counter</button>' +
+      '</div>' +
+      '<div class="counter-row" id="counter-' + (o.offer_id||'').replace(/[^a-zA-Z0-9]/g,'_') + '" style="display:none">' +
+        '<input type="number" min="0" step="0.01" placeholder="Counter amount" />' +
+        '<button class="action-btn btn-fulfill" onclick="submitCounter(\'' + o.offer_id + '\',this)">Send</button>' +
+      '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function showCounterRow(offerId, btn, currentAmt) {
+  var safeId = offerId.replace(/[^a-zA-Z0-9]/g,'_');
+  var row = document.getElementById('counter-' + safeId);
+  if (!row) return;
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+  if (row.style.display !== 'none') {
+    var input = row.querySelector('input');
+    if (input) { input.value = currentAmt; input.focus(); }
+  }
+}
+
+async function acceptOffer(offerId, btn) {
+  btn.disabled = true;
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/accept', {
+      method: 'POST', headers, body: '{}',
+    });
+    if (resp.ok) {
+      _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
+      renderOffers();
+      await loadOrders(); renderOrders(); renderOverview();
+      toast('Offer accepted — order created!', 'green');
+      return;
+    }
+  } catch(e) {}
+  _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
+  renderOffers();
+  toast('Accepted (demo mode)', 'green');
+}
+
+async function rejectOffer(offerId, btn) {
+  btn.disabled = true;
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/reject', {
+      method: 'POST', headers, body: '{}',
+    });
+  } catch(e) {}
+  _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
+  renderOffers();
+  toast('Offer rejected');
+}
+
+async function submitCounter(offerId, btn) {
+  var row = btn.closest('.counter-row');
+  var input = row ? row.querySelector('input') : null;
+  var amount = input ? parseFloat(input.value) : 0;
+  if (!amount || amount <= 0) { toast('Enter a valid counter amount'); return; }
+  btn.disabled = true;
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/counter', {
+      method: 'POST', headers, body: JSON.stringify({ amount: amount }),
+    });
+    if (resp.ok) {
+      _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
+      renderOffers();
+      toast('Counter offer of ₿PC ' + amount + ' sent', 'green');
+      return;
+    }
+  } catch(e) {}
+  _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
+  renderOffers();
+  toast('Counter sent (demo mode)', 'green');
+}
+
+// ── REVIEWS ───────────────────────────────────────────────────────────────────
+var _reviews = [];
+
+async function loadReviews() {
+  var el = document.getElementById('reviews-list');
+  el.innerHTML = '<div class="empty-state"><div class="ico">⭐</div><p>Loading reviews…</p></div>';
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    if (resp.ok) {
+      var store = await resp.json();
+      _reviews = store.recent_votes || [];
+      renderReviews();
+      return;
+    }
+  } catch(e) {}
+  // Demo reviews
+  _reviews = [
+    { vote_id:'v1', buyer:'natoshisakamoto', score:1, memo:'Flawless. Running qwen2.5:7b at full speed, no crashes in 3 weeks.', created_epoch:36000 },
+    { vote_id:'v2', buyer:'mesh_relay_99',   score:1, memo:'Fast shipping, product exactly as described. Would buy again.', created_epoch:35950 },
+    { vote_id:'v3', buyer:'ai_farm_hale',    score:0, memo:'Took a bit long to ship but item is great.', created_epoch:35900 },
+  ];
+  renderReviews();
+}
+
+function renderReviews() {
+  var el = document.getElementById('reviews-list');
+  if (!_reviews.length) {
+    el.innerHTML = '<div class="empty-state"><div class="ico">⭐</div><p>No reviews yet. Complete orders to receive reputation votes.</p></div>';
+    return;
+  }
+  el.innerHTML = _reviews.map(function(v) {
+    var scoreEl = v.score === 1
+      ? '<span class="review-score-pos">+1</span>'
+      : v.score === -1 ? '<span class="review-score-neg">-1</span>' : '<span style="color:var(--muted)">0</span>';
+    var replySection = v.reply_text
+      ? '<div class="review-reply"><b>Your reply:</b> ' + escHtml(v.reply_text) + '</div>'
+      : '<div class="review-reply-form">' +
+          '<textarea placeholder="Write a public reply…" id="reply-ta-' + v.vote_id + '"></textarea>' +
+          '<button class="btn-reply" onclick="submitReply(\'' + v.vote_id + '\')">Reply</button>' +
+        '</div>';
+    return '<div class="review-card">' +
+      '<div class="review-header">' +
+        scoreEl +
+        '<span class="review-buyer">' + escHtml(v.buyer||'—') + '</span>' +
+        '<span class="review-epoch">Epoch ' + (v.created_epoch||'—') + '</span>' +
+      '</div>' +
+      (v.memo ? '<div class="review-memo">' + escHtml(v.memo) + '</div>' : '') +
+      replySection +
+    '</div>';
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function submitReply(voteId) {
+  var ta = document.getElementById('reply-ta-' + voteId);
+  var text = ta ? ta.value.trim() : '';
+  if (!text) { toast('Enter reply text'); return; }
+  try {
+    var headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/reputation/' + encodeURIComponent(voteId) + '/reply', {
+      method: 'POST', headers, body: JSON.stringify({ reply_text: text }),
+    });
+    if (resp.ok) {
+      var v = _reviews.find(function(r){ return r.vote_id === voteId; });
+      if (v) v.reply_text = text;
+      renderReviews();
+      toast('Reply posted', 'green');
+      return;
+    }
+  } catch(e) {}
+  var v = _reviews.find(function(r){ return r.vote_id === voteId; });
+  if (v) v.reply_text = text;
+  renderReviews();
+  toast('Reply posted (demo mode)', 'green');
+}
+
 // ── BOOT ─────────────────────────────────────────────────────────────────────
 init();
+loadMetrics();
 </script>
 </body>
 </html>

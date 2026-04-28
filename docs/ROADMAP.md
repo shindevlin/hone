@@ -73,7 +73,7 @@
 - [ ] Store analytics dashboard with real ledger data: actual revenue, order counts, repeat buyer rate
 - [ ] Seller verification badge — stake-weighted reputation threshold required to unlock badge
 - [ ] **Saved searches + price-drop alerts**: buyer saves a search query or wishlist item; on-chain price-change events trigger a notification (Telegram or in-app); no ML, pure query matching
-- [ ] **Price guide from completed orders**: for hardware categories, aggregate median/low/high of completed orders by `item_model` tag over the last 90 epochs and display as a price guide on listing pages (Reverb pattern)
+- [ ] **Price guide from completed orders**: for hardware categories, aggregate median/low/high of all completed orders by `item_model` tag (no arbitrary cutoff — the marketplace is new; once volume builds, a configurable rolling window of up to 8,640 epochs / 90 days can be layered on) and display as a price guide on listing pages (Reverb pattern)
 - [ ] **Follow sellers + buyer feed**: buyers follow seller accounts; new listings from followed sellers appear in a chronological feed endpoint (`GET /api/commerce/feed`) — social discovery without a recommendation engine
 - [ ] **Public wishlist**: buyer marks listings as wished; wishlist is public and queryable; seller can see who has wishlisted their products and target discount codes at them
 

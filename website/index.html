@@ -26,19 +26,16 @@
 <body>
 
   <!-- Navigation -->
-  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:16px;">
-    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC</a>
-    <a href="/globe" style="color:#c8ccd4;text-decoration:none;">Globe</a>
-    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Dashboard</a>
-    <a href="/map" style="color:#c8ccd4;text-decoration:none;">Map</a>
-    <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
-    <a href="/device-dashboard" style="color:#c8ccd4;text-decoration:none;">Devices</a>
-    <a href="/meshtastic" style="color:#c8ccd4;text-decoration:none;">Meshtastic</a>
-    <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
-    <a href="/run-a-node" style="color:#f7931a;text-decoration:none;font-weight:bold;">Run a Node</a>
-    <a href="/name-auction" style="color:#f7931a;text-decoration:none;font-weight:bold;">Name Auction</a>
-    <a href="/buy" style="color:#f7931a;text-decoration:none;font-weight:bold;">Buy BTCPC</a>
-  <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
+  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:20px;flex-wrap:wrap;">
+    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;margin-right:4px;"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC</a>
+    <a href="#tutorial" style="color:#c8ccd4;text-decoration:none;">Get Started</a>
+    <a href="/run-a-node" style="color:#c8ccd4;text-decoration:none;">Run a Node</a>
+    <a href="/store" style="color:#c8ccd4;text-decoration:none;">Store</a>
+    <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy BTCPC</a>
+    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Explorer</a>
+    <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
+    <div style="flex:1;"></div>
+    <a href="/app" style="background:#f7931a;color:#000;padding:6px 16px;border-radius:6px;font-weight:700;text-decoration:none;font-size:12px;white-space:nowrap;">Create Wallet &rarr;</a>
   </div>
 
   <!-- Genesis Countdown (disappears after launch) -->
@@ -76,10 +73,14 @@
     <div class="hero-badge">42,000,000 BTCPC</div>
     <p class="hero-sub">Total supply &mdash; fixed forever, like Bitcoin. Every token earned by a machine doing something useful.</p>
     <div style="display:flex;gap:12px;justify-content:center;margin-top:32px;flex-wrap:wrap;">
-      <a href="/install" style="background:#f7931a;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;">Install BTCPC</a>
-      <a href="/buy" style="background:rgba(247,147,26,0.9);color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;border:2px solid #f7931a;">Buy BTCPC</a>
-      <a href="/globe" style="background:rgba(34,197,94,0.15);color:#22c55e;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid #22c55e;">Live Network Globe</a>
-      <a href="/map" style="background:rgba(247,147,26,0.15);color:#f7931a;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid #f7931a;">View Network Map</a>
+      <a href="/app" style="background:#f7931a;color:#000;padding:14px 36px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;">Create Wallet &mdash; Free &rarr;</a>
+    </div>
+    <div style="display:flex;gap:16px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <a href="/install" style="color:#c8ccd4;text-decoration:none;font-size:13px;">Install Node</a>
+      <span style="color:#64748b;">·</span>
+      <a href="/buy" style="color:#c8ccd4;text-decoration:none;font-size:13px;">Buy BTCPC</a>
+      <span style="color:#64748b;">·</span>
+      <a href="/globe" style="color:#c8ccd4;text-decoration:none;font-size:13px;">Live Globe</a>
     </div>
   </section>
 
@@ -140,48 +141,52 @@
   <section id="how">
     <p class="section-label">02 &mdash; Five Ways to Earn</p>
     <h2 class="section-title">Bring a device. <span>Any device.</span></h2>
-    <p class="section-text">Every block's emission is split across five reward pools. Join any pool that matches what you have. Multiple pools stack.</p>
+    <p class="section-text">Every block's emission flows to whoever is doing real work. The split is demand-driven &mdash; no static percentages. If inference demand is high, miners earn more. If IoT activity spikes, sensors earn more. Join any role that matches what you have. Multiple roles stack.</p>
     <div class="card-grid">
       <div class="card">
         <span class="card-icon">&#9201;</span>
-        <h3>Clock &mdash; 5%</h3>
+        <h3>Clock Node</h3>
         <p>Keep epoch timing for the network. Zero GPU required. A phone, laptop, or Raspberry Pi qualifies. The easiest way to start earning BTCPC from any device.</p>
       </div>
       <div class="card">
         <span class="card-icon">&#128296;</span>
-        <h3>Miner &mdash; 55%</h3>
+        <h3>Miner</h3>
         <p>GPU + Ollama. Run AI inference for real jobs submitted through the API. Rewards scale with verified parameter count from Ollama's model metadata. No synthetic puzzles &mdash; real jobs only.</p>
       </div>
       <div class="card">
         <span class="card-icon">&#128190;</span>
-        <h3>Storage Host &mdash; 12%</h3>
+        <h3>Storage Host</h3>
         <p>Spare disk. Host content-addressed files on BTCPC-FS. Paid for delivery. Never penalized for going offline &mdash; you just stop earning until you're back.</p>
       </div>
       <div class="card">
         <span class="card-icon">&#127760;</span>
-        <h3>Service Host &mdash; 8%</h3>
+        <h3>Service Host</h3>
         <p>Run applications and services for the network via a cloud VM or server. Apps, games, APIs. Stake to enter the pool, earn per delivery. Same stake-and-rep primitive as storage.</p>
       </div>
       <div class="card">
         <span class="card-icon">&#128225;</span>
-        <h3>IoT Sensor &mdash; 10%</h3>
+        <h3>IoT Sensor</h3>
         <p>LoRa gateway, Flipper Zero, or standalone sensors. Report environmental data &mdash; temperature, air quality, RF spectrum, crowd density, weather. Like Helium, but the data goes on-chain and the rewards are real.</p>
       </div>
     </div>
 
     <!-- Pool percentage visual -->
     <div class="feature-visual" style="margin-top:32px;">
-      <pre>Reward pool split every epoch:
+      <pre>Reward pool split — dynamic, every epoch:
 
-  <span class="hl">Miners       55%</span>  ████████████████████████████████████████████████████▌
-  <span class="hlg">Verifiers    10%</span>  ██████████
-  <span class="hlb">Storage      12%</span>  ████████████
-  <span class="hlp">IoT + Svcs   10%</span>  ██████████
-  <span class="hl">Clocks        5%</span>  █████
-  <span class="hlg">Recycle (↩)   8%</span>  unused pool shares flow to btcpc_recycle → future rewards</pre>
+  Each role earns: <span class="hl">blockReward × (role_score / total_score)</span>
+
+  <span class="hl">Miners</span>       work_value (parameter × quality)  ← scales with GPU output
+  <span class="hlg">Verifiers</span>    active_count × 3000               ← scales with validators
+  <span class="hlb">Storage</span>      active_count × 2000               ← scales with hosts
+  <span class="hlp">IoT + Svcs</span>   active_count × 500–2500           ← scales with sensors/gateways
+  <span class="hl">Clocks</span>       active_count × 1000               ← scales with timing nodes
+
+  No fixed %  →  <span class="hlg">demand drives the split</span>
+  No active roles  →  <span class="hlp">full recycle (↩) to future epochs</span></pre>
     </div>
 
-    <p class="section-text" style="margin-top:24px;">Verifiers (10%) validate inference results on behalf of the network. Pools with no active participants recycle their share &mdash; nothing is ever burned.</p>
+    <p class="section-text" style="margin-top:24px;">Verifiers validate inference results on behalf of the network. Roles with no active participants contribute zero to the total score &mdash; their weight flows proportionally to whoever is working. Nothing is ever burned.</p>
   </section>
 
   <hr class="divider">
@@ -464,12 +469,61 @@ node bin/btcpc-all</pre>
        ↓
   Syncs via USB/BLE to <span class="hlg">BTCPC gateway</span>
        ↓
-  Gateway co-signs → <span class="hl">IoT reward pool (10%)</span>
+  Gateway co-signs → <span class="hl">IoT reward pool (demand-scaled)</span>
        ↓
   Data sold to telecoms, retailers,
   fintech, weather services, security</pre>
     </div>
     <p class="section-text" style="margin-top:24px;">Supported devices: <strong>Nebra</strong>, <strong>Hyfix</strong>, <strong>Raspberry Pi</strong>, <strong>Flipper Zero</strong>, and any GPIO/I2C/SPI sensor. Bring what you have.</p>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Tutorial: Get Started in 3 Steps -->
+  <section id="tutorial" style="max-width:860px;margin:0 auto;padding:0 24px;">
+    <p class="section-label">Start Here</p>
+    <h2 class="section-title">Up and earning in <span>3 steps</span></h2>
+    <p class="section-text">No GPU required for step 1. You can start earning clock rewards on any phone or laptop right now.</p>
+
+    <!-- Video placeholder -->
+    <div style="background:rgba(247,147,26,0.04);border:2px dashed rgba(247,147,26,0.25);border-radius:12px;padding:48px 24px;text-align:center;margin:32px 0;cursor:pointer;" onclick="this.innerHTML='<p style=\'color:#64748b;font-size:13px;\'>Video coming soon. Follow <a href=\'https://t.me/btcpcbot\' style=\'color:#f7931a;\'>@btcpcbot</a> for updates.</p>';">
+      <div style="font-size:48px;margin-bottom:12px;">▶</div>
+      <div style="font-size:14px;font-weight:600;color:#f7931a;">Watch: Getting Started with BTCPC</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px;">~3 min · wallet + first reward</div>
+    </div>
+
+    <!-- 3 steps -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-top:8px;">
+      <div style="background:rgba(10,14,23,0.6);border:1px solid rgba(247,147,26,0.2);border-radius:12px;padding:24px;position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:#f7931a;color:#000;font-weight:700;font-size:12px;padding:2px 10px;border-radius:12px;">Step 1</div>
+        <h3 style="color:#f7931a;margin:12px 0 8px;font-size:16px;">Create Your Wallet</h3>
+        <p style="color:#c8ccd4;font-size:13px;line-height:1.6;">Open the app, type a username, tap Create. Your 24-word mnemonic is generated locally — write it down, it never leaves your device.</p>
+        <a href="/app" style="display:inline-block;margin-top:14px;background:rgba(247,147,26,0.15);color:#f7931a;padding:8px 18px;border-radius:6px;font-weight:600;text-decoration:none;font-size:13px;border:1px solid rgba(247,147,26,0.3);">Open App &rarr;</a>
+      </div>
+
+      <div style="background:rgba(10,14,23,0.6);border:1px solid rgba(247,147,26,0.2);border-radius:12px;padding:24px;position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:#f7931a;color:#000;font-weight:700;font-size:12px;padding:2px 10px;border-radius:12px;">Step 2</div>
+        <h3 style="color:#f7931a;margin:12px 0 8px;font-size:16px;">Pick Your Role</h3>
+        <p style="color:#c8ccd4;font-size:13px;line-height:1.6;">Enable sensors on your phone to earn from IoT rewards. Or enable the clock role — any device qualifies, no GPU needed. Or run a full mining node if you have a GPU.</p>
+        <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;">
+          <span style="background:rgba(34,197,94,0.1);color:#22c55e;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid rgba(34,197,94,0.2);">Clock (any device)</span>
+          <span style="background:rgba(247,147,26,0.1);color:#f7931a;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid rgba(247,147,26,0.2);">Sensors (phone)</span>
+          <span style="background:rgba(139,92,246,0.1);color:#a78bfa;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid rgba(139,92,246,0.2);">Miner (GPU)</span>
+        </div>
+      </div>
+
+      <div style="background:rgba(10,14,23,0.6);border:1px solid rgba(247,147,26,0.2);border-radius:12px;padding:24px;position:relative;">
+        <div style="position:absolute;top:-12px;left:20px;background:#f7931a;color:#000;font-weight:700;font-size:12px;padding:2px 10px;border-radius:12px;">Step 3</div>
+        <h3 style="color:#f7931a;margin:12px 0 8px;font-size:16px;">Start Earning</h3>
+        <p style="color:#c8ccd4;font-size:13px;line-height:1.6;">Your first epoch reward arrives within 30 seconds of going active. Watch it land in the Home tab. Claim the faucet for a head start.</p>
+        <div style="margin-top:14px;background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.15);border-radius:6px;padding:10px;font-family:monospace;font-size:12px;color:#f7931a;">Epoch reward &rarr; your balance<br><span style="color:#64748b;">every 30 seconds</span></div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:36px;">
+      <a href="/app" style="background:#f7931a;color:#000;padding:14px 40px;border-radius:8px;font-weight:700;text-decoration:none;font-size:15px;display:inline-block;">Get Started Now &rarr;</a>
+      <div style="margin-top:12px;font-size:12px;color:#64748b;">Or message <a href="https://t.me/btcpcbot" style="color:#f7931a;text-decoration:none;">@btcpcbot</a> on Telegram to create a wallet without installing anything</div>
+    </div>
   </section>
 
   <!-- Footer -->

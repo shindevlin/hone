@@ -650,6 +650,130 @@
       .product-grid { grid-template-columns: repeat(2, 1fr); }
       .source-cards { grid-template-columns: 1fr; }
     }
+
+    /* ── WISHLIST HEART ── */
+    .wishlist-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(255,255,255,0.85); border: none;
+      border-radius: 50%; width: 30px; height: 30px;
+      font-size: 16px; cursor: pointer; z-index: 2;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+      transition: background 0.15s, transform 0.1s;
+      line-height: 1;
+    }
+    .wishlist-btn:hover { background: #fff; transform: scale(1.12); }
+    .wishlist-btn.wishlisted { color: #e02020; }
+    .wishlist-count {
+      position: absolute; top: 4px; right: 4px;
+      background: var(--orange); color: var(--navy);
+      font-size: 9px; font-weight: 800;
+      padding: 0 4px; border-radius: 8px; min-width: 14px; text-align: center;
+      pointer-events: none; display: none;
+    }
+    .wishlist-count.show { display: block; }
+
+    /* ── CONDITION BADGE ── */
+    .condition-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 10px; margin-top: 3px;
+    }
+    .cond-new      { background: #d4edda; color: #155724; }
+    .cond-likenew  { background: #d1ecf1; color: #0c5460; }
+    .cond-verygood { background: #cce5ff; color: #004085; }
+    .cond-good     { background: #fff3cd; color: #856404; }
+    .cond-fair     { background: #ffe5cc; color: #804000; }
+
+    /* ── EARLY ACCESS BADGE ── */
+    .early-access-ribbon {
+      position: absolute; top: 36px; left: 0;
+      background: #7b2ff7; color: #fff;
+      font-size: 10px; font-weight: 700; padding: 2px 8px 2px 6px;
+      border-radius: 0 3px 3px 0;
+    }
+
+    /* ── MAKE AN OFFER ── */
+    .pd-offer-section {
+      border-top: 1px solid var(--border); padding: 12px 0;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .pd-offer-section h5 { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .pd-offer-row { display: flex; gap: 6px; align-items: center; }
+    .pd-offer-input {
+      flex: 1; padding: 7px 10px; border: 1px solid var(--border2);
+      border-radius: 4px; font-size: 14px; font-family: inherit;
+    }
+    .pd-offer-input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .pd-offer-btn {
+      padding: 7px 14px; background: var(--navy2); color: #fff;
+      border: none; border-radius: 4px; font-size: 12px; font-weight: 700;
+      white-space: nowrap; cursor: pointer;
+    }
+    .pd-offer-btn:hover { background: var(--navy); }
+    .pd-offer-msg { font-size: 12px; min-height: 16px; }
+
+    /* ── PWYW ── */
+    .pd-pwyw-section { padding: 8px 0; }
+    .pd-pwyw-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .pd-pwyw-input {
+      width: 100%; padding: 8px 10px; border: 1.5px solid var(--orange);
+      border-radius: 4px; font-size: 16px; font-weight: 700;
+      font-family: inherit; margin-top: 4px;
+    }
+    .pd-pwyw-input:focus { outline: none; border-color: var(--orange-d); }
+
+    /* ── TIP INPUT ── */
+    .pd-tip-section { padding: 6px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pd-tip-label { font-size: 12px; color: var(--sub); flex-shrink: 0; }
+    .pd-tip-input {
+      width: 90px; padding: 5px 8px; border: 1px solid var(--border2);
+      border-radius: 4px; font-size: 13px; font-family: inherit;
+    }
+    .pd-tip-input:focus { outline: 2px solid var(--orange); border-color: transparent; }
+    .pd-tip-hint { font-size: 11px; color: var(--muted); }
+
+    /* ── MULTI-IMAGE GALLERY ── */
+    .pd-gallery-thumbs {
+      display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px;
+      background: var(--bg2); border-top: 1px solid var(--border);
+    }
+    .pd-thumb {
+      width: 52px; height: 52px; object-fit: cover; border-radius: 3px;
+      border: 2px solid transparent; cursor: pointer; transition: border-color 0.15s;
+    }
+    .pd-thumb.active, .pd-thumb:hover { border-color: var(--orange); }
+
+    /* ── SPEC TABLE ── */
+    .pd-spec-section { padding: 16px 24px; border-top: 1px solid var(--border); }
+    .pd-spec-section h4 { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+    .pd-spec-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .pd-spec-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+    .pd-spec-table td:first-child { font-weight: 700; color: var(--sub); width: 40%; }
+    .pd-spec-table tr:last-child td { border-bottom: none; }
+
+    /* ── PRICE GUIDE ── */
+    .pd-price-guide {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 12px; margin-top: 6px;
+      font-size: 12px; color: var(--sub); display: none;
+    }
+    .pd-price-guide.loaded { display: block; }
+    .pd-price-guide b { color: var(--orange-d); }
+
+    /* ── FOLLOW BUTTON (store pill) ── */
+    .sp-follow-btn {
+      margin-top: 4px; padding: 3px 8px; font-size: 10px; font-weight: 700;
+      border-radius: 10px; border: 1px solid var(--orange); background: none;
+      color: var(--orange-d); cursor: pointer; align-self: flex-start;
+      transition: background 0.15s;
+    }
+    .sp-follow-btn:hover, .sp-follow-btn.following { background: var(--orange-l); }
+    .sp-follow-btn.following { border-color: var(--green); color: var(--green); }
+
+    /* ── EARLY ACCESS (modal) ── */
+    .pd-early-access-note {
+      font-size: 12px; color: #7b2ff7; font-weight: 700; margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -2175,6 +2299,10 @@ function buildCard(p) {
   var dealLabel = saleActive ? '<div class="price-deal">Limited time deal</div>' : '';
   var saleTimer = saleActive ? '<div class="flash-countdown" data-sale-key="' + key + '"></div>' : '';
 
+  var storeScore = _storeScores[p.seller] || 0;
+  var ratingVal  = storeScore > 0 ? (storeScore / 20).toFixed(1) : '4.5';
+  var starsHtml  = storeScore > 0 ? starsFromScore(storeScore) : '★★★★☆';
+
   // Merge into PRODUCTS for drawer
   PRODUCTS[key] = {
     key: key, icon: catEmoji(p.categories), bg: '#f7f9fb',
@@ -2188,13 +2316,30 @@ function buildCard(p) {
       qa_id: q.qa_id, asker: q.asker, question: q.question, answer: q.answer
     }; }),
     saleEndsEpoch: p.sale_ends_epoch || null,
-    reviews_data: []
+    reviews_data: [],
+    // New fields for buyer UI features
+    image_cids: p.image_cids || null,
+    condition: p.condition || null,
+    specs: p.specs || null,
+    min_price: p.min_price != null ? p.min_price : null,
+    suggested_price: p.suggested_price != null ? p.suggested_price : null,
+    tip_enabled: !!p.tip_enabled,
+    expected_delivery_epoch: p.expected_delivery_epoch || null,
+    categories: p.categories || [],
   };
 
-  var storeScore = _storeScores[p.seller] || 0;
-  var ratingVal  = storeScore > 0 ? (storeScore / 20).toFixed(1) : '4.5';
-  var starsHtml  = storeScore > 0 ? starsFromScore(storeScore) : '★★★★☆';
+  // ── Condition badge
+  var condClass = { 'New':'cond-new','Like New':'cond-likenew','Very Good':'cond-verygood','Good':'cond-good','Fair':'cond-fair' };
+  var condBadge = p.condition && condClass[p.condition]
+    ? '<span class="condition-badge ' + condClass[p.condition] + '">' + p.condition + '</span>'
+    : '';
 
+  // ── Early access ribbon (if product expected_delivery_epoch > current epoch)
+  var earlyRibbon = (p.expected_delivery_epoch && p.expected_delivery_epoch > epoch)
+    ? '<span class="early-access-ribbon">Early Access</span>'
+    : '';
+
+  var safeKey = key.replace(/'/g,"\\'");
   var safeTitle = p.title.replace(/'/g, "\\'").slice(0, 40);
   var card = document.createElement('div');
   card.className = 'product-card';
@@ -2205,9 +2350,11 @@ function buildCard(p) {
   card.dataset.title  = p.title;
   card.dataset.desc   = p.description || '';
   card.dataset.seller = p.seller;
-  card.setAttribute('onclick', "openProduct('" + key.replace(/'/g,"\\'") + "')");
+  card.setAttribute('onclick', "openProduct('" + safeKey + "')");
   card.innerHTML =
-    '<div class="product-img" style="background:#f0f4f8">' + imgHtml + badge + '</div>' +
+    '<div class="product-img" style="background:#f0f4f8">' + imgHtml + badge + earlyRibbon +
+      '<button class="wishlist-btn" data-pid="' + key + '" onclick="toggleWishlist(event,this,\'' + safeKey + '\')" title="Save to wishlist">♡<span class="wishlist-count" id="wc-' + key.replace(/[^a-zA-Z0-9_-]/g,'_') + '"></span></button>' +
+    '</div>' +
     '<div class="product-body">' +
       '<div class="product-title">' + p.title + '</div>' +
       '<div class="product-stars"><span class="stars">' + starsHtml + '</span><span class="review-count">' + (storeScore > 0 ? ratingVal : '') + '</span></div>' +
@@ -2216,11 +2363,11 @@ function buildCard(p) {
         '<div class="price-main"><span class="sym">₿PC </span>' + ep + '</div>' +
         saleWas +
       '</div>' +
-      shipLine + invLine + saleTimer +
+      shipLine + invLine + saleTimer + condBadge +
     '</div>' +
     '<div class="product-footer">' +
-      '<button class="btn-cart" onclick="addToCart(event,\'' + safeTitle + '\',' + ep + ',\'' + catEmoji(p.categories) + '\',\'' + key.replace(/'/g,"\\'") + '\');event.stopPropagation()">Add to Cart</button>' +
-      '<button class="btn-buy" onclick="openProduct(\'' + key.replace(/'/g,"\\'") + '\',true);event.stopPropagation()">Buy Now</button>' +
+      '<button class="btn-cart" onclick="addToCart(event,\'' + safeTitle + '\',' + ep + ',\'' + catEmoji(p.categories) + '\',\'' + safeKey + '\');event.stopPropagation()">Add to Cart</button>' +
+      '<button class="btn-buy" onclick="openProduct(\'' + safeKey + '\',true);event.stopPropagation()">Buy Now</button>' +
       '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
     '</div>';
   return card;
@@ -2265,10 +2412,20 @@ async function loadFeaturedStores() {
       var stars = starsFromScore(s.score);
       var pill = document.createElement('div');
       pill.className = 'store-pill';
+      var followBtn = document.createElement('button');
+      followBtn.className = 'sp-follow-btn';
+      followBtn.textContent = 'Follow';
+      followBtn.dataset.seller = s.seller;
+      followBtn.dataset.following = '0';
+      followBtn.onclick = function(e) {
+        e.stopPropagation();
+        toggleFollowStore(followBtn, s.seller);
+      };
       pill.innerHTML =
         '<div class="sp-name">' + s.name + '</div>' +
         '<div class="sp-score">' + stars + ' ' + (s.score ? s.score.toFixed(1) : '—') + '</div>' +
         '<div class="sp-cats">' + (s.categories || []).slice(0,2).join(' · ') + '</div>';
+      pill.appendChild(followBtn);
       pill.onclick = function() {
         document.querySelectorAll('.store-pill').forEach(function(p){ p.classList.remove('active'); });
         pill.classList.add('active');
@@ -2312,6 +2469,9 @@ async function loadProducts() {
 
     // Re-init flash countdowns for any sale items
     initFlashCountdowns();
+
+    // Load wishlist counts for all visible cards
+    loadWishlistCounts(products.map(function(p){ return p.product_id || (p.seller+'/'+p.slug); }));
   } catch(e) {
     // Network error — static demo cards stay
   }
@@ -2570,17 +2730,48 @@ function openProduct(key, buyIntent) {
   _pdQty = 1;
 
   document.getElementById('pd-crumb').textContent = 'TechSurplus › ' + p.title.slice(0,50);
-  document.getElementById('pd-img').innerHTML = p.icon +
-    (p.badge ? '<div class="pd-badge" style="background:'+p.badgeColor+'">'+p.badgeLabel+'</div>' : '');
-  document.getElementById('pd-img').style.background = p.bg;
+
+  // ── Main image / multi-image gallery
+  var imgColEl = document.getElementById('pd-img');
+  if (p.image_cids && p.image_cids.length > 0) {
+    var mainSrc = BTCPC_NODE + '/api/commerce/media/' + p.image_cids[0].replace('sha256:','');
+    var mainImg = '<img id="pd-main-img" src="' + mainSrc + '" style="width:100%;height:100%;object-fit:cover" />';
+    imgColEl.innerHTML = mainImg + (p.badge ? '<div class="pd-badge" style="background:'+p.badgeColor+'">'+p.badgeLabel+'</div>' : '');
+    // Thumbnails rendered below separately
+  } else {
+    imgColEl.innerHTML = p.icon +
+      (p.badge ? '<div class="pd-badge" style="background:'+p.badgeColor+'">'+p.badgeLabel+'</div>' : '');
+  }
+  imgColEl.style.background = p.bg;
+
+  // Gallery thumbs (inserted right after pd-img-col inside pd-top, or after it)
+  var existingGallery = document.getElementById('pd-gallery');
+  if (existingGallery) existingGallery.remove();
+  if (p.image_cids && p.image_cids.length > 1) {
+    var galleryDiv = document.createElement('div');
+    galleryDiv.id = 'pd-gallery';
+    galleryDiv.className = 'pd-gallery-thumbs';
+    p.image_cids.forEach(function(cid, idx) {
+      var src = BTCPC_NODE + '/api/commerce/media/' + cid.replace('sha256:','');
+      var thumb = document.createElement('img');
+      thumb.src = src;
+      thumb.className = 'pd-thumb' + (idx === 0 ? ' active' : '');
+      thumb.onclick = function() {
+        var mainEl = document.getElementById('pd-main-img');
+        if (mainEl) mainEl.src = src;
+        galleryDiv.querySelectorAll('.pd-thumb').forEach(function(t){ t.classList.remove('active'); });
+        thumb.classList.add('active');
+      };
+      galleryDiv.appendChild(thumb);
+    });
+    // Insert gallery after the pd-img-col div
+    imgColEl.parentNode.insertBefore(galleryDiv, imgColEl.nextSibling);
+  }
+
   document.getElementById('pd-seller').textContent = p.seller;
   document.getElementById('pd-title').textContent = p.title;
   document.getElementById('pd-stars').textContent = starsHtml(p.stars);
   document.getElementById('pd-review-link').textContent = p.reviews + ' ratings';
-  document.getElementById('pd-price').textContent = p.price;
-  document.getElementById('pd-price-usd').textContent = '≈ $' + p.priceUsd + ' USD';
-  document.getElementById('pd-ship').textContent = p.ship;
-  document.getElementById('pd-desc').textContent = p.desc;
   document.getElementById('pd-qty').value = 1;
   document.getElementById('pd-epoch-tag').textContent = 'Epoch: current';
   document.getElementById('pd-token-tag').textContent = 'Token: ' + p.token;
@@ -2588,6 +2779,60 @@ function openProduct(key, buyIntent) {
   document.getElementById('pd-btn-cart').disabled = false;
   document.getElementById('pd-btn-buy').disabled = false;
   document.getElementById('pd-btn-buy').textContent = 'Buy Now';
+
+  // ── PWYW or fixed price display
+  var priceEl = document.getElementById('pd-price');
+  var pdPriceBlock = document.getElementById('pd-price-block-wrap');
+  // Remove any old PWYW/tip injections
+  ['pd-pwyw-wrap','pd-tip-wrap','pd-offer-wrap','pd-early-access-note','pd-price-guide'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.remove();
+  });
+
+  if (p.min_price != null && p.suggested_price != null) {
+    // PWYW mode
+    priceEl.textContent = p.suggested_price;
+    document.getElementById('pd-price-usd').textContent = 'Pay what you want';
+    var pwywWrap = document.createElement('div');
+    pwywWrap.id = 'pd-pwyw-wrap';
+    pwywWrap.className = 'pd-pwyw-section';
+    pwywWrap.innerHTML =
+      '<input class="pd-pwyw-input" id="pd-pwyw-val" type="number" min="' + p.min_price + '" step="0.01" value="' + p.suggested_price + '" />' +
+      '<div class="pd-pwyw-label">Minimum: ₿PC ' + p.min_price + ' — pay more to support the creator</div>';
+    priceEl.closest('.pd-price-block').appendChild(pwywWrap);
+  } else {
+    priceEl.textContent = p.price;
+    document.getElementById('pd-price-usd').textContent = p.priceUsd ? '≈ $' + p.priceUsd + ' USD' : '';
+  }
+
+  // ── Tip input
+  if (p.tip_enabled) {
+    var tipWrap = document.createElement('div');
+    tipWrap.id = 'pd-tip-wrap';
+    tipWrap.className = 'pd-tip-section';
+    tipWrap.innerHTML =
+      '<label class="pd-tip-label" for="pd-tip-input">Add a tip:</label>' +
+      '<input class="pd-tip-input" id="pd-tip-input" type="number" min="0" step="0.01" value="0" />' +
+      '<span class="pd-tip-hint">Optional · any amount</span>';
+    priceEl.closest('.pd-price-block').appendChild(tipWrap);
+  }
+
+  // ── Make an offer (only if price > 0)
+  if (p.price > 0) {
+    var offerWrap = document.createElement('div');
+    offerWrap.id = 'pd-offer-wrap';
+    offerWrap.className = 'pd-offer-section';
+    offerWrap.innerHTML =
+      '<h5>Make an offer</h5>' +
+      '<div class="pd-offer-row">' +
+        '<input class="pd-offer-input" id="pd-offer-val" type="number" min="0" step="0.01" placeholder="Your offer in BTCPC" />' +
+        '<button class="pd-offer-btn" onclick="submitOffer()">Submit offer</button>' +
+      '</div>' +
+      '<div class="pd-offer-msg" id="pd-offer-msg"></div>';
+    priceEl.closest('.pd-price-block').after(offerWrap);
+  }
+
+  document.getElementById('pd-ship').textContent = p.ship;
+  document.getElementById('pd-desc').textContent = p.desc;
 
   var dealBadge = document.getElementById('pd-deal-badge');
   dealBadge.style.display = p.badge === 'deal' ? '' : 'none';
@@ -2623,6 +2868,21 @@ function openProduct(key, buyIntent) {
     }
   }
 
+  // ── Early access note
+  var pdInfoEl = document.querySelector('.pd-info');
+  var existEA = document.getElementById('pd-early-access-note');
+  if (existEA) existEA.remove();
+  if (p.expected_delivery_epoch) {
+    var epochNow2 = Math.floor((Date.now() - 1776236400000) / 30000);
+    if (p.expected_delivery_epoch > epochNow2) {
+      var eanEl = document.createElement('div');
+      eanEl.id = 'pd-early-access-note';
+      eanEl.className = 'pd-early-access-note';
+      eanEl.textContent = 'Early Access — Expected delivery: Epoch ' + p.expected_delivery_epoch;
+      pdInfoEl.insertBefore(eanEl, pdInfoEl.firstChild);
+    }
+  }
+
   // Reviews
   document.getElementById('pd-big-num').textContent = p.stars.toFixed(1);
   document.getElementById('pd-big-stars').textContent = starsHtml(p.stars);
@@ -2632,6 +2892,30 @@ function openProduct(key, buyIntent) {
 
   // Q&A
   renderQA(p.questions || []);
+
+  // ── Spec table
+  var existSpec = document.getElementById('pd-spec-section-dyn');
+  if (existSpec) existSpec.remove();
+  if (p.specs && typeof p.specs === 'object' && Object.keys(p.specs).length) {
+    var specRows = Object.entries(p.specs).map(function(kv){
+      return '<tr><td>' + escHtml(kv[0]) + '</td><td>' + escHtml(String(kv[1])) + '</td></tr>';
+    }).join('');
+    var specDiv = document.createElement('div');
+    specDiv.id = 'pd-spec-section-dyn';
+    specDiv.className = 'pd-spec-section';
+    specDiv.innerHTML = '<h4>Specifications</h4><table class="pd-spec-table"><tbody>' + specRows + '</tbody></table>';
+    document.getElementById('pd-reviews-section').before(specDiv);
+  }
+
+  // ── Price guide (deferred fetch)
+  var existPG = document.getElementById('pd-price-guide-dyn');
+  if (existPG) existPG.remove();
+  var pgDiv = document.createElement('div');
+  pgDiv.id = 'pd-price-guide-dyn';
+  pgDiv.className = 'pd-price-guide';
+  pgDiv.textContent = 'Loading market price…';
+  priceEl.closest('.pd-price-block').appendChild(pgDiv);
+  loadPriceGuide(p, pgDiv);
 
   document.getElementById('pd-overlay').classList.add('open');
   document.getElementById('pd-drawer').classList.add('open');
@@ -2657,7 +2941,8 @@ function changeQty(delta) {
 
 function pdAddToCart() {
   if (!_pdCurrent) return;
-  addToCart({stopPropagation:function(){}}, _pdCurrent.title.slice(0,40), _pdCurrent.price, _pdCurrent.icon);
+  var effectiveAmt = getPdEffectivePrice();
+  addToCart({stopPropagation:function(){}}, _pdCurrent.title.slice(0,40), effectiveAmt, _pdCurrent.icon, _pdCurrent.key);
 }
 
 async function pdBuyNow() {
@@ -2671,19 +2956,23 @@ async function pdBuyNow() {
   // Try real API first
   try {
     var token = localStorage.getItem('btcpc_token') || '';
+    var orderPayload = {
+      product_id: _pdCurrent.productId,
+      quantity: _pdQty,
+      token: _pdCurrent.token,
+      price: getPdEffectivePrice(),
+      shipping_address: _pdCurrent.digital ? undefined
+        : (document.getElementById('cart-ship-addr').value || '').trim() || undefined,
+    };
+    var tipAmt = getPdTip();
+    if (tipAmt > 0) orderPayload.tip_amount = tipAmt;
     var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': token ? 'Bearer ' + token : '',
       },
-      body: JSON.stringify({
-        product_id: _pdCurrent.productId,
-        quantity: _pdQty,
-        token: _pdCurrent.token,
-        shipping_address: _pdCurrent.digital ? undefined
-          : (document.getElementById('cart-ship-addr').value || '').trim() || undefined,
-      }),
+      body: JSON.stringify(orderPayload),
     });
 
     if (resp.ok) {
@@ -2752,6 +3041,185 @@ function renderReviews(reviews) {
       (r.verified ? '<div class="pd-review-verify">✔ Verified BTCPC purchase</div>' : '') +
     '</div>';
   }).join('');
+}
+
+// ── WISHLIST ──────────────────────────────────────────────────────────
+var _wishlistSet = {}; // pid → true/false
+
+async function toggleWishlist(e, btn, pid) {
+  e.stopPropagation();
+  var token = localStorage.getItem('btcpc_token') || '';
+  if (!token) { toast('Sign in to save to wishlist — click Account & Lists'); return; }
+  var isWishlisted = btn.dataset.wishlisted === '1';
+  var method = isWishlisted ? 'DELETE' : 'POST';
+  var label = isWishlisted ? '♡' : '♥';
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/wishlist/' + encodeURIComponent(pid), {
+      method: method,
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (resp.ok || resp.status === 404) {
+      btn.dataset.wishlisted = isWishlisted ? '0' : '1';
+      btn.className = 'wishlist-btn' + (isWishlisted ? '' : ' wishlisted');
+      btn.childNodes[0].textContent = isWishlisted ? '♡' : '♥';
+      toast(isWishlisted ? 'Removed from wishlist' : 'Saved to wishlist', isWishlisted ? '' : 'green');
+      return;
+    }
+  } catch(_) {}
+  toast(isWishlisted ? 'Removed (demo)' : 'Saved (demo)', 'green');
+  btn.dataset.wishlisted = isWishlisted ? '0' : '1';
+  btn.className = 'wishlist-btn' + (isWishlisted ? '' : ' wishlisted');
+  btn.childNodes[0].textContent = isWishlisted ? '♡' : '♥';
+}
+
+async function loadWishlistCounts(pids) {
+  if (!BTCPC_NODE || !pids || !pids.length) return;
+  // Fetch counts in parallel (fire-and-forget; no auth needed)
+  pids.forEach(async function(pid) {
+    if (!pid) return;
+    try {
+      var r = await fetch(BTCPC_NODE + '/api/commerce/wishlist/count/' + encodeURIComponent(pid));
+      if (!r.ok) return;
+      var d = await r.json();
+      var count = d.count || 0;
+      if (count < 1) return;
+      var safeId = 'wc-' + pid.replace(/[^a-zA-Z0-9_-]/g,'_');
+      var el = document.getElementById(safeId);
+      if (el) {
+        el.textContent = count;
+        el.classList.add('show');
+      }
+    } catch(_) {}
+  });
+}
+
+// ── MAKE AN OFFER ────────────────────────────────────────────────────
+async function submitOffer() {
+  if (!_pdCurrent) return;
+  var token = localStorage.getItem('btcpc_token') || '';
+  var msgEl = document.getElementById('pd-offer-msg');
+  if (!token) {
+    msgEl.textContent = 'Sign in to make an offer.';
+    msgEl.style.color = 'var(--red)';
+    return;
+  }
+  var amtEl = document.getElementById('pd-offer-val');
+  var amount = parseFloat(amtEl.value);
+  if (!amount || amount <= 0) {
+    msgEl.textContent = 'Enter a valid offer amount.';
+    msgEl.style.color = 'var(--red)';
+    return;
+  }
+  msgEl.textContent = 'Submitting…';
+  msgEl.style.color = 'var(--sub)';
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        product_id: _pdCurrent.productId,
+        amount: amount,
+        token: _pdCurrent.token || 'BTCPC',
+        expires_epochs: 2880
+      })
+    });
+    if (resp.ok) {
+      msgEl.textContent = '✔ Offer of ₿PC ' + amount + ' submitted! The seller will be notified.';
+      msgEl.style.color = 'var(--green)';
+      amtEl.value = '';
+      return;
+    }
+    var errData = await resp.json().catch(function(){ return {}; });
+    msgEl.textContent = '✕ ' + (errData.error || 'Failed to submit offer (' + resp.status + ')');
+    msgEl.style.color = 'var(--red)';
+  } catch(_) {
+    // Demo fallback
+    msgEl.textContent = '✔ Offer submitted (demo mode) — ₿PC ' + amount;
+    msgEl.style.color = 'var(--green)';
+    amtEl.value = '';
+  }
+}
+
+// ── PWYW price enforcement (called from pdBuyNow / pdAddToCart wrappers) ──
+function getPdEffectivePrice() {
+  var pwywEl = document.getElementById('pd-pwyw-val');
+  if (pwywEl && _pdCurrent && _pdCurrent.min_price != null) {
+    var val = parseFloat(pwywEl.value) || _pdCurrent.suggested_price;
+    if (val < _pdCurrent.min_price) {
+      val = _pdCurrent.min_price;
+      pwywEl.value = val;
+      toast('Minimum price is ₿PC ' + val);
+    }
+    return val;
+  }
+  return _pdCurrent ? _pdCurrent.price : 0;
+}
+
+function getPdTip() {
+  var tipEl = document.getElementById('pd-tip-input');
+  return tipEl ? (parseFloat(tipEl.value) || 0) : 0;
+}
+
+// ── FOLLOW STORE ─────────────────────────────────────────────────────
+async function toggleFollowStore(btn, seller) {
+  var token = localStorage.getItem('btcpc_token') || '';
+  if (!token) { toast('Sign in to follow stores — click Account & Lists'); return; }
+  var isFollowing = btn.dataset.following === '1';
+  var method = isFollowing ? 'DELETE' : 'POST';
+  try {
+    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/follow', {
+      method: method,
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (resp.ok || resp.status === 404) {
+      btn.dataset.following = isFollowing ? '0' : '1';
+      btn.textContent = isFollowing ? 'Follow' : 'Following';
+      btn.classList.toggle('following', !isFollowing);
+      toast(isFollowing ? 'Unfollowed ' + seller : 'Following ' + seller, isFollowing ? '' : 'green');
+      return;
+    }
+  } catch(_) {}
+  // Demo
+  btn.dataset.following = isFollowing ? '0' : '1';
+  btn.textContent = isFollowing ? 'Follow' : 'Following';
+  btn.classList.toggle('following', !isFollowing);
+  toast(isFollowing ? 'Unfollowed (demo)' : 'Following (demo)', 'green');
+}
+
+// ── PRICE GUIDE ──────────────────────────────────────────────────────
+async function loadPriceGuide(p, containerEl) {
+  var hwCats = ['gpu','compute','storage','radio','ham','iot','mesh','lora'];
+  var cat = (p.categories && p.categories[0] ? p.categories[0].toLowerCase() : '');
+  var isHw = hwCats.some(function(c){ return cat.includes(c); });
+  var itemModel = p.specs && p.specs.item_model ? p.specs.item_model : null;
+  if (!itemModel && !isHw) { containerEl.remove(); return; }
+  if (!BTCPC_NODE) { containerEl.remove(); return; }
+
+  var q = itemModel || p.title.split(' ').slice(0,3).join(' ');
+  var url = BTCPC_NODE + '/api/commerce/products?q=' + encodeURIComponent(q) +
+    (p.categories && p.categories[0] ? '&category=' + encodeURIComponent(p.categories[0]) : '') +
+    '&limit=200';
+  try {
+    var r = await fetch(url);
+    if (!r.ok) { containerEl.remove(); return; }
+    var data = await r.json();
+    var comps = (data.products || []).filter(function(prod){
+      return prod.product_id !== p.productId && prod.price > 0;
+    });
+    if (comps.length < 3) { containerEl.remove(); return; }
+    var prices = comps.map(function(prod){ return effectivePrice(prod); }).sort(function(a,b){return a-b;});
+    var low = prices[0];
+    var high = prices[prices.length-1];
+    var mid = prices.length % 2 === 0
+      ? (prices[prices.length/2 - 1] + prices[prices.length/2]) / 2
+      : prices[Math.floor(prices.length/2)];
+    containerEl.innerHTML = '<b>Market price guide</b> (' + comps.length + ' listings): ' +
+      'Low <b>₿PC ' + low + '</b> · Median <b>₿PC ' + mid.toFixed(2) + '</b> · High <b>₿PC ' + high + '</b>';
+    containerEl.classList.add('loaded');
+  } catch(_) { containerEl.remove(); }
 }
 
 // Also wire imported cards when added to grid

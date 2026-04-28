@@ -25,6 +25,9 @@ const path = require('path');
 // Load environment variables from project root
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
+// Force WebSocket P2P so INFERENCE_REVEAL broadcasts reach the clock via relay
+process.env.BTCPC_USE_RUST_P2P = 'false';
+
 const mongoose = require('mongoose');
 const { startMiner, stopMiner } = require('../src/mining/miner');
 

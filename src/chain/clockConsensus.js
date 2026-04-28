@@ -148,18 +148,21 @@ function _resolveEpoch(epochNumber) {
     return;
   }
 
-  // Bootstrap: single clock, has external peers — self-sign allowed
+  // Bootstrap: single clock self-sign only when completely isolated (no external peers)
   if (seals.length === 1) {
-    if (externalPeerCount === 0 && seals[0].node_id !== "genesis") {
+    if (externalPeerCount > 0) {
+      // Have external peers but only one seal — wait for more before sealing
+      return;
+    }
+    if (seals[0].node_id !== "genesis") {
       console.warn("[BTCPC Clock] Epoch " + epochNumber +
         ": only self-seal and no external peers — deferring (potential isolation)");
-      // Don't emit — let reconnection trigger re-seal
       return;
     }
     const winner = seals[0];
     state.winner = winner;
     _updateClockScore(winner.node_id, true);
-    console.log("[BTCPC Clock] Epoch " + epochNumber + ": self-sealed (single clock, connected)");
+    console.log("[BTCPC Clock] Epoch " + epochNumber + ": self-sealed (single clock, isolated)");
     emitter.emit("epoch_sealed", { epoch: epochNumber, sealed: true, quorum: 1, winner, seals });
     _pruneOldEpochs(epochNumber);
     return;
@@ -256,6 +259,15 @@ function _pruneOldEpochs(currentEpoch) {
 
 function on(event, fn) { emitter.on(event, fn); }
 
+function getTruthStatus() {
+  return {
+    truth_bearing: !observerMode && externalPeerCount > 0,
+    observer: observerMode,
+    external_peer_count: externalPeerCount,
+    epoch_states: epochState.size,
+  };
+}
+
 module.exports = {
   receiveSeal,
   produceSeal,
@@ -264,6 +276,7 @@ module.exports = {
   getExternalPeerCount,
   getClockScores,
   getEpochState,
+  getTruthStatus,
   setPeerSource,
   on,
   SEAL_COLLECT_MS,

@@ -314,6 +314,33 @@ async function finalizeChatResult({ req, selectedModel, messages, max_tokens, te
       .digest('hex');
   }
 
+  // Broadcast VERIFY_REQUEST so verifiers can validate this work.
+  // Without this, blockProposal.js applies a 50% penalty to unverified miners.
+  // Always broadcast regardless of network size — verifier.js handles the
+  // no-eligible-verifiers case (policy returns probability=0, no work done).
+  try {
+    const p2p = require('../p2p/network');
+    const { createMessage, MESSAGE_TYPES } = require('../p2p/protocol');
+    const stateStore = require('../chain/stateStore');
+    const minerAccount = (req.project && req.project.owner)
+      || process.env.BTCPC_MINER
+      || 'inference-api';
+    const latestEpoch = stateStore.getLatestEpoch ? stateStore.getLatestEpoch() : null;
+    const blockHash = (latestEpoch && latestEpoch.consensus_hash) || '0'.repeat(64);
+    p2p.broadcast(createMessage(MESSAGE_TYPES.VERIFY_REQUEST, {
+      job_id,
+      miner: minerAccount,
+      result: assistantContent,
+      model: selectedModel,
+      token_count: evalCount,
+      timing_ms: Date.now() - startTime,
+      block_hash: blockHash,
+      epoch: epochNumber
+    }, p2p.NODE_ID));
+  } catch (verifyErr) {
+    console.error('[BTCPC Inference] VERIFY_REQUEST broadcast failed:', verifyErr.message);
+  }
+
   const { cost, pricing } = await calculateCost(evalCount, selectedModel);
   if (req.project) {
     req.project.balance = Math.max(0, req.project.balance - cost);

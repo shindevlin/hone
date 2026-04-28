@@ -22,16 +22,19 @@ var crypto = require("crypto");
 var stateStore = require("./stateStore");
 var nodeRegistry = require("./nodeRegistry");
 
-// Reward split (whitepaper canonical)
-// 6-pool reward distribution per whitepaper
-var MINER_PCT = 0.55;
-var VERIFIER_PCT = 0.10;
-var CLOCK_PCT = 0.05;
-var STORAGE_PCT = 0.12;
-var SERVICE_PCT = 0.08;
-var IOT_PCT = 0.10;
+// Work scores — each role's contribution in normalized compute units.
+// The pool split is demand-driven: rolePool = blockReward × (roleScore / totalScore).
+// Calibrated so at typical participation the split approximates the original whitepaper
+// ratios, but shifts naturally with actual network activity.
+var CLOCK_SCORE_PER_NODE    = 1000;
+var VERIFIER_SCORE_PER_NODE = 3000;
+var STORAGE_SCORE_PER_HOST  = 2000;
+var SENSOR_SCORE_PER_SENSOR = 500;
+var GATEWAY_SCORE_PER_GW    = 1500;
+
+// Idle-epoch infrastructure floor (when NO work exists across all roles)
 var IDLE_VERIFIER_PCT = 0.01;
-var IDLE_CLOCK_PCT = 0.01;
+var IDLE_CLOCK_PCT    = 0.01;
 
 // Staking thresholds
 var _csEnv = parseInt(process.env.BTCPC_MIN_CLOCK_STAKE);
@@ -159,10 +162,73 @@ function buildProposal(options) {
   activeVerifiers.sort();
   activeClocks.sort();
 
+  // ── Gather infrastructure participants ────────────────────────────────
+  var activeStorageHosts = [];
+  try {
+    var storageHostRecords = stateStore.getActiveStorageHosts(epochNumber, 10);
+    activeStorageHosts = storageHostRecords
+      .map(function (h) { return h.host || h.account; })
+      .filter(isValidAccount);
+    activeStorageHosts = Array.from(new Set(activeStorageHosts));
+  } catch (_) {}
+
+  var activeSensors = [];
+  var activeGateways = [];
+  try {
+    var sr = require("../services/sensorRegistry");
+    var allSensors = sr.getAllSensors ? sr.getAllSensors() : [];
+    activeSensors = allSensors
+      .filter(function (s) { return s.last_reading_epoch != null && s.last_reading_epoch >= epochNumber - 10; })
+      .map(function (s) { return s.owner; });
+    activeSensors = Array.from(new Set(activeSensors));
+
+    var gwReg = require("../services/loraGatewayRegistry");
+    var allGateways = gwReg.getAllGateways ? gwReg.getAllGateways() : [];
+    activeGateways = allGateways
+      .filter(function (g) { return g.last_heartbeat_epoch != null && g.last_heartbeat_epoch >= epochNumber - 10; })
+      .map(function (g) { return g.owner; });
+    activeGateways = Array.from(new Set(activeGateways));
+  } catch (_) {}
+
   var rewards = [];
 
-  if (miners.length === 0 || totalWorkValue === 0) {
-    // ── Idle epoch: 98% unminted, 1% to verifiers, 1% to clocks ──
+  // ── Compute stake-weighted miner scores ───────────────────────────────
+  var weightedWork = {};
+  var totalWeightedWork = 0;
+  for (var miner of miners) {
+    var pool = stateStore.getStakePool(miner);
+    var staked = (pool && pool.total_staked) || 0;
+    var nodeInfo = null;
+    try {
+      nodeInfo = require("../chain/nodeRegistry").getNode(miner);
+      if (nodeInfo && nodeInfo.stake > staked) staked = nodeInfo.stake;
+    } catch (_) {}
+    var weight;
+    if (nodeInfo && nodeInfo.permissioned) {
+      weight = 1;
+    } else if (staked >= MIN_MINER_STAKE) {
+      weight = Math.min(Math.sqrt(staked / MIN_MINER_STAKE), 10);
+    } else if (epochNumber < BOOTSTRAP_EPOCHS) {
+      weight = 0.25;
+    } else {
+      weight = 0;
+    }
+    var ww = (effectiveWork[miner] || 0) * weight;
+    weightedWork[miner] = ww;
+    totalWeightedWork += ww;
+  }
+
+  // ── Compute work scores for all roles ─────────────────────────────────
+  var minerScore    = totalWeightedWork;
+  var clockScore    = activeClocks.length    * CLOCK_SCORE_PER_NODE;
+  var verifierScore = activeVerifiers.length * VERIFIER_SCORE_PER_NODE;
+  var storageScore  = activeStorageHosts.length * STORAGE_SCORE_PER_HOST;
+  var sensorScore   = activeSensors.length   * SENSOR_SCORE_PER_SENSOR
+                    + activeGateways.length  * GATEWAY_SCORE_PER_GW;
+  var totalScore    = minerScore + clockScore + verifierScore + storageScore + sensorScore;
+
+  if (totalScore === 0) {
+    // ── Truly idle: small infrastructure floor, rest unminted ──
     if (activeVerifiers.length > 0) {
       var vShare = roundAmount(blockReward * IDLE_VERIFIER_PCT / activeVerifiers.length);
       for (var v of activeVerifiers) {
@@ -181,63 +247,33 @@ function buildProposal(options) {
       }
     }
   } else {
-    // ── Active epoch: 85% miners (by work), 10% verifiers (split), 5% clocks (split) ──
-    var minerPool = roundAmount(blockReward * MINER_PCT);
-    var verifierPool = roundAmount(blockReward * VERIFIER_PCT);
-    var clockPool = roundAmount(blockReward * CLOCK_PCT);
+    // ── Dynamic split: each role earns proportional to its work score ──
+    var minerPool    = roundAmount(blockReward * (minerScore    / totalScore));
+    var verifierPool = roundAmount(blockReward * (verifierScore / totalScore));
+    var clockPool    = roundAmount(blockReward * (clockScore    / totalScore));
+    var storagePool  = roundAmount(blockReward * (storageScore  / totalScore));
+    var iotPool      = roundAmount(blockReward * (sensorScore   / totalScore));
 
-    // Miners — proportional to work × stake weight
-    // weight = sqrt(staked / MIN_MINER_STAKE), capped at 10
-    // During bootstrap (epoch < BOOTSTRAP_EPOCHS): unstaked miners earn at 25% rate
-    // After bootstrap: unstaked miners earn 0%
-    var weightedWork = {};
-    var totalWeightedWork = 0;
-    for (var miner of miners) {
-      var pool = stateStore.getStakePool(miner);
-      var staked = (pool && pool.total_staked) || 0;
-      var nodeInfo = null;
-      try {
-        nodeInfo = require("../chain/nodeRegistry").getNode(miner);
-        if (nodeInfo && nodeInfo.stake > staked) staked = nodeInfo.stake;
-      } catch (_) {}
-      var weight;
-      if (nodeInfo && nodeInfo.permissioned) {
-        weight = 1;
-      } else if (staked >= MIN_MINER_STAKE) {
-        weight = Math.min(Math.sqrt(staked / MIN_MINER_STAKE), 10);
-      } else if (epochNumber < BOOTSTRAP_EPOCHS) {
-        weight = 0.25; // bootstrap grace: 25% rate for unstaked miners
-      } else {
-        weight = 0; // post-bootstrap: no stake = no rewards
-      }
-      var ww = (effectiveWork[miner] || 0) * weight;
-      weightedWork[miner] = ww;
-      totalWeightedWork += ww;
-    }
-
-    if (totalWeightedWork > 0) {
+    // Miners — proportional to stake-weighted work
+    if (minerScore > 0) {
       for (var miner2 of miners) {
-        var share = roundAmount(minerPool * (weightedWork[miner2] / totalWeightedWork));
-        rewards.push({ to: miner2, amount: share, type: "mining" });
+        if (weightedWork[miner2] > 0) {
+          var share = roundAmount(minerPool * (weightedWork[miner2] / totalWeightedWork));
+          rewards.push({ to: miner2, amount: share, type: "mining" });
+        }
       }
     }
 
-    // Verifiers — split equally (or redistribute to miners if none)
-    if (activeVerifiers.length > 0) {
+    // Verifiers — equal split
+    if (verifierScore > 0) {
       var vEqual = roundAmount(verifierPool / activeVerifiers.length);
       for (var ver of activeVerifiers) {
         rewards.push({ to: ver, amount: vEqual, type: "verifier" });
       }
-    } else {
-      // No verifiers — redistribute to miners
-      var extraPerMiner = roundAmount(verifierPool / miners.length);
-      for (var r of rewards) {
-        if (r.type === "mining") r.amount = roundAmount(r.amount + extraPerMiner);
-      }
     }
 
-    // Clocks — split equally (or redistribute to miners if none)
-    if (activeClocks.length > 0) {
+    // Clocks — equal split
+    if (clockScore > 0) {
       var cEqual = roundAmount(clockPool / activeClocks.length);
       for (var clk of activeClocks) {
         var existing2 = rewards.find(function (r) { return r.to === clk; });
@@ -247,27 +283,10 @@ function buildProposal(options) {
           rewards.push({ to: clk, amount: cEqual, type: "clock" });
         }
       }
-    } else {
-      var extraClock = roundAmount(clockPool / miners.length);
-      for (var r2 of rewards) {
-        if (r2.type === "mining") r2.amount = roundAmount(r2.amount + extraClock);
-      }
     }
 
-    // Storage hosts — 12% pool, split equally among hosts that heartbeated
-    // within the last 10 epochs. Uses stateStore.getActiveStorageHosts which
-    // is populated by STORAGE_HEARTBEAT ledger entries (not nodeRegistry).
-    var storagePool = roundAmount(blockReward * STORAGE_PCT);
-    var activeStorageHosts = [];
-    try {
-      var storageHostRecords = stateStore.getActiveStorageHosts(epochNumber, 10);
-      activeStorageHosts = storageHostRecords
-        .map(function (h) { return h.host || h.account; })
-        .filter(isValidAccount);
-      activeStorageHosts = Array.from(new Set(activeStorageHosts));
-    } catch (_) {}
-
-    if (activeStorageHosts.length > 0) {
+    // Storage — equal split
+    if (storageScore > 0) {
       var sEqual = roundAmount(storagePool / activeStorageHosts.length);
       for (var sh of activeStorageHosts) {
         var existingS = rewards.find(function (r) { return r.to === sh; });
@@ -279,61 +298,34 @@ function buildProposal(options) {
       }
     }
 
-    // IoT pool — 10%, split 60% sensors (by readings) + 40% gateways (equal)
-    var iotPool = roundAmount(blockReward * IOT_PCT);
-    var sensorPool = roundAmount(iotPool * 0.6);
-    var gatewayPool = roundAmount(iotPool * 0.4);
-    var activeSensors = [];
-    var activeGateways = [];
-    try {
-      var sr = require("../services/sensorRegistry");
-      var allSensors = sr.getAllSensors ? sr.getAllSensors() : [];
-      activeSensors = allSensors
-        .filter(function (s) { return s.last_reading_epoch != null && s.last_reading_epoch >= epochNumber - 10; })
-        .map(function (s) { return s.owner; });
-      activeSensors = Array.from(new Set(activeSensors));
+    // IoT — split between sensors (by count) and gateways (by count)
+    if (sensorScore > 0) {
+      var sensorOnlyScore  = activeSensors.length  * SENSOR_SCORE_PER_SENSOR;
+      var gatewayOnlyScore = activeGateways.length * GATEWAY_SCORE_PER_GW;
+      var sensorSubPool  = roundAmount(iotPool * (sensorOnlyScore  / sensorScore));
+      var gatewaySubPool = roundAmount(iotPool * (gatewayOnlyScore / sensorScore));
 
-      var gwReg = require("../services/loraGatewayRegistry");
-      var allGateways = gwReg.getAllGateways ? gwReg.getAllGateways() : [];
-      activeGateways = allGateways
-        .filter(function (g) { return g.last_heartbeat_epoch != null && g.last_heartbeat_epoch >= epochNumber - 10; })
-        .map(function (g) { return g.owner; });
-      activeGateways = Array.from(new Set(activeGateways));
-    } catch (_) {}
-
-    // Sensor rewards — split among sensor owners
-    if (activeSensors.length > 0) {
-      var sensorEqual = roundAmount(sensorPool / activeSensors.length);
-      for (var so of activeSensors) {
-        var existingIot = rewards.find(function (r) { return r.to === so; });
-        if (existingIot) {
-          existingIot.amount = roundAmount(existingIot.amount + sensorEqual);
-        } else {
-          rewards.push({ to: so, amount: sensorEqual, type: "iot_sensor" });
+      if (activeSensors.length > 0) {
+        var sensorEqual = roundAmount(sensorSubPool / activeSensors.length);
+        for (var so of activeSensors) {
+          var existingIot = rewards.find(function (r) { return r.to === so; });
+          if (existingIot) {
+            existingIot.amount = roundAmount(existingIot.amount + sensorEqual);
+          } else {
+            rewards.push({ to: so, amount: sensorEqual, type: "iot_sensor" });
+          }
         }
       }
-    }
-
-    // Gateway rewards — split among gateway owners
-    if (activeGateways.length > 0) {
-      var gwEqual = roundAmount(gatewayPool / activeGateways.length);
-      for (var gw of activeGateways) {
-        var existingGw = rewards.find(function (r) { return r.to === gw; });
-        if (existingGw) {
-          existingGw.amount = roundAmount(existingGw.amount + gwEqual);
-        } else {
-          rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
+      if (activeGateways.length > 0) {
+        var gwEqual = roundAmount(gatewaySubPool / activeGateways.length);
+        for (var gw of activeGateways) {
+          var existingGw = rewards.find(function (r) { return r.to === gw; });
+          if (existingGw) {
+            existingGw.amount = roundAmount(existingGw.amount + gwEqual);
+          } else {
+            rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
+          }
         }
-      }
-    }
-
-    // Service pool — 8%, reserved for future service hosting rewards
-    // Currently redistributed to miners if no services active
-    var servicePool = roundAmount(blockReward * SERVICE_PCT);
-    if (miners.length > 0) {
-      var serviceExtra = roundAmount(servicePool / miners.length);
-      for (var r3 of rewards) {
-        if (r3.type === "mining") r3.amount = roundAmount(r3.amount + serviceExtra);
       }
     }
   }
@@ -356,7 +348,19 @@ function buildProposal(options) {
     miners_active: miners.length,
     verifiers_active: activeVerifiers.length,
     clocks_active: activeClocks.length,
+    storage_active: activeStorageHosts.length,
+    sensors_active: activeSensors.length,
+    gateways_active: activeGateways.length,
     total_work: totalWorkValue,
+    total_score: totalScore,
+    // Dynamic pool percentages (what actually got paid, for display)
+    pool_pcts: totalScore > 0 ? {
+      mining:      minerScore    / totalScore,
+      verifier:    verifierScore / totalScore,
+      clock:       clockScore    / totalScore,
+      storage:     storageScore  / totalScore,
+      iot:         sensorScore   / totalScore,
+    } : null,
     consensus_hash: consensusHash,
     timestamp: Date.now(),
   };
@@ -364,9 +368,11 @@ function buildProposal(options) {
 
 module.exports = {
   buildProposal: buildProposal,
-  MINER_PCT: MINER_PCT,
-  VERIFIER_PCT: VERIFIER_PCT,
-  CLOCK_PCT: CLOCK_PCT,
+  CLOCK_SCORE_PER_NODE: CLOCK_SCORE_PER_NODE,
+  VERIFIER_SCORE_PER_NODE: VERIFIER_SCORE_PER_NODE,
+  STORAGE_SCORE_PER_HOST: STORAGE_SCORE_PER_HOST,
+  SENSOR_SCORE_PER_SENSOR: SENSOR_SCORE_PER_SENSOR,
+  GATEWAY_SCORE_PER_GW: GATEWAY_SCORE_PER_GW,
   IDLE_VERIFIER_PCT: IDLE_VERIFIER_PCT,
   IDLE_CLOCK_PCT: IDLE_CLOCK_PCT,
 };
