@@ -889,17 +889,27 @@ router.get('/epoch-earners', async (req, res) => {
       ? earnerParam.split(',').map(s => s.trim()).filter(Boolean)
       : [];
 
+    // Use secretStore — works even when MongoDB is disabled (default)
+    await ensureSecretStore();
+
     if (earnerList.length === 0) {
-      // No earner list — fall back to all linked users so the caller can decide
-      const users = await User.find({ telegramId: { $ne: null } }).select('telegramId username').lean();
+      // No earner list — return all users with a linked telegram_id
+      const users = secretStore.getAllUsers()
+        .map(u => {
+          const full = secretStore.getUser(u.username);
+          return full && full.telegram_id ? { username: u.username, telegramId: full.telegram_id } : null;
+        })
+        .filter(Boolean);
       return res.json({ users, filtered: false });
     }
 
-    // Return only linked users whose username is in the earner list
-    const users = await User.find({
-      telegramId: { $ne: null },
-      username: { $in: earnerList },
-    }).select('telegramId username').lean();
+    // Return only earners who have a linked telegram_id
+    const users = earnerList
+      .map(username => {
+        const u = secretStore.getUser(username);
+        return u && u.telegram_id ? { username, telegramId: u.telegram_id } : null;
+      })
+      .filter(Boolean);
 
     res.json({ users, filtered: true, earners: earnerList });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -96,7 +96,7 @@ services:
     volumes:
       - btcpc-market-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7042/api/market/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:7042/health"]
       interval: 15s
       timeout: 5s
       retries: 5
