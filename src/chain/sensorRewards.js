@@ -16,20 +16,26 @@
  *
  *   3. Purchase triggers reward distribution:
  *      - Look up original reading's sensor_id → find owner account
- *      - Split payment: SENSOR_CUT to sensor owner, GATEWAY_CUT to gateway (if any),
- *        RECYCLE_CUT to btcpc_recycle as protocol fee
+ *      - Split payment: SENSOR_CUT * witnessFactor to sensor owner,
+ *        GATEWAY_CUT to gateway (if any), remainder to btcpc_recycle
  *      - Emit SENSOR_REWARD ledger entries for this purchase epoch
  *
  * The original reading epoch is irrelevant to reward timing.
  * A reading from epoch 100 can be purchased and rewarded at epoch 50,000.
  *
+ * Witness factor (from dynamicSensorRewards):
+ *   1 witness  → 10% of SENSOR_CUT  (unwitnessed — fraud risk, most to recycle)
+ *   2 witnesses → 55% of SENSOR_CUT
+ *   3+ witnesses → 100% of SENSOR_CUT (full reward)
+ *
  * Reward splits (configurable):
- *   Sensor owner:  80%
- *   Gateway:       10%  (if routed through a gateway node)
- *   Protocol fee:  10%  → btcpc_recycle (never burned)
+ *   Sensor owner:  SENSOR_CUT * witnessFactor
+ *   Gateway:       GATEWAY_CUT  (if routed through a gateway node)
+ *   Protocol fee:  remainder    → btcpc_recycle (never burned)
  */
 
 const EventEmitter = require("events");
+const { getWitnessFactor } = require("./dynamicSensorRewards");
 
 const SENSOR_CUT    = parseFloat(process.env.BTCPC_SENSOR_CUT)    || 0.80;
 const GATEWAY_CUT   = parseFloat(process.env.BTCPC_GATEWAY_CUT)   || 0.10;
@@ -73,6 +79,8 @@ function indexReading(entry) {
     reading_epoch: entry.epoch || 0,
     data_hash: dataHash,
     metadata: sensorData.metadata || {},
+    witness_count: sensorData.witness_count || 1,
+    sig_verified: sensorData.sig_verified || false,
     indexed_at: Date.now(),
   });
 }
@@ -82,6 +90,16 @@ function indexReading(entry) {
  */
 function indexEntries(entries) {
   for (const e of (entries || [])) indexReading(e);
+}
+
+/**
+ * Update witness_count for an indexed reading when a new gateway witnesses it.
+ * Called from sensorRegistry when primary.witness_count changes.
+ * No-op if dataHash not yet indexed (will be set correctly when indexed).
+ */
+function updateWitnessCount(dataHash, witnessCount) {
+  const record = sensorIndex.get(dataHash);
+  if (record) record.witness_count = witnessCount;
 }
 
 // ── Purchase processing ───────────────────────────────────────────────────────
@@ -126,8 +144,13 @@ function processPurchase(purchase) {
     };
   }
 
-  // Compute reward split
-  const sensorReward  = round(payment_btcpc * SENSOR_CUT);
+  // Witness factor: purchase caller may assert the current witness count;
+  // falls back to what was recorded at index time (chain entry or live update).
+  const witnessCount = purchase.witness_count || record.witness_count || 1;
+  const witnessFactor = getWitnessFactor(witnessCount);
+
+  // Compute reward split — sensor cut is scaled by witness factor to deter fraud
+  const sensorReward  = round(payment_btcpc * SENSOR_CUT * witnessFactor);
   const gatewayReward = gateway ? round(payment_btcpc * GATEWAY_CUT) : 0;
   const recycleAmount = round(payment_btcpc - sensorReward - gatewayReward);
 
@@ -180,6 +203,8 @@ function processPurchase(purchase) {
     payment: payment_btcpc,
     original_reading_epoch: record.reading_epoch,
     epochs_between: purchase_epoch - record.reading_epoch,
+    witness_count: witnessCount,
+    witness_factor: witnessFactor,
   });
 
   console.log("[BTCPC SensorRewards] Purchase processed:" +
@@ -188,6 +213,7 @@ function processPurchase(purchase) {
     " | owner=" + record.owner +
     " | payment=" + payment_btcpc + " BTCPC" +
     " | sensor_reward=" + sensorReward +
+    " | witnesses=" + witnessCount + " (factor=" + witnessFactor + ")" +
     (gateway ? " | gateway=" + gateway + ":" + gatewayReward : "") +
     " | reading was epoch " + record.reading_epoch + " (now epoch " + purchase_epoch + ")" +
     " | " + (purchase_epoch - record.reading_epoch) + " epochs ago");
@@ -202,6 +228,8 @@ function processPurchase(purchase) {
     rewards,
     original_reading_epoch: record.reading_epoch,
     purchase_epoch,
+    witness_count: witnessCount,
+    witness_factor: witnessFactor,
   });
 
   return { rewards, reason: "ok" };
@@ -306,6 +334,7 @@ function on(event, fn) { emitter.on(event, fn); }
 module.exports = {
   indexReading,
   indexEntries,
+  updateWitnessCount,
   processPurchase,
   listAvailableReadings,
   getReading,
@@ -315,4 +344,5 @@ module.exports = {
   SENSOR_CUT,
   GATEWAY_CUT,
   RECYCLE_CUT,
+  getWitnessFactor,
 };

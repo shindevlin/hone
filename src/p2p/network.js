@@ -495,20 +495,19 @@ function heartbeat() {
     }
 
     if (peer.status === "connected" && peer.ws && peer.ws.readyState === WebSocket.OPEN) {
-      if (peer.direction === "outbound") {
-        // Outbound peers: ping/pong keep-alive. If isAlive is still false from last
-        // heartbeat the peer is dead — close so scheduleReconnect fires.
-        if (!peer.isAlive) {
-          console.warn("[BTCPC P2P] Peer " + addr + " missed pong — closing");
-          peer.ws.terminate();
-          continue;
-        }
-        peer.isAlive = false;
-        try { peer.ws.ping(); } catch (_) {}
+      // Ping/pong keep-alive for all peers (inbound and outbound).
+      // If isAlive is still false from last heartbeat the peer is a zombie — close it.
+      // Outbound close fires scheduleReconnect; inbound close drops the slot.
+      if (!peer.isAlive) {
+        console.warn("[BTCPC P2P] Peer " + addr + " missed pong — closing");
+        peer.ws.terminate();
+        continue;
       }
+      peer.isAlive = false;
+      try { peer.ws.ping(); } catch (_) {}
     }
 
-    // Prune inbound peers that haven't sent anything in 60s
+    // Prune inbound peers that are disconnected and stale
     if (peer.direction === "inbound" && peer.status === "disconnected") {
       if (now - peer.lastSeen > 60000) {
         peers.delete(addr);
