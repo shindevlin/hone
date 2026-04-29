@@ -13,10 +13,10 @@ SERVICE="btcpc-node"
 cd "$INSTALL_DIR"
 
 # ── Check for upstream changes ────────────────────────────────────────────────
-git fetch origin main --quiet
+git fetch origin stable --quiet
 
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+REMOTE=$(git rev-parse origin/stable)
 
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo "btcpc-update: already up to date ($LOCAL)"
@@ -24,7 +24,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then
 fi
 
 echo "btcpc-update: new commits — updating $LOCAL -> $REMOTE"
-git pull --ff-only origin main
+git pull --ff-only origin stable
 
 # ── Rebuild ───────────────────────────────────────────────────────────────────
 echo "btcpc-update: building"

@@ -53,10 +53,13 @@ cp "$INSTALL_DIR/scripts/btcpc-update.service" /etc/systemd/system/
 cp "$INSTALL_DIR/scripts/btcpc-update.timer"   /etc/systemd/system/
 systemctl daemon-reload
 
+# ── Enable auto-update timer ──────────────────────────────────────────────────
+systemctl enable --now btcpc-update.timer
+echo "==> Auto-updates enabled (tracking stable branch, checks every 10 min)"
+
 echo ""
 echo "==> Done. Next steps:"
 echo "    1. Edit /etc/systemd/system/btcpc-node.service — fill in env vars"
 echo "       (BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_GENESIS_TIMESTAMP, etc.)"
 echo "    2. systemctl enable --now btcpc-node"
-echo "    3. To enable auto-updates: systemctl enable --now btcpc-update.timer"
 echo ""
