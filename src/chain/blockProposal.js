@@ -178,6 +178,7 @@ function buildProposal(options) {
 
   // ── Service hosts (BTCPC hosted services) ─────────────────────────────
   var activeServiceHosts = [];
+  var serviceWork = {};
   try {
     var svcReg = require("../services/serviceRegistry");
     var allServices = svcReg.getAllServices ? svcReg.getAllServices() : [];
@@ -193,20 +194,29 @@ function buildProposal(options) {
       }
     }
     activeServiceHosts = Array.from(svcHostSet);
+    if (svcReg.getServiceWorkByEpoch) {
+      serviceWork = svcReg.getServiceWorkByEpoch(epochNumber);
+    }
   } catch (_) {}
 
   // ── Gather infrastructure participants ────────────────────────────────
   var activeStorageHosts = [];
+  var storageWork = {};
   try {
     var storageHostRecords = stateStore.getActiveStorageHosts(epochNumber, 10);
     activeStorageHosts = storageHostRecords
       .map(function (h) { return h.host || h.account; })
       .filter(isValidAccount);
     activeStorageHosts = Array.from(new Set(activeStorageHosts));
+    if (stateStore.getStorageWorkByEpoch) {
+      storageWork = stateStore.getStorageWorkByEpoch(epochNumber);
+    }
   } catch (_) {}
 
   var activeSensors = [];
+  var sensorWork = {};
   var activeGateways = [];
+  var gatewayWork = {};
   try {
     var sr = require("../services/sensorRegistry");
     var allSensors = sr.getAllSensors ? sr.getAllSensors() : [];
@@ -214,6 +224,9 @@ function buildProposal(options) {
       .filter(function (s) { return s.last_reading_epoch != null && s.last_reading_epoch >= epochNumber - 10; })
       .map(function (s) { return s.owner; });
     activeSensors = Array.from(new Set(activeSensors));
+    if (sr.getSensorWorkByEpoch) {
+      sensorWork = sr.getSensorWorkByEpoch(epochNumber);
+    }
 
     var gwReg = require("../services/loraGatewayRegistry");
     var allGateways = gwReg.getAllGateways ? gwReg.getAllGateways() : [];
@@ -221,9 +234,39 @@ function buildProposal(options) {
       .filter(function (g) { return g.last_heartbeat_epoch != null && g.last_heartbeat_epoch >= epochNumber - 10; })
       .map(function (g) { return g.owner; });
     activeGateways = Array.from(new Set(activeGateways));
+    if (gwReg.getGatewayWorkByEpoch) {
+      gatewayWork = gwReg.getGatewayWorkByEpoch(epochNumber);
+    }
+  } catch (_) {}
+
+  // ── Gather verifier work map ──────────────────────────────────────────
+  var verifierWork = {};
+  try {
+    if (typeof protocol.getVerifierWorkByEpoch === "function") {
+      verifierWork = protocol.getVerifierWorkByEpoch(epochNumber);
+    }
   } catch (_) {}
 
   var rewards = [];
+
+  // Per-unit work score constants (same calibration as rewardDistribution.js)
+  var VERIFIER_SCORE_PER_CHECK  = 300;
+  var STORAGE_SCORE_PER_MB      = 2;
+  var SENSOR_SCORE_PER_READING  = 50;
+  var GATEWAY_SCORE_PER_PACKET  = 15;
+  var SERVICE_SCORE_PER_REQUEST = 25;
+
+  // Helper: real work-based score, falls back to count-based proxy with scarcity
+  function _roleScore(participants, workMap, perUnit, perNode, unitScale) {
+    if (!participants || participants.length === 0) return 0;
+    unitScale = unitScale || 1;
+    if (workMap) {
+      var tw = 0;
+      for (var _p of participants) tw += (workMap[_p] || 0);
+      if (tw > 0) return (tw / unitScale) * perUnit;
+    }
+    return scarcityScore(participants.length, perNode);
+  }
 
   // ── Compute stake-weighted miner scores ───────────────────────────────
   var weightedWork = {};
@@ -264,12 +307,13 @@ function buildProposal(options) {
 
   // Compute scores now (needed for emission gate before testnet split)
   var minerScore    = totalWeightedWork;
-  var clockScore    = scarcityScore(activeClocks.length,    CLOCK_SCORE_PER_NODE);
-  var verifierScore = scarcityScore(activeVerifiers.length, VERIFIER_SCORE_PER_NODE);
-  var storageScore  = scarcityScore(activeStorageHosts.length, STORAGE_SCORE_PER_HOST);
-  var sensorScore   = activeSensors.length   * SENSOR_SCORE_PER_SENSOR
-                    + activeGateways.length  * GATEWAY_SCORE_PER_GW;
-  var serviceScore  = scarcityScore(activeServiceHosts.length, SERVICE_SCORE_PER_HOST);
+  var clockScore    = scarcityScore(activeClocks.length, CLOCK_SCORE_PER_NODE);
+  var verifierScore = _roleScore(activeVerifiers, verifierWork, VERIFIER_SCORE_PER_CHECK, VERIFIER_SCORE_PER_NODE, 1);
+  var storageScore  = _roleScore(activeStorageHosts, storageWork, STORAGE_SCORE_PER_MB, STORAGE_SCORE_PER_HOST, 1048576);
+  var sensorRawScore  = _roleScore(activeSensors,  sensorWork,  SENSOR_SCORE_PER_READING, SENSOR_SCORE_PER_SENSOR, 1);
+  var gatewayRawScore = _roleScore(activeGateways, gatewayWork, GATEWAY_SCORE_PER_PACKET, GATEWAY_SCORE_PER_GW,    1);
+  var sensorScore   = sensorRawScore + gatewayRawScore;
+  var serviceScore  = _roleScore(activeServiceHosts, serviceWork, SERVICE_SCORE_PER_REQUEST, SERVICE_SCORE_PER_HOST, 1);
   var totalScore    = minerScore + clockScore + verifierScore
                     + storageScore + sensorScore + serviceScore;
 
@@ -315,67 +359,59 @@ function buildProposal(options) {
       }
     }
 
-    // Verifiers — equal split
+    // Helper: split a pool among participants proportional to work map, or equal.
+    function _splitPool(participants, workMap, pool, type) {
+      if (!participants || participants.length === 0) return;
+      var totalWork = 0;
+      if (workMap) {
+        for (var _pp of participants) totalWork += (workMap[_pp] || 0);
+      }
+      for (var _rp of participants) {
+        var amt;
+        if (totalWork > 0) {
+          var _w = workMap[_rp] || 0;
+          if (_w === 0) continue;
+          amt = roundAmount(pool * (_w / totalWork));
+        } else {
+          amt = roundAmount(pool / participants.length);
+        }
+        var _ex = rewards.find(function (r) { return r.to === _rp; });
+        if (_ex) _ex.amount = roundAmount(_ex.amount + amt);
+        else rewards.push({ to: _rp, amount: amt, type: type });
+      }
+    }
+
+    // Verifiers — proportional to verifications performed (equal fallback)
     if (verifierScore > 0) {
-      var vEqual = roundAmount(verifierPool / activeVerifiers.length);
-      for (var ver of activeVerifiers) {
-        rewards.push({ to: ver, amount: vEqual, type: "verifier" });
-      }
+      _splitPool(activeVerifiers, verifierWork, verifierPool, "verifier");
     }
 
-    // Clocks — equal split
+    // Clocks — equal split (uptime = work)
     if (clockScore > 0) {
-      var cEqual = roundAmount(clockPool / activeClocks.length);
-      for (var clk of activeClocks) {
-        var existingClk = rewards.find(function (r) { return r.to === clk; });
-        if (existingClk) existingClk.amount = roundAmount(existingClk.amount + cEqual);
-        else rewards.push({ to: clk, amount: cEqual, type: "clock" });
-      }
+      _splitPool(activeClocks, null, clockPool, "clock");
     }
 
-    // Storage — equal split
+    // Storage — proportional to bytes delivered (equal fallback)
     if (storageScore > 0) {
-      var sEqual = roundAmount(storagePool / activeStorageHosts.length);
-      for (var sh of activeStorageHosts) {
-        var existingS = rewards.find(function (r) { return r.to === sh; });
-        if (existingS) existingS.amount = roundAmount(existingS.amount + sEqual);
-        else rewards.push({ to: sh, amount: sEqual, type: "storage" });
-      }
+      _splitPool(activeStorageHosts, storageWork, storagePool, "storage");
     }
 
-    // IoT — proportional by sub-role score
+    // IoT — sub-split by sensor vs gateway score, then proportional within each
     if (sensorScore > 0) {
-      var sensorOnlyScore  = activeSensors.length  * SENSOR_SCORE_PER_SENSOR;
-      var gatewayOnlyScore = activeGateways.length * GATEWAY_SCORE_PER_GW;
-      var sensorSubPool  = roundAmount(iotPool * (sensorOnlyScore  / sensorScore));
-      var gatewaySubPool = roundAmount(iotPool * (gatewayOnlyScore / sensorScore));
+      var sensorSubPool  = roundAmount(iotPool * (sensorRawScore  / sensorScore));
+      var gatewaySubPool = roundAmount(iotPool * (gatewayRawScore / sensorScore));
 
-      if (activeSensors.length > 0) {
-        var snEqual = roundAmount(sensorSubPool / activeSensors.length);
-        for (var sn of activeSensors) {
-          var existingSn = rewards.find(function (r) { return r.to === sn; });
-          if (existingSn) existingSn.amount = roundAmount(existingSn.amount + snEqual);
-          else rewards.push({ to: sn, amount: snEqual, type: "iot_sensor" });
-        }
+      if (sensorRawScore > 0 && activeSensors.length > 0) {
+        _splitPool(activeSensors, sensorWork, sensorSubPool, "iot_sensor");
       }
-      if (activeGateways.length > 0) {
-        var gwEqual = roundAmount(gatewaySubPool / activeGateways.length);
-        for (var gw of activeGateways) {
-          var existingGw = rewards.find(function (r) { return r.to === gw; });
-          if (existingGw) existingGw.amount = roundAmount(existingGw.amount + gwEqual);
-          else rewards.push({ to: gw, amount: gwEqual, type: "iot_gateway" });
-        }
+      if (gatewayRawScore > 0 && activeGateways.length > 0) {
+        _splitPool(activeGateways, gatewayWork, gatewaySubPool, "iot_gateway");
       }
     }
 
-    // Services — equal split
+    // Services — proportional to requests served (equal fallback)
     if (serviceScore > 0) {
-      var svEqual = roundAmount(servicePool / activeServiceHosts.length);
-      for (var sv of activeServiceHosts) {
-        var existingSv = rewards.find(function (r) { return r.to === sv; });
-        if (existingSv) existingSv.amount = roundAmount(existingSv.amount + svEqual);
-        else rewards.push({ to: sv, amount: svEqual, type: "service" });
-      }
+      _splitPool(activeServiceHosts, serviceWork, servicePool, "service");
     }
   }
 
@@ -425,6 +461,4 @@ module.exports = {
   STORAGE_SCORE_PER_HOST: STORAGE_SCORE_PER_HOST,
   SENSOR_SCORE_PER_SENSOR: SENSOR_SCORE_PER_SENSOR,
   GATEWAY_SCORE_PER_GW: GATEWAY_SCORE_PER_GW,
-  IDLE_VERIFIER_PCT: IDLE_VERIFIER_PCT,
-  IDLE_CLOCK_PCT: IDLE_CLOCK_PCT,
 };

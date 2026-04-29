@@ -149,6 +149,11 @@ var shardPtrs = new Map();
 // heartbeats to challenge).
 var storageHeartbeats = new Map();
 
+// Storage delivery tracking (v2.16+): epoch → Map<host, bytes_delivered>
+// Set by blob-serving routes; used to score storage hosts proportional to delivery.
+var storageDeliveryByEpoch = new Map();
+var _currentStorageDeliveryEpoch = -1;
+
 // Keep at most this many recent heartbeats per host to bound memory.
 // 1000 epochs ≈ 8.3 hours at 30 sec epochs — enough history for uptime
 // calculation windows without unbounded growth.
@@ -437,8 +442,8 @@ function _debit(username, token, amount) {
   var currentUnits = balances.get(key) || 0;
   var debitUnits = toUnits(parsed);
   if (!Number.isFinite(debitUnits) || debitUnits <= 0) return false;
-  // System/issuance accounts may go negative; all others are floor-checked.
-  if (!_isSystemAccount(username) && currentUnits < debitUnits) {
+  // System accounts may go negative; regular accounts cannot.
+  if (currentUnits < debitUnits && !_isSystemAccount(username)) {
     return false; // insufficient balance — reject silently (Vuln 6 fix)
   }
   balances.set(key, currentUnits - debitUnits);
@@ -505,6 +510,26 @@ function _isSystemAccount(username) {
          username.startsWith("escrow:");
 }
 
+function _assertNonNegativeAmount(value, label) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error("Corrupt negative value in " + label + ": " + value);
+  }
+}
+
+function assertBalanceIntegrity(context) {
+  var label = context || "stateStore";
+  balances.forEach(function (amount, key) {
+    _assertNonNegativeAmount(amount, label + " balance " + key);
+  });
+  delegatedReceived.forEach(function (amount, key) {
+    _assertNonNegativeAmount(amount, label + " delegated balance " + key);
+  });
+  stakes.forEach(function (pool, username) {
+    if (!pool) return;
+    _assertNonNegativeAmount(pool.total_staked || 0, label + " stake pool " + username);
+  });
+}
+
 /**
  * Hard guard: reject any attempt to set public_keys on btcpc_recycle.
  * This is a keyless protocol contract — no owner, no keys, ever.
@@ -532,8 +557,8 @@ function _entryKey(entry) {
   } else if (entry.store_data && entry.store_data.action) {
     domainId = "s:" + entry.store_data.action;
   } else if (entry.type === "STORAGE_HEARTBEAT") {
-    // Heartbeats are per-host-per-epoch; dedupe on that key.
-    domainId = "sh:" + (entry.from || "") + ":" + (entry.epoch || 0);
+    // Dedupe per host+epoch only — exclude timestamp so same-epoch duplicates collapse.
+    return ["STORAGE_HEARTBEAT", entry.from || "", entry.epoch || 0].join("|");
   } else if (entry.type === "WALLET_CREATE_CHILD") {
     var wccParentId = (entry.wallet_data && entry.wallet_data.parent) || entry.from || "";
     var wccChildId = (entry.wallet_data && entry.wallet_data.child_name) || "";
@@ -1124,6 +1149,27 @@ function applyEntry(entry) {
         }
         acct.last_registered_epoch = entry.epoch;
         accounts.set(from, acct);
+      }
+      break;
+
+    case "NODE_ANNOUNCE":
+      if (from && accounts.has(from) && entry.account_data) {
+        var naAcct = accounts.get(from);
+        if (entry.account_data.p2p_address) {
+          naAcct.p2p_address = entry.account_data.p2p_address;
+        }
+        if (Array.isArray(entry.account_data.node_types) && entry.account_data.node_types.length > 0) {
+          var naUnique = {};
+          for (var nai = 0; nai < entry.account_data.node_types.length; nai++) {
+            var naT = String(entry.account_data.node_types[nai] || "").trim().toLowerCase();
+            if (naT) naUnique[naT] = true;
+          }
+          naAcct.node_types = Object.keys(naUnique);
+        }
+        if (entry.account_data.permissioned !== undefined) {
+          naAcct.permissioned = !!entry.account_data.permissioned;
+        }
+        accounts.set(from, naAcct);
       }
       break;
 
@@ -3354,6 +3400,7 @@ function applyEntry(entry) {
 function applyEntries(entries) {
   if (!Array.isArray(entries)) return;
   for (var i = 0; i < entries.length; i++) applyEntry(entries[i]);
+  assertBalanceIntegrity("applyEntries");
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -4028,6 +4075,41 @@ function getStorageHostsForEpoch(epoch) {
     }
   }
   return Array.from(seen);
+}
+
+/**
+ * Record bytes delivered by a storage host for a given epoch.
+ * Called by blob-serving routes after successful file delivery.
+ */
+function recordStorageDelivery(host, bytes, epoch) {
+  if (!host || !epoch || epoch < 0 || !(bytes > 0)) return;
+  var ep = Math.floor(epoch);
+  if (!storageDeliveryByEpoch.has(ep)) storageDeliveryByEpoch.set(ep, new Map());
+  var dmap = storageDeliveryByEpoch.get(ep);
+  dmap.set(host, (dmap.get(host) || 0) + bytes);
+  if (ep > _currentStorageDeliveryEpoch) {
+    _currentStorageDeliveryEpoch = ep;
+    for (var dkey of storageDeliveryByEpoch.keys()) {
+      if (dkey < ep - 20) storageDeliveryByEpoch.delete(dkey);
+    }
+  }
+}
+
+/**
+ * Get bytes delivered per host for a 3-epoch window ending at epochNumber.
+ * Returns { [host]: bytes } — delivery signal for storage reward distribution.
+ */
+function getStorageWorkByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var i = 0; i <= WINDOW; i++) {
+    var dmap = storageDeliveryByEpoch.get(epochNumber - i);
+    if (!dmap) continue;
+    for (var entry of dmap) {
+      result[entry[0]] = (result[entry[0]] || 0) + entry[1];
+    }
+  }
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -5030,9 +5112,11 @@ function hydrateFromFinality(snapshot) {
       var s = snapshot.accounts[u];
       _ensureAccount(u);
       if (typeof s.balance === "number") {
+        _assertNonNegativeAmount(s.balance, "finality snapshot account " + u + " balance");
         balances.set(_balanceKey(u, "BTCPC"), toUnits(s.balance));
       }
       if (typeof s.staked === "number" && s.staked > 0) {
+        _assertNonNegativeAmount(s.staked, "finality snapshot account " + u + " staked");
         stakes.set(u, { total_staked: s.staked, purpose: null, first_stake_epoch: 0 });
       }
     }
@@ -5099,6 +5183,7 @@ function hydrateFromFinality(snapshot) {
     if (ext.extra_balances) {
       // Non-BTCPC token balances: { "user|TOKEN": amount }
       Object.keys(ext.extra_balances).forEach(function (k) {
+        _assertNonNegativeAmount(ext.extra_balances[k], "finality snapshot extra balance " + k);
         balances.set(k, ext.extra_balances[k]);
       });
     }
@@ -5107,6 +5192,7 @@ function hydrateFromFinality(snapshot) {
   if (typeof snapshot.finality_epoch === "number") {
     setChainHeight(snapshot.finality_epoch);
   }
+  assertBalanceIntegrity("hydrateFromFinality");
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -5131,6 +5217,7 @@ function resetAll() {
   reputationVotes.clear();
   blobs.clear();
   storageHeartbeats.clear();
+  storageDeliveryByEpoch.clear();
   blobChallenges.clear();
   blobChallengeStats.clear();
   miningProofsByEpoch.clear();
@@ -5306,6 +5393,8 @@ module.exports = {
   getStorageUptimeFactor: getStorageUptimeFactor,
   getActiveStorageHosts: getActiveStorageHosts,
   getStorageHostsForEpoch: getStorageHostsForEpoch,
+  recordStorageDelivery: recordStorageDelivery,
+  getStorageWorkByEpoch: getStorageWorkByEpoch,
   // BTCPC-FS challenge-response (v2.11.2+, pay-for-delivery not slashing)
   getBlobChallenge: getBlobChallenge,
   getBlobChallengeStats: getBlobChallengeStats,
@@ -5352,6 +5441,7 @@ module.exports = {
   toUnits: toUnits,
   fromUnits: fromUnits,
   getBalanceUnits: getBalanceUnits,
+  assertBalanceIntegrity: assertBalanceIntegrity,
   // Introspection
   snapshot: snapshot,
   stats: stats,

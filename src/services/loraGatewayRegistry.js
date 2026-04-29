@@ -30,6 +30,10 @@ var gateways = new Map();
 // gateway_id → stats accumulator
 var gatewayStats = new Map();
 
+// owner → packets relayed per epoch: Map<epoch, Map<owner, count>>
+var packetsByEpoch = new Map();
+var _currentPacketEpoch = -1;
+
 // Number of epochs of silence before a gateway transitions to "idle"
 var IDLE_HEARTBEAT_THRESHOLD = 100;
 
@@ -211,6 +215,20 @@ function heartbeat(gatewayId, stats, epoch) {
     }
   }
 
+  // Record packets per owner per epoch for reward distribution
+  if (packetsThisEpoch > 0 && ep > 0) {
+    var owner = parseGatewayId(gatewayId).owner;
+    if (!packetsByEpoch.has(ep)) packetsByEpoch.set(ep, new Map());
+    var pmap = packetsByEpoch.get(ep);
+    pmap.set(owner, (pmap.get(owner) || 0) + packetsThisEpoch);
+    if (ep > _currentPacketEpoch) {
+      _currentPacketEpoch = ep;
+      for (var pkey of packetsByEpoch.keys()) {
+        if (pkey < ep - 20) packetsByEpoch.delete(pkey);
+      }
+    }
+  }
+
   return record;
 }
 
@@ -313,9 +331,27 @@ function verifyGatewaySignature(gatewayId, payload, signature) {
   }
 }
 
+/**
+ * Get packets relayed per gateway owner for an epoch window.
+ * Returns { [owner]: packet_count } — the actual work signal for reward distribution.
+ */
+function getGatewayWorkByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var i = 0; i <= WINDOW; i++) {
+    var pmap = packetsByEpoch.get(epochNumber - i);
+    if (!pmap) continue;
+    for (var entry of pmap) {
+      result[entry[0]] = (result[entry[0]] || 0) + entry[1];
+    }
+  }
+  return result;
+}
+
 function resetForTests() {
   gateways.clear();
   gatewayStats.clear();
+  packetsByEpoch.clear();
 }
 
 module.exports = {
@@ -328,6 +364,7 @@ module.exports = {
   getAllGateways: getAllGateways,
   getGatewaysInRegion: getGatewaysInRegion,
   getGatewayStats: getGatewayStats,
+  getGatewayWorkByEpoch: getGatewayWorkByEpoch,
   // Security
   verifyGatewaySignature: verifyGatewaySignature,
   // Helpers

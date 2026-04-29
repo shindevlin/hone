@@ -742,6 +742,31 @@ function getSensorStats(sensorId, currentEpoch) {
   };
 }
 
+/**
+ * Get reading counts per sensor owner for an epoch window.
+ * Returns { [owner]: reading_count } — the actual work signal for reward distribution.
+ */
+function getSensorWorkByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var entry of sensors) {
+    var sensorId = entry[0];
+    var record = entry[1];
+    var owner = record.owner;
+    if (!owner) continue;
+    var count = 0;
+    for (var i = 0; i <= WINDOW; i++) {
+      var key = sensorId + "|" + (epochNumber - i);
+      var readings = readingsByEpoch.get(key);
+      if (readings) count += readings.length;
+    }
+    if (count > 0) {
+      result[owner] = (result[owner] || 0) + count;
+    }
+  }
+  return result;
+}
+
 function resetForTests() {
   sensors.clear();
   readingsByEpoch.clear();
@@ -767,6 +792,7 @@ module.exports = {
   getReadingsForEpoch: getReadingsForEpoch,
   getFinalizedReading: getFinalizedReading,
   getSensorStats: getSensorStats,
+  getSensorWorkByEpoch: getSensorWorkByEpoch,
   // Helpers
   parseSensorId: parseSensorId,
   _checkIdleTransition: _checkIdleTransition,

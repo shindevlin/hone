@@ -1473,6 +1473,8 @@ function handleBlockProposal(peer, msg, ctx) {
 
 // Track which accounts actually verified work: Map<epochNumber, Set<username>>
 var verifiersByEpoch = new Map();
+// Track how many verifications each account did: Map<epochNumber, Map<account, count>>
+var verifierWorkByEpoch = new Map();
 var _currentVerifierEpoch = -1;
 
 // Track which miners had their work verified: Map<epochNumber, Set<minerAccount>>
@@ -1495,13 +1497,39 @@ function recordVerifier(account, epochNumber) {
   }
   verifiersByEpoch.get(epochNumber).add(account);
 
-  // Prune old epochs (keep last 10)
+  // Track count of verifications per account per epoch
+  if (!verifierWorkByEpoch.has(epochNumber)) {
+    verifierWorkByEpoch.set(epochNumber, new Map());
+  }
+  var wmap = verifierWorkByEpoch.get(epochNumber);
+  wmap.set(account, (wmap.get(account) || 0) + 1);
+
   if (epochNumber > _currentVerifierEpoch) {
     _currentVerifierEpoch = epochNumber;
     for (var key of verifiersByEpoch.keys()) {
       if (key < epochNumber - 10) verifiersByEpoch.delete(key);
     }
+    for (var wkey of verifierWorkByEpoch.keys()) {
+      if (wkey < epochNumber - 10) verifierWorkByEpoch.delete(wkey);
+    }
   }
+}
+
+/**
+ * Get verification counts per account for an epoch window.
+ * Returns { [account]: count } aggregated across the last few epochs.
+ */
+function getVerifierWorkByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var i = 0; i <= WINDOW; i++) {
+    var wmap = verifierWorkByEpoch.get(epochNumber - i);
+    if (!wmap) continue;
+    for (var entry of wmap) {
+      result[entry[0]] = (result[entry[0]] || 0) + entry[1];
+    }
+  }
+  return result;
 }
 
 /**
@@ -2557,6 +2585,7 @@ module.exports = {
   getHeartbeatWitnesses,
   getActiveTestnetNodes,
   recordTestnetNode,
+  getVerifierWorkByEpoch,
   getActiveVerifiers,
   getVerifiedMiners,
   recordMinerWork,

@@ -51,6 +51,10 @@ var heartbeats = new Map();
 // session_id → active session record
 var sessions = new Map();
 
+// Requests served per host per epoch: Map<epoch, Map<host, count>>
+var requestsByEpoch = new Map();
+var _currentRequestEpoch = -1;
+
 var SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 var CID_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -340,6 +344,42 @@ function resetForTests() {
   services.clear();
   heartbeats.clear();
   sessions.clear();
+  requestsByEpoch.clear();
+}
+
+/**
+ * Record requests served by a host in an epoch.
+ * Called by the host-side service runner after each completed request batch.
+ */
+function recordRequest(host, count, epoch) {
+  if (!host || !epoch || epoch < 0) return;
+  var n = parseInt(count, 10) || 1;
+  if (!requestsByEpoch.has(epoch)) requestsByEpoch.set(epoch, new Map());
+  var rmap = requestsByEpoch.get(epoch);
+  rmap.set(host, (rmap.get(host) || 0) + n);
+  if (epoch > _currentRequestEpoch) {
+    _currentRequestEpoch = epoch;
+    for (var key of requestsByEpoch.keys()) {
+      if (key < epoch - 20) requestsByEpoch.delete(key);
+    }
+  }
+}
+
+/**
+ * Get requests served per host for an epoch window.
+ * Returns { [host]: request_count } — actual work signal for reward distribution.
+ */
+function getServiceWorkByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var i = 0; i <= WINDOW; i++) {
+    var rmap = requestsByEpoch.get(epochNumber - i);
+    if (!rmap) continue;
+    for (var entry of rmap) {
+      result[entry[0]] = (result[entry[0]] || 0) + entry[1];
+    }
+  }
+  return result;
 }
 
 module.exports = {
@@ -349,12 +389,14 @@ module.exports = {
   heartbeat: heartbeat,
   startSession: startSession,
   endSession: endSession,
+  recordRequest: recordRequest,
   // Readers
   getService: getService,
   getAllServices: getAllServices,
   getServicesByDeployer: getServicesByDeployer,
   getHeartbeat: getHeartbeat,
   getActiveHostsForService: getActiveHostsForService,
+  getServiceWorkByEpoch: getServiceWorkByEpoch,
   getSession: getSession,
   getSessionsForUser: getSessionsForUser,
   getSessionsForHost: getSessionsForHost,
