@@ -1,0 +1,12 @@
+[Unit]
+Description=BTCPC node auto-update timer
+Requires=btcpc-update.service
+
+[Timer]
+# Check for updates every 10 minutes.
+OnBootSec=5min
+OnUnitActiveSec=10min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
