@@ -17,8 +17,8 @@
     "waitlyfi":        {},
     "clock-984f1a06":  {},
     "bridgeproof":        {},
-    "freeport":           {},
-    "verasens":           {},
+    "freeport":           { "keys": { "posting": "03628aa62fd3a7383d547a6fa8b275c15893c9b857382a8be0f545c3c66fe22a5f" } },
+    "verasens":           { "keys": { "posting": "03281dd0f69f2392a60aa88e7cd199ef16d4efcff82c3de004a998185c74fbe41c" } },
     "freeport-escrow":    {},
     "verasens-registry":  {}
   }
