@@ -55,7 +55,7 @@ systemctl daemon-reload
 
 # ── Enable auto-update timer ──────────────────────────────────────────────────
 systemctl enable --now btcpc-update.timer
-echo "==> Auto-updates enabled (tracking main, checks every 10 min)"
+echo "==> Auto-updates enabled (tracking stable, checks every 10 min)"
 
 echo ""
 echo "==> Done. Next steps:"
