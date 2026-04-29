@@ -3,44 +3,24 @@
 # Run as root or with sudo.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/main/scripts/install.sh | sudo bash
-#   -- or --
-#   sudo bash scripts/install.sh
+#   curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/stable/scripts/install.sh | sudo bash
 
 set -euo pipefail
 
-REPO="https://github.com/shindevlin/btcpc.git"
-INSTALL_DIR="/opt/btcpc"
+GITHUB_REPO="shindevlin/btcpc"
+RELEASE_TAG="node-v1.0.0"
+ASSET="btcpc-node-linux-x86_64"
 BINARY="/usr/local/bin/btcpc-node"
+SCRIPTS_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/stable/scripts"
 
-echo "==> Installing BTCPC node"
+echo "==> Installing BTCPC node ${RELEASE_TAG}"
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
-if ! command -v cargo &>/dev/null; then
-    echo "==> Installing Rust toolchain"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    source "$HOME/.cargo/env"
-fi
-
-if ! command -v git &>/dev/null; then
-    apt-get update -qq && apt-get install -y -qq git
-fi
-
-# ── Clone or update ───────────────────────────────────────────────────────────
-if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "==> Updating existing clone at $INSTALL_DIR"
-    git -C "$INSTALL_DIR" pull --ff-only
-else
-    echo "==> Cloning into $INSTALL_DIR"
-    git clone "$REPO" "$INSTALL_DIR"
-fi
-
-# ── Build ─────────────────────────────────────────────────────────────────────
-echo "==> Building btcpc-node (release)"
-cd "$INSTALL_DIR/rust/btcpc-node"
-cargo build --release 2>&1
-cp target/release/btcpc-node "$BINARY"
-echo "==> Installed binary: $BINARY ($(btcpc-node --version 2>/dev/null || echo 'ok'))"
+# ── Download binary ───────────────────────────────────────────────────────────
+DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${ASSET}"
+echo "==> Downloading binary from ${DOWNLOAD_URL}"
+curl -fsSL "$DOWNLOAD_URL" -o "$BINARY"
+chmod +x "$BINARY"
+echo "==> Installed: $BINARY"
 
 # ── Data directory ────────────────────────────────────────────────────────────
 mkdir -p /var/lib/btcpc
@@ -48,18 +28,24 @@ id btcpc &>/dev/null || useradd --system --no-create-home --home /var/lib/btcpc 
 chown btcpc:btcpc /var/lib/btcpc
 
 # ── Systemd units ─────────────────────────────────────────────────────────────
-cp "$INSTALL_DIR/scripts/btcpc-node.service"   /etc/systemd/system/
-cp "$INSTALL_DIR/scripts/btcpc-update.service" /etc/systemd/system/
-cp "$INSTALL_DIR/scripts/btcpc-update.timer"   /etc/systemd/system/
+echo "==> Installing systemd units"
+curl -fsSL "${SCRIPTS_BASE}/btcpc-node.service"   -o /etc/systemd/system/btcpc-node.service
+curl -fsSL "${SCRIPTS_BASE}/btcpc-update.service" -o /etc/systemd/system/btcpc-update.service
+curl -fsSL "${SCRIPTS_BASE}/btcpc-update.timer"   -o /etc/systemd/system/btcpc-update.timer
 systemctl daemon-reload
 
 # ── Enable auto-update timer ──────────────────────────────────────────────────
 systemctl enable --now btcpc-update.timer
-echo "==> Auto-updates enabled (tracking stable, checks every 10 min)"
+echo "==> Auto-updates enabled"
 
 echo ""
-echo "==> Done. Next steps:"
-echo "    1. Edit /etc/systemd/system/btcpc-node.service — fill in env vars"
-echo "       (BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_GENESIS_TIMESTAMP, etc.)"
-echo "    2. systemctl enable --now btcpc-node"
+echo "==> Done. Edit /etc/systemd/system/btcpc-node.service then:"
+echo "    systemctl enable --now btcpc-node"
+echo ""
+echo "    Required env vars to set in the service file:"
+echo "      BTCPC_ACCOUNT          — your account name"
+echo "      BTCPC_NODE_ID          — unique node label"
+echo "      BTCPC_GENESIS_TIMESTAMP=1777590000000"
+echo "      BTCPC_CHAIN_ID=btcpc-1"
+echo "      BTCPC_BOOTSTRAP_PEERS  — (optional, auto-fetched from Hive)"
 echo ""

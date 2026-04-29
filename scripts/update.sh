@@ -1,47 +1,46 @@
 #!/usr/bin/env bash
-# Pull latest code, rebuild, and restart btcpc-node if there are new commits.
-# Safe to run manually or via the btcpc-update.timer systemd unit.
+# Download the latest btcpc-node release binary and restart the service.
+# Safe to run manually or via btcpc-update.timer.
 #
-# Usage:  sudo bash /opt/btcpc/scripts/update.sh
+# Usage:  sudo bash update.sh
 
 set -euo pipefail
 
-INSTALL_DIR="/opt/btcpc"
+GITHUB_REPO="shindevlin/btcpc"
+ASSET="btcpc-node-linux-x86_64"
 BINARY="/usr/local/bin/btcpc-node"
 SERVICE="btcpc-node"
 
-cd "$INSTALL_DIR"
+# ── Fetch latest release tag ──────────────────────────────────────────────────
+LATEST=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+    | grep -m1 '"tag_name"' \
+    | grep 'node-v' \
+    | sed 's/.*"tag_name": "\(.*\)".*/\1/')
 
-# ── Check for upstream changes ────────────────────────────────────────────────
-git fetch origin stable --quiet
+if [ -z "$LATEST" ]; then
+    echo "btcpc-update: could not determine latest release tag — aborting"
+    exit 1
+fi
 
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/stable)
-
-if [ "$LOCAL" = "$REMOTE" ]; then
-    echo "btcpc-update: already up to date ($LOCAL)"
+# ── Compare with running binary ───────────────────────────────────────────────
+CURRENT_TAG=$(cat /var/lib/btcpc/.release-tag 2>/dev/null || echo "none")
+if [ "$CURRENT_TAG" = "$LATEST" ]; then
+    echo "btcpc-update: already on ${LATEST}"
     exit 0
 fi
 
-echo "btcpc-update: new commits — updating $LOCAL -> $REMOTE"
-git pull --ff-only origin stable
+echo "btcpc-update: ${CURRENT_TAG} -> ${LATEST}"
 
-# ── Rebuild ───────────────────────────────────────────────────────────────────
-echo "btcpc-update: building"
-source "$HOME/.cargo/env" 2>/dev/null || true
-cd "$INSTALL_DIR/rust/btcpc-node"
-cargo build --release --quiet
+# ── Download ──────────────────────────────────────────────────────────────────
+DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST}/${ASSET}"
+curl -fsSL "$DOWNLOAD_URL" -o "${BINARY}.tmp"
+chmod +x "${BINARY}.tmp"
+mv "${BINARY}.tmp" "$BINARY"
+echo "$LATEST" > /var/lib/btcpc/.release-tag
+echo "btcpc-update: binary updated to ${LATEST}"
 
-# ── Deploy ────────────────────────────────────────────────────────────────────
-cp target/release/btcpc-node "$BINARY"
-echo "btcpc-update: binary updated"
-
-# ── Restart node ──────────────────────────────────────────────────────────────
+# ── Restart ───────────────────────────────────────────────────────────────────
 if systemctl is-active --quiet "$SERVICE"; then
     systemctl restart "$SERVICE"
-    echo "btcpc-update: $SERVICE restarted"
-else
-    echo "btcpc-update: $SERVICE is not running — skipping restart"
+    echo "btcpc-update: ${SERVICE} restarted"
 fi
-
-echo "btcpc-update: done ($REMOTE)"
