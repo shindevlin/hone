@@ -2,6 +2,10 @@
 
 > Open `docs/` as an Obsidian vault. This file is the entry point. Every link below is wikilink-friendly — Obsidian will resolve them.
 
+## Protocol Businesses
+
+- [[NATIVE_PROTOCOLS]] — Freeport, Verasens, and LinkGit: the three native protocol businesses deployed at genesis, how they generate fees, and their standalone licensing value
+
 ## Architecture
 
 - [[BTCPC_WHITEPAPER]] — full whitepaper, Appendix M (Decentralized Commerce Layer), inscribed on Dream #0

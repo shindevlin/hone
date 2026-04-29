@@ -7,6 +7,10 @@
 
 ---
 
+> **Note (2026):** Freeport Protocol is now a native protocol within BTCPC, deployed at genesis block 0. All entry types described in this whitepaper are natively supported by the BTCPC chain. No separate deployment required. See [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md) for the full native protocol overview.
+
+---
+
 ## Abstract
 
 Freeport Protocol (FP) is a sovereign blockchain where block rewards are earned
