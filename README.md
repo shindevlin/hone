@@ -2,6 +2,12 @@
 
 AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed by real work.
 
+> **🚫 PULL ONLY — DO NOT START THE NODE YET.**
+> Genesis has not launched. The network has no agreed start time.
+> Running the node now will produce a chain that cannot sync with anyone else.
+> **Wait for a README update that sets `BTCPC_GENESIS_TIMESTAMP` before starting.**
+> Pull and build freely — just don't `systemctl enable --now btcpc-node` until then.
+
 > **⚠ Node.js layer deprecated — clean genesis in progress.**
 > The canonical chain implementation is now `rust/btcpc-node` (single Rust binary).
 > `src/` is retained for reference only and will be removed after genesis cutover.
@@ -22,31 +28,64 @@ AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed
 - Default behavior is safe fallback to file store if IPC is unavailable. Set `BTCPC_RUST_CHAIN_STRICT=true` to fail fast instead.
 - IPC timeout is configurable via `BTCPC_CHAIN_IPC_TIMEOUT_MS` (default `5000`).
 
-## Install (one command)
+## Install a node
+
+Requires Ubuntu/Debian, root or sudo. Installs Rust, builds the binary, creates the `btcpc` system user, and enables the auto-update timer (tracks `stable` branch, checks every 10 min).
 
 ```bash
-curl -fsSL https://btcpc.net/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/main/scripts/install.sh | sudo bash
 ```
 
-That's it. It installs Node.js, Ollama, NVIDIA drivers (if you have a GPU), clones BTCPC, and starts a setup wizard.
+After install, edit the service file before starting:
 
-**Phone (Termux):**
 ```bash
-curl -fsSL https://btcpc.net/install-termux.sh | bash
+sudo nano /etc/systemd/system/btcpc-node.service
+# Fill in: BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_GENESIS_TIMESTAMP
 ```
 
-**Windows:** Download [btcpc-start.bat](https://btcpc.net/install) or run in WSL.
+> **Do not start the node until a genesis timestamp is announced.**
 
-## Install with AI help
+### Running over a VPN (recommended for privacy)
 
-Don't want to touch a terminal? Open Claude, ChatGPT, or any AI assistant and paste:
+Nodes communicate over TCP/UDP on port 6942. For privacy, run your node behind a VPN (WireGuard recommended) so your public IP is never exposed to peers.
 
-> Install BTCPC on my computer. Run this command and help me through any errors:
-> `curl -fsSL https://btcpc.net/install.sh | bash`
-> If there are GPU/CUDA issues, fix them. If Node.js fails, try nvm.
-> After install, run `node bin/btcpc-all` to start all roles.
+1. Bring up your VPN interface (e.g. `wg0`, typically `10.x.x.x`)
+2. In `/etc/systemd/system/btcpc-node.service`, set:
+   ```
+   Environment="BTCPC_P2P_ANNOUNCE_ADDR=/ip4/10.x.x.x/tcp/6942"
+   ```
+   Replace `10.x.x.x` with your VPN interface IP. The node will advertise this address to peers instead of your real IP.
+3. Firewall: allow port 6942 only from your VPN subnet, not the public interface.
 
-The AI will handle everything — installation, troubleshooting, configuration, starting your node.
+For the bootstrap node, we use **Cloudflare Tunnel** so the real IP is never in DNS. To set up a bootstrap tunnel on your machine:
+
+```bash
+# Install cloudflared
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt update && sudo apt install -y cloudflared
+
+# Authenticate and create a tunnel (run once)
+cloudflared tunnel login
+cloudflared tunnel create btcpc-bootstrap
+
+# Route bootstrap1.btcpc.network through the tunnel
+cloudflared tunnel route dns btcpc-bootstrap bootstrap1.btcpc.network
+
+# Create tunnel config at /etc/cloudflared/config.yml:
+# tunnel: <tunnel-id>
+# credentials-file: /root/.cloudflared/<tunnel-id>.json
+# ingress:
+#   - hostname: bootstrap1.btcpc.network
+#     service: tcp://localhost:6942
+#   - service: http_status:404
+
+# Run as a service
+cloudflared service install
+systemctl enable --now cloudflared
+```
+
+With this setup, `bootstrap1.btcpc.network` reaches your node through Cloudflare — your real IP never appears in DNS or peer logs.
 
 ## Use BTCPC in your project
 
