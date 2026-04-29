@@ -1,0 +1,420 @@
+# Bitcoin Proof of Compute (BTCPC)
+
+### A Proof-of-Compute Blockchain with Native Commerce, IoT, and Version Control Protocols
+
+**Shin Devlin**
+**Version 1.0 — April 2026**
+
+---
+
+## Abstract
+
+Bitcoin Proof of Compute (BTCPC) is a blockchain where every token in existence was
+earned by a machine doing useful work. Mining on BTCPC does not mean burning electricity
+on a hash that disappears the moment it is found. It means running an AI inference job
+that a user submitted, storing a file that someone committed, reporting a sensor reading
+that a subscriber is paying for, or keeping the clock alive that the network depends on.
+The computational output is the proof of work. The work had a customer.
+
+Total supply is fixed at **42,000,000 BTCPC** with 10 decimal places:
+**1 BTCPC = 10,000,000,000 dreams**. Epochs run every **30 seconds**, driven by
+permissionless clock nodes that any machine on the network can operate. Emission
+decays over epochs. There is no pre-mine. There is no founder allocation. Every token
+in existence was earned.
+
+Three protocols are native to the BTCPC chain from genesis block 0: **Freeport**
+(a sovereign peer-to-peer marketplace with built-in escrow), **Verasens** (a decentralized
+IoT sensor network with on-chain data provenance), and **LinkGit** (a decentralized version
+control system that mirrors seamlessly to GitHub). Each protocol is a standalone business
+with its own revenue model, owned initially by the protocol founder (shindevlin) and
+independently transferable via on-chain key rotation.
+
+---
+
+## 1. The Chain
+
+### 1.1 Proof of Compute
+
+BTCPC replaces the arbitrary SHA-256 puzzle with a requirement that miners produce
+output that someone requested. The principle is simple: **mining should produce output
+that someone wanted.**
+
+Five categories of work earn emission each epoch. Each category has its own reward
+pool with a fixed share of each epoch's total emission:
+
+| Pool | Share | Earner |
+|------|-------|--------|
+| Inference | 55% | Nodes completing AI inference jobs |
+| IoT | 10% | Sensor bridges and data relayers |
+| Storage | 12% | Nodes storing committed chain data |
+| Services | 8% | Application and API hosts |
+| Clock | 5% | Permissionless clock nodes |
+| Verifiers | 10% | Nodes validating work proofs |
+
+Every pool pays out pro-rata to all active participants in that category during the
+epoch. A pool with no claimants does not accumulate — it recycles via the
+`btcpc_recycle` system account into future block rewards. Tokens are never burned.
+The supply ceiling of 42,000,000 BTCPC is a hard limit, not a target that gets
+compressed by burning.
+
+The chain does not verify that an AI inference result is *correct* in any philosophical
+sense. It verifies that the job was submitted, that the miner produced a response of
+the required format within the epoch window, and that the response hash matches the
+on-chain commitment. Reputation over time does the rest. Miners with low acceptance
+rates from job submitters earn fewer future jobs from the routing layer.
+
+### 1.2 Supply and Emission
+
+The total supply of BTCPC is fixed at **42,000,000 BTCPC**. This is a hard ceiling
+with no exception. The smallest unit is one **dream**: 1 BTCPC = 10,000,000,000 dreams
+(10^10, ten decimal places). All on-chain accounting is denominated in dreams; the
+BTCPC display unit is a human convenience.
+
+Emission follows a decay schedule tied to epoch number. The per-epoch reward
+decreases as the epoch count increases, asymptotically approaching but never
+exceeding the total supply cap. No tokens exist at chain launch except those
+earned through the emission schedule. There is no pre-mine. There is no team
+allocation. The 17 founding accounts seeded at genesis carry preserved keys —
+not pre-allocated balances.
+
+If the emission schedule projects that the remaining unissued supply would be
+exhausted before the target epoch, the final epochs reduce proportionally to
+land exactly on 42,000,000. The chain enforces this at the block level.
+
+### 1.3 Account Model
+
+Every BTCPC account is derived from a single BIP-39 mnemonic seed phrase using
+BIP-44 derivation with coin type **8888**. From one seed, a node generates six
+BTCPC role keys and four external chain wallets:
+
+**BTCPC role keys:**
+
+| Key | Purpose |
+|-----|---------|
+| `owner` | Account recovery and key rotation — store offline |
+| `active` | Token transfers, escrow operations, staking |
+| `posting` | General chain entries: listings, orders, sensor data, repo ops |
+| `memo` | Encrypt/decrypt memo fields in transactions |
+| `hide` | Receive encrypted content (private repos, digital goods, DMs) |
+| `seek` | Auto-deliver encrypted content (store fulfillment, repo push) |
+
+The `hide` and `seek` keys form the end-to-end encrypted delivery layer for
+digital commerce. When a buyer purchases a private digital product through
+Freeport, the seller's `seek` key encrypts the payload to the buyer's `hide`
+key at the `OrderFulfill` step. The buyer decrypts locally. The chain never
+sees the plaintext. The same mechanism handles private repository access in
+LinkGit: a `LinkGitAccessGrant` entry commits the repo key encrypted to the
+grantee's `hide` key.
+
+**External chain wallets (same seed, standard derivation):**
+
+| Chain | Derivation |
+|-------|-----------|
+| EVM (Ethereum, BSC, etc.) | m/44'/60'/0'/0/0 |
+| Bitcoin | m/84'/0'/0'/0/0 (native SegWit) |
+| Solana | m/44'/501'/0'/0' |
+| TON | standard TON path |
+
+This means a single seed phrase controls a user's entire multi-chain identity.
+BTCPC does not take custody of external chain assets — the derivation is
+deterministic and happens client-side.
+
+### 1.4 Chain ID and Genesis
+
+| Network | Chain ID |
+|---------|---------|
+| Mainnet | `btcpc-1` |
+| Testnet | `btcpc-satoshi` |
+
+The genesis block is anchored to a canonical `BTCPC_GENESIS_TIMESTAMP`. Every
+node on the network must use the identical genesis timestamp when computing epoch
+boundaries. A node with a mismatched timestamp will fork immediately and find
+zero peers. The genesis block contains 17 founding accounts seeded with preserved
+keypairs, establishing initial identity for protocol accounts and the chain
+founder. These accounts carry no pre-allocated token balance — they exist only
+so that protocol-owned chain operations (fee collection, escrow settlement, recycle)
+have a verified identity from block 0.
+
+### 1.5 P2P Network
+
+BTCPC uses **libp2p** for peer-to-peer communication. The primary transport is
+**QUIC** for its low-latency connection establishment and multiplexing. The fallback
+is **TCP with Noise_XX** handshake for environments where UDP is restricted. Maximum
+peer connections per node: **MAX_PEERS = 50**.
+
+Peer discovery uses a five-layer fallback stack, queried in order:
+
+1. **RocksDB cache** — peers seen in previous sessions, fastest lookup
+2. **Cloudflare DNS** — `_btcpc._udp.btcpc.net` TXT records with peer multiaddrs
+3. **Hive blockchain** — peer list stored as Hive custom JSON ops, censorship-resistant
+4. **TON smart contract** — peer registry on the TON blockchain
+5. **Bitcoin Ordinals** — peer list inscribed as an Ordinal, immutable last resort
+
+Bootstrap nodes operated by the protocol founder provide guaranteed entry points
+for new nodes: `bootstrap1.btcpc.net` and `bootstrap2.btcpc.net`. A node that
+reaches any of these five layers will find peers. A node that cannot reach any of
+the five layers is not network-connected.
+
+---
+
+## 2. Native Protocol Businesses
+
+Three protocols are native to BTCPC from genesis block 0. They are not plugins, not
+sidechains, not smart contracts compiled to bytecode and deployed after the fact.
+They are native ledger entry types processed by every node — as native to BTCPC as
+a token transfer is native to Bitcoin. Each is a standalone business with its own
+revenue model, owned initially by the protocol founder (shindevlin on both GitHub and
+the BTCPC chain) and independently transferable via on-chain key rotation plus GitHub
+repository ownership transfer.
+
+### 2.1 Freeport — Sovereign Marketplace
+
+Freeport is a peer-to-peer commerce protocol built directly into the BTCPC ledger.
+Any account can open a storefront, list physical goods, digital products, or services,
+and transact with buyers using BTCPC-native escrow — no intermediary, no platform
+that can ban a seller, no payment processor that can reverse a charge. The chain
+enforces escrow lockup at `OrderPlace`, releases funds to the seller after
+`OrderFulfill` plus timeout, and routes disputes to the protocol's resolution layer.
+Digital products are delivered end-to-end encrypted from seller's `seek` key to
+buyer's `hide` key at fulfillment time.
+
+| Entry | Signed by | What it does |
+|-------|-----------|-------------|
+| `StoreUpdate` | posting | Create or update storefront metadata |
+| `ProductCreate` | posting | List a product (physical, digital, or service) |
+| `ProductUpdate` | posting | Update price, stock level, or status |
+| `OrderPlace` | memo + active | Buyer initiates purchase, locks escrow |
+| `OrderFulfill` | seek | Seller delivers; digital products auto-decrypt to buyer's hide key |
+| `OrderCancel` | posting | Cancel order and refund escrowed funds |
+| `OrderDispute` | posting | Buyer opens a dispute for protocol review |
+| `EscrowRelease` | system | Release escrow after fulfillment timeout passes |
+| `FlashSale` | posting | Set a time-limited sale price on a product |
+
+**Revenue model:** Freeport charges a settlement fee on escrow release, configurable
+by the protocol account owner, defaulting to 0.5% of the transaction value. Additional
+revenue comes from storage fees for product blob hosting (images, digital delivery
+payloads) and dispute resolution fees charged to the losing party. All fees accrue
+to the `freeport` protocol account in BTCPC.
+
+**Ownership:** Protocol account `freeport` on the BTCPC chain. Owner: shindevlin.
+GitHub: github.com/shindevlin. Transfer mechanism: on-chain `AccountUpdateKey` to
+rotate owner and active keys to the buyer, combined with GitHub repository transfer.
+
+### 2.2 Verasens — IoT Sensor Network
+
+Verasens is a decentralized sensor data network that uses the BTCPC chain as its
+immutable ledger and the BTCPC emission schedule as its incentive layer for data
+quality. Sensor operators register their devices on-chain, stake BTCPC to signal
+commitment to uptime, and earn IoT pool emissions pro-rata to verified readings
+submitted. Data consumers query the Verasens API and pay per-query access fees in
+BTCPC. The chain provides the trust layer that makes the sensor data credible: any
+reading can be traced to a specific device key, timestamp, and epoch, with no ability
+for the data provider to retroactively alter the record. LoRa gateways earn gateway
+uptime rewards by submitting `GatewayHeartbeat` entries each epoch.
+
+| Entry | Signed by | What it does |
+|-------|-----------|-------------|
+| `SensorRegister` | posting | Register a sensor device on-chain |
+| `SensorKeyRegister` | posting | Register the device's signing key |
+| `SensorVouch` | posting | Vouch for a sensor's data quality record |
+| `SensorReading` | device key | Submit a single sensor reading |
+| `SensorDataCommit` | device key | Commit a batch of readings as a Merkle root |
+| `DeviceKeyRegister` | posting | Register an IoT device signing key |
+| `DeviceYieldStake` | active | Stake BTCPC to earn device rewards |
+| `DeviceYieldUnstake` | active | Unstake and withdraw |
+| `GatewayHeartbeat` | device key | LoRa gateway uptime proof, once per epoch |
+| `StorageHeartbeat` | posting | Storage node uptime proof for sensor data |
+
+**Revenue model:** Data query fees charged per API call to the Verasens historical
+data API, payable in BTCPC. Sensor registration requires a BTCPC stake, providing
+Sybil resistance and protocol revenue. Gateway uptime rewards are funded by the
+IoT pool within each epoch's emission.
+
+**Ownership:** Protocol account `verasens` on the BTCPC chain. Owner: shindevlin.
+Transfer mechanism: same as Freeport — on-chain key rotation plus GitHub transfer.
+
+### 2.3 LinkGit — Decentralized Version Control
+
+LinkGit brings Git-compatible version control to the BTCPC chain. Repositories are
+registered as on-chain objects, with branch and tag references stored as ledger entries
+and the underlying Git objects (blobs, trees, commits) stored by the BTCPC storage
+node network. Private repositories use the `hide`/`seek` key pair for access control:
+the repo encryption key is distributed to granted accounts as an `OrderFulfill`-style
+encrypted payload committed at `LinkGitAccessGrant`. Storage nodes that perform
+garbage collection work — pruning orphaned objects after a `LinkGitRefUpdate` — prove
+their work with a `LinkGitPruneProof` entry and earn storage pool rewards. LinkGit
+is designed to be used alongside GitHub via a mirror protocol, not as a replacement
+for developers who want GitHub's collaboration UI.
+
+| Entry | Signed by | What it does |
+|-------|-----------|-------------|
+| `LinkGitRepoCreate` | posting | Register a repo; include hide_key for private access |
+| `LinkGitRefUpdate` | posting | Update a branch or tag ref; triggers GC queue |
+| `LinkGitAccessGrant` | posting | Grant read access to a private repository |
+| `LinkGitAccessRevoke` | posting | Revoke a previously granted access |
+| `LinkGitPruneProof` | posting | Storage node proves GC work completed, claims reward |
+| `LinkGitStorageExtend` | active | Pay to retain orphaned objects past default TTL |
+
+**Mirror protocol:** A `.linkgit/mirrors` config file tracked inside the repository
+defines mirror targets. After configuring a mirror with
+`linkgit mirror add github https://github.com/owner/repo`, running
+`linkgit mirror apply` causes every subsequent push to go to both the BTCPC chain
+and the GitHub remote simultaneously. The developer's workflow is unchanged. The
+repository gains a censorship-resistant backup with cryptographic provenance at
+no additional step cost.
+
+**Revenue model:** Per-object storage fees paid to storage nodes, with the protocol
+account taking a percentage cut. Private repository fees at creation and renewal.
+`LinkGitStorageExtend` fees charged when repository owners elect to retain orphaned
+blobs past the default garbage collection window.
+
+**Ownership:** Protocol account `linkgit` on the BTCPC chain. Owner: shindevlin.
+Transfer mechanism: same as Freeport — on-chain key rotation plus GitHub transfer.
+
+---
+
+## 3. Protocol Ownership and Transfer
+
+### 3.1 Initial Ownership
+
+All three protocol accounts — `freeport`, `verasens`, and `linkgit` — were seeded at
+genesis with posting keys controlled by shindevlin. The seed phrases for each protocol
+account are held by shindevlin. shindevlin is also the GitHub user at
+github.com/shindevlin and holds the canonical BTCPC repository. This concentration
+of initial control is intentional: protocol parameters (fee rates, timeout windows,
+storage pricing) must be tunable during the network's early period, and a single
+responsible party provides accountability. The chain's design explicitly contemplates
+transfer of each protocol to independent operators.
+
+### 3.2 Transfer Mechanism
+
+Each protocol can be transferred independently of the others and independently of the
+BTCPC chain itself. A full transfer has two required components:
+
+**On-chain:** The current owner submits `AccountUpdateKey` entries rotating the
+protocol account's `owner` and `active` keys to the buyer's keys. Once this is
+confirmed on-chain, the buyer controls all fee parameters, escrow settlement logic,
+and protocol revenue. The chain enforces this — no central authority, no admin
+override, no multisig council can reverse a valid key rotation. The chain *is* the
+ownership record.
+
+**Off-chain:** The GitHub repository holding the protocol's reference implementation
+is transferred to the buyer's GitHub account via the standard GitHub repository
+transfer mechanism. This gives the buyer control over the canonical codebase, the
+issue tracker, and the documentation — the software side of the business.
+
+A partial transfer (on-chain key rotation without GitHub transfer) is valid. The
+buyer controls protocol operations on the chain. The seller retains the GitHub
+repository, which becomes a fork dependency rather than the canonical source. Full
+independence requires the buyer to fork the codebase under their own namespace.
+The chain does not care which GitHub account hosts the implementation code — it only
+validates signatures against the registered protocol account keys.
+
+### 3.3 Monetization Path
+
+Each protocol generates independent, compounding revenue streams denominated in BTCPC:
+
+- **Freeport** earns on every completed transaction settled through the chain.
+  At 0.5% of GMV, a marketplace processing modest volume generates substantial
+  protocol revenue with zero marginal cost per transaction.
+
+- **Verasens** earns per data query and per sensor registration stake. As the
+  network of registered sensors grows, so does the value of the query API. The
+  protocol benefits from network effects in sensor density.
+
+- **LinkGit** earns on storage operations and private repository fees. As BTCPC
+  adoption increases and developers route repositories through the network, the
+  storage fee revenue scales with usage.
+
+A buyer acquiring a protocol receives four things: the **protocol account** (controls
+fee parameters and receives fee revenue), the **on-chain state** (all registered
+stores, sensors, or repositories accumulated since genesis), the **codebase** (the
+GitHub repository), and the **brand** (the protocol name and its established user
+base). Protocols can also be licensed rather than acquired outright — a buyer deploys
+a fork on another chain, pays a license fee to the `freeport`/`verasens`/`linkgit`
+account, and operates under the brand in that context.
+
+---
+
+## 4. Key Management
+
+BTCPC accounts use a role-based key architecture derived from a single BIP-39 mnemonic.
+The derivation standard is BIP-44 with coin type **8888** (BTCPC). The six role keys
+serve distinct operational security tiers: the `owner` key signs infrequently and
+should be stored offline or in cold hardware; the `active` key signs financial
+operations and should be protected at the same level as a bank password; the `posting`
+key signs chain entries and can be stored in a hot wallet appropriate for frequent use.
+
+The `memo`, `hide`, and `seek` keys handle encryption. The `memo` key encrypts and
+decrypts the memo fields attached to standard transactions — it is the least sensitive
+of the encryption keys. The `hide` key is the inbound delivery key: anything encrypted
+to this key can only be decrypted by the account holder. It should be treated as a
+private key. The `seek` key is the outbound delivery key used by automated processes
+(store fulfillment daemons, repository push hooks) to encrypt payloads for delivery.
+It should not be stored on internet-connected servers in plaintext.
+
+The four external chain wallets (EVM, Bitcoin, Solana, TON) use standard BIP-44
+derivation paths appropriate to each chain, derived from the same master seed. This
+allows a hardware wallet holding the BTCPC seed to also sign transactions on any of
+these chains, giving users a single physical device for their entire on-chain identity.
+
+At account creation, the node displays all keys in the following format:
+
+```
+BTCPC Account Keys — [account_name]
+
+  owner:   [key]   — store offline
+  active:  [key]   — financial operations
+  posting: [key]   — chain entries
+  memo:    [key]   — message encryption
+  hide:    [key]   — receive encrypted content
+  seek:    [key]   — deliver encrypted content
+
+External Wallets (same seed)
+  EVM:     [address]
+  BTC:     [address]
+  SOL:     [address]
+  TON:     [address]
+```
+
+The seed phrase is displayed once and never stored by the node software. The user
+is responsible for backup.
+
+---
+
+## 5. Governance
+
+There is no formal on-chain governance at launch. Protocol parameters — fee rates,
+timeout windows, storage pricing, reward distribution adjustments — are controlled
+by the respective protocol account owner. Chain parameters that are fixed at genesis
+(epoch length, total supply, coin type) cannot be changed by any single account; they
+require a coordinated network-wide consensus upgrade in which a supermajority of
+block-producing nodes adopt the new version simultaneously.
+
+This is not a gap to be filled later. It is a deliberate choice. Formal on-chain
+governance systems tend to be captured by large token holders, reducing them to
+plutocracies that replicate the centralization problems they were meant to solve.
+BTCPC's launch design ensures that no governance token, no council, and no multisig
+can modify the chain's fundamental parameters. The chain's rules are its constitution.
+Changes require rough consensus among the operators who run the network — the same
+mechanism that has governed Bitcoin's protocol changes for sixteen years.
+
+Future versions of the protocol may introduce on-chain governance proposals for
+protocol parameter changes, with participation weighted by stake or computational
+contribution. Any such system will be introduced as an opt-in upgrade, not imposed
+by a founding team.
+
+---
+
+## 6. Links
+
+- **Website:** [btcpc.net](https://btcpc.net)
+- **Telegram:** [@btcpcbot](https://t.me/btcpcbot)
+- **GitHub:** [github.com/shindevlin/btcpc](https://github.com/shindevlin/btcpc)
+- **Explorer:** [scan.btcpc.net](https://scan.btcpc.net)
+- **Freeport Whitepaper:** [FREEPORT_PROTOCOL_WHITEPAPER.md](FREEPORT_PROTOCOL_WHITEPAPER.md)
+- **Native Protocols Overview:** [NATIVE_PROTOCOLS.md](NATIVE_PROTOCOLS.md)
+
+---
+
+*BTCPC v1.0 — April 2026 — Shin Devlin*
