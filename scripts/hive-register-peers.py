@@ -56,10 +56,20 @@ def main():
         sys.exit(1)
 
     hive = Hive(keys=[args.key])
-    account = Account("btcpc", blockchain_instance=hive)
-    # account_update2 writes posting_json_metadata (posting key only required).
-    # The node reads posting_json_metadata for bootstrap peer discovery.
-    account.update_account_profile(metadata)
+    try:
+        from beembase.operations import Account_update2
+    except ImportError:
+        print("beembase not found. Reinstall beem.", file=sys.stderr)
+        sys.exit(1)
+
+    # account_update2 writes posting_json_metadata — posting key is sufficient.
+    op = Account_update2(**{
+        "account": "btcpc",
+        "json_metadata": "",
+        "posting_json_metadata": json.dumps(metadata),
+        "extensions": [],
+    })
+    hive.finalizeOp(op, "btcpc", "posting")
     print("\nPosted to Hive. Verify at: https://hiveblocks.com/@btcpc")
 
 if __name__ == "__main__":
