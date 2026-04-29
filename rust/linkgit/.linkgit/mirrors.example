@@ -1,0 +1,12 @@
+# LinkGit mirror configuration
+# Tracked in .linkgit/mirrors — travels with the repo on clone
+#
+# Run 'linkgit mirror apply' after cloning to wire up git push URLs
+# Run 'linkgit mirror add <name> <url>' to add a new mirror
+# Run 'linkgit mirror sync' to push to all mirrors manually
+
+# Example: mirror to GitHub
+# [mirror.github]
+# url = "https://github.com/owner/repo"
+# push = true
+# fetch = false
