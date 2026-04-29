@@ -2,10 +2,13 @@
 //!
 //! Reads genesis.json if present:
 //! {
-//!   "accounts": { "alice": 1000000000, "bob": 500000000 },
-//!   "timestamp": 1234567890000
+//!   "accounts": {
+//!     "alice": { "public_key": "02abc...", "balance": 0 },
+//!     "bob":   {}
+//!   }
 //! }
-//! Amounts are in dreams (1 BTCPC = 10_000_000_000 dreams).
+//! public_key: existing secp256k1 posting key (hex). Omit to leave unset.
+//! balance: dreams (1 BTCPC = 10_000_000_000). Omit or 0 for no allocation.
 
 use std::path::Path;
 use anyhow::Result;
@@ -36,21 +39,33 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
             let cfg: serde_json::Value = serde_json::from_str(&raw)?;
 
             if let Some(accounts) = cfg.get("accounts").and_then(|v| v.as_object()) {
-                for (account, amount) in accounts {
-                    let dreams = amount.as_u64().ok_or_else(|| anyhow::anyhow!(
-                        "genesis: account '{}' amount must be a u64 integer (got {})",
-                        account, amount
-                    ))?;
+                for (account, val) in accounts {
+                    let (public_key, dreams) = if val.is_object() {
+                        let pk = val.get("public_key")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string());
+                        let bal = val.get("balance").and_then(|v| v.as_u64()).unwrap_or(0);
+                        (pk, bal)
+                    } else {
+                        let dreams = val.as_u64().ok_or_else(|| anyhow::anyhow!(
+                            "genesis: account '{}' must be an object or integer", account
+                        ))?;
+                        (None, dreams)
+                    };
+
                     entries.push(LedgerEntry::AccountCreate {
                         account: account.clone(),
-                        public_key: None,
+                        public_key,
                         epoch: 0,
                     });
-                    entries.push(LedgerEntry::GenesisAlloc {
-                        account: account.clone(),
-                        amount: dreams,
-                        token: NATIVE_TOKEN.to_string(),
-                    });
+                    if dreams > 0 {
+                        entries.push(LedgerEntry::GenesisAlloc {
+                            account: account.clone(),
+                            amount: dreams,
+                            token: NATIVE_TOKEN.to_string(),
+                        });
+                    }
                 }
             }
         }

@@ -1,3 +1,21 @@
 {
-  "accounts": {}
+  "accounts": {
+    "natoshisakamoto": { "public_key": "02ba0165043b050bbbcc2b2aec75f300f2c7585d16cf819564bde53ecfd9b7241c" },
+    "shindevlin":      { "public_key": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b" },
+    "nsfwotica":       { "public_key": "02ccfee9e764627d342d4fa5d3dd0d989304c7e75fa4693315963bdc003159fb60" },
+    "josh":            { "public_key": "02b2e61bdf04b3f2b0ff00d398e741552da0cb700e225714ea2d87b40d677db81c" },
+    "bullship":        {},
+    "brutus11":        {},
+    "ursos":           {},
+    "realfake":        {},
+    "redaktly":        {},
+    "buswingspread":   {},
+    "betchu-bot":      {},
+    "counselflow":     {},
+    "spirit-of-ngu":   {},
+    "itsurs":          {},
+    "waitlyfi":        {},
+    "clock-984f1a06":  {},
+    "bridgeproof":     {}
+  }
 }
