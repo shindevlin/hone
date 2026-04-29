@@ -12,7 +12,7 @@ ExecStart=/usr/local/bin/btcpc-node
 
 Environment="BTCPC_CHAIN_ID=btcpc-satoshi"
 Environment="BTCPC_DATA_DIR=/var/lib/btcpc-testnet"
-Environment="BTCPC_GENESIS_TIMESTAMP=1777503508829"
+Environment="BTCPC_GENESIS_TIMESTAMP=1777504335853"
 Environment="BTCPC_API_PORT=4343"
 Environment="BTCPC_P2P_PORT=6943"
 Environment="BTCPC_MINER=true"
@@ -22,7 +22,9 @@ Environment="BTCPC_LOG_LEVEL=btcpc_node=debug"
 Environment="BTCPC_ACCOUNT=your-account-name"
 Environment="BTCPC_NODE_ID=MachineName(your-account-name)"
 # Testnet bootstrap peers (separate from mainnet)
-Environment="BTCPC_BOOTSTRAP_PEERS=/dns4/testnet1.btcpc.net/tcp/6943"
+# Bootstrap: Grouchly(shindevlin) — LAN: 192.168.68.72, VPN: 100.90.146.17
+# Use whichever is reachable from your machine.
+Environment="BTCPC_BOOTSTRAP_PEERS=/ip4/192.168.68.72/tcp/6943"
 
 Restart=on-failure
 RestartSec=5
