@@ -1,0 +1,560 @@
+//! btcpc-node P2P networking — libp2p 0.55
+//!
+//! Gossipsub topics:
+//!   btcpc/blocks   — serialized block bytes (JSON envelope: {"epoch":N,"data_b64":"..."})
+//!   btcpc/entries  — ledger entries (JSON)
+//!   btcpc/seals    — epoch seals (JSON)
+//!   btcpc/sync     — block sync requests/responses
+//!
+//! Public surface:
+//!   Network::new(config, event_tx) -> (Network, NetworkHandle)
+//!   Network::run()
+//!   NetworkHandle::cmd_tx  (send NetCmd)
+//!   NetworkEvent           (received on the broadcast channel)
+
+use crate::config::Config;
+use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use libp2p::futures::StreamExt;
+use libp2p::{
+    gossipsub, identify, kad,
+    kad::store::MemoryStore,
+    noise, ping,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, Multiaddr, SwarmBuilder,
+};
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::time::Duration;
+use tokio::sync::{broadcast, mpsc};
+use tracing::{debug, info, warn};
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/// Events emitted by the network layer and consumed by other tasks.
+#[derive(Debug, Clone)]
+pub enum NetworkEvent {
+    /// Raw block bytes received from a peer.
+    Block { epoch: u32, data: Vec<u8> },
+    /// A single ledger entry received over gossip.
+    Entry { entry: serde_json::Value },
+    /// An EPOCH_SEAL received over gossip.
+    EpochSeal { seal: serde_json::Value },
+    /// A new peer connection was established.
+    PeerConnected { peer_id: String },
+    /// An existing peer connection was closed.
+    PeerDisconnected { peer_id: String },
+}
+
+/// Commands that other tasks can send to the network layer.
+pub enum NetCmd {
+    /// Publish `data` on the given gossipsub topic name.
+    Broadcast { topic: &'static str, data: Vec<u8> },
+    /// Request block for `epoch` from `peer` (or any peer if None).
+    RequestBlock { epoch: u32, peer: Option<String> },
+}
+
+/// Cheap clone handle used by other tasks to send commands to the network.
+pub struct NetworkHandle {
+    pub cmd_tx: mpsc::Sender<NetCmd>,
+}
+
+// ---------------------------------------------------------------------------
+// Behaviour
+// ---------------------------------------------------------------------------
+
+#[derive(NetworkBehaviour)]
+struct BtcpcBehaviour {
+    gossipsub: gossipsub::Behaviour,
+    kademlia:  kad::Behaviour<MemoryStore>,
+    identify:  identify::Behaviour,
+    ping:      ping::Behaviour,
+}
+
+// ---------------------------------------------------------------------------
+// Topic names
+// ---------------------------------------------------------------------------
+
+const TOPIC_BLOCKS:  &str = "btcpc/blocks";
+const TOPIC_ENTRIES: &str = "btcpc/entries";
+const TOPIC_SEALS:   &str = "btcpc/seals";
+const TOPIC_SYNC:    &str = "btcpc/sync";
+
+// ---------------------------------------------------------------------------
+// Network struct
+// ---------------------------------------------------------------------------
+
+pub struct Network {
+    config:   Config,
+    cmd_rx:   mpsc::Receiver<NetCmd>,
+    event_tx: broadcast::Sender<NetworkEvent>,
+}
+
+impl Network {
+    /// Create a new `Network` and the associated handle + event channel.
+    ///
+    /// Returns `(Network, NetworkHandle, broadcast::Receiver<NetworkEvent>)`.
+    pub fn new(config: Config) -> (Self, NetworkHandle, broadcast::Receiver<NetworkEvent>) {
+        let (cmd_tx, cmd_rx) = mpsc::channel(256);
+        let (event_tx, event_rx) = broadcast::channel(1024);
+
+        let network = Self { config, cmd_rx, event_tx };
+        let handle  = NetworkHandle { cmd_tx };
+        (network, handle, event_rx)
+    }
+
+    /// Drive the P2P swarm until the process exits.  Call from a dedicated
+    /// `tokio::spawn` or directly from `main`.
+    pub async fn run(mut self) -> Result<()> {
+        // ------------------------------------------------------------------
+        // 1. Keypair
+        // ------------------------------------------------------------------
+        let keypair = load_or_create_keypair(&self.config.data_dir)?;
+
+        // ------------------------------------------------------------------
+        // 2. Build swarm
+        // ------------------------------------------------------------------
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair.clone())
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default(),
+                noise::Config::new,
+                yamux::Config::default,
+            )?
+            .with_quic()
+            .with_behaviour(|key| {
+                // Gossipsub — content-hash message dedup
+                let msg_id_fn = |msg: &gossipsub::Message| {
+                    let mut h = DefaultHasher::new();
+                    msg.data.hash(&mut h);
+                    gossipsub::MessageId::from(h.finish().to_string())
+                };
+
+                let gossipsub_config = gossipsub::ConfigBuilder::default()
+                    .heartbeat_interval(Duration::from_secs(10))
+                    .validation_mode(gossipsub::ValidationMode::Permissive)
+                    .message_id_fn(msg_id_fn)
+                    .mesh_n(6)
+                    .mesh_n_low(4)
+                    .mesh_n_high(12)
+                    // 10 MB — blocks can be large
+                    .max_transmit_size(10 * 1024 * 1024)
+                    .build()
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                let gossipsub = gossipsub::Behaviour::new(
+                    gossipsub::MessageAuthenticity::Signed(key.clone()),
+                    gossipsub_config,
+                )?;
+
+                let mut kademlia = kad::Behaviour::new(
+                    key.public().to_peer_id(),
+                    MemoryStore::new(key.public().to_peer_id()),
+                );
+                kademlia.set_mode(Some(kad::Mode::Server));
+
+                let identify = identify::Behaviour::new(identify::Config::new(
+                    "/btcpc/1.0.0".to_string(),
+                    key.public(),
+                ));
+
+                let ping = ping::Behaviour::new(
+                    ping::Config::new()
+                        .with_interval(Duration::from_secs(30))
+                        .with_timeout(Duration::from_secs(30)),
+                );
+
+                Ok(BtcpcBehaviour { gossipsub, kademlia, identify, ping })
+            })?
+            .with_swarm_config(|cfg| {
+                cfg.with_idle_connection_timeout(Duration::from_secs(60))
+            })
+            .build();
+
+        // ------------------------------------------------------------------
+        // 3. Subscribe to topics
+        // ------------------------------------------------------------------
+        let t_blocks  = gossipsub::IdentTopic::new(TOPIC_BLOCKS);
+        let t_entries = gossipsub::IdentTopic::new(TOPIC_ENTRIES);
+        let t_seals   = gossipsub::IdentTopic::new(TOPIC_SEALS);
+        let t_sync    = gossipsub::IdentTopic::new(TOPIC_SYNC);
+
+        swarm.behaviour_mut().gossipsub.subscribe(&t_blocks)?;
+        swarm.behaviour_mut().gossipsub.subscribe(&t_entries)?;
+        swarm.behaviour_mut().gossipsub.subscribe(&t_seals)?;
+        swarm.behaviour_mut().gossipsub.subscribe(&t_sync)?;
+
+        // ------------------------------------------------------------------
+        // 4. Listeners
+        // ------------------------------------------------------------------
+        let listen_tcp: Multiaddr =
+            format!("/ip4/0.0.0.0/tcp/{}", self.config.p2p_port).parse()?;
+        swarm.listen_on(listen_tcp)?;
+
+        let listen_quic: Multiaddr =
+            format!("/ip4/0.0.0.0/udp/{}/quic-v1", self.config.p2p_port).parse()?;
+        swarm.listen_on(listen_quic)?;
+
+        // ------------------------------------------------------------------
+        // 5. Dial bootstrap peers
+        // ------------------------------------------------------------------
+        for addr_str in &self.config.bootstrap_peers {
+            match addr_str.parse::<Multiaddr>() {
+                Ok(addr) => {
+                    info!("Dialing bootstrap peer: {}", addr);
+                    let _ = swarm.dial(addr);
+                }
+                Err(e) => warn!("Invalid bootstrap addr '{}': {}", addr_str, e),
+            }
+        }
+
+        // Kick off Kademlia bootstrap (harmless if no peers yet)
+        if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
+            warn!("Kademlia bootstrap queued (expected on first start): {}", e);
+        }
+
+        info!(
+            peer_id = %swarm.local_peer_id(),
+            port    = self.config.p2p_port,
+            "btcpc-node P2P running",
+        );
+
+        // ------------------------------------------------------------------
+        // 6. Re-bootstrap timer — every 5 minutes when peer count < 3
+        // ------------------------------------------------------------------
+        let mut rebootstrap = tokio::time::interval(Duration::from_secs(300));
+        rebootstrap.tick().await; // discard immediate first tick
+
+        // ------------------------------------------------------------------
+        // 7. Event loop
+        // ------------------------------------------------------------------
+        loop {
+            tokio::select! {
+                event = swarm.select_next_some() => {
+                    self.handle_swarm_event(event, &mut swarm);
+                }
+                Some(cmd) = self.cmd_rx.recv() => {
+                    self.handle_cmd(cmd, &mut swarm,
+                        &t_blocks, &t_entries, &t_seals, &t_sync);
+                }
+                _ = rebootstrap.tick() => {
+                    let connected = swarm.connected_peers().count();
+                    if connected < 3 {
+                        debug!(connected, "Re-bootstrapping Kademlia (low peer count)");
+                        if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
+                            debug!("Kademlia re-bootstrap: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Swarm event handler
+    // -----------------------------------------------------------------------
+
+    fn handle_swarm_event(
+        &self,
+        event: SwarmEvent<BtcpcBehaviourEvent>,
+        swarm: &mut libp2p::Swarm<BtcpcBehaviour>,
+    ) {
+        match event {
+            // Listeners
+            SwarmEvent::NewListenAddr { address, .. } => {
+                info!("Listening on {}", address);
+            }
+
+            // Peer lifecycle
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                info!("Peer connected: {}", peer_id);
+                self.emit(NetworkEvent::PeerConnected { peer_id: peer_id.to_string() });
+            }
+            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                debug!("Peer disconnected: {} ({:?})", peer_id, cause);
+                self.emit(NetworkEvent::PeerDisconnected { peer_id: peer_id.to_string() });
+            }
+
+            // Gossipsub message
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Gossipsub(
+                gossipsub::Event::Message { message, propagation_source, .. }
+            )) => {
+                self.handle_gossip_message(&message, propagation_source.to_string());
+            }
+
+            // Identify — feed addresses into Kademlia
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Identify(
+                identify::Event::Received { peer_id, info, .. }
+            )) => {
+                for addr in info.listen_addrs {
+                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                }
+            }
+
+            // Kademlia bootstrap progress
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Kademlia(
+                kad::Event::OutboundQueryProgressed { result, .. }
+            )) => {
+                if let kad::QueryResult::Bootstrap(Ok(kad::BootstrapOk { num_remaining, .. })) = result {
+                    if num_remaining == 0 {
+                        info!("Kademlia DHT bootstrap complete");
+                    }
+                }
+            }
+
+            // Ping
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Ping(
+                ping::Event { peer, result, .. }
+            )) => {
+                if let Err(e) = result {
+                    debug!("Ping failed for {}: {}", peer, e);
+                }
+            }
+
+            // Listener errors / close
+            SwarmEvent::ListenerError { listener_id, error } => {
+                warn!("Listener {:?} error: {}", listener_id, error);
+            }
+            SwarmEvent::ListenerClosed { listener_id, addresses, reason } => {
+                warn!(
+                    "Listener {:?} closed (addresses: {:?}, reason: {:?})",
+                    listener_id, addresses, reason
+                );
+            }
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                debug!("Outgoing connection error (peer {:?}): {}", peer_id, error);
+            }
+
+            _ => {}
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Gossip message dispatch
+    // -----------------------------------------------------------------------
+
+    fn handle_gossip_message(
+        &self,
+        message: &gossipsub::Message,
+        source: String,
+    ) {
+        // Resolve topic string from hash — we know all four topics
+        let topic_str = {
+            let h = &message.topic;
+            if      h == &gossipsub::IdentTopic::new(TOPIC_BLOCKS).hash()  { TOPIC_BLOCKS  }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_ENTRIES).hash() { TOPIC_ENTRIES }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_SEALS).hash()   { TOPIC_SEALS   }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_SYNC).hash()    { TOPIC_SYNC    }
+            else {
+                debug!("Message on unknown topic hash {:?}", h);
+                return;
+            }
+        };
+
+        let json: serde_json::Value = match serde_json::from_slice(&message.data) {
+            Ok(v)  => v,
+            Err(e) => {
+                warn!("Non-JSON gossip on {} from {}: {}", topic_str, source, e);
+                return;
+            }
+        };
+
+        match topic_str {
+            TOPIC_BLOCKS => {
+                // {"epoch": N, "data_b64": "..."}
+                let epoch = match json.get("epoch").and_then(|v| v.as_u64()) {
+                    Some(e) => e as u32,
+                    None    => { warn!("btcpc/blocks: missing 'epoch' field"); return; }
+                };
+                let data_b64 = match json.get("data_b64").and_then(|v| v.as_str()) {
+                    Some(s) => s,
+                    None    => { warn!("btcpc/blocks: missing 'data_b64' field"); return; }
+                };
+                let data = match B64.decode(data_b64) {
+                    Ok(b)  => b,
+                    Err(e) => { warn!("btcpc/blocks: base64 decode error: {}", e); return; }
+                };
+                debug!("Received block epoch={} ({} bytes) from {}", epoch, data.len(), source);
+                self.emit(NetworkEvent::Block { epoch, data });
+            }
+
+            TOPIC_ENTRIES => {
+                debug!("Received entry from {}", source);
+                self.emit(NetworkEvent::Entry { entry: json });
+            }
+
+            TOPIC_SEALS => {
+                debug!("Received epoch seal from {}", source);
+                self.emit(NetworkEvent::EpochSeal { seal: json });
+            }
+
+            TOPIC_SYNC => {
+                // {"type":"request","epoch":N} or {"type":"response","epoch":N,"data_b64":"..."}
+                match json.get("type").and_then(|v| v.as_str()) {
+                    Some("response") => {
+                        let epoch = match json.get("epoch").and_then(|v| v.as_u64()) {
+                            Some(e) => e as u32,
+                            None    => { warn!("btcpc/sync response: missing 'epoch'"); return; }
+                        };
+                        let data_b64 = match json.get("data_b64").and_then(|v| v.as_str()) {
+                            Some(s) => s,
+                            None    => { warn!("btcpc/sync response: missing 'data_b64'"); return; }
+                        };
+                        let data = match B64.decode(data_b64) {
+                            Ok(b)  => b,
+                            Err(e) => { warn!("btcpc/sync: base64 decode error: {}", e); return; }
+                        };
+                        debug!("Received sync response epoch={} from {}", epoch, source);
+                        self.emit(NetworkEvent::Block { epoch, data });
+                    }
+                    Some("request") => {
+                        // Peer wants a block; other tasks handle fulfilling it via Broadcast
+                        debug!(
+                            "Sync request epoch={:?} from {}",
+                            json.get("epoch"),
+                            source
+                        );
+                    }
+                    other => {
+                        warn!("btcpc/sync: unknown type {:?}", other);
+                    }
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // NetCmd handler
+    // -----------------------------------------------------------------------
+
+    fn handle_cmd(
+        &self,
+        cmd: NetCmd,
+        swarm: &mut libp2p::Swarm<BtcpcBehaviour>,
+        t_blocks:  &gossipsub::IdentTopic,
+        t_entries: &gossipsub::IdentTopic,
+        t_seals:   &gossipsub::IdentTopic,
+        t_sync:    &gossipsub::IdentTopic,
+    ) {
+        match cmd {
+            NetCmd::Broadcast { topic, data } => {
+                let ident_topic = match topic {
+                    TOPIC_BLOCKS  => t_blocks.clone(),
+                    TOPIC_ENTRIES => t_entries.clone(),
+                    TOPIC_SEALS   => t_seals.clone(),
+                    TOPIC_SYNC    => t_sync.clone(),
+                    other => {
+                        warn!("NetCmd::Broadcast: unknown topic '{}'", other);
+                        return;
+                    }
+                };
+                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(ident_topic, data) {
+                    warn!("Gossipsub publish on '{}' failed: {}", topic, e);
+                }
+            }
+
+            NetCmd::RequestBlock { epoch, peer: _ } => {
+                // Publish a sync request; any peer with that block will respond via btcpc/sync
+                let payload = match serde_json::to_vec(&serde_json::json!({
+                    "type": "request",
+                    "epoch": epoch,
+                })) {
+                    Ok(b)  => b,
+                    Err(e) => { warn!("RequestBlock serialize error: {}", e); return; }
+                };
+                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(t_sync.clone(), payload) {
+                    warn!("Gossipsub sync request publish failed: {}", e);
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helper: emit a NetworkEvent (best-effort — dropped if no receivers)
+    // -----------------------------------------------------------------------
+
+    fn emit(&self, event: NetworkEvent) {
+        // broadcast::Sender::send returns Err only if there are no receivers;
+        // that is not an error condition — silently discard.
+        let _ = self.event_tx.send(event);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Key management — load or create an ED25519 keypair from data_dir/p2p-key
+// ---------------------------------------------------------------------------
+
+/// Stored key format (JSON, restricted 0600 permissions).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredKey {
+    private_key_hex: String,
+    peer_id:         String,
+}
+
+fn load_or_create_keypair(data_dir: &std::path::Path) -> Result<libp2p::identity::Keypair> {
+    use libp2p::identity::{self, Keypair};
+
+    let path = data_dir.join("p2p-key");
+
+    if path.exists() {
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read keypair from {}", path.display()))?;
+        let stored: StoredKey = serde_json::from_str(&contents)
+            .with_context(|| "Failed to parse p2p-key JSON")?;
+        let bytes = hex::decode(&stored.private_key_hex)
+            .with_context(|| "Failed to hex-decode p2p-key")?;
+        let keypair = Keypair::ed25519_from_bytes(bytes)
+            .with_context(|| "Failed to restore ED25519 keypair")?;
+        info!(
+            peer_id = %keypair.public().to_peer_id(),
+            "Loaded existing P2P identity",
+        );
+        return Ok(keypair);
+    }
+
+    // First start — generate and persist
+    let keypair   = identity::Keypair::generate_ed25519();
+    let peer_id   = keypair.public().to_peer_id();
+
+    let private_bytes = keypair
+        .clone()
+        .try_into_ed25519()
+        .map_err(|_| anyhow::anyhow!("Not an ED25519 keypair"))?
+        .secret()
+        .as_ref()
+        .to_vec();
+
+    let stored = StoredKey {
+        private_key_hex: hex::encode(&private_bytes),
+        peer_id:         peer_id.to_string(),
+    };
+
+    fs::create_dir_all(data_dir)
+        .with_context(|| format!("Failed to create data_dir {}", data_dir.display()))?;
+
+    let json = serde_json::to_string_pretty(&stored)?;
+    fs::write(&path, &json)
+        .with_context(|| format!("Failed to write p2p-key to {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    }
+
+    info!(
+        peer_id = %peer_id,
+        path    = %path.display(),
+        "Generated new P2P identity",
+    );
+
+    // Re-derive from saved bytes for a consistent return
+    let keypair = Keypair::ed25519_from_bytes(private_bytes)
+        .with_context(|| "Failed to restore generated keypair")?;
+    Ok(keypair)
+}

@@ -1,0 +1,69 @@
+[workspace]
+members = [".", "crates/btcpc-types"]
+resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+license = "MIT OR Apache-2.0"
+
+[package]
+name = "btcpc-node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "BTCPC sovereign chain node — networking, consensus, state, API, and contract execution"
+
+[[bin]]
+name = "btcpc-node"
+path = "src/main.rs"
+
+[dependencies]
+btcpc-types = { path = "crates/btcpc-types" }
+btcpc-contract-runtime = { path = "../btcpc-contract-runtime" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# State
+rocksdb = { version = "0.22", default-features = false }
+
+# API
+axum = { version = "0.7", features = ["json"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+borsh = { version = "1", features = ["derive"] }
+
+# Crypto
+sha2 = "0.10"
+hex = "0.4"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+base64 = "0.22"
+
+# Networking
+libp2p = { version = "0.55", features = [
+    "tcp", "quic", "noise", "yamux",
+    "gossipsub", "kad", "identify", "ping", "macros", "tokio",
+] }
+
+# WASM contracts
+wasmtime = { version = "23" }
+
+# Utilities
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs-next = "2"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

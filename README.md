@@ -2,12 +2,25 @@
 
 AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed by real work.
 
+> **⚠ Node.js layer deprecated — clean genesis in progress.**
+> The canonical chain implementation is now `rust/btcpc-node` (single Rust binary).
+> `src/` is retained for reference only and will be removed after genesis cutover.
+> See [`rust/btcpc-node/`](rust/btcpc-node/) for the active codebase.
+
 ## Stack
 
-- Node.js — core chain, P2P, API, explorer
-- MongoDB — optional legacy cache (disabled by default; all canonical state is on-disk blocks)
+- **Rust** — `rust/btcpc-node` — single binary: libp2p networking, RocksDB state, clock consensus, miner, WASM contracts, Axum HTTP API
+- **Rust** — `rust/btcpc-contract-sdk` — BSP-20 / BSP-721 smart contract SDK
+- **Rust** — `rust/btcpc-contract-runtime` — wasmtime WASM execution sandbox
+- Node.js (`src/`) — **deprecated**, retained for reference only
 - Ollama — AI inference backend, model-agnostic
-- Rust — `btcpc-market` commerce service (port 7042), vendor operations sidecar
+
+## Rust Chain Core Wiring
+
+- `btcpc-chain` listens on `/tmp/btcpc-chain.sock` (override: `BTCPC_CHAIN_SOCK`).
+- Set `BTCPC_USE_RUST_CHAIN=true` to route `src/chain/blockStore.js` through Rust IPC (`block_write`, `block_read`, `block_prune`, latest checks).
+- Default behavior is safe fallback to file store if IPC is unavailable. Set `BTCPC_RUST_CHAIN_STRICT=true` to fail fast instead.
+- IPC timeout is configurable via `BTCPC_CHAIN_IPC_TIMEOUT_MS` (default `5000`).
 
 ## Install (one command)
 
