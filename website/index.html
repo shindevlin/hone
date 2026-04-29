@@ -10,7 +10,7 @@
     }
   </script>
   <title>BTCPC - Bitcoin Proof of Compute | btcpc.net</title>
-  <meta name="description" content="The blockchain where mining means doing real work: AI inference, data storage, sensor networks, cloud hosting. 42,000,000 BTCPC total supply.">
+  <meta name="description" content="The blockchain where mining means doing real work: AI inference, data storage, sensor networks, cloud hosting. Native protocols: Freeport marketplace and Verasens IoT. 42,000,000 BTCPC total supply.">
   <meta property="og:title" content="BTCPC - Bitcoin Proof of Compute">
   <meta property="og:description" content="Five ways to earn. Any device. No burn, all recycle. The digital labor market.">
   <meta property="og:url" content="https://btcpc.net">
@@ -475,6 +475,37 @@ node bin/btcpc-all</pre>
   fintech, weather services, security</pre>
     </div>
     <p class="section-text" style="margin-top:24px;">Supported devices: <strong>Nebra</strong>, <strong>Hyfix</strong>, <strong>Raspberry Pi</strong>, <strong>Flipper Zero</strong>, and any GPIO/I2C/SPI sensor. Bring what you have.</p>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Native Protocols -->
+  <section id="protocols">
+    <p class="section-label">11 &mdash; Native Protocols</p>
+    <h2 class="section-title">Built in from <span>genesis</span></h2>
+    <p class="section-text">Two protocols ship with the chain at block zero &mdash; not third-party applications, but first-class infrastructure baked into the BTCPC consensus layer.</p>
+    <div class="card-grid">
+      <div class="card">
+        <span class="card-icon">&#127978;</span>
+        <h3>Freeport</h3>
+        <p>Censorship-resistant marketplace. Vendors sell physical and digital goods. Digital products auto-deliver on purchase, encrypted to the buyer&rsquo;s public key &mdash; no manual fulfillment. No platform fees. Every order secured by on-chain escrow: payment releases only on buyer confirmation. Tor onion routing optional for vendor and buyer privacy.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128225;</span>
+        <h3>Verasens</h3>
+        <p>IoT sensor and device protocol. GNSS/GPS receivers, environmental sensors, and LoRa gateways all speak Verasens. Sensor readings are committed on-chain at each epoch. Devices earn BTCPC for uptime and data quality &mdash; the same demand-scaled reward pool as the IoT role. Any sensor that conforms to the Verasens spec earns from day one.</p>
+      </div>
+    </div>
+    <div class="feature-visual" style="margin-top:32px;">
+      <pre>Genesis protocols &mdash; active from block 0:
+
+  <span class="hl">Freeport</span>   marketplace  ← escrow, auto-delivery, no fees
+  <span class="hlg">Verasens</span>   IoT          ← sensor readings committed on-chain
+
+  Both are <span class="hl">sovereign-chain native</span>:
+    no bridge required · no third-party dependency
+    earnings flow through standard BTCPC reward pools</pre>
+    </div>
   </section>
 
   <hr class="divider">

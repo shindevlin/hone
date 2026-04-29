@@ -230,6 +230,185 @@ pub enum LedgerEntry {
         fee: Dreams,
     },
 
+    // ── Freeport: Commerce ────────────────────────────────────────────────────
+    /// Create or update a storefront. Signed by posting key.
+    StoreUpdate {
+        seller: AccountId,
+        store_id: String,
+        name: Option<String>,
+        description: Option<String>,
+        onion_address: Option<String>,
+        metadata: Option<serde_json::Value>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// List a new product. Signed by posting key.
+    ProductCreate {
+        seller: AccountId,
+        product_id: String,
+        store_id: String,
+        title: String,
+        price: Dreams,
+        token: String,
+        /// "physical" | "digital" | "service"
+        product_type: String,
+        /// CID of encrypted payload for digital products (fulfilled automatically on order).
+        delivery_cid: Option<String>,
+        stock: Option<u64>,
+        metadata: Option<serde_json::Value>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Update an existing product listing. Signed by posting key.
+    ProductUpdate {
+        seller: AccountId,
+        product_id: String,
+        price: Option<Dreams>,
+        stock: Option<u64>,
+        active: Option<bool>,
+        metadata: Option<serde_json::Value>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Buyer places an order; price locked in escrow via active key.
+    OrderPlace {
+        order_id: String,
+        buyer: AccountId,
+        seller: AccountId,
+        product_id: String,
+        quantity: u64,
+        total_price: Dreams,
+        token: String,
+        /// Buyer's public key for encrypting digital delivery.
+        buyer_pubkey: Option<String>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Seller fulfills order; digital delivery encrypted to buyer_pubkey. Signed by seller key.
+    OrderFulfill {
+        order_id: String,
+        seller: AccountId,
+        /// CID of delivery payload (encrypted to buyer's buyer key for digital products).
+        delivery_cid: Option<String>,
+        tracking: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Buyer or seller cancels order; escrow refunded to buyer.
+    OrderCancel {
+        order_id: String,
+        cancelled_by: AccountId,
+        reason: Option<String>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Buyer opens a dispute after receiving order.
+    OrderDispute {
+        order_id: String,
+        buyer: AccountId,
+        reason: String,
+        evidence_hash: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Protocol releases escrow to seller after fulfillment + timeout or buyer confirmation.
+    EscrowRelease {
+        order_id: String,
+        seller: AccountId,
+        amount: Dreams,
+        token: String,
+        epoch: Epoch,
+    },
+    /// Seller sets a time-limited flash sale price. Signed by posting key.
+    FlashSale {
+        seller: AccountId,
+        product_id: String,
+        sale_price: Dreams,
+        expires_epoch: Epoch,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    // ── Verasens: Sensors / IoT ───────────────────────────────────────────────
+    /// Register a sensor on-chain. Signed by owner's posting key.
+    SensorRegister {
+        sensor_id: String,
+        owner: AccountId,
+        sensor_type: String,
+        location: Option<String>,
+        metadata: Option<serde_json::Value>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Register a device-level signing key for a sensor. Signed by owner's posting key.
+    SensorKeyRegister {
+        sensor_id: String,
+        owner: AccountId,
+        device_pubkey: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Owner vouches for a sensor's data quality. Signed by posting key.
+    SensorVouch {
+        sensor_id: String,
+        voucher: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Batch commit of sensor readings. Signed by device key.
+    SensorDataCommit {
+        sensor_id: String,
+        owner: AccountId,
+        /// SHA-256 of the batch JSON.
+        batch_hash: String,
+        reading_count: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Register a hardware IoT device key. Signed by owner's posting key.
+    DeviceKeyRegister {
+        device_id: String,
+        owner: AccountId,
+        device_pubkey: String,
+        hardware_hash: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Device stakes yield to earn storage/sensor rewards.
+    DeviceYieldStake {
+        device_id: String,
+        owner: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Device unstakes yield.
+    DeviceYieldUnstake {
+        device_id: String,
+        owner: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// LoRa gateway heartbeat proving uptime.
+    GatewayHeartbeat {
+        gateway_id: String,
+        owner: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Storage node heartbeat proving availability.
+    StorageHeartbeat {
+        node_id: AccountId,
+        epoch: Epoch,
+        bytes_proven: u64,
+        signed_by: AccountId,
+    },
+
     // ── Genesis ───────────────────────────────────────────────────────────────
     GenesisAlloc {
         account: AccountId,
@@ -264,6 +443,24 @@ impl LedgerEntry {
             Self::InferenceJobCancel { epoch, .. } => *epoch,
             Self::ClockReward { epoch, .. } => *epoch,
             Self::BlobStore { epoch, .. } => *epoch,
+            Self::StoreUpdate { epoch, .. } => *epoch,
+            Self::ProductCreate { epoch, .. } => *epoch,
+            Self::ProductUpdate { epoch, .. } => *epoch,
+            Self::OrderPlace { epoch, .. } => *epoch,
+            Self::OrderFulfill { epoch, .. } => *epoch,
+            Self::OrderCancel { epoch, .. } => *epoch,
+            Self::OrderDispute { epoch, .. } => *epoch,
+            Self::EscrowRelease { epoch, .. } => *epoch,
+            Self::FlashSale { epoch, .. } => *epoch,
+            Self::SensorRegister { epoch, .. } => *epoch,
+            Self::SensorKeyRegister { epoch, .. } => *epoch,
+            Self::SensorVouch { epoch, .. } => *epoch,
+            Self::SensorDataCommit { epoch, .. } => *epoch,
+            Self::DeviceKeyRegister { epoch, .. } => *epoch,
+            Self::DeviceYieldStake { epoch, .. } => *epoch,
+            Self::DeviceYieldUnstake { epoch, .. } => *epoch,
+            Self::GatewayHeartbeat { epoch, .. } => *epoch,
+            Self::StorageHeartbeat { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
         }
     }

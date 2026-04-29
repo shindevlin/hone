@@ -20,6 +20,9 @@
 * [Execution Plan](EXECUTION_PLAN.md)
 * [Project State](PROJECT_STATE.md)
 * [Go Live Test Plan](GO_LIVE_TEST_PLAN.md)
+* **Protocols**
+* [Freeport Protocol](FREEPORT_PROTOCOL.md)
+* [Verasens Protocol](VERASENS_PROTOCOL.md)
 * [Whitepaper](BTCPC_WHITEPAPER.md)
 * [Hive L2 Token Architecture](HIVE_L2_TOKEN_ARCHITECTURE.md)
 * [L2 Architecture](L2_ARCHITECTURE.md)

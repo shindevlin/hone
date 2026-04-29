@@ -18,6 +18,12 @@
 - [[reports/RUST_PORT_MATRIX_DETERMINISTIC_CONTRACTS]] — module-by-module Rust portability matrix and deterministic smart-contract runtime blueprint
 - [[reports/RUST_CUTOVER_AUDIT_GATES]] — phase-by-phase pass/fail audit gates for Rust consensus cutover
 
+## Protocols
+
+- [[FREEPORT_PROTOCOL]] — Freeport native marketplace protocol: entry types, key roles, escrow, digital product delivery
+- [[FREEPORT_PROTOCOL_WHITEPAPER]] — full Freeport whitepaper (Shin Devlin, v3.1)
+- [[VERASENS_PROTOCOL]] — Verasens IoT sensor/device protocol: entry types, device key registration, reserved accounts
+
 ## Commerce
 
 - [[BTCPC_WHITEPAPER#Appendix M: Decentralized Commerce Layer]] — architecture, escrow mechanics, ledger entry types

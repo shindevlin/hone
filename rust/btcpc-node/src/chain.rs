@@ -141,6 +141,29 @@ impl Chain {
                 // Accepted, no balance mutations needed at base layer
             }
 
+            // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
+            LedgerEntry::StoreUpdate { .. }
+            | LedgerEntry::ProductCreate { .. }
+            | LedgerEntry::ProductUpdate { .. }
+            | LedgerEntry::OrderPlace { .. }
+            | LedgerEntry::OrderFulfill { .. }
+            | LedgerEntry::OrderCancel { .. }
+            | LedgerEntry::OrderDispute { .. }
+            | LedgerEntry::EscrowRelease { .. }
+            | LedgerEntry::FlashSale { .. }
+            // Verasens sensors — recorded on-chain, state in sidecar
+            | LedgerEntry::SensorRegister { .. }
+            | LedgerEntry::SensorKeyRegister { .. }
+            | LedgerEntry::SensorVouch { .. }
+            | LedgerEntry::SensorDataCommit { .. }
+            | LedgerEntry::DeviceKeyRegister { .. }
+            | LedgerEntry::DeviceYieldStake { .. }
+            | LedgerEntry::DeviceYieldUnstake { .. }
+            | LedgerEntry::GatewayHeartbeat { .. }
+            | LedgerEntry::StorageHeartbeat { .. } => {
+                // Recorded in the ledger; state is managed by protocol sidecars.
+            }
+
             // ── Inference marketplace ─────────────────────────────────────────
             LedgerEntry::InferenceJobPost { .. } => {
                 inference::apply_post(self, entry)?;

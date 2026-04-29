@@ -183,7 +183,27 @@ pub fn validate_and_apply(
         LedgerEntry::SensorReading { .. }
         | LedgerEntry::BlobStore { .. }
         | LedgerEntry::ContractDeploy { .. }
-        | LedgerEntry::ContractCall { .. } => {
+        | LedgerEntry::ContractCall { .. }
+        // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
+        | LedgerEntry::StoreUpdate { .. }
+        | LedgerEntry::ProductCreate { .. }
+        | LedgerEntry::ProductUpdate { .. }
+        | LedgerEntry::OrderPlace { .. }
+        | LedgerEntry::OrderFulfill { .. }
+        | LedgerEntry::OrderCancel { .. }
+        | LedgerEntry::OrderDispute { .. }
+        | LedgerEntry::EscrowRelease { .. }
+        | LedgerEntry::FlashSale { .. }
+        // Verasens sensors — recorded on-chain, state in sidecar
+        | LedgerEntry::SensorRegister { .. }
+        | LedgerEntry::SensorKeyRegister { .. }
+        | LedgerEntry::SensorVouch { .. }
+        | LedgerEntry::SensorDataCommit { .. }
+        | LedgerEntry::DeviceKeyRegister { .. }
+        | LedgerEntry::DeviceYieldStake { .. }
+        | LedgerEntry::DeviceYieldUnstake { .. }
+        | LedgerEntry::GatewayHeartbeat { .. }
+        | LedgerEntry::StorageHeartbeat { .. } => {
             chain.apply_entry(entry)?;
         }
 
