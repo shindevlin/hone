@@ -23,6 +23,7 @@
 * **Protocols**
 * [Freeport Protocol](FREEPORT_PROTOCOL.md)
 * [Verasens Protocol](VERASENS_PROTOCOL.md)
+* [LinkGit Protocol](LINKGIT_PROTOCOL.md)
 * [Whitepaper](BTCPC_WHITEPAPER.md)
 * [Hive L2 Token Architecture](HIVE_L2_TOKEN_ARCHITECTURE.md)
 * [L2 Architecture](L2_ARCHITECTURE.md)

@@ -67,6 +67,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inference/reputation/:node", get(get_inference_reputation))
         // ── Faucet (testnet only) ─────────────────────────────────────────
         .route("/api/faucet/claim", post(post_faucet_claim))
+        // ── LinkGit ───────────────────────────────────────────────────────
+        .route("/api/linkgit/repos/:owner", get(get_linkgit_repos))
+        .route("/api/linkgit/repo/:owner/:repo", get(get_linkgit_repo))
+        .route("/api/linkgit/repo/create", post(post_linkgit_repo_create))
+        .route("/api/linkgit/repo/ref/update", post(post_linkgit_ref_update))
+        .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
+        .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -912,6 +919,160 @@ async fn post_faucet_claim(
             "message": e.to_string(),
         }))),
     }
+}
+
+// ── LinkGit request bodies ────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct LinkGitRepoCreateBody {
+    repo_id: String,
+    name: String,
+    /// "public" | "private"
+    visibility: String,
+    hide_key: Option<String>,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkGitRefUpdateBody {
+    repo_id: String,
+    ref_name: String,
+    commit_hash: String,
+    prev_hash: Option<String>,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkGitAccessGrantBody {
+    repo_id: String,
+    grantee: String,
+    encrypted_key: String,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkGitAccessRevokeBody {
+    repo_id: String,
+    grantee: String,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+// ── LinkGit handlers ──────────────────────────────────────────────────────────
+
+/// GET /api/linkgit/repos/:owner
+/// Returns all repos owned by the given account.
+async fn get_linkgit_repos(
+    Path(owner): Path<String>,
+    State(s): State<AppState>,
+) -> Json<serde_json::Value> {
+    let repos: Vec<serde_json::Value> = s.chain.store.state_scan_prefix("linkgit:repo:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .filter(|r| r.get("owner").and_then(|o| o.as_str()) == Some(owner.as_str()))
+        .collect();
+    Json(serde_json::json!({ "owner": owner, "repos": repos }))
+}
+
+/// GET /api/linkgit/repo/:owner/:repo
+/// Returns repo info and refs. repo_id is stored as "{owner}/{repo}".
+async fn get_linkgit_repo(
+    Path((owner, repo)): Path<(String, String)>,
+    State(s): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let repo_id = format!("{}/{}", owner, repo);
+    let key = format!("linkgit:repo:{}", repo_id);
+    match s.chain.store.get_meta(&key) {
+        Some(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(data) => Ok(Json(data)),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        },
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// POST /api/linkgit/repo/create
+/// Body: { "repo_id", "name", "visibility", "hide_key"(opt), "signed_by", "signature" }
+async fn post_linkgit_repo_create(
+    State(s): State<AppState>,
+    Json(body): Json<LinkGitRepoCreateBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitRepoCreate {
+        repo_id: body.repo_id,
+        owner: body.signed_by.clone(),
+        name: body.name,
+        visibility: body.visibility,
+        hide_key: body.hide_key,
+        epoch,
+        signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/linkgit/repo/ref/update
+/// Body: { "repo_id", "ref_name", "commit_hash", "prev_hash"(opt), "signed_by", "signature" }
+async fn post_linkgit_ref_update(
+    State(s): State<AppState>,
+    Json(body): Json<LinkGitRefUpdateBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitRefUpdate {
+        repo_id: body.repo_id,
+        owner: body.signed_by.clone(),
+        ref_name: body.ref_name,
+        commit_hash: body.commit_hash,
+        prev_hash: body.prev_hash,
+        epoch,
+        signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/linkgit/repo/access/grant
+/// Body: { "repo_id", "grantee", "encrypted_key", "signed_by", "signature" }
+async fn post_linkgit_access_grant(
+    State(s): State<AppState>,
+    Json(body): Json<LinkGitAccessGrantBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitAccessGrant {
+        repo_id: body.repo_id,
+        grantor: body.signed_by.clone(),
+        grantee: body.grantee,
+        encrypted_key: body.encrypted_key,
+        epoch,
+        signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/linkgit/repo/access/revoke
+/// Body: { "repo_id", "grantee", "signed_by", "signature" }
+async fn post_linkgit_access_revoke(
+    State(s): State<AppState>,
+    Json(body): Json<LinkGitAccessRevokeBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitAccessRevoke {
+        repo_id: body.repo_id,
+        grantor: body.signed_by.clone(),
+        grantee: body.grantee,
+        epoch,
+        signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

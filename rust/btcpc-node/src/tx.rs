@@ -204,12 +204,13 @@ pub fn validate_and_apply(
         | LedgerEntry::DeviceYieldUnstake { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::StorageHeartbeat { .. }
-        // btcpc-git — recorded on-chain, object storage in btcpc-fs
-        | LedgerEntry::GitRepoCreate { .. }
-        | LedgerEntry::GitRefUpdate { .. }
-        | LedgerEntry::GitAccessGrant { .. }
-        | LedgerEntry::GitAccessRevoke { .. }
-        | LedgerEntry::GitPruneProof { .. } => {
+        // LinkGit — recorded on-chain, object storage in btcpc-fs
+        | LedgerEntry::LinkGitRepoCreate { .. }
+        | LedgerEntry::LinkGitRefUpdate { .. }
+        | LedgerEntry::LinkGitAccessGrant { .. }
+        | LedgerEntry::LinkGitAccessRevoke { .. }
+        | LedgerEntry::LinkGitPruneProof { .. }
+        | LedgerEntry::LinkGitStorageExtend { .. } => {
             chain.apply_entry(entry)?;
         }
 

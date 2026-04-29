@@ -23,6 +23,7 @@
 - [[FREEPORT_PROTOCOL]] — Freeport native marketplace protocol: entry types, key roles, escrow, digital product delivery
 - [[FREEPORT_PROTOCOL_WHITEPAPER]] — full Freeport whitepaper (Shin Devlin, v3.1)
 - [[VERASENS_PROTOCOL]] — Verasens IoT sensor/device protocol: entry types, device key registration, reserved accounts
+- [[LINKGIT_PROTOCOL]] — LinkGit decentralized git protocol: repos on btcpc-fs, on-chain refs, private repos via hide key encryption
 
 ## Commerce
 

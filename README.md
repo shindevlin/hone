@@ -135,6 +135,17 @@ Every device earns by doing useful work:
 
 Bigger stake = higher reward weight. More useful work = more earnings.
 
+## LinkGit
+
+Decentralized git on btcpc-fs. Repository objects (commits, trees, blobs) are stored as content-addressed blobs in btcpc-fs; branch and tag refs are recorded on-chain. Private repos are encrypted to the owner's hide key — no storage node can read the content without the per-repo symmetric key. Dead objects are pruned by default after each ref update; owners pay `LinkGitStorageExtend` to retain orphaned CIDs beyond the default prune window.
+
+```bash
+git remote add origin linkgit://shindevlin/btcpc
+git push origin main
+```
+
+See [docs/LINKGIT_PROTOCOL.md](docs/LINKGIT_PROTOCOL.md) for the full protocol reference.
+
 ## Commerce
 
 BTCPC Market is a sovereign, censorship-resistant marketplace for hardware, digital goods, and AI compute — built directly into the chain.

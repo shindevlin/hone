@@ -409,10 +409,10 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
-    // ── btcpc-git: Decentralized Git ─────────────────────────────────────────
+    // ── LinkGit: Decentralized Git ───────────────────────────────────────────
     /// Register a new git repository. If hide_key is set the repo is private;
     /// all objects are encrypted to that key before storage.
-    GitRepoCreate {
+    LinkGitRepoCreate {
         repo_id: String,
         owner: AccountId,
         name: String,
@@ -425,7 +425,7 @@ pub enum LedgerEntry {
     },
     /// Update a branch or tag ref. Triggers storage nodes to prune
     /// objects no longer reachable from any live ref in this repo.
-    GitRefUpdate {
+    LinkGitRefUpdate {
         repo_id: String,
         owner: AccountId,
         /// e.g. "refs/heads/main" or "refs/tags/v1.0"
@@ -439,7 +439,7 @@ pub enum LedgerEntry {
     },
     /// Grant read access to a private repo by sharing the repo's symmetric key
     /// encrypted to the grantee's hide key.
-    GitAccessGrant {
+    LinkGitAccessGrant {
         repo_id: String,
         grantor: AccountId,
         grantee: AccountId,
@@ -450,21 +450,34 @@ pub enum LedgerEntry {
     },
     /// Revoke a previously granted access. Storage nodes stop serving
     /// encrypted objects to the grantee.
-    GitAccessRevoke {
+    LinkGitAccessRevoke {
         repo_id: String,
         grantor: AccountId,
         grantee: AccountId,
         epoch: Epoch,
         signed_by: AccountId,
     },
-    /// Storage node declares it has pruned unreachable objects after a GitRefUpdate.
+    /// Storage node declares it has pruned unreachable objects after a LinkGitRefUpdate.
     /// Earns a small reward for confirmed GC work.
-    GitPruneProof {
+    LinkGitPruneProof {
         repo_id: String,
         node_id: AccountId,
         /// Merkle root of pruned CIDs.
         pruned_root: String,
         bytes_freed: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Owner pays to retain unreachable objects beyond default prune window.
+    /// Without this, storage nodes prune orphaned objects after a LinkGitRefUpdate.
+    LinkGitStorageExtend {
+        repo_id: String,
+        owner: AccountId,
+        /// CIDs to keep alive.
+        cids: Vec<String>,
+        /// Keep until this epoch.
+        keep_until_epoch: Epoch,
+        fee: Dreams,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -521,11 +534,12 @@ impl LedgerEntry {
             Self::DeviceYieldUnstake { epoch, .. } => *epoch,
             Self::GatewayHeartbeat { epoch, .. } => *epoch,
             Self::StorageHeartbeat { epoch, .. } => *epoch,
-            Self::GitRepoCreate { epoch, .. } => *epoch,
-            Self::GitRefUpdate { epoch, .. } => *epoch,
-            Self::GitAccessGrant { epoch, .. } => *epoch,
-            Self::GitAccessRevoke { epoch, .. } => *epoch,
-            Self::GitPruneProof { epoch, .. } => *epoch,
+            Self::LinkGitRepoCreate { epoch, .. } => *epoch,
+            Self::LinkGitRefUpdate { epoch, .. } => *epoch,
+            Self::LinkGitAccessGrant { epoch, .. } => *epoch,
+            Self::LinkGitAccessRevoke { epoch, .. } => *epoch,
+            Self::LinkGitPruneProof { epoch, .. } => *epoch,
+            Self::LinkGitStorageExtend { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
         }
     }

@@ -160,15 +160,46 @@ impl Chain {
             | LedgerEntry::DeviceYieldStake { .. }
             | LedgerEntry::DeviceYieldUnstake { .. }
             | LedgerEntry::GatewayHeartbeat { .. }
-            | LedgerEntry::StorageHeartbeat { .. }
-            // btcpc-git — recorded on-chain, object storage in btcpc-fs
-            | LedgerEntry::GitRepoCreate { .. }
-            | LedgerEntry::GitRefUpdate { .. }
-            | LedgerEntry::GitAccessGrant { .. }
-            | LedgerEntry::GitAccessRevoke { .. }
-            | LedgerEntry::GitPruneProof { .. } => {
+            | LedgerEntry::StorageHeartbeat { .. } => {
                 // Recorded in the ledger; state is managed by protocol sidecars.
             }
+
+            // ── LinkGit: core chain state (repo registry, refs, access grants) ──
+            LedgerEntry::LinkGitRepoCreate { repo_id, owner, name, visibility, hide_key, epoch, .. } => {
+                let repo = serde_json::json!({
+                    "repo_id": repo_id,
+                    "owner": owner,
+                    "name": name,
+                    "visibility": visibility,
+                    "hide_key": hide_key,
+                    "refs": {},
+                    "created_epoch": epoch,
+                });
+                self.store.set_meta(
+                    &format!("linkgit:repo:{}", repo_id),
+                    repo.to_string().as_bytes(),
+                )?;
+            }
+            LedgerEntry::LinkGitRefUpdate { repo_id, ref_name, commit_hash, .. } => {
+                let key = format!("linkgit:repo:{}", repo_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut repo) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        repo["refs"][ref_name] = serde_json::json!(commit_hash);
+                        self.store.set_meta(&key, repo.to_string().as_bytes())?;
+                    }
+                }
+            }
+            LedgerEntry::LinkGitAccessGrant { repo_id, grantee, encrypted_key, .. } => {
+                let key = format!("linkgit:access:{}:{}", repo_id, grantee);
+                self.store.set_meta(&key, encrypted_key.as_bytes())?;
+            }
+            LedgerEntry::LinkGitAccessRevoke { repo_id, grantee, .. } => {
+                let key = format!("linkgit:access:{}:{}", repo_id, grantee);
+                self.store.state_delete(&key)?;
+            }
+            // Recorded in ledger; no core state change needed
+            LedgerEntry::LinkGitPruneProof { .. }
+            | LedgerEntry::LinkGitStorageExtend { .. } => {}
 
             // ── Inference marketplace ─────────────────────────────────────────
             LedgerEntry::InferenceJobPost { .. } => {
