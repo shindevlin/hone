@@ -21,7 +21,7 @@
     "verasens":           { "keys": { "posting": "03281dd0f69f2392a60aa88e7cd199ef16d4efcff82c3de004a998185c74fbe41c" } },
     "freeport-escrow":    {},
     "verasens-registry":  {},
-    "linkgit":            {},
+    "linkgit":            { "keys": { "posting": "0322efc6558bd4d7622347c449892edbc2cda65a1d89c8e0d06e155a6469b3bafb" } },
     "linkgit-registry":   {}
   }
 }
