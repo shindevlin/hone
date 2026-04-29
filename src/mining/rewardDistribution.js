@@ -20,13 +20,19 @@
  *   Verifier     = verifications performed × VERIFIER_SCORE_PER_CHECK
  *   Clock        = node count × CLOCK_SCORE_PER_NODE [× scarcity]
  *   Storage host = bytes delivered × STORAGE_SCORE_PER_MB (proxy: count × STORAGE_SCORE_PER_HOST)
- *   IoT sensor   = readings delivered × SENSOR_SCORE_PER_READING (proxy: count × SENSOR_SCORE_PER_SENSOR)
+ *   IoT sensor   = SENSOR_BASE_SCORE + data_purchase_revenue × SENSOR_REVENUE_MULTIPLIER
+ *                  (liveness earns a tiny base; purchases are the primary signal)
  *   IoT gateway  = packets relayed × GATEWAY_SCORE_PER_PACKET (proxy: count × GATEWAY_SCORE_PER_GW)
  *   Service host = requests served × SERVICE_SCORE_PER_REQUEST (proxy: count × SERVICE_SCORE_PER_HOST)
  *
- * When a work map is provided for a role, scoring and within-pool splits
- * are proportional to actual work. When absent, falls back to the count-based
- * proxy with scarcity premium for small networks.
+ * Sensor design: data volume is not the signal — market demand is. A sensor
+ * that submits 10k readings nobody buys earns only its tiny liveness base.
+ * A sensor with 50 readings purchased by buyers earns primarily from revenue.
+ * Dead sensors (no readings in window) are excluded entirely.
+ *
+ * When a work map is provided for non-sensor roles, scoring and within-pool
+ * splits are proportional to actual work. When absent, falls back to the
+ * count-based proxy with scarcity premium.
  *
  * Clocks remain count-based — uptime IS their work.
  *
@@ -36,20 +42,21 @@
  *
  * Participants shape:
  *   {
- *     miners:       string[]
- *     minerWork:    { [account]: number }   // verified work_value per miner
- *     verifiers:    string[]
- *     verifierWork: { [account]: number }   // verifications performed (optional)
- *     clocks:       string[]
- *     storageHosts: string[]
- *     storageWork:  { [host]: number }      // bytes delivered (optional)
- *     sensors:      string[]
- *     sensorWork:   { [owner]: number }     // readings delivered (optional)
- *     gateways:     string[]
- *     gatewayWork:  { [owner]: number }     // packets relayed (optional)
- *     serviceHosts: string[]
- *     serviceWork:  { [host]: number }      // requests served (optional)
- *     testnets:     string[]
+ *     miners:        string[]
+ *     minerWork:     { [account]: number }   // verified work_value per miner
+ *     verifiers:     string[]
+ *     verifierWork:  { [account]: number }   // verifications performed (optional)
+ *     clocks:        string[]
+ *     storageHosts:  string[]
+ *     storageWork:   { [host]: number }      // bytes delivered (optional)
+ *     sensors:       string[]               // ACTIVE sensors — liveness pre-filtered
+ *     sensorWork:    { [owner]: number }     // readings delivered — liveness signal (optional)
+ *     sensorRevenue: { [owner]: number }     // BTCPC from data purchases — primary signal (optional)
+ *     gateways:      string[]
+ *     gatewayWork:   { [owner]: number }     // packets relayed (optional)
+ *     serviceHosts:  string[]
+ *     serviceWork:   { [host]: number }      // requests served (optional)
+ *     testnets:      string[]
  *   }
  */
 
@@ -66,7 +73,9 @@ const SERVICE_SCORE_PER_HOST  = 2500;
 // e.g. 10 verifications/epoch × 300 = 3000 ≈ VERIFIER_SCORE_PER_NODE
 const VERIFIER_SCORE_PER_CHECK   = 300;   // per verification performed
 const STORAGE_SCORE_PER_MB       = 2;     // per MB delivered (bytes / 1048576)
-const SENSOR_SCORE_PER_READING   = 50;    // per reading submitted
+const SENSOR_BASE_SCORE_PER_NODE      = 100;  // small liveness base per active sensor
+const SENSOR_REVENUE_MULTIPLIER       = 5000; // 1 BTCPC in sales → 5000 score points
+const SENSOR_SCORE_PER_READING        = 50;   // proxy only — used when no revenue data
 const GATEWAY_SCORE_PER_PACKET   = 15;    // per packet relayed
 const SERVICE_SCORE_PER_REQUEST  = 25;    // per request served
 
@@ -149,9 +158,10 @@ function distributeBlockReward(blockReward, participants) {
   const clocks       = participants.clocks       || [];
   const storageHosts = participants.storageHosts || [];
   const storageWork  = participants.storageWork  || null;
-  const sensors      = participants.sensors      || [];
-  const sensorWork   = participants.sensorWork   || null;
-  const gateways     = participants.gateways     || [];
+  const sensors       = participants.sensors       || [];
+  const sensorWork    = participants.sensorWork    || null;
+  const sensorRevenue = participants.sensorRevenue || null;
+  const gateways      = participants.gateways      || [];
   const gatewayWork  = participants.gatewayWork  || null;
   const serviceHosts = participants.serviceHosts || [];
   const serviceWork  = participants.serviceWork  || null;
@@ -175,7 +185,24 @@ function distributeBlockReward(blockReward, participants) {
   const verifierScore = roleScore(verifiers, verifierWork, VERIFIER_SCORE_PER_CHECK, VERIFIER_SCORE_PER_NODE, 1);
   const clockScore    = scarcityScore(clocks.length, CLOCK_SCORE_PER_NODE); // uptime = work
   const storageScore  = roleScore(storageHosts, storageWork, STORAGE_SCORE_PER_MB, STORAGE_SCORE_PER_HOST, 1048576);
-  const sensorRawScore = roleScore(sensors, sensorWork, SENSOR_SCORE_PER_READING, SENSOR_SCORE_PER_SENSOR, 1);
+  // Sensor hybrid scoring: base (liveness) + revenue (demand).
+  // Dead sensors already excluded by caller (sensors[] contains only active ones).
+  // If revenue data is available, use base + revenue × multiplier per sensor.
+  // Otherwise fall back to reading-count proxy (or flat count proxy).
+  var _sensorCombined = {};
+  if (sensors.length > 0) {
+    var _hasRevData = sensorRevenue && Object.keys(sensorRevenue).length > 0;
+    var _hasReadData = sensorWork && Object.keys(sensorWork).length > 0;
+    for (var _sn of sensors) {
+      if (_hasReadData && !(sensorWork[_sn] > 0)) continue; // skip dead sensors
+      var _rev = (_hasRevData ? (sensorRevenue[_sn] || 0) : 0);
+      _sensorCombined[_sn] = SENSOR_BASE_SCORE_PER_NODE + _rev * SENSOR_REVENUE_MULTIPLIER;
+    }
+  }
+  var _sensorCombinedTotal = Object.values(_sensorCombined).reduce((s, v) => s + v, 0);
+  const sensorRawScore = _sensorCombinedTotal > 0
+    ? _sensorCombinedTotal
+    : roleScore(sensors, sensorWork, SENSOR_SCORE_PER_READING, SENSOR_SCORE_PER_SENSOR, 1);
   const gatewayRawScore = roleScore(gateways, gatewayWork, GATEWAY_SCORE_PER_PACKET, GATEWAY_SCORE_PER_GW, 1);
   const sensorScore   = sensorRawScore + gatewayRawScore;
   const serviceScore  = roleScore(serviceHosts, serviceWork, SERVICE_SCORE_PER_REQUEST, SERVICE_SCORE_PER_HOST, 1);
@@ -236,7 +263,12 @@ function distributeBlockReward(blockReward, participants) {
     const gatewaySubPool = round(sensorPool * (gatewayRawScore / sensorScore));
 
     if (sensorRawScore > 0 && sensors.length > 0) {
-      splitPool(sensors, sensorWork, 1, sensorSubPool, 'iot_sensor', rewards);
+      // Use combined scores (base + revenue) for within-pool split when available
+      var _sensorSplitMap = Object.keys(_sensorCombined).length > 0 ? _sensorCombined : sensorWork;
+      var _activeSensors = Object.keys(_sensorCombined).length > 0
+        ? Object.keys(_sensorCombined)
+        : sensors;
+      splitPool(_activeSensors, _sensorSplitMap, 1, sensorSubPool, 'iot_sensor', rewards);
     }
     if (gatewayRawScore > 0 && gateways.length > 0) {
       splitPool(gateways, gatewayWork, 1, gatewaySubPool, 'iot_gateway', rewards);
@@ -268,6 +300,8 @@ module.exports = {
   SERVICE_SCORE_PER_HOST,
   VERIFIER_SCORE_PER_CHECK,
   STORAGE_SCORE_PER_MB,
+  SENSOR_BASE_SCORE_PER_NODE,
+  SENSOR_REVENUE_MULTIPLIER,
   SENSOR_SCORE_PER_READING,
   GATEWAY_SCORE_PER_PACKET,
   SERVICE_SCORE_PER_REQUEST,

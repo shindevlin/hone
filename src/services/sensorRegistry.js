@@ -53,6 +53,11 @@ var lastEpochBySensor = new Map(); // sensorId → epoch number
 // Same gateway submitting twice for the same epoch is still blocked as spam.
 var witnessedByGateway = new Map(); // sensorId+"|"+epoch → Set<gatewayId>
 
+// Revenue from data purchases: epoch → Map<owner, btcpc_earned>
+// Set by ledger.applyEntry when a DATA_BUY entry settles.
+var sensorRevenueByEpoch = new Map();
+var _currentSaleEpoch = -1;
+
 // Sensor divergence strikes: sensorId → { strikes, window_start_epoch }
 var divergenceStrikes = new Map();
 var DIVERGENCE_WINDOW_EPOCHS = 2880;  // 24h at 30s epochs
@@ -767,6 +772,45 @@ function getSensorWorkByEpoch(epochNumber) {
   return result;
 }
 
+/**
+ * Record BTCPC revenue earned by a sensor owner from a data purchase.
+ * Called by the ledger when a DATA_BUY entry settles.
+ *
+ * @param {string} owner — sensor owner account
+ * @param {number} revenueAmount — BTCPC amount paid by buyer
+ * @param {number} epoch — epoch the sale was settled in
+ */
+function recordSensorSale(owner, revenueAmount, epoch) {
+  if (!owner || !epoch || epoch < 0 || !(revenueAmount > 0)) return;
+  var ep = Math.floor(epoch);
+  if (!sensorRevenueByEpoch.has(ep)) sensorRevenueByEpoch.set(ep, new Map());
+  var rmap = sensorRevenueByEpoch.get(ep);
+  rmap.set(owner, (rmap.get(owner) || 0) + revenueAmount);
+  if (ep > _currentSaleEpoch) {
+    _currentSaleEpoch = ep;
+    for (var key of sensorRevenueByEpoch.keys()) {
+      if (key < ep - 20) sensorRevenueByEpoch.delete(key);
+    }
+  }
+}
+
+/**
+ * Get BTCPC revenue earned per sensor owner over a 3-epoch window.
+ * Returns { [owner]: btcpc_amount } — primary reward signal.
+ */
+function getSensorRevenueByEpoch(epochNumber) {
+  var WINDOW = 3;
+  var result = {};
+  for (var i = 0; i <= WINDOW; i++) {
+    var rmap = sensorRevenueByEpoch.get(epochNumber - i);
+    if (!rmap) continue;
+    for (var entry of rmap) {
+      result[entry[0]] = (result[entry[0]] || 0) + entry[1];
+    }
+  }
+  return result;
+}
+
 function resetForTests() {
   sensors.clear();
   readingsByEpoch.clear();
@@ -776,6 +820,7 @@ function resetForTests() {
   lastEpochBySensor.clear();
   divergenceStrikes.clear();
   witnessedByGateway.clear();
+  sensorRevenueByEpoch.clear();
 }
 
 module.exports = {
@@ -793,6 +838,8 @@ module.exports = {
   getFinalizedReading: getFinalizedReading,
   getSensorStats: getSensorStats,
   getSensorWorkByEpoch: getSensorWorkByEpoch,
+  recordSensorSale: recordSensorSale,
+  getSensorRevenueByEpoch: getSensorRevenueByEpoch,
   // Helpers
   parseSensorId: parseSensorId,
   _checkIdleTransition: _checkIdleTransition,

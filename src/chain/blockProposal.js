@@ -215,6 +215,7 @@ function buildProposal(options) {
 
   var activeSensors = [];
   var sensorWork = {};
+  var sensorRevenue = {};
   var activeGateways = [];
   var gatewayWork = {};
   try {
@@ -226,6 +227,9 @@ function buildProposal(options) {
     activeSensors = Array.from(new Set(activeSensors));
     if (sr.getSensorWorkByEpoch) {
       sensorWork = sr.getSensorWorkByEpoch(epochNumber);
+    }
+    if (sr.getSensorRevenueByEpoch) {
+      sensorRevenue = sr.getSensorRevenueByEpoch(epochNumber);
     }
 
     var gwReg = require("../services/loraGatewayRegistry");
@@ -310,7 +314,17 @@ function buildProposal(options) {
   var clockScore    = scarcityScore(activeClocks.length, CLOCK_SCORE_PER_NODE);
   var verifierScore = _roleScore(activeVerifiers, verifierWork, VERIFIER_SCORE_PER_CHECK, VERIFIER_SCORE_PER_NODE, 1);
   var storageScore  = _roleScore(activeStorageHosts, storageWork, STORAGE_SCORE_PER_MB, STORAGE_SCORE_PER_HOST, 1048576);
-  var sensorRawScore  = _roleScore(activeSensors,  sensorWork,  SENSOR_SCORE_PER_READING, SENSOR_SCORE_PER_SENSOR, 1);
+  // Sensor hybrid score: base (liveness) + revenue (demand) per active sensor
+  var _sensorHasRevenue = Object.keys(sensorRevenue).length > 0;
+  var _sensorHasWork    = Object.keys(sensorWork).length > 0;
+  var _sensorBaseTotal  = 0;
+  for (var _sni of activeSensors) {
+    if (_sensorHasWork && !(sensorWork[_sni] > 0)) continue; // skip dead sensors
+    _sensorBaseTotal += 100 + ((_sensorHasRevenue ? (sensorRevenue[_sni] || 0) : 0) * 5000);
+  }
+  var sensorRawScore  = _sensorBaseTotal > 0
+    ? _sensorBaseTotal
+    : _roleScore(activeSensors, sensorWork, SENSOR_SCORE_PER_READING, SENSOR_SCORE_PER_SENSOR, 1);
   var gatewayRawScore = _roleScore(activeGateways, gatewayWork, GATEWAY_SCORE_PER_PACKET, GATEWAY_SCORE_PER_GW,    1);
   var sensorScore   = sensorRawScore + gatewayRawScore;
   var serviceScore  = _roleScore(activeServiceHosts, serviceWork, SERVICE_SCORE_PER_REQUEST, SERVICE_SCORE_PER_HOST, 1);
@@ -402,7 +416,15 @@ function buildProposal(options) {
       var gatewaySubPool = roundAmount(iotPool * (gatewayRawScore / sensorScore));
 
       if (sensorRawScore > 0 && activeSensors.length > 0) {
-        _splitPool(activeSensors, sensorWork, sensorSubPool, "iot_sensor");
+        // Build combined score map for within-pool split (base + revenue × multiplier)
+        var _snCombined = {};
+        for (var _sni2 of activeSensors) {
+          if (_sensorHasWork && !(sensorWork[_sni2] > 0)) continue;
+          _snCombined[_sni2] = 100 + ((_sensorHasRevenue ? (sensorRevenue[_sni2] || 0) : 0) * 5000);
+        }
+        var _activeSn = Object.keys(_snCombined).length > 0 ? Object.keys(_snCombined) : activeSensors;
+        var _snMap    = Object.keys(_snCombined).length > 0 ? _snCombined : sensorWork;
+        _splitPool(_activeSn, _snMap, sensorSubPool, "iot_sensor");
       }
       if (gatewayRawScore > 0 && activeGateways.length > 0) {
         _splitPool(activeGateways, gatewayWork, gatewaySubPool, "iot_gateway");
