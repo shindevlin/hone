@@ -10,9 +10,9 @@
 //! empty list so the node starts regardless.
 //!
 //! # Hive setup
-//! Create a Hive account named `btcpc-nodes`.  Set its `json_metadata` to:
-//!   {"btcpc_peers": ["/dns4/node1.btcpc.net/tcp/6942", ...]}
-//! Update it whenever the node list changes (free transaction on Hive).
+//! Use the @btcpc account.  Set its `posting_json_metadata` to:
+//!   {"btcpc_peers": [...mainnet...], "btcpc_satoshi_peers": [...testnet...]}
+//! Run scripts/hive-register-peers.py to publish or update peer lists.
 //!
 //! # TON setup (future)
 //! Deploy a contract with a `get_peers()` get-method that returns a bytes slice
@@ -58,8 +58,10 @@ async fn fetch_hive_peers(client: &Client, chain_id: &str) -> Result<Vec<String>
         .json::<serde_json::Value>()
         .await?;
 
+    // posting_json_metadata is writable with a posting key (account_update2).
+    // json_metadata requires the active key — we use posting for the peer registry.
     let peers = resp
-        .pointer("/result/0/json_metadata")
+        .pointer("/result/0/posting_json_metadata")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
