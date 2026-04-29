@@ -12,7 +12,6 @@ set -euo pipefail
 REPO="https://github.com/shindevlin/btcpc.git"
 INSTALL_DIR="/opt/btcpc"
 BINARY="/usr/local/bin/btcpc-node"
-SERVICE_SRC="$INSTALL_DIR/rust/btcpc-node/btcpc-node.service"
 
 echo "==> Installing BTCPC node"
 
@@ -48,7 +47,8 @@ mkdir -p /var/lib/btcpc
 id btcpc &>/dev/null || useradd --system --no-create-home --home /var/lib/btcpc btcpc
 chown btcpc:btcpc /var/lib/btcpc
 
-# ── Auto-update timer ─────────────────────────────────────────────────────────
+# ── Systemd units ─────────────────────────────────────────────────────────────
+cp "$INSTALL_DIR/scripts/btcpc-node.service"   /etc/systemd/system/
 cp "$INSTALL_DIR/scripts/btcpc-update.service" /etc/systemd/system/
 cp "$INSTALL_DIR/scripts/btcpc-update.timer"   /etc/systemd/system/
 systemctl daemon-reload
