@@ -219,9 +219,10 @@ impl Network {
         //           after discovery so they're all handled in one unified pass).
 
         // Layer 3: Hive + TON registry (10s timeout — best effort).
+        let chain_id = self.config.chain_id.clone();
         let discovered = tokio::time::timeout(
             Duration::from_secs(10),
-            discovery::fetch_all_peers(),
+            discovery::fetch_all_peers(&chain_id),
         )
         .await
         .unwrap_or_default();

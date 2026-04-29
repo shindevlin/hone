@@ -80,6 +80,17 @@ async fn main() -> Result<()> {
         }
     });
 
+    // ── Hive self-announce (best-effort, fire-and-forget) ─────────────────────
+    {
+        let chain_id = cfg.chain_id.clone();
+        let node_id = cfg.node_id.clone();
+        tokio::spawn(async move {
+            // Small delay so the node is fully up before announcing.
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            discovery::announce_to_hive(&chain_id, &node_id).await;
+        });
+    }
+
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
     {
