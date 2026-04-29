@@ -61,8 +61,14 @@ impl Store {
     pub fn latest_epoch(&self) -> Option<u64> {
         let cf = self.db.cf_handle(CF_BLOCKS)?;
         let mut iter = self.db.iterator_cf(&cf, IteratorMode::End);
-        let (k, _) = iter.next()?.ok()?;
-        Some(u64::from_be_bytes(k[..8].try_into().ok()?))
+        // Skip any keys that aren't 8 bytes — leftover from old format.
+        for item in iter.by_ref() {
+            let Ok((k, _)) = item else { continue };
+            if k.len() == 8 {
+                return Some(u64::from_be_bytes(k[..8].try_into().unwrap()));
+            }
+        }
+        None
     }
 
     pub fn write_finality(&self, epoch: u64, data: &[u8]) -> Result<()> {
@@ -79,8 +85,13 @@ impl Store {
     pub fn latest_finality(&self) -> Option<u64> {
         let cf = self.db.cf_handle(CF_FINALITY)?;
         let mut iter = self.db.iterator_cf(&cf, IteratorMode::End);
-        let (k, _) = iter.next()?.ok()?;
-        Some(u64::from_be_bytes(k[..8].try_into().ok()?))
+        for item in iter.by_ref() {
+            let Ok((k, _)) = item else { continue };
+            if k.len() == 8 {
+                return Some(u64::from_be_bytes(k[..8].try_into().unwrap()));
+            }
+        }
+        None
     }
 
     // ── Accounts ─────────────────────────────────────────────────────────────

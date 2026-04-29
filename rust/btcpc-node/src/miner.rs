@@ -7,10 +7,11 @@ use sha2::{Sha256, Digest};
 use tracing::{info, warn};
 use btcpc_types::{
     Block, BlockHeader, LedgerEntry, block_reward_at, epoch_duration_ms,
-    era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
+    era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM, EPOCH_MS,
 };
 
 use crate::chain::Chain;
+use crate::utils::now_ms;
 
 /// Block reward for `epoch` — delegates to the emission schedule.
 /// Re-exported here for call-site convenience; the canonical implementation
@@ -19,8 +20,17 @@ pub fn block_reward(epoch: u64) -> u64 {
     block_reward_at(epoch)
 }
 
-pub async fn run_miner(chain: Arc<Chain>, account: String) {
+pub async fn run_miner(chain: Arc<Chain>, account: String, genesis_ts: u64) {
     info!("miner started: account={}", account);
+
+    // Wait until genesis time before producing any blocks.
+    let now = now_ms();
+    if genesis_ts > now {
+        let wait = genesis_ts - now;
+        info!("miner waiting {}s for genesis", wait / 1000);
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+    }
+
     // Base on actual stored blocks, not the in-memory epoch counter (which only
     // advances via EpochSeal).  This prevents the inflation bug where current_epoch
     // stays 0 and the miner keeps overwriting epoch 1.
@@ -29,8 +39,8 @@ pub async fn run_miner(chain: Arc<Chain>, account: String) {
     loop {
         let next_epoch = last_produced + 1;
 
-        // Wait one epoch duration before producing the next block.
-        tokio::time::sleep(wait_for_next_epoch(next_epoch)).await;
+        // Sleep until the wall-clock boundary for next_epoch.
+        tokio::time::sleep(wait_for_next_epoch(next_epoch, genesis_ts)).await;
 
         // Skip if another process already produced this block (e.g. sync filled it in).
         if chain.store.has_block(next_epoch) {
@@ -130,9 +140,17 @@ fn compute_work(prev_hash: [u8; 32], epoch: u64) -> u64 {
     leading_zeros
 }
 
-/// Sleep duration from "now" until the next epoch boundary.
-/// Uses `epoch_duration_ms` so the wait scales correctly with era.
-fn wait_for_next_epoch(next_epoch: u64) -> Duration {
-    Duration::from_millis(epoch_duration_ms(next_epoch))
+/// Sleep duration from now until the wall-clock start of `next_epoch`.
+/// Epochs are numbered relative to genesis_ts; each lasts epoch_duration_ms(epoch).
+fn wait_for_next_epoch(next_epoch: u64, genesis_ts: u64) -> Duration {
+    // For simplicity use era-0 epoch duration for timing. Halving eras are very
+    // long (years), so this is accurate for any foreseeable use.
+    let epoch_start_ms = genesis_ts + next_epoch * EPOCH_MS;
+    let now = now_ms();
+    if epoch_start_ms > now {
+        Duration::from_millis(epoch_start_ms - now)
+    } else {
+        Duration::ZERO
+    }
 }
 

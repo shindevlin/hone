@@ -2,11 +2,9 @@
 
 AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed by real work.
 
-> **🚫 PULL ONLY — DO NOT START THE NODE YET.**
-> Genesis has not launched. The network has no agreed start time.
-> Running the node now will produce a chain that cannot sync with anyone else.
-> **Wait for a README update that sets `BTCPC_GENESIS_TIMESTAMP` before starting.**
-> Pull and build freely — just don't `systemctl enable --now btcpc-node` until then.
+> **Genesis: 12:00 AM May 1, 2026 (Ireland / IST) — `BTCPC_GENESIS_TIMESTAMP=1777590000000`**
+> Install now, fill in your service file, and be ready. The network goes live at midnight Ireland time.
+> See [Install a node](#install-a-node) below.
 
 > **⚠ Node.js layer deprecated — clean genesis in progress.**
 > The canonical chain implementation is now `rust/btcpc-node` (single Rust binary).

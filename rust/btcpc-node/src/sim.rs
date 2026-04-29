@@ -8,11 +8,11 @@ use btcpc_types::{LedgerEntry, NATIVE_TOKEN};
 use crate::chain::Chain;
 
 const SIM_ACCOUNTS: &[&str] = &[
-    "satoshi-sim-1",
-    "satoshi-sim-2",
-    "satoshi-sim-3",
-    "satoshi-sim-4",
-    "satoshi-sim-5",
+    "shindevlin",
+    "natoshisakamoto",
+    "josh",
+    "nsfwotica",
+    "bullship",
 ];
 
 /// 10,000 BTCPC per sim account — enough for years of activity.

@@ -135,14 +135,16 @@ async fn main() -> Result<()> {
         let clock_ref = clock.clone();
         let cmd_tx = net_handle.cmd_tx.clone();
         let node_id_c = cfg.node_id.clone();
+        // Epoch is relative to genesis, not Unix epoch.
+        // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
+        let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         tokio::spawn(async move {
             let mut last_sent: u64 = 0;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 let now = now_ms();
-                // Use era-0 epoch duration for the clock's epoch counter
-                // (clock tracks real time; epoch durations are irrelevant here).
-                let epoch = now / btcpc_types::EPOCH_MS;
+                let elapsed = now.saturating_sub(genesis_ts);
+                let epoch = elapsed / btcpc_types::EPOCH_MS;
                 if epoch > last_sent {
                     last_sent = epoch;
                     let seal_hash = {
@@ -192,8 +194,9 @@ async fn main() -> Result<()> {
     if cfg.is_miner {
         let chain_ref = chain.clone();
         let account = cfg.account.clone();
+        let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         tokio::spawn(async move {
-            miner::run_miner(chain_ref, account).await;
+            miner::run_miner(chain_ref, account, genesis_ts).await;
         });
     }
 
