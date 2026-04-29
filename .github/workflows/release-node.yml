@@ -1,0 +1,35 @@
+name: Release Node Binary
+
+on:
+  push:
+    tags:
+      - 'node-v*'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/btcpc-node/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/btcpc-node/Cargo.lock') }}
+
+      - name: Build release binary
+        run: |
+          cd rust/btcpc-node
+          cargo build --release
+          cp target/release/btcpc-node ../../btcpc-node-linux-x86_64
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: btcpc-node-linux-x86_64
