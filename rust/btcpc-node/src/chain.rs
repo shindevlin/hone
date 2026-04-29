@@ -49,14 +49,14 @@ impl Chain {
                 info!("genesis alloc: {} {} → {}", amount, token, account);
             }
 
-            LedgerEntry::AccountCreate { account, public_key, epoch } => {
+            LedgerEntry::AccountCreate { account, keys, epoch } => {
                 if self.store.get_account(account)?.is_some() {
                     return Ok(()); // idempotent
                 }
                 let state = serde_json::json!({
                     "account_id": account,
                     "created_epoch": epoch,
-                    "public_key": public_key,
+                    "keys": keys,
                     "nonce": 0,
                     "stake": 0,
                 });
@@ -121,14 +121,17 @@ impl Chain {
                 self.store.set_epoch_meta(*epoch, &meta)?;
             }
 
-            LedgerEntry::AccountUpdateKey { account, new_public_key, epoch, .. } => {
+            LedgerEntry::AccountUpdateKey { account, role, new_public_key, epoch, .. } => {
                 // Create the account if it doesn't exist yet (first-time key registration).
                 self.ensure_account(account, *epoch)?;
                 let mut state = self.store.get_account(account)?
                     .unwrap_or_else(|| serde_json::json!({ "nonce": 0 }));
-                state["public_key"] = serde_json::json!(new_public_key);
+                if state.get("keys").is_none() || !state["keys"].is_object() {
+                    state["keys"] = serde_json::json!({});
+                }
+                state["keys"][role] = serde_json::json!(new_public_key);
                 self.store.set_account(account, &state)?;
-                info!("key registered for account '{}'", account);
+                info!("key '{}' registered for account '{}'", role, account);
             }
 
             LedgerEntry::SensorReading { .. }

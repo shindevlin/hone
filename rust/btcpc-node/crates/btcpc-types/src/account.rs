@@ -12,7 +12,7 @@ pub type Epoch = u64;
 pub struct AccountState {
     pub account_id: AccountId,
     pub created_epoch: Epoch,
-    pub public_key: Option<String>,
+    pub keys: std::collections::HashMap<String, String>,
     pub nonce: u64,
     pub stake: Dreams,
     pub delegated_to: Option<AccountId>,

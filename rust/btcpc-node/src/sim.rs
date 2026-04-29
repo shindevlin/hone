@@ -37,7 +37,7 @@ fn seed_accounts(chain: &Chain) {
         }
         let _ = chain.apply_entry(&LedgerEntry::AccountCreate {
             account: account.to_string(),
-            public_key: None,
+            keys: Default::default(),
             epoch: 0,
         });
         let _ = chain.apply_entry(&LedgerEntry::GenesisAlloc {

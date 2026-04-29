@@ -10,11 +10,12 @@ pub enum LedgerEntry {
     // ── Account ──────────────────────────────────────────────────────────────
     AccountCreate {
         account: AccountId,
-        public_key: Option<String>,
+        keys: std::collections::HashMap<String, String>,  // role -> compressed pubkey hex
         epoch: Epoch,
     },
     AccountUpdateKey {
         account: AccountId,
+        role: String,  // "owner" | "active" | "posting" | "memo" | "buyer" | "seller"
         new_public_key: String,
         epoch: Epoch,
         signed_by: AccountId,

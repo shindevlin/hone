@@ -3,11 +3,11 @@
 //! Reads genesis.json if present:
 //! {
 //!   "accounts": {
-//!     "alice": { "public_key": "02abc...", "balance": 0 },
-//!     "bob":   {}
+//!     "alice": { "keys": { "posting": "02abc..." }, "balance": 0 },
+//!     "bob":   { "public_key": "02abc..." }  // legacy: treated as posting key
 //!   }
 //! }
-//! public_key: existing secp256k1 posting key (hex). Omit to leave unset.
+//! keys: role->pubkey map. public_key (legacy) is treated as the posting key.
 //! balance: dreams (1 BTCPC = 10_000_000_000). Omit or 0 for no allocation.
 
 use std::path::Path;
@@ -40,23 +40,32 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
 
             if let Some(accounts) = cfg.get("accounts").and_then(|v| v.as_object()) {
                 for (account, val) in accounts {
-                    let (public_key, dreams) = if val.is_object() {
-                        let pk = val.get("public_key")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.is_empty())
-                            .map(|s| s.to_string());
+                    let (keys, dreams) = if val.is_object() {
+                        // Support new "keys" map or legacy "public_key" as shorthand for posting key.
+                        let mut km: std::collections::HashMap<String, String> = val
+                            .get("keys")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+                        if km.is_empty() {
+                            if let Some(pk) = val.get("public_key")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                            {
+                                km.insert("posting".to_string(), pk.to_string());
+                            }
+                        }
                         let bal = val.get("balance").and_then(|v| v.as_u64()).unwrap_or(0);
-                        (pk, bal)
+                        (km, bal)
                     } else {
                         let dreams = val.as_u64().ok_or_else(|| anyhow::anyhow!(
                             "genesis: account '{}' must be an object or integer", account
                         ))?;
-                        (None, dreams)
+                        (std::collections::HashMap::new(), dreams)
                     };
 
                     entries.push(LedgerEntry::AccountCreate {
                         account: account.clone(),
-                        public_key,
+                        keys,
                         epoch: 0,
                     });
                     if dreams > 0 {

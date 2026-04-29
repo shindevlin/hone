@@ -62,7 +62,7 @@ pub fn validate_and_apply(
             // Account must have a registered public key — no keyless spending.
             require_key(chain, from)?;
             check_nonce(chain, from, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let bal = chain.get_balance(from, token);
             if bal < *amount {
                 bail!(
@@ -88,7 +88,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, account)?;
             check_nonce(chain, account, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let bal = chain.get_balance(account, NATIVE_TOKEN);
             if bal < *amount {
                 bail!(
@@ -112,7 +112,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, account)?;
             check_nonce(chain, account, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let staked = chain.get_stake(account);
             if staked < *amount {
                 bail!(
@@ -149,25 +149,31 @@ pub fn validate_and_apply(
                 );
             }
             let effective_sig = sig_hex.or(embedded_sig.as_deref());
-            check_signature(chain, node_id, entry, effective_sig)?;
+            check_signature(chain, node_id, entry, effective_sig, "posting")?;
             chain.apply_entry(entry)?;
         }
 
         // ── AccountUpdateKey ──────────────────────────────────────────────────
         // The account must sign its own key update.  If no key is registered yet,
         // the first key can be set without a signature (bootstrap flow).
-        LedgerEntry::AccountUpdateKey { account, signed_by, .. } => {
+        LedgerEntry::AccountUpdateKey { account, role: _, signed_by, .. } => {
             if signed_by != account {
                 bail!("signed_by '{}' must equal account '{}'", signed_by, account);
             }
-            // If a key is already registered, the update must be signed by it.
             if let Ok(Some(state)) = chain.store.get_account(account) {
-                let has_key = state.get("public_key")
+                // Prefer owner key for authorization; fall back to posting.
+                let auth_key = state.get("keys")
+                    .and_then(|v| v.get("owner"))
                     .and_then(|v| v.as_str())
-                    .map(|k| !k.is_empty())
-                    .unwrap_or(false);
-                if has_key {
-                    check_signature(chain, account, entry, sig_hex)?;
+                    .filter(|k| !k.is_empty())
+                    .or_else(|| {
+                        state.get("keys")
+                            .and_then(|v| v.get("posting"))
+                            .and_then(|v| v.as_str())
+                            .filter(|k| !k.is_empty())
+                    });
+                if auth_key.is_some() {
+                    check_signature(chain, account, entry, sig_hex, "owner")?;
                 }
             }
             chain.apply_entry(entry)?;
@@ -189,7 +195,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, requester)?;
             check_nonce(chain, requester, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, requester)?;
         }
@@ -201,7 +207,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, bidder)?;
             check_nonce(chain, bidder, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, bidder)?;
         }
@@ -211,7 +217,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must equal worker");
             }
             require_key(chain, worker)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
 
@@ -221,7 +227,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must equal verifier");
             }
             require_key(chain, verifier)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
 
@@ -233,7 +239,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, claimant)?;
             check_nonce(chain, claimant, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, claimant)?;
         }
@@ -244,7 +250,7 @@ pub fn validate_and_apply(
                 bail!("signed_by must equal reviewer");
             }
             require_key(chain, reviewer)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
 
@@ -255,7 +261,7 @@ pub fn validate_and_apply(
             }
             require_key(chain, cancelled_by)?;
             check_nonce(chain, cancelled_by, *nonce)?;
-            check_signature(chain, signed_by, entry, sig_hex)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, cancelled_by)?;
         }
@@ -306,11 +312,11 @@ pub fn check_sig_raw(
     sig_hex: Option<&str>,
 ) -> Result<()> {
     let pubkey_hex = match chain.store.get_account(account)? {
-        Some(state) => match state.get("public_key").and_then(|v| v.as_str()) {
+        Some(state) => match state.get("keys").and_then(|v| v.get("posting")).and_then(|v| v.as_str()) {
             Some(pk) if !pk.is_empty() => pk.to_owned(),
-            // Account exists but has no key — contract deploy/call requires a key.
+            // Account exists but has no posting key — contract deploy/call requires a key.
             _ => bail!(
-                "account '{}' has no public key registered — submit AccountUpdateKey first",
+                "account '{}' has no posting key registered — submit AccountUpdateKey first",
                 account
             ),
         },
@@ -322,10 +328,10 @@ pub fn check_sig_raw(
         .ok_or_else(|| anyhow::anyhow!("signature required for account '{}'", account))?;
 
     let pk_bytes = hex::decode(&pubkey_hex)
-        .map_err(|_| anyhow::anyhow!("stored public_key for '{}' is not valid hex", account))?;
+        .map_err(|_| anyhow::anyhow!("stored posting key for '{}' is not valid hex", account))?;
     let pk_array: [u8; 32] = pk_bytes
         .try_into()
-        .map_err(|_| anyhow::anyhow!("stored public_key must be 32 bytes"))?;
+        .map_err(|_| anyhow::anyhow!("stored posting key must be 32 bytes"))?;
     let verifying_key = VerifyingKey::from_bytes(&pk_array)
         .map_err(|e| anyhow::anyhow!("invalid ed25519 public key: {}", e))?;
 
@@ -371,18 +377,19 @@ fn check_nonce(chain: &Chain, account: &str, submitted: u64) -> Result<()> {
     Ok(())
 }
 
-/// Reject spend attempts from accounts that exist but have no registered key.
-/// An account without a key is watch-only; no signature can be verified.
+/// Reject spend attempts from accounts that exist but have no registered posting key.
+/// An account without a posting key is watch-only; no signature can be verified.
 fn require_key(chain: &Chain, account: &str) -> Result<()> {
     if let Ok(Some(state)) = chain.store.get_account(account) {
         let has_key = state
-            .get("public_key")
+            .get("keys")
+            .and_then(|v| v.get("posting"))
             .and_then(|v| v.as_str())
             .map(|k| !k.is_empty())
             .unwrap_or(false);
         if !has_key {
             bail!(
-                "account '{}' has no public key registered — submit AccountUpdateKey first",
+                "account '{}' has no posting key registered — submit AccountUpdateKey first",
                 account
             );
         }
@@ -402,21 +409,46 @@ fn require_key(chain: &Chain, account: &str) -> Result<()> {
 /// | Transfer       | type, from, to, amount, token, nonce                   |
 /// | Stake          | type, account, amount, nonce                           |
 /// | Unstake        | type, account, amount, nonce                           |
-/// | AccountUpdateKey | type, account, new_public_key                        |
+/// | AccountUpdateKey | type, account, role, new_public_key                  |
 /// | EpochSeal      | full entry JSON (seal is internal, not client-signed)  |
 ///
-/// Returns `Ok` when the account has no registered key (new-account grace period).
+/// `role` selects which key from the account's `keys` map to verify against.
+/// Returns `Ok` when the account has no registered key for the role (grace period).
 fn check_signature(
     chain: &Chain,
     signed_by: &str,
     entry: &LedgerEntry,
     sig_hex: Option<&str>,
+    role: &str,
 ) -> Result<()> {
     let pubkey_hex = match chain.store.get_account(signed_by)? {
-        Some(state) => match state.get("public_key").and_then(|v| v.as_str()) {
-            Some(pk) if !pk.is_empty() => pk.to_owned(),
-            _ => return Ok(()), // key not set yet — skip
-        },
+        Some(state) => {
+            // For AccountUpdateKey bootstrap: prefer owner, fall back to posting.
+            let key_val = if role == "owner" {
+                state.get("keys")
+                    .and_then(|v| v.get("owner"))
+                    .and_then(|v| v.as_str())
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        state.get("keys")
+                            .and_then(|v| v.get("posting"))
+                            .and_then(|v| v.as_str())
+                            .filter(|k| !k.is_empty())
+                            .map(str::to_owned)
+                    })
+            } else {
+                state.get("keys")
+                    .and_then(|v| v.get(role))
+                    .and_then(|v| v.as_str())
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_owned)
+            };
+            match key_val {
+                Some(pk) => pk,
+                None => return Ok(()), // key not set yet — skip
+            }
+        }
         None => return Ok(()), // new account — skip
     };
 
@@ -426,10 +458,10 @@ fn check_signature(
         .ok_or_else(|| anyhow::anyhow!("signature required for account '{}'", signed_by))?;
 
     let pk_bytes = hex::decode(&pubkey_hex)
-        .map_err(|_| anyhow::anyhow!("stored public_key for '{}' is not valid hex", signed_by))?;
+        .map_err(|_| anyhow::anyhow!("stored key '{}' for '{}' is not valid hex", role, signed_by))?;
     let pk_array: [u8; 32] = pk_bytes
         .try_into()
-        .map_err(|_| anyhow::anyhow!("stored public_key must be 32 bytes"))?;
+        .map_err(|_| anyhow::anyhow!("stored key '{}' must be 32 bytes", role))?;
     let verifying_key = VerifyingKey::from_bytes(&pk_array)
         .map_err(|e| anyhow::anyhow!("invalid ed25519 public key: {}", e))?;
 
@@ -484,11 +516,12 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "amount": amount,
                 "nonce": nonce,
             }),
-        LedgerEntry::AccountUpdateKey { account, new_public_key, .. } =>
+        LedgerEntry::AccountUpdateKey { account, role, new_public_key, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
                 "type": "ACCOUNT_UPDATE_KEY",
                 "account": account,
+                "role": role,
                 "new_public_key": new_public_key,
             }),
         LedgerEntry::InferenceJobPost { requester, job_id, model, max_fee, nonce, .. } =>

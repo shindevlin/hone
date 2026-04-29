@@ -313,9 +313,9 @@ struct UnstakeBody {
 #[derive(Debug, Deserialize)]
 struct AccountCreateBody {
     account: String,
-    /// Hex-encoded ed25519 public key (optional for watch-only accounts).
+    /// Role-keyed map of hex-encoded ed25519 public keys (optional for watch-only accounts).
     #[serde(default)]
-    public_key: Option<String>,
+    keys: Option<std::collections::HashMap<String, String>>,
 }
 
 fn default_token() -> String {
@@ -382,7 +382,7 @@ async fn post_unstake(
 }
 
 /// POST /api/account/create
-/// Body: { "account", "public_key" (hex, optional) }
+/// Body: { "account", "keys" (role->pubkey map, optional) }
 async fn post_account_create(
     State(s): State<AppState>,
     Json(body): Json<AccountCreateBody>,
@@ -391,7 +391,7 @@ async fn post_account_create(
 
     let entry = LedgerEntry::AccountCreate {
         account: body.account,
-        public_key: body.public_key,
+        keys: body.keys.unwrap_or_default(),
         epoch,
     };
 
@@ -399,10 +399,11 @@ async fn post_account_create(
 }
 
 /// POST /api/account/update-key
-/// Body: { "account", "new_public_key", "signed_by", "signature" }
+/// Body: { "account", "role", "new_public_key", "signed_by", "signature" }
 #[derive(Debug, Deserialize)]
 struct AccountUpdateKeyBody {
     account: String,
+    role: String,
     new_public_key: String,
     signed_by: String,
     #[serde(default)]
@@ -416,6 +417,7 @@ async fn post_account_update_key(
     let epoch = s.chain.current_epoch();
     let entry = LedgerEntry::AccountUpdateKey {
         account: body.account,
+        role: body.role,
         new_public_key: body.new_public_key,
         epoch,
         signed_by: body.signed_by,
@@ -894,7 +896,7 @@ async fn post_faucet_claim(
     // Create account if it doesn't exist yet (idempotent).
     let _ = s.chain.apply_entry(&LedgerEntry::AccountCreate {
         account: body.account.clone(),
-        public_key: None,
+        keys: Default::default(),
         epoch,
     });
 
