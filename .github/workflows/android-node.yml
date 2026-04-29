@@ -1,0 +1,86 @@
+name: Build Android Native Library
+
+on:
+  push:
+    branches: [main, stable]
+    paths:
+      - 'rust/btcpc-android/**'
+      - 'rust/btcpc-node/crates/**'
+      - '.github/workflows/android-node.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/btcpc-android/target
+          key: ${{ runner.os }}-android-cargo-${{ hashFiles('rust/btcpc-android/Cargo.lock') }}
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Set up Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+
+      - name: Build arm64-v8a (phones)
+        working-directory: rust/btcpc-android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: cargo ndk -t arm64-v8a -o jniLibs build --release
+
+      - name: Build armeabi-v7a (older phones)
+        working-directory: rust/btcpc-android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: cargo ndk -t armeabi-v7a -o jniLibs build --release
+
+      - name: Build x86_64 (emulator)
+        working-directory: rust/btcpc-android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: cargo ndk -t x86_64 -o jniLibs build --release
+
+      - name: Copy .so files into Android jniLibs
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p android/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p android/app/src/main/jniLibs/x86_64
+          cp rust/btcpc-android/jniLibs/arm64-v8a/libbtcpc_miner.so   android/app/src/main/jniLibs/arm64-v8a/
+          cp rust/btcpc-android/jniLibs/armeabi-v7a/libbtcpc_miner.so android/app/src/main/jniLibs/armeabi-v7a/
+          cp rust/btcpc-android/jniLibs/x86_64/libbtcpc_miner.so       android/app/src/main/jniLibs/x86_64/
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btcpc-android-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 30

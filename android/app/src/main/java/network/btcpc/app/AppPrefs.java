@@ -103,6 +103,34 @@ public class AppPrefs {
         return (url == null || url.trim().isEmpty()) ? DEFAULT_RELAY_URL : url.trim();
     }
 
+    public String getChainId() {
+        return prefs.getString("chainId", "btcpc-1");
+    }
+
+    public void setChainId(String value) {
+        prefs.edit().putString("chainId", value.trim()).apply();
+    }
+
+    public long getGenesisTs(long defaultTs) {
+        return prefs.getLong("genesisTs", defaultTs);
+    }
+
+    public void setGenesisTs(long ts) {
+        prefs.edit().putLong("genesisTs", ts).apply();
+    }
+
+    public String getClockState() {
+        return prefs.getString(KEY_CLOCK_STATE, "");
+    }
+
+    public void setClockState(String value) {
+        prefs.edit().putString(KEY_CLOCK_STATE, value).apply();
+    }
+
+    public String getSensorState() {
+        return prefs.getString(KEY_SENSOR_STATE, "");
+    }
+
     public void setRelayUrl(String value) {
         prefs.edit().putString(KEY_RELAY_URL, value.trim()).apply();
     }

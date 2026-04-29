@@ -1,0 +1,12 @@
+# Android NDK cross-compilation targets.
+# NDK_HOME must be set (e.g. /opt/android-ndk or via ANDROID_NDK_HOME).
+# cargo-ndk sets these automatically when invoked via: cargo ndk -t arm64-v8a build --release
+
+[target.aarch64-linux-android]
+linker = "aarch64-linux-android34-clang"
+
+[target.armv7-linux-androideabi]
+linker = "armv7a-linux-androideabi34-clang"
+
+[target.x86_64-linux-android]
+linker = "x86_64-linux-android34-clang"
