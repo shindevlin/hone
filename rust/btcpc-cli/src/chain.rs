@@ -17,7 +17,7 @@ pub fn dreams_to_btcpc(dreams: u64) -> String {
 
 #[derive(Deserialize)]
 struct BalanceResp {
-    balance: Option<f64>,
+    balance: Option<Value>,
     dreams: Option<u64>,
     token: Option<String>,
 }
@@ -43,7 +43,7 @@ pub fn cmd_balance(account: &str, token: Option<&str>) -> Result<()> {
         println!(
             "{} {} {}",
             "Balance:".bold(),
-            format!("{:.10}", bal).green(),
+            value_to_display(&bal).green(),
             token_name
         );
     } else {
@@ -56,7 +56,7 @@ pub fn cmd_balance(account: &str, token: Option<&str>) -> Result<()> {
 
 #[derive(Deserialize)]
 struct StakeResp {
-    stake: Option<f64>,
+    stake: Option<Value>,
     dreams: Option<u64>,
 }
 
@@ -71,7 +71,7 @@ pub fn cmd_stake(account: &str) -> Result<()> {
         println!(
             "{} {} BTCPC",
             "Staked:".bold(),
-            format!("{:.10}", s).yellow()
+            value_to_display(&s).yellow()
         );
     } else {
         println!("{} 0.0000000000 BTCPC", "Staked:".bold());

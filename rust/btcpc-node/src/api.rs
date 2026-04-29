@@ -40,7 +40,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/stake", post(post_stake))
         .route("/api/unstake", post(post_unstake))
         .route("/api/account/create", post(post_account_create))
-        .route("/api/entry", post(post_entry))
         // ── Contract endpoints ────────────────────────────────────────────
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
@@ -370,30 +369,6 @@ async fn post_account_create(
     apply_and_broadcast(&s, entry, None)
 }
 
-/// POST /api/entry — raw LedgerEntry submission for advanced / node-to-node use.
-/// Body: any LedgerEntry JSON (must include `"type"` discriminant).
-async fn post_entry(
-    State(s): State<AppState>,
-    Json(raw): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
-    // Extract an optional top-level "signature" field before parsing the entry
-    // so callers can attach it out-of-band.
-    let external_sig = raw
-        .get("_signature")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
-
-    match tx::entry_from_json(&raw) {
-        Err(e) => Json(serde_json::json!({
-            "hash": null,
-            "accepted": false,
-            "error": format!("parse error: {}", e),
-        })),
-        Ok(entry) => apply_and_broadcast(&s, entry, external_sig.as_deref()),
-    }
-}
-
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 /// Return `Some(s)` if `s` is non-empty, else `None`.
@@ -488,7 +463,7 @@ async fn post_contract_deploy(
         }
     }
 
-    match s.contracts.deploy(&body.deployer, &body.wasm_b64, body.init_method, body.init_args, body.gas, epoch) {
+    match s.contracts.deploy(&body.deployer, &body.wasm_b64, body.init_method, body.init_args, body.gas, epoch, body.nonce) {
         Ok(contract_id) => Json(serde_json::json!({ "contract_id": contract_id, "ok": true, "error": null })),
         Err(e) => Json(serde_json::json!({ "contract_id": null, "ok": false, "error": e.to_string() })),
     }

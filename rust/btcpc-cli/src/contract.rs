@@ -65,7 +65,7 @@ pub fn cmd_contract_call(
     method: &str,
     signer: &str,
     args: Option<&str>,
-    deposit: Option<f64>,
+    deposit: Option<u64>,
 ) -> Result<()> {
     let api = ApiClient::new();
     let mut body = json!({

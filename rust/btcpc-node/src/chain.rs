@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use anyhow::Result;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tracing::{info, warn};
 use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN};
 
@@ -13,6 +13,8 @@ pub struct Chain {
     pub current_epoch: Arc<RwLock<u64>>,
     #[allow(dead_code)]
     pub node_id: String,
+    /// Serialises all write paths: nonce-check → debit/credit → nonce-bump.
+    pub write_lock: parking_lot::Mutex<()>,
 }
 
 impl Chain {
@@ -22,6 +24,7 @@ impl Chain {
             store,
             current_epoch: Arc::new(RwLock::new(current_epoch)),
             node_id,
+            write_lock: Mutex::new(()),
         }
     }
 

@@ -49,6 +49,7 @@ pub fn validate_and_apply(
     match entry {
         // ── Transfer ─────────────────────────────────────────────────────────
         LedgerEntry::Transfer { from, to, amount, token, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
             check_not_empty(from, "from")?;
             check_not_empty(to, "to")?;
             if *amount == 0 {
@@ -58,6 +59,8 @@ pub fn validate_and_apply(
             if signed_by != from {
                 bail!("signed_by '{}' must equal from '{}'", signed_by, from);
             }
+            // Account must have a registered public key — no keyless spending.
+            require_key(chain, from)?;
             check_nonce(chain, from, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let bal = chain.get_balance(from, token);
@@ -76,12 +79,14 @@ pub fn validate_and_apply(
 
         // ── Stake ────────────────────────────────────────────────────────────
         LedgerEntry::Stake { account, amount, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
             if *amount == 0 {
                 bail!("stake amount must be positive");
             }
             if signed_by != account {
                 bail!("signed_by '{}' must equal account '{}'", signed_by, account);
             }
+            require_key(chain, account)?;
             check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let bal = chain.get_balance(account, NATIVE_TOKEN);
@@ -98,12 +103,14 @@ pub fn validate_and_apply(
 
         // ── Unstake ──────────────────────────────────────────────────────────
         LedgerEntry::Unstake { account, amount, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
             if *amount == 0 {
                 bail!("unstake amount must be positive");
             }
             if signed_by != account {
                 bail!("signed_by '{}' must equal account '{}'", signed_by, account);
             }
+            require_key(chain, account)?;
             check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let staked = chain.get_stake(account);
@@ -125,16 +132,43 @@ pub fn validate_and_apply(
         }
 
         // ── EpochSeal (signature embedded) ───────────────────────────────────
-        LedgerEntry::EpochSeal { node_id, signature: embedded_sig, .. } => {
-            // Use the embedded signature if no override was given.
+        LedgerEntry::EpochSeal { node_id, signature: embedded_sig, epoch, .. } => {
+            let current = chain.current_epoch();
+            // Reject seals too far ahead (prevents epoch inflation attacks).
+            if *epoch as u64 > current + 3 {
+                bail!(
+                    "EpochSeal epoch {} is too far ahead of current {} — max drift is +3",
+                    epoch, current
+                );
+            }
+            // Reject very stale seals.
+            if current > 10 && (*epoch as u64) < current - 10 {
+                bail!(
+                    "EpochSeal epoch {} is too far behind current {}",
+                    epoch, current
+                );
+            }
             let effective_sig = sig_hex.or(embedded_sig.as_deref());
             check_signature(chain, node_id, entry, effective_sig)?;
             chain.apply_entry(entry)?;
         }
 
-        // ── Everything else (raw / no auth needed at base layer) ─────────────
-        _ => {
+        // ── Allowlisted pass-through entries ──────────────────────────────────
+        LedgerEntry::AccountUpdateKey { .. }
+        | LedgerEntry::SensorReading { .. }
+        | LedgerEntry::BlobStore { .. }
+        | LedgerEntry::InferenceJob { .. }
+        | LedgerEntry::ContractDeploy { .. }
+        | LedgerEntry::ContractCall { .. } => {
             chain.apply_entry(entry)?;
+        }
+
+        // ── Privileged types: never accepted from external callers ────────────
+        LedgerEntry::Mine { .. }
+        | LedgerEntry::MineReward { .. }
+        | LedgerEntry::GenesisAlloc { .. }
+        | LedgerEntry::EpochFinalize { .. } => {
+            bail!("entry type is not externally submittable");
         }
     }
 
@@ -146,36 +180,8 @@ pub fn entry_from_json(raw: &serde_json::Value) -> Result<LedgerEntry> {
     Ok(serde_json::from_value(raw.clone())?)
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-fn check_not_empty(s: &str, field: &str) -> Result<()> {
-    if s.trim().is_empty() {
-        bail!("field '{}' must not be empty", field);
-    }
-    Ok(())
-}
-
-/// Ensure the submitted nonce is exactly `stored_nonce + 1`.
-/// If the account doesn't exist yet the expected nonce is 1.
-fn check_nonce(chain: &Chain, account: &str, submitted: u64) -> Result<()> {
-    let expected = match chain.store.get_account(account)? {
-        Some(state) => {
-            let current = state
-                .get("nonce")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            current + 1
-        }
-        None => 1,
-    };
-    if submitted != expected {
-        bail!("invalid nonce: got {}, expected {}", submitted, expected);
-    }
-    Ok(())
-}
-
-/// Increment the `nonce` field in the account record by 1.
-fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
+/// Make a deployer nonce check+bump publicly callable (used by ContractEngine).
+pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
     if let Some(mut state) = chain.store.get_account(account)? {
         let current = state
             .get("nonce")
@@ -227,6 +233,53 @@ pub fn check_sig_raw(
         .verify_strict(message, &signature)
         .map_err(|e| anyhow::anyhow!("signature verification failed: {}", e))?;
 
+    Ok(())
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+fn check_not_empty(s: &str, field: &str) -> Result<()> {
+    if s.trim().is_empty() {
+        bail!("field '{}' must not be empty", field);
+    }
+    Ok(())
+}
+
+/// Ensure the submitted nonce is exactly `stored_nonce + 1`.
+/// If the account doesn't exist yet the expected nonce is 1.
+fn check_nonce(chain: &Chain, account: &str, submitted: u64) -> Result<()> {
+    let expected = match chain.store.get_account(account)? {
+        Some(state) => {
+            let current = state
+                .get("nonce")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            current + 1
+        }
+        None => 1,
+    };
+    if submitted != expected {
+        bail!("invalid nonce: got {}, expected {}", submitted, expected);
+    }
+    Ok(())
+}
+
+/// Reject spend attempts from accounts that exist but have no registered key.
+/// An account without a key is watch-only; no signature can be verified.
+fn require_key(chain: &Chain, account: &str) -> Result<()> {
+    if let Ok(Some(state)) = chain.store.get_account(account) {
+        let has_key = state
+            .get("public_key")
+            .and_then(|v| v.as_str())
+            .map(|k| !k.is_empty())
+            .unwrap_or(false);
+        if !has_key {
+            bail!(
+                "account '{}' has no public key registered — submit AccountUpdateKey first",
+                account
+            );
+        }
+    }
     Ok(())
 }
 

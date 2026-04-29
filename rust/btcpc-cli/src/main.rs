@@ -1,10 +1,12 @@
 mod api;
 mod chain;
 mod contract;
+mod key;
 mod tx;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::process;
 
 #[derive(Parser)]
@@ -61,14 +63,13 @@ enum Commands {
         from: String,
         #[arg(long)]
         to: String,
-        /// Amount in BTCPC (e.g. 1.5)
+        /// Amount in dreams (u64)
         #[arg(long)]
-        amount: f64,
+        amount: u64,
         #[arg(long)]
         memo: Option<String>,
-        /// Hex-encoded signature
         #[arg(long)]
-        sig: Option<String>,
+        key_file: Option<PathBuf>,
     },
 
     /// Add stake
@@ -76,11 +77,11 @@ enum Commands {
     StakeAdd {
         #[arg(long)]
         account: String,
-        /// Amount in BTCPC
+        /// Amount in dreams (u64)
         #[arg(long)]
-        amount: f64,
+        amount: u64,
         #[arg(long)]
-        sig: Option<String>,
+        key_file: Option<PathBuf>,
     },
 
     /// Remove stake
@@ -88,11 +89,11 @@ enum Commands {
     StakeRemove {
         #[arg(long)]
         account: String,
-        /// Amount in BTCPC
+        /// Amount in dreams (u64)
         #[arg(long)]
-        amount: f64,
+        amount: u64,
         #[arg(long)]
-        sig: Option<String>,
+        key_file: Option<PathBuf>,
     },
 
     /// Create a new account
@@ -109,6 +110,12 @@ enum Commands {
     Contract {
         #[command(subcommand)]
         action: ContractCommands,
+    },
+
+    /// Key management
+    Key {
+        #[command(subcommand)]
+        action: KeyCommands,
     },
 }
 
@@ -139,9 +146,9 @@ enum ContractCommands {
         /// JSON-encoded arguments
         #[arg(long)]
         args: Option<String>,
-        /// Deposit in BTCPC
+        /// Deposit in dreams (u64)
         #[arg(long)]
-        deposit: Option<f64>,
+        deposit: Option<u64>,
     },
 
     /// View a contract method (read-only)
@@ -153,6 +160,30 @@ enum ContractCommands {
         /// JSON-encoded arguments
         #[arg(long)]
         args: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum KeyCommands {
+    /// Generate a new keypair and save to a file.
+    Generate {
+        /// Output path (default: ~/.btcpc/key.json)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Show the public key for a key file.
+    Show {
+        /// Key file path (default: ~/.btcpc/key.json)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
+    /// Register this key's public key on-chain for an account.
+    Register {
+        #[arg(long)]
+        account: String,
+        /// Key file path (default: ~/.btcpc/key.json)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
     },
 }
 
@@ -183,23 +214,23 @@ fn run() -> Result<()> {
             to,
             amount,
             memo,
-            sig,
+            key_file,
         } => {
-            tx::cmd_transfer(&from, &to, amount, memo.as_deref(), sig.as_deref())?;
+            tx::cmd_transfer(&from, &to, amount, memo.as_deref(), key_file.as_deref())?;
         }
         Commands::StakeAdd {
             account,
             amount,
-            sig,
+            key_file,
         } => {
-            tx::cmd_stake_add(&account, amount, sig.as_deref())?;
+            tx::cmd_stake_add(&account, amount, key_file.as_deref())?;
         }
         Commands::StakeRemove {
             account,
             amount,
-            sig,
+            key_file,
         } => {
-            tx::cmd_stake_remove(&account, amount, sig.as_deref())?;
+            tx::cmd_stake_remove(&account, amount, key_file.as_deref())?;
         }
         Commands::AccountCreate { account, pubkey } => {
             tx::cmd_account_create(&account, pubkey.as_deref())?;
@@ -239,6 +270,17 @@ fn run() -> Result<()> {
                 args,
             } => {
                 contract::cmd_contract_view(&contract, &method, args.as_deref())?;
+            }
+        },
+        Commands::Key { action } => match action {
+            KeyCommands::Generate { output } => {
+                key::cmd_key_generate(output.as_deref())?;
+            }
+            KeyCommands::Show { key_file } => {
+                key::cmd_key_show(key_file.as_deref())?;
+            }
+            KeyCommands::Register { account, key_file } => {
+                key::cmd_key_register(&account, key_file.as_deref())?;
             }
         },
     }

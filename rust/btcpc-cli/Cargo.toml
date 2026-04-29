@@ -19,3 +19,4 @@ anyhow = "1"
 colored = "2"
 tabled = "0.15"
 base64 = "0.22"
+btcpc-sdk = { path = "../btcpc-sdk" }

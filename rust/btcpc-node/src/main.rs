@@ -228,15 +228,34 @@ async fn main() -> Result<()> {
                     Ok(NetworkEvent::Block { epoch, data }) => {
                         if !chain_ref.store.has_block(epoch) {
                             if let Some(block) = Block::from_bytes(&data) {
-                                if let Some(entries) = block.payload.get("ledger_entries")
+                                let cur = chain_ref.current_epoch();
+                                // Reject blocks too far ahead (max +10 epochs).
+                                if epoch as u64 > cur + 10 {
+                                    warn!("gossip block {} too far ahead of epoch {} — ignoring", epoch, cur);
+                                } else if let Some(entries) = block.payload.get("ledger_entries")
                                     .and_then(|v| serde_json::from_value::<Vec<LedgerEntry>>(v.clone()).ok())
                                 {
-                                    chain_ref.apply_block_entries(&entries);
-                                }
-                                let _ = chain_ref.store.write_block(epoch, &data);
-                                let mut cur = chain_ref.current_epoch.write();
-                                if epoch as u64 > *cur {
-                                    *cur = epoch as u64;
+                                    // Reject blocks containing privileged self-issued entries.
+                                    let has_privileged = entries.iter().any(|e| matches!(
+                                        e,
+                                        LedgerEntry::GenesisAlloc { .. }
+                                        | LedgerEntry::EpochFinalize { .. }
+                                    ));
+                                    // Reject MineReward without a corresponding Mine entry.
+                                    let has_mine_reward = entries.iter().any(|e| matches!(e, LedgerEntry::MineReward { .. }));
+                                    let has_mine = entries.iter().any(|e| matches!(e, LedgerEntry::Mine { .. }));
+                                    if has_privileged {
+                                        warn!("gossip block {} contains privileged entries — rejected", epoch);
+                                    } else if has_mine_reward && !has_mine {
+                                        warn!("gossip block {} has MineReward without Mine — rejected", epoch);
+                                    } else {
+                                        chain_ref.apply_block_entries(&entries);
+                                        let _ = chain_ref.store.write_block(epoch, &data);
+                                        let mut cur = chain_ref.current_epoch.write();
+                                        if epoch as u64 > *cur {
+                                            *cur = epoch as u64;
+                                        }
+                                    }
                                 }
                             }
                         }

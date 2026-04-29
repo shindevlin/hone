@@ -19,6 +19,7 @@ use btcpc_contract_runtime::{
 use btcpc_types::{LedgerEntry, NATIVE_TOKEN};
 
 use crate::chain::Chain;
+use crate::tx;
 
 pub struct ContractEngine {
     chain: Arc<Chain>,
@@ -31,8 +32,9 @@ impl ContractEngine {
 
     /// Deploy a WASM contract. Returns the contract_id.
     ///
-    /// On success, all initial storage writes from the constructor are persisted
-    /// to RocksDB and the raw WASM bytecode is stored under `wasm:{contract_id}`.
+    /// `nonce` must be the deployer's current nonce + 1 (same scheme as Transfer).
+    /// On success the deployer's nonce is bumped and all constructor storage
+    /// writes are persisted to RocksDB.
     pub fn deploy(
         &self,
         deployer: &str,
@@ -41,12 +43,24 @@ impl ContractEngine {
         init_args: Option<serde_json::Value>,
         gas: u64,
         epoch: u64,
+        nonce: u64,
     ) -> Result<String> {
+        let _guard = self.chain.write_lock.lock();
+
+        // Nonce check — same scheme as Transfer/Stake.
+        let expected_nonce = match self.chain.store.get_account(deployer)? {
+            Some(ref state) => state.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0) + 1,
+            None => 1,
+        };
+        if nonce != expected_nonce {
+            return Err(anyhow!("invalid nonce: got {}, expected {}", nonce, expected_nonce));
+        }
+
         let wasm_bytes = BASE64
             .decode(wasm_b64)
             .map_err(|e| anyhow!("invalid base64 WASM: {}", e))?;
 
-        let contract_id = derive_contract_address(deployer, epoch, 0);
+        let contract_id = derive_contract_address(deployer, epoch, nonce);
 
         let request = DeployRequest {
             deployer: deployer.to_string(),
@@ -55,7 +69,7 @@ impl ContractEngine {
             init_args,
             gas,
             epoch,
-            nonce: 0,
+            nonce,
         };
 
         let result = execute_deploy(request, StorageKv::default());
@@ -67,8 +81,7 @@ impl ContractEngine {
             ));
         }
 
-        // Persist constructor storage writes. Each key from drain_writes is
-        // a hex-encoded representation of the raw contract storage key.
+        // Persist constructor storage writes.
         for (hex_key, value) in &result.storage_writes {
             let store_key = format!("contract:{}:{}", contract_id, hex_key);
             self.chain.store.state_set(&store_key, value)?;
@@ -78,16 +91,20 @@ impl ContractEngine {
         let wasm_meta_key = format!("wasm:{}", contract_id);
         self.chain.store.set_meta(&wasm_meta_key, &wasm_bytes)?;
 
+        // Bump deployer nonce.
+        tx::bump_nonce(&self.chain, deployer)?;
+
         Ok(contract_id)
     }
 
     /// Call a state-changing contract method.
     ///
     /// Loads contract storage and WASM from RocksDB, executes the call,
-    /// persists storage writes, and applies any pending token transfers.
+    /// applies all pending token transfers, and only then persists storage writes.
     ///
     /// `deposit` is debited from `signer` before execution and credited to the
-    /// contract.  On execution failure the deposit is refunded automatically.
+    /// contract.  On any failure the deposit is refunded automatically.
+    /// Storage writes are committed only after all transfers succeed.
     pub fn call(
         &self,
         contract_id: &str,
@@ -98,16 +115,16 @@ impl ContractEngine {
         deposit: u64,
         epoch: u64,
     ) -> Result<serde_json::Value> {
+        let _guard = self.chain.write_lock.lock();
+
         let contract_state = self.load_contract_state(contract_id)?;
 
         // Debit deposit from signer and credit contract before execution.
-        // The debit is reversed if the call fails.
         if deposit > 0 {
             self.chain.store.debit(signer, NATIVE_TOKEN, deposit)
                 .map_err(|e| anyhow!("deposit debit failed: {}", e))?;
             self.chain.store.credit(contract_id, NATIVE_TOKEN, deposit)
                 .map_err(|e| {
-                    // Best-effort refund (debit already succeeded)
                     let _ = self.chain.store.credit(signer, NATIVE_TOKEN, deposit);
                     anyhow!("deposit credit failed: {}", e)
                 })?;
@@ -127,7 +144,6 @@ impl ContractEngine {
         let result = execute_call(request, contract_state);
 
         if !result.success {
-            // Refund deposit on failure.
             if deposit > 0 {
                 let _ = self.chain.store.debit(contract_id, NATIVE_TOKEN, deposit);
                 let _ = self.chain.store.credit(signer, NATIVE_TOKEN, deposit);
@@ -138,13 +154,9 @@ impl ContractEngine {
             ));
         }
 
-        // Persist storage writes back to RocksDB.
-        for (hex_key, value) in &result.storage_writes {
-            let store_key = format!("contract:{}:{}", contract_id, hex_key);
-            self.chain.store.state_set(&store_key, value)?;
-        }
-
-        // Apply pending token transfers; any failure aborts and returns an error.
+        // Apply pending token transfers BEFORE writing storage.
+        // If any transfer fails, we refund the deposit and return an error
+        // without committing any storage mutations.
         for transfer in &result.pending_transfers {
             let recipient: &str = &transfer.0;
             let amount: u64 = transfer.1.min(u64::MAX as u128) as u64;
@@ -158,11 +170,23 @@ impl ContractEngine {
                 signed_by: contract_id.to_string(),
                 nonce: 0,
             };
-            self.chain.apply_entry(&entry)
-                .map_err(|e| anyhow!(
+            if let Err(e) = self.chain.apply_entry(&entry) {
+                // Refund deposit; storage not yet written so no partial state.
+                if deposit > 0 {
+                    let _ = self.chain.store.debit(contract_id, NATIVE_TOKEN, deposit);
+                    let _ = self.chain.store.credit(signer, NATIVE_TOKEN, deposit);
+                }
+                return Err(anyhow!(
                     "contract pending transfer failed ({} -> {} {}): {}",
                     contract_id, recipient, amount, e
-                ))?;
+                ));
+            }
+        }
+
+        // All transfers succeeded — now commit storage writes atomically.
+        for (hex_key, value) in &result.storage_writes {
+            let store_key = format!("contract:{}:{}", contract_id, hex_key);
+            self.chain.store.state_set(&store_key, value)?;
         }
 
         Ok(result.result.unwrap_or(serde_json::Value::Null))
@@ -204,10 +228,7 @@ impl ContractEngine {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /// Load a ContractState from RocksDB, reconstructing the StorageKv committed map
-    /// and fetching the WASM bytes (stored under the `__wasm` key as the runtime expects).
     fn load_contract_state(&self, contract_id: &str) -> Result<ContractState> {
-        // Scan all persisted storage entries for this contract.
         let prefix = format!("contract:{}:", contract_id);
         let raw_entries = self.chain.store.state_scan_prefix(&prefix);
 
@@ -215,15 +236,12 @@ impl ContractEngine {
             std::collections::HashMap::new();
 
         for (full_key, value) in raw_entries {
-            // Strip the "contract:{contract_id}:" prefix to get the hex-encoded raw key.
             let hex_key = &full_key[prefix.len()..];
             let raw_key = hex::decode(hex_key)
                 .map_err(|e| anyhow!("corrupted storage key '{}': {}", hex_key, e))?;
             committed.insert(raw_key, value);
         }
 
-        // Load WASM bytes from meta and inject under the `__wasm` key that
-        // execute_call expects to find in storage.committed.
         let wasm_meta_key = format!("wasm:{}", contract_id);
         let wasm_bytes = self.chain.store.get_meta(&wasm_meta_key)
             .ok_or_else(|| anyhow!("contract '{}' not found (no WASM stored)", contract_id))?;
