@@ -37,7 +37,9 @@ pub fn cmd_transfer(
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, from)?;
 
-    let mut body = json!({
+    let sig = sign_transfer(&keypair, from, to, amount, "BTCPC", nonce);
+
+    let body = json!({
         "from": from,
         "to": to,
         "amount": amount,
@@ -45,10 +47,8 @@ pub fn cmd_transfer(
         "memo": memo,
         "signed_by": from,
         "nonce": nonce,
+        "signature": sig,
     });
-
-    let sig = sign_json_body(&keypair, &body)?;
-    body["signature"] = json!(sig);
 
     let resp: Value = api.post("/api/transfer", &body)?;
     println!("{}", "Transfer submitted.".green().bold());
@@ -64,15 +64,15 @@ pub fn cmd_stake_add(account: &str, amount: u64, key_file: Option<&Path>) -> Res
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
 
-    let mut body = json!({
+    let sig = sign_stake(&keypair, account, amount, nonce);
+
+    let body = json!({
         "account": account,
         "amount": amount,
         "signed_by": account,
         "nonce": nonce,
+        "signature": sig,
     });
-
-    let sig = sign_json_body(&keypair, &body)?;
-    body["signature"] = json!(sig);
 
     let resp: Value = api.post("/api/stake", &body)?;
     println!("{}", "Stake submitted.".green().bold());
@@ -88,15 +88,15 @@ pub fn cmd_stake_remove(account: &str, amount: u64, key_file: Option<&Path>) -> 
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
 
-    let mut body = json!({
+    let sig = sign_unstake(&keypair, account, amount, nonce);
+
+    let body = json!({
         "account": account,
         "amount": amount,
         "signed_by": account,
         "nonce": nonce,
+        "signature": sig,
     });
-
-    let sig = sign_json_body(&keypair, &body)?;
-    body["signature"] = json!(sig);
 
     let resp: Value = api.post("/api/unstake", &body)?;
     println!("{}", "Unstake submitted.".green().bold());
@@ -152,7 +152,36 @@ fn next_nonce(api: &ApiClient, account: &str) -> Result<u64> {
         .ok_or_else(|| anyhow!("nonce overflow for account '{}'", account))
 }
 
-fn sign_json_body(keypair: &KeyPair, body: &Value) -> Result<String> {
-    let entry_json = serde_json::to_string(body)?;
-    Ok(keypair.sign_entry_json(&entry_json))
+/// Build and sign the canonical message that the node's check_signature verifies.
+/// Field names and order must exactly match `tx::canonical_signing_message`.
+fn sign_transfer(keypair: &KeyPair, from: &str, to: &str, amount: u64, token: &str, nonce: u64) -> String {
+    let msg = serde_json::to_string(&serde_json::json!({
+        "type": "TRANSFER",
+        "from": from,
+        "to": to,
+        "amount": amount,
+        "token": token,
+        "nonce": nonce,
+    })).unwrap_or_default();
+    keypair.sign_entry_json(&msg)
+}
+
+fn sign_stake(keypair: &KeyPair, account: &str, amount: u64, nonce: u64) -> String {
+    let msg = serde_json::to_string(&serde_json::json!({
+        "type": "STAKE",
+        "account": account,
+        "amount": amount,
+        "nonce": nonce,
+    })).unwrap_or_default();
+    keypair.sign_entry_json(&msg)
+}
+
+fn sign_unstake(keypair: &KeyPair, account: &str, amount: u64, nonce: u64) -> String {
+    let msg = serde_json::to_string(&serde_json::json!({
+        "type": "UNSTAKE",
+        "account": account,
+        "amount": amount,
+        "nonce": nonce,
+    })).unwrap_or_default();
+    keypair.sign_entry_json(&msg)
 }

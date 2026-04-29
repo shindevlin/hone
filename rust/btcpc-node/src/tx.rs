@@ -153,9 +153,28 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── AccountUpdateKey ──────────────────────────────────────────────────
+        // The account must sign its own key update.  If no key is registered yet,
+        // the first key can be set without a signature (bootstrap flow).
+        LedgerEntry::AccountUpdateKey { account, signed_by, .. } => {
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            }
+            // If a key is already registered, the update must be signed by it.
+            if let Ok(Some(state)) = chain.store.get_account(account) {
+                let has_key = state.get("public_key")
+                    .and_then(|v| v.as_str())
+                    .map(|k| !k.is_empty())
+                    .unwrap_or(false);
+                if has_key {
+                    check_signature(chain, account, entry, sig_hex)?;
+                }
+            }
+            chain.apply_entry(entry)?;
+        }
+
         // ── Allowlisted pass-through entries ──────────────────────────────────
-        LedgerEntry::AccountUpdateKey { .. }
-        | LedgerEntry::SensorReading { .. }
+        LedgerEntry::SensorReading { .. }
         | LedgerEntry::BlobStore { .. }
         | LedgerEntry::InferenceJob { .. }
         | LedgerEntry::ContractDeploy { .. }
@@ -194,8 +213,11 @@ pub fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
 }
 
 /// Verify an ed25519 signature over arbitrary `message` bytes.
-/// Same key lookup as `check_signature`; intended for non-entry signed payloads
-/// (contract deploy/call requests).
+/// Intended for non-entry signed payloads (contract deploy/call requests).
+///
+/// Requires the account to exist.  Returns Ok only when:
+///   - account exists and has no key (pre-key-registration grace period), or
+///   - account exists, has a key, and the signature verifies.
 pub fn check_sig_raw(
     chain: &Chain,
     account: &str,
@@ -205,9 +227,10 @@ pub fn check_sig_raw(
     let pubkey_hex = match chain.store.get_account(account)? {
         Some(state) => match state.get("public_key").and_then(|v| v.as_str()) {
             Some(pk) if !pk.is_empty() => pk.to_owned(),
-            _ => return Ok(()),
+            _ => return Ok(()), // account exists but has no key yet — permit
         },
-        None => return Ok(()),
+        // Account must exist before it can deploy/call contracts.
+        None => bail!("account '{}' not found — create account first", account),
     };
 
     let sig_str = sig_hex
@@ -283,14 +306,22 @@ fn require_key(chain: &Chain, account: &str) -> Result<()> {
     Ok(())
 }
 
-/// Verify an ed25519 signature over the canonical JSON of `entry`.
+/// Verify an ed25519 signature over the **canonical signing message** for `entry`.
 ///
-/// `signed_by`: the account whose registered public key should be used.
-/// `sig_hex`:   the signature to verify; if `None` and the account has a
-///              registered key the call **fails** (missing required signature).
+/// The signing message is a deterministic JSON subset containing only the
+/// user-controlled fields — it deliberately excludes server-assigned fields
+/// (epoch, memo) so clients can sign before submitting without knowing the
+/// current epoch.
 ///
-/// The call is a no-op (returns `Ok`) when the account has no registered key —
-/// this permits the new-account flow where `AccountCreate` is the first op.
+/// | Variant        | Signing fields                                         |
+/// |----------------|--------------------------------------------------------|
+/// | Transfer       | type, from, to, amount, token, nonce                   |
+/// | Stake          | type, account, amount, nonce                           |
+/// | Unstake        | type, account, amount, nonce                           |
+/// | AccountUpdateKey | type, account, new_public_key                        |
+/// | EpochSeal      | full entry JSON (seal is internal, not client-signed)  |
+///
+/// Returns `Ok` when the account has no registered key (new-account grace period).
 fn check_signature(
     chain: &Chain,
     signed_by: &str,
@@ -305,7 +336,7 @@ fn check_signature(
         None => return Ok(()), // new account — skip
     };
 
-    // From here on the account has a registered key; signature is mandatory.
+    // Account has a registered key; signature is mandatory.
     let sig_str = sig_hex
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow::anyhow!("signature required for account '{}'", signed_by))?;
@@ -325,12 +356,54 @@ fn check_signature(
         .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
     let signature = Signature::from_bytes(&sig_array);
 
-    // Message = canonical JSON of the entry (same bytes used by entry.hash()).
-    let message = serde_json::to_string(entry)?;
+    // Build canonical signing message — client-reproducible subset.
+    let message = canonical_signing_message(entry)?;
 
     verifying_key
         .verify_strict(message.as_bytes(), &signature)
         .map_err(|e| anyhow::anyhow!("signature verification failed: {}", e))?;
 
     Ok(())
+}
+
+/// Canonical signing message for a LedgerEntry.
+///
+/// Clients sign this message, NOT the full entry JSON (which includes
+/// server-set fields like epoch).  Field order is fixed and must match
+/// the client SDK's signing implementation.
+pub fn canonical_signing_message(entry: &LedgerEntry) -> Result<String> {
+    let msg = match entry {
+        LedgerEntry::Transfer { from, to, amount, token, nonce, .. } =>
+            serde_json::json!({
+                "type": "TRANSFER",
+                "from": from,
+                "to": to,
+                "amount": amount,
+                "token": token,
+                "nonce": nonce,
+            }),
+        LedgerEntry::Stake { account, amount, nonce, .. } =>
+            serde_json::json!({
+                "type": "STAKE",
+                "account": account,
+                "amount": amount,
+                "nonce": nonce,
+            }),
+        LedgerEntry::Unstake { account, amount, nonce, .. } =>
+            serde_json::json!({
+                "type": "UNSTAKE",
+                "account": account,
+                "amount": amount,
+                "nonce": nonce,
+            }),
+        LedgerEntry::AccountUpdateKey { account, new_public_key, .. } =>
+            serde_json::json!({
+                "type": "ACCOUNT_UPDATE_KEY",
+                "account": account,
+                "new_public_key": new_public_key,
+            }),
+        // For other entry types that carry embedded signatures (EpochSeal), use the full JSON.
+        other => serde_json::Value::String(serde_json::to_string(other)?),
+    };
+    Ok(serde_json::to_string(&msg)?)
 }

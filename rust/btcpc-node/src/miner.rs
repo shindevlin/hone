@@ -5,16 +5,15 @@ use std::time::Duration;
 use anyhow::Result;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};
-use btcpc_types::{Block, BlockHeader, LedgerEntry, DREAMS_PER_BTCPC, EPOCH_MS};
+use btcpc_types::{Block, BlockHeader, LedgerEntry, block_reward_at, epoch_duration_ms};
 
 use crate::chain::Chain;
-use crate::utils::now_ms;
 
-/// Block reward: 50 BTCPC per block (halving every 210_000 epochs like Bitcoin).
+/// Block reward for `epoch` — delegates to the emission schedule.
+/// Re-exported here for call-site convenience; the canonical implementation
+/// lives in `btcpc_types::emission::block_reward_at`.
 pub fn block_reward(epoch: u64) -> u64 {
-    let halvings = epoch / 210_000;
-    if halvings >= 64 { return 0; }
-    (50 * DREAMS_PER_BTCPC) >> halvings
+    block_reward_at(epoch)
 }
 
 pub async fn run_miner(chain: Arc<Chain>, account: String) {
@@ -27,13 +26,8 @@ pub async fn run_miner(chain: Arc<Chain>, account: String) {
     loop {
         let next_epoch = last_produced + 1;
 
-        // Wait until the next epoch boundary
-        let epoch_start = epoch_start_ms(next_epoch);
-        let now = now_ms();
-        if epoch_start > now {
-            let wait = Duration::from_millis(epoch_start - now);
-            tokio::time::sleep(wait).await;
-        }
+        // Wait one epoch duration before producing the next block.
+        tokio::time::sleep(wait_for_next_epoch(next_epoch)).await;
 
         // Skip if another process already produced this block (e.g. sync filled it in).
         if chain.store.has_block(next_epoch as u32) {
@@ -125,7 +119,9 @@ fn compute_work(prev_hash: [u8; 32], epoch: u64) -> u64 {
     leading_zeros
 }
 
-fn epoch_start_ms(epoch: u64) -> u64 {
-    epoch * EPOCH_MS
+/// Sleep duration from "now" until the next epoch boundary.
+/// Uses `epoch_duration_ms` so the wait scales correctly with era.
+fn wait_for_next_epoch(next_epoch: u64) -> Duration {
+    Duration::from_millis(epoch_duration_ms(next_epoch))
 }
 

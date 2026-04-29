@@ -34,7 +34,7 @@ mod utils;
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::{info, warn};
-use btcpc_types::{Block, LedgerEntry, EPOCH_MS};
+use btcpc_types::{Block, LedgerEntry};
 
 use chain::Chain;
 use config::Config;
@@ -133,7 +133,9 @@ async fn main() -> Result<()> {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 let now = now_ms();
-                let epoch = now / EPOCH_MS;
+                // Use era-0 epoch duration for the clock's epoch counter
+                // (clock tracks real time; epoch durations are irrelevant here).
+                let epoch = now / btcpc_types::EPOCH_MS;
                 if epoch > last_sent {
                     last_sent = epoch;
                     let seal_hash = {
@@ -181,21 +183,29 @@ async fn main() -> Result<()> {
     }
 
     // ── Broadcast channel (entries → net gossip) ──────────────────────────────
-    let (tx_broadcast, _) = tokio::sync::broadcast::channel::<LedgerEntry>(256);
+    let (tx_broadcast, _) = tokio::sync::broadcast::channel::<api::GossipEntry>(256);
 
-    // Forward newly-accepted entries to gossip peers
+    // Forward newly-accepted entries to gossip peers.
+    // Wrap as {"entry": <json>, "sig": <hex_or_null>} so receiving nodes can
+    // re-verify signatures for accounts that have registered keys.
     {
         let mut net_rx = tx_broadcast.subscribe();
         let cmd_tx = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
             loop {
                 match net_rx.recv().await {
-                    Ok(entry) => {
-                        if let Ok(data) = serde_json::to_vec(&entry) {
-                            let _ = cmd_tx.send(NetCmd::Broadcast {
-                                topic: "btcpc/entries",
-                                data,
-                            }).await;
+                    Ok((entry, sig)) => {
+                        if let Ok(entry_val) = serde_json::to_value(&entry) {
+                            let envelope = serde_json::json!({
+                                "entry": entry_val,
+                                "sig": sig,
+                            });
+                            if let Ok(data) = serde_json::to_vec(&envelope) {
+                                let _ = cmd_tx.send(NetCmd::Broadcast {
+                                    topic: "btcpc/entries",
+                                    data,
+                                }).await;
+                            }
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -216,9 +226,20 @@ async fn main() -> Result<()> {
             loop {
                 match events.recv().await {
                     Ok(NetworkEvent::Entry { entry }) => {
-                        match tx::entry_from_json(&entry) {
+                        // Unwrap gossip envelope {"entry": ..., "sig": ...}.
+                        // Fall back to treating the whole value as the entry (legacy/direct format).
+                        let (entry_val, sig) = if let Some(inner) = entry.get("entry") {
+                            let sig = entry.get("sig")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            (inner.clone(), sig)
+                        } else {
+                            (entry, None)
+                        };
+                        match tx::entry_from_json(&entry_val) {
                             Ok(e) => {
-                                if let Err(e) = tx::validate_and_apply(&chain_ref, &e, None) {
+                                if let Err(e) = tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
                                     tracing::debug!("net entry rejected: {}", e);
                                 }
                             }

@@ -12,6 +12,9 @@ use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
 use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC};
 
+/// Gossip envelope: entry JSON + out-of-band signature so peers can re-verify.
+pub type GossipEntry = (LedgerEntry, Option<String>);
+
 use crate::chain::Chain;
 use crate::contracts::ContractEngine;
 use crate::tx;
@@ -21,7 +24,8 @@ pub struct AppState {
     pub chain: Arc<Chain>,
     pub contracts: Arc<ContractEngine>,
     /// Broadcast channel for gossiping newly accepted entries to the net module.
-    pub tx_broadcast: broadcast::Sender<LedgerEntry>,
+    /// Carries (entry, optional_signature) so the sig propagates with the gossip.
+    pub tx_broadcast: broadcast::Sender<GossipEntry>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -384,8 +388,8 @@ fn apply_and_broadcast(
 ) -> Json<serde_json::Value> {
     match tx::validate_and_apply(&s.chain, &entry, sig_hex) {
         Ok(hash) => {
-            // Best-effort broadcast — ignore if no receivers are connected yet.
-            let _ = s.tx_broadcast.send(entry);
+            // Carry the signature alongside the entry so gossip peers can re-verify.
+            let _ = s.tx_broadcast.send((entry, sig_hex.map(str::to_owned)));
             Json(serde_json::json!({
                 "hash": hash,
                 "accepted": true,

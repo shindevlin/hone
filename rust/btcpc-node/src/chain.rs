@@ -105,12 +105,18 @@ impl Chain {
                 self.store.set_epoch_meta(*epoch, &meta)?;
             }
 
+            LedgerEntry::AccountUpdateKey { account, new_public_key, .. } => {
+                if let Some(mut state) = self.store.get_account(account)? {
+                    state["public_key"] = serde_json::json!(new_public_key);
+                    self.store.set_account(account, &state)?;
+                }
+            }
+
             LedgerEntry::SensorReading { .. }
             | LedgerEntry::BlobStore { .. }
             | LedgerEntry::InferenceJob { .. }
             | LedgerEntry::ContractDeploy { .. }
-            | LedgerEntry::ContractCall { .. }
-            | LedgerEntry::AccountUpdateKey { .. } => {
+            | LedgerEntry::ContractCall { .. } => {
                 // Accepted, no balance mutations needed at base layer
             }
         }
