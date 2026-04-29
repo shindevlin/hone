@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use wasmtime::{Engine, Linker, Module, Store};
+use wasmtime::{Config, Engine, Linker, Module, Store};
 
 use crate::{
     gas,
@@ -35,6 +35,7 @@ pub fn execute_call(request: CallRequest, contract_state: ContractState) -> Call
             m.insert(contract_state.contract_id.clone(), contract_state.balance);
             m
         },
+        reserved_balance: 0,
         pending_transfers: Vec::new(),
         events: Vec::new(),
         logs: Vec::new(),
@@ -82,6 +83,7 @@ pub fn execute_deploy(request: DeployRequest, initial_storage: StorageKv) -> Cal
         gas_used: 0,
         storage,
         balances: std::collections::HashMap::new(),
+        reserved_balance: 0,
         pending_transfers: Vec::new(),
         events: Vec::new(),
         logs: Vec::new(),
@@ -97,7 +99,13 @@ pub fn execute_deploy(request: DeployRequest, initial_storage: StorageKv) -> Cal
 // ── Internal ─────────────────────────────────────────────────────────────────
 
 fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResult {
-    let engine = Engine::default();
+    // consume_fuel must be enabled on the Engine before fuel can be set on the Store.
+    let mut config = Config::new();
+    config.consume_fuel(true);
+    let engine = match Engine::new(&config) {
+        Ok(e) => e,
+        Err(e) => return error_result(format!("Engine init failed: {}", e)),
+    };
     let module = match Module::from_binary(&engine, &wasm_bytes) {
         Ok(m) => m,
         Err(e) => return error_result(format!("WASM compile error: {}", e)),
@@ -110,7 +118,10 @@ fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResu
 
     let fuel_limit = gas.min(gas::MAX_CALL_FUEL);
     let mut store = Store::new(&engine, ctx.clone());
-    store.set_fuel(fuel_limit).ok();
+    // Hard-fail if fuel cannot be applied — means consume_fuel was not enabled.
+    if let Err(e) = store.set_fuel(fuel_limit) {
+        return error_result(format!("Fuel setup failed (gas enforcement unavailable): {}", e));
+    }
 
     // Set method name in register 0 before dispatch
     ctx.lock().unwrap().set_register(0, method.as_bytes().to_vec());
@@ -136,6 +147,7 @@ fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResu
             let return_value = locked.return_value.take()
                 .and_then(|b| serde_json::from_slice(&b).ok());
             let storage_writes = locked.storage.drain_writes();
+            let storage_deletes = locked.storage.drain_deletes();
             let pending_transfers = std::mem::take(&mut locked.pending_transfers);
             let events = locked.events.clone();
             let logs = locked.logs.clone();
@@ -145,6 +157,7 @@ fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResu
                 result: return_value,
                 gas_used,
                 storage_writes,
+                storage_deletes,
                 pending_transfers,
                 events,
                 logs,
@@ -158,6 +171,7 @@ fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResu
                 result: None,
                 gas_used,
                 storage_writes: Vec::new(),
+                storage_deletes: Vec::new(),
                 pending_transfers: Vec::new(),
                 events: Vec::new(),
                 logs: locked.logs.clone(),
@@ -173,6 +187,7 @@ fn error_result(msg: String) -> CallResult {
         result: None,
         gas_used: 0,
         storage_writes: Vec::new(),
+        storage_deletes: Vec::new(),
         pending_transfers: Vec::new(),
         events: Vec::new(),
         logs: Vec::new(),

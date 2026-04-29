@@ -29,16 +29,38 @@ pub fn cmd_key_show(key_file: Option<&Path>) -> Result<()> {
 pub fn cmd_key_register(account: &str, key_file: Option<&Path>) -> Result<()> {
     let path = resolve_key_path(key_file)?;
     let keypair = KeyPair::from_file(&path)?;
+    let pubkey = keypair.public_key_hex();
 
     let api = ApiClient::new();
+
+    // Sign the canonical AccountUpdateKey message.
+    // If this is a first-time registration (no key on chain), the node accepts
+    // the entry without a signature.  If there is already a key, this signature
+    // proves ownership of the existing key before rotation.
+    let msg = serde_json::to_string(&json!({
+        "type": "ACCOUNT_UPDATE_KEY",
+        "account": account,
+        "new_public_key": pubkey,
+    }))?;
+    let sig = keypair.sign_entry_json(&msg);
+
     let body = json!({
         "account": account,
-        "public_key": keypair.public_key_hex(),
+        "new_public_key": pubkey,
+        "signed_by": account,
+        "signature": sig,
     });
 
-    let resp: Value = api.post("/api/account/create", &body)?;
-    println!("{}", "Key registered on-chain.".green().bold());
-    print_result(&resp);
+    let resp: Value = api.post("/api/account/update-key", &body)?;
+    if resp.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false) {
+        println!("{}", "Key registered on-chain.".green().bold());
+        if let Some(h) = resp.get("hash").and_then(|v| v.as_str()) {
+            println!("hash: {}", h);
+        }
+    } else {
+        let err = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        return Err(anyhow!("{}", err));
+    }
     Ok(())
 }
 
@@ -55,18 +77,3 @@ fn default_key_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".btcpc").join("key.json"))
 }
 
-fn print_result(resp: &Value) {
-    if let Some(obj) = resp.as_object() {
-        for (k, v) in obj {
-            let val = match v {
-                Value::String(s) => s.clone(),
-                Value::Number(n) => n.to_string(),
-                Value::Bool(b) => b.to_string(),
-                _ => serde_json::to_string(v).unwrap_or_default(),
-            };
-            println!("{}: {}", k.bold(), val);
-        }
-    } else {
-        println!("{}", serde_json::to_string_pretty(resp).unwrap_or_default());
-    }
-}

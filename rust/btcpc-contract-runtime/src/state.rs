@@ -47,6 +47,13 @@ impl StorageKv {
             .map(|(k, v)| (hex::encode(&k), v))
             .collect()
     }
+
+    /// Return all pending deletes as hex-encoded key strings.
+    pub fn drain_deletes(&mut self) -> Vec<String> {
+        self.pending_deletes.drain(..)
+            .map(|k| hex::encode(&k))
+            .collect()
+    }
 }
 
 /// Full context for a contract execution.

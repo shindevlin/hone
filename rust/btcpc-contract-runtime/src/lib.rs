@@ -63,6 +63,8 @@ pub struct CallResult {
     pub gas_used: u64,
     /// State changes to commit (empty on failure)
     pub storage_writes: Vec<(String, Vec<u8>)>,
+    /// Keys to delete from state (empty on failure)
+    pub storage_deletes: Vec<String>,
     /// Pending token transfers requested by the contract (to, amount_satoshis).
     /// Only populated on success.
     pub pending_transfers: Vec<(String, u128)>,

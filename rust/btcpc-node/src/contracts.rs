@@ -86,6 +86,10 @@ impl ContractEngine {
             let store_key = format!("contract:{}:{}", contract_id, hex_key);
             self.chain.store.state_set(&store_key, value)?;
         }
+        for hex_key in &result.storage_deletes {
+            let store_key = format!("contract:{}:{}", contract_id, hex_key);
+            self.chain.store.state_delete(&store_key)?;
+        }
 
         // Store raw WASM bytes separately for fast loading on future calls.
         let wasm_meta_key = format!("wasm:{}", contract_id);
@@ -114,8 +118,18 @@ impl ContractEngine {
         gas: u64,
         deposit: u64,
         epoch: u64,
+        nonce: u64,
     ) -> Result<serde_json::Value> {
         let _guard = self.chain.write_lock.lock();
+
+        // Nonce check prevents replay of signed contract calls.
+        let expected_nonce = match self.chain.store.get_account(signer)? {
+            Some(ref state) => state.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0) + 1,
+            None => 1,
+        };
+        if nonce != expected_nonce {
+            return Err(anyhow!("invalid nonce: got {}, expected {}", nonce, expected_nonce));
+        }
 
         let contract_state = self.load_contract_state(contract_id)?;
 
@@ -183,11 +197,18 @@ impl ContractEngine {
             }
         }
 
-        // All transfers succeeded — now commit storage writes atomically.
+        // All transfers succeeded — now commit storage writes and deletes atomically.
         for (hex_key, value) in &result.storage_writes {
             let store_key = format!("contract:{}:{}", contract_id, hex_key);
             self.chain.store.state_set(&store_key, value)?;
         }
+        for hex_key in &result.storage_deletes {
+            let store_key = format!("contract:{}:{}", contract_id, hex_key);
+            self.chain.store.state_delete(&store_key)?;
+        }
+
+        // Bump signer nonce exactly once after successful execution.
+        tx::bump_nonce(&self.chain, signer)?;
 
         Ok(result.result.unwrap_or(serde_json::Value::Null))
     }

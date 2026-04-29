@@ -176,15 +176,96 @@ pub fn validate_and_apply(
         // ── Allowlisted pass-through entries ──────────────────────────────────
         LedgerEntry::SensorReading { .. }
         | LedgerEntry::BlobStore { .. }
-        | LedgerEntry::InferenceJob { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. } => {
             chain.apply_entry(entry)?;
         }
 
+        // ── Inference marketplace (user-submitted) ────────────────────────────
+        LedgerEntry::InferenceJobPost { requester, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != requester {
+                bail!("signed_by must equal requester");
+            }
+            require_key(chain, requester)?;
+            check_nonce(chain, requester, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, requester)?;
+        }
+
+        LedgerEntry::InferenceJobBid { bidder, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != bidder {
+                bail!("signed_by must equal bidder");
+            }
+            require_key(chain, bidder)?;
+            check_nonce(chain, bidder, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, bidder)?;
+        }
+
+        LedgerEntry::InferenceJobComplete { worker, signed_by, .. } => {
+            if signed_by != worker {
+                bail!("signed_by must equal worker");
+            }
+            require_key(chain, worker)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+        }
+
+        // System verifiers submit verify results; must have a registered key.
+        LedgerEntry::InferenceJobVerify { verifier, signed_by, .. } => {
+            if signed_by != verifier {
+                bail!("signed_by must equal verifier");
+            }
+            require_key(chain, verifier)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+        }
+
+        // Worker contests a dispute — nonce required.
+        LedgerEntry::InferenceJobClaim { claimant, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != claimant {
+                bail!("signed_by must equal claimant");
+            }
+            require_key(chain, claimant)?;
+            check_nonce(chain, claimant, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, claimant)?;
+        }
+
+        // Human reviewers vote on disputed jobs.
+        LedgerEntry::InferenceReviewVote { reviewer, signed_by, .. } => {
+            if signed_by != reviewer {
+                bail!("signed_by must equal reviewer");
+            }
+            require_key(chain, reviewer)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+        }
+
+        LedgerEntry::InferenceJobCancel { cancelled_by, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != cancelled_by {
+                bail!("signed_by must equal cancelled_by");
+            }
+            require_key(chain, cancelled_by)?;
+            check_nonce(chain, cancelled_by, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, cancelled_by)?;
+        }
+
         // ── Privileged types: never accepted from external callers ────────────
         LedgerEntry::Mine { .. }
         | LedgerEntry::MineReward { .. }
+        | LedgerEntry::ClockReward { .. }
+        | LedgerEntry::InferenceJobAward { .. }
+        | LedgerEntry::InferenceJobPay { .. }
         | LedgerEntry::GenesisAlloc { .. }
         | LedgerEntry::EpochFinalize { .. } => {
             bail!("entry type is not externally submittable");
@@ -227,9 +308,12 @@ pub fn check_sig_raw(
     let pubkey_hex = match chain.store.get_account(account)? {
         Some(state) => match state.get("public_key").and_then(|v| v.as_str()) {
             Some(pk) if !pk.is_empty() => pk.to_owned(),
-            _ => return Ok(()), // account exists but has no key yet — permit
+            // Account exists but has no key — contract deploy/call requires a key.
+            _ => bail!(
+                "account '{}' has no public key registered — submit AccountUpdateKey first",
+                account
+            ),
         },
-        // Account must exist before it can deploy/call contracts.
         None => bail!("account '{}' not found — create account first", account),
     };
 
@@ -357,7 +441,7 @@ fn check_signature(
     let signature = Signature::from_bytes(&sig_array);
 
     // Build canonical signing message — client-reproducible subset.
-    let message = canonical_signing_message(entry)?;
+    let message = canonical_signing_message(entry, &chain.chain_id)?;
 
     verifying_key
         .verify_strict(message.as_bytes(), &signature)
@@ -368,13 +452,15 @@ fn check_signature(
 
 /// Canonical signing message for a LedgerEntry.
 ///
+/// Includes `chain_id` as the first field to prevent cross-chain replay attacks.
 /// Clients sign this message, NOT the full entry JSON (which includes
 /// server-set fields like epoch).  Field order is fixed and must match
 /// the client SDK's signing implementation.
-pub fn canonical_signing_message(entry: &LedgerEntry) -> Result<String> {
+pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<String> {
     let msg = match entry {
         LedgerEntry::Transfer { from, to, amount, token, nonce, .. } =>
             serde_json::json!({
+                "chain_id": chain_id,
                 "type": "TRANSFER",
                 "from": from,
                 "to": to,
@@ -384,6 +470,7 @@ pub fn canonical_signing_message(entry: &LedgerEntry) -> Result<String> {
             }),
         LedgerEntry::Stake { account, amount, nonce, .. } =>
             serde_json::json!({
+                "chain_id": chain_id,
                 "type": "STAKE",
                 "account": account,
                 "amount": amount,
@@ -391,6 +478,7 @@ pub fn canonical_signing_message(entry: &LedgerEntry) -> Result<String> {
             }),
         LedgerEntry::Unstake { account, amount, nonce, .. } =>
             serde_json::json!({
+                "chain_id": chain_id,
                 "type": "UNSTAKE",
                 "account": account,
                 "amount": amount,
@@ -398,9 +486,70 @@ pub fn canonical_signing_message(entry: &LedgerEntry) -> Result<String> {
             }),
         LedgerEntry::AccountUpdateKey { account, new_public_key, .. } =>
             serde_json::json!({
+                "chain_id": chain_id,
                 "type": "ACCOUNT_UPDATE_KEY",
                 "account": account,
                 "new_public_key": new_public_key,
+            }),
+        LedgerEntry::InferenceJobPost { requester, job_id, model, max_fee, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_POST",
+                "requester": requester,
+                "job_id": job_id,
+                "model": model,
+                "max_fee": max_fee,
+                "nonce": nonce,
+            }),
+        LedgerEntry::InferenceJobBid { bidder, job_id, fee, role, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_BID",
+                "bidder": bidder,
+                "job_id": job_id,
+                "fee": fee,
+                "role": role,
+                "nonce": nonce,
+            }),
+        LedgerEntry::InferenceJobComplete { worker, job_id, result_hash, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_COMPLETE",
+                "worker": worker,
+                "job_id": job_id,
+                "result_hash": result_hash,
+            }),
+        LedgerEntry::InferenceJobCancel { cancelled_by, job_id, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_CANCEL",
+                "cancelled_by": cancelled_by,
+                "job_id": job_id,
+                "nonce": nonce,
+            }),
+        LedgerEntry::InferenceJobVerify { verifier, job_id, verdict, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_VERIFY",
+                "verifier": verifier,
+                "job_id": job_id,
+                "verdict": verdict,
+            }),
+        LedgerEntry::InferenceJobClaim { claimant, job_id, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_CLAIM",
+                "claimant": claimant,
+                "job_id": job_id,
+                "nonce": nonce,
+            }),
+        LedgerEntry::InferenceReviewVote { reviewer, job_id, approved, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_REVIEW_VOTE",
+                "reviewer": reviewer,
+                "job_id": job_id,
+                "approved": approved,
             }),
         // For other entry types that carry embedded signatures (EpochSeal), use the full JSON.
         other => serde_json::Value::String(serde_json::to_string(other)?),

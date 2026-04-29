@@ -231,16 +231,33 @@ impl ClockConsensus {
         let result: Option<SealedEpoch> = {
             let mut inner = self.inner.lock().unwrap();
 
-            let state = match inner.epoch_states.get_mut(&epoch) {
-                Some(s) if !s.resolved => s,
-                _ => return,
-            };
-            state.resolved = true;
-
-            let seals = state.seals.clone();
+            // Read fields we need without holding a mutable borrow past their last use.
+            // external_peer_count is a plain copy — read before the mut borrow on epoch_states.
             let external_peer_count = inner.external_peer_count;
 
+            // Scope the mutable borrow of epoch_states so it is released before
+            // we call inner.update_clock_score() which also needs &mut inner.
+            let seals: Vec<EpochSeal> = {
+                let state = match inner.epoch_states.get_mut(&epoch) {
+                    Some(s) if !s.resolved => s,
+                    _ => return,
+                };
+                state.seals.clone()
+                // state (and its mutable borrow of inner) dropped here.
+            };
+
+            // Helper: mark the epoch resolved once we've made a final decision.
+            // Called just before returning Some(...).
+            macro_rules! mark_resolved {
+                () => {
+                    if let Some(s) = inner.epoch_states.get_mut(&epoch) {
+                        s.resolved = true;
+                    }
+                };
+            }
+
             if seals.is_empty() {
+                mark_resolved!();
                 info!("[clock] epoch {}: no seals — skipping", epoch);
                 Some(SealedEpoch {
                     epoch,
@@ -253,15 +270,13 @@ impl ClockConsensus {
                 })
             } else if seals.len() == 1 {
                 if external_peer_count > 0 {
-                    // Have live peers but only one seal — not enough for quorum.
+                    // Have live peers but only one seal — not enough for quorum yet.
                     return;
                 }
                 let winner = seals[0].clone();
                 inner.update_clock_score(&winner.node_id, true);
-                info!(
-                    "[clock] epoch {}: self-sealed (single clock, isolated)",
-                    epoch
-                );
+                mark_resolved!();
+                info!("[clock] epoch {}: self-sealed (single clock, isolated)", epoch);
                 Some(SealedEpoch {
                     epoch,
                     sealed: true,
@@ -273,64 +288,45 @@ impl ClockConsensus {
                 })
             } else {
                 let tolerance_ms = OUTLIER_EPOCH_TOLERANCE * EPOCH_MS;
-
                 let mut timestamps: Vec<u64> = seals.iter().map(|s| s.timestamp).collect();
                 timestamps.sort_unstable();
                 let median = timestamps[timestamps.len() / 2];
 
-                let inliers: Vec<EpochSeal> = seals
-                    .iter()
+                let inliers: Vec<EpochSeal> = seals.iter()
                     .filter(|s| (s.timestamp as i64 - median as i64).unsigned_abs() <= tolerance_ms)
-                    .cloned()
-                    .collect();
-
-                let outliers: Vec<EpochSeal> = seals
-                    .iter()
+                    .cloned().collect();
+                let outliers: Vec<EpochSeal> = seals.iter()
                     .filter(|s| (s.timestamp as i64 - median as i64).unsigned_abs() > tolerance_ms)
-                    .cloned()
-                    .collect();
+                    .cloned().collect();
 
                 for s in &outliers {
                     inner.update_clock_score(&s.node_id, false);
-                    warn!(
-                        "[clock] epoch {}: outlier clock {} (dev {}s)",
-                        epoch,
-                        s.node_id,
-                        (s.timestamp as i64 - median as i64).unsigned_abs() / 1_000
-                    );
+                    warn!("[clock] epoch {}: outlier clock {} (dev {}s)",
+                        epoch, s.node_id,
+                        (s.timestamp as i64 - median as i64).unsigned_abs() / 1_000);
                 }
 
-                // Require >51% of inliers to agree.
+                // Quorum is >51% of ALL seals received, not just inliers.
                 let quorum_needed = std::cmp::max(
                     1,
-                    (inliers.len() as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
+                    (seals.len() as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
                 );
                 if inliers.len() < quorum_needed {
-                    warn!(
-                        "[clock] epoch {}: insufficient quorum ({}/{})",
-                        epoch,
-                        inliers.len(),
-                        quorum_needed
-                    );
+                    warn!("[clock] epoch {}: insufficient quorum ({} inliers / {} total, need {})",
+                        epoch, inliers.len(), seals.len(), quorum_needed);
+                    // Leave resolved=false so more seals can arrive.
                     return;
                 }
 
-                // Majority seal_hash among inliers.
                 let mut hash_count: HashMap<&str, usize> = HashMap::new();
                 for s in &inliers {
                     *hash_count.entry(s.seal_hash.as_str()).or_default() += 1;
                 }
-                let winner_hash = hash_count
-                    .iter()
-                    .max_by_key(|(_, c)| *c)
-                    .map(|(h, _)| *h)
-                    .unwrap_or("");
+                let winner_hash = hash_count.iter().max_by_key(|(_, c)| *c)
+                    .map(|(h, _)| *h).unwrap_or("");
 
-                let winner_seals: Vec<EpochSeal> = inliers
-                    .iter()
-                    .filter(|s| s.seal_hash == winner_hash)
-                    .cloned()
-                    .collect();
+                let winner_seals: Vec<EpochSeal> = inliers.iter()
+                    .filter(|s| s.seal_hash == winner_hash).cloned().collect();
 
                 for s in &winner_seals {
                     inner.update_clock_score(&s.node_id, true);
@@ -339,14 +335,10 @@ impl ClockConsensus {
                     inner.update_clock_score(&s.node_id, false);
                 }
 
+                mark_resolved!();
                 let winner = winner_seals[0].clone();
-                info!(
-                    "[clock] epoch {} sealed: quorum={}/{} outliers={}",
-                    epoch,
-                    winner_seals.len(),
-                    seals.len(),
-                    outliers.len()
-                );
+                info!("[clock] epoch {} sealed: quorum={}/{} outliers={}",
+                    epoch, winner_seals.len(), seals.len(), outliers.len());
 
                 Some(SealedEpoch {
                     epoch,

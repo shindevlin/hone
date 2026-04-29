@@ -21,8 +21,8 @@ pub enum Command {
     Network,
     #[command(description = "Unsigned transfer info — /transfer <to> <amount>")]
     Transfer(String),
-    #[command(description = "Claim testnet tokens from the faucet")]
-    Faucet,
+    #[command(description = "Testnet faucet — /faucet <account> (btcpc-satoshi only)")]
+    Faucet(String),
     #[command(description = "Full command reference")]
     Help,
 }
@@ -47,7 +47,7 @@ pub async fn handle_command(
         Command::Block(arg) => handle_block(arg, &state).await,
         Command::Network => handle_network(&state).await,
         Command::Transfer(arg) => handle_transfer(arg),
-        Command::Faucet => handle_faucet(&state).await,
+        Command::Faucet(arg) => handle_faucet(arg, &state).await,
     };
 
     bot.send_message(msg.chat.id, text).await?;
@@ -56,16 +56,16 @@ pub async fn handle_command(
 
 fn handle_start() -> String {
     "Welcome to the BTCPC Bot!\n\n\
-    BTCPC is a proof-of-inference blockchain. Use the commands below to interact:\n\n\
+    BTCPC is a proof-of-compute blockchain. Use the commands below to interact:\n\n\
     /balance [account] — Check your BTCPC balance\n\
     /stake [account] — Check staked amount\n\
     /epoch — Current epoch info\n\
     /block [epoch] — Block details\n\
     /network — Network status\n\
     /transfer <to> <amount> — Transfer info\n\
-    /faucet — Claim testnet tokens\n\
+    /faucet <account> — Request testnet BTCPC (btcpc-satoshi only)\n\
     /help — Full command reference\n\n\
-    Set BTCPC_ACCOUNT env var to use a default account for balance/stake/faucet."
+    Set BTCPC_ACCOUNT env var to use a default account for balance/stake."
         .to_string()
 }
 
@@ -77,7 +77,7 @@ fn handle_help() -> String {
     /block [epoch] — Block info (latest if epoch omitted)\n\
     /network — Latest epoch, node health\n\
     /transfer <to> <amount> — Unsigned transfer info (explains signing)\n\
-    /faucet — Claim testnet BTCPC for the linked account\n\
+    /faucet <account> — Request testnet BTCPC (btcpc-satoshi only, 10 BTCPC, 1hr cooldown)\n\
     /help — This message\n\n\
     Units: 1 BTCPC = 10,000,000,000 dreams"
         .to_string()
@@ -225,39 +225,34 @@ fn handle_transfer(arg: String) -> String {
         Amount: {:.4} BTCPC ({} dreams)\n\n\
         BTCPC transactions must be signed with your private key.\n\
         Use the btcpc-cli or wallet app to submit signed transactions to the node.\n\
-        API endpoint: POST /api/tx",
+        API endpoint: POST /api/transfer",
         to, amount, dreams
     )
 }
 
-async fn handle_faucet(state: &Arc<HandlerState>) -> String {
-    let account = match &state.default_account {
-        Some(a) => a.clone(),
-        None => {
-            return "No default account configured. Set BTCPC_ACCOUNT to use /faucet.".to_string()
-        }
-    };
-
+async fn handle_faucet(arg: String, state: &Arc<HandlerState>) -> String {
+    let account = arg.trim().to_string();
+    if account.is_empty() {
+        return "Usage: /faucet <account>\nExample: /faucet alice".to_string();
+    }
     match state.api.claim_faucet(&account).await {
         Ok(resp) => {
-            let success = resp.success.unwrap_or(false);
-            let msg = resp
-                .message
-                .unwrap_or_else(|| if success { "Claimed!".to_string() } else { "Failed.".to_string() });
-            if success {
-                let btcpc = match resp.dreams {
-                    Some(d) => dreams_to_btcpc(d),
-                    None => resp.amount.unwrap_or(0.0),
-                };
+            if resp.success.unwrap_or(false) {
                 format!(
-                    "Faucet claimed for {}!\nReceived: {:.4} BTCPC\n{}",
-                    account, btcpc, msg
+                    "{}\nBalance will reflect after the next epoch.",
+                    resp.message.unwrap_or_else(|| format!("Sent 10 BTCPC to {}", account))
                 )
             } else {
-                format!("Faucet claim failed for {}: {}", account, msg)
+                resp.message.unwrap_or_else(|| "Faucet unavailable.".to_string())
             }
         }
-        Err(e) => offline_or_error(&e.to_string()),
+        Err(e) => {
+            if e.to_string().contains("403") || e.to_string().contains("Forbidden") {
+                "Faucet not available on mainnet. Acquire BTCPC by mining or transfers.".to_string()
+            } else {
+                offline_or_error(&e.to_string())
+            }
+        }
     }
 }
 

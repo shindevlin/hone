@@ -4,8 +4,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use tracing::{info, warn};
-use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN};
+use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT};
 
+use crate::inference;
 use crate::store::Store;
 
 pub struct Chain {
@@ -13,17 +14,24 @@ pub struct Chain {
     pub current_epoch: Arc<RwLock<u64>>,
     #[allow(dead_code)]
     pub node_id: String,
+    pub chain_id: String,
     /// Serialises all write paths: nonce-check → debit/credit → nonce-bump.
     pub write_lock: parking_lot::Mutex<()>,
 }
 
 impl Chain {
-    pub fn new(store: Store, node_id: String) -> Self {
-        let current_epoch = store.latest_epoch().unwrap_or(0) as u64;
+    pub fn new(store: Store, node_id: String, chain_id: String) -> Self {
+        // Prefer the persisted epoch counter over the latest block epoch, because
+        // sealed epochs may advance past the last produced block (clock-only nodes).
+        let persisted = store.get_meta("current_epoch")
+            .and_then(|b| b.try_into().ok())
+            .map(u64::from_le_bytes);
+        let current_epoch = persisted.unwrap_or_else(|| store.latest_epoch().unwrap_or(0));
         Self {
             store,
             current_epoch: Arc::new(RwLock::new(current_epoch)),
             node_id,
+            chain_id,
             write_lock: Mutex::new(()),
         }
     }
@@ -84,14 +92,22 @@ impl Chain {
 
             LedgerEntry::MineReward { miner, amount, epoch } => {
                 self.ensure_account(miner, *epoch)?;
+                if era(*epoch) >= RECYCLE_ERA {
+                    // Era 5+: transfer from recycle fund rather than minting.
+                    self.store.debit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, *amount)
+                        .map_err(|e| anyhow::anyhow!("recycle fund insufficient for era-5 reward: {}", e))?;
+                }
                 self.store.credit(miner, NATIVE_TOKEN, *amount)?;
-                info!("mine reward: {} BTCPC → {} (epoch {})", amount, miner, epoch);
+                info!("mine reward: {} dreams → {} (epoch {})", amount, miner, epoch);
             }
 
             LedgerEntry::EpochSeal { node_id: _, epoch, .. } => {
+                let ep = *epoch as u64;
                 let mut current = self.current_epoch.write();
-                if *epoch as u64 > *current {
-                    *current = *epoch as u64;
+                if ep > *current {
+                    *current = ep;
+                    // Persist so restarts recover the correct epoch even if no block was produced.
+                    let _ = self.store.set_meta("current_epoch", &ep.to_le_bytes());
                 }
             }
 
@@ -105,19 +121,57 @@ impl Chain {
                 self.store.set_epoch_meta(*epoch, &meta)?;
             }
 
-            LedgerEntry::AccountUpdateKey { account, new_public_key, .. } => {
-                if let Some(mut state) = self.store.get_account(account)? {
-                    state["public_key"] = serde_json::json!(new_public_key);
-                    self.store.set_account(account, &state)?;
-                }
+            LedgerEntry::AccountUpdateKey { account, new_public_key, epoch, .. } => {
+                // Create the account if it doesn't exist yet (first-time key registration).
+                self.ensure_account(account, *epoch)?;
+                let mut state = self.store.get_account(account)?
+                    .unwrap_or_else(|| serde_json::json!({ "nonce": 0 }));
+                state["public_key"] = serde_json::json!(new_public_key);
+                self.store.set_account(account, &state)?;
+                info!("key registered for account '{}'", account);
             }
 
             LedgerEntry::SensorReading { .. }
             | LedgerEntry::BlobStore { .. }
-            | LedgerEntry::InferenceJob { .. }
             | LedgerEntry::ContractDeploy { .. }
             | LedgerEntry::ContractCall { .. } => {
                 // Accepted, no balance mutations needed at base layer
+            }
+
+            // ── Inference marketplace ─────────────────────────────────────────
+            LedgerEntry::InferenceJobPost { .. } => {
+                inference::apply_post(self, entry)?;
+            }
+            LedgerEntry::InferenceJobBid { .. } => {
+                inference::apply_bid(self, entry)?;
+            }
+            LedgerEntry::InferenceJobAward { .. } => {
+                inference::apply_award(self, entry)?;
+            }
+            LedgerEntry::InferenceJobComplete { .. } => {
+                inference::apply_complete(self, entry)?;
+            }
+            LedgerEntry::InferenceJobVerify { .. } => {
+                inference::apply_verify(self, entry)?;
+            }
+            LedgerEntry::InferenceJobClaim { .. } => {
+                inference::apply_claim(self, entry)?;
+            }
+            LedgerEntry::InferenceReviewVote { .. } => {
+                inference::apply_review_vote(self, entry)?;
+            }
+            LedgerEntry::InferenceJobPay { .. } => {
+                inference::apply_pay(self, entry)?;
+            }
+            LedgerEntry::InferenceJobCancel { .. } => {
+                inference::apply_cancel(self, entry)?;
+            }
+
+            // ── Clock reward ──────────────────────────────────────────────────
+            LedgerEntry::ClockReward { node_id, amount, epoch } => {
+                self.ensure_account(node_id, *epoch)?;
+                let _ = CLOCK_REWARD_DREAMS; // used by caller to size per-node amounts
+                self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
             }
         }
 

@@ -10,6 +10,7 @@ struct MockEnvState {
     predecessor: AccountId,
     contract: AccountId,
     epoch: Epoch,
+    attached_deposit: Balance,
     balances: HashMap<AccountId, Balance>,
     input: Vec<u8>,
     return_value: Vec<u8>,
@@ -71,6 +72,14 @@ pub mod env {
 
     pub fn epoch() -> Epoch {
         env_state().lock().unwrap().epoch
+    }
+
+    pub fn attached_deposit() -> Balance {
+        env_state().lock().unwrap().attached_deposit
+    }
+
+    pub fn set_attached_deposit(amount: Balance) {
+        env_state().lock().unwrap().attached_deposit = amount;
     }
 
     pub fn balance_of(account: &AccountId) -> Balance {

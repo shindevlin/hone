@@ -46,14 +46,14 @@ impl BlockHeader {
         }
     }
 
-    pub fn genesis() -> Self {
+    pub fn genesis(timestamp: u64) -> Self {
         Self {
             version: 1,
             previous_block_hash: ZERO_HASH,
             merkle_root_transactions: ZERO_HASH,
             merkle_root_compute_proofs: ZERO_HASH,
             state_root: ZERO_HASH,
-            timestamp: now_ms(),
+            timestamp,
             epoch_number: 0,
             difficulty: 1,
             miner_id: ZERO_HASH,

@@ -17,9 +17,8 @@ pub(crate) mod sys {
 
         // Chain state
         pub fn env_epoch() -> u64;
-        pub fn env_attached_deposit() -> u128;
-        pub fn env_prepaid_gas() -> u64;
-        pub fn env_used_gas() -> u64;
+        // Returns attached deposit in dreams, capped at u64::MAX.
+        pub fn env_attached_deposit() -> u64;
 
         // Storage
         pub fn storage_write(key_ptr: u64, key_len: u64, val_ptr: u64, val_len: u64) -> u64;
@@ -27,9 +26,9 @@ pub(crate) mod sys {
         pub fn storage_remove(key_ptr: u64, key_len: u64, register_id: u64) -> u64;
         pub fn storage_has_key(key_ptr: u64, key_len: u64) -> u64;
 
-        // Balance / transfer
-        pub fn balance_of(account_ptr: u64, account_len: u64) -> u128;
-        pub fn transfer(to_ptr: u64, to_len: u64, amount: u128) -> u64;
+        // Balance / transfer — amounts in dreams (u64, max ~18.4 × 10^18).
+        pub fn balance_of(account_ptr: u64, account_len: u64) -> u64;
+        pub fn transfer(to_ptr: u64, to_len: u64, amount: u64) -> u64;
 
         // Registers (for returning variable-length data from host to contract)
         pub fn read_register(register_id: u64, ptr: u64);
@@ -41,26 +40,14 @@ pub(crate) mod sys {
         pub fn log_utf8(msg_ptr: u64, msg_len: u64);
         pub fn panic_utf8(msg_ptr: u64, msg_len: u64) -> !;
 
-        // Cross-contract calls (Promise API)
+        // Cross-contract calls (stub: returns 0 until Phase 2 implementation)
         pub fn promise_create(
             contract_ptr: u64, contract_len: u64,
             method_ptr: u64, method_len: u64,
             args_ptr: u64, args_len: u64,
-            amount: u128,
+            amount: u64,
             gas: u64,
         ) -> u64;
-        pub fn promise_then(
-            promise_id: u64,
-            contract_ptr: u64, contract_len: u64,
-            method_ptr: u64, method_len: u64,
-            args_ptr: u64, args_len: u64,
-            amount: u128,
-            gas: u64,
-        ) -> u64;
-        pub fn promise_and(promise_ids_ptr: u64, promise_ids_len: u64) -> u64;
-        pub fn promise_return(promise_id: u64);
-        pub fn promise_result(result_idx: u64, register_id: u64) -> u64;
-        pub fn promise_results_count() -> u64;
     }
 }
 
@@ -111,6 +98,14 @@ pub fn current_contract() -> AccountId {
     }
 }
 
+/// Returns the attached deposit in dreams.
+pub fn attached_deposit() -> Balance {
+    #[cfg(target_arch = "wasm32")]
+    unsafe { sys::env_attached_deposit() as u128 }
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::mock::env::attached_deposit()
+}
+
 /// Returns the current chain epoch number.
 pub fn epoch() -> Epoch {
     #[cfg(target_arch = "wasm32")]
@@ -124,19 +119,21 @@ pub fn balance_of(account: &AccountId) -> Balance {
     #[cfg(target_arch = "wasm32")]
     unsafe {
         let bytes = account.as_bytes();
-        sys::balance_of(bytes.as_ptr() as u64, bytes.len() as u64)
+        sys::balance_of(bytes.as_ptr() as u64, bytes.len() as u64) as u128
     }
     #[cfg(not(target_arch = "wasm32"))]
     crate::mock::env::balance_of(account)
 }
 
 /// Transfer `amount` dreams from the contract's own balance to `to`.
-/// Returns true on success; panics if insufficient funds.
+/// Returns true on success; returns false if insufficient funds.
+/// Amount is capped at u64::MAX dreams; amounts above that return false.
 pub fn transfer(to: &AccountId, amount: Balance) -> bool {
     #[cfg(target_arch = "wasm32")]
     unsafe {
+        if amount > u64::MAX as u128 { return false; }
         let bytes = to.as_bytes();
-        sys::transfer(bytes.as_ptr() as u64, bytes.len() as u64, amount) != 0
+        sys::transfer(bytes.as_ptr() as u64, bytes.len() as u64, amount as u64) != 0
     }
     #[cfg(not(target_arch = "wasm32"))]
     crate::mock::env::transfer(to, amount)
@@ -254,9 +251,10 @@ unsafe fn read_register_str(register_id: u64) -> String {
     String::from_utf8(buf).unwrap_or_default()
 }
 
-// ── Promise API ──────────────────────────────────────────────────────────────
+// ── Promise API (stub — Phase 2) ──────────────────────────────────────────────
 
-/// Create a cross-contract call. Returns a Promise ID.
+/// Create a cross-contract call stub. Currently returns 0 (not yet implemented).
+/// Amount is in dreams and capped at u64::MAX.
 pub fn promise_create(
     contract: &str,
     method: &str,
@@ -272,9 +270,10 @@ pub fn promise_create(
             contract_bytes.as_ptr() as u64, contract_bytes.len() as u64,
             method_bytes.as_ptr() as u64, method_bytes.len() as u64,
             args.as_ptr() as u64, args.len() as u64,
-            amount, gas,
+            amount.min(u64::MAX as u128) as u64,
+            gas,
         )
     }
     #[cfg(not(target_arch = "wasm32"))]
-    crate::mock::env::promise_create(contract, method, args, amount, gas)
+    { let _ = (contract, method, args, amount, gas); 0 }
 }

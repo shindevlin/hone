@@ -17,8 +17,8 @@
 //! |  5+ | 16 min    | 0 (recycled tokens only)  | ∞         |
 //!
 //! Total new supply exhausted after ~124 years (2026 → ~2150, analogous to
-//! Bitcoin's ~2140 endpoint).  Era 5 runs forever: miners receive the recycled
-//! fraction of all reward distributions (see `split_reward` in chain-core).
+//! Bitcoin's ~2140 endpoint).  Era 5 runs forever: miners receive a fraction of
+//! the recycle fund each epoch (RECYCLE_REWARD_RATE / RECYCLE_REWARD_DENOM).
 //!
 //! # Blob capacity
 //!
@@ -42,6 +42,53 @@ pub const SUPPLY_CAP_DREAMS: u64 = 42_000_000 * 10_000_000_000;
 
 /// First era whose rewards come entirely from recycled tokens (no new supply).
 pub const RECYCLE_ERA: u64 = 5;
+
+/// System account that accumulates recycled tokens.
+/// Funded by: rounding remainders, blob fees, inference fees, service fees.
+/// Drained by: era-5 block rewards (recycle_reward_at).
+pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
+
+/// Total clock reward per epoch (paid to ALL clock nodes combined, then split equally).
+/// 0.001 BTCPC = 0.05% of the 2 BTCPC block reward.  Tiny enough to not dominate
+/// earnings; large enough to incentivize running clock nodes.
+pub const CLOCK_REWARD_DREAMS: u64 = 10_000_000;
+
+/// Inference fee split in basis points (10_000 = 100%).
+/// Worker receives the bulk; verifiers/reviewers share their pools equally.
+/// On the happy path (no dispute): worker 80%, verifiers 15%, recycle 5%.
+pub const INFERENCE_FEE_WORKER_BPS: u64 = 8_000;   // 80%
+pub const INFERENCE_FEE_VERIFIER_BPS: u64 = 1_500; // 15% split among verifiers
+pub const INFERENCE_FEE_RECYCLE_BPS: u64 = 500;    // 5% to recycle fund
+
+/// On the disputed+reviewed path: worker 70%, verifiers 10%, reviewers 15%, recycle 5%.
+pub const INFERENCE_FEE_WORKER_DISPUTED_BPS: u64 = 7_000;
+pub const INFERENCE_FEE_VERIFIER_DISPUTED_BPS: u64 = 1_000;
+pub const INFERENCE_FEE_REVIEWER_BPS: u64 = 1_500; // 15% split among human reviewers
+pub const INFERENCE_FEE_RECYCLE_DISPUTED_BPS: u64 = 500;
+
+/// Epochs a worker has to file an InferenceJobClaim after a dispute verdict.
+/// At era-0 (30s epochs), 20 epochs ≈ 10 minutes.
+pub const CLAIM_WINDOW_EPOCHS: u64 = 20;
+
+/// Minimum verifier votes required to resolve a dispute.
+pub const MIN_REVIEW_VOTES: u64 = 3;
+
+/// Per-epoch distribution rate from the recycle fund.
+///
+/// Each era-5 epoch, the miner receives this fraction of the current fund balance.
+///
+/// P = 0.00001 → 0.001%/epoch, 0.09%/day (at 90 epochs/day in era 5).
+///
+/// Buffer time at equilibrium (fund lasts without fees): 1/(P × 90) ≈ 1,111 days.
+///
+/// Derivation:
+///   Starting fund:  840,000 BTCPC (124 years × 0.04 BTCPC/epoch rounding)
+///   Target buffer:  ~3 years of coverage against zero fee income
+///   Equilibrium:    fund stabilises at fees_per_day / (P × 90)
+///   Era-5 has 90 epochs/day; each epoch accumulates 32× more fee transactions
+///   than an era-0 epoch (automatic slow-epoch scaling).
+pub const RECYCLE_REWARD_RATE: u128 = 10; // numerator
+pub const RECYCLE_REWARD_DENOM: u128 = 1_000_000; // denominator → 0.00001 = 10/1_000_000
 
 /// Which era a given epoch falls in (0-indexed).
 #[inline]

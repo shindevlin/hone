@@ -20,3 +20,5 @@ colored = "2"
 tabled = "0.15"
 base64 = "0.22"
 btcpc-sdk = { path = "../btcpc-sdk" }
+sha2 = "0.10"
+hex = "0.4"

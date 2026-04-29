@@ -16,3 +16,7 @@ pub const SATOSHIS_PER_BTCPC: u64 = DREAMS_PER_BTCPC;
 pub const NATIVE_TOKEN: &str = "BTCPC";
 /// Initial epoch duration in milliseconds (era 0).  Use epoch_duration_ms(epoch) for the actual value.
 pub const EPOCH_MS: u64 = 30_000;
+
+/// Chain identifiers — used in canonical signing messages and gossip validation.
+pub const MAINNET_CHAIN_ID: &str = "btcpc-1";
+pub const TESTNET_CHAIN_ID: &str = "btcpc-satoshi";

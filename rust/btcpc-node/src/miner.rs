@@ -5,7 +5,10 @@ use std::time::Duration;
 use anyhow::Result;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};
-use btcpc_types::{Block, BlockHeader, LedgerEntry, block_reward_at, epoch_duration_ms};
+use btcpc_types::{
+    Block, BlockHeader, LedgerEntry, block_reward_at, epoch_duration_ms,
+    era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
+};
 
 use crate::chain::Chain;
 
@@ -21,7 +24,7 @@ pub async fn run_miner(chain: Arc<Chain>, account: String) {
     // Base on actual stored blocks, not the in-memory epoch counter (which only
     // advances via EpochSeal).  This prevents the inflation bug where current_epoch
     // stays 0 and the miner keeps overwriting epoch 1.
-    let mut last_produced: u64 = chain.store.latest_epoch().unwrap_or(0) as u64;
+    let mut last_produced: u64 = chain.store.latest_epoch().unwrap_or(0);
 
     loop {
         let next_epoch = last_produced + 1;
@@ -30,7 +33,7 @@ pub async fn run_miner(chain: Arc<Chain>, account: String) {
         tokio::time::sleep(wait_for_next_epoch(next_epoch)).await;
 
         // Skip if another process already produced this block (e.g. sync filled it in).
-        if chain.store.has_block(next_epoch as u32) {
+        if chain.store.has_block(next_epoch) {
             last_produced = next_epoch;
             continue;
         }
@@ -57,13 +60,20 @@ pub async fn run_miner(chain: Arc<Chain>, account: String) {
 
 fn produce_block(chain: &Chain, miner: &str, epoch: u64) -> Result<Block> {
     let prev_epoch = epoch.saturating_sub(1);
-    let prev_hash = chain.store.read_block(prev_epoch as u32)?
+    let prev_hash = chain.store.read_block(prev_epoch)?
         .and_then(|b| Block::from_bytes(&b))
         .map(|b| b.header.hash())
         .unwrap_or([0u8; 32]);
 
     let miner_id = sha2::Sha256::digest(miner.as_bytes()).into();
-    let reward = block_reward(epoch);
+
+    // Era 5+: pay miner from recycle fund (RECYCLE_REWARD_RATE/RECYCLE_REWARD_DENOM × balance).
+    let reward = if era(epoch) >= RECYCLE_ERA {
+        let fund_balance = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN);
+        ((fund_balance as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
+    } else {
+        block_reward(epoch)
+    };
 
     let entries = vec![
         LedgerEntry::Mine {
@@ -92,10 +102,11 @@ fn produce_block(chain: &Chain, miner: &str, epoch: u64) -> Result<Block> {
         "ledger_entries": entries,
         "rewards": [{ "miner": miner, "amount": reward, "epoch": epoch }],
         "compute_proofs": [],
+        "chain_id": chain.chain_id,
     });
 
     let block = Block { header, payload };
-    chain.store.write_block(epoch as u32, &block.to_bytes())?;
+    chain.store.write_block(epoch, &block.to_bytes())?;
 
     info!("block {} mined: {} (reward {} dreams)", epoch, block.header.hash_hex(), reward);
     Ok(block)

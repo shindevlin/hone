@@ -25,6 +25,9 @@ pub struct ExecutionContext {
     pub gas_used: u64,
     pub storage: StorageKv,
     pub balances: std::collections::HashMap<String, u128>,
+    /// Sum of all amounts already enqueued via `transfer` this execution.
+    /// Prevents the contract from promising more than it holds.
+    pub reserved_balance: u128,
     pub pending_transfers: Vec<(String, u128)>,
     pub events: Vec<serde_json::Value>,
     pub logs: Vec<String>,
@@ -90,10 +93,14 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let key = data[key_ptr as usize..(key_ptr + key_len) as usize].to_vec();
-            let val = data[val_ptr as usize..(val_ptr + val_len) as usize].to_vec();
-            caller.data().lock().unwrap().storage.write(key, val);
-            1
+            let key_end = key_ptr.checked_add(key_len).filter(|&e| e as usize <= data.len());
+            let val_end = val_ptr.checked_add(val_len).filter(|&e| e as usize <= data.len());
+            if let (Some(ke), Some(ve)) = (key_end, val_end) {
+                let key = data[key_ptr as usize..ke as usize].to_vec();
+                let val = data[val_ptr as usize..ve as usize].to_vec();
+                caller.data().lock().unwrap().storage.write(key, val);
+                1
+            } else { 0 }
         } else { 0 }
     })?;
 
@@ -103,12 +110,15 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let key = data[key_ptr as usize..(key_ptr + key_len) as usize].to_vec();
-            let ctx = caller.data().clone();
-            let value = ctx.lock().unwrap().storage.read(&key);
-            if let Some(v) = value {
-                ctx.lock().unwrap().set_register(register_id, v);
-                1
+            let key_end = key_ptr.checked_add(key_len).filter(|&e| e as usize <= data.len());
+            if let Some(ke) = key_end {
+                let key = data[key_ptr as usize..ke as usize].to_vec();
+                let ctx = caller.data().clone();
+                let value = ctx.lock().unwrap().storage.read(&key);
+                if let Some(v) = value {
+                    ctx.lock().unwrap().set_register(register_id, v);
+                    1
+                } else { 0 }
             } else { 0 }
         } else { 0 }
     })?;
@@ -119,9 +129,12 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let key = data[key_ptr as usize..(key_ptr + key_len) as usize].to_vec();
-            caller.data().lock().unwrap().storage.delete(key);
-            1
+            let key_end = key_ptr.checked_add(key_len).filter(|&e| e as usize <= data.len());
+            if let Some(ke) = key_end {
+                let key = data[key_ptr as usize..ke as usize].to_vec();
+                caller.data().lock().unwrap().storage.delete(key);
+                1
+            } else { 0 }
         } else { 0 }
     })?;
 
@@ -131,8 +144,11 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let key = data[key_ptr as usize..(key_ptr + key_len) as usize].to_vec();
-            if caller.data().lock().unwrap().storage.has_key(&key) { 1 } else { 0 }
+            let key_end = key_ptr.checked_add(key_len).filter(|&e| e as usize <= data.len());
+            if let Some(ke) = key_end {
+                let key = data[key_ptr as usize..ke as usize].to_vec();
+                if caller.data().lock().unwrap().storage.has_key(&key) { 1 } else { 0 }
+            } else { 0 }
         } else { 0 }
     })?;
 
@@ -155,8 +171,11 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         if let Some(mem) = mem {
             let mem_data = mem.data_mut(&mut caller);
             let start = ptr as usize;
-            if start + data.len() <= mem_data.len() {
-                mem_data[start..start + data.len()].copy_from_slice(&data);
+            let end = start.checked_add(data.len());
+            if let Some(end) = end {
+                if end <= mem_data.len() {
+                    mem_data[start..end].copy_from_slice(&data);
+                }
             }
         }
     })?;
@@ -169,8 +188,11 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let value = data[value_ptr as usize..(value_ptr + value_len) as usize].to_vec();
-            caller.data().lock().unwrap().return_value = Some(value);
+            let end = value_ptr.checked_add(value_len).filter(|&e| e as usize <= data.len());
+            if let Some(e) = end {
+                let value = data[value_ptr as usize..e as usize].to_vec();
+                caller.data().lock().unwrap().return_value = Some(value);
+            }
         }
     })?;
 
@@ -180,9 +202,11 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let event_bytes = &data[event_ptr as usize..(event_ptr + event_len) as usize];
-            if let Ok(event) = serde_json::from_slice::<serde_json::Value>(event_bytes) {
-                caller.data().lock().unwrap().events.push(event);
+            let end = event_ptr.checked_add(event_len).filter(|&e| e as usize <= data.len());
+            if let Some(e) = end {
+                if let Ok(event) = serde_json::from_slice::<serde_json::Value>(&data[event_ptr as usize..e as usize]) {
+                    caller.data().lock().unwrap().events.push(event);
+                }
             }
         }
     })?;
@@ -193,9 +217,11 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let msg = String::from_utf8_lossy(&data[msg_ptr as usize..(msg_ptr + msg_len) as usize])
-                .to_string();
-            caller.data().lock().unwrap().logs.push(msg);
+            let end = msg_ptr.checked_add(msg_len).filter(|&e| e as usize <= data.len());
+            if let Some(e) = end {
+                let msg = String::from_utf8_lossy(&data[msg_ptr as usize..e as usize]).to_string();
+                caller.data().lock().unwrap().logs.push(msg);
+            }
         }
     })?;
 
@@ -205,7 +231,12 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         let msg = if let Some(mem) = mem {
             let data = mem.data(&caller);
-            String::from_utf8_lossy(&data[msg_ptr as usize..(msg_ptr + msg_len) as usize]).to_string()
+            let end = msg_ptr.checked_add(msg_len).filter(|&e| e as usize <= data.len());
+            if let Some(e) = end {
+                String::from_utf8_lossy(&data[msg_ptr as usize..e as usize]).to_string()
+            } else {
+                "contract panicked (out-of-bounds message pointer)".to_string()
+            }
         } else {
             "contract panicked".to_string()
         };
@@ -222,12 +253,13 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let account = String::from_utf8_lossy(
-                &data[account_ptr as usize..(account_ptr + account_len) as usize]
-            ).to_string();
-            let ctx = caller.data().lock().unwrap();
-            let bal = *ctx.balances.get(&account).unwrap_or(&0);
-            bal.min(u64::MAX as u128) as u64
+            let end = account_ptr.checked_add(account_len).filter(|&e| e as usize <= data.len());
+            if let Some(e) = end {
+                let account = String::from_utf8_lossy(&data[account_ptr as usize..e as usize]).to_string();
+                let ctx = caller.data().lock().unwrap();
+                let bal = *ctx.balances.get(&account).unwrap_or(&0);
+                bal.min(u64::MAX as u128) as u64
+            } else { 0 }
         } else { 0 }
     })?;
 
@@ -237,12 +269,16 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
         let mem = caller.get_export("memory").and_then(|e| e.into_memory());
         if let Some(mem) = mem {
             let data = mem.data(&caller);
-            let to = String::from_utf8_lossy(&data[to_ptr as usize..(to_ptr + to_len) as usize])
+            let end = to_ptr.checked_add(to_len).filter(|&e| e as usize <= data.len());
+            let end = match end { Some(e) => e, None => return 0 };
+            let to = String::from_utf8_lossy(&data[to_ptr as usize..end as usize])
                 .to_string();
             let mut ctx = caller.data().lock().unwrap();
             let contract_id = ctx.contract_id.clone();
             let contract_balance = *ctx.balances.get(&contract_id).unwrap_or(&0);
-            if contract_balance >= amount as u128 {
+            let available = contract_balance.saturating_sub(ctx.reserved_balance);
+            if available >= amount as u128 {
+                ctx.reserved_balance += amount as u128;
                 ctx.pending_transfers.push((to, amount as u128));
                 1
             } else { 0 }

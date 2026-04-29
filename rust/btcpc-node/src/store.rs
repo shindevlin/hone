@@ -38,45 +38,49 @@ impl Store {
 
     // ── Blocks ───────────────────────────────────────────────────────────────
 
-    pub fn write_block(&self, epoch: u32, data: &[u8]) -> Result<()> {
+    // Block and finality keys are stored big-endian (BE) so that RocksDB's
+    // lexicographic iteration returns epochs in ascending order and
+    // IteratorMode::End reliably returns the highest epoch.
+
+    pub fn write_block(&self, epoch: u64, data: &[u8]) -> Result<()> {
         let cf = self.db.cf_handle(CF_BLOCKS).context("blocks CF")?;
-        self.db.put_cf(&cf, epoch.to_le_bytes(), data)?;
+        self.db.put_cf(&cf, epoch.to_be_bytes(), data)?;
         Ok(())
     }
 
-    pub fn read_block(&self, epoch: u32) -> Result<Option<Vec<u8>>> {
+    pub fn read_block(&self, epoch: u64) -> Result<Option<Vec<u8>>> {
         let cf = self.db.cf_handle(CF_BLOCKS).context("blocks CF")?;
-        Ok(self.db.get_cf(&cf, epoch.to_le_bytes())?)
+        Ok(self.db.get_cf(&cf, epoch.to_be_bytes())?)
     }
 
-    pub fn has_block(&self, epoch: u32) -> bool {
+    pub fn has_block(&self, epoch: u64) -> bool {
         let Some(cf) = self.db.cf_handle(CF_BLOCKS) else { return false };
-        self.db.get_cf(&cf, epoch.to_le_bytes()).map(|v| v.is_some()).unwrap_or(false)
+        self.db.get_cf(&cf, epoch.to_be_bytes()).map(|v| v.is_some()).unwrap_or(false)
     }
 
-    pub fn latest_epoch(&self) -> Option<u32> {
+    pub fn latest_epoch(&self) -> Option<u64> {
         let cf = self.db.cf_handle(CF_BLOCKS)?;
         let mut iter = self.db.iterator_cf(&cf, IteratorMode::End);
         let (k, _) = iter.next()?.ok()?;
-        Some(u32::from_le_bytes(k[..4].try_into().ok()?))
+        Some(u64::from_be_bytes(k[..8].try_into().ok()?))
     }
 
-    pub fn write_finality(&self, epoch: u32, data: &[u8]) -> Result<()> {
+    pub fn write_finality(&self, epoch: u64, data: &[u8]) -> Result<()> {
         let cf = self.db.cf_handle(CF_FINALITY).context("finality CF")?;
-        self.db.put_cf(&cf, epoch.to_le_bytes(), data)?;
+        self.db.put_cf(&cf, epoch.to_be_bytes(), data)?;
         Ok(())
     }
 
-    pub fn read_finality(&self, epoch: u32) -> Result<Option<Vec<u8>>> {
+    pub fn read_finality(&self, epoch: u64) -> Result<Option<Vec<u8>>> {
         let cf = self.db.cf_handle(CF_FINALITY).context("finality CF")?;
-        Ok(self.db.get_cf(&cf, epoch.to_le_bytes())?)
+        Ok(self.db.get_cf(&cf, epoch.to_be_bytes())?)
     }
 
-    pub fn latest_finality(&self) -> Option<u32> {
+    pub fn latest_finality(&self) -> Option<u64> {
         let cf = self.db.cf_handle(CF_FINALITY)?;
         let mut iter = self.db.iterator_cf(&cf, IteratorMode::End);
         let (k, _) = iter.next()?.ok()?;
-        Some(u32::from_le_bytes(k[..4].try_into().ok()?))
+        Some(u64::from_be_bytes(k[..8].try_into().ok()?))
     }
 
     // ── Accounts ─────────────────────────────────────────────────────────────
@@ -205,6 +209,12 @@ impl Store {
     pub fn state_get(&self, key: &str) -> Option<Vec<u8>> {
         let cf = self.db.cf_handle(CF_META)?;
         self.db.get_cf(&cf, key.as_bytes()).ok().flatten()
+    }
+
+    pub fn state_delete(&self, key: &str) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).context("meta CF")?;
+        self.db.delete_cf(&cf, key.as_bytes())?;
+        Ok(())
     }
 
     /// Scan all keys with the given prefix in CF_META.

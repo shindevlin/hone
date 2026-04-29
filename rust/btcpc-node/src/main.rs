@@ -11,11 +11,13 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_NODE_ID         — libp2p node identity label
     BTCPC_API_PORT        — HTTP API port (default: 4242)
     BTCPC_P2P_PORT        — libp2p listen port (default: 6942)
-    BTCPC_MINER           — "true" to enable mining
-    BTCPC_CLOCK           — "true" to participate in clock consensus
-    BTCPC_GENESIS_FILE    — path to genesis.json
-    BTCPC_LOG_LEVEL       — tracing filter (default: btcpc_node=info)
-    BTCPC_BOOTSTRAP_PEERS — comma-separated multiaddrs for DHT bootstrap
+    BTCPC_MINER               — "true" to enable mining
+    BTCPC_CLOCK               — "true" to participate in clock consensus
+    BTCPC_GENESIS_FILE        — path to genesis.json
+    BTCPC_GENESIS_TIMESTAMP   — Unix ms timestamp for genesis block (MUST match on all nodes)
+    BTCPC_LOG_LEVEL           — tracing filter (default: btcpc_node=info)
+    BTCPC_BOOTSTRAP_PEERS     — comma-separated multiaddrs for DHT bootstrap
+    BTCPC_CHAIN_ID            — "btcpc-1" (mainnet) or "btcpc-satoshi" (testnet)
 */
 
 mod api;
@@ -23,10 +25,14 @@ mod chain;
 mod clock;
 mod config;
 mod contracts;
+mod discovery;
 mod finalize;
 mod genesis;
+mod inference;
+mod inference_daemon;
 mod miner;
 mod net;
+mod sim;
 mod store;
 mod tx;
 mod utils;
@@ -34,7 +40,7 @@ mod utils;
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::{info, warn};
-use btcpc_types::{Block, LedgerEntry};
+use btcpc_types::{Block, LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM, RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID};
 
 use chain::Chain;
 use config::Config;
@@ -53,20 +59,21 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    info!("btcpc-node starting — account={} data={:?}", cfg.account, cfg.data_dir);
+    info!("btcpc-node starting — account={} chain={} data={:?}", cfg.account, cfg.chain_id, cfg.data_dir);
 
     // Open state database
     let db_path = cfg.data_dir.join("state");
     let store = Store::open(&db_path)?;
-    let chain = Arc::new(Chain::new(store, cfg.node_id.clone()));
+
+    // Network gets a clone of the store for peer-store persistence.
+    let (network, net_handle, net_events) = net::Network::new(cfg.clone(), store.clone());
+
+    let chain = Arc::new(Chain::new(store, cfg.node_id.clone(), cfg.chain_id.clone()));
 
     // Genesis
-    genesis::init_genesis(&chain, cfg.genesis_file.as_deref())?;
+    genesis::init_genesis(&chain, cfg.genesis_file.as_deref(), cfg.genesis_timestamp)?;
 
     info!("chain state ready — latest epoch={}", chain.current_epoch());
-
-    // ── Networking ────────────────────────────────────────────────────────────
-    let (network, net_handle, net_events) = net::Network::new(cfg.clone());
     tokio::spawn(async move {
         if let Err(e) = network.run().await {
             tracing::error!("network error: {}", e);
@@ -173,6 +180,14 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Inference marketplace daemon ──────────────────────────────────────────
+    {
+        let chain_ref = chain.clone();
+        tokio::spawn(async move {
+            inference_daemon::run(chain_ref).await;
+        });
+    }
+
     // ── Mining ────────────────────────────────────────────────────────────────
     if cfg.is_miner {
         let chain_ref = chain.clone();
@@ -251,7 +266,7 @@ async fn main() -> Result<()> {
                             if let Some(block) = Block::from_bytes(&data) {
                                 let cur = chain_ref.current_epoch();
                                 // Reject blocks too far ahead (max +10 epochs).
-                                if epoch as u64 > cur + 10 {
+                                if epoch > cur + 10 {
                                     warn!("gossip block {} too far ahead of epoch {} — ignoring", epoch, cur);
                                 } else if let Some(entries) = block.payload.get("ledger_entries")
                                     .and_then(|v| serde_json::from_value::<Vec<LedgerEntry>>(v.clone()).ok())
@@ -265,16 +280,58 @@ async fn main() -> Result<()> {
                                     // Reject MineReward without a corresponding Mine entry.
                                     let has_mine_reward = entries.iter().any(|e| matches!(e, LedgerEntry::MineReward { .. }));
                                     let has_mine = entries.iter().any(|e| matches!(e, LedgerEntry::Mine { .. }));
+                                    // Reject inflated MineReward — amount must not exceed emission/recycle schedule.
+                                    let reward_inflated = entries.iter().any(|e| {
+                                        if let LedgerEntry::MineReward { amount, epoch: reward_epoch, .. } = e {
+                                            let re = *reward_epoch;
+                                            if era(re) >= RECYCLE_ERA {
+                                                // Era 5+: capped at RECYCLE_REWARD_RATE/DENOM of fund balance.
+                                                let fund = chain_ref.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+                                                let max = ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64;
+                                                *amount > max
+                                            } else {
+                                                *amount > block_reward_at(re)
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    });
+                                    // Reject Transfer entries with invalid nonces (already-used or wrong).
+                                    let has_bad_nonce = entries.iter().any(|e| {
+                                        if let LedgerEntry::Transfer { from, nonce, .. } = e {
+                                            let expected = chain_ref.store.get_account(from)
+                                                .ok().flatten()
+                                                .and_then(|s| s.get("nonce").and_then(|v| v.as_u64()))
+                                                .map(|n| n + 1)
+                                                .unwrap_or(1);
+                                            *nonce < expected // used or skipped
+                                        } else {
+                                            false
+                                        }
+                                    });
+
+                                    // Reject blocks from a different chain (cross-chain replay prevention).
+                                    let chain_id_mismatch = block.payload
+                                        .get("chain_id")
+                                        .and_then(|v| v.as_str())
+                                        .map_or(false, |cid| cid != chain_ref.chain_id);
+
                                     if has_privileged {
                                         warn!("gossip block {} contains privileged entries — rejected", epoch);
+                                    } else if chain_id_mismatch {
+                                        warn!("gossip block {} chain_id mismatch (expected '{}') — rejected", epoch, chain_ref.chain_id);
                                     } else if has_mine_reward && !has_mine {
                                         warn!("gossip block {} has MineReward without Mine — rejected", epoch);
+                                    } else if reward_inflated {
+                                        warn!("gossip block {} has inflated MineReward vs emission schedule — rejected", epoch);
+                                    } else if has_bad_nonce {
+                                        warn!("gossip block {} contains replay or bad-nonce transfers — rejected", epoch);
                                     } else {
                                         chain_ref.apply_block_entries(&entries);
                                         let _ = chain_ref.store.write_block(epoch, &data);
                                         let mut cur = chain_ref.current_epoch.write();
-                                        if epoch as u64 > *cur {
-                                            *cur = epoch as u64;
+                                        if epoch > *cur {
+                                            *cur = epoch;
                                         }
                                     }
                                 }
@@ -297,11 +354,20 @@ async fn main() -> Result<()> {
     // ── Contract engine ───────────────────────────────────────────────────────
     let contracts = Arc::new(ContractEngine::new(chain.clone()));
 
+    // ── Testnet sim daemon ────────────────────────────────────────────────────
+    if cfg.chain_id == TESTNET_CHAIN_ID {
+        let chain_ref = chain.clone();
+        tokio::spawn(async move {
+            sim::run(chain_ref).await;
+        });
+    }
+
     // ── HTTP API ──────────────────────────────────────────────────────────────
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
         tx_broadcast,
+        faucet_claims: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
     };
     api::serve(app_state, cfg.api_port).await?;
 

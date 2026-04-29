@@ -100,9 +100,11 @@ dependencies = [
  "btcpc-sdk",
  "clap",
  "colored",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tabled",
  "tokio",
 ]

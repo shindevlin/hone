@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
-use btcpc_types::Block;
+use btcpc_types::{Block, NATIVE_TOKEN, RECYCLE_FUND_ACCOUNT, block_reward_at};
 use crate::chain::Chain;
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -72,10 +72,15 @@ pub async fn finalize_epoch(chain: &Arc<Chain>, epoch: u64) -> Result<()> {
         "latest_block_hash": latest_block_hash,
     });
 
-    let bytes = serde_json::to_vec(&snapshot)?;
+    // Read the previous finality boundary BEFORE writing the new snapshot,
+    // so redirect_unearned_rewards knows where to start its scan.
+    let prev_finalized = chain.store.latest_finality().unwrap_or(0);
 
-    // write_finality takes u32 — epochs are bounded well within u32 range.
-    chain.store.write_finality(epoch as u32, &bytes)?;
+    let bytes = serde_json::to_vec(&snapshot)?;
+    chain.store.write_finality(epoch, &bytes)?;
+
+    // Redirect unearned rewards (epochs with no miner activity) to the recycle fund.
+    redirect_unearned_rewards(chain, prev_finalized, epoch);
 
     info!(
         "[finalize] epoch {} finalized: state_root={} block={}",
@@ -94,8 +99,7 @@ pub async fn finalize_epoch(chain: &Arc<Chain>, epoch: u64) -> Result<()> {
 /// is found so finalization never blocks on missing data.
 fn latest_block_hash(chain: &Arc<Chain>, epoch: u64) -> String {
     // Walk backwards up to 10 epochs to find a stored block.
-    let start = epoch as u32;
-    for e in (start.saturating_sub(10)..=start).rev() {
+    for e in (epoch.saturating_sub(10)..=epoch).rev() {
         if let Ok(Some(bytes)) = chain.store.read_block(e) {
             // Block format: 180-byte binary header + 4-byte len + JSON payload.
             // Must use Block::from_bytes — serde_json::from_slice fails on the binary header.
@@ -110,6 +114,30 @@ fn latest_block_hash(chain: &Arc<Chain>, epoch: u64) -> String {
     hasher.update(b"genesis");
     hasher.update(epoch.to_le_bytes());
     hex::encode(hasher.finalize())
+}
+
+/// Credit the recycle fund with the reward for any epoch in the
+/// `(prev_boundary..=boundary]` range that has no stored block.
+///
+/// Only applies to new-supply eras (block_reward_at > 0); era 5 epochs
+/// already draw from the recycle fund directly via produce_block.
+fn redirect_unearned_rewards(chain: &Arc<Chain>, prev_finalized: u64, boundary: u64) {
+    // Walk only the new range since the previous finalization.
+    let start = prev_finalized.saturating_add(1).max(1);
+    for ep in start..=boundary {
+        if chain.store.has_block(ep) {
+            continue;
+        }
+        let reward = block_reward_at(ep);
+        if reward == 0 {
+            continue;
+        }
+        if let Err(e) = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, reward) {
+            warn!("[finalize] recycle credit failed for skipped epoch {}: {}", ep, e);
+        } else {
+            info!("[finalize] epoch {} had no block — {} dreams → recycle fund", ep, reward);
+        }
+    }
 }
 
 /// Proxy state root: SHA-256( latest_block_hash_bytes || epoch_le_bytes ).

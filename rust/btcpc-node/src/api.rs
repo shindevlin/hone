@@ -1,6 +1,8 @@
 //! HTTP API server (Axum) — replaces Node.js btcpc-api.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use axum::{
     Router,
     routing::{get, post},
@@ -10,13 +12,14 @@ use axum::{
 use serde::{Deserialize, Deserializer};
 use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
-use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC};
+use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID};
 
 /// Gossip envelope: entry JSON + out-of-band signature so peers can re-verify.
 pub type GossipEntry = (LedgerEntry, Option<String>);
 
 use crate::chain::Chain;
 use crate::contracts::ContractEngine;
+use crate::inference;
 use crate::tx;
 
 #[derive(Clone)]
@@ -26,6 +29,8 @@ pub struct AppState {
     /// Broadcast channel for gossiping newly accepted entries to the net module.
     /// Carries (entry, optional_signature) so the sig propagates with the gossip.
     pub tx_broadcast: broadcast::Sender<GossipEntry>,
+    /// Faucet rate-limiter: account → last claim time (testnet only).
+    pub faucet_claims: Arc<parking_lot::Mutex<HashMap<String, Instant>>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -44,10 +49,24 @@ pub fn router(state: AppState) -> Router {
         .route("/api/stake", post(post_stake))
         .route("/api/unstake", post(post_unstake))
         .route("/api/account/create", post(post_account_create))
+        .route("/api/account/update-key", post(post_account_update_key))
         // ── Contract endpoints ────────────────────────────────────────────
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
         .route("/api/contract/view", post(post_contract_view))
+        // ── Inference marketplace ─────────────────────────────────────────
+        .route("/api/inference/post", post(post_inference_job))
+        .route("/api/inference/bid", post(post_inference_bid))
+        .route("/api/inference/complete", post(post_inference_complete))
+        .route("/api/inference/verify", post(post_inference_verify))
+        .route("/api/inference/claim", post(post_inference_claim))
+        .route("/api/inference/review", post(post_inference_review))
+        .route("/api/inference/cancel", post(post_inference_cancel))
+        .route("/api/inference/jobs", get(get_inference_jobs))
+        .route("/api/inference/job/:id", get(get_inference_job))
+        .route("/api/inference/reputation/:node", get(get_inference_reputation))
+        // ── Faucet (testnet only) ─────────────────────────────────────────
+        .route("/api/faucet/claim", post(post_faucet_claim))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -74,10 +93,16 @@ async fn get_all_balances(
     Path(account): Path<String>,
 ) -> Json<serde_json::Value> {
     let balances = s.chain.store.scan_balances(&account);
-    let map: serde_json::Map<String, serde_json::Value> = balances.into_iter()
-        .map(|(token, d)| (token, serde_json::json!(d as f64 / DREAMS_PER_BTCPC as f64)))
+    // Return dreams as integers to avoid f64 precision loss.
+    // Include a display string for convenience.
+    let entries: Vec<serde_json::Value> = balances.into_iter()
+        .map(|(token, dreams)| serde_json::json!({
+            "token": token,
+            "dreams": dreams,
+            "display": format!("{:.10}", dreams as f64 / DREAMS_PER_BTCPC as f64),
+        }))
         .collect();
-    Json(serde_json::json!({ "account": account, "balances": map }))
+    Json(serde_json::json!({ "account": account, "balances": entries }))
 }
 
 // GET /api/account/:account
@@ -95,7 +120,7 @@ async fn get_account(
 // GET /api/block/:epoch
 async fn get_block(
     State(s): State<AppState>,
-    Path(epoch): Path<u32>,
+    Path(epoch): Path<u64>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match s.chain.store.read_block(epoch) {
         Ok(Some(data)) => {
@@ -152,7 +177,7 @@ async fn get_epoch(
             // Return basic info if no metadata yet
             Ok(Json(serde_json::json!({
                 "epoch": epoch,
-                "has_block": s.chain.store.has_block(epoch as u32),
+                "has_block": s.chain.store.has_block(epoch),
                 "finalized": false,
             })))
         }
@@ -373,6 +398,32 @@ async fn post_account_create(
     apply_and_broadcast(&s, entry, None)
 }
 
+/// POST /api/account/update-key
+/// Body: { "account", "new_public_key", "signed_by", "signature" }
+#[derive(Debug, Deserialize)]
+struct AccountUpdateKeyBody {
+    account: String,
+    new_public_key: String,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_account_update_key(
+    State(s): State<AppState>,
+    Json(body): Json<AccountUpdateKeyBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::AccountUpdateKey {
+        account: body.account,
+        new_public_key: body.new_public_key,
+        epoch,
+        signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 /// Return `Some(s)` if `s` is non-empty, else `None`.
@@ -495,7 +546,7 @@ async fn post_contract_call(
         }
     }
 
-    match s.contracts.call(&body.contract_id, &body.method, body.args, &body.signer, body.gas, body.deposit, epoch) {
+    match s.contracts.call(&body.contract_id, &body.method, body.args, &body.signer, body.gas, body.deposit, epoch, body.nonce) {
         Ok(result) => Json(serde_json::json!({ "result": result, "ok": true, "error": null })),
         Err(e) => Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() })),
     }
@@ -510,6 +561,354 @@ async fn post_contract_view(
     match s.contracts.view(&body.contract_id, &body.method, body.args, body.gas, epoch) {
         Ok(result) => Json(serde_json::json!({ "result": result, "ok": true, "error": null })),
         Err(e) => Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() })),
+    }
+}
+
+// ── Inference request bodies ──────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct InferencePostBody {
+    requester: String,
+    model: String,
+    #[serde(default = "default_mode")]
+    mode: String,
+    input_hash: String,
+    #[serde(deserialize_with = "deserialize_amount_dreams")]
+    max_fee: u64,
+    #[serde(default)]
+    min_reputation: u64,
+    #[serde(default = "default_bid_window")]
+    bid_window_epochs: u64,
+    deadline_epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceBidBody {
+    job_id: String,
+    bidder: String,
+    #[serde(deserialize_with = "deserialize_amount_dreams")]
+    fee: u64,
+    #[serde(default = "default_worker_role")]
+    role: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceCompleteBody {
+    job_id: String,
+    worker: String,
+    result_hash: String,
+    latency_ms: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceVerifyBody {
+    job_id: String,
+    verifier: String,
+    verdict: String,
+    reason: Option<String>,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceClaimBody {
+    job_id: String,
+    claimant: String,
+    evidence_hash: Option<String>,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceReviewBody {
+    job_id: String,
+    reviewer: String,
+    approved: bool,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InferenceCancelBody {
+    job_id: String,
+    cancelled_by: String,
+    #[serde(default)]
+    reason: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+fn default_mode() -> String { "solo".to_owned() }
+fn default_bid_window() -> u64 { 2 }
+fn default_worker_role() -> String { "worker".to_owned() }
+
+// ── Inference handlers ────────────────────────────────────────────────────────
+
+async fn post_inference_job(
+    State(s): State<AppState>,
+    Json(body): Json<InferencePostBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let job_id = {
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(body.requester.as_bytes());
+        h.update(body.nonce.to_le_bytes());
+        h.update(epoch.to_le_bytes());
+        hex::encode(h.finalize())[..16].to_owned()
+    };
+    let requester = body.requester.clone();
+    let entry = LedgerEntry::InferenceJobPost {
+        job_id: job_id.clone(),
+        requester: body.requester,
+        model: body.model,
+        mode: body.mode,
+        input_hash: body.input_hash,
+        max_fee: body.max_fee,
+        min_reputation: body.min_reputation,
+        bid_window_epochs: body.bid_window_epochs,
+        deadline_epoch: body.deadline_epoch,
+        epoch,
+        nonce: body.nonce,
+        signed_by: requester,
+    };
+    let sig = non_empty(&body.signature);
+    match tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => {
+            let _ = s.tx_broadcast.send((entry, sig.map(str::to_owned)));
+            Json(serde_json::json!({ "hash": hash, "job_id": job_id, "accepted": true, "error": null }))
+        }
+        Err(e) => Json(serde_json::json!({ "hash": null, "job_id": null, "accepted": false, "error": e.to_string() })),
+    }
+}
+
+async fn post_inference_bid(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceBidBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobBid {
+        job_id: body.job_id,
+        bidder: body.bidder.clone(),
+        fee: body.fee,
+        role: body.role,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.bidder,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_inference_complete(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceCompleteBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobComplete {
+        job_id: body.job_id,
+        worker: body.worker.clone(),
+        result_hash: body.result_hash,
+        latency_ms: body.latency_ms,
+        epoch,
+        signed_by: body.worker,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_inference_verify(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceVerifyBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobVerify {
+        job_id: body.job_id,
+        verifier: body.verifier.clone(),
+        verdict: body.verdict,
+        reason: body.reason,
+        epoch,
+        signed_by: body.verifier,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_inference_claim(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceClaimBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobClaim {
+        job_id: body.job_id,
+        claimant: body.claimant.clone(),
+        evidence_hash: body.evidence_hash,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.claimant,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_inference_review(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceReviewBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceReviewVote {
+        job_id: body.job_id,
+        reviewer: body.reviewer.clone(),
+        approved: body.approved,
+        epoch,
+        signed_by: body.reviewer,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_inference_cancel(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceCancelBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobCancel {
+        job_id: body.job_id,
+        cancelled_by: body.cancelled_by.clone(),
+        reason: body.reason,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.cancelled_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+// GET /api/inference/jobs?status=posted&model=llama3
+async fn get_inference_jobs(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let status_filter = params.get("status").map(String::as_str);
+    let model_filter = params.get("model").map(String::as_str);
+
+    let jobs: Vec<serde_json::Value> = s.chain.store.state_scan_prefix("infer_job:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<inference::JobState>(&v).ok())
+        .filter(|j| {
+            status_filter.map_or(true, |sf| format!("{:?}", j.status).to_lowercase() == sf)
+                && model_filter.map_or(true, |m| j.model == m)
+        })
+        .filter_map(|j| serde_json::to_value(&j).ok())
+        .collect();
+
+    let count = jobs.len();
+    Json(serde_json::json!({ "jobs": jobs, "count": count }))
+}
+
+// GET /api/inference/job/:id
+async fn get_inference_job(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match inference::get_job(&s.chain, &id) {
+        Some(job) => {
+            let bids = inference::get_bids(&s.chain, &id);
+            let votes = inference::get_votes(&s.chain, &id);
+            Ok(Json(serde_json::json!({
+                "job": job,
+                "bids": bids,
+                "review_votes": votes,
+            })))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+// GET /api/inference/reputation/:node
+async fn get_inference_reputation(
+    State(s): State<AppState>,
+    Path(node): Path<String>,
+) -> Json<serde_json::Value> {
+    let rep = inference::get_reputation(&s.chain, &node);
+    Json(serde_json::to_value(&rep).unwrap_or_default())
+}
+
+// ── Faucet (testnet only) ─────────────────────────────────────────────────────
+
+const FAUCET_AMOUNT_DREAMS: u64 = 10 * 10_000_000_000; // 10 BTCPC
+const FAUCET_COOLDOWN_SECS: u64 = 3600; // 1 hour
+
+#[derive(Debug, Deserialize)]
+struct FaucetClaimBody {
+    account: String,
+}
+
+/// POST /api/faucet/claim
+/// Body: { "account": "..." }
+/// Returns 403 on mainnet.  Rate-limited to 1 claim per account per hour on testnet.
+async fn post_faucet_claim(
+    State(s): State<AppState>,
+    Json(body): Json<FaucetClaimBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if s.chain.chain_id != TESTNET_CHAIN_ID {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "success": false,
+            "message": "Faucet not available on mainnet. Acquire BTCPC by mining or transfers.",
+        })));
+    }
+
+    if body.account.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "success": false,
+            "message": "account must not be empty",
+        })));
+    }
+
+    let now = Instant::now();
+    {
+        let mut claims = s.faucet_claims.lock();
+        if let Some(&last) = claims.get(body.account.as_str()) {
+            let elapsed = now.duration_since(last).as_secs();
+            if elapsed < FAUCET_COOLDOWN_SECS {
+                return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({
+                    "success": false,
+                    "message": format!("Faucet cooldown: {} seconds remaining", FAUCET_COOLDOWN_SECS - elapsed),
+                })));
+            }
+        }
+        claims.insert(body.account.clone(), now);
+    }
+
+    let epoch = s.chain.current_epoch();
+    // Create account if it doesn't exist yet (idempotent).
+    let _ = s.chain.apply_entry(&LedgerEntry::AccountCreate {
+        account: body.account.clone(),
+        public_key: None,
+        epoch,
+    });
+
+    match s.chain.store.credit(&body.account, NATIVE_TOKEN, FAUCET_AMOUNT_DREAMS) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true,
+            "message": format!("Sent 10 BTCPC to {}", body.account),
+            "amount": 10.0_f64,
+            "dreams": FAUCET_AMOUNT_DREAMS,
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "success": false,
+            "message": e.to_string(),
+        }))),
     }
 }
 

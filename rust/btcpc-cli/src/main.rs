@@ -1,6 +1,7 @@
 mod api;
 mod chain;
 mod contract;
+mod inference;
 mod key;
 mod tx;
 
@@ -117,6 +118,12 @@ enum Commands {
         #[command(subcommand)]
         action: KeyCommands,
     },
+
+    /// Inference marketplace
+    Inference {
+        #[command(subcommand)]
+        action: InferenceCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -184,6 +191,93 @@ enum KeyCommands {
         /// Key file path (default: ~/.btcpc/key.json)
         #[arg(long)]
         key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum InferenceCommands {
+    /// Post a new inference job to the marketplace
+    Post {
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        model: String,
+        /// Input text or path to input file (prefix with @)
+        #[arg(long)]
+        input: String,
+        /// Maximum fee in dreams (or BTCPC as decimal string e.g. "0.5")
+        #[arg(long)]
+        max_fee: u64,
+        /// Minimum node reputation score required (0 = any)
+        #[arg(long, default_value = "0")]
+        min_rep: u64,
+        /// Inference mode: solo, ensemble, or pipeline
+        #[arg(long, default_value = "solo")]
+        mode: String,
+        /// Bid window in epochs (default 2)
+        #[arg(long, default_value = "2")]
+        bid_window: u64,
+        /// Deadline epoch (job cancelled if not done by then)
+        #[arg(long)]
+        deadline: u64,
+        #[arg(long)]
+        key_file: Option<std::path::PathBuf>,
+    },
+    /// List inference jobs
+    Jobs {
+        /// Filter by status: posted, awarded, completed, verified, disputed, paid
+        #[arg(long)]
+        status: Option<String>,
+        /// Filter by model name
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Show full details for a single job
+    Job {
+        /// Job ID
+        id: String,
+    },
+    /// Bid on an open job (node operators)
+    Bid {
+        #[arg(long)]
+        job_id: String,
+        #[arg(long)]
+        account: String,
+        /// Fee to accept in dreams
+        #[arg(long)]
+        fee: u64,
+        /// Role: worker or verifier
+        #[arg(long, default_value = "worker")]
+        role: String,
+        #[arg(long)]
+        key_file: Option<std::path::PathBuf>,
+    },
+    /// Submit completed job result (node operators)
+    Complete {
+        #[arg(long)]
+        job_id: String,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        result_hash: String,
+        #[arg(long)]
+        latency_ms: u64,
+        #[arg(long)]
+        key_file: Option<std::path::PathBuf>,
+    },
+    /// Cancel a job you posted
+    Cancel {
+        #[arg(long)]
+        job_id: String,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        key_file: Option<std::path::PathBuf>,
+    },
+    /// Show reputation for a node
+    Reputation {
+        /// Node account name (defaults to local BTCPC_ACCOUNT)
+        node: Option<String>,
     },
 }
 
@@ -270,6 +364,29 @@ fn run() -> Result<()> {
                 args,
             } => {
                 contract::cmd_contract_view(&contract, &method, args.as_deref())?;
+            }
+        },
+        Commands::Inference { action } => match action {
+            InferenceCommands::Post { account, model, input, max_fee, min_rep, mode, bid_window, deadline, key_file } => {
+                inference::cmd_post(&account, &model, &input, max_fee, min_rep, &mode, bid_window, deadline, key_file.as_deref())?;
+            }
+            InferenceCommands::Jobs { status, model } => {
+                inference::cmd_jobs(status.as_deref(), model.as_deref())?;
+            }
+            InferenceCommands::Job { id } => {
+                inference::cmd_job(&id)?;
+            }
+            InferenceCommands::Bid { job_id, account, fee, role, key_file } => {
+                inference::cmd_bid(&job_id, &account, fee, &role, key_file.as_deref())?;
+            }
+            InferenceCommands::Complete { job_id, account, result_hash, latency_ms, key_file } => {
+                inference::cmd_complete(&job_id, &account, &result_hash, latency_ms, key_file.as_deref())?;
+            }
+            InferenceCommands::Cancel { job_id, account, key_file } => {
+                inference::cmd_cancel(&job_id, &account, key_file.as_deref())?;
+            }
+            InferenceCommands::Reputation { node } => {
+                inference::cmd_reputation(node.as_deref())?;
             }
         },
         Commands::Key { action } => match action {

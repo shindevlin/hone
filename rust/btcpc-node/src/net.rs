@@ -14,6 +14,8 @@
 //!   NetworkEvent           (received on the broadcast channel)
 
 use crate::config::Config;
+use crate::discovery;
+use crate::store::Store;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use libp2p::futures::StreamExt;
@@ -24,7 +26,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, Multiaddr, SwarmBuilder,
 };
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
@@ -39,7 +41,7 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone)]
 pub enum NetworkEvent {
     /// Raw block bytes received from a peer.
-    Block { epoch: u32, data: Vec<u8> },
+    Block { epoch: u64, data: Vec<u8> },
     /// A single ledger entry received over gossip.
     Entry { entry: serde_json::Value },
     /// An EPOCH_SEAL received over gossip.
@@ -90,6 +92,7 @@ const TOPIC_SYNC:    &str = "btcpc/sync";
 
 pub struct Network {
     config:   Config,
+    store:    Store,
     cmd_rx:   mpsc::Receiver<NetCmd>,
     event_tx: broadcast::Sender<NetworkEvent>,
 }
@@ -98,11 +101,11 @@ impl Network {
     /// Create a new `Network` and the associated handle + event channel.
     ///
     /// Returns `(Network, NetworkHandle, broadcast::Receiver<NetworkEvent>)`.
-    pub fn new(config: Config) -> (Self, NetworkHandle, broadcast::Receiver<NetworkEvent>) {
+    pub fn new(config: Config, store: Store) -> (Self, NetworkHandle, broadcast::Receiver<NetworkEvent>) {
         let (cmd_tx, cmd_rx) = mpsc::channel(256);
         let (event_tx, event_rx) = broadcast::channel(1024);
 
-        let network = Self { config, cmd_rx, event_tx };
+        let network = Self { config, store, cmd_rx, event_tx };
         let handle  = NetworkHandle { cmd_tx };
         (network, handle, event_rx)
     }
@@ -200,9 +203,36 @@ impl Network {
         swarm.listen_on(listen_quic)?;
 
         // ------------------------------------------------------------------
-        // 5. Dial bootstrap peers
+        // 5. Load stored peers + run discovery, then dial all
         // ------------------------------------------------------------------
-        for addr_str in &self.config.bootstrap_peers {
+
+        // Layer 1: peers from RocksDB peer store (instant, no network).
+        let stored_peers = load_peer_store(&self.store);
+        if !stored_peers.is_empty() {
+            info!("peer store: {} cached peers", stored_peers.len());
+        }
+        for addr in &stored_peers {
+            let _ = swarm.dial(addr.clone());
+        }
+
+        // Layer 2: Cloudflare DNS seeds (bootstrap_peers from config — already dialed below
+        //           after discovery so they're all handled in one unified pass).
+
+        // Layer 3: Hive + TON registry (10s timeout — best effort).
+        let discovered = tokio::time::timeout(
+            Duration::from_secs(10),
+            discovery::fetch_all_peers(),
+        )
+        .await
+        .unwrap_or_default();
+
+        // Dial config bootstrap peers + discovery peers together.
+        let all_bootstrap: Vec<String> = self.config.bootstrap_peers.iter()
+            .cloned()
+            .chain(discovered.into_iter())
+            .collect();
+
+        for addr_str in &all_bootstrap {
             match addr_str.parse::<Multiaddr>() {
                 Ok(addr) => {
                     info!("Dialing bootstrap peer: {}", addr);
@@ -212,7 +242,7 @@ impl Network {
             }
         }
 
-        // Kick off Kademlia bootstrap (harmless if no peers yet)
+        // Kick off Kademlia bootstrap (harmless if no peers yet).
         if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
             warn!("Kademlia bootstrap queued (expected on first start): {}", e);
         }
@@ -224,10 +254,16 @@ impl Network {
         );
 
         // ------------------------------------------------------------------
-        // 6. Re-bootstrap timer — every 5 minutes when peer count < 3
+        // 6. Timers
         // ------------------------------------------------------------------
-        let mut rebootstrap = tokio::time::interval(Duration::from_secs(300));
+        let mut rebootstrap   = tokio::time::interval(Duration::from_secs(300));
+        let mut peer_flush    = tokio::time::interval(Duration::from_secs(300));
         rebootstrap.tick().await; // discard immediate first tick
+        peer_flush.tick().await;
+
+        // In-memory peer cache: peer_id_str → listen addrs.
+        // Populated by Identify events; flushed to RocksDB every 5 minutes.
+        let mut peer_cache: HashMap<String, Vec<Multiaddr>> = HashMap::new();
 
         // ------------------------------------------------------------------
         // 7. Event loop
@@ -235,7 +271,7 @@ impl Network {
         loop {
             tokio::select! {
                 event = swarm.select_next_some() => {
-                    self.handle_swarm_event(event, &mut swarm);
+                    self.handle_swarm_event(event, &mut swarm, &mut peer_cache);
                 }
                 Some(cmd) = self.cmd_rx.recv() => {
                     self.handle_cmd(cmd, &mut swarm,
@@ -250,6 +286,10 @@ impl Network {
                         }
                     }
                 }
+                _ = peer_flush.tick() => {
+                    save_peer_store(&self.store, &peer_cache);
+                    debug!("peer store: flushed {} peer entries", peer_cache.len());
+                }
             }
         }
     }
@@ -262,6 +302,7 @@ impl Network {
         &self,
         event: SwarmEvent<BtcpcBehaviourEvent>,
         swarm: &mut libp2p::Swarm<BtcpcBehaviour>,
+        peer_cache: &mut HashMap<String, Vec<Multiaddr>>,
     ) {
         match event {
             // Listeners
@@ -286,12 +327,18 @@ impl Network {
                 self.handle_gossip_message(&message, propagation_source.to_string());
             }
 
-            // Identify — feed addresses into Kademlia
+            // Identify — feed addresses into Kademlia and persist to peer store.
             SwarmEvent::Behaviour(BtcpcBehaviourEvent::Identify(
                 identify::Event::Received { peer_id, info, .. }
             )) => {
+                let cache_entry = peer_cache
+                    .entry(peer_id.to_string())
+                    .or_default();
                 for addr in info.listen_addrs {
-                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                    if !cache_entry.contains(&addr) {
+                        cache_entry.push(addr);
+                    }
                 }
             }
 
@@ -367,7 +414,7 @@ impl Network {
             TOPIC_BLOCKS => {
                 // {"epoch": N, "data_b64": "..."}
                 let epoch = match json.get("epoch").and_then(|v| v.as_u64()) {
-                    Some(e) => e as u32,
+                    Some(e) => e,
                     None    => { warn!("btcpc/blocks: missing 'epoch' field"); return; }
                 };
                 let data_b64 = match json.get("data_b64").and_then(|v| v.as_str()) {
@@ -397,7 +444,7 @@ impl Network {
                 match json.get("type").and_then(|v| v.as_str()) {
                     Some("response") => {
                         let epoch = match json.get("epoch").and_then(|v| v.as_u64()) {
-                            Some(e) => e as u32,
+                            Some(e) => e,
                             None    => { warn!("btcpc/sync response: missing 'epoch'"); return; }
                         };
                         let data_b64 = match json.get("data_b64").and_then(|v| v.as_str()) {
@@ -483,6 +530,55 @@ impl Network {
         // broadcast::Sender::send returns Err only if there are no receivers;
         // that is not an error condition — silently discard.
         let _ = self.event_tx.send(event);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Peer store — persist discovered multiaddrs across restarts
+// ---------------------------------------------------------------------------
+
+/// RocksDB meta key for the serialised peer address list.
+const PEER_STORE_KEY: &str = "peer_addrs";
+
+/// Maximum peers to persist (keeps the store small; Kademlia handles the rest).
+const MAX_STORED_PEERS: usize = 100;
+
+/// Load cached peer multiaddrs from RocksDB.  Returns an empty list on miss or error.
+fn load_peer_store(store: &Store) -> Vec<Multiaddr> {
+    store
+        .get_meta(PEER_STORE_KEY)
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| s.parse().ok())
+        .collect()
+}
+
+/// Flush the in-memory peer cache to RocksDB.
+/// Skips loopback / unspecified addresses — they're useless to other nodes.
+fn save_peer_store(store: &Store, cache: &HashMap<String, Vec<Multiaddr>>) {
+    let mut addrs: Vec<String> = cache
+        .iter()
+        .flat_map(|(peer_id, addrs)| {
+            addrs.iter().filter_map(move |addr| {
+                let s = addr.to_string();
+                if s.contains("/127.0.0.1/")
+                    || s.contains("/::1/")
+                    || s.contains("/0.0.0.0/")
+                {
+                    return None;
+                }
+                Some(format!("{}/p2p/{}", s, peer_id))
+            })
+        })
+        .collect();
+
+    addrs.sort();
+    addrs.dedup();
+    addrs.truncate(MAX_STORED_PEERS);
+
+    if let Ok(json) = serde_json::to_vec(&addrs) {
+        let _ = store.set_meta(PEER_STORE_KEY, &json);
     }
 }
 
