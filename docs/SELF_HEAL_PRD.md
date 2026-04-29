@@ -179,3 +179,55 @@ Items from code review of finalizationConsensus.js. Non-blocking for genesis but
 - [ ] **Proposal validation against known work** — `submitProposal()` accepts any reward distribution without checking it against recorded mining proofs. Add a validation step that verifies proposed amounts are consistent with `stateStore.getMiningProofs()` for that epoch.
 
 - [ ] **finalizationConsensus test gap fill** — add tests for: replay across epochs, empty-epoch resolution, hash mismatch detection (blockProposal hash matches hashRewards output), memory cleanup after 10 epochs, minimum node count config. (`tests/finalizationConsensus.test.js`)
+
+---
+
+## BTCPC Terminal — Warp Fork Scrub (personal dev environment)
+
+**Repo**: `~/repos/warp` (warpdotdev/warp, AGPL, personal use only — never distributed)
+**Output**: `~/repos/btcpc-terminal-pro` (private, local only)
+**Full plan**: `~/repos/warp/BTCPC_FORK_PLAN.md`
+**End-user terminal** (separate): `github.com/shindevlin/btcpc-terminal` (Rio fork, MIT, ships to node operators)
+
+Agent picks one phase at a time. Each phase must leave the repo in a `cargo check`-passing state before committing.
+
+- [ ] **Phase 1 — Delete cloud crates and get `cargo check` passing**
+  - Copy `~/repos/warp` to `~/repos/btcpc-terminal-pro` (full copy, not a symlink)
+  - Remove from `Cargo.toml` workspace members and `[workspace.dependencies]`: `firebase`, `managed_secrets`, `managed_secrets_wasm`, `remote_server`, `warp_server_client`, `graphql`, `warp_graphql_schema`, `warp_web_event_bus`, `ai` (crate), `computer_use`
+  - Delete directories: `crates/firebase/`, `crates/managed_secrets/`, `crates/managed_secrets_wasm/`, `crates/remote_server/`, `crates/warp_server_client/`, `crates/graphql/`, `crates/warp_graphql_schema/`, `crates/warp_web_event_bus/`, `crates/ai/`, `crates/computer_use/`
+  - Delete app-level dirs: `app/src/auth/`, `app/src/crash_reporting/`, `app/src/billing/`, `app/src/drive/`, `app/src/experiments/`, `app/src/external_secrets/`, `app/src/autoupdate/`, `app/src/notebooks/`, `app/src/antivirus/`, `app/src/ai/`, `app/src/ai_assistant/`, `.agents/`
+  - Remove `sentry`, `sentry-log`, `minidumper`, `crash-handler` from all `Cargo.toml` files
+  - Fix every broken `use` / `mod` import caused by deletions — stub or remove the call site
+  - Run `cargo check` — must pass with zero errors before committing
+  - Commit: `btcpc-terminal-pro: phase 1 — delete cloud/auth/telemetry crates`
+
+- [ ] **Phase 2 — Remove auth gate from startup flow**
+  - Find the auth check in `app/src/root_view.rs` that blocks terminal launch pending login — remove it so the terminal opens directly
+  - Remove `sentry::init()` / crash handler init from `app/src/main.rs` or wherever it's called at startup
+  - Remove experiment/feature-flag telemetry calls from startup path
+  - Remove any `billing::check_subscription()` or equivalent gate
+  - Run `cargo check` — must pass
+  - Smoke test: `cargo run` opens a working terminal without a login screen
+  - Commit: `btcpc-terminal-pro: phase 2 — remove auth gate, open straight to terminal`
+
+- [ ] **Phase 3 — Rebrand to BTCPC Terminal**
+  - Replace all `Warp` / `warp.dev` / `warpdotdev` strings in UI-visible locations (title bar, about screen, window title, `about.toml`)
+  - Replace with: name = `BTCPC Terminal`, author = `Shin Devlin`, url = `btcpc.network`
+  - Update app icon placeholder (can be a colored square for now)
+  - Update `Cargo.toml` package name from `warp-terminal` to `btcpc-terminal-pro`
+  - Run `cargo check` — must pass
+  - Commit: `btcpc-terminal-pro: phase 3 — rebrand to BTCPC Terminal`
+
+- [ ] **Phase 4 — BTCPC node status panel**
+  - Add a sidebar panel that polls `http://localhost:4242/api/status` every 5s
+  - Display: epoch number, block height, peers connected, sync status, miner account
+  - Display: wallet balance for `BTCPC_MINER` account (poll `http://localhost:4242/api/wallet/:account`)
+  - Panel is collapsible, off by default, toggled via keyboard shortcut `Ctrl+Shift+B`
+  - Fails gracefully if node not running (shows "node offline" state, no crash)
+  - Commit: `btcpc-terminal-pro: phase 4 — BTCPC node status panel`
+
+- [ ] **Phase 5 — Wire AI to local Claude Code**
+  - Replace Warp AI command palette trigger with a shell exec: `claude "<selected text or prompt>"`
+  - If `claude` is not on PATH, show "Claude Code not found — install via npm i -g @anthropic-ai/claude-code"
+  - No cloud calls, no Warp account needed
+  - Commit: `btcpc-terminal-pro: phase 5 — wire AI shortcut to local Claude Code`
