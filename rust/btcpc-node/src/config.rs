@@ -5,8 +5,8 @@ use btcpc_types::{AccountId, MAINNET_CHAIN_ID};
 /// Cloudflare DNS seeds — update the A record when a machine changes, no code change needed.
 /// Add more entries here as the network grows.
 pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
-    "/dns4/bootstrap1.btcpc.network/tcp/6942",
-    "/dns4/bootstrap2.btcpc.network/tcp/6942",
+    "/dns4/bootstrap1.btcpc.net/tcp/6942",
+    "/dns4/bootstrap2.btcpc.net/tcp/6942",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

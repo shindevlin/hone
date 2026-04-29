@@ -11,7 +11,7 @@
 //!
 //! # Hive setup
 //! Create a Hive account named `btcpc-nodes`.  Set its `json_metadata` to:
-//!   {"btcpc_peers": ["/dns4/node1.btcpc.network/tcp/6942", ...]}
+//!   {"btcpc_peers": ["/dns4/node1.btcpc.net/tcp/6942", ...]}
 //! Update it whenever the node list changes (free transaction on Hive).
 //!
 //! # TON setup (future)
@@ -103,7 +103,7 @@ async fn fetch_ton_peers(client: &Client) -> Result<Vec<String>> {
 //
 // Inscribe a JSON array of multiaddr strings from BTC_REGISTRY_WALLET.
 // Example inscription content:
-//   ["/dns4/node1.btcpc.network/tcp/6942", "/dns4/node2.btcpc.network/tcp/6942"]
+//   ["/dns4/node1.btcpc.net/tcp/6942", "/dns4/node2.btcpc.net/tcp/6942"]
 //
 // To update: inscribe a new JSON file from the same wallet.  The node always
 // reads the most recent application/json inscription from that address.

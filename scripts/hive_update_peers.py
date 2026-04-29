@@ -29,8 +29,8 @@ POSTING_KEY   = ""  # set via env var or prompt — do not hardcode
 # Update this list whenever bootstrap node addresses change.
 # Format: libp2p multiaddr strings.
 BTCPC_PEERS = [
-    "/dns4/bootstrap1.btcpc.network/tcp/6942",
-    "/dns4/bootstrap2.btcpc.network/tcp/6942",
+    "/dns4/bootstrap1.btcpc.net/tcp/6942",
+    "/dns4/bootstrap2.btcpc.net/tcp/6942",
     # Add more as the network grows:
     # "/ip4/1.2.3.4/tcp/6942",
 ]

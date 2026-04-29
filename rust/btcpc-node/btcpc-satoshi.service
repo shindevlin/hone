@@ -20,7 +20,7 @@ Environment="BTCPC_MINER=true"
 Environment="BTCPC_CLOCK=true"
 Environment="BTCPC_LOG_LEVEL=btcpc_node=info"
 # Bootstrap against other testnet nodes:
-# Environment="BTCPC_BOOTSTRAP_PEERS=/dns4/testnet1.btcpc.network/tcp/6943"
+# Environment="BTCPC_BOOTSTRAP_PEERS=/dns4/testnet1.btcpc.net/tcp/6943"
 # Optional genesis file:
 # Environment="BTCPC_GENESIS_FILE=/etc/btcpc/satoshi-genesis.json"
 
