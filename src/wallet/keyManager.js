@@ -27,8 +27,8 @@ const ROLE_PATHS = {
   active:  "m/44'/8888'/0'/1/0",  // token transfers, escrow, stake
   posting: "m/44'/8888'/0'/2/0",  // storefront, inference jobs, general entries
   memo:    "m/44'/8888'/0'/3/0",  // purchase initiation, encrypted messages
-  buyer:   "m/44'/8888'/0'/4/0",  // receive encrypted digital products
-  seller:  "m/44'/8888'/0'/5/0",  // auto-fulfill digital orders
+  hide:    "m/44'/8888'/0'/4/0",  // encrypt content so only you can see it
+  seek:    "m/44'/8888'/0'/5/0",  // auto-deliver and fulfill encrypted content
 };
 
 // BIP-44 derivation paths for external chains
@@ -89,7 +89,7 @@ function deriveKeypairFromSeed(seed, path) {
 }
 
 /**
- * Derive all six role keypairs (owner, active, posting, memo, buyer, seller) from a mnemonic.
+ * Derive all six role keypairs (owner, active, posting, memo, hide, seek) from a mnemonic.
  * @param {string} mnemonic - 12-word BIP-39 mnemonic
  * @param {string} [password=""] - Optional BIP-39 passphrase (not 2FA password)
  * @returns {Promise<Object>} Map of role -> { privateKey, publicKey } (hex strings)

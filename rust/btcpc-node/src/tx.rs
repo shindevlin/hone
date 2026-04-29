@@ -203,7 +203,13 @@ pub fn validate_and_apply(
         | LedgerEntry::DeviceYieldStake { .. }
         | LedgerEntry::DeviceYieldUnstake { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
-        | LedgerEntry::StorageHeartbeat { .. } => {
+        | LedgerEntry::StorageHeartbeat { .. }
+        // btcpc-git — recorded on-chain, object storage in btcpc-fs
+        | LedgerEntry::GitRepoCreate { .. }
+        | LedgerEntry::GitRefUpdate { .. }
+        | LedgerEntry::GitAccessGrant { .. }
+        | LedgerEntry::GitAccessRevoke { .. }
+        | LedgerEntry::GitPruneProof { .. } => {
             chain.apply_entry(entry)?;
         }
 
