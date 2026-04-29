@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
+use btcpc_types::Block;
 use crate::chain::Chain;
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -88,22 +89,18 @@ pub async fn finalize_epoch(chain: &Arc<Chain>, epoch: u64) -> Result<()> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Fetch the raw block for `epoch` (or the nearest earlier one) and extract
-/// the `block_hash` field. Falls back to a deterministic placeholder so
-/// finalization never blocks on missing data.
+/// Fetch the raw block for `epoch` (or the nearest earlier one) and return
+/// its header hash.  Falls back to a deterministic placeholder if no block
+/// is found so finalization never blocks on missing data.
 fn latest_block_hash(chain: &Arc<Chain>, epoch: u64) -> String {
     // Walk backwards up to 10 epochs to find a stored block.
     let start = epoch as u32;
     for e in (start.saturating_sub(10)..=start).rev() {
         if let Ok(Some(bytes)) = chain.store.read_block(e) {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                if let Some(hash) = v.get("block_hash").and_then(|h| h.as_str()) {
-                    return hash.to_string();
-                }
-                // Some blocks encode the hash under "hash".
-                if let Some(hash) = v.get("hash").and_then(|h| h.as_str()) {
-                    return hash.to_string();
-                }
+            // Block format: 180-byte binary header + 4-byte len + JSON payload.
+            // Must use Block::from_bytes — serde_json::from_slice fails on the binary header.
+            if let Some(block) = Block::from_bytes(&bytes) {
+                return block.header.hash_hex();
             }
         }
     }

@@ -1,4 +1,5 @@
 //! btcpc-node P2P networking — libp2p 0.55
+#![allow(dead_code)]
 //!
 //! Gossipsub topics:
 //!   btcpc/blocks   — serialized block bytes (JSON envelope: {"epoch":N,"data_b64":"..."})

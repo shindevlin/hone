@@ -55,17 +55,17 @@ pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
 
     // ── Identity ─────────────────────────────────────────────────────────────
 
-    linker.func_wrap(module, "env_signer", |mut caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
+    linker.func_wrap(module, "env_signer", |caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
         let bytes = caller.data().lock().unwrap().signer.as_bytes().to_vec();
         caller.data().lock().unwrap().set_register(register_id, bytes);
     })?;
 
-    linker.func_wrap(module, "env_predecessor", |mut caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
+    linker.func_wrap(module, "env_predecessor", |caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
         let bytes = caller.data().lock().unwrap().predecessor.as_bytes().to_vec();
         caller.data().lock().unwrap().set_register(register_id, bytes);
     })?;
 
-    linker.func_wrap(module, "env_contract_id", |mut caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
+    linker.func_wrap(module, "env_contract_id", |caller: wasmtime::Caller<'_, Ctx>, register_id: u64| {
         let bytes = caller.data().lock().unwrap().contract_id.as_bytes().to_vec();
         caller.data().lock().unwrap().set_register(register_id, bytes);
     })?;

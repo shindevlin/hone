@@ -272,6 +272,17 @@ describe("stateStore with memory backend (existing behavior)", () => {
     expect(stateStore.getTokenBalances("miner1").BTCPC).toBeCloseTo(26324.8611112036, 10);
   });
 
+  test("hydrateFromFinality rejects negative balances", () => {
+    expect(() => {
+      stateStore.hydrateFromFinality({
+        finality_epoch: 100,
+        accounts: {
+          miner1: { balance: -1, staked: 0, delegated: 0, nonce: 0 },
+        },
+      });
+    }).toThrow(/negative/i);
+  });
+
   test("applyEntry TRANSFER moves funds between accounts", () => {
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "alice", epoch: 1 });
     stateStore.applyEntry({ type: "ACCOUNT_CREATE", to: "bob", epoch: 1 });

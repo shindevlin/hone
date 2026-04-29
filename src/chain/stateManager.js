@@ -33,6 +33,20 @@ function _getState(username) {
   return state;
 }
 
+function _assertNonNegativeState(username, state, context) {
+  if (!username || !state) return;
+  var label = context || "stateManager";
+  if (!Number.isFinite(state.balance) || state.balance < 0) {
+    throw new Error(label + ": negative balance for " + username + " = " + state.balance);
+  }
+  if (!Number.isFinite(state.staked) || state.staked < 0) {
+    throw new Error(label + ": negative staked amount for " + username + " = " + state.staked);
+  }
+  if (!Number.isFinite(state.delegated) || state.delegated < 0) {
+    throw new Error(label + ": negative delegated amount for " + username + " = " + state.delegated);
+  }
+}
+
 /**
  * Update account in the SMT after state change.
  */
@@ -71,6 +85,7 @@ function _applyEntry(entry) {
         var toState = _getState(to);
         toState.balance = parseFloat((toState.balance + amount).toFixed(10));
         toState.nonce++;
+        _assertNonNegativeState(to, toState, "applyEntry");
         _updateSMT(to);
       }
       // Debit sender
@@ -78,6 +93,7 @@ function _applyEntry(entry) {
         var fromState = _getState(from);
         fromState.balance = parseFloat((fromState.balance - amount).toFixed(10));
         fromState.nonce++;
+        _assertNonNegativeState(from, fromState, "applyEntry");
         _updateSMT(from);
       }
       break;
@@ -89,6 +105,7 @@ function _applyEntry(entry) {
         stakeFrom.balance = parseFloat((stakeFrom.balance - amount).toFixed(10));
         stakeFrom.staked = parseFloat((stakeFrom.staked + amount).toFixed(10));
         stakeFrom.nonce++;
+        _assertNonNegativeState(from, stakeFrom, "applyEntry");
         _updateSMT(from);
       }
       break;
@@ -100,6 +117,7 @@ function _applyEntry(entry) {
         unstakeTo.staked = parseFloat((unstakeTo.staked - amount).toFixed(10));
         unstakeTo.balance = parseFloat((unstakeTo.balance + amount).toFixed(10));
         unstakeTo.nonce++;
+        _assertNonNegativeState(to, unstakeTo, "applyEntry");
         _updateSMT(to);
       }
       break;
@@ -111,6 +129,7 @@ function _applyEntry(entry) {
         delFrom.balance = parseFloat((delFrom.balance - amount).toFixed(10));
         delFrom.delegated = parseFloat((delFrom.delegated + amount).toFixed(10));
         delFrom.nonce++;
+        _assertNonNegativeState(from, delFrom, "applyEntry");
         _updateSMT(from);
       }
       break;
@@ -122,6 +141,7 @@ function _applyEntry(entry) {
         undelTo.delegated = parseFloat((undelTo.delegated - amount).toFixed(10));
         undelTo.balance = parseFloat((undelTo.balance + amount).toFixed(10));
         undelTo.nonce++;
+        _assertNonNegativeState(to, undelTo, "applyEntry");
         _updateSMT(to);
       }
       break;
@@ -132,6 +152,7 @@ function _applyEntry(entry) {
         var escFrom = _getState(from);
         escFrom.balance = parseFloat((escFrom.balance - amount).toFixed(10));
         escFrom.nonce++;
+        _assertNonNegativeState(from, escFrom, "applyEntry");
         _updateSMT(from);
       }
       break;
@@ -142,6 +163,7 @@ function _applyEntry(entry) {
         var escTo = _getState(to);
         escTo.balance = parseFloat((escTo.balance + amount).toFixed(10));
         escTo.nonce++;
+        _assertNonNegativeState(to, escTo, "applyEntry");
         _updateSMT(to);
       }
       break;
@@ -152,6 +174,7 @@ function _applyEntry(entry) {
         var refTo = _getState(to);
         refTo.balance = parseFloat((refTo.balance + amount).toFixed(10));
         refTo.nonce++;
+        _assertNonNegativeState(to, refTo, "applyEntry");
         _updateSMT(to);
       }
       break;
@@ -161,6 +184,7 @@ function _applyEntry(entry) {
       if (from) {
         var tcFrom = _getState(from);
         tcFrom.nonce++;
+        _assertNonNegativeState(from, tcFrom, "applyEntry");
         _updateSMT(from);
       }
       break;
@@ -282,7 +306,9 @@ function loadFromFinality(snapshot) {
     var usernames = Object.keys(snapshot.accounts);
     for (var i = 0; i < usernames.length; i++) {
       var username = usernames[i];
-      accountStates.set(username, snapshot.accounts[username]);
+      var state = snapshot.accounts[username];
+      _assertNonNegativeState(username, state, "loadFromFinality");
+      accountStates.set(username, state);
     }
   }
 

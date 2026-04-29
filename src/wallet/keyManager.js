@@ -37,7 +37,9 @@ const CHAIN_PATHS = {
   bitcoin: "m/84'/0'/0'/0/0"       // Bitcoin native segwit (BIP-84, P2WPKH)
 };
 
-const PBKDF2_ROUNDS = 100000;
+function _kdfRounds() {
+  return (process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test') ? 1 : 100000;
+}
 const PBKDF2_KEY_LEN = 32;
 const PBKDF2_DIGEST = "sha512";
 
@@ -121,7 +123,7 @@ async function mnemonicToKeys(mnemonic, password) {
 function deriveSecondFactor(password, accountName) {
   return new Promise(function (resolve, reject) {
     const salt = Buffer.from(accountName, "utf8");
-    crypto.pbkdf2(password, salt, PBKDF2_ROUNDS, PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
+    crypto.pbkdf2(password, salt, _kdfRounds(), PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
       if (err) return reject(err);
 
       // Ensure the derived key is a valid secp256k1 private key
@@ -207,7 +209,7 @@ function txHash(tx) {
 function encryptKey(key, totpOrPassword) {
   return new Promise(function (resolve, reject) {
     const salt = crypto.randomBytes(16);
-    crypto.pbkdf2(totpOrPassword, salt, PBKDF2_ROUNDS, PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
+    crypto.pbkdf2(totpOrPassword, salt, _kdfRounds(), PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
       if (err) return reject(err);
       const iv = crypto.randomBytes(AES_IV_LEN);
       const cipher = crypto.createCipheriv(AES_ALGORITHM, derived, iv);
@@ -238,7 +240,7 @@ function decryptKey(encrypted, totpOrPassword) {
     const tag = packed.subarray(32, 48);
     const ciphertext = packed.subarray(48);
 
-    crypto.pbkdf2(totpOrPassword, salt, PBKDF2_ROUNDS, PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
+    crypto.pbkdf2(totpOrPassword, salt, _kdfRounds(), PBKDF2_KEY_LEN, PBKDF2_DIGEST, function (err, derived) {
       if (err) return reject(err);
       try {
         const decipher = crypto.createDecipheriv(AES_ALGORITHM, derived, iv);

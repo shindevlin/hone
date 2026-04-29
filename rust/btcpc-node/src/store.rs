@@ -1,4 +1,5 @@
 //! RocksDB state store — single database, multiple column families.
+#![allow(dead_code)]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -95,7 +96,7 @@ impl Store {
     }
 
     // ── Balances ─────────────────────────────────────────────────────────────
-    // Key format: "account\0token" → u64 LE satoshis
+    // Key format: "account\0token" → u64 LE dreams
 
     pub fn get_balance(&self, account: &str, token: &str) -> u64 {
         let Some(cf) = self.db.cf_handle(CF_BALANCES) else { return 0 };
@@ -114,7 +115,9 @@ impl Store {
     }
 
     pub fn credit(&self, account: &str, token: &str, amount: u64) -> Result<u64> {
-        let new_bal = self.get_balance(account, token).saturating_add(amount);
+        let current = self.get_balance(account, token);
+        let new_bal = current.checked_add(amount)
+            .ok_or_else(|| anyhow::anyhow!("balance overflow for '{}' {}", account, token))?;
         self.set_balance(account, token, new_bal)?;
         Ok(new_bal)
     }

@@ -14,7 +14,7 @@ pub struct AccountState {
     pub created_epoch: Epoch,
     pub public_key: Option<String>,
     pub nonce: u64,
-    pub stake: Satoshis,
+    pub stake: Dreams,
     pub delegated_to: Option<AccountId>,
 }
 

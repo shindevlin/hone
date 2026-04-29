@@ -5,7 +5,7 @@
 //!   "accounts": { "alice": 1000000000, "bob": 500000000 },
 //!   "timestamp": 1234567890000
 //! }
-//! Amounts are in satoshis (1 BTCPC = 100_000_000 satoshis).
+//! Amounts are in dreams (1 BTCPC = 10_000_000_000 dreams).
 
 use std::path::Path;
 use anyhow::Result;
@@ -31,7 +31,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>) -> Result<Block>
 
             if let Some(accounts) = cfg.get("accounts").and_then(|v| v.as_object()) {
                 for (account, amount) in accounts {
-                    let satoshis = amount.as_u64().unwrap_or(0);
+                    let dreams = amount.as_u64().unwrap_or(0);
                     entries.push(LedgerEntry::AccountCreate {
                         account: account.clone(),
                         public_key: None,
@@ -39,7 +39,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>) -> Result<Block>
                     });
                     entries.push(LedgerEntry::GenesisAlloc {
                         account: account.clone(),
-                        amount: satoshis,
+                        amount: dreams,
                         token: NATIVE_TOKEN.to_string(),
                     });
                 }

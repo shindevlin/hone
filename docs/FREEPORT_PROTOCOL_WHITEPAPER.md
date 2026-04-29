@@ -1,16 +1,19 @@
-# Bitcoin Proof of Compute (BTCPC)
+# Freeport Protocol (FP)
 
 ### A Sovereign Blockchain Where Every Token Is Earned by a Machine Doing Real Work
 
 **Shin Devlin**
-**Version 3.0 — April 2026**
+**Version 3.1 — April 2026**
 
 ---
 
 ## Abstract
 
-Bitcoin Proof of Compute (BTCPC) is a sovereign blockchain where block rewards are earned
-by machines performing verifiable, useful work. Five categories of work produce emissions
+Freeport Protocol (FP) is a sovereign blockchain where block rewards are earned
+by machines performing verifiable, useful work. The native token — **BTCPC** — is
+the unit of settlement for all work and commerce on the chain. Five categories of work
+produce emissions each epoch: AI inference, data storage, service hosting, IoT sensor
+reporting, and epoch timing. Five categories of work produce emissions
 each epoch: AI inference, data storage, service hosting, IoT sensor reporting, and epoch
 timing. Each category has its own reward pool. Every pool with active participants pays
 out pro-rata to those participants. Pools with no claimants are recycled — never burned —
@@ -50,10 +53,10 @@ The question was never "why another blockchain?" The question is: **why are we s
 paying Amazon for cloud computing when millions of GPUs sit idle mining hashes nobody
 uses?**
 
-### 1.2 The BTCPC Insight
+### 1.2 The Freeport Insight
 
-BTCPC applies Bitcoin's core insight — costly, verifiable work can secure a network and
-back a scarce asset — to a domain where the work itself has market value.
+Freeport Protocol applies Bitcoin's core insight — costly, verifiable work can secure a
+network and back a scarce asset — to a domain where the work itself has market value.
 
 Miners on BTCPC earn by completing AI inference jobs that real users submitted through
 the API. The inference result is the proof of work. The job was something the user
@@ -75,9 +78,11 @@ The computational output is discarded by design.
 **Ethereum** is a world computer. Proof of Stake secures a general-purpose VM.
 Smart contracts are the product. The chain is the platform.
 
-**BTCPC** is the digital labor market. Proof of Compute means the mining IS the product.
-Every token represents real work done: an AI prompt answered, a file stored, a sensor
-reading verified, an application served, a clock heartbeat delivered.
+**Freeport Protocol** is the digital labor market and sovereign commerce layer. Proof of
+Compute means the mining IS the product. Every BTCPC token represents real work done:
+an AI prompt answered, a file stored, a sensor reading verified, an application served,
+a clock heartbeat delivered. Commerce on Freeport requires no middleman — the chain is
+the marketplace, the escrow, and the reputation system.
 
 ---
 
@@ -1310,20 +1315,25 @@ chain should be able to operate without its creators.
 The blockchain industry spent its first decade asking "what can we put on a chain?"
 The answer was mostly: tokens, speculation, and games.
 
-BTCPC asks a different question: **what work needs to happen in the world, and how
-do we pay the machines doing it?**
+Freeport Protocol asks a different question: **what work needs to happen in the world,
+and how do we pay the machines doing it — without asking permission?**
 
 AI inference needs to happen. Files need to be stored. Sensor data needs to be
 collected and verified. Applications need to be served. Epoch timing needs to be
-maintained. All of these are real economic activities with real market demand. None
-of them require a corporation to intermediate between the person who needs the work
-done and the machine that does it.
+maintained. Goods need to be bought and sold. All of these are real economic activities
+with real market demand. None of them require a corporation to intermediate between the
+person who needs the work done and the machine that does it.
 
-BTCPC removes the corporation. The chain is the intermediary. The miners, storage
-hosts, clock nodes, service hosts, and gateway operators are the workers. The users
-are the customers. The token is the payment.
+Freeport Protocol removes the corporation. The chain is the intermediary. The miners,
+storage hosts, clock nodes, service hosts, and gateway operators are the workers. The
+users are the customers. The token is the payment. The marketplace is on-chain.
 
-Every token earned. Every machine welcome.
+A freeport, historically, is a port exempt from customs duties — a place where goods
+flow without the friction of gatekeepers. That is the precise design goal here: compute,
+storage, and commerce that flows between sovereign participants without tariffs, without
+platform rent, and without the ability of any single party to deplatform another.
+
+Every token earned. Every machine welcome. Every trade sovereign.
 
 ---
 
@@ -1673,8 +1683,136 @@ Products with `auto_deliver = true` store their delivery content encrypted in BT
 
 ---
 
-*BTCPC v3.0 — April 2026*
+---
+
+## Appendix O — Freeport Protocol vs. Universal Commerce Protocol
+
+### O.1 What Is a Universal Commerce Protocol?
+
+A **Universal Commerce Protocol (UCP)** is the class of specifications that attempts to
+standardize commerce across heterogeneous platforms — shared schemas for products,
+orders, and payments that any vendor or storefront can implement. Examples of protocols
+in this category include W3C Payment Request API, OpenAPI-based commerce schemas, and
+various EDI standards. The defining characteristic of a UCP is **interoperability as the
+primary goal**: make any system speak to any other system, regardless of who controls
+the underlying infrastructure.
+
+UCPs are valuable and widely deployed. They do not, however, address the core problems
+that arise when the infrastructure layer itself is controlled by a small number of
+corporations:
+
+- A payment processor can terminate a merchant's account at will.
+- A marketplace can delist a product for any reason, without appeal, without recourse.
+- A shipping integrator can revoke API access and disable a vendor's fulfillment pipeline overnight.
+- Platform fees are set unilaterally and can increase without consent from the merchants who depend on them.
+- Buyer and seller identity, transaction history, and behavioral data are owned by the platform, not the parties to the trade.
+
+A UCP running on top of controlled infrastructure inherits all of these failure modes.
+The schema interoperability is real; the sovereignty is not.
+
+### O.2 The Freeport Protocol Difference
+
+Freeport Protocol is not a UCP. It is a **sovereign commerce layer** — a blockchain
+where the marketplace, the escrow, the reputation system, and the payment rail are all
+the same append-only ledger, replicated across every node, controlled by none of them.
+
+The table below maps the core design choices that separate FP from the UCP model:
+
+| Property | Universal Commerce Protocol | Freeport Protocol |
+|---|---|---|
+| **Ledger custody** | Hosted by platform operator | Replicated across all nodes; no operator |
+| **Payment rails** | Credit cards, PayPal, USDT on third-party chains | BTCPC native token; settlement is on-chain and final |
+| **Escrow** | Held by the platform (Stripe, PayPal, Shopify Payments) | Held by the protocol in a deterministic escrow pool; no intermediary |
+| **Account identity** | KYC/email-gated, controlled by the platform | Ed25519 key hierarchy; pseudonymous by default |
+| **Deplatforming** | Platform can remove vendor, product, or buyer at will | No platform operator exists to remove anyone |
+| **Reputation data** | Owned by the platform; non-portable | On-chain REPUTATION_MEMO entries; owned by the account, portable to any node |
+| **Fees** | 2–15% to platform, unilaterally adjustable | 1% protocol fee; 50% recycled, 50% to store stakers; no governing body can raise it |
+| **Digital goods delivery** | Cleartext blob in platform CDN | End-to-end encrypted to buyer's memo key; platform nodes cannot read the content |
+| **Catalog availability** | Dependent on platform uptime | Replicated across every full node; readable locally with no internet connection |
+| **Vendor privacy** | Vendor's IP, session data, and inventory logged by platform | Vendor IP not in catalog delivery path; order communication optionally via .onion |
+| **Settlement finality** | Chargebacks possible 90–180 days post-transaction | Cryptographic finality after challenge window; no chargebacks, no reversals |
+| **Network participation** | Merchants pay rent to join the network | Store opening is a bonding curve fee that funds `btcpc_recycle`; no ongoing rent |
+| **Compute layer** | None — commerce only | Commerce and compute are the same chain; miners earn by powering the market |
+
+### O.3 The Integration Point: Compute Funds Commerce
+
+The most structurally significant difference between FP and any UCP is what funds the
+network.
+
+A UCP has no native economic engine. Its security and availability depend on the
+continued willingness of platform operators to pay their cloud bills. When a platform
+is unprofitable, it shuts down. When it is profitable, it raises fees. The commerce
+participants have no claim on either outcome.
+
+In Freeport Protocol, the network is self-funding:
+
+1. **Miners** run AI inference jobs and earn BTCPC.
+2. **Storage hosts** store product blobs and earn BTCPC.
+3. **Verifiers** audit inference results and earn BTCPC.
+4. **Clock nodes** keep epoch timing and earn BTCPC.
+5. **Service hosts** run buyer-facing applications and earn BTCPC.
+6. **Sensor gateways** relay real-world data and earn BTCPC.
+
+Commerce on the chain generates fee flow into `btcpc_recycle`. Recycled fees fund future
+block rewards alongside the emission schedule. The more commerce happens, the more the
+reward pool is replenished. The network does not need external funding; the work is the
+funding mechanism.
+
+This creates a property that no UCP can replicate: **the marketplace and the computational
+infrastructure are the same economic system.** A merchant who opens a store on Freeport
+Protocol is not renting shelf space from a corporation. They are a participant in a
+network whose security and availability are maintained by the same workers who are being
+paid to process the commerce transactions.
+
+### O.4 What FP Is Not Trying to Replace
+
+Freeport Protocol does not aim to replace every aspect of commerce infrastructure.
+Specifically:
+
+**Shipping carriers.** UPS, FedEx, USPS, DHL are physical networks. FP integrates with
+them via the STORE_SHIPPING_LINK entry type, which lets vendors bind carrier API
+credentials to their store record. FP handles the payment and escrow; the carrier handles
+the atoms. This is a deliberate boundary — physical logistics are not a blockchain problem.
+
+**Tax collection.** FP does not handle tax calculation or remittance. Vendors are
+responsible for their own regulatory compliance. The chain records the transaction;
+the jurisdiction enforces the obligation.
+
+**Fiat on/off ramps.** BTCPC is not pegged. Buyers who need to convert fiat to BTCPC
+use exchange infrastructure outside the protocol. FP provides no native exchange — this
+is a deliberate sovereignty choice. The chain is not a custodian.
+
+**Dispute resolution for physical goods disputes of fact.** When a buyer claims an item
+never arrived and the tracking number shows delivered, the dispute panel makes a
+judgment call. FP provides the infrastructure for staked dispute panels, but does not
+pretend that on-chain voting resolves questions of physical fact better than a human
+arbitrator would.
+
+### O.5 Summary
+
+A Universal Commerce Protocol standardizes the language of commerce across controlled
+infrastructure. It solves the interoperability problem without addressing the custody
+problem.
+
+Freeport Protocol starts from a different premise: **the custody problem is the problem.**
+When the platform owns the ledger, the escrow, the identity, and the distribution, every
+participant is a tenant. The commerce protocol is just the API surface of the landlord's
+system.
+
+Freeport Protocol removes the landlord. The ledger is owned by the participants in
+aggregate. The escrow is the protocol. The reputation is portable. The fee is fixed and
+recycled. No entity has the technical ability to deplatform a merchant, reverse a settled
+transaction, or raise the rake.
+
+The "freeport" metaphor is precise: a port where goods move between sovereign parties
+without a gatekeeper extracting rent at every crossing. The protocol's job is to make
+sure the dock is always open.
+
+---
+
+*Freeport Protocol v3.1 — April 2026*
 *Shin Devlin — shindevlin@proton.me*
+*Native token: BTCPC*
 *License: AGPL-3.0*
 *GitHub: https://github.com/shindevlin/btcpc*
 *Website: https://btcpc.net*

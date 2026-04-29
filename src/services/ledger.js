@@ -631,6 +631,12 @@ async function recordTokenCreate(creator, tokenData, fee, epoch) {
     fee = getTokenFee(tokenData.supply || 42000000);
   }
 
+  const tokenType = tokenData.type || 'fungible';
+  const decimals = tokenType === 'nft' ? 0 : 10;
+  if (tokenData.decimals !== undefined && tokenData.decimals !== decimals) {
+    throw new Error('Invalid token decimals for ' + tokenType + ': expected ' + decimals);
+  }
+
   // Fee payment — goes to protocol treasury
   if (fee > 0) {
     await recordTransfer(creator, 'btcpc_treasury', fee, 'BTCPC', null, epoch, 'Token creation fee: ' + tokenData.symbol);
@@ -645,14 +651,14 @@ async function recordTokenCreate(creator, tokenData, fee, epoch) {
       name: tokenData.name,
       symbol: tokenData.symbol,
       supply: tokenData.supply,
-      decimals: tokenData.decimals || 8,
-      type: tokenData.type || 'fungible',
+      decimals,
+      type: tokenType,
     },
   });
   _persist(entry);
 
   // Mint initial supply to creator (fungible tokens only)
-  if (tokenData.type !== 'nft') {
+  if (tokenType !== 'nft') {
     const mintEntry = _entry({
       type: 'FAUCET',
       from: 'btcpc_mint',
@@ -2949,6 +2955,7 @@ async function recordInferenceJobChallenge(jobId, challenger, challengeData, epo
       challenge_bond: challengeData.challenge_bond || 0,
       challenge_escrow_id: challengeData.challenge_escrow_id || null,
       challenge_deadline_epoch: challengeData.challenge_deadline_epoch || 0,
+      assigned_reviewers: Array.isArray(challengeData.assigned_reviewers) ? challengeData.assigned_reviewers.slice() : [],
       status: 'challenged',
     },
   }));

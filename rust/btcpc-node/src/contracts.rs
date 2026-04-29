@@ -85,6 +85,9 @@ impl ContractEngine {
     ///
     /// Loads contract storage and WASM from RocksDB, executes the call,
     /// persists storage writes, and applies any pending token transfers.
+    ///
+    /// `deposit` is debited from `signer` before execution and credited to the
+    /// contract.  On execution failure the deposit is refunded automatically.
     pub fn call(
         &self,
         contract_id: &str,
@@ -96,6 +99,19 @@ impl ContractEngine {
         epoch: u64,
     ) -> Result<serde_json::Value> {
         let contract_state = self.load_contract_state(contract_id)?;
+
+        // Debit deposit from signer and credit contract before execution.
+        // The debit is reversed if the call fails.
+        if deposit > 0 {
+            self.chain.store.debit(signer, NATIVE_TOKEN, deposit)
+                .map_err(|e| anyhow!("deposit debit failed: {}", e))?;
+            self.chain.store.credit(contract_id, NATIVE_TOKEN, deposit)
+                .map_err(|e| {
+                    // Best-effort refund (debit already succeeded)
+                    let _ = self.chain.store.credit(signer, NATIVE_TOKEN, deposit);
+                    anyhow!("deposit credit failed: {}", e)
+                })?;
+        }
 
         let request = CallRequest {
             contract_id: contract_id.to_string(),
@@ -111,6 +127,11 @@ impl ContractEngine {
         let result = execute_call(request, contract_state);
 
         if !result.success {
+            // Refund deposit on failure.
+            if deposit > 0 {
+                let _ = self.chain.store.debit(contract_id, NATIVE_TOKEN, deposit);
+                let _ = self.chain.store.credit(signer, NATIVE_TOKEN, deposit);
+            }
             return Err(anyhow!(
                 "contract call failed: {}",
                 result.error.unwrap_or_else(|| "unknown error".to_string())
@@ -123,7 +144,7 @@ impl ContractEngine {
             self.chain.store.state_set(&store_key, value)?;
         }
 
-        // Apply pending token transfers as Transfer ledger entries.
+        // Apply pending token transfers; any failure aborts and returns an error.
         for transfer in &result.pending_transfers {
             let recipient: &str = &transfer.0;
             let amount: u64 = transfer.1.min(u64::MAX as u128) as u64;
@@ -137,12 +158,11 @@ impl ContractEngine {
                 signed_by: contract_id.to_string(),
                 nonce: 0,
             };
-            if let Err(e) = self.chain.apply_entry(&entry) {
-                tracing::warn!(
+            self.chain.apply_entry(&entry)
+                .map_err(|e| anyhow!(
                     "contract pending transfer failed ({} -> {} {}): {}",
                     contract_id, recipient, amount, e
-                );
-            }
+                ))?;
         }
 
         Ok(result.result.unwrap_or(serde_json::Value::Null))

@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, State},
     Json, http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
 use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC};
@@ -162,14 +162,93 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
 }
 
+// ── Amount deserializer ───────────────────────────────────────────────────────
+//
+// Accepts three wire formats to eliminate f64 precision loss on large amounts:
+//   integer  → treated as dreams directly          e.g. 15_000_000_000
+//   float    → BTCPC × DREAMS_PER_BTCPC, rounded   e.g. 1.5   (only safe < ~900k BTCPC)
+//   string   → decimal BTCPC, integer arithmetic   e.g. "1.5" (always safe)
+//
+// String form is preferred for any amount that might exceed 900_000 BTCPC.
+
+fn deserialize_amount_dreams<'de, D>(d: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Unexpected, Visitor};
+    use std::fmt;
+
+    struct AmountVisitor;
+
+    impl<'de> Visitor<'de> for AmountVisitor {
+        type Value = u64;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a numeric amount (BTCPC as float/string, or dreams as integer)")
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u64, E> {
+            Ok(v)
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u64, E> {
+            if v < 0 {
+                Err(E::invalid_value(Unexpected::Signed(v), &self))
+            } else {
+                Ok(v as u64)
+            }
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<u64, E> {
+            if v < 0.0 {
+                return Err(E::invalid_value(Unexpected::Float(v), &self));
+            }
+            Ok((v * DREAMS_PER_BTCPC as f64).round() as u64)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u64, E> {
+            parse_btcpc_str(v).map_err(|_| E::invalid_value(Unexpected::Str(v), &self))
+        }
+    }
+
+    d.deserialize_any(AmountVisitor)
+}
+
+/// Parse a decimal BTCPC string to dreams using integer arithmetic only.
+fn parse_btcpc_str(s: &str) -> Result<u64, ()> {
+    let s = s.trim();
+    let (int_str, frac_str) = match s.find('.') {
+        Some(i) => (&s[..i], &s[i + 1..]),
+        None => (s, ""),
+    };
+    let int_val: u64 = if int_str.is_empty() {
+        0
+    } else {
+        int_str.parse().map_err(|_| ())?
+    };
+    // Take up to 10 fractional digits; pad with zeros on the right.
+    let frac_len = frac_str.len().min(10);
+    let frac_digits: u64 = if frac_len == 0 {
+        0
+    } else {
+        frac_str[..frac_len].parse().map_err(|_| ())?
+    };
+    let frac_val = frac_digits * 10u64.pow((10 - frac_len) as u32);
+    int_val
+        .checked_mul(DREAMS_PER_BTCPC)
+        .and_then(|v| v.checked_add(frac_val))
+        .ok_or(())
+}
+
 // ── POST request bodies ───────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 struct TransferBody {
     from: String,
     to: String,
-    /// Amount in BTCPC (fractional OK; will be converted to Dreams).
-    amount: f64,
+    /// Amount: BTCPC as float/string, or dreams as integer.
+    #[serde(deserialize_with = "deserialize_amount_dreams")]
+    amount: u64,
     #[serde(default = "default_token")]
     token: String,
     memo: Option<String>,
@@ -182,8 +261,10 @@ struct TransferBody {
 #[derive(Debug, Deserialize)]
 struct StakeBody {
     account: String,
-    /// Amount in BTCPC.
-    amount: f64,
+    /// Amount: BTCPC as float/string, or dreams as integer.
+    #[serde(deserialize_with = "deserialize_amount_dreams")]
+    amount: u64,
+    nonce: u64,
     signed_by: String,
     #[serde(default)]
     signature: String,
@@ -192,8 +273,10 @@ struct StakeBody {
 #[derive(Debug, Deserialize)]
 struct UnstakeBody {
     account: String,
-    /// Amount in BTCPC.
-    amount: f64,
+    /// Amount: BTCPC as float/string, or dreams as integer.
+    #[serde(deserialize_with = "deserialize_amount_dreams")]
+    amount: u64,
+    nonce: u64,
     signed_by: String,
     #[serde(default)]
     signature: String,
@@ -214,65 +297,58 @@ fn default_token() -> String {
 // ── POST handlers ─────────────────────────────────────────────────────────────
 
 /// POST /api/transfer
-/// Body: { "from", "to", "amount" (BTCPC), "token", "memo", "signed_by", "nonce", "signature" }
+/// Body: { "from", "to", "amount", "token", "memo", "signed_by", "nonce", "signature" }
 async fn post_transfer(
     State(s): State<AppState>,
     Json(body): Json<TransferBody>,
 ) -> Json<serde_json::Value> {
-    let amount_dreams = btcpc_to_dreams(body.amount);
     let epoch = s.chain.current_epoch();
-
     let entry = LedgerEntry::Transfer {
         from: body.from,
         to: body.to,
-        amount: amount_dreams,
+        amount: body.amount,
         token: body.token,
         memo: body.memo,
         epoch,
         signed_by: body.signed_by,
         nonce: body.nonce,
     };
-
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
 }
 
 /// POST /api/stake
-/// Body: { "account", "amount" (BTCPC), "signed_by", "signature" }
+/// Body: { "account", "amount", "nonce", "signed_by", "signature" }
 async fn post_stake(
     State(s): State<AppState>,
     Json(body): Json<StakeBody>,
 ) -> Json<serde_json::Value> {
-    let amount_dreams = btcpc_to_dreams(body.amount);
     let epoch = s.chain.current_epoch();
-
     let entry = LedgerEntry::Stake {
         account: body.account,
-        amount: amount_dreams,
+        amount: body.amount,
         epoch,
+        nonce: body.nonce,
         signed_by: body.signed_by,
     };
-
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
 }
 
 /// POST /api/unstake
-/// Body: { "account", "amount" (BTCPC), "signed_by", "signature" }
+/// Body: { "account", "amount", "nonce", "signed_by", "signature" }
 async fn post_unstake(
     State(s): State<AppState>,
     Json(body): Json<UnstakeBody>,
 ) -> Json<serde_json::Value> {
-    let amount_dreams = btcpc_to_dreams(body.amount);
     let epoch = s.chain.current_epoch();
-
     let entry = LedgerEntry::Unstake {
         account: body.account,
-        amount: amount_dreams,
+        amount: body.amount,
         epoch,
+        nonce: body.nonce,
         signed_by: body.signed_by,
     };
-
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
 }
@@ -320,11 +396,6 @@ async fn post_entry(
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-/// Convert BTCPC (f64) → Dreams (u64), rounding to nearest integer.
-fn btcpc_to_dreams(btcpc: f64) -> u64 {
-    (btcpc * DREAMS_PER_BTCPC as f64).round() as u64
-}
-
 /// Return `Some(s)` if `s` is non-empty, else `None`.
 fn non_empty(s: &str) -> Option<&str> {
     if s.is_empty() { None } else { Some(s) }
@@ -364,6 +435,9 @@ struct ContractDeployBody {
     init_args: Option<serde_json::Value>,
     #[serde(default = "default_gas")]
     gas: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -373,10 +447,13 @@ struct ContractCallBody {
     #[serde(default)]
     args: serde_json::Value,
     signer: String,
-    #[serde(default)]
-    deposit: f64,
+    #[serde(deserialize_with = "deserialize_amount_dreams", default)]
+    deposit: u64,
     #[serde(default = "default_gas")]
     gas: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -397,6 +474,20 @@ async fn post_contract_deploy(
     Json(body): Json<ContractDeployBody>,
 ) -> Json<serde_json::Value> {
     let epoch = s.chain.current_epoch();
+
+    // Verify deployer owns this request.
+    let msg = serde_json::json!({
+        "type": "CONTRACT_DEPLOY",
+        "deployer": &body.deployer,
+        "nonce": body.nonce,
+        "epoch": epoch,
+    });
+    if let Ok(msg_bytes) = serde_json::to_vec(&msg) {
+        if let Err(e) = tx::check_sig_raw(&s.chain, &body.deployer, &msg_bytes, non_empty(&body.signature)) {
+            return Json(serde_json::json!({ "contract_id": null, "ok": false, "error": e.to_string() }));
+        }
+    }
+
     match s.contracts.deploy(&body.deployer, &body.wasm_b64, body.init_method, body.init_args, body.gas, epoch) {
         Ok(contract_id) => Json(serde_json::json!({ "contract_id": contract_id, "ok": true, "error": null })),
         Err(e) => Json(serde_json::json!({ "contract_id": null, "ok": false, "error": e.to_string() })),
@@ -409,8 +500,23 @@ async fn post_contract_call(
     Json(body): Json<ContractCallBody>,
 ) -> Json<serde_json::Value> {
     let epoch = s.chain.current_epoch();
-    let deposit_dreams = (body.deposit * DREAMS_PER_BTCPC as f64).round() as u64;
-    match s.contracts.call(&body.contract_id, &body.method, body.args, &body.signer, body.gas, deposit_dreams, epoch) {
+
+    // Verify signer identity before execution.
+    let msg = serde_json::json!({
+        "type": "CONTRACT_CALL",
+        "signer": &body.signer,
+        "contract_id": &body.contract_id,
+        "method": &body.method,
+        "nonce": body.nonce,
+        "epoch": epoch,
+    });
+    if let Ok(msg_bytes) = serde_json::to_vec(&msg) {
+        if let Err(e) = tx::check_sig_raw(&s.chain, &body.signer, &msg_bytes, non_empty(&body.signature)) {
+            return Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() }));
+        }
+    }
+
+    match s.contracts.call(&body.contract_id, &body.method, body.args, &body.signer, body.gas, body.deposit, epoch) {
         Ok(result) => Json(serde_json::json!({ "result": result, "ok": true, "error": null })),
         Err(e) => Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() })),
     }

@@ -2,6 +2,8 @@
 //! timestamp across seals, filters outliers, determines quorum (>51%), and
 //! emits a `SealedEpoch` event when an epoch is sealed.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

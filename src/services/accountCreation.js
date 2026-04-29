@@ -6,6 +6,7 @@ const keyManager = require("../wallet/keyManager");
 const ledger = require("./ledger");
 const stateStore = require("../chain/stateStore");
 const secretStore = require("./secretStore");
+const User = require("../models/User");
 const { RESERVED_OWNER } = require("./reservedNames");
 const {
   validAccountName,
@@ -201,7 +202,6 @@ async function accountExists(username) {
     if (secretStore.hasUser && secretStore.hasUser(username)) return true;
   } catch (_) {}
   try {
-    const User = require("../models/User");
     const existing = await User.findOne({ username });
     return !!existing;
   } catch (_) {
@@ -211,7 +211,6 @@ async function accountExists(username) {
 
 async function maybeCreateMongoUser(fields) {
   try {
-    const User = require("../models/User");
     if (await User.findOne({ username: fields.username })) return;
     await User.create({
       username: fields.username,

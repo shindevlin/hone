@@ -1,6 +1,6 @@
-# btcpc
+# Freeport Protocol
 
-Bitcoin Proof of Compute — sovereign chain for AI inference.
+Sovereign blockchain for compute, storage, and commerce — no gatekeepers.
 
 ## Stack
 - Node.js, MongoDB, WebSocket P2P
@@ -13,7 +13,7 @@ Bitcoin Proof of Compute — sovereign chain for AI inference.
 - `src/models/` — 10 Mongoose models (Epoch, Wallet, Transaction, etc.)
 - `src/controllers/` — auth, wallet, staking, node, dream, delegation, recovery
 - `src/network/` — P2P WebSocket, peer discovery, chain sync
-- `docs/BTCPC_WHITEPAPER.md` — full whitepaper (inscribed on Dream #0)
+- `docs/FREEPORT_PROTOCOL_WHITEPAPER.md` — full whitepaper (inscribed on Dream #0)
 - `website/` — landing page
 
 ## Run

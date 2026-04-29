@@ -412,6 +412,15 @@ router.post('/claim-cross-chain', authenticateToken, async (req, res) => {
     if (claimAmount <= 0) return res.status(400).json({ error: 'amount must be > 0' });
 
     const epoch = stateStore.getChainHeight ? stateStore.getChainHeight() : 0;
+    const crossChainFinality = require('../services/crossChainFinalityConsumer');
+    const finalityCutoff = crossChainFinality.getFinalityCutoff(chain);
+    if (finalityCutoff === null || epoch > finalityCutoff) {
+      return res.status(409).json({
+        error: 'Current epoch ' + epoch + ' has not been finalized for ' + chain,
+        current_epoch: epoch,
+        finality_cutoff: finalityCutoff
+      });
+    }
     await ledger.recordCrossChainClaim(account, chain, claimAmount, claimAddress, signature, epoch);
 
     // The signed claim payload — the wBTCPC oracle verifies this and mints on the target chain

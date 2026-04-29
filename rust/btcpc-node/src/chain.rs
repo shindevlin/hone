@@ -11,6 +11,7 @@ use crate::store::Store;
 pub struct Chain {
     pub store: Store,
     pub current_epoch: Arc<RwLock<u64>>,
+    #[allow(dead_code)]
     pub node_id: String,
 }
 
@@ -62,7 +63,9 @@ impl Chain {
                 anyhow::ensure!(*amount > 0, "stake amount must be positive");
                 self.store.debit(account, NATIVE_TOKEN, *amount)?;
                 let current_stake = self.store.get_stake(account);
-                self.store.set_stake(account, current_stake + amount)?;
+                let new_stake = current_stake.checked_add(*amount)
+                    .ok_or_else(|| anyhow::anyhow!("stake overflow for '{}'", account))?;
+                self.store.set_stake(account, new_stake)?;
             }
 
             LedgerEntry::Unstake { account, amount, .. } => {

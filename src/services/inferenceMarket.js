@@ -21,6 +21,7 @@
 
 const crypto = require("crypto");
 const stateStore = require("../chain/stateStore");
+const nodeRegistry = require("../chain/nodeRegistry");
 const ledger = require("./ledger");
 const protocolTools = require("./protocolTools");
 
@@ -395,7 +396,7 @@ async function reviewJob(jobId, reviewer, verdict, reviewData) {
   if (reviewer === job.buyer || reviewer === job.miner) {
     throw new Error("Reviewer cannot be the buyer or miner");
   }
-  if (!["submitted", "review_rejected", "challenged", "awaiting_challenge"].includes(job.status)) {
+  if (!["submitted", "review_rejected", "challenged", "awaiting_challenge", "review_voting"].includes(job.status)) {
     throw new Error("Job not in reviewable state (status: " + job.status + ")");
   }
 
@@ -432,7 +433,71 @@ async function reviewJob(jobId, reviewer, verdict, reviewData) {
   if (!updated) throw new Error("Job not found after review update");
 
   if (reviewStage === "appeal") {
-    return finalizeJob(jobId, reviewer);
+    const normalizedVerdictForVote = verdict === "fraud" ? "fraud" : "non_fraud";
+    await ledger.recordInferenceJobReviewVote(jobId, reviewer, {
+      verdict: normalizedVerdictForVote,
+      review_mode: reviewMode,
+      review_stage: "appeal",
+      status: "review_voting",
+    }, epoch);
+
+    const updatedJob = stateStore.getInferenceJob(jobId);
+    const assignedReviewers = (job.assigned_reviewers || []);
+    const appealVotes = ((updatedJob && updatedJob.review_votes) || []).filter(function(v) {
+      return v.review_stage === "appeal";
+    });
+
+    if (appealVotes.length < assignedReviewers.length) {
+      return {
+        job_id: jobId,
+        status: "review_voting",
+        reviewer,
+        verdict: normalizedVerdictForVote,
+        review_stage: "appeal",
+        votes_received: appealVotes.length,
+        votes_needed: assignedReviewers.length,
+        epoch,
+      };
+    }
+
+    // All votes in — compute majority
+    const fraudCount = appealVotes.filter(function(v) { return v.verdict === "fraud"; }).length;
+    const nonFraudCount = appealVotes.filter(function(v) { return v.verdict === "non_fraud"; }).length;
+    const majorityVerdict = fraudCount >= nonFraudCount ? "fraud" : "non_fraud";
+    const challengeStatus = majorityVerdict === "fraud" ? "upheld" : "denied";
+
+    const dissenters = appealVotes
+      .filter(function(v) { return v.verdict !== majorityVerdict; })
+      .map(function(v) { return v.reviewer; });
+
+    for (var di = 0; di < dissenters.length; di++) {
+      const dissenter = dissenters[di];
+      const stakePool = stateStore.getStakePool(dissenter);
+      const currentStake = stakePool ? (stakePool.total_staked || 0) : 0;
+      const slashAmount = parseFloat((currentStake * 0.02).toFixed(10));
+      if (slashAmount > 0) {
+        await ledger.recordSlash(dissenter, slashAmount, epoch, "review_dissent", {
+          account: dissenter,
+          role: "verifier",
+          offenseType: "REVIEW_DISSENT",
+          tier: 0,
+        });
+        const updatedPool = stateStore.getStakePool(dissenter);
+        nodeRegistry.updateStake(dissenter, updatedPool ? updatedPool.total_staked : 0);
+      }
+      await ledger.recordNodeReputationUpdate(dissenter, "review", false, epoch);
+    }
+
+    await ledger.recordInferenceJobReviewOutcome(jobId, {
+      review_verdict: majorityVerdict,
+      challenge_status: challengeStatus,
+      review_winner: majorityVerdict === "fraud" ? "challenger" : "miner",
+      review_dissenters: dissenters,
+      review_vote_count: appealVotes.length,
+    }, epoch);
+
+    const finalResult = await finalizeJob(jobId, reviewer);
+    return Object.assign({}, finalResult, { review_outcome: majorityVerdict });
   }
 
   return {
@@ -514,12 +579,20 @@ async function challengeJob(jobId, challenger, reason) {
     await ledger.recordEscrowLock(challenger, challengeEscrowId, challengeFee, epoch);
   }
 
+  // Select appeal reviewers: verifiers excluding buyer and miner, sorted by stake desc
+  const allNodes = nodeRegistry.getRegisteredNodes();
+  const candidateReviewers = allNodes
+    .filter(n => n.type === "verifier" && n.username !== job.buyer && n.username !== job.miner)
+    .map(n => n.username);
+  const assignedReviewers = candidateReviewers.slice(0, 3);
+
   await ledger.recordInferenceJobChallenge(jobId, challenger, {
     reason: reason || "quality_dispute",
     challenge_fee: challengeFee,
     challenge_bond: challengeFee,
     challenge_escrow_id: challengeEscrowId,
     challenge_deadline_epoch: deadline,
+    assigned_reviewers: assignedReviewers,
   }, epoch);
 
   return {
@@ -528,6 +601,7 @@ async function challengeJob(jobId, challenger, reason) {
     challenger,
     challenge_fee: challengeFee,
     challenge_deadline_epoch: deadline,
+    assigned_reviewers: assignedReviewers,
     epoch,
   };
 }
@@ -570,7 +644,7 @@ async function finalizeJob(jobId, finalizer) {
       await ledger.recordEscrowRefund(job.buyer, jobId, job.max_fee, epoch);
     }
     if (challengeEscrowId && job.challenge_fee > 0) {
-      await ledger.recordEscrowRefund(job.buyer, challengeEscrowId, job.challenge_fee, epoch);
+      await ledger.recordEscrowRelease(PROTOCOL_FEE_ACCOUNT, challengeEscrowId, job.challenge_fee, epoch, "Inference challenge fee — appeal process");
     }
   } else if (job.status === "review_rejected" && !job.challenge_status) {
     if (reviewPayout > 0) {
@@ -620,7 +694,7 @@ async function finalizeJob(jobId, finalizer) {
     buyer: job.buyer,
     finality_epoch: epoch,
     finality_hash: finalityHash,
-    challenge_status: job.challenge_status || null,
+    challenge_status: job.challenge_status || "non_fraud",
     review_stage: reviewStage,
   };
 }

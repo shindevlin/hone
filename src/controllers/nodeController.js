@@ -148,14 +148,18 @@ async function getNodes(req, res) {
     res.json({
       success: true,
       count: allNodes.length,
-      nodes: allNodes.map(n => ({
-        username: n.username,
-        type: n.type,
-        stake: n.stake,
-        p2pAddress: n.p2pAddress,
-        registeredEpoch: n.registeredEpoch,
-        permissioned: n.permissioned
-      }))
+      nodes: allNodes.map(n => {
+        const acct = stateStore.getAccount(n.username);
+        const p2pAddress = n.p2pAddress || (acct && acct.p2p_address) || null;
+        return {
+          username: n.username,
+          type: n.type,
+          stake: n.stake,
+          p2pAddress,
+          registeredEpoch: n.registeredEpoch,
+          permissioned: n.permissioned
+        };
+      })
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -232,7 +236,7 @@ async function submitEpochCommitment(req, res) {
  */
 async function getEpochInfo(req, res) {
   try {
-    const currentEpochNum = await getCurrentEpoch();
+    const currentEpochNum = stateStore.getChainHeight();
     const epoch = stateStore.getEpoch(currentEpochNum);
     const period = getCurrentPeriod(currentEpochNum);
 

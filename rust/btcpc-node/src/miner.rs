@@ -8,6 +8,7 @@ use tracing::{info, warn};
 use btcpc_types::{Block, BlockHeader, LedgerEntry, DREAMS_PER_BTCPC, EPOCH_MS};
 
 use crate::chain::Chain;
+use crate::utils::now_ms;
 
 /// Block reward: 50 BTCPC per block (halving every 210_000 epochs like Bitcoin).
 pub fn block_reward(epoch: u64) -> u64 {
@@ -18,23 +19,44 @@ pub fn block_reward(epoch: u64) -> u64 {
 
 pub async fn run_miner(chain: Arc<Chain>, account: String) {
     info!("miner started: account={}", account);
+    // Base on actual stored blocks, not the in-memory epoch counter (which only
+    // advances via EpochSeal).  This prevents the inflation bug where current_epoch
+    // stays 0 and the miner keeps overwriting epoch 1.
+    let mut last_produced: u64 = chain.store.latest_epoch().unwrap_or(0) as u64;
+
     loop {
-        let epoch = chain.current_epoch();
-        let next_epoch = epoch + 1;
+        let next_epoch = last_produced + 1;
 
         // Wait until the next epoch boundary
         let epoch_start = epoch_start_ms(next_epoch);
-        let now_ms = now_ms();
-        if epoch_start > now_ms {
-            let wait = Duration::from_millis(epoch_start - now_ms);
+        let now = now_ms();
+        if epoch_start > now {
+            let wait = Duration::from_millis(epoch_start - now);
             tokio::time::sleep(wait).await;
         }
 
-        if let Err(e) = produce_block(&chain, &account, next_epoch) {
-            warn!("block production failed (epoch {}): {}", next_epoch, e);
+        // Skip if another process already produced this block (e.g. sync filled it in).
+        if chain.store.has_block(next_epoch as u32) {
+            last_produced = next_epoch;
+            continue;
         }
 
-        // Small sleep to avoid tight loop on clock skew
+        match produce_block(&chain, &account, next_epoch) {
+            Ok(_) => {
+                // Advance the shared epoch counter so other subsystems see progress.
+                {
+                    let mut current = chain.current_epoch.write();
+                    if next_epoch > *current {
+                        *current = next_epoch;
+                    }
+                }
+                last_produced = next_epoch;
+            }
+            Err(e) => {
+                warn!("block production failed (epoch {}): {}", next_epoch, e);
+            }
+        }
+
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
@@ -81,7 +103,7 @@ fn produce_block(chain: &Chain, miner: &str, epoch: u64) -> Result<Block> {
     let block = Block { header, payload };
     chain.store.write_block(epoch as u32, &block.to_bytes())?;
 
-    info!("block {} mined: {} (reward {} sat)", epoch, block.header.hash_hex(), reward);
+    info!("block {} mined: {} (reward {} dreams)", epoch, block.header.hash_hex(), reward);
     Ok(block)
 }
 
@@ -107,9 +129,3 @@ fn epoch_start_ms(epoch: u64) -> u64 {
     epoch * EPOCH_MS
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}

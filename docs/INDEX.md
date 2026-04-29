@@ -9,6 +9,14 @@
 - [[governance]] — sovereignty model, founder-irrelevance design
 - [[founders]] — what BTCPC is for and why
 - [[bots]] — Telegram bot architecture (`@btcpcbot`, `@btcpcwalletbot`)
+- [[reports/ETHEREUM_SOLANA_STYLE_REVIEW]] — code, security, and documentation review with Ethereum/Solana-style doc recommendations
+- [[reports/IMPLEMENTATION_SPEC_FOR_SECURITY_REVIEW]] — implementation handoff with exact files, insertion points, and code shapes for security fixes
+- [[reports/CHAIN_REMEDIATION_OPTIONS]] — recovery paths for the negative-balance replay issue: no-genesis fix, hard reset, or consensus fork
+- [[reports/RELAUNCH_RESET_PLAN]] — proposed reset-first relaunch plan, wallet migration, and doc rewrite checklist
+- [[reports/RELAUNCH_COPY_DRAFTS]] — launch copy notes for the whitepaper, README, and website, with balance policy and reset rationale
+- [[reports/RUST_CHAIN_PRIMARY_MIGRATION_PLAN]] — Rust-first migration plan for all chain-critical logic, invariants, and replay
+- [[reports/RUST_PORT_MATRIX_DETERMINISTIC_CONTRACTS]] — module-by-module Rust portability matrix and deterministic smart-contract runtime blueprint
+- [[reports/RUST_CUTOVER_AUDIT_GATES]] — phase-by-phase pass/fail audit gates for Rust consensus cutover
 
 ## Commerce
 

@@ -37,12 +37,14 @@ pub enum LedgerEntry {
         account: AccountId,
         amount: Dreams,
         epoch: Epoch,
+        nonce: u64,
         signed_by: AccountId,
     },
     Unstake {
         account: AccountId,
         amount: Dreams,
         epoch: Epoch,
+        nonce: u64,
         signed_by: AccountId,
     },
 

@@ -1,4 +1,5 @@
 //! Transaction validation and application — the gatekeeper for user-submitted entries.
+#![allow(dead_code)]
 //!
 //! `validate_and_apply` runs all pre-flight checks (signature, nonce, balance)
 //! before delegating to `Chain::apply_entry`.  Block-replay paths skip this
@@ -53,6 +54,10 @@ pub fn validate_and_apply(
             if *amount == 0 {
                 bail!("transfer amount must be positive");
             }
+            // Signer must be the sender — prevents spending another account's funds.
+            if signed_by != from {
+                bail!("signed_by '{}' must equal from '{}'", signed_by, from);
+            }
             check_nonce(chain, from, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let bal = chain.get_balance(from, token);
@@ -70,10 +75,14 @@ pub fn validate_and_apply(
         }
 
         // ── Stake ────────────────────────────────────────────────────────────
-        LedgerEntry::Stake { account, amount, signed_by, .. } => {
+        LedgerEntry::Stake { account, amount, nonce, signed_by, .. } => {
             if *amount == 0 {
                 bail!("stake amount must be positive");
             }
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            }
+            check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let bal = chain.get_balance(account, NATIVE_TOKEN);
             if bal < *amount {
@@ -84,13 +93,18 @@ pub fn validate_and_apply(
                 );
             }
             chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
         }
 
         // ── Unstake ──────────────────────────────────────────────────────────
-        LedgerEntry::Unstake { account, amount, signed_by, .. } => {
+        LedgerEntry::Unstake { account, amount, nonce, signed_by, .. } => {
             if *amount == 0 {
                 bail!("unstake amount must be positive");
             }
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            }
+            check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex)?;
             let staked = chain.get_stake(account);
             if staked < *amount {
@@ -101,6 +115,7 @@ pub fn validate_and_apply(
                 );
             }
             chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
         }
 
         // ── AccountCreate ────────────────────────────────────────────────────
@@ -169,6 +184,49 @@ fn bump_nonce(chain: &Chain, account: &str) -> Result<()> {
         state["nonce"] = serde_json::json!(current + 1);
         chain.store.set_account(account, &state)?;
     }
+    Ok(())
+}
+
+/// Verify an ed25519 signature over arbitrary `message` bytes.
+/// Same key lookup as `check_signature`; intended for non-entry signed payloads
+/// (contract deploy/call requests).
+pub fn check_sig_raw(
+    chain: &Chain,
+    account: &str,
+    message: &[u8],
+    sig_hex: Option<&str>,
+) -> Result<()> {
+    let pubkey_hex = match chain.store.get_account(account)? {
+        Some(state) => match state.get("public_key").and_then(|v| v.as_str()) {
+            Some(pk) if !pk.is_empty() => pk.to_owned(),
+            _ => return Ok(()),
+        },
+        None => return Ok(()),
+    };
+
+    let sig_str = sig_hex
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("signature required for account '{}'", account))?;
+
+    let pk_bytes = hex::decode(&pubkey_hex)
+        .map_err(|_| anyhow::anyhow!("stored public_key for '{}' is not valid hex", account))?;
+    let pk_array: [u8; 32] = pk_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored public_key must be 32 bytes"))?;
+    let verifying_key = VerifyingKey::from_bytes(&pk_array)
+        .map_err(|e| anyhow::anyhow!("invalid ed25519 public key: {}", e))?;
+
+    let sig_bytes = hex::decode(sig_str)
+        .map_err(|_| anyhow::anyhow!("signature is not valid hex"))?;
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
+    let signature = Signature::from_bytes(&sig_array);
+
+    verifying_key
+        .verify_strict(message, &signature)
+        .map_err(|e| anyhow::anyhow!("signature verification failed: {}", e))?;
+
     Ok(())
 }
 

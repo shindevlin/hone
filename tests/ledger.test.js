@@ -85,6 +85,35 @@ describe('ledger service', () => {
     }));
   });
 
+  test('recordTokenCreate locks fungible token decimals to 10', async () => {
+    epochBandwidth.seedForTest('alice', 1000);
+    const entry = await ledger.recordTokenCreate('alice', {
+      name: 'Example Token',
+      symbol: 'EXT',
+      supply: 42000000,
+      type: 'fungible',
+    }, 0, 1);
+
+    expect(entry.token_data).toEqual(expect.objectContaining({
+      name: 'Example Token',
+      symbol: 'EXT',
+      supply: 42000000,
+      decimals: 10,
+      type: 'fungible',
+    }));
+  });
+
+  test('recordTokenCreate rejects fungible token decimal mismatches', async () => {
+    epochBandwidth.seedForTest('alice', 1000);
+    await expect(ledger.recordTokenCreate('alice', {
+      name: 'Bad Token',
+      symbol: 'BAD',
+      supply: 42000000,
+      type: 'fungible',
+      decimals: 8,
+    }, 0, 1)).rejects.toThrow(/Invalid token decimals/);
+  });
+
   test('getBalance reads from stateStore', async () => {
     const stateStore = require('../src/chain/stateStore');
     stateStore.resetAll();

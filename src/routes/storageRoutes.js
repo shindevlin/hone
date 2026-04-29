@@ -86,7 +86,13 @@ router.get("/hosts", function (req, res) {
     var window = parseInt(req.query.window || "200", 10);
     if (isNaN(window) || window < 1) window = 200;
     var hosts = stateStore.getActiveStorageHosts(currentEpoch, window);
-    return res.json({ ok: true, epoch: currentEpoch, count: hosts.length, hosts: hosts });
+    var redacted = hosts.map(function(h) {
+      var r = Object.assign({}, h);
+      r.cids_count = Array.isArray(r.cids) ? r.cids.length : 0;
+      delete r.cids;
+      return r;
+    });
+    return res.json({ ok: true, epoch: currentEpoch, count: redacted.length, hosts: redacted });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -102,7 +108,10 @@ router.get("/hosts/:host", function (req, res) {
     if (!record) {
       return res.status(404).json({ error: "host not found", host: req.params.host });
     }
-    return res.json({ ok: true, record: record });
+    var redacted = Object.assign({}, record);
+    redacted.cids_count = Array.isArray(redacted.cids) ? redacted.cids.length : 0;
+    delete redacted.cids;
+    return res.json({ ok: true, record: redacted });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

@@ -55,6 +55,7 @@ async function replayFromDisk(options) {
       try {
         stateManager.loadFromFinality(finality.snapshot);
         stateStore.hydrateFromFinality(finality.snapshot);
+        stateStore.assertBalanceIntegrity("replay finality snapshot");
         replayFrom = latestFinality + 1;
         if (verbose) {
           console.log("[BTCPC Replay] Loaded finality snapshot at epoch " + latestFinality +
@@ -129,6 +130,7 @@ async function replayFromDisk(options) {
   });
 
   stateStore.setChainHeight(latestOnDisk);
+  stateStore.assertBalanceIntegrity("replay complete");
 
   var duration = Date.now() - startTime;
   if (verbose) {
