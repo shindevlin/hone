@@ -10,12 +10,12 @@ WorkingDirectory=/var/lib/btcpc
 
 ExecStart=/usr/local/bin/btcpc-node
 
-Environment="BTCPC_CHAIN_ID=btcpc-1"
+Environment="BTCPC_CHAIN_ID=btcpc-satoshi"
 Environment="BTCPC_DATA_DIR=/var/lib/btcpc"
 # Required — set these before enabling the service:
 Environment="BTCPC_ACCOUNT=your-account-name"
 Environment="BTCPC_NODE_ID=MachineName(your-account-name)"
-Environment="BTCPC_GENESIS_TIMESTAMP=1777590000000"
+Environment="BTCPC_GENESIS_TIMESTAMP=1777615200000"
 Environment="BTCPC_API_PORT=4242"
 Environment="BTCPC_P2P_PORT=6942"
 Environment="BTCPC_MINER=true"
