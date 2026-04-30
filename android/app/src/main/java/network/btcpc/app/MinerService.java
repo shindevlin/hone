@@ -28,7 +28,7 @@ public class MinerService extends Service {
     private static final String CHANNEL_ID         = "btcpc_miner";
     private static final int    NOTIF_ID           = 4;
     private static final long   STATUS_INTERVAL_MS = 3_000;
-    private static final long   MAINNET_GENESIS_TS = 1777590000000L;
+    private static final long   MAINNET_GENESIS_TS = 1777615200000L;
     private static final int    DEFAULT_P2P_PORT   = 6942;
 
     private static boolean nativeAvailable = false;
@@ -122,8 +122,12 @@ public class MinerService extends Service {
         new java.io.File(dataDir).mkdirs();
 
         // Bootstrap peers from prefs or hardcoded fallback.
+        // Includes genesis node LAN + Tailscale IPs as well as DNS seeds.
         String bootstrapPeers = prefs.getBootstrapPeers(
-                "/dns4/bootstrap1.btcpc.net/tcp/6942,/dns4/bootstrap2.btcpc.net/tcp/6942");
+                "/ip4/192.168.68.72/tcp/6942," +
+                "/ip4/100.90.146.17/tcp/6942," +
+                "/dns4/bootstrap1.btcpc.net/tcp/6942," +
+                "/dns4/bootstrap2.btcpc.net/tcp/6942");
 
         nativeStart(
                 account, postingKey, chainId, genesisTs,

@@ -57,7 +57,10 @@ libp2p = { version = "0.55", features = [
 wasmtime = { version = "23" }
 
 # HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+# Use rustls so cross-compilation (ARM64/Pi) works without system OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# Force vendored OpenSSL for any crates (wasmtime, libp2p transports) that still pull it in.
+openssl = { version = "0.10", features = ["vendored"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Utilities

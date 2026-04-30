@@ -25,7 +25,7 @@ public class NativeClockService extends Service {
     private static final String CHANNEL_ID   = "btcpc_clock";
     private static final int    NOTIF_ID     = 9430;
     private static final long   STATUS_INTERVAL_MS = 5000;
-    private static final long   MAINNET_GENESIS_TS = 1777590000000L;
+    private static final long   MAINNET_GENESIS_TS = 1777615200000L;
 
     private static boolean nativeAvailable = false;
 
