@@ -381,6 +381,18 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         other => bail!("unknown verdict '{}' (expected approved|rejected|review_required)", other),
     }
     set_job(chain, &job)?;
+
+    // Track per-epoch verification count so the clock can compute verifier rewards.
+    let vkey = format!("infer_verify:{}:{}", epoch, verifier);
+    let prev_count: u64 = chain.store.state_get(&vkey)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["count"].as_u64())
+        .unwrap_or(0);
+    let _ = chain.store.state_set(&vkey,
+        &serde_json::to_vec(&serde_json::json!({
+            "verifier": verifier, "epoch": epoch, "count": prev_count + 1,
+        })).unwrap_or_default());
+
     Ok(())
 }
 

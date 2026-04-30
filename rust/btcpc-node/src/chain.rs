@@ -86,12 +86,16 @@ impl Chain {
                 self.store.credit(account, NATIVE_TOKEN, *amount)?;
             }
 
-            LedgerEntry::Mine { miner, epoch, work_value, .. } => {
+            LedgerEntry::Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, compute_proof } => {
                 self.ensure_account(miner, *epoch)?;
                 let key = format!("mine:{}:{}", epoch, miner);
                 let _ = self.store.state_set(&key,
-                    &serde_json::to_vec(&serde_json::json!({"miner": miner, "epoch": epoch, "work_value": work_value}))
-                        .unwrap_or_default());
+                    &serde_json::to_vec(&serde_json::json!({
+                        "miner": miner, "epoch": epoch,
+                        "model": model, "input_tokens": input_tokens,
+                        "output_tokens": output_tokens, "tool_calls": tool_calls,
+                        "hw_tier": hw_tier, "compute_proof": compute_proof,
+                    })).unwrap_or_default());
             }
 
             LedgerEntry::MineReward { miner, amount, epoch } => {
@@ -145,6 +149,30 @@ impl Chain {
                 // Accepted, no balance mutations needed at base layer
             }
 
+            // Track storage heartbeats so the clock can compute storage rewards at seal time.
+            LedgerEntry::StorageHeartbeat { node_id, epoch, bytes_proven, .. } => {
+                let key = format!("storage_beat:{}:{}", epoch, node_id);
+                let _ = self.store.state_set(&key,
+                    &serde_json::to_vec(&serde_json::json!({
+                        "node_id": node_id, "epoch": epoch, "bytes_proven": bytes_proven,
+                    })).unwrap_or_default());
+            }
+
+            // Track sensor data commits so the clock can compute sensor rewards.
+            LedgerEntry::SensorDataCommit { owner, epoch, reading_count, .. } => {
+                let key = format!("sensor_commit:{}:{}", epoch, owner);
+                // Accumulate reading_count in case multiple sensors from the same owner commit.
+                let prev: u64 = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .and_then(|j| j["reading_count"].as_u64())
+                    .unwrap_or(0);
+                let _ = self.store.state_set(&key,
+                    &serde_json::to_vec(&serde_json::json!({
+                        "owner": owner, "epoch": epoch,
+                        "reading_count": prev + reading_count,
+                    })).unwrap_or_default());
+            }
+
             // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
             LedgerEntry::StoreUpdate { .. }
             | LedgerEntry::ProductCreate { .. }
@@ -159,12 +187,10 @@ impl Chain {
             | LedgerEntry::SensorRegister { .. }
             | LedgerEntry::SensorKeyRegister { .. }
             | LedgerEntry::SensorVouch { .. }
-            | LedgerEntry::SensorDataCommit { .. }
             | LedgerEntry::DeviceKeyRegister { .. }
             | LedgerEntry::DeviceYieldStake { .. }
             | LedgerEntry::DeviceYieldUnstake { .. }
-            | LedgerEntry::GatewayHeartbeat { .. }
-            | LedgerEntry::StorageHeartbeat { .. } => {
+            | LedgerEntry::GatewayHeartbeat { .. } => {
                 // Recorded in the ledger; state is managed by protocol sidecars.
             }
 

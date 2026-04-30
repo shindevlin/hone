@@ -38,15 +38,20 @@ pub async fn run_miner(
         tokio::time::sleep(wait_for_next_epoch(next_epoch, genesis_ts)).await;
 
         // Run inference — this is the proof of work.
-        let (work_value, compute_proof) =
+        let (input_tokens, output_tokens, compute_proof) =
             run_inference(next_epoch, &account).await;
+        let (model_id, hw_tier_val) = model_and_hw();
 
         // Build Mine entry and apply locally.
         let entry = LedgerEntry::Mine {
-            miner:      account.clone(),
-            epoch:      next_epoch,
-            work_value,
-            block_hash: compute_proof.clone(),
+            miner:         account.clone(),
+            epoch:         next_epoch,
+            model:         model_id,
+            input_tokens,
+            output_tokens,
+            tool_calls:    0,
+            hw_tier:       hw_tier_val,
+            compute_proof: compute_proof.clone(),
         };
         if let Err(e) = chain.apply_entry(&entry) {
             warn!("miner: apply Mine failed (epoch {}): {}", next_epoch, e);
@@ -67,7 +72,7 @@ pub async fn run_miner(
         }
         last_produced = next_epoch;
 
-        info!("miner: submitted Mine entry epoch {} work={} tokens", next_epoch, work_value);
+        info!("miner: submitted Mine entry epoch {} out={} in={} tokens", next_epoch, output_tokens, input_tokens);
 
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -75,7 +80,7 @@ pub async fn run_miner(
 
 // ── Inference proof-of-work ───────────────────────────────────────────────────
 
-async fn run_inference(epoch: u64, miner: &str) -> (u64, String) {
+async fn run_inference(epoch: u64, miner: &str) -> (u64, u64, String) {
     let ollama_url = std::env::var("OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_owned());
     let model = std::env::var("BTCPC_MODEL")
@@ -99,18 +104,28 @@ async fn run_inference(epoch: u64, miner: &str) -> (u64, String) {
     match result {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
-                let text   = body["response"].as_str().unwrap_or("");
-                let tokens = body["eval_count"].as_u64().unwrap_or(0);
-                let proof  = hex::encode(Sha256::digest(text.as_bytes()));
-                info!("inference: epoch {} — {} tokens (model={})", epoch, tokens, model);
-                return (tokens, proof);
+                let text         = body["response"].as_str().unwrap_or("");
+                let output_toks  = body["eval_count"].as_u64().unwrap_or(0);
+                let input_toks   = body["prompt_eval_count"].as_u64().unwrap_or(0);
+                let proof        = hex::encode(Sha256::digest(text.as_bytes()));
+                info!("inference: epoch {} — in={} out={} tokens (model={})", epoch, input_toks, output_toks, model);
+                return (input_toks, output_toks, proof);
             }
         }
         Ok(resp) => warn!("inference: Ollama {} for epoch {}", resp.status(), epoch),
         Err(e)   => warn!("inference: Ollama unreachable for epoch {}: {}", epoch, e),
     }
 
-    (0, String::new())
+    (0, 0, String::new())
+}
+
+fn model_and_hw() -> (String, u8) {
+    let model = std::env::var("BTCPC_MODEL")
+        .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
+    let hw_tier = std::env::var("BTCPC_HW_TIER")
+        .ok().and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(1); // default: cpu-only desktop
+    (model, hw_tier)
 }
 
 fn wait_for_next_epoch(next_epoch: u64, genesis_ts: u64) -> Duration {

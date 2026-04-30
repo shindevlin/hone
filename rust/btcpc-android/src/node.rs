@@ -7,7 +7,7 @@ use parking_lot::Mutex as PLMutex;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
-use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, TESTNET_CHAIN_ID};
+use btcpc_types::{LedgerEntry, NATIVE_TOKEN, TESTNET_CHAIN_ID};
 
 use crate::chain::Chain;
 use crate::clock::{self, ClockConfig, ClockConsensus};
@@ -194,19 +194,8 @@ fn handle_net_event(ev: NetworkEvent, chain: &Chain, clock: &ClockConsensus) {
         NetworkEvent::EpochSeal { seal } => {
             clock.receive_seal(seal);
         }
-        NetworkEvent::Block { epoch, data } => {
-            if chain.store.has_block(epoch) { return; }
-            if let Some(block) = Block::from_bytes(&data) {
-                if let Some(entries) = block.payload
-                    .get("ledger_entries")
-                    .and_then(|v| serde_json::from_value::<Vec<LedgerEntry>>(v.clone()).ok())
-                {
-                    chain.apply_block_entries(&entries);
-                    let _ = chain.store.write_block(epoch, &data);
-                    let mut cur = chain.current_epoch.write();
-                    if epoch > *cur { *cur = epoch; }
-                }
-            }
+        NetworkEvent::Block { .. } => {
+            // Miners no longer produce blocks — this event is no-op.
         }
         NetworkEvent::Entry { entry } => {
             // Cache plaintext from the gossip envelope so the verifier can assess quality.

@@ -8,16 +8,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
 use btcpc_types::{
-    LedgerEntry, EPOCH_MS, CLOCK_REWARD_DREAMS,
+    LedgerEntry, EPOCH_MS,
     block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
     RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN,
+    EPOCH_POOL_INFERENCE_BPS, EPOCH_POOL_STORAGE_BPS, EPOCH_POOL_SENSOR_BPS,
+    EPOCH_POOL_VERIFY_BPS, EPOCH_POOL_RECYCLE_BPS,
+    inference_score,
 };
 use crate::net::NetCmd;
 
@@ -135,51 +138,9 @@ pub async fn run(
                         };
                         let _ = chain_ref.apply_entry(&entry);
 
-                        // Emit MineReward entries for all miners that contributed this epoch.
+                        // Comprehensive epoch reward distribution.
                         let sealed_epoch = s.epoch;
-                        let prefix = format!("mine:{}:", sealed_epoch);
-                        let mines: Vec<(String, u64)> = chain_ref.store.scan_prefix(&prefix)
-                            .into_iter()
-                            .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
-                            .filter_map(|j| {
-                                let miner = j["miner"].as_str()?.to_owned();
-                                let wv = j["work_value"].as_u64().unwrap_or(0);
-                                Some((miner, wv))
-                            })
-                            .collect();
-
-                        if !mines.is_empty() {
-                            let total_reward = if era(sealed_epoch) >= RECYCLE_ERA {
-                                let fund = chain_ref.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
-                                ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
-                            } else {
-                                block_reward_at(sealed_epoch)
-                            };
-                            let total_work: u64 = mines.iter().map(|(_, w)| w).sum();
-                            let n = mines.len() as u64;
-
-                            for (miner, work_value) in &mines {
-                                let amount = if total_work == 0 {
-                                    total_reward / n
-                                } else {
-                                    (total_reward as u128 * *work_value as u128 / total_work as u128) as u64
-                                };
-                                if amount == 0 { continue; }
-                                let reward_entry = LedgerEntry::MineReward {
-                                    miner: miner.clone(),
-                                    amount,
-                                    epoch: sealed_epoch,
-                                };
-                                let _ = chain_ref.apply_entry(&reward_entry);
-                                let envelope = serde_json::json!({"entry": reward_entry});
-                                if let Ok(data) = serde_json::to_vec(&envelope) {
-                                    let _ = cmd_tx_clone.send(crate::net::NetCmd::Broadcast {
-                                        topic: "btcpc/entries",
-                                        data,
-                                    }).await;
-                                }
-                            }
-                        }
+                        emit_epoch_rewards(sealed_epoch, &chain_ref, &cmd_tx_clone).await;
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -243,6 +204,183 @@ pub async fn run(
 
         info!("clock: emitted seal epoch {}", epoch);
         clock_ref.prune(epoch.saturating_sub(10));
+    }
+}
+
+// ── Epoch reward distribution ─────────────────────────────────────────────────
+
+/// Compute and broadcast all epoch rewards after a seal reaches quorum.
+///
+/// Pools: inference 50%, storage 20%, sensor 15%, verification 10%, remainder → recycle.
+async fn emit_epoch_rewards(
+    epoch: u64,
+    chain: &crate::chain::Chain,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) {
+    let total_pool = if era(epoch) >= RECYCLE_ERA {
+        let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+        ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
+    } else {
+        block_reward_at(epoch)
+    };
+    if total_pool == 0 { return; }
+
+    let inference_pool = total_pool * EPOCH_POOL_INFERENCE_BPS / 10_000;
+    let storage_pool   = total_pool * EPOCH_POOL_STORAGE_BPS   / 10_000;
+    let sensor_pool    = total_pool * EPOCH_POOL_SENSOR_BPS    / 10_000;
+    let verify_pool    = total_pool * EPOCH_POOL_VERIFY_BPS    / 10_000;
+    let recycle_amt    = total_pool * EPOCH_POOL_RECYCLE_BPS   / 10_000;
+
+    // Collect work vectors from state store
+    let mines: Vec<(String, u64)> = chain.store.scan_prefix(&format!("mine:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            let miner     = j["miner"].as_str()?.to_owned();
+            let out_toks  = j["output_tokens"].as_u64().unwrap_or(0);
+            let hw_tier   = j["hw_tier"].as_u64().unwrap_or(0) as u8;
+            let model     = j["model"].as_str().unwrap_or("");
+            Some((miner, inference_score(out_toks, hw_tier, model)))
+        }).collect();
+
+    let storage_nodes: Vec<(String, u64)> = chain.store.scan_prefix(&format!("storage_beat:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            let node_id = j["node_id"].as_str()?.to_owned();
+            let bytes   = j["bytes_proven"].as_u64().unwrap_or(0);
+            Some((node_id, bytes))
+        }).collect();
+
+    let sensor_nodes: Vec<(String, u64)> = chain.store.scan_prefix(&format!("sensor_commit:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            let owner = j["owner"].as_str()?.to_owned();
+            let count = j["reading_count"].as_u64().unwrap_or(0);
+            Some((owner, count))
+        }).collect();
+
+    let verifiers: Vec<(String, u64)> = chain.store.scan_prefix(&format!("infer_verify:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            let verifier = j["verifier"].as_str()?.to_owned();
+            let count    = j["count"].as_u64().unwrap_or(0);
+            Some((verifier, count))
+        }).collect();
+
+    // Distribute each pool pro-rata
+    distribute_mine_rewards(epoch, &mines, inference_pool, chain, cmd_tx).await;
+    distribute_storage_rewards(epoch, &storage_nodes, storage_pool, chain, cmd_tx).await;
+    distribute_sensor_rewards(epoch, &sensor_nodes, sensor_pool, chain, cmd_tx).await;
+    distribute_verify_rewards(epoch, &verifiers, verify_pool, chain, cmd_tx).await;
+
+    // Push remainder to recycle fund
+    if recycle_amt > 0 {
+        chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_amt);
+        info!("clock: epoch {} → recycle fund +{} dreams", epoch, recycle_amt);
+    }
+
+    info!("clock: epoch {} rewards emitted (pool={} inference={} storage={} sensor={} verify={})",
+        epoch, total_pool, inference_pool, storage_pool, sensor_pool, verify_pool);
+}
+
+async fn distribute_mine_rewards(
+    epoch: u64,
+    miners: &[(String, u64)],
+    pool: u64,
+    chain: &crate::chain::Chain,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) {
+    if miners.is_empty() || pool == 0 { return; }
+    let total_score: u64 = miners.iter().map(|(_, s)| s).sum();
+    let n = miners.len() as u64;
+    for (miner, score) in miners {
+        let amount = if total_score == 0 {
+            pool / n
+        } else {
+            (pool as u128 * *score as u128 / total_score as u128) as u64
+        };
+        if amount == 0 { continue; }
+        let entry = LedgerEntry::MineReward { miner: miner.clone(), amount, epoch };
+        let _ = chain.apply_entry(&entry);
+        let _ = broadcast_entry(&entry, cmd_tx).await;
+    }
+}
+
+async fn distribute_storage_rewards(
+    epoch: u64,
+    nodes: &[(String, u64)],
+    pool: u64,
+    chain: &crate::chain::Chain,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) {
+    if nodes.is_empty() || pool == 0 { return; }
+    let total: u64 = nodes.iter().map(|(_, b)| b).sum();
+    let n = nodes.len() as u64;
+    for (node_id, bytes) in nodes {
+        let amount = if total == 0 { pool / n }
+            else { (pool as u128 * *bytes as u128 / total as u128) as u64 };
+        if amount == 0 { continue; }
+        let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount, epoch };
+        let _ = chain.apply_entry(&entry);
+        let _ = broadcast_entry(&entry, cmd_tx).await;
+    }
+}
+
+async fn distribute_sensor_rewards(
+    epoch: u64,
+    nodes: &[(String, u64)],
+    pool: u64,
+    chain: &crate::chain::Chain,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) {
+    if nodes.is_empty() || pool == 0 { return; }
+    let total: u64 = nodes.iter().map(|(_, c)| c).sum();
+    let n = nodes.len() as u64;
+    for (owner, count) in nodes {
+        let amount = if total == 0 { pool / n }
+            else { (pool as u128 * *count as u128 / total as u128) as u64 };
+        if amount == 0 { continue; }
+        let entry = LedgerEntry::ClockReward { node_id: owner.clone(), amount, epoch };
+        let _ = chain.apply_entry(&entry);
+        let _ = broadcast_entry(&entry, cmd_tx).await;
+    }
+}
+
+async fn distribute_verify_rewards(
+    epoch: u64,
+    verifiers: &[(String, u64)],
+    pool: u64,
+    chain: &crate::chain::Chain,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) {
+    if verifiers.is_empty() || pool == 0 { return; }
+    let total: u64 = verifiers.iter().map(|(_, c)| c).sum();
+    let n = verifiers.len() as u64;
+    for (verifier, count) in verifiers {
+        let amount = if total == 0 { pool / n }
+            else { (pool as u128 * *count as u128 / total as u128) as u64 };
+        if amount == 0 { continue; }
+        let entry = LedgerEntry::ClockReward { node_id: verifier.clone(), amount, epoch };
+        let _ = chain.apply_entry(&entry);
+        let _ = broadcast_entry(&entry, cmd_tx).await;
+    }
+}
+
+async fn broadcast_entry(
+    entry: &LedgerEntry,
+    cmd_tx: &tokio::sync::mpsc::Sender<crate::net::NetCmd>,
+) -> bool {
+    let envelope = serde_json::json!({"entry": entry});
+    if let Ok(data) = serde_json::to_vec(&envelope) {
+        cmd_tx.send(crate::net::NetCmd::Broadcast {
+            topic: "btcpc/entries",
+            data,
+        }).await.is_ok()
+    } else {
+        false
     }
 }
 

@@ -46,37 +46,41 @@ pub async fn run_miner(
         }
 
         // Run on-device inference — this is the proof of work.
-        let (work_value, compute_proof) = {
+        let model_id = std::env::var("BTCPC_MODEL")
+            .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
+        let (input_tokens, output_tokens, compute_proof) = {
             let mut engine = llm.lock().await;
             if engine.ensure_ready().await {
-                let prompt = format!(
-                    "btcpc epoch {} miner {}",
-                    next_epoch, account,
-                );
+                let prompt = format!("btcpc epoch {} miner {}", next_epoch, account);
                 match engine.generate(&prompt, 64).await {
                     Ok(output) => {
-                        let tokens = output.split_whitespace().count() as u64;
-                        let proof  = hex::encode(Sha256::digest(output.as_bytes()));
-                        info!("miner: epoch {} — {} tokens", next_epoch, tokens);
-                        (tokens, proof)
+                        // candle doesn't expose input token count — approximate from whitespace
+                        let in_toks  = prompt.split_whitespace().count() as u64;
+                        let out_toks = output.split_whitespace().count() as u64;
+                        let proof    = hex::encode(Sha256::digest(output.as_bytes()));
+                        info!("miner: epoch {} — in={} out={} tokens", next_epoch, in_toks, out_toks);
+                        (in_toks, out_toks, proof)
                     }
                     Err(e) => {
                         warn!("miner: inference failed epoch {}: {}", next_epoch, e);
-                        (0, String::new())
+                        (0, 0, String::new())
                     }
                 }
             } else {
-                // Model still downloading — submit zero-work Mine entry this epoch.
-                (0, String::new())
+                (0, 0, String::new())
             }
         };
 
         // Build and apply Mine entry locally, then broadcast as gossip.
         let entry = LedgerEntry::Mine {
-            miner:      account.clone(),
-            epoch:      next_epoch,
-            work_value,
-            block_hash: compute_proof.clone(),
+            miner:         account.clone(),
+            epoch:         next_epoch,
+            model:         model_id,
+            input_tokens,
+            output_tokens,
+            tool_calls:    0,  // phones don't make tool calls
+            hw_tier:       0,  // 0 = phone
+            compute_proof: compute_proof.clone(),
         };
         let _ = chain.apply_entry(&entry);
 
@@ -92,7 +96,7 @@ pub async fn run_miner(
         if next_epoch > *cur { *cur = next_epoch; }
         last_produced = next_epoch;
 
-        info!("miner: submitted Mine entry for epoch {}, tokens={}", next_epoch, work_value);
+        info!("miner: submitted Mine entry epoch {} out={} in={} tokens", next_epoch, output_tokens, input_tokens);
     }
 
     info!("miner: stopped");

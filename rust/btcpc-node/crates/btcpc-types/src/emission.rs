@@ -73,6 +73,59 @@ pub const CLAIM_WINDOW_EPOCHS: u64 = 20;
 /// Minimum verifier votes required to resolve a dispute.
 pub const MIN_REVIEW_VOTES: u64 = 3;
 
+// ── Epoch reward pool allocation (basis points, 10_000 = 100%) ──────────────
+
+/// Inference work (output tokens × hw_tier × model_weight).
+pub const EPOCH_POOL_INFERENCE_BPS: u64 = 5_000; // 50%
+/// Storage nodes (bytes proven in StorageHeartbeat).
+pub const EPOCH_POOL_STORAGE_BPS: u64 = 2_000;   // 20%
+/// Sensor nodes (reading_count in SensorDataCommit).
+pub const EPOCH_POOL_SENSOR_BPS: u64 = 1_500;    // 15%
+/// Inference verifiers (jobs verified in InferenceJobVerify).
+pub const EPOCH_POOL_VERIFY_BPS: u64 = 1_000;    // 10%
+/// Remainder flows to recycle fund (covers clock reward too).
+pub const EPOCH_POOL_RECYCLE_BPS: u64 = 500;     // 5%
+
+/// Returns the point multiplier for a hardware tier.
+///
+/// Higher tiers run larger models and contribute more valuable work.
+/// 0=phone, 1=cpu-only, 2=gpu-consumer, 3=gpu-prosumer, 4=gpu-server
+#[inline]
+pub fn hw_tier_weight(tier: u8) -> u64 {
+    match tier {
+        0 => 1,
+        1 => 4,
+        2 => 8,
+        3 => 16,
+        4 => 32,
+        _ => 1,
+    }
+}
+
+/// Returns the point multiplier for a model name string.
+///
+/// Based on approximate parameter count extracted from the model identifier.
+pub fn model_weight(model: &str) -> u64 {
+    let m = model.to_ascii_lowercase();
+    if m.contains("0.5b") { return 1; }
+    if m.contains("1.5b") || m.contains("1b") { return 2; }
+    if m.contains("3b") || m.contains("3.8b") || m.contains("4b") { return 3; }
+    if m.contains("7b") || m.contains("8b") { return 6; }
+    if m.contains("13b") || m.contains("14b") { return 10; }
+    if m.contains("30b") || m.contains("32b") || m.contains("33b")
+        || m.contains("mixtral") { return 20; }
+    if m.contains("70b") || m.contains("72b") { return 40; }
+    2 // unknown model — default to small
+}
+
+/// Compute inference contribution score for a single miner's Mine entry.
+///
+/// score = output_tokens × hw_tier_weight × model_weight
+#[inline]
+pub fn inference_score(output_tokens: u64, hw_tier: u8, model: &str) -> u64 {
+    output_tokens.saturating_mul(hw_tier_weight(hw_tier)).saturating_mul(model_weight(model))
+}
+
 /// Per-epoch distribution rate from the recycle fund.
 ///
 /// Each era-5 epoch, the miner receives this fraction of the current fund balance.

@@ -53,8 +53,18 @@ pub enum LedgerEntry {
     Mine {
         miner: AccountId,
         epoch: Epoch,
-        work_value: u64,
-        block_hash: String,
+        /// Model identifier (e.g. "qwen2.5:0.5b", "llama3:8b").
+        model: String,
+        /// Prompt tokens consumed during this epoch.
+        input_tokens: u64,
+        /// Tokens generated — primary proof-of-work quantity.
+        output_tokens: u64,
+        /// Tool / function calls executed.
+        tool_calls: u64,
+        /// Hardware tier: 0=phone, 1=cpu, 2=gpu-sm, 3=gpu-pro, 4=gpu-server.
+        hw_tier: u8,
+        /// SHA-256 hex of the inference output (determinism proof).
+        compute_proof: String,
     },
     MineReward {
         miner: AccountId,

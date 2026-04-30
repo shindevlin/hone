@@ -53,10 +53,14 @@ impl Chain {
                 self.store.credit(to, token, *amount);
                 self.store.increment_nonce(from);
             }
-            Mine { miner, epoch, work_value, .. } => {
-                // Store work_value in state tree so the clock can scan it at seal time.
+            Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, compute_proof } => {
                 let key = format!("mine:{}:{}", epoch, miner);
-                let rec = serde_json::json!({"miner": miner, "epoch": epoch, "work_value": work_value});
+                let rec = serde_json::json!({
+                    "miner": miner, "epoch": epoch,
+                    "model": model, "input_tokens": input_tokens,
+                    "output_tokens": output_tokens, "tool_calls": tool_calls,
+                    "hw_tier": hw_tier, "compute_proof": compute_proof,
+                });
                 let _ = self.store.set_json(&key, &rec);
             }
             MineReward { miner, amount, epoch } => {
@@ -111,6 +115,33 @@ impl Chain {
             }
             InferenceJobPay { worker, worker_amount, .. } => {
                 self.store.credit(worker, NATIVE_TOKEN, *worker_amount);
+            }
+            // Track per-epoch verification count for clock reward computation.
+            InferenceJobVerify { job_id: _, verifier, verdict: _, epoch, .. } => {
+                let key = format!("infer_verify:{}:{}", epoch, verifier);
+                let prev: u64 = self.store.get_json::<serde_json::Value>(&key)
+                    .and_then(|j| j["count"].as_u64())
+                    .unwrap_or(0);
+                let _ = self.store.set_json(&key, &serde_json::json!({
+                    "verifier": verifier, "epoch": epoch, "count": prev + 1,
+                }));
+            }
+            // Track storage heartbeats for clock reward computation.
+            StorageHeartbeat { node_id, epoch, bytes_proven, .. } => {
+                let key = format!("storage_beat:{}:{}", epoch, node_id);
+                let _ = self.store.set_json(&key, &serde_json::json!({
+                    "node_id": node_id, "epoch": epoch, "bytes_proven": bytes_proven,
+                }));
+            }
+            // Track sensor data commits for clock reward computation.
+            SensorDataCommit { owner, epoch, reading_count, .. } => {
+                let key = format!("sensor_commit:{}:{}", epoch, owner);
+                let prev: u64 = self.store.get_json::<serde_json::Value>(&key)
+                    .and_then(|j| j["reading_count"].as_u64())
+                    .unwrap_or(0);
+                let _ = self.store.set_json(&key, &serde_json::json!({
+                    "owner": owner, "epoch": epoch, "reading_count": prev + reading_count,
+                }));
             }
             _ => {} // other entries don't affect mobile state
         }

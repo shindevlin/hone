@@ -34,7 +34,7 @@ candle-core = { version = "0.10", default-features = false }
 candle-transformers = { version = "0.10", default-features = false }
 candle-nn = { version = "0.10", default-features = false }
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
-hf-hub = { version = "0.3", default-features = false, features = ["tokio"] }
+hf-hub = { version = "0.3", default-features = false, features = ["tokio", "online"] }
 
 # Crypto
 sha2 = "0.10"
