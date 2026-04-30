@@ -66,6 +66,14 @@ import java.security.MessageDigest;
 
 public class NativeSensorService extends Service implements SensorEventListener, LocationListener {
 
+    static {
+        System.loadLibrary("btcpc_miner");
+    }
+
+    private static native boolean nativeSubmitReading(
+            String sensorId, String sensorType,
+            double primaryValue, String valuesJson, String unit);
+
     private static final String TAG = "BTCPCSensor";
     private static final String CHANNEL_ID = "btcpc_sensors";
     private static final int NOTIFICATION_ID = 9440;
@@ -450,6 +458,16 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private void submitReading(SensorSnapshot snapshot) {
         try {
             double value = normalizeValue(snapshot);
+            String valuesJson = buildValuesJson(snapshot);
+
+            // Submit to local Rust micronode first.
+            try {
+                nativeSubmitReading(snapshot.sensorId, snapshot.type, value, valuesJson, snapshot.unit);
+            } catch (UnsatisfiedLinkError e) {
+                Log.w(TAG, "nativeSubmitReading unavailable: " + e.getMessage());
+            }
+
+            // Also POST to remote API for network-wide propagation.
             JSONObject metadata = new JSONObject();
             metadata.put("type", snapshot.type);
             metadata.put("unit", snapshot.unit);
@@ -480,6 +498,79 @@ public class NativeSensorService extends Service implements SensorEventListener,
             persistState(String.format(Locale.US, "Sensors: submitted %s=%.3f", snapshot.type, value));
         } catch (Exception e) {
             Log.w(TAG, "submit failed: " + e.getMessage());
+        }
+    }
+
+    private static String buildValuesJson(SensorSnapshot s) {
+        try {
+            double[] v = s.values;
+            JSONObject j = new JSONObject();
+            switch (s.type) {
+                case "accelerometer":
+                case "linear-acceleration":
+                case "gravity":
+                case "gyroscope":
+                case "gyroscope-raw":
+                case "magnetometer":
+                case "magnetometer-raw":
+                    if (v.length >= 3) { j.put("x", v[0]); j.put("y", v[1]); j.put("z", v[2]); }
+                    break;
+                case "orientation":
+                case "orientation-game":
+                case "orientation-geo":
+                    if (v.length >= 4) {
+                        j.put("qx", v[0]); j.put("qy", v[1]);
+                        j.put("qz", v[2]); j.put("qw", v[3]);
+                    } else if (v.length >= 3) {
+                        j.put("azimuth", v[0]); j.put("pitch", v[1]); j.put("roll", v[2]);
+                    }
+                    break;
+                case "light":
+                    if (v.length >= 1) j.put("lux", v[0]);
+                    break;
+                case "barometer":
+                    if (v.length >= 1) j.put("hPa", v[0]);
+                    break;
+                case "proximity":
+                    if (v.length >= 1) j.put("cm", v[0]);
+                    break;
+                case "steps":
+                case "step-detector":
+                    if (v.length >= 1) j.put("count", v[0]);
+                    break;
+                case "heart-rate":
+                    if (v.length >= 1) j.put("bpm", v[0]);
+                    break;
+                case "gps-location":
+                    if (v.length >= 2) { j.put("lat", v[0]); j.put("lon", v[1]); }
+                    if (v.length >= 3) j.put("alt", v[2]);
+                    if (v.length >= 4) j.put("accuracy", v[3]);
+                    break;
+                case "battery":
+                case "humidity":
+                    if (v.length >= 1) j.put("pct", v[0]);
+                    break;
+                case "temperature":
+                    if (v.length >= 1) j.put("celsius", v[0]);
+                    break;
+                case "hinge-angle":
+                case "heading":
+                    if (v.length >= 1) j.put("degrees", v[0]);
+                    break;
+                case "audio-level":
+                    if (v.length >= 1) j.put("db", v[0]);
+                    break;
+                case "stationary":
+                case "motion":
+                    if (v.length >= 1) j.put("event", v[0]);
+                    break;
+                default:
+                    if (v.length >= 1) j.put("value", v[0]);
+                    break;
+            }
+            return j.toString();
+        } catch (Exception e) {
+            return "{}";
         }
     }
 

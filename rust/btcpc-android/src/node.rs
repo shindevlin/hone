@@ -86,29 +86,47 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
         });
     }
 
-    // ── Block miner ───────────────────────────────────────────────────────────
+    // ── Shared LLM engine (miner + inference worker both use it) ─────────────
+    let llm = Arc::new(tokio::sync::Mutex::new(
+        LlmEngine::new(&cfg.model_dir, status.clone())
+    ));
+
+    // ── Block miner (inference-based) ─────────────────────────────────────────
     if cfg.is_miner {
-        let ch       = chain.clone();
-        let acct     = cfg.account.clone();
-        let gen_ts   = cfg.genesis_ts;
-        let cmd      = cmd_tx.clone();
-        let sd       = shutdown_tx.subscribe();
+        let ch    = chain.clone();
+        let acct  = cfg.account.clone();
+        let gen   = cfg.genesis_ts;
+        let cmd   = cmd_tx.clone();
+        let sd    = shutdown_tx.subscribe();
+        let llm_r = llm.clone();
         tokio::spawn(async move {
-            miner::run_miner(ch, acct, gen_ts, cmd, sd).await;
+            miner::run_miner(ch, acct, gen, llm_r, cmd, sd).await;
         });
     }
 
-    // ── LLM inference worker ──────────────────────────────────────────────────
+    // ── Inference job worker ──────────────────────────────────────────────────
     {
-        let mut llm = LlmEngine::new(&cfg.model_dir, status.clone());
         let acct    = cfg.account.clone();
         let chain_r = chain.clone();
         let cmd     = cmd_tx.clone();
         let gen_ts  = cfg.genesis_ts;
         let sd      = shutdown_tx.subscribe();
         let status2 = status.clone();
+        let llm_r   = llm.clone();
         tokio::spawn(async move {
-            run_inference_worker(llm, acct, chain_r, cmd, gen_ts, sd, status2).await;
+            run_inference_worker(llm_r, acct, chain_r, cmd, gen_ts, sd, status2).await;
+        });
+    }
+
+    // ── Inference verifier ────────────────────────────────────────────────────
+    {
+        let acct    = cfg.account.clone();
+        let chain_r = chain.clone();
+        let cmd     = cmd_tx.clone();
+        let sd      = shutdown_tx.subscribe();
+        let llm_r   = llm.clone();
+        tokio::spawn(async move {
+            run_verifier(llm_r, acct, chain_r, cmd, sd).await;
         });
     }
 
@@ -201,7 +219,7 @@ fn handle_net_event(ev: NetworkEvent, chain: &Chain, clock: &ClockConsensus) {
 // ── Inference worker ──────────────────────────────────────────────────────────
 
 async fn run_inference_worker(
-    mut llm: LlmEngine,
+    llm: Arc<tokio::sync::Mutex<LlmEngine>>,
     account: String,
     chain: Arc<Chain>,
     cmd_tx: mpsc::Sender<NetCmd>,
@@ -222,7 +240,7 @@ async fn run_inference_worker(
         }
 
         // Make sure model is present.
-        if !llm.ensure_ready().await { continue; }
+        if !llm.lock().await.ensure_ready().await { continue; }
 
         // Look for an awarded inference job we should complete.
         let epoch = chain.current_epoch();
@@ -242,7 +260,7 @@ async fn run_inference_worker(
 
             *status.lock() = format!("Running inference job {}…", &job_id[..8]);
 
-            match llm.generate(&prompt, 256).await {
+            match llm.lock().await.generate(&prompt, 256).await {
                 Ok(output) => {
                     use sha2::{Digest, Sha256};
                     let result_hash = hex::encode(Sha256::digest(output.as_bytes()));
@@ -265,6 +283,87 @@ async fn run_inference_worker(
                 }
                 Err(e) => warn!("inference: job {} failed: {}", job_id, e),
             }
+        }
+    }
+}
+
+// ── Inference verifier ────────────────────────────────────────────────────────
+//
+// Watches for InferenceJobComplete entries from OTHER nodes, re-runs the same
+// prompt locally, and submits InferenceJobVerify("approved" | "disputed").
+// Rate-limited to one verification per 60-second cycle to avoid overloading the
+// on-device model.
+
+async fn run_verifier(
+    llm:      Arc<tokio::sync::Mutex<LlmEngine>>,
+    account:  String,
+    chain:    Arc<Chain>,
+    cmd_tx:   mpsc::Sender<NetCmd>,
+    mut shutdown: broadcast::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            _ = shutdown.recv() => break,
+            _ = tokio::time::sleep(Duration::from_secs(60)) => {}
+        }
+
+        if !llm.lock().await.ensure_ready().await { continue; }
+
+        let epoch = chain.current_epoch();
+        let jobs = chain.store.scan_prefix("infer_job:");
+
+        for (_, val) in jobs {
+            let job: serde_json::Value = match serde_json::from_slice(&val) {
+                Ok(v) => v, Err(_) => continue,
+            };
+
+            let status_ = job["status"].as_str().unwrap_or("");
+            let worker   = job["winner"].as_str().unwrap_or("");
+            let model    = job["model"].as_str().unwrap_or("");
+
+            // Only verify jobs completed by someone else with a model we can run.
+            if worker == account || status_ != "complete" { continue; }
+            if !model.is_empty() && !model.contains("qwen2.5-0.5b") { continue; }
+
+            let job_id      = match job["job_id"].as_str() { Some(s) => s.to_owned(), None => continue };
+            let result_hash = match job["result_hash"].as_str() { Some(s) => s.to_owned(), None => continue };
+            let input_hash  = job["input_hash"].as_str().unwrap_or("hello").to_owned();
+
+            // Check we haven't already submitted a verdict for this job.
+            let verdict_key = format!("infer_verdict:{}:{}", job_id, account);
+            if chain.store.get_meta(&verdict_key).is_some() { continue; }
+
+            let prompt = input_hash.clone();
+            match llm.lock().await.generate(&prompt, 256).await {
+                Ok(output) => {
+                    use sha2::{Digest, Sha256};
+                    let our_hash = hex::encode(Sha256::digest(output.as_bytes()));
+                    let verdict  = if our_hash == result_hash { "approved" } else { "disputed" };
+
+                    let entry = LedgerEntry::InferenceJobVerify {
+                        job_id:    job_id.clone(),
+                        verifier:  account.clone(),
+                        verdict:   verdict.to_owned(),
+                        reason:    None,
+                        epoch,
+                        signed_by: account.clone(),
+                    };
+                    let _ = chain.apply_entry(&entry);
+                    let envelope = serde_json::json!({ "entry": entry });
+                    if let Ok(data) = serde_json::to_vec(&envelope) {
+                        let _ = cmd_tx.send(NetCmd::Broadcast {
+                            topic: "btcpc/entries", data,
+                        }).await;
+                    }
+                    // Persist verdict so we don't re-verify same job.
+                    let _ = chain.store.set_meta(&verdict_key, verdict.as_bytes());
+                    tracing::info!("verifier: job {} → {}", job_id, verdict);
+                }
+                Err(e) => warn!("verifier: inference failed for job {}: {}", job_id, e),
+            }
+
+            // One verification per cycle — don't starve the miner.
+            break;
         }
     }
 }

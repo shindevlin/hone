@@ -82,6 +82,32 @@ impl Chain {
                 let mut cur = self.current_epoch.write();
                 if *epoch > *cur { *cur = *epoch; }
             }
+            InferenceJobPost { job_id, input_hash, model, .. } => {
+                let rec = serde_json::json!({
+                    "job_id":     job_id,
+                    "input_hash": input_hash,
+                    "model":      model,
+                    "status":     "posted",
+                });
+                let _ = self.store.set_json(&format!("infer_job:{}", job_id), &rec);
+            }
+            InferenceJobAward { job_id, winner, .. } => {
+                let key = format!("infer_job:{}", job_id);
+                if let Some(mut rec) = self.store.get_json::<serde_json::Value>(&key) {
+                    rec["winner"] = serde_json::Value::String(winner.clone());
+                    rec["status"] = serde_json::Value::String("awarded".into());
+                    let _ = self.store.set_json(&key, &rec);
+                }
+            }
+            InferenceJobComplete { job_id, worker, result_hash, .. } => {
+                let key = format!("infer_job:{}", job_id);
+                if let Some(mut rec) = self.store.get_json::<serde_json::Value>(&key) {
+                    rec["winner"]      = serde_json::Value::String(worker.clone());
+                    rec["result_hash"] = serde_json::Value::String(result_hash.clone());
+                    rec["status"]      = serde_json::Value::String("complete".into());
+                    let _ = self.store.set_json(&key, &rec);
+                }
+            }
             InferenceJobPay { worker, worker_amount, .. } => {
                 self.store.credit(worker, NATIVE_TOKEN, *worker_amount);
             }

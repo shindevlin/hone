@@ -30,6 +30,9 @@ jobs:
             rust/btcpc-android/target
           key: ${{ runner.os }}-android-cargo-${{ hashFiles('rust/btcpc-android/Cargo.lock') }}
 
+      - name: Install native build deps
+        run: sudo apt-get install -y libonig-dev
+
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 

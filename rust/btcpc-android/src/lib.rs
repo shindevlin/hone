@@ -149,14 +149,13 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeGetEpoch(
 
 #[no_mangle]
 pub extern "C" fn Java_network_btcpc_app_NativeSensorService_nativeSubmitReading(
-    mut env:     JNIEnv,
-    _class:      JClass,
-    sensor_id:   JString,
-    sensor_type: JString,
-    value:       jni::sys::jdouble,
-    lat:         jni::sys::jdouble,
-    lon:         jni::sys::jdouble,
-    metadata:    JString,
+    mut env:        JNIEnv,
+    _class:         JClass,
+    sensor_id:      JString,
+    sensor_type:    JString,
+    primary_value:  jni::sys::jdouble,
+    values_json:    JString,  // e.g. {"x":1.2,"y":0.3,"z":9.8} or {"lat":53.3,"lon":-6.2}
+    unit:           JString,
 ) -> jboolean {
     macro_rules! str { ($j:expr) => { env.get_string(&$j).map(String::from).unwrap_or_default() } }
 
@@ -164,14 +163,13 @@ pub extern "C" fn Java_network_btcpc_app_NativeSensorService_nativeSubmitReading
     let Some(running) = guard.as_ref() else { return JNI_FALSE; };
 
     let reading = sensors::SensorReading {
-        sensor_id:   str!(sensor_id),
-        sensor_type: str!(sensor_type),
-        value,
-        lat,
-        lon,
+        sensor_id:     str!(sensor_id),
+        sensor_type:   str!(sensor_type),
+        primary_value,
+        values_json:   str!(values_json),
+        unit:          str!(unit),
         owner:   running.handle.chain.node_id.clone(),
         epoch:   running.handle.chain.current_epoch(),
-        metadata: str!(metadata),
     };
 
     let chain   = running.handle.chain.clone();

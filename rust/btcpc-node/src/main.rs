@@ -376,6 +376,16 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Inference verifier ────────────────────────────────────────────────────
+    {
+        let chain_ref = chain.clone();
+        let account   = cfg.account.clone();
+        let cmd_tx    = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            run_inference_verifier(chain_ref, account, cmd_tx).await;
+        });
+    }
+
     // ── HTTP API ──────────────────────────────────────────────────────────────
     let app_state = api::AppState {
         chain: chain.clone(),
@@ -389,3 +399,100 @@ async fn main() -> Result<()> {
 }
 
 use utils::now_ms;
+
+// ── Inference verifier ────────────────────────────────────────────────────────
+//
+// Periodically scans for completed inference jobs from OTHER nodes, re-runs
+// the same prompt via Ollama using the same model, and submits a verdict.
+// Only verifies jobs whose model matches the locally configured BTCPC_MODEL.
+
+async fn run_inference_verifier(
+    chain:   Arc<Chain>,
+    account: String,
+    cmd_tx:  tokio::sync::mpsc::Sender<NetCmd>,
+) {
+    use std::time::Duration;
+    use sha2::{Digest, Sha256};
+
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let local_model = std::env::var("BTCPC_MODEL")
+        .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        let epoch = chain.current_epoch();
+        let jobs = chain.store.state_scan_prefix("infer_job:");
+
+        for (_, val) in jobs {
+            let job: serde_json::Value = match serde_json::from_slice(&val) {
+                Ok(v) => v, Err(_) => continue,
+            };
+
+            let status_  = job["status"].as_str().unwrap_or("");
+            let worker   = job["winner"].as_str().unwrap_or("");
+            let model    = job["model"].as_str().unwrap_or("");
+            let job_id   = match job["job_id"].as_str() { Some(s) => s.to_owned(), None => continue };
+            let result_hash = match job["result_hash"].as_str() { Some(s) => s.to_owned(), None => continue };
+            let input_hash  = job["input_hash"].as_str().unwrap_or("hello").to_owned();
+
+            if worker == account || status_ != "complete" { continue; }
+            if !model.is_empty() && model != local_model { continue; }
+
+            let verdict_key = format!("infer_verdict:{}:{}", job_id, account);
+            if chain.store.state_get(&verdict_key).is_some() { continue; }
+
+            // Re-run inference via Ollama.
+            let client = reqwest::Client::new();
+            let resp = client
+                .post(format!("{}/api/generate", ollama_url))
+                .timeout(Duration::from_secs(30))
+                .json(&serde_json::json!({
+                    "model":  local_model,
+                    "prompt": input_hash,
+                    "stream": false,
+                    "options": { "num_predict": 256, "temperature": 0.0 },
+                }))
+                .send()
+                .await;
+
+            let verdict = match resp {
+                Ok(r) if r.status().is_success() => {
+                    match r.json::<serde_json::Value>().await {
+                        Ok(body) => {
+                            let text = body["response"].as_str().unwrap_or("");
+                            let our_hash = hex::encode(Sha256::digest(text.as_bytes()));
+                            if our_hash == result_hash { "approved" } else { "disputed" }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                _ => continue,
+            };
+
+            let entry = LedgerEntry::InferenceJobVerify {
+                job_id:    job_id.clone(),
+                verifier:  account.clone(),
+                verdict:   verdict.to_owned(),
+                reason:    None,
+                epoch,
+                signed_by: account.clone(),
+            };
+            if let Err(e) = chain.apply_entry(&entry) {
+                warn!("verifier: apply failed for job {}: {}", job_id, e);
+                continue;
+            }
+            let envelope = serde_json::json!({ "entry": entry });
+            if let Ok(data) = serde_json::to_vec(&envelope) {
+                let _ = cmd_tx.send(NetCmd::Broadcast {
+                    topic: "btcpc/entries", data,
+                }).await;
+            }
+            let _ = chain.store.state_set(&verdict_key, verdict.as_bytes());
+            info!("verifier: job {} → {}", job_id, verdict);
+
+            break; // one verdict per cycle
+        }
+    }
+}
