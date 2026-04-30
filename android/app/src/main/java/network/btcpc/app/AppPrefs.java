@@ -103,6 +103,15 @@ public class AppPrefs {
         return (url == null || url.trim().isEmpty()) ? DEFAULT_RELAY_URL : url.trim();
     }
 
+    public String getBootstrapPeers(String defaultPeers) {
+        String v = prefs.getString("bootstrapPeers", "");
+        return (v == null || v.trim().isEmpty()) ? defaultPeers : v.trim();
+    }
+
+    public void setBootstrapPeers(String value) {
+        prefs.edit().putString("bootstrapPeers", value.trim()).apply();
+    }
+
     public String getChainId() {
         return prefs.getString("chainId", "btcpc-1");
     }

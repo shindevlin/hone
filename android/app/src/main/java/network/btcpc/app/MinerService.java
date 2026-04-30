@@ -13,23 +13,23 @@ import android.os.Looper;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import java.io.File;
-
 /**
- * MinerService — on-device inference miner backed by a Rust/candle engine.
+ * MinerService — full btcpc micronode backed by libbtcpc_miner.so (Rust).
  *
- * The Rust native library (libbtcpc_miner.so) handles model download, inference,
- * and proof submission. This service is the Android lifecycle wrapper.
- *
- * Build: cargo-ndk must have produced the .so before assembling the APK.
- * If the .so is absent at class-load time, the service logs the error and
- * marks itself as "unavailable" without crashing.
+ * The Rust library runs a complete standalone node:
+ *   • libp2p P2P networking (TCP, gossipsub, Kademlia DHT)
+ *   • Clock consensus (epoch seals, quorum tracking)
+ *   • Block mining (SHA-256 work)
+ *   • On-device inference (candle, qwen2.5-0.5b downloaded on first run)
+ *   • Sled embedded store — no remote API dependency
  */
 public class MinerService extends Service {
 
-    private static final String CHANNEL_ID   = "btcpc_miner";
-    private static final int    NOTIF_ID     = 4;
-    private static final long   STATUS_INTERVAL_MS = 3000;
+    private static final String CHANNEL_ID         = "btcpc_miner";
+    private static final int    NOTIF_ID           = 4;
+    private static final long   STATUS_INTERVAL_MS = 3_000;
+    private static final long   MAINNET_GENESIS_TS = 1777590000000L;
+    private static final int    DEFAULT_P2P_PORT   = 6942;
 
     private static boolean nativeAvailable = false;
 
@@ -38,15 +38,30 @@ public class MinerService extends Service {
             System.loadLibrary("btcpc_miner");
             nativeAvailable = true;
         } catch (UnsatisfiedLinkError e) {
-            android.util.Log.w("MinerService", "Rust miner library not found: " + e.getMessage());
+            android.util.Log.w("BTCPCMiner", "Rust library not available: " + e.getMessage());
         }
     }
 
-    // ---------- JNI bridge (implemented in Rust) ----------
-    private static native void nativeStart(String account, String jwt, String apiBase, String modelId, String modelDir, String postingKey);
-    private static native void nativeStop();
-    private static native String nativeGetStatus();
+    // ---------- JNI bridge ----------
+
+    private static native void nativeStart(
+            String  account,
+            String  postingKey,
+            String  chainId,
+            long    genesisTs,
+            String  dataDir,
+            String  modelId,
+            String  modelDir,
+            String  bootstrapPeers,
+            long    p2pPort,
+            boolean isMiner,
+            boolean isClock
+    );
+    private static native void    nativeStop();
+    private static native String  nativeGetStatus();
     private static native boolean nativeIsRunning();
+    static         native long    nativeGetBalance(String account);
+    static         native long    nativeGetEpoch();
 
     // ---------- Android service lifecycle ----------
 
@@ -54,8 +69,7 @@ public class MinerService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private final Runnable statusPoller = new Runnable() {
-        @Override
-        public void run() {
+        @Override public void run() {
             if (prefs == null) return;
             String status = nativeAvailable ? nativeGetStatus() : "Native library not available";
             if (status == null) status = "Running";
@@ -77,38 +91,48 @@ public class MinerService extends Service {
         try {
             startForeground(NOTIF_ID, buildNotification("Starting…"));
         } catch (Exception e) {
-            android.util.Log.w("BTCPCMiner", "startForeground failed: " + e.getMessage());
             stopSelf();
             return START_NOT_STICKY;
         }
 
         if (!nativeAvailable) {
-            prefs.setMinerState("Native library not available — rebuild APK with cargo-ndk");
-            updateNotification("Library missing");
+            updateNotification("Native library missing — rebuild APK with cargo-ndk");
             return START_NOT_STICKY;
         }
 
         String account    = prefs.getAccount();
-        String jwt        = prefs.getJwt();
         String postingKey = prefs.getPostingKey();
-        String apiBase    = prefs.getApiUrl();
+        String chainId    = prefs.getChainId();
+        long   genesisTs  = prefs.getGenesisTs(MAINNET_GENESIS_TS);
         String modelId    = prefs.getMinerModel();
-        // Use external files dir so models survive app reinstalls/updates.
-        // Fall back to internal storage if external isn't mounted.
-        java.io.File extBase = getExternalFilesDir("miner-models");
-        if (extBase == null) extBase = new java.io.File(getFilesDir(), "miner-models");
-        java.io.File modelDirFile = new java.io.File(extBase, modelId);
-        String modelDir = modelDirFile.getAbsolutePath();
 
-        new File(modelDir).mkdirs();
-
-        if (account.isEmpty() || jwt.isEmpty()) {
-            prefs.setMinerState("Not signed in — set account in Settings");
-            updateNotification("Not signed in");
+        if (account.isEmpty()) {
+            updateNotification("Not signed in — configure account in Settings");
             return START_NOT_STICKY;
         }
 
-        nativeStart(account, jwt, apiBase, modelId, modelDir, postingKey);
+        // Model storage — external survives reinstalls; fallback to internal.
+        java.io.File extBase = getExternalFilesDir("miner-models");
+        if (extBase == null) extBase = new java.io.File(getFilesDir(), "miner-models");
+        String modelDir = new java.io.File(extBase, modelId).getAbsolutePath();
+        new java.io.File(modelDir).mkdirs();
+
+        // Node data dir (sled DB + P2P identity key).
+        String dataDir = new java.io.File(getFilesDir(), "btcpc-node").getAbsolutePath();
+        new java.io.File(dataDir).mkdirs();
+
+        // Bootstrap peers from prefs or hardcoded fallback.
+        String bootstrapPeers = prefs.getBootstrapPeers(
+                "/dns4/bootstrap1.btcpc.net/tcp/6942,/dns4/bootstrap2.btcpc.net/tcp/6942");
+
+        nativeStart(
+                account, postingKey, chainId, genesisTs,
+                dataDir, modelId, modelDir, bootstrapPeers,
+                DEFAULT_P2P_PORT,
+                prefs.isMinerEnabled(),
+                prefs.isClockEnabled()
+        );
+
         handler.post(statusPoller);
         return START_STICKY;
     }
@@ -118,30 +142,26 @@ public class MinerService extends Service {
         super.onDestroy();
         handler.removeCallbacks(statusPoller);
         if (nativeAvailable) nativeStop();
-        prefs.setMinerState("Stopped");
+        if (prefs != null) prefs.setMinerState("Stopped");
     }
 
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
-
-    // ---------- notification ----------
+    @Nullable @Override
+    public IBinder onBind(Intent intent) { return null; }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "BTCPC Miner", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("On-device inference mining");
-            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(ch);
+                    CHANNEL_ID, "BTCPC Node", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("Full btcpc micronode — mining, clock, inference");
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                    .createNotificationChannel(ch);
         }
     }
 
     private Notification buildNotification(String status) {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_menu_upload)
-                .setContentTitle("BTCPC Miner")
+                .setContentTitle("BTCPC Node")
                 .setContentText(status)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)

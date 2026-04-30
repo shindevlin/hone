@@ -1,234 +1,148 @@
-//! Inference mining loop for Android.
-//!
-//! Lifecycle:
-//!   1. Ensure model is present (download if needed)
-//!   2. Register as an inference worker with the btcpc node API
-//!   3. Poll for posted inference jobs, bid, run, submit result
-//!   4. Also mine blocks (SHA256 work) when we hold the miner role
+//! Block miner for the Android micronode.
+//! Writes blocks directly to the local sled store and broadcasts via gossipsub.
 
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::Result;
-use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-use crate::llm::LlmEngine;
+use btcpc_types::{
+    Block, BlockHeader, LedgerEntry, block_reward_at, epoch_duration_ms,
+    era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
+    NATIVE_TOKEN, EPOCH_MS,
+};
 
-pub struct MinerConfig {
-    pub account:     String,
-    pub jwt:         String,
-    pub api_base:    String,
-    pub model_id:    String,
-    pub model_dir:   String,
-    pub posting_key: String,
-}
+use crate::chain::Chain;
+use crate::net::NetCmd;
 
-pub async fn run(
-    cfg: MinerConfig,
-    status: Arc<Mutex<String>>,
-    mut shutdown: tokio::sync::oneshot::Receiver<()>,
+pub async fn run_miner(
+    chain:      Arc<Chain>,
+    account:    String,
+    genesis_ts: u64,
+    cmd_tx:     tokio::sync::mpsc::Sender<NetCmd>,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("http client");
+    info!("miner: started, account={}", account);
 
-    let mut llm = LlmEngine::new(&cfg.model_dir, status.clone());
-
-    *status.lock() = "Initialising…".to_owned();
-
-    // Start model download/check in background immediately
-    let model_ready = llm.ensure_ready().await;
-    if !model_ready {
-        *status.lock() = "Downloading model — mining blocks while waiting…".to_owned();
+    // Wait for genesis.
+    let now = now_ms();
+    if genesis_ts > now {
+        let wait = genesis_ts - now;
+        info!("miner: waiting {}s for genesis", wait / 1000);
+        tokio::time::sleep(Duration::from_millis(wait)).await;
     }
 
-    let mut jobs_completed: u64 = 0;
-    let mut blocks_mined:   u64 = 0;
+    let mut last_produced = chain.store.latest_epoch().unwrap_or(0);
 
     loop {
+        let next_epoch = last_produced + 1;
+
         tokio::select! {
-            _ = &mut shutdown => break,
-            _ = tokio::time::sleep(Duration::from_secs(15)) => {}
+            _ = shutdown.recv() => break,
+            _ = sleep_until_epoch(next_epoch, genesis_ts) => {}
         }
 
-        // Re-check model readiness on every tick
-        let _ = llm.ensure_ready().await;
+        if chain.store.has_block(next_epoch) {
+            last_produced = next_epoch;
+            continue;
+        }
 
-        // ── Block mining ──────────────────────────────────────────────────────
-        match mine_block(&client, &cfg).await {
-            Ok(true) => {
-                blocks_mined += 1;
-                let s = format!("Blocks: {} | Jobs: {} | account: {}",
-                    blocks_mined, jobs_completed, cfg.account);
-                *status.lock() = s;
+        match produce_block(&chain, &account, next_epoch) {
+            Ok(block) => {
+                // Broadcast block to peers.
+                let mut payload = next_epoch.to_be_bytes().to_vec();
+                payload.extend_from_slice(&block.to_bytes());
+                let _ = cmd_tx.send(NetCmd::Broadcast {
+                    topic: "btcpc/blocks",
+                    data: payload,
+                }).await;
+
+                let mut cur = chain.current_epoch.write();
+                if next_epoch > *cur { *cur = next_epoch; }
+                last_produced = next_epoch;
             }
-            Ok(false) => {} // not our turn
-            Err(e) => warn!("mine_block error: {}", e),
-        }
-
-        // ── Inference job ─────────────────────────────────────────────────────
-        if !llm.ensure_ready().await {
-            continue; // model not ready yet, skip inference
-        }
-
-        match run_inference_job(&client, &cfg, &llm, &mut jobs_completed).await {
-            Ok(()) => {
-                let s = format!("Blocks: {} | Jobs: {} | account: {}",
-                    blocks_mined, jobs_completed, cfg.account);
-                *status.lock() = s;
-            }
-            Err(e) => warn!("inference job error: {}", e),
+            Err(e) => warn!("miner: block {} failed: {}", next_epoch, e),
         }
     }
 
-    *status.lock() = "Stopped".to_owned();
+    info!("miner: stopped");
 }
 
-// ── Block mining ──────────────────────────────────────────────────────────────
+fn produce_block(chain: &Chain, miner: &str, epoch: u64) -> anyhow::Result<Block> {
+    let prev_hash = chain.store.read_block(epoch.saturating_sub(1))?
+        .and_then(|b| Block::from_bytes(&b))
+        .map(|b| b.header.hash())
+        .unwrap_or([0u8; 32]);
 
-#[derive(Deserialize)]
-struct EpochStatus {
-    current_epoch:  u64,
-    miner_account:  Option<String>,
-}
+    let miner_id: [u8; 32] = Sha256::digest(miner.as_bytes()).into();
 
-async fn mine_block(client: &reqwest::Client, cfg: &MinerConfig) -> Result<bool> {
-    let url = format!("{}/api/chain/status", cfg.api_base);
-    let resp: serde_json::Value = client
-        .get(&url)
-        .bearer_auth(&cfg.jwt)
-        .send().await?
-        .json().await?;
-
-    let epoch = resp["current_epoch"].as_u64().unwrap_or(0);
-    let miner = resp["miner_account"].as_str().unwrap_or("");
-
-    // Only mine if we're the designated miner or no miner is set
-    if !miner.is_empty() && miner != cfg.account {
-        return Ok(false);
-    }
-
-    let work_value = compute_work(epoch);
-    let body = serde_json::json!({
-        "type": "Mine",
-        "miner": cfg.account,
-        "epoch": epoch,
-        "work_value": work_value,
-        "block_hash": "",
-    });
-
-    let mine_url = format!("{}/api/entries", cfg.api_base);
-    let resp = client
-        .post(&mine_url)
-        .bearer_auth(&cfg.jwt)
-        .json(&body)
-        .send().await?;
-
-    Ok(resp.status().is_success())
-}
-
-fn compute_work(epoch: u64) -> u64 {
-    let mut h = Sha256::new();
-    h.update(epoch.to_le_bytes());
-    let result = h.finalize();
-    let mut leading_zeros = 0u64;
-    for byte in result.iter() {
-        if *byte == 0 { leading_zeros += 8; }
-        else { leading_zeros += byte.leading_zeros() as u64; break; }
-    }
-    leading_zeros
-}
-
-// ── Inference jobs ────────────────────────────────────────────────────────────
-
-#[derive(Deserialize, Clone)]
-struct InferenceJob {
-    job_id:     String,
-    model:      String,
-    input_hash: String,
-    max_fee:    u64,
-}
-
-#[derive(Deserialize)]
-struct JobsResponse {
-    jobs: Vec<InferenceJob>,
-}
-
-async fn run_inference_job(
-    client: &reqwest::Client,
-    cfg: &MinerConfig,
-    llm: &LlmEngine,
-    jobs_completed: &mut u64,
-) -> Result<()> {
-    // Fetch posted jobs
-    let url = format!("{}/api/inference/jobs?status=posted&limit=1", cfg.api_base);
-    let resp = client.get(&url).bearer_auth(&cfg.jwt).send().await?;
-    if !resp.status().is_success() { return Ok(()); }
-
-    let body: serde_json::Value = resp.json().await?;
-    let jobs = body["jobs"].as_array().cloned().unwrap_or_default();
-    if jobs.is_empty() { return Ok(()); }
-
-    let job: InferenceJob = serde_json::from_value(jobs[0].clone())?;
-
-    // Bid on the job
-    let bid_url = format!("{}/api/inference/bids", cfg.api_base);
-    let bid = serde_json::json!({
-        "job_id": job.job_id,
-        "bidder": cfg.account,
-        "role": "worker",
-        "fee": job.max_fee,
-        "model": cfg.model_id,
-    });
-    let bid_resp = client.post(&bid_url).bearer_auth(&cfg.jwt).json(&bid).send().await?;
-    if !bid_resp.status().is_success() { return Ok(()); }
-
-    // Wait briefly for award
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    // Check if we won
-    let award_url = format!("{}/api/inference/jobs/{}", cfg.api_base, job.job_id);
-    let award_resp: serde_json::Value = client
-        .get(&award_url).bearer_auth(&cfg.jwt).send().await?.json().await?;
-
-    let winner = award_resp["winner"].as_str().unwrap_or("");
-    if winner != cfg.account { return Ok(()); }
-
-    // Fetch the actual prompt
-    let prompt_url = format!("{}/api/inference/jobs/{}/input", cfg.api_base, job.job_id);
-    let prompt_resp = client.get(&prompt_url).bearer_auth(&cfg.jwt).send().await?;
-    let prompt: String = if prompt_resp.status().is_success() {
-        prompt_resp.json::<serde_json::Value>().await?
-            .get("prompt").and_then(|v| v.as_str()).unwrap_or("hello").to_owned()
+    let reward = if era(epoch) >= RECYCLE_ERA {
+        let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+        ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
     } else {
-        "hello".to_owned() // fallback for jobs without stored input
+        block_reward_at(epoch)
     };
 
-    // Run local inference
-    let output = llm.generate(&prompt, 256).await
-        .unwrap_or_else(|e| format!("inference error: {e}"));
+    let work_value = compute_work(prev_hash, epoch);
 
-    // Hash the result
-    let result_hash = hex::encode(Sha256::digest(output.as_bytes()));
+    let entries = vec![
+        LedgerEntry::Mine {
+            miner: miner.to_owned(),
+            epoch,
+            work_value,
+            block_hash: String::new(),
+        },
+        LedgerEntry::MineReward {
+            miner: miner.to_owned(),
+            amount: reward,
+            epoch,
+        },
+    ];
 
-    // Submit result
-    let submit_url = format!("{}/api/inference/submit", cfg.api_base);
-    let submit = serde_json::json!({
-        "job_id":      job.job_id,
-        "worker":      cfg.account,
-        "result_hash": result_hash,
-        "output":      output,
-        "model":       cfg.model_id,
+    chain.apply_block_entries(&entries);
+
+    let entry_hashes: Vec<String> = entries.iter().map(|e| e.hash()).collect();
+    let tx_root = btcpc_types::merkle_root(&entry_hashes);
+
+    let mut header = BlockHeader::new(epoch as u32, prev_hash, miner_id);
+    header.merkle_root_transactions = tx_root;
+
+    let payload = serde_json::json!({
+        "ledger_entries": entries,
+        "chain_id": chain.chain_id,
     });
-    let submit_resp = client
-        .post(&submit_url).bearer_auth(&cfg.jwt).json(&submit).send().await?;
 
-    if submit_resp.status().is_success() {
-        *jobs_completed += 1;
+    let block = Block { header, payload };
+    chain.store.write_block(epoch, &block.to_bytes())?;
+
+    info!("miner: block {} mined (reward {} dreams)", epoch, reward);
+    Ok(block)
+}
+
+fn compute_work(prev_hash: [u8; 32], epoch: u64) -> u64 {
+    let mut h = Sha256::new();
+    h.update(prev_hash);
+    h.update(epoch.to_le_bytes());
+    let result = h.finalize();
+    let mut zeros = 0u64;
+    for byte in result.iter() {
+        if *byte == 0 { zeros += 8; }
+        else { zeros += byte.leading_zeros() as u64; break; }
     }
+    zeros
+}
 
-    Ok(())
+async fn sleep_until_epoch(epoch: u64, genesis_ts: u64) {
+    let start_ms = genesis_ts + epoch * EPOCH_MS;
+    let now = now_ms();
+    if start_ms > now {
+        tokio::time::sleep(Duration::from_millis(start_ms - now)).await;
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

@@ -17,31 +17,43 @@ btcpc-types = { path = "../btcpc-node/crates/btcpc-types" }
 # JNI bridge
 jni = { version = "0.21", default-features = false }
 
-# Async
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "io-util"] }
 
-# HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# P2P — TCP only (no QUIC; Android restricts raw UDP on some kernels)
+libp2p = { version = "0.55", features = [
+    "tcp", "noise", "yamux",
+    "gossipsub", "kad", "identify", "ping", "macros", "tokio",
+] }
+
+# Embedded state store — pure Rust, no C++ build deps
+sled = "0.34"
 
 # Inference — candle CPU backend for on-device GGUF models
-candle-core = { version = "0.8", default-features = false }
-candle-transformers = { version = "0.8", default-features = false, features = ["quantized"] }
-candle-nn = { version = "0.8", default-features = false }
-tokenizers = { version = "0.20", default-features = false, features = ["http"] }
+candle-core = { version = "0.10", default-features = false }
+candle-transformers = { version = "0.10", default-features = false }
+candle-nn = { version = "0.10", default-features = false }
+tokenizers = { version = "0.20", default-features = false, features = ["http", "unstable_wasm"] }
 hf-hub = { version = "0.3", default-features = false, features = ["tokio"] }
 
 # Crypto
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 secp256k1 = { version = "0.29", features = ["recovery"] }
 bs58 = "0.5"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+borsh = { version = "1", features = ["derive"] }
+
+# HTTP client — discovery (Hive peer fetch) + HF Hub model download
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Utilities
+futures = "0.3"
 anyhow = "1"
 tracing = "0.1"
 tracing-android = "0.2"
