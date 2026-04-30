@@ -11,7 +11,6 @@ const SIM_ACCOUNTS: &[&str] = &[
     "shindevlin",
     "natoshisakamoto",
     "josh",
-    "nsfwotica",
     "bullship",
 ];
 

@@ -582,6 +582,10 @@ struct InferencePostBody {
     #[serde(default = "default_mode")]
     mode: String,
     input_hash: String,
+    /// Actual prompt text — stored locally so verifiers can assess quality.
+    /// If omitted, only hash-based bookkeeping is possible.
+    #[serde(default)]
+    input_text: String,
     #[serde(deserialize_with = "deserialize_amount_dreams")]
     max_fee: u64,
     #[serde(default)]
@@ -613,6 +617,9 @@ struct InferenceCompleteBody {
     worker: String,
     result_hash: String,
     latency_ms: u64,
+    /// Actual output text — stored so verifiers can assess quality without re-running.
+    #[serde(default)]
+    output_text: String,
     #[serde(default)]
     signature: String,
 }
@@ -694,6 +701,13 @@ async fn post_inference_job(
     let sig = non_empty(&body.signature);
     match tx::validate_and_apply(&s.chain, &entry, sig) {
         Ok(hash) => {
+            // Store actual input text so verifiers can assess quality.
+            if !body.input_text.is_empty() {
+                let _ = s.chain.store.state_set(
+                    &format!("infer_input:{}", job_id),
+                    body.input_text.as_bytes(),
+                );
+            }
             let _ = s.tx_broadcast.send((entry, sig.map(str::to_owned)));
             Json(serde_json::json!({ "hash": hash, "job_id": job_id, "accepted": true, "error": null }))
         }
@@ -724,6 +738,7 @@ async fn post_inference_complete(
     Json(body): Json<InferenceCompleteBody>,
 ) -> Json<serde_json::Value> {
     let epoch = s.chain.current_epoch();
+    let job_id = body.job_id.clone();
     let entry = LedgerEntry::InferenceJobComplete {
         job_id: body.job_id,
         worker: body.worker.clone(),
@@ -733,6 +748,13 @@ async fn post_inference_complete(
         signed_by: body.worker,
     };
     let sig = non_empty(&body.signature);
+    // Store actual output text before broadcasting so the verifier has it.
+    if !body.output_text.is_empty() {
+        let _ = s.chain.store.state_set(
+            &format!("infer_output:{}", job_id),
+            body.output_text.as_bytes(),
+        );
+    }
     apply_and_broadcast(&s, entry, sig)
 }
 

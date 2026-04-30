@@ -359,12 +359,13 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
 
     match verdict.as_str() {
         "approved" => {
+            // Work clearly done — payment flows in daemon next cycle.
             job.status = JobStatus::Verified;
         }
-        "disputed" => {
-            job.status = JobStatus::Disputed;
-            job.disputed_epoch = Some(*epoch);
-            // Mark verifier's failed judgement on worker reputation
+        "rejected" => {
+            // Work clearly not done — immediate rejection, no claim window.
+            // Requester will be refunded; worker earns nothing.
+            job.status = JobStatus::Rejected;
             if let Some(ref winner) = job.winner.clone() {
                 let mut rep = get_reputation(chain, winner);
                 rep.jobs_failed += 1;
@@ -372,7 +373,12 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
                 set_reputation(chain, &rep)?;
             }
         }
-        other => bail!("unknown verdict '{}'", other),
+        "review_required" => {
+            // Quality unclear — opens claim window for requester or worker.
+            job.status = JobStatus::Disputed;
+            job.disputed_epoch = Some(*epoch);
+        }
+        other => bail!("unknown verdict '{}' (expected approved|rejected|review_required)", other),
     }
     set_job(chain, &job)?;
     Ok(())
@@ -385,10 +391,12 @@ pub fn apply_claim(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     let mut job = get_job(chain, job_id)
         .ok_or_else(|| anyhow::anyhow!("job '{}' not found", job_id))?;
     if job.status != JobStatus::Disputed {
-        bail!("job '{}' is not in disputed state", job_id);
+        bail!("job '{}' is not in review_required state", job_id);
     }
-    if job.winner.as_deref() != Some(claimant.as_str()) {
-        bail!("only the awarded worker can claim job '{}'", job_id);
+    let is_worker    = job.winner.as_deref() == Some(claimant.as_str());
+    let is_requester = job.requester == *claimant;
+    if !is_worker && !is_requester {
+        bail!("only the worker or requester can file a claim on job '{}'", job_id);
     }
     let disputed_at = job.disputed_epoch.unwrap_or(0);
     if *epoch > disputed_at + CLAIM_WINDOW_EPOCHS {

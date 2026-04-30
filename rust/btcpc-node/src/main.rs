@@ -217,18 +217,39 @@ async fn main() -> Result<()> {
     // Forward newly-accepted entries to gossip peers.
     // Wrap as {"entry": <json>, "sig": <hex_or_null>} so receiving nodes can
     // re-verify signatures for accounts that have registered keys.
+    // For InferenceJobPost and InferenceJobComplete, also carry the actual
+    // input_text / output_text so remote verifiers can assess quality.
     {
         let mut net_rx = tx_broadcast.subscribe();
         let cmd_tx = net_handle.cmd_tx.clone();
+        let chain_ref = chain.clone();
         tokio::spawn(async move {
             loop {
                 match net_rx.recv().await {
                     Ok((entry, sig)) => {
                         if let Ok(entry_val) = serde_json::to_value(&entry) {
-                            let envelope = serde_json::json!({
+                            let mut envelope = serde_json::json!({
                                 "entry": entry_val,
                                 "sig": sig,
                             });
+                            // Attach plaintext so remote verifiers can judge quality.
+                            match &entry {
+                                LedgerEntry::InferenceJobPost { job_id, .. } => {
+                                    if let Some(t) = chain_ref.store.state_get(
+                                        &format!("infer_input:{}", job_id)
+                                    ).and_then(|b| String::from_utf8(b).ok()) {
+                                        envelope["input_text"] = serde_json::Value::String(t);
+                                    }
+                                }
+                                LedgerEntry::InferenceJobComplete { job_id, .. } => {
+                                    if let Some(t) = chain_ref.store.state_get(
+                                        &format!("infer_output:{}", job_id)
+                                    ).and_then(|b| String::from_utf8(b).ok()) {
+                                        envelope["output_text"] = serde_json::Value::String(t);
+                                    }
+                                }
+                                _ => {}
+                            }
                             if let Ok(data) = serde_json::to_vec(&envelope) {
                                 let _ = cmd_tx.send(NetCmd::Broadcast {
                                     topic: "btcpc/entries",
@@ -255,6 +276,29 @@ async fn main() -> Result<()> {
             loop {
                 match events.recv().await {
                     Ok(NetworkEvent::Entry { entry }) => {
+                        // Extract and store any plaintext attached to the gossip envelope
+                        // so the local verifier can access it later.
+                        if let Some(job_id) = entry.get("entry")
+                            .and_then(|e| e.get("InferenceJobPost"))
+                            .and_then(|v| v.get("job_id"))
+                            .and_then(|v| v.as_str())
+                        {
+                            if let Some(t) = entry.get("input_text").and_then(|v| v.as_str()) {
+                                let _ = chain_ref.store.state_set(
+                                    &format!("infer_input:{}", job_id), t.as_bytes());
+                            }
+                        }
+                        if let Some(job_id) = entry.get("entry")
+                            .and_then(|e| e.get("InferenceJobComplete"))
+                            .and_then(|v| v.get("job_id"))
+                            .and_then(|v| v.as_str())
+                        {
+                            if let Some(t) = entry.get("output_text").and_then(|v| v.as_str()) {
+                                let _ = chain_ref.store.state_set(
+                                    &format!("infer_output:{}", job_id), t.as_bytes());
+                            }
+                        }
+
                         // Unwrap gossip envelope {"entry": ..., "sig": ...}.
                         // Fall back to treating the whole value as the entry (legacy/direct format).
                         let (entry_val, sig) = if let Some(inner) = entry.get("entry") {
@@ -426,33 +470,52 @@ async fn run_inference_verifier(
         let jobs = chain.store.state_scan_prefix("infer_job:");
 
         for (_, val) in jobs {
-            let job: serde_json::Value = match serde_json::from_slice(&val) {
+            use inference::JobState;
+            let job: JobState = match serde_json::from_slice(&val) {
                 Ok(v) => v, Err(_) => continue,
             };
 
-            let status_  = job["status"].as_str().unwrap_or("");
-            let worker   = job["winner"].as_str().unwrap_or("");
-            let model    = job["model"].as_str().unwrap_or("");
-            let job_id   = match job["job_id"].as_str() { Some(s) => s.to_owned(), None => continue };
-            let result_hash = match job["result_hash"].as_str() { Some(s) => s.to_owned(), None => continue };
-            let input_hash  = job["input_hash"].as_str().unwrap_or("hello").to_owned();
+            // Only verify completed jobs from other nodes.
+            if job.winner.as_deref() == Some(account.as_str()) { continue; }
+            if job.status != inference::JobStatus::Completed { continue; }
+            if job.model != local_model { continue; }
 
-            if worker == account || status_ != "complete" { continue; }
-            if !model.is_empty() && model != local_model { continue; }
-
+            let job_id = &job.job_id;
             let verdict_key = format!("infer_verdict:{}:{}", job_id, account);
             if chain.store.state_get(&verdict_key).is_some() { continue; }
 
-            // Re-run inference via Ollama.
+            // Need both the original request and the submitted output to judge quality.
+            let input_text = match chain.store.state_get(&format!("infer_input:{}", job_id))
+                .and_then(|b| String::from_utf8(b).ok())
+            {
+                Some(t) => t,
+                None => continue, // can't assess without the actual input
+            };
+            let output_text = match chain.store.state_get(&format!("infer_output:{}", job_id))
+                .and_then(|b| String::from_utf8(b).ok())
+            {
+                Some(t) => t,
+                None => continue, // can't assess without the actual output
+            };
+
+            // Ask the local model to evaluate whether the work was done.
+            let meta_prompt = format!(
+                "Task: {}\nResponse: {}\n\n\
+                Did the AI assistant adequately complete the task?\n\
+                Reply with exactly one word: APPROVED, REJECTED, or REVIEW.",
+                input_text.chars().take(512).collect::<String>(),
+                output_text.chars().take(512).collect::<String>(),
+            );
+
             let client = reqwest::Client::new();
             let resp = client
                 .post(format!("{}/api/generate", ollama_url))
                 .timeout(Duration::from_secs(30))
                 .json(&serde_json::json!({
                     "model":  local_model,
-                    "prompt": input_hash,
+                    "prompt": meta_prompt,
                     "stream": false,
-                    "options": { "num_predict": 256, "temperature": 0.0 },
+                    "options": { "num_predict": 20, "temperature": 0.0 },
                 }))
                 .send()
                 .await;
@@ -461,9 +524,14 @@ async fn run_inference_verifier(
                 Ok(r) if r.status().is_success() => {
                     match r.json::<serde_json::Value>().await {
                         Ok(body) => {
-                            let text = body["response"].as_str().unwrap_or("");
-                            let our_hash = hex::encode(Sha256::digest(text.as_bytes()));
-                            if our_hash == result_hash { "approved" } else { "disputed" }
+                            let text = body["response"].as_str().unwrap_or("").to_uppercase();
+                            if text.contains("APPROVED") {
+                                "approved"
+                            } else if text.contains("REJECTED") || text.contains("REJECT") {
+                                "rejected"
+                            } else {
+                                "review_required"
+                            }
                         }
                         Err(_) => continue,
                     }

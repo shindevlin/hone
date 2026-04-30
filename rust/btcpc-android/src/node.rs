@@ -207,6 +207,22 @@ fn handle_net_event(ev: NetworkEvent, chain: &Chain, clock: &ClockConsensus) {
             }
         }
         NetworkEvent::Entry { entry } => {
+            // Cache plaintext from the gossip envelope so the verifier can assess quality.
+            if let Some(job_id) = entry.pointer("/entry/InferenceJobPost/job_id")
+                .and_then(|v| v.as_str())
+            {
+                if let Some(t) = entry.get("input_text").and_then(|v| v.as_str()) {
+                    let _ = chain.store.set_meta(&format!("infer_input:{}", job_id), t.as_bytes());
+                }
+            }
+            if let Some(job_id) = entry.pointer("/entry/InferenceJobComplete/job_id")
+                .and_then(|v| v.as_str())
+            {
+                if let Some(t) = entry.get("output_text").and_then(|v| v.as_str()) {
+                    let _ = chain.store.set_meta(&format!("infer_output:{}", job_id), t.as_bytes());
+                }
+            }
+
             let entry_val = entry.get("entry").cloned().unwrap_or(entry);
             if let Ok(e) = serde_json::from_value::<LedgerEntry>(entry_val) {
                 let _ = chain.apply_entry(&e);
@@ -264,6 +280,9 @@ async fn run_inference_worker(
                 Ok(output) => {
                     use sha2::{Digest, Sha256};
                     let result_hash = hex::encode(Sha256::digest(output.as_bytes()));
+                    // Store output so verifiers on this node can assess quality.
+                    let _ = chain.store.set_meta(
+                        &format!("infer_output:{}", job_id), output.as_bytes());
                     let entry = LedgerEntry::InferenceJobComplete {
                         job_id:      job_id.clone(),
                         worker:      account.clone(),
@@ -273,7 +292,11 @@ async fn run_inference_worker(
                         signed_by:   account.clone(),
                     };
                     let _ = chain.apply_entry(&entry);
-                    let envelope = serde_json::json!({ "entry": entry });
+                    // Include output_text in gossip so remote verifiers can assess.
+                    let envelope = serde_json::json!({
+                        "entry": entry,
+                        "output_text": output,
+                    });
                     if let Ok(data) = serde_json::to_vec(&envelope) {
                         let _ = cmd_tx.send(NetCmd::Broadcast {
                             topic: "btcpc/entries", data,
@@ -289,10 +312,12 @@ async fn run_inference_worker(
 
 // ── Inference verifier ────────────────────────────────────────────────────────
 //
-// Watches for InferenceJobComplete entries from OTHER nodes, re-runs the same
-// prompt locally, and submits InferenceJobVerify("approved" | "disputed").
-// Rate-limited to one verification per 60-second cycle to avoid overloading the
-// on-device model.
+// Receives the original request and the submitted work, then asks the on-device
+// model to judge whether the task was adequately completed.
+// Verdicts: "approved" | "rejected" | "review_required"
+// - approved      → payment flows
+// - rejected      → no payment (clear failure)
+// - review_required → opens claim window; only requester or worker may claim
 
 async fn run_verifier(
     llm:      Arc<tokio::sync::Mutex<LlmEngine>>,
@@ -321,24 +346,46 @@ async fn run_verifier(
             let worker   = job["winner"].as_str().unwrap_or("");
             let model    = job["model"].as_str().unwrap_or("");
 
-            // Only verify jobs completed by someone else with a model we can run.
             if worker == account || status_ != "complete" { continue; }
             if !model.is_empty() && !model.contains("qwen2.5-0.5b") { continue; }
 
-            let job_id      = match job["job_id"].as_str() { Some(s) => s.to_owned(), None => continue };
-            let result_hash = match job["result_hash"].as_str() { Some(s) => s.to_owned(), None => continue };
-            let input_hash  = job["input_hash"].as_str().unwrap_or("hello").to_owned();
+            let job_id = match job["job_id"].as_str() { Some(s) => s.to_owned(), None => continue };
 
-            // Check we haven't already submitted a verdict for this job.
             let verdict_key = format!("infer_verdict:{}:{}", job_id, account);
             if chain.store.get_meta(&verdict_key).is_some() { continue; }
 
-            let prompt = input_hash.clone();
-            match llm.lock().await.generate(&prompt, 256).await {
-                Ok(output) => {
-                    use sha2::{Digest, Sha256};
-                    let our_hash = hex::encode(Sha256::digest(output.as_bytes()));
-                    let verdict  = if our_hash == result_hash { "approved" } else { "disputed" };
+            // Need actual request and output text to assess quality.
+            let input_text = match chain.store.get_meta(&format!("infer_input:{}", job_id))
+                .and_then(|b| String::from_utf8(b).ok())
+            {
+                Some(t) => t,
+                None => continue,
+            };
+            let output_text = match chain.store.get_meta(&format!("infer_output:{}", job_id))
+                .and_then(|b| String::from_utf8(b).ok())
+            {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let meta_prompt = format!(
+                "Task: {}\nResponse: {}\n\n\
+                Did the AI assistant adequately complete the task?\n\
+                Reply with exactly one word: APPROVED, REJECTED, or REVIEW.",
+                input_text.chars().take(512).collect::<String>(),
+                output_text.chars().take(512).collect::<String>(),
+            );
+
+            match llm.lock().await.generate(&meta_prompt, 20).await {
+                Ok(verdict_text) => {
+                    let upper = verdict_text.to_uppercase();
+                    let verdict = if upper.contains("APPROVED") {
+                        "approved"
+                    } else if upper.contains("REJECTED") || upper.contains("REJECT") {
+                        "rejected"
+                    } else {
+                        "review_required"
+                    };
 
                     let entry = LedgerEntry::InferenceJobVerify {
                         job_id:    job_id.clone(),
@@ -355,11 +402,10 @@ async fn run_verifier(
                             topic: "btcpc/entries", data,
                         }).await;
                     }
-                    // Persist verdict so we don't re-verify same job.
                     let _ = chain.store.set_meta(&verdict_key, verdict.as_bytes());
                     tracing::info!("verifier: job {} → {}", job_id, verdict);
                 }
-                Err(e) => warn!("verifier: inference failed for job {}: {}", job_id, e),
+                Err(e) => warn!("verifier: meta-eval failed for job {}: {}", job_id, e),
             }
 
             // One verification per cycle — don't starve the miner.
