@@ -94,6 +94,20 @@ impl Store {
         next
     }
 
+    // ── Stakes ───────────────────────────────────────────────────────────────
+
+    pub fn get_stake(&self, account: &str) -> u64 {
+        let key = format!("stake:{}", account).into_bytes();
+        self.state().get(&key).ok().flatten()
+            .and_then(|v| v[..].try_into().ok().map(u64::from_be_bytes))
+            .unwrap_or(0)
+    }
+
+    pub fn set_stake(&self, account: &str, amount: u64) {
+        let key = format!("stake:{}", account).into_bytes();
+        let _ = self.state().insert(key, &amount.to_be_bytes());
+    }
+
     // ── Generic meta / state ──────────────────────────────────────────────────
 
     fn meta(&self) -> Tree { self.db.open_tree(TREE_META).expect("meta tree") }
@@ -116,6 +130,10 @@ impl Store {
         let bytes = serde_json::to_vec(val)?;
         self.state().insert(key.as_bytes(), bytes.as_slice())?;
         Ok(())
+    }
+
+    pub fn delete_state(&self, key: &str) {
+        let _ = self.state().remove(key.as_bytes());
     }
 
     pub fn scan_prefix(&self, prefix: &str) -> Vec<(String, Vec<u8>)> {

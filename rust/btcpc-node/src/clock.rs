@@ -5,17 +5,21 @@
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+use crate::store::Store;
+
 const SEAL_COLLECT_MS: u64 = 5_000;
 const OUTLIER_EPOCH_TOLERANCE: u64 = 2;
 const EPOCH_MS: u64 = 30_000;
 const ISOLATION_EPOCH_THRESHOLD: u64 = 3;
 const MIN_QUORUM_FRACTION: f64 = 0.51;
+const CONSENSUS_COLLECT_MS: u64 = 10_000;
 
 /// Minimum unique sealers required to seal an epoch.
 /// Configurable via BTCPC_CLOCK_QUORUM env var (default 2).
@@ -48,6 +52,22 @@ pub struct SealedEpoch {
     pub signing_clocks: Vec<String>,
 }
 
+/// A reward consensus proposal broadcast after reward emission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RewardProposal {
+    pub epoch: u64,
+    pub node_id: String,
+    pub rewards_hash: String,
+}
+
+/// Emitted when 51% of clock nodes agree on rewards for an epoch.
+#[derive(Debug, Clone)]
+pub struct FinalizedEpoch {
+    pub epoch: u64,
+    pub rewards_hash: String,
+    pub quorum: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClockScore {
     pub node_id: String,
@@ -74,8 +94,15 @@ struct EpochState {
     deadline: Instant,
 }
 
+struct RewardState {
+    proposals: Vec<RewardProposal>,
+    finalized: bool,
+    deadline: Instant,
+}
+
 struct Inner {
     epoch_states: HashMap<u64, EpochState>,
+    reward_states: HashMap<u64, RewardState>,
     clock_scores: HashMap<String, ClockScore>,
     external_peer_count: usize,
     last_external_peer_epoch: u64,
@@ -88,27 +115,81 @@ struct Inner {
 pub struct ClockConsensus {
     inner: Arc<Mutex<Inner>>,
     sealed_tx: broadcast::Sender<SealedEpoch>,
+    finalized_tx: broadcast::Sender<FinalizedEpoch>,
 }
 
 impl ClockConsensus {
     pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(64);
+        let (sealed_tx, _)    = broadcast::channel(64);
+        let (finalized_tx, _) = broadcast::channel(64);
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 epoch_states: HashMap::new(),
+                reward_states: HashMap::new(),
                 clock_scores: HashMap::new(),
                 external_peer_count: 0,
                 last_external_peer_epoch: 0,
                 current_epoch: 0,
                 observer_mode: false,
             })),
-            sealed_tx: tx,
+            sealed_tx,
+            finalized_tx,
         }
     }
 
     /// Subscribe to sealed-epoch events.
     pub fn subscribe(&self) -> broadcast::Receiver<SealedEpoch> {
         self.sealed_tx.subscribe()
+    }
+
+    /// Subscribe to finalized-epoch events (reward quorum reached).
+    pub fn subscribe_finalized(&self) -> broadcast::Receiver<FinalizedEpoch> {
+        self.finalized_tx.subscribe()
+    }
+
+    /// Ingest a reward consensus proposal from a peer (or self).
+    pub fn receive_reward_proposal(&self, proposal: RewardProposal) {
+        let epoch = proposal.epoch;
+        let finalized_event = {
+            let mut inner = self.inner.lock().unwrap();
+            let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
+                proposals: Vec::new(),
+                finalized: false,
+                deadline: Instant::now() + Duration::from_millis(CONSENSUS_COLLECT_MS),
+            });
+
+            if state.finalized { return; }
+
+            // Deduplicate per node_id.
+            if !state.proposals.iter().any(|p| p.node_id == proposal.node_id) {
+                state.proposals.push(proposal);
+            }
+
+            let total = state.proposals.len();
+            let quorum_needed = ((total as f64 * MIN_QUORUM_FRACTION).ceil() as usize).max(quorum());
+
+            // Tally votes by hash.
+            let mut hash_counts: HashMap<String, usize> = HashMap::new();
+            for p in &state.proposals {
+                *hash_counts.entry(p.rewards_hash.clone()).or_default() += 1;
+            }
+
+            if let Some((best_hash, &count)) = hash_counts.iter().max_by_key(|(_, c)| *c) {
+                if count >= quorum_needed {
+                    state.finalized = true;
+                    Some(FinalizedEpoch {
+                        epoch,
+                        rewards_hash: best_hash.clone(),
+                        quorum: count,
+                    })
+                } else { None }
+            } else { None }
+        };
+
+        if let Some(event) = finalized_event {
+            info!("[clock] epoch {} reward consensus: quorum={} hash={}", event.epoch, event.quorum, event.rewards_hash);
+            let _ = self.finalized_tx.send(event);
+        }
     }
 
     /// Ingest a raw JSON seal message from gossip.
@@ -377,6 +458,33 @@ impl Default for ClockConsensus {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── Reward hash ───────────────────────────────────────────────────────────────
+
+/// Compute a deterministic SHA-256 hash of all epoch input state (sorted by key).
+/// Used by clock nodes to propose and verify reward fairness.
+pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
+    let mut hasher = Sha256::new();
+    let prefixes = [
+        format!("mine:{}:", epoch),
+        format!("storage_beat:{}:", epoch),
+        format!("sensor_commit:{}:", epoch),
+        format!("infer_verify:{}:", epoch),
+        format!("service_beat:{}:", epoch),
+        format!("mempool_beat:{}:", epoch),
+    ];
+    for prefix in &prefixes {
+        let mut entries = store.state_scan_prefix(prefix);
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        for (k, v) in entries {
+            hasher.update(k.as_bytes());
+            hasher.update(b"=");
+            hasher.update(&v);
+            hasher.update(b"\n");
+        }
+    }
+    format!("{:x}", hasher.finalize())
 }
 
 // ── Score helpers ─────────────────────────────────────────────────────────────

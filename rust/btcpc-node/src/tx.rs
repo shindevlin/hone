@@ -22,6 +22,28 @@ use ed25519_dalek::{Signature, VerifyingKey};
 
 use crate::chain::Chain;
 
+/// Returns true if `delegate` has been granted `capability` by `from`
+/// and the delegation has not expired at `current_epoch`.
+fn has_delegation(chain: &Chain, from: &str, delegate: &str, capability: &str, current_epoch: u64) -> bool {
+    let key = format!("delegation:{}:{}", from, delegate);
+    let raw = match chain.store.state_get(&key) {
+        Some(r) => r,
+        None => return false,
+    };
+    let d: serde_json::Value = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let expires = d["expires_epoch"].as_u64().unwrap_or(0);
+    if expires < current_epoch { return false; }
+    if let Some(caps) = d["capabilities"].as_array() {
+        return caps.iter().any(|c| {
+            c.as_str() == Some(capability) || c.as_str() == Some("all")
+        });
+    }
+    false
+}
+
 /// Returned by HTTP handlers after a submission attempt.
 pub struct SubmitResult {
     pub entry_hash: String,
@@ -55,12 +77,13 @@ pub fn validate_and_apply(
             if *amount == 0 {
                 bail!("transfer amount must be positive");
             }
-            // Signer must be the sender — prevents spending another account's funds.
-            if signed_by != from {
-                bail!("signed_by '{}' must equal from '{}'", signed_by, from);
+            let current_epoch = chain.current_epoch();
+            if signed_by != from
+                && !has_delegation(chain, from, signed_by, "Transfer", current_epoch)
+            {
+                bail!("signed_by '{}' is neither 'from' nor a Transfer delegate of '{}'", signed_by, from);
             }
-            // Account must have a registered public key — no keyless spending.
-            require_key(chain, from)?;
+            require_key(chain, signed_by)?;
             check_nonce(chain, from, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let bal = chain.get_balance(from, token);
@@ -83,10 +106,13 @@ pub fn validate_and_apply(
             if *amount == 0 {
                 bail!("stake amount must be positive");
             }
-            if signed_by != account {
-                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            let current_epoch = chain.current_epoch();
+            if signed_by != account
+                && !has_delegation(chain, account, signed_by, "Stake", current_epoch)
+            {
+                bail!("signed_by '{}' is neither 'account' nor a Stake delegate of '{}'", signed_by, account);
             }
-            require_key(chain, account)?;
+            require_key(chain, signed_by)?;
             check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let bal = chain.get_balance(account, NATIVE_TOKEN);
@@ -107,10 +133,13 @@ pub fn validate_and_apply(
             if *amount == 0 {
                 bail!("unstake amount must be positive");
             }
-            if signed_by != account {
-                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            let current_epoch = chain.current_epoch();
+            if signed_by != account
+                && !has_delegation(chain, account, signed_by, "Stake", current_epoch)
+            {
+                bail!("signed_by '{}' is neither 'account' nor a Stake delegate of '{}'", signed_by, account);
             }
-            require_key(chain, account)?;
+            require_key(chain, signed_by)?;
             check_nonce(chain, account, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             let staked = chain.get_stake(account);
@@ -200,7 +229,6 @@ pub fn validate_and_apply(
         | LedgerEntry::SensorVouch { .. }
         | LedgerEntry::SensorDataCommit { .. }
         | LedgerEntry::DeviceKeyRegister { .. }
-        | LedgerEntry::DeviceYieldStake { .. }
         | LedgerEntry::DeviceYieldUnstake { .. }
         | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::StorageHeartbeat { .. }
@@ -300,8 +328,289 @@ pub fn validate_and_apply(
         | LedgerEntry::InferenceJobAward { .. }
         | LedgerEntry::InferenceJobPay { .. }
         | LedgerEntry::GenesisAlloc { .. }
-        | LedgerEntry::EpochFinalize { .. } => {
+        | LedgerEntry::EpochFinalize { .. }
+        | LedgerEntry::TestnetReward { .. }
+        | LedgerEntry::ClockReward { .. }
+        | LedgerEntry::StorageReward { .. }
+        | LedgerEntry::SensorReward { .. }
+        | LedgerEntry::VerifierReward { .. }
+        | LedgerEntry::ServiceReward { .. }
+        | LedgerEntry::EpochSeal { .. } => {
             bail!("entry type is not externally submittable");
+        }
+
+        // ── ServiceHeartbeat: service nodes prove active container-hours ──────
+        LedgerEntry::ServiceHeartbeat { node_id, signed_by, .. } => {
+            if signed_by != node_id {
+                bail!("signed_by must match node_id");
+            }
+            require_key(chain, node_id)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── InferenceVerifyClaim: verifier claims a job to inspect ────────────
+        LedgerEntry::InferenceVerifyClaim { verifier, signed_by, .. } => {
+            if signed_by != verifier {
+                bail!("signed_by must match verifier");
+            }
+            require_key(chain, verifier)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── SensorDataPurchase: buyer pays for sensor data ────────────────────
+        LedgerEntry::SensorDataPurchase { buyer, signed_by, nonce, fee, .. } => {
+            if signed_by != buyer {
+                bail!("signed_by must match buyer");
+            }
+            require_key(chain, buyer)?;
+            check_nonce(chain, buyer, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            let bal = chain.get_balance(buyer, NATIVE_TOKEN);
+            if bal < *fee {
+                bail!("insufficient balance for sensor data purchase");
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, buyer)?;
+        }
+
+        // TestnetOperatorRegister is user-submittable (registers mainnet account).
+        LedgerEntry::TestnetOperatorRegister { mainnet_account, signed_by, epoch, .. } => {
+            if signed_by != mainnet_account {
+                bail!("signed_by must match mainnet_account");
+            }
+            require_key(chain, mainnet_account)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = epoch;
+        }
+
+        // ── Mempool operator registration ─────────────────────────────────────
+        LedgerEntry::MempoolOperatorRegister { operator, signed_by, amount, nonce, .. } => {
+            if signed_by != operator {
+                bail!("signed_by must match operator");
+            }
+            require_key(chain, operator)?;
+            check_nonce(chain, operator, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            let bal = chain.get_balance(operator, NATIVE_TOKEN);
+            if bal < *amount {
+                bail!("insufficient balance for mempool operator stake");
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, operator)?;
+        }
+
+        // ── Mempool heartbeat (signed by operator) ────────────────────────────
+        LedgerEntry::MempoolHeartbeat { operator, signed_by, .. } => {
+            if signed_by != operator {
+                bail!("signed_by must match operator");
+            }
+            require_key(chain, operator)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Device claim stake ────────────────────────────────────────────────
+        LedgerEntry::DeviceClaimStake { owner, signed_by, amount, nonce, .. } => {
+            if signed_by != owner {
+                bail!("signed_by must match owner");
+            }
+            require_key(chain, owner)?;
+            check_nonce(chain, owner, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            let bal = chain.get_balance(owner, NATIVE_TOKEN);
+            if bal < *amount {
+                bail!("insufficient balance for device claim stake");
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, owner)?;
+        }
+
+        LedgerEntry::DeviceClaimUnstake { owner, signed_by, nonce, .. } => {
+            if signed_by != owner {
+                bail!("signed_by must match owner");
+            }
+            require_key(chain, owner)?;
+            check_nonce(chain, owner, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, owner)?;
+        }
+
+        // ── DeviceYieldStake: requires yield opt-in + slot capacity ──────────
+        LedgerEntry::DeviceYieldStake { device_serial, staker, signed_by, nonce, amount, .. } => {
+            let _guard = chain.write_lock.lock();
+            let current_epoch = chain.current_epoch();
+            if signed_by != staker
+                && !has_delegation(chain, staker, signed_by, "DeviceYield", current_epoch)
+            {
+                bail!("signed_by must be the staker or a DeviceYield delegate");
+            }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, staker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            // Verify device has opted in.
+            let config_key = format!("yield_config:{}", device_serial);
+            let config_raw = chain.store.state_get(&config_key)
+                .ok_or_else(|| anyhow::anyhow!("device '{}' has not opted in to yield sharing", device_serial))?;
+            let config: serde_json::Value = serde_json::from_slice(&config_raw)
+                .map_err(|_| anyhow::anyhow!("corrupt yield config for '{}'", device_serial))?;
+            let max_stakers = config["max_stakers"].as_u64().unwrap_or(10) as usize;
+            let prefix = format!("yield_stake:{}:", device_serial);
+            let current_stakers = chain.store.state_scan_prefix(&prefix).len();
+            if current_stakers >= max_stakers {
+                bail!("device '{}' is at maximum staker capacity ({}/{})", device_serial, current_stakers, max_stakers);
+            }
+            let bal = chain.get_balance(staker, NATIVE_TOKEN);
+            if bal < *amount {
+                bail!("insufficient balance for yield stake");
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, staker)?;
+        }
+
+        // ── Scoped Delegation ─────────────────────────────────────────────────
+        LedgerEntry::DelegationGrant { from, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != from {
+                bail!("signed_by must equal from");
+            }
+            require_key(chain, from)?;
+            check_nonce(chain, from, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, from)?;
+        }
+        LedgerEntry::DelegationRevoke { from, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != from {
+                bail!("signed_by must equal from");
+            }
+            require_key(chain, from)?;
+            check_nonce(chain, from, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, from)?;
+        }
+
+        // ── Device Yield Opt-In / Opt-Out ─────────────────────────────────────
+        LedgerEntry::DeviceYieldOptIn { owner, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != owner {
+                bail!("signed_by must equal owner");
+            }
+            require_key(chain, owner)?;
+            check_nonce(chain, owner, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, owner)?;
+        }
+        LedgerEntry::DeviceYieldOptOut { owner, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != owner {
+                bail!("signed_by must equal owner");
+            }
+            require_key(chain, owner)?;
+            check_nonce(chain, owner, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, owner)?;
+        }
+
+        // ── Permissive Token Model ────────────────────────────────────────────
+        LedgerEntry::SpamGateSet { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account { bail!("signed_by must equal account"); }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+        LedgerEntry::SpamGatePayEvm { from, signed_by, nonce, amount, token, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != from { bail!("signed_by must equal from"); }
+            require_key(chain, from)?;
+            check_nonce(chain, from, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            let bal = chain.get_balance(from, token);
+            if bal < *amount { bail!("insufficient {} balance for SpamGatePayEvm", token); }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, from)?;
+        }
+        LedgerEntry::SpamGateClear { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account { bail!("signed_by must equal account"); }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+        LedgerEntry::TokenApprove { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+        LedgerEntry::TokenRevoke { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+        LedgerEntry::TokenAccept { to, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != to {
+                bail!("signed_by must equal to (recipient accepts their own tokens)");
+            }
+            require_key(chain, to)?;
+            check_nonce(chain, to, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, to)?;
+        }
+        LedgerEntry::TokenReject { to, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != to {
+                bail!("signed_by must equal to (recipient rejects their own tokens)");
+            }
+            require_key(chain, to)?;
+            check_nonce(chain, to, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, to)?;
+        }
+
+        // ── Wallet Family ─────────────────────────────────────────────────────
+        LedgerEntry::WalletFamilyPublish { account, signed_by, nonce, .. }
+        | LedgerEntry::WalletFamilyAdd { account, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account for wallet family entries");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "owner")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        // ── System-only entries (not externally submittable) ──────────────────
+        LedgerEntry::MempoolReward { .. } => {
+            bail!("MempoolReward is system-only and cannot be submitted externally");
         }
     }
 

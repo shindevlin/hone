@@ -4,6 +4,7 @@ mod contract;
 mod inference;
 mod key;
 mod tx;
+mod wallet;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -119,6 +120,12 @@ enum Commands {
         action: KeyCommands,
     },
 
+    /// Wallet management (mnemonic-backed, multi-chain)
+    Wallet {
+        #[command(subcommand)]
+        action: WalletCommands,
+    },
+
     /// Inference marketplace
     Inference {
         #[command(subcommand)]
@@ -191,6 +198,36 @@ enum KeyCommands {
         /// Key file path (default: ~/.btcpc/key.json)
         #[arg(long)]
         key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum WalletCommands {
+    /// Generate a new BIP39 mnemonic, create the BTCPC account, and publish all
+    /// derived chain addresses on-chain atomically.  Prints the mnemonic — back it up.
+    Create {
+        /// BTCPC account name to register.
+        #[arg(long)]
+        account: String,
+        /// Where to save the wallet file (default: ~/.btcpc/wallet.json).
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Restore a wallet from an existing mnemonic and show its derived addresses.
+    Show {
+        /// Wallet file path (default: ~/.btcpc/wallet.json).
+        #[arg(long)]
+        wallet_file: Option<PathBuf>,
+    },
+    /// Re-publish derived chain addresses for a wallet already on-chain.
+    /// Requires the mnemonic to derive the signing key (never stored on disk).
+    Publish {
+        /// Wallet file path (default: ~/.btcpc/wallet.json).
+        #[arg(long)]
+        wallet_file: Option<PathBuf>,
+        /// BIP39 mnemonic phrase (or set BTCPC_MNEMONIC env var).
+        #[arg(long)]
+        mnemonic: String,
     },
 }
 
@@ -398,6 +435,17 @@ fn run() -> Result<()> {
             }
             KeyCommands::Register { account, key_file } => {
                 key::cmd_key_register(&account, key_file.as_deref())?;
+            }
+        },
+        Commands::Wallet { action } => match action {
+            WalletCommands::Create { account, output } => {
+                wallet::cmd_wallet_create(&account, output.as_deref())?;
+            }
+            WalletCommands::Show { wallet_file } => {
+                wallet::cmd_wallet_show(wallet_file.as_deref())?;
+            }
+            WalletCommands::Publish { wallet_file, mnemonic } => {
+                wallet::cmd_wallet_publish(wallet_file.as_deref(), &mnemonic)?;
             }
         },
     }

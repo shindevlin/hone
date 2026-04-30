@@ -2,10 +2,11 @@
 #![allow(dead_code)]
 //!
 //! Gossipsub topics:
-//!   btcpc/blocks   — serialized block bytes (JSON envelope: {"epoch":N,"data_b64":"..."})
-//!   btcpc/entries  — ledger entries (JSON)
-//!   btcpc/seals    — epoch seals (JSON)
-//!   btcpc/sync     — block sync requests/responses
+//!   btcpc/blocks     — serialized block bytes (JSON envelope: {"epoch":N,"data_b64":"..."})
+//!   btcpc/entries    — ledger entries (JSON)
+//!   btcpc/seals      — epoch seals (JSON)
+//!   btcpc/sync       — block sync requests/responses
+//!   btcpc/consensus  — reward hash proposals (JSON: {epoch,rewards_hash,node_id})
 //!
 //! Public surface:
 //!   Network::new(config, event_tx) -> (Network, NetworkHandle)
@@ -46,6 +47,8 @@ pub enum NetworkEvent {
     Entry { entry: serde_json::Value },
     /// An EPOCH_SEAL received over gossip.
     EpochSeal { seal: serde_json::Value },
+    /// A reward consensus proposal received from a peer clock node.
+    ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
     /// A new peer connection was established.
     PeerConnected { peer_id: String },
     /// An existing peer connection was closed.
@@ -81,10 +84,11 @@ struct BtcpcBehaviour {
 // Topic names
 // ---------------------------------------------------------------------------
 
-const TOPIC_BLOCKS:  &str = "btcpc/blocks";
-const TOPIC_ENTRIES: &str = "btcpc/entries";
-const TOPIC_SEALS:   &str = "btcpc/seals";
-const TOPIC_SYNC:    &str = "btcpc/sync";
+const TOPIC_BLOCKS:     &str = "btcpc/blocks";
+const TOPIC_ENTRIES:    &str = "btcpc/entries";
+const TOPIC_SEALS:      &str = "btcpc/seals";
+const TOPIC_SYNC:       &str = "btcpc/sync";
+const TOPIC_CONSENSUS:  &str = "btcpc/consensus";
 
 // ---------------------------------------------------------------------------
 // Network struct
@@ -181,15 +185,17 @@ impl Network {
         // ------------------------------------------------------------------
         // 3. Subscribe to topics
         // ------------------------------------------------------------------
-        let t_blocks  = gossipsub::IdentTopic::new(TOPIC_BLOCKS);
-        let t_entries = gossipsub::IdentTopic::new(TOPIC_ENTRIES);
-        let t_seals   = gossipsub::IdentTopic::new(TOPIC_SEALS);
-        let t_sync    = gossipsub::IdentTopic::new(TOPIC_SYNC);
+        let t_blocks    = gossipsub::IdentTopic::new(TOPIC_BLOCKS);
+        let t_entries   = gossipsub::IdentTopic::new(TOPIC_ENTRIES);
+        let t_seals     = gossipsub::IdentTopic::new(TOPIC_SEALS);
+        let t_sync      = gossipsub::IdentTopic::new(TOPIC_SYNC);
+        let t_consensus = gossipsub::IdentTopic::new(TOPIC_CONSENSUS);
 
         swarm.behaviour_mut().gossipsub.subscribe(&t_blocks)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_entries)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_seals)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_sync)?;
+        swarm.behaviour_mut().gossipsub.subscribe(&t_consensus)?;
 
         // ------------------------------------------------------------------
         // 4. Listeners
@@ -276,7 +282,7 @@ impl Network {
                 }
                 Some(cmd) = self.cmd_rx.recv() => {
                     self.handle_cmd(cmd, &mut swarm,
-                        &t_blocks, &t_entries, &t_seals, &t_sync);
+                        &t_blocks, &t_entries, &t_seals, &t_sync, &t_consensus);
                 }
                 _ = rebootstrap.tick() => {
                     let connected = swarm.connected_peers().count();
@@ -393,10 +399,11 @@ impl Network {
         // Resolve topic string from hash — we know all four topics
         let topic_str = {
             let h = &message.topic;
-            if      h == &gossipsub::IdentTopic::new(TOPIC_BLOCKS).hash()  { TOPIC_BLOCKS  }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_ENTRIES).hash() { TOPIC_ENTRIES }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_SEALS).hash()   { TOPIC_SEALS   }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_SYNC).hash()    { TOPIC_SYNC    }
+            if      h == &gossipsub::IdentTopic::new(TOPIC_BLOCKS).hash()     { TOPIC_BLOCKS     }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_ENTRIES).hash()    { TOPIC_ENTRIES    }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_SEALS).hash()      { TOPIC_SEALS      }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_SYNC).hash()       { TOPIC_SYNC       }
+            else if h == &gossipsub::IdentTopic::new(TOPIC_CONSENSUS).hash()  { TOPIC_CONSENSUS  }
             else {
                 debug!("Message on unknown topic hash {:?}", h);
                 return;
@@ -438,6 +445,23 @@ impl Network {
             TOPIC_SEALS => {
                 debug!("Received epoch seal from {}", source);
                 self.emit(NetworkEvent::EpochSeal { seal: json });
+            }
+
+            TOPIC_CONSENSUS => {
+                let epoch = match json.get("epoch").and_then(|v| v.as_u64()) {
+                    Some(e) => e,
+                    None => { warn!("btcpc/consensus: missing 'epoch'"); return; }
+                };
+                let rewards_hash = match json.get("rewards_hash").and_then(|v| v.as_str()) {
+                    Some(h) => h.to_owned(),
+                    None => { warn!("btcpc/consensus: missing 'rewards_hash'"); return; }
+                };
+                let node_id = match json.get("node_id").and_then(|v| v.as_str()) {
+                    Some(n) => n.to_owned(),
+                    None => { warn!("btcpc/consensus: missing 'node_id'"); return; }
+                };
+                debug!("Received consensus proposal epoch={} hash={} from {}", epoch, rewards_hash, source);
+                self.emit(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id });
             }
 
             TOPIC_SYNC => {
@@ -485,18 +509,20 @@ impl Network {
         &self,
         cmd: NetCmd,
         swarm: &mut libp2p::Swarm<BtcpcBehaviour>,
-        t_blocks:  &gossipsub::IdentTopic,
-        t_entries: &gossipsub::IdentTopic,
-        t_seals:   &gossipsub::IdentTopic,
-        t_sync:    &gossipsub::IdentTopic,
+        t_blocks:    &gossipsub::IdentTopic,
+        t_entries:   &gossipsub::IdentTopic,
+        t_seals:     &gossipsub::IdentTopic,
+        t_sync:      &gossipsub::IdentTopic,
+        t_consensus: &gossipsub::IdentTopic,
     ) {
         match cmd {
             NetCmd::Broadcast { topic, data } => {
                 let ident_topic = match topic {
-                    TOPIC_BLOCKS  => t_blocks.clone(),
-                    TOPIC_ENTRIES => t_entries.clone(),
-                    TOPIC_SEALS   => t_seals.clone(),
-                    TOPIC_SYNC    => t_sync.clone(),
+                    TOPIC_BLOCKS     => t_blocks.clone(),
+                    TOPIC_ENTRIES    => t_entries.clone(),
+                    TOPIC_SEALS      => t_seals.clone(),
+                    TOPIC_SYNC       => t_sync.clone(),
+                    TOPIC_CONSENSUS  => t_consensus.clone(),
                     other => {
                         warn!("NetCmd::Broadcast: unknown topic '{}'", other);
                         return;

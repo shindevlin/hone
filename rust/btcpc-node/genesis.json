@@ -21,6 +21,7 @@
     "freeport-escrow":    {},
     "verasens-registry":  {},
     "linkgit":            { "keys": { "posting": "0322efc6558bd4d7622347c449892edbc2cda65a1d89c8e0d06e155a6469b3bafb" } },
-    "linkgit-registry":   {}
+    "linkgit-registry":   {},
+    "__testnet_fund__":   {}
   }
 }

@@ -191,35 +191,57 @@ public class NativeSensorService extends Service implements SensorEventListener,
 
     private boolean isSensorGroupEnabled(AppPrefs prefs, int type) {
         switch (type) {
+            // ── Motion ────────────────────────────────────────────────────────
             case Sensor.TYPE_ACCELEROMETER:
             case Sensor.TYPE_LINEAR_ACCELERATION:
             case Sensor.TYPE_GRAVITY:
-            case 16: // GYROSCOPE_UNCALIBRATED
-                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION)
-                    && mapSensorType(type) != null;
+            case TYPE_GYROSCOPE_UNCALIBRATED:
+            case TYPE_ACCELEROMETER_UNCALIBRATED:
             case Sensor.TYPE_GYROSCOPE:
+            case TYPE_SIGNIFICANT_MOTION:
+            case TYPE_TILT_DETECTOR:
+            case TYPE_STATIONARY_DETECT:
+            case TYPE_MOTION_DETECT:
+            case TYPE_WAKE_GESTURE:
+            case TYPE_GLANCE_GESTURE:
+            case TYPE_PICK_UP_GESTURE:
+            case TYPE_WRIST_TILT_GESTURE:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION);
+            // ── Orientation ───────────────────────────────────────────────────
             case Sensor.TYPE_ROTATION_VECTOR:
-            case Sensor.TYPE_GAME_ROTATION_VECTOR:
+            case TYPE_GAME_ROTATION_VECTOR:
             case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:
+            case TYPE_DEVICE_ORIENTATION:
+            case TYPE_HEADING:
+            case TYPE_POSE_6DOF:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ORIENTATION);
+            // ── Magnetometer ──────────────────────────────────────────────────
+            case Sensor.TYPE_MAGNETIC_FIELD:
+            case TYPE_MAGNETIC_FIELD_UNCALIBRATED:
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MAGNETOMETER);
+            // ── Environment ───────────────────────────────────────────────────
             case Sensor.TYPE_LIGHT:
             case Sensor.TYPE_PRESSURE:
-            case 13: // AMBIENT_TEMPERATURE
-            case 12: // RELATIVE_HUMIDITY
+            case TYPE_AMBIENT_TEMPERATURE:
+            case TYPE_RELATIVE_HUMIDITY:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ENVIRONMENT);
-            case Sensor.TYPE_MAGNETIC_FIELD:
-            case 14: // MAGNETIC_FIELD_UNCALIBRATED
-                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MAGNETOMETER);
+            // ── Proximity / physical ──────────────────────────────────────────
             case Sensor.TYPE_PROXIMITY:
+            case TYPE_HINGE_ANGLE:
+            case TYPE_LOW_LATENCY_OFFBODY_DETECT:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_PROXIMITY);
+            // ── Activity / step ───────────────────────────────────────────────
             case Sensor.TYPE_STEP_COUNTER:
             case Sensor.TYPE_STEP_DETECTOR:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_STEPS);
+            // ── Biometric ─────────────────────────────────────────────────────
             case Sensor.TYPE_HEART_RATE:
+            case TYPE_HEART_BEAT:
                 return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_HEARTRATE);
+            // ── Everything else: allow if any sensor group enabled ────────────
             default:
-                return mapSensorType(type) != null;
+                return prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_MOTION)
+                    || prefs.isSensorEnabled(AppPrefs.KEY_SENSOR_ENVIRONMENT);
         }
     }
 
@@ -326,9 +348,11 @@ public class NativeSensorService extends Service implements SensorEventListener,
             @Override
             public void onReceive(Context context, Intent intent) {
                 try {
-                    int level  = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                    int scale  = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-                    int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    int level       = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale       = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                    int status      = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    int voltage_mv  = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0);
+                    int temperature = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0);
                     if (level < 0 || scale <= 0) return;
                     double pct = (level * 100.0) / scale;
                     boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
@@ -339,11 +363,11 @@ public class NativeSensorService extends Service implements SensorEventListener,
                     snap.unit = "%";
                     snap.sensorId = account + "/" + deviceName + "-battery";
                     snap.timestamp = System.currentTimeMillis();
-                    snap.values = new double[]{pct};
+                    // values: [pct, voltage_mv, temp_tenths_celsius, charging(1/0)]
+                    snap.values = new double[]{pct, voltage_mv, temperature, charging ? 1 : 0};
                     snap.androidType = -1;
                     snap.name = "Battery";
                     snap.vendor = Build.MANUFACTURER;
-                    // Stash charging flag in extra field via metadata later
                     snapshots.put("battery", snap);
                 } catch (Exception e) {
                     Log.w(TAG, "Battery receiver error: " + e.getMessage());
@@ -352,6 +376,35 @@ public class NativeSensorService extends Service implements SensorEventListener,
         };
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         registerReceiver(batteryReceiver, filter);
+        // Trigger an immediate reading
+        Intent sticky = registerReceiver(null, filter);
+        if (sticky != null) batteryReceiver.onReceive(this, sticky);
+    }
+
+    private void refreshWifiReading() {
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext()
+                    .getSystemService(Context.WIFI_SERVICE);
+            if (wm == null || !wm.isWifiEnabled()) return;
+            android.net.wifi.WifiInfo info = wm.getConnectionInfo();
+            if (info == null) return;
+            int rssi = info.getRssi();
+            int linkSpeed = info.getLinkSpeed(); // Mbps
+            if (rssi <= -127) return;
+
+            SensorSnapshot snap = new SensorSnapshot();
+            snap.type = "wifi-rssi";
+            snap.unit = "dBm";
+            snap.sensorId = account + "/" + deviceName + "-wifi-rssi";
+            snap.timestamp = System.currentTimeMillis();
+            snap.values = new double[]{rssi, linkSpeed};
+            snap.androidType = -3;
+            snap.name = "WiFi";
+            snap.vendor = "Android";
+            snapshots.put("wifi-rssi", snap);
+        } catch (Exception e) {
+            Log.w(TAG, "WiFi reading error: " + e.getMessage());
+        }
     }
 
     // LocationListener implementation
@@ -363,8 +416,10 @@ public class NativeSensorService extends Service implements SensorEventListener,
         snap.unit = "deg";
         snap.sensorId = account + "/" + deviceName + "-gps-location";
         snap.timestamp = location.getTime();
-        snap.values = new double[]{location.getLatitude(), location.getLongitude(),
-                location.getAltitude(), location.getAccuracy()};
+        snap.values = new double[]{
+                location.getLatitude(), location.getLongitude(),
+                location.getAltitude(), location.getAccuracy(),
+                location.getSpeed(), location.getBearing()};
         snap.androidType = -2;
         snap.name = "GPS";
         snap.vendor = "Android";
@@ -378,6 +433,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
 
     private void flushSnapshotsSafe() {
         if (!running) return;
+        refreshWifiReading(); // pull latest WiFi RSSI before flushing
         io.submit(() -> {
             // Snapshot under lock, then release before network I/O so onSensorChanged
             // (main thread) never blocks waiting for a network call to complete.
@@ -506,15 +562,22 @@ public class NativeSensorService extends Service implements SensorEventListener,
             double[] v = s.values;
             JSONObject j = new JSONObject();
             switch (s.type) {
+                // ── 3-axis vectors ────────────────────────────────────────────
                 case "accelerometer":
                 case "linear-acceleration":
                 case "gravity":
                 case "gyroscope":
-                case "gyroscope-raw":
                 case "magnetometer":
-                case "magnetometer-raw":
                     if (v.length >= 3) { j.put("x", v[0]); j.put("y", v[1]); j.put("z", v[2]); }
                     break;
+                // ── 3-axis + 3-axis bias (uncalibrated) ──────────────────────
+                case "accelerometer-raw":
+                case "gyroscope-raw":
+                case "magnetometer-raw":
+                    if (v.length >= 3) { j.put("x", v[0]); j.put("y", v[1]); j.put("z", v[2]); }
+                    if (v.length >= 6) { j.put("bx", v[3]); j.put("by", v[4]); j.put("bz", v[5]); }
+                    break;
+                // ── Quaternion orientation ────────────────────────────────────
                 case "orientation":
                 case "orientation-game":
                 case "orientation-geo":
@@ -525,47 +588,97 @@ public class NativeSensorService extends Service implements SensorEventListener,
                         j.put("azimuth", v[0]); j.put("pitch", v[1]); j.put("roll", v[2]);
                     }
                     break;
+                // ── 6DOF pose ─────────────────────────────────────────────────
+                case "pose-6dof":
+                    if (v.length >= 7) {
+                        j.put("qx", v[0]); j.put("qy", v[1]); j.put("qz", v[2]); j.put("qw", v[3]);
+                        j.put("tx", v[4]); j.put("ty", v[5]); j.put("tz", v[6]);
+                    }
+                    break;
+                // ── Device orientation (0=portrait, 1=landscape-ccw, 2=landscape-cw, 3=reverse) ──
+                case "device-orientation":
+                    if (v.length >= 1) j.put("rotation", (int) v[0]);
+                    break;
+                // ── Environmental ─────────────────────────────────────────────
                 case "light":
                     if (v.length >= 1) j.put("lux", v[0]);
                     break;
                 case "barometer":
                     if (v.length >= 1) j.put("hPa", v[0]);
                     break;
-                case "proximity":
-                    if (v.length >= 1) j.put("cm", v[0]);
-                    break;
-                case "steps":
-                case "step-detector":
-                    if (v.length >= 1) j.put("count", v[0]);
-                    break;
-                case "heart-rate":
-                    if (v.length >= 1) j.put("bpm", v[0]);
-                    break;
-                case "gps-location":
-                    if (v.length >= 2) { j.put("lat", v[0]); j.put("lon", v[1]); }
-                    if (v.length >= 3) j.put("alt", v[2]);
-                    if (v.length >= 4) j.put("accuracy", v[3]);
-                    break;
-                case "battery":
                 case "humidity":
                     if (v.length >= 1) j.put("pct", v[0]);
                     break;
                 case "temperature":
                     if (v.length >= 1) j.put("celsius", v[0]);
                     break;
+                // ── Proximity / physical ──────────────────────────────────────
+                case "proximity":
+                    if (v.length >= 1) j.put("cm", v[0]);
+                    break;
                 case "hinge-angle":
+                    if (v.length >= 1) j.put("degrees", v[0]);
+                    break;
                 case "heading":
                     if (v.length >= 1) j.put("degrees", v[0]);
+                    if (v.length >= 2) j.put("accuracy", v[1]);
+                    break;
+                case "off-body":
+                    if (v.length >= 1) j.put("on_body", v[0] > 0.5);
+                    break;
+                // ── Activity / step ───────────────────────────────────────────
+                case "steps":
+                    if (v.length >= 1) j.put("count", (long) v[0]);
+                    break;
+                case "step-detector":
+                    if (v.length >= 1) j.put("step", v[0]);
+                    break;
+                // ── Biometric ─────────────────────────────────────────────────
+                case "heart-rate":
+                    if (v.length >= 1) j.put("bpm", v[0]);
+                    break;
+                case "heart-beat":
+                    if (v.length >= 1) j.put("confidence", v[0]);
+                    break;
+                // ── Trigger / event sensors ───────────────────────────────────
+                case "significant-motion":
+                case "tilt":
+                case "stationary":
+                case "motion":
+                case "wake-gesture":
+                case "glance-gesture":
+                case "pick-up":
+                case "wrist-tilt":
+                    j.put("event", 1);
+                    break;
+                // ── Virtual sensors (non-SensorManager) ──────────────────────
+                case "gps-location":
+                    if (v.length >= 2) { j.put("lat", v[0]); j.put("lon", v[1]); }
+                    if (v.length >= 3) j.put("alt", v[2]);
+                    if (v.length >= 4) j.put("accuracy_m", v[3]);
+                    if (v.length >= 5) j.put("speed_ms", v[4]);
+                    if (v.length >= 6) j.put("bearing_deg", v[5]);
+                    break;
+                case "battery":
+                    if (v.length >= 1) j.put("pct", v[0]);
+                    if (v.length >= 2) j.put("voltage_mv", v[1]);
+                    if (v.length >= 3) j.put("temp_c", v[2] / 10.0);
+                    if (v.length >= 4) j.put("charging", v[3] > 0);
+                    break;
+                case "wifi-rssi":
+                    if (v.length >= 1) j.put("rssi_dbm", v[0]);
+                    if (v.length >= 2) j.put("link_speed_mbps", v[1]);
+                    break;
+                case "cell-signal":
+                    if (v.length >= 1) j.put("rssi_dbm", v[0]);
+                    if (v.length >= 2) j.put("type", (int) v[1]);
                     break;
                 case "audio-level":
                     if (v.length >= 1) j.put("db", v[0]);
                     break;
-                case "stationary":
-                case "motion":
-                    if (v.length >= 1) j.put("event", v[0]);
-                    break;
                 default:
-                    if (v.length >= 1) j.put("value", v[0]);
+                    // Unknown sensor — dump all values
+                    for (int i = 0; i < v.length; i++) j.put("v" + i, v[i]);
                     break;
             }
             return j.toString();
@@ -661,41 +774,72 @@ public class NativeSensorService extends Service implements SensorEventListener,
 
     // Numeric constants for sensor types added in later API levels
     // (avoid @RequiresApi by using the raw int values directly)
-    private static final int TYPE_MAGNETIC_FIELD_UNCALIBRATED = 14;
-    private static final int TYPE_GAME_ROTATION_VECTOR        = 15;
-    private static final int TYPE_GYROSCOPE_UNCALIBRATED      = 16;
-    private static final int TYPE_RELATIVE_HUMIDITY           = 12;
-    private static final int TYPE_AMBIENT_TEMPERATURE         = 13;
-    private static final int TYPE_STATIONARY_DETECT           = 29;
-    private static final int TYPE_MOTION_DETECT               = 30;
-    private static final int TYPE_HINGE_ANGLE                 = 36;
-    private static final int TYPE_HEADING                     = 35;
+    // ── Android sensor type constants not in older SDK levels ────────────────
+    private static final int TYPE_RELATIVE_HUMIDITY              = 12;
+    private static final int TYPE_AMBIENT_TEMPERATURE            = 13;
+    private static final int TYPE_MAGNETIC_FIELD_UNCALIBRATED    = 14;
+    private static final int TYPE_GAME_ROTATION_VECTOR           = 15;
+    private static final int TYPE_GYROSCOPE_UNCALIBRATED         = 16;
+    private static final int TYPE_SIGNIFICANT_MOTION             = 17;
+    private static final int TYPE_TILT_DETECTOR                  = 22;
+    private static final int TYPE_WAKE_GESTURE                   = 23;
+    private static final int TYPE_GLANCE_GESTURE                 = 24;
+    private static final int TYPE_PICK_UP_GESTURE                = 25;
+    private static final int TYPE_WRIST_TILT_GESTURE             = 26;
+    private static final int TYPE_DEVICE_ORIENTATION             = 27;
+    private static final int TYPE_POSE_6DOF                      = 28;
+    private static final int TYPE_STATIONARY_DETECT              = 29;
+    private static final int TYPE_MOTION_DETECT                  = 30;
+    private static final int TYPE_HEART_BEAT                     = 31;
+    private static final int TYPE_LOW_LATENCY_OFFBODY_DETECT     = 34;
+    private static final int TYPE_ACCELEROMETER_UNCALIBRATED     = 35;
+    private static final int TYPE_HINGE_ANGLE                    = 36;
+    private static final int TYPE_HEADING                        = 37; // API 33+
 
     private static String mapSensorType(int type) {
         switch (type) {
+            // ── Motion ────────────────────────────────────────────────────────
             case Sensor.TYPE_ACCELEROMETER:              return "accelerometer";
             case Sensor.TYPE_LINEAR_ACCELERATION:        return "linear-acceleration";
             case Sensor.TYPE_GRAVITY:                    return "gravity";
+            case TYPE_ACCELEROMETER_UNCALIBRATED:        return "accelerometer-raw";
             case Sensor.TYPE_GYROSCOPE:                  return "gyroscope";
             case TYPE_GYROSCOPE_UNCALIBRATED:            return "gyroscope-raw";
+            case TYPE_SIGNIFICANT_MOTION:                return "significant-motion";
+            case TYPE_TILT_DETECTOR:                     return "tilt";
+            case TYPE_STATIONARY_DETECT:                 return "stationary";
+            case TYPE_MOTION_DETECT:                     return "motion";
+            case TYPE_WAKE_GESTURE:                      return "wake-gesture";
+            case TYPE_GLANCE_GESTURE:                    return "glance-gesture";
+            case TYPE_PICK_UP_GESTURE:                   return "pick-up";
+            case TYPE_WRIST_TILT_GESTURE:                return "wrist-tilt";
+            // ── Orientation ───────────────────────────────────────────────────
             case Sensor.TYPE_ROTATION_VECTOR:            return "orientation";
             case TYPE_GAME_ROTATION_VECTOR:              return "orientation-game";
             case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:return "orientation-geo";
-            case Sensor.TYPE_LIGHT:                      return "light";
+            case TYPE_DEVICE_ORIENTATION:                return "device-orientation";
+            case TYPE_HEADING:                           return "heading";
+            case TYPE_POSE_6DOF:                         return "pose-6dof";
+            // ── Magnetometer ──────────────────────────────────────────────────
             case Sensor.TYPE_MAGNETIC_FIELD:             return "magnetometer";
             case TYPE_MAGNETIC_FIELD_UNCALIBRATED:       return "magnetometer-raw";
+            // ── Environment ───────────────────────────────────────────────────
+            case Sensor.TYPE_LIGHT:                      return "light";
             case Sensor.TYPE_PRESSURE:                   return "barometer";
+            case TYPE_RELATIVE_HUMIDITY:                 return "humidity";
+            case TYPE_AMBIENT_TEMPERATURE:               return "temperature";
+            // ── Proximity / body ─────────────────────────────────────────────
             case Sensor.TYPE_PROXIMITY:                  return "proximity";
+            case TYPE_HINGE_ANGLE:                       return "hinge-angle";
+            case TYPE_LOW_LATENCY_OFFBODY_DETECT:        return "off-body";
+            // ── Activity / biometric ─────────────────────────────────────────
             case Sensor.TYPE_STEP_COUNTER:               return "steps";
             case Sensor.TYPE_STEP_DETECTOR:              return "step-detector";
             case Sensor.TYPE_HEART_RATE:                 return "heart-rate";
-            case TYPE_RELATIVE_HUMIDITY:                 return "humidity";
-            case TYPE_AMBIENT_TEMPERATURE:               return "temperature";
-            case TYPE_HINGE_ANGLE:                       return "hinge-angle";
-            case TYPE_HEADING:                           return "heading";
-            case TYPE_STATIONARY_DETECT:                 return "stationary";
-            case TYPE_MOTION_DETECT:                     return "motion";
-            default:                                     return null;
+            case TYPE_HEART_BEAT:                        return "heart-beat";
+            default:
+                // Report unknown sensor types generically so they're still collected.
+                return "sensor-" + type;
         }
     }
 
@@ -703,7 +847,8 @@ public class NativeSensorService extends Service implements SensorEventListener,
         switch (type) {
             case Sensor.TYPE_ACCELEROMETER:
             case Sensor.TYPE_LINEAR_ACCELERATION:
-            case Sensor.TYPE_GRAVITY:                    return "m/s²";
+            case Sensor.TYPE_GRAVITY:
+            case TYPE_ACCELEROMETER_UNCALIBRATED:        return "m/s²";
             case Sensor.TYPE_GYROSCOPE:
             case TYPE_GYROSCOPE_UNCALIBRATED:            return "rad/s";
             case Sensor.TYPE_MAGNETIC_FIELD:
@@ -711,18 +856,28 @@ public class NativeSensorService extends Service implements SensorEventListener,
             case Sensor.TYPE_ROTATION_VECTOR:
             case TYPE_GAME_ROTATION_VECTOR:
             case Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR:return "quaternion";
+            case TYPE_DEVICE_ORIENTATION:                return "rotation";
+            case TYPE_POSE_6DOF:                         return "pose";
             case Sensor.TYPE_LIGHT:                      return "lux";
             case Sensor.TYPE_PRESSURE:                   return "hPa";
-            case Sensor.TYPE_PROXIMITY:                  return "cm";
-            case Sensor.TYPE_STEP_COUNTER:               return "steps";
-            case Sensor.TYPE_STEP_DETECTOR:              return "event";
-            case Sensor.TYPE_HEART_RATE:                 return "bpm";
             case TYPE_RELATIVE_HUMIDITY:                 return "%";
             case TYPE_AMBIENT_TEMPERATURE:               return "°C";
-            case TYPE_HINGE_ANGLE:                       return "°";
+            case Sensor.TYPE_PROXIMITY:                  return "cm";
+            case TYPE_HINGE_ANGLE:
             case TYPE_HEADING:                           return "°";
+            case Sensor.TYPE_STEP_COUNTER:               return "steps";
+            case Sensor.TYPE_STEP_DETECTOR:
+            case TYPE_SIGNIFICANT_MOTION:
+            case TYPE_TILT_DETECTOR:
             case TYPE_STATIONARY_DETECT:
-            case TYPE_MOTION_DETECT:                     return "event";
+            case TYPE_MOTION_DETECT:
+            case TYPE_WAKE_GESTURE:
+            case TYPE_GLANCE_GESTURE:
+            case TYPE_PICK_UP_GESTURE:
+            case TYPE_WRIST_TILT_GESTURE:
+            case TYPE_LOW_LATENCY_OFFBODY_DETECT:        return "event";
+            case Sensor.TYPE_HEART_RATE:                 return "bpm";
+            case TYPE_HEART_BEAT:                        return "confidence";
             default:                                     return "value";
         }
     }

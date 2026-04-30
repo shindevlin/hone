@@ -26,6 +26,7 @@ pub enum NetworkEvent {
     Entry    { entry: Value },
     Block    { epoch: u64, data: Vec<u8> },
     EpochSeal { seal: Value },
+    ConsensusProposal { epoch: u64, rewards_hash: String, node_id: String },
     PeerConnected    { peer: PeerId },
     PeerDisconnected { peer: PeerId },
 }
@@ -83,7 +84,7 @@ pub async fn run_swarm(
     ).expect("gossipsub");
 
     // Subscribe to all chain topics.
-    for topic_str in &["btcpc/entries", "btcpc/seals", "btcpc/blocks"] {
+    for topic_str in &["btcpc/entries", "btcpc/seals", "btcpc/blocks", "btcpc/consensus"] {
         let topic = gossipsub::IdentTopic::new(*topic_str);
         gossipsub.subscribe(&topic).ok();
     }
@@ -182,6 +183,16 @@ async fn handle_event(
             } else if topic.contains("entries") {
                 if let Ok(v) = serde_json::from_slice::<Value>(&data) {
                     let _ = event_tx.send(NetworkEvent::Entry { entry: v }).await;
+                }
+            } else if topic.contains("consensus") {
+                if let Ok(v) = serde_json::from_slice::<Value>(&data) {
+                    if let (Some(epoch), Some(rewards_hash), Some(node_id)) = (
+                        v.get("epoch").and_then(|e| e.as_u64()),
+                        v.get("rewards_hash").and_then(|h| h.as_str()).map(str::to_owned),
+                        v.get("node_id").and_then(|n| n.as_str()).map(str::to_owned),
+                    ) {
+                        let _ = event_tx.send(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }).await;
+                    }
                 }
             }
         }

@@ -56,8 +56,9 @@ libp2p = { version = "0.55", features = [
 # WASM contracts
 wasmtime = { version = "23" }
 
-# HTTP client (peer discovery — Hive + TON registry queries)
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Utilities
 anyhow = "1"

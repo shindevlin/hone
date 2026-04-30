@@ -42,9 +42,14 @@ use anyhow::Result;
 use tracing::{info, warn};
 use btcpc_types::{
     LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
-    RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID,
-    EPOCH_POOL_INFERENCE_BPS, EPOCH_POOL_STORAGE_BPS, EPOCH_POOL_SENSOR_BPS,
-    EPOCH_POOL_VERIFY_BPS, EPOCH_POOL_RECYCLE_BPS, inference_score,
+    RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT,
+    inference_score, clock_reward_at, testnet_reward_at,
+    sensor_score, stake_weight, mempool_relay_score,
+    ACTIVITY_RATIO_DENOM, MIN_ACTIVITY_RATIO_NUM,
+    CALIBRATION_INFERENCE, CALIBRATION_STORAGE, CALIBRATION_SENSOR,
+    CALIBRATION_VERIFIER, CALIBRATION_SERVICE, CALIBRATION_MEMPOOL,
+    CRITICAL_MASS_INFERENCE, CRITICAL_MASS_STORAGE, CRITICAL_MASS_SENSOR,
+    CRITICAL_MASS_VERIFIER, CRITICAL_MASS_SERVICE, CRITICAL_MASS_MEMPOOL,
 };
 
 use chain::Chain;
@@ -108,10 +113,11 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Wire: clock sealed events → chain epoch advancement + MineReward emission
+    // Wire: clock sealed events → chain epoch advancement + MineReward emission + consensus proposal
     {
         let mut sealed_rx = clock.subscribe();
         let chain_ref = chain.clone();
+        let clock_ref = clock.clone();
         let node_id_c = cfg.node_id.clone();
         let cmd_tx_for_seal = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
@@ -140,10 +146,68 @@ async fn main() -> Result<()> {
                         // Comprehensive epoch reward distribution across all work types.
                         let sealed_epoch = sealed.epoch;
                         emit_epoch_rewards(sealed_epoch, &chain_ref, &cmd_tx_for_seal).await;
+
+                        // Compute reward hash and broadcast consensus proposal.
+                        let rewards_hash = clock::compute_rewards_hash(sealed_epoch, &chain_ref.store);
+                        let proposal = clock::RewardProposal {
+                            epoch: sealed_epoch,
+                            node_id: node_id_c.clone(),
+                            rewards_hash: rewards_hash.clone(),
+                        };
+                        clock_ref.receive_reward_proposal(proposal);
+                        if let Ok(data) = serde_json::to_vec(&serde_json::json!({
+                            "epoch": sealed_epoch,
+                            "node_id": node_id_c,
+                            "rewards_hash": rewards_hash,
+                        })) {
+                            let _ = cmd_tx_for_seal.send(NetCmd::Broadcast {
+                                topic: "btcpc/consensus",
+                                data,
+                            }).await;
+                        }
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         warn!("clock sealed_rx lagged by {} events", n);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    // Wire: finalized-epoch events → emit EpochFinalize entry
+    {
+        let mut finalized_rx = clock.subscribe_finalized();
+        let chain_ref = chain.clone();
+        let node_id_c = cfg.node_id.clone();
+        let cmd_tx_fin = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                match finalized_rx.recv().await {
+                    Ok(fin) => {
+                        let entry = LedgerEntry::EpochFinalize {
+                            epoch: fin.epoch,
+                            node_id: node_id_c.clone(),
+                            rewards_hash: fin.rewards_hash,
+                            quorum: fin.quorum as u64,
+                            sealed_by: vec![],
+                            state_root: String::new(),
+                            timestamp: now_ms(),
+                        };
+                        if let Err(e) = chain_ref.apply_entry(&entry) {
+                            warn!("EpochFinalize apply failed (epoch {}): {}", fin.epoch, e);
+                        }
+                        let envelope = serde_json::json!({"entry": entry});
+                        if let Ok(data) = serde_json::to_vec(&envelope) {
+                            let _ = cmd_tx_fin.send(NetCmd::Broadcast {
+                                topic: "btcpc/entries",
+                                data,
+                            }).await;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("finalized_rx lagged by {} events", n);
                     }
                     Err(_) => break,
                 }
@@ -336,6 +400,11 @@ async fn main() -> Result<()> {
                     Ok(NetworkEvent::EpochSeal { seal }) => {
                         clock_ref.receive_seal(seal);
                     }
+                    Ok(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }) => {
+                        clock_ref.receive_reward_proposal(clock::RewardProposal {
+                            epoch, rewards_hash, node_id,
+                        });
+                    }
                     Ok(_) => {} // PeerConnected / PeerDisconnected
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         warn!("net events lagged by {}", n);
@@ -373,6 +442,7 @@ async fn main() -> Result<()> {
         contracts,
         tx_broadcast,
         faucet_claims: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        agent_rate: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
     };
     api::serve(app_state, cfg.api_port).await?;
 
@@ -476,13 +546,18 @@ async fn run_inference_verifier(
                 _ => continue,
             };
 
+            // Estimate value_score from output length + model (true score comes via claim flow)
+            let output_tokens = (output_text.split_whitespace().count() as u64).max(1);
+            let value_score = btcpc_types::inference_score(output_tokens, 0, &job.model);
+
             let entry = LedgerEntry::InferenceJobVerify {
-                job_id:    job_id.clone(),
-                verifier:  account.clone(),
-                verdict:   verdict.to_owned(),
-                reason:    None,
+                job_id:      job_id.clone(),
+                verifier:    account.clone(),
+                verdict:     verdict.to_owned(),
+                value_score,
+                reason:      None,
                 epoch,
-                signed_by: account.clone(),
+                signed_by:   account.clone(),
             };
             if let Err(e) = chain.apply_entry(&entry) {
                 warn!("verifier: apply failed for job {}: {}", job_id, e);
@@ -504,95 +579,301 @@ async fn run_inference_verifier(
 
 // ── Epoch reward distribution ─────────────────────────────────────────────────
 
-/// Distribute the epoch's reward pool across inference, storage, sensor, and verify work.
+/// Distribute the epoch's reward pool: mandatory reserve split first, then
+/// Layer D infrastructure base, then Layer B dynamic activity pools.
+///
+/// Layer A scalar and Layer C fee boost are computed here but the full EMA
+/// state persistence comes in a follow-up; for now they fall back to 1.0.
 async fn emit_epoch_rewards(
     epoch: u64,
     chain: &Arc<Chain>,
     cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
-    let total_pool = if era(epoch) >= RECYCLE_ERA {
+    // Sweep expired pending token transfers → refund sender.
+    sweep_expired_pending_transfers(epoch, chain);
+
+    let raw_pool = if era(epoch) >= RECYCLE_ERA {
         let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
         ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
     } else {
         block_reward_at(epoch)
     };
-    if total_pool == 0 { return; }
+    if raw_pool == 0 { return; }
 
-    let inference_pool = total_pool * EPOCH_POOL_INFERENCE_BPS / 10_000;
-    let storage_pool   = total_pool * EPOCH_POOL_STORAGE_BPS   / 10_000;
-    let sensor_pool    = total_pool * EPOCH_POOL_SENSOR_BPS    / 10_000;
-    let verify_pool    = total_pool * EPOCH_POOL_VERIFY_BPS    / 10_000;
-    let recycle_amt    = total_pool * EPOCH_POOL_RECYCLE_BPS   / 10_000;
+    // ── Mandatory 2% reserve split (Layer D, always fires) ───────────────────
+    // 1.5% → recycle fund  |  0.5% → testnet fund (perpetual top-up)
+    let reserve_total  = (raw_pool as u128 * 2 / 100) as u64;
+    let testnet_top_up = (raw_pool as u128 / 200) as u64;           // 0.5%
+    let recycle_split  = reserve_total.saturating_sub(testnet_top_up); // 1.5%
+    let activity_pool  = raw_pool.saturating_sub(reserve_total);
 
-    // ── Inference pool ────────────────────────────────────────────────────────
+    if recycle_split > 0 {
+        chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
+    }
+    if testnet_top_up > 0 {
+        chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
+    }
+
+    // ── Layer D: era-scaled clock reward (infrastructure base) ───────────────
+    let clock_reward = clock_reward_at(epoch);
+    let clock_sealers: Vec<String> = chain.store.state_scan_prefix(&format!("seal:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            serde_json::from_slice::<serde_json::Value>(&v).ok()
+                .and_then(|j| j["node_id"].as_str().map(str::to_owned))
+        }).collect();
+
+    for node_id in &clock_sealers {
+        if clock_reward == 0 { break; }
+        let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount: clock_reward, epoch };
+        if let Err(e) = chain.apply_entry(&entry) {
+            warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
+            continue;
+        }
+        broadcast_entry_desktop(&entry, cmd_tx).await;
+    }
+
+    // ── Layer D: testnet operator rewards (from testnet fund) ─────────────────
+    let testnet_ops: Vec<(String, String)> = chain.store.state_scan_prefix("testnet_op:")
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            Some((j["mainnet_account"].as_str()?.to_owned(), j["testnet_node_id"].as_str()?.to_owned()))
+        }).collect();
+
+    if !testnet_ops.is_empty() {
+        let per_op   = testnet_reward_at(epoch);
+        let fund     = chain.store.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
+        let needed   = per_op.saturating_mul(testnet_ops.len() as u64);
+        let actual   = if needed > 0 { (fund.min(needed)) / testnet_ops.len() as u64 } else { 0 };
+        for (mainnet_account, testnet_node_id) in &testnet_ops {
+            if actual == 0 { break; }
+            let entry = LedgerEntry::TestnetReward {
+                mainnet_account: mainnet_account.clone(),
+                testnet_node_id: testnet_node_id.clone(),
+                amount: actual,
+                epoch,
+            };
+            if let Err(e) = chain.apply_entry(&entry) {
+                warn!("clock: testnet reward failed for {} epoch {}: {}", mainnet_account, epoch, e);
+                continue;
+            }
+            broadcast_entry_desktop(&entry, cmd_tx).await;
+        }
+        info!("clock: epoch {} testnet: {} ops × {} dreams", epoch, testnet_ops.len(), actual);
+    }
+
+    if activity_pool == 0 { return; }
+
+    // ── Layer B: collect work contributors ────────────────────────────────────
+
+    // Inference: score = output_tokens × hw_tier_weight × model_weight × stake_weight(stake)
     let mines: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("mine:{}:", epoch))
         .into_iter()
         .filter_map(|(_, v)| {
             let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
-            let miner    = j["miner"].as_str()?.to_owned();
             let out_toks = j["output_tokens"].as_u64().unwrap_or(0);
             let hw_tier  = j["hw_tier"].as_u64().unwrap_or(0) as u8;
             let model    = j["model"].as_str().unwrap_or("");
-            Some((miner, inference_score(out_toks, hw_tier, model)))
+            let miner    = j["miner"].as_str()?.to_owned();
+            let stake    = chain.store.get_stake(&miner);
+            let sw       = stake_weight(stake);
+            Some((miner, inference_score(out_toks, hw_tier, model).saturating_mul(sw)))
         }).collect();
 
-    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, cmd_tx, |miner, amount, ep| {
-        LedgerEntry::MineReward { miner, amount, epoch: ep }
-    }).await;
-
-    // ── Storage pool ──────────────────────────────────────────────────────────
+    // Storage: score = bytes_proven + query_bonus (up to 2× for active query traffic)
     let storage_nodes: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("storage_beat:{}:", epoch))
         .into_iter()
         .filter_map(|(_, v)| {
             let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
-            let node_id = j["node_id"].as_str()?.to_owned();
             let bytes   = j["bytes_proven"].as_u64().unwrap_or(0);
-            Some((node_id, bytes))
+            let queries = j["query_count"].as_u64().unwrap_or(0);
+            let bonus   = (bytes as u128 * queries.min(100) as u128 / 100) as u64;
+            Some((j["node_id"].as_str()?.to_owned(), bytes.saturating_add(bonus)))
         }).collect();
 
-    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, cmd_tx, |node_id, amount, ep| {
-        LedgerEntry::ClockReward { node_id, amount, epoch: ep }
-    }).await;
+    // Sensors: type-aware sensor_score() per individual sensor, then grouped by owner.
+    // Different sensor types (continuous/event/sampled/pulse) have different value models.
+    let sensor_nodes: Vec<(String, u64)> = {
+        let mut by_owner: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for (_, v) in chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch)) {
+            let Ok(j) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
+            let Some(owner) = j["owner"].as_str() else { continue };
+            let reading_count = j["reading_count"].as_u64().unwrap_or(0);
+            let stype         = j["sensor_type"].as_str().unwrap_or("continuous");
+            *by_owner.entry(owner.to_owned()).or_default() += sensor_score(reading_count, stype);
+        }
+        by_owner.into_iter().collect()
+    };
 
-    // ── Sensor pool ───────────────────────────────────────────────────────────
-    let sensor_nodes: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch))
-        .into_iter()
-        .filter_map(|(_, v)| {
-            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
-            let owner = j["owner"].as_str()?.to_owned();
-            let count = j["reading_count"].as_u64().unwrap_or(0);
-            Some((owner, count))
-        }).collect();
-
-    distribute_rewards_desktop(epoch, &sensor_nodes, sensor_pool, chain, cmd_tx, |node_id, amount, ep| {
-        LedgerEntry::ClockReward { node_id, amount, epoch: ep }
-    }).await;
-
-    // ── Verify pool ───────────────────────────────────────────────────────────
+    // Verifiers: sum of value_scores from approved verdicts only; zero → excluded
     let verifiers: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("infer_verify:{}:", epoch))
         .into_iter()
         .filter_map(|(_, v)| {
             let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
-            let verifier = j["verifier"].as_str()?.to_owned();
-            let count    = j["count"].as_u64().unwrap_or(0);
-            Some((verifier, count))
+            let score = j["value_score_total"].as_u64().unwrap_or(0);
+            if score == 0 { return None; }
+            Some((j["verifier"].as_str()?.to_owned(), score))
         }).collect();
 
-    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, cmd_tx, |node_id, amount, ep| {
-        LedgerEntry::ClockReward { node_id, amount, epoch: ep }
-    }).await;
+    // Services: score = container_hours
+    let service_nodes: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("service_beat:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            Some((j["node_id"].as_str()?.to_owned(), j["container_hours"].as_u64().unwrap_or(0)))
+        }).collect();
 
-    // ── Recycle fund ──────────────────────────────────────────────────────────
-    if recycle_amt > 0 {
-        if let Err(e) = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_amt) {
-            warn!("clock: recycle credit failed epoch {}: {}", epoch, e);
-        } else {
-            info!("clock: epoch {} → recycle fund +{} dreams", epoch, recycle_amt);
-        }
+    // Mempool: score inversely weighted by latency, proportional to relay throughput
+    let mempool_ops: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("mempool_beat:{}:", epoch))
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            let latency  = j["latency_ms"].as_u64().unwrap_or(u64::MAX);
+            let relayed  = j["entries_relayed"].as_u64().unwrap_or(0);
+            if relayed == 0 { return None; }
+            Some((j["operator"].as_str()?.to_owned(), mempool_relay_score(relayed, latency)))
+        }).collect();
+
+    // ── Layer B: calibration-normalized utilization + activity-gating + scarcity ─
+    let inference_total: u64 = mines.iter().map(|(_, s)| s).sum();
+    let storage_total:   u64 = storage_nodes.iter().map(|(_, s)| s).sum();
+    let sensor_total:    u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
+    let verify_total:    u64 = verifiers.iter().map(|(_, s)| s).sum();
+    let service_total:   u64 = service_nodes.iter().map(|(_, s)| s).sum();
+    let mempool_total:   u64 = mempool_ops.iter().map(|(_, s)| s).sum();
+
+    // Normalize each pool's raw score by its calibration target → [0, 1.0]
+    let norm = |work: u64, target: u64| -> u64 {
+        if work == 0 { return 0; }
+        ((work as u128 * ACTIVITY_RATIO_DENOM as u128) / target as u128)
+            .min(ACTIVITY_RATIO_DENOM as u128) as u64
+    };
+    let util_inference = norm(inference_total, CALIBRATION_INFERENCE);
+    let util_storage   = norm(storage_total,   CALIBRATION_STORAGE);
+    let util_sensor    = norm(sensor_total,     CALIBRATION_SENSOR);
+    let util_verify    = norm(verify_total,     CALIBRATION_VERIFIER);
+    let util_service   = norm(service_total,    CALIBRATION_SERVICE);
+    let util_mempool   = norm(mempool_total,    CALIBRATION_MEMPOOL);
+    let total_util     = util_inference + util_storage + util_sensor
+                       + util_verify + util_service + util_mempool;
+
+    // Activity ratio = average utilization across active pools
+    let active_pool_count = [util_inference, util_storage, util_sensor,
+                             util_verify, util_service, util_mempool]
+        .iter().filter(|&&u| u > 0).count() as u64;
+    let activity_ratio_num = if total_util == 0 {
+        0
+    } else {
+        (total_util / active_pool_count).max(MIN_ACTIVITY_RATIO_NUM)
+    };
+    let gated_pool   = (activity_pool as u128 * activity_ratio_num as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
+    let idle_recycle = activity_pool.saturating_sub(gated_pool);
+    if idle_recycle > 0 {
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, idle_recycle);
     }
 
-    info!("clock: epoch {} rewards — pool={} inference={} storage={} sensor={} verify={}",
-        epoch, total_pool, inference_pool, storage_pool, sensor_pool, verify_pool);
+    // Budget allocation: proportional to each pool's normalized utilization
+    let alloc_pool = |util: u64| -> u64 {
+        if total_util == 0 { return 0; }
+        (gated_pool as u128 * util as u128 / total_util as u128) as u64
+    };
+
+    let inference_pool_raw = alloc_pool(util_inference);
+    let storage_pool_raw   = alloc_pool(util_storage);
+    let sensor_pool_raw    = alloc_pool(util_sensor);
+    let verify_pool_raw    = alloc_pool(util_verify);
+    let service_pool_raw   = alloc_pool(util_service);
+    let mempool_pool_raw   = alloc_pool(util_mempool);
+
+    // Scarcity divider: each pool pays at reduced rate if participant count < critical mass.
+    // Remainder flows to recycle — prevents sparse networks from extracting full rewards.
+    let payout_factor = |count: usize, critical_mass: u64| -> u64 {
+        ((count as u64).min(critical_mass) * ACTIVITY_RATIO_DENOM / critical_mass.max(1))
+    };
+    let apply_scarcity = |pool: u64, factor: u64| -> (u64, u64) {
+        let effective = (pool as u128 * factor as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
+        (effective, pool.saturating_sub(effective))
+    };
+
+    let (inference_pool, scatter_infer)  = apply_scarcity(inference_pool_raw, payout_factor(mines.len(), CRITICAL_MASS_INFERENCE));
+    let (storage_pool,   scatter_store)  = apply_scarcity(storage_pool_raw,   payout_factor(storage_nodes.len(), CRITICAL_MASS_STORAGE));
+    let (sensor_pool,    scatter_sensor) = apply_scarcity(sensor_pool_raw,    payout_factor(sensor_nodes.len(), CRITICAL_MASS_SENSOR));
+    let (verify_pool,    scatter_verify) = apply_scarcity(verify_pool_raw,    payout_factor(verifiers.len(), CRITICAL_MASS_VERIFIER));
+    let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), CRITICAL_MASS_SERVICE));
+    let (mempool_pool,   scatter_mem)   = apply_scarcity(mempool_pool_raw,    payout_factor(mempool_ops.len(), CRITICAL_MASS_MEMPOOL));
+
+    let scarcity_recycle = scatter_infer + scatter_store + scatter_sensor
+                         + scatter_verify + scatter_svc + scatter_mem;
+    if scarcity_recycle > 0 {
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
+    }
+
+    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, cmd_tx, |miner, amount, ep| {
+        LedgerEntry::MineReward { miner, amount, epoch: ep }
+    }).await;
+    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, cmd_tx, |node_id, amount, ep| {
+        LedgerEntry::StorageReward { node_id, amount, epoch: ep }
+    }).await;
+    distribute_rewards_desktop(epoch, &sensor_nodes, sensor_pool, chain, cmd_tx, |node_id, amount, ep| {
+        LedgerEntry::SensorReward { node_id, amount, epoch: ep }
+    }).await;
+    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, cmd_tx, |node_id, amount, ep| {
+        LedgerEntry::VerifierReward { node_id, amount, epoch: ep }
+    }).await;
+    distribute_rewards_desktop(epoch, &service_nodes, service_pool, chain, cmd_tx, |node_id, amount, ep| {
+        LedgerEntry::ServiceReward { node_id, amount, epoch: ep }
+    }).await;
+    distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, cmd_tx, |operator, amount, ep| {
+        LedgerEntry::MempoolReward { operator, amount, epoch: ep }
+    }).await;
+
+    let distributed  = inference_pool + storage_pool + sensor_pool
+                     + verify_pool + service_pool + mempool_pool;
+    let remainder    = gated_pool.saturating_sub(distributed).saturating_sub(scarcity_recycle);
+    if remainder > 0 {
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, remainder);
+    }
+
+    info!(
+        "clock: epoch {} raw={} reserve={} gated={}({:.0}%) scarcity_recycle={} \
+         [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{}]",
+        epoch, raw_pool, reserve_total, gated_pool,
+        activity_ratio_num as f64 / ACTIVITY_RATIO_DENOM as f64 * 100.0,
+        scarcity_recycle + idle_recycle,
+        inference_pool, mines.len(),
+        storage_pool, storage_nodes.len(),
+        sensor_pool, sensor_nodes.len(),
+        verify_pool, verifiers.len(),
+        service_pool, service_nodes.len(),
+        mempool_pool, mempool_ops.len(),
+    );
+}
+
+async fn broadcast_entry_desktop(
+    entry: &LedgerEntry,
+    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
+) {
+    let envelope = serde_json::json!({"entry": entry});
+    if let Ok(data) = serde_json::to_vec(&envelope) {
+        let _ = cmd_tx.send(NetCmd::Broadcast { topic: "btcpc/entries", data }).await;
+    }
+}
+
+fn sweep_expired_pending_transfers(epoch: u64, chain: &Arc<Chain>) {
+    let prefix = "pending_transfer:";
+    let entries = chain.store.state_scan_prefix(prefix);
+    for (key, raw) in entries {
+        let Ok(j) = serde_json::from_slice::<serde_json::Value>(&raw) else { continue };
+        let expires = j["expires_epoch"].as_u64().unwrap_or(0);
+        if expires > epoch { continue; }
+        let from = j["from"].as_str().unwrap_or("").to_owned();
+        let token = j["token"].as_str().unwrap_or("").to_owned();
+        let amount = j["amount"].as_u64().unwrap_or(0);
+        if from.is_empty() || token.is_empty() || amount == 0 { continue; }
+        let _ = chain.store.state_delete(&key);
+        let _ = chain.store.credit(&from, &token, amount);
+    }
 }
 
 async fn distribute_rewards_desktop<F>(
@@ -619,10 +900,7 @@ async fn distribute_rewards_desktop<F>(
         }
         let envelope = serde_json::json!({"entry": entry});
         if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast {
-                topic: "btcpc/entries",
-                data,
-            }).await;
+            let _ = cmd_tx.send(NetCmd::Broadcast { topic: "btcpc/entries", data }).await;
         }
     }
 }

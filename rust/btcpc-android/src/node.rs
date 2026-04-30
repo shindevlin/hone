@@ -194,6 +194,9 @@ fn handle_net_event(ev: NetworkEvent, chain: &Chain, clock: &ClockConsensus) {
         NetworkEvent::EpochSeal { seal } => {
             clock.receive_seal(seal);
         }
+        NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id } => {
+            clock.receive_reward_proposal(crate::clock::RewardProposal { epoch, rewards_hash, node_id });
+        }
         NetworkEvent::Block { .. } => {
             // Miners no longer produce blocks — this event is no-op.
         }
@@ -378,13 +381,18 @@ async fn run_verifier(
                         "review_required"
                     };
 
+                    let output_tokens = (output_text.split_whitespace().count() as u64).max(1);
+                    let model_str = job["model"].as_str().unwrap_or("");
+                    let value_score = btcpc_types::inference_score(output_tokens, 0, model_str);
+
                     let entry = LedgerEntry::InferenceJobVerify {
-                        job_id:    job_id.clone(),
-                        verifier:  account.clone(),
-                        verdict:   verdict.to_owned(),
-                        reason:    None,
+                        job_id:      job_id.clone(),
+                        verifier:    account.clone(),
+                        verdict:     verdict.to_owned(),
+                        value_score,
+                        reason:      None,
                         epoch,
-                        signed_by: account.clone(),
+                        signed_by:   account.clone(),
                     };
                     let _ = chain.apply_entry(&entry);
                     let envelope = serde_json::json!({ "entry": entry });

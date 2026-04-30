@@ -48,10 +48,10 @@ pub const RECYCLE_ERA: u64 = 5;
 /// Drained by: era-5 block rewards (recycle_reward_at).
 pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
 
-/// Total clock reward per epoch (paid to ALL clock nodes combined, then split equally).
-/// 0.001 BTCPC = 0.05% of the 2 BTCPC block reward.  Tiny enough to not dominate
-/// earnings; large enough to incentivize running clock nodes.
-pub const CLOCK_REWARD_DREAMS: u64 = 10_000_000;
+/// Base clock reward per epoch at era 0 (30-second epochs).
+/// Doubles each era so clock nodes earn the same per-day income regardless of how
+/// long epochs get.  Use clock_reward_at(epoch) rather than this constant directly.
+pub const CLOCK_REWARD_DREAMS: u64 = 10_000_000; // 0.001 BTCPC at era 0
 
 /// Inference fee split in basis points (10_000 = 100%).
 /// Worker receives the bulk; verifiers/reviewers share their pools equally.
@@ -73,18 +73,85 @@ pub const CLAIM_WINDOW_EPOCHS: u64 = 20;
 /// Minimum verifier votes required to resolve a dispute.
 pub const MIN_REVIEW_VOTES: u64 = 3;
 
-// ── Epoch reward pool allocation (basis points, 10_000 = 100%) ──────────────
+// ── Testnet incentive fund ────────────────────────────────────────────────────
 
-/// Inference work (output tokens × hw_tier × model_weight).
-pub const EPOCH_POOL_INFERENCE_BPS: u64 = 5_000; // 50%
-/// Storage nodes (bytes proven in StorageHeartbeat).
-pub const EPOCH_POOL_STORAGE_BPS: u64 = 2_000;   // 20%
-/// Sensor nodes (reading_count in SensorDataCommit).
-pub const EPOCH_POOL_SENSOR_BPS: u64 = 1_500;    // 15%
-/// Inference verifiers (jobs verified in InferenceJobVerify).
-pub const EPOCH_POOL_VERIFY_BPS: u64 = 1_000;    // 10%
-/// Remainder flows to recycle fund (covers clock reward too).
-pub const EPOCH_POOL_RECYCLE_BPS: u64 = 500;     // 5%
+/// System account holding mainnet tokens reserved for testnet operators.
+/// Seeded in genesis so nodes running btcpc-satoshi get small mainnet rewards.
+pub const TESTNET_FUND_ACCOUNT: &str = "__testnet_fund__";
+
+/// Per registered testnet operator per mainnet epoch (base, era 0).
+/// Scales with epoch duration the same way clock_reward_at does.
+pub const TESTNET_REWARD_BASE_DREAMS: u64 = 5_000_000; // 0.0005 BTCPC at era 0
+
+
+/// Per-epoch clock reward that maintains constant daily income as epoch duration grows.
+/// Doubles each era: era 0 = 0.001 BTCPC, era 1 = 0.002 BTCPC, era 2 = 0.004 BTCPC …
+#[inline]
+pub fn clock_reward_at(epoch: u64) -> u64 {
+    let shift = era(epoch).min(RECYCLE_ERA);
+    CLOCK_REWARD_DREAMS << shift
+}
+
+/// Per-operator testnet reward at the given mainnet epoch (scales with clock_reward_at).
+#[inline]
+pub fn testnet_reward_at(epoch: u64) -> u64 {
+    let shift = era(epoch).min(RECYCLE_ERA);
+    TESTNET_REWARD_BASE_DREAMS << shift
+}
+
+/// Integer square root (Newton's method) — deterministic across all platforms.
+pub fn isqrt(n: u64) -> u64 {
+    if n == 0 { return 0; }
+    let mut x = n;
+    let mut y = x.saturating_add(1) / 2;
+    while y < x {
+        x = y;
+        y = x.saturating_add(n / x) / 2;
+    }
+    x
+}
+
+/// Stake-weight multiplier for inference mining: min(isqrt(stake/MIN_STAKE), 10).
+/// Bootstrap floor of 1 so unstaked nodes can still participate at minimum rate.
+pub fn stake_weight(stake: u64) -> u64 {
+    if stake < MIN_STAKE { return 1; }
+    isqrt(stake / MIN_STAKE).min(10).max(1)
+}
+
+/// Sensor contribution score: type-aware, all-integer, no hard reading cap.
+///
+/// Different sensor types have fundamentally different value models:
+/// - "continuous": complete time-series matters (temp, humidity, power).
+///   Value scales with sqrt(readings) — diminishing returns prevent spam domination.
+/// - "event": each reading is individually valuable (GPS commit, seismic trigger).
+///   Linear up to a hard cap of 20 — duplicates don't add value.
+/// - "sampled": periodic snapshots with diminishing returns (air quality, CO2).
+///   Linear up to 60 readings, then reduced rate for higher counts.
+/// - "pulse": presence/uptime proof. High value for first reading, small for extras.
+///
+/// Unknown type falls back to conservative sqrt-based scoring.
+pub fn sensor_score(reading_count: u64, sensor_type: &str) -> u64 {
+    match sensor_type {
+        "continuous" => isqrt(reading_count.saturating_mul(100)),
+        "event"      => reading_count.min(20).saturating_mul(100),
+        "sampled"    => {
+            let base  = reading_count.min(60).saturating_mul(30);
+            let extra = reading_count.saturating_sub(60).min(940).saturating_mul(5);
+            base + extra
+        }
+        "pulse" => {
+            if reading_count == 0 { return 0; }
+            200_u64.saturating_add(reading_count.saturating_sub(1).min(10).saturating_mul(10))
+        }
+        _ => isqrt(reading_count.saturating_mul(10)),
+    }
+}
+
+/// Mempool relay score: high throughput at low latency earns more.
+/// score = entries_relayed * 1000 / max(latency_ms, 1)
+pub fn mempool_relay_score(entries_relayed: u64, latency_ms: u64) -> u64 {
+    entries_relayed.saturating_mul(1_000) / latency_ms.max(1)
+}
 
 /// Returns the point multiplier for a hardware tier.
 ///
@@ -125,6 +192,86 @@ pub fn model_weight(model: &str) -> u64 {
 pub fn inference_score(output_tokens: u64, hw_tier: u8, model: &str) -> u64 {
     output_tokens.saturating_mul(hw_tier_weight(hw_tier)).saturating_mul(model_weight(model))
 }
+
+// ── Activity-gating ───────────────────────────────────────────────────────────
+
+/// Fixed-point denominator for activity ratios (10_000 = 1.0 = 100%).
+pub const ACTIVITY_RATIO_DENOM: u64 = 10_000;
+
+/// Minimum activity ratio (in ACTIVITY_RATIO_DENOM units) when some work exists.
+/// 100/10_000 = 1%.  An epoch with any participants earns at least 1% of the pool.
+/// Epochs with zero participants across all pools earn nothing (ratio = 0).
+pub const MIN_ACTIVITY_RATIO_NUM: u64 = 100;
+
+/// Calibration targets — translate each pool's raw units to a dimensionless
+/// [0, 1.0] utilization score.  All pools can then be compared fairly when
+/// computing activity ratio and pool budget allocation.
+///
+/// Values represent "a healthy small early-network epoch."  Auto-adjustment
+/// (EIP-1559-style, ADJUST_RATE ≈ 0.05%/epoch) and governance can tune them.
+
+/// Inference calibration target — weighted score points per epoch.
+/// ≈ 100 inference jobs × 100 output_tokens × hw_tier_weight=1 × model_weight=1
+pub const CALIBRATION_INFERENCE: u64 = 10_000;
+
+/// Storage calibration target — (bytes_proven + query_bonus) per epoch.
+/// ≈ 1 node × 10 GB stored with moderate query traffic.
+pub const CALIBRATION_STORAGE: u64 = 10_000_000_000; // 10 GB
+
+/// Sensor calibration target — sensor_score() total per epoch.
+/// ≈ 5 continuous sensors × 1000 readings → sensor_score ≈ 316 each → ~1580 total.
+/// ≈ 5 event sensors × 10 readings → sensor_score = 1000 each → ~5000 total.
+/// Target set at a mixed healthy network.
+pub const CALIBRATION_SENSOR: u64 = 5_000;
+
+/// Verifier calibration target — value_score_total from approved verdicts per epoch.
+/// ≈ 50 verifications × avg value_score of 100 per job.
+pub const CALIBRATION_VERIFIER: u64 = 5_000;
+
+/// Service calibration target — container_hours per epoch.
+/// ≈ 1 service node running 24 hours of containers per epoch.
+pub const CALIBRATION_SERVICE: u64 = 24;
+
+/// Mempool calibration target — relay score per epoch.
+/// score = entries_relayed * 1000 / max(latency_ms, 1)
+/// ≈ 1 fast relay handling 1000 entries at 100 ms latency = 10_000.
+pub const CALIBRATION_MEMPOOL: u64 = 10_000;
+
+// ── Scarcity critical mass ────────────────────────────────────────────────────
+
+/// Minimum participant count for a pool to pay out at full rate.
+/// Below critical mass: payout_factor = participants / critical_mass (< 1.0).
+/// Remainder flows to recycle — prevents early sparse networks from over-extracting.
+/// These are STATIC initial values; replace with EMA-based dynamic targets later.
+pub const CRITICAL_MASS_INFERENCE: u64 = 10;
+pub const CRITICAL_MASS_STORAGE:   u64 = 5;
+pub const CRITICAL_MASS_SENSOR:    u64 = 20;
+pub const CRITICAL_MASS_VERIFIER:  u64 = 5;
+pub const CRITICAL_MASS_SERVICE:   u64 = 3;
+pub const CRITICAL_MASS_MEMPOOL:   u64 = 3;
+
+// ── Stake-weighted mining ─────────────────────────────────────────────────────
+
+/// Minimum stake for a non-trivial stake multiplier (100 BTCPC).
+/// stake_weight = min(isqrt(stake / MIN_STAKE), 10); bootstrap floor = 1.
+pub const MIN_STAKE: u64 = 100 * 10_000_000_000; // 100 BTCPC in dreams
+
+// ── Device claim overbid ──────────────────────────────────────────────────────
+
+/// Minimum overbid multiplier to forcibly claim a device from an existing holder.
+/// New stake must be ≥ old_stake × (OVERBID_NUM / OVERBID_DENOM) = 1.5×.
+///
+/// The 50% increment acts as proof of economic commitment and deters trivial
+/// squatting while remaining accessible for legitimate used-device buyers.
+/// Old owner receives their full stake back automatically on overbid.
+pub const DEVICE_CLAIM_OVERBID_NUM: u128 = 3;
+pub const DEVICE_CLAIM_OVERBID_DENOM: u128 = 2;
+
+/// Share of the overbid premium that goes to device yield stakers (in basis points).
+/// 5_000 bps = 50%.  Remaining 50% → recycle fund.
+/// Old claim owner always receives their full principal back regardless.
+/// If no yield stakers exist, the full premium goes to recycle.
+pub const OVERCLAIM_STAKER_SHARE_BPS: u64 = 5_000;
 
 /// Per-epoch distribution rate from the recycle fund.
 ///
@@ -200,6 +347,52 @@ pub fn epoch_start_ms_from_genesis(epoch: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn isqrt_correct() {
+        assert_eq!(isqrt(0), 0);
+        assert_eq!(isqrt(1), 1);
+        assert_eq!(isqrt(4), 2);
+        assert_eq!(isqrt(9), 3);
+        assert_eq!(isqrt(100), 10);
+        assert_eq!(isqrt(99), 9);
+        assert_eq!(isqrt(u64::MAX), 4294967295);
+    }
+
+    #[test]
+    fn sensor_score_types() {
+        // continuous: sqrt(n * 100); 1440 readings → isqrt(144000) = 379
+        assert_eq!(sensor_score(0, "continuous"), 0);
+        assert_eq!(sensor_score(1, "continuous"), isqrt(100));  // = 10
+        assert_eq!(sensor_score(100, "continuous"), isqrt(10_000)); // = 100
+        assert_eq!(sensor_score(1440, "continuous"), isqrt(144_000)); // ≈ 379
+
+        // event: linear, hard cap at 20
+        assert_eq!(sensor_score(1, "event"), 100);
+        assert_eq!(sensor_score(20, "event"), 2_000);
+        assert_eq!(sensor_score(100, "event"), 2_000); // capped
+
+        // sampled: base up to 60, then reduced
+        assert_eq!(sensor_score(30, "sampled"), 900);
+        assert_eq!(sensor_score(60, "sampled"), 1_800);
+        assert_eq!(sensor_score(160, "sampled"), 1_800 + 500); // 900 extra at 5/reading
+
+        // pulse: 200 for first, 10 for extras
+        assert_eq!(sensor_score(0, "pulse"), 0);
+        assert_eq!(sensor_score(1, "pulse"), 200);
+        assert_eq!(sensor_score(5, "pulse"), 240);
+        assert_eq!(sensor_score(12, "pulse"), 300); // capped at 10 extras (200 + 10*10)
+    }
+
+    #[test]
+    fn stake_weight_values() {
+        assert_eq!(stake_weight(0), 1);                      // bootstrap
+        assert_eq!(stake_weight(MIN_STAKE - 1), 1);          // below min
+        assert_eq!(stake_weight(MIN_STAKE), 1);              // sqrt(1) = 1
+        assert_eq!(stake_weight(MIN_STAKE * 4), 2);          // sqrt(4) = 2
+        assert_eq!(stake_weight(MIN_STAKE * 100), 10);       // sqrt(100) = 10, capped
+        assert_eq!(stake_weight(MIN_STAKE * 10_000), 10);    // sqrt(10000) = 100 → capped to 10
+    }
 
     #[test]
     fn era_boundaries() {

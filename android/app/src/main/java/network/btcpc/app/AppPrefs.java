@@ -128,16 +128,8 @@ public class AppPrefs {
         prefs.edit().putLong("genesisTs", ts).apply();
     }
 
-    public String getClockState() {
-        return prefs.getString(KEY_CLOCK_STATE, "");
-    }
-
     public void setClockState(String value) {
         prefs.edit().putString(KEY_CLOCK_STATE, value).apply();
-    }
-
-    public String getSensorState() {
-        return prefs.getString(KEY_SENSOR_STATE, "");
     }
 
     public void setRelayUrl(String value) {

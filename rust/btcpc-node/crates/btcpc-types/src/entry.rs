@@ -82,6 +82,9 @@ pub enum LedgerEntry {
     },
     EpochFinalize {
         epoch: Epoch,
+        node_id: AccountId,
+        rewards_hash: String,
+        quorum: u64,
         sealed_by: Vec<AccountId>,
         state_root: String,
         timestamp: u64,
@@ -166,13 +169,25 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
-    /// System verifier confirms or disputes a completed job.
-    /// "approved" → payment flows; "disputed" → enters dispute window.
+    /// Verifier claims a completed job to inspect.
+    /// Worker responds by encrypting (prompt + result) to the verifier's memo public key.
+    InferenceVerifyClaim {
+        job_id: String,
+        verifier: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Verifier submits verdict after decrypting and evaluating the work.
+    /// "approved" → payment flows; "rejected" → worker loses fee;
+    /// "review_required" → enters human review window.
     InferenceJobVerify {
         job_id: String,
         verifier: AccountId,
-        /// "approved" | "disputed"
+        /// "approved" | "rejected" | "review_required"
         verdict: String,
+        /// output_tokens × hw_tier_weight × model_weight × complexity_factor (1–4).
+        /// Used for the verifier's Layer B pool weight and miner's epoch score.
+        value_score: u64,
         reason: Option<String>,
         epoch: Epoch,
         signed_by: AccountId,
@@ -223,12 +238,87 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
-    // ── Clock Reward ──────────────────────────────────────────────────────────
-    /// Minimal per-epoch reward to clock nodes to keep the chain alive.
+    // ── Epoch Rewards ─────────────────────────────────────────────────────────
+    /// Layer D base reward to clock nodes (always fires, era-scaled).
     ClockReward {
         node_id: AccountId,
         amount: Dreams,
         epoch: Epoch,
+    },
+    /// Layer B pool reward to storage nodes (proportional to bytes_proven × query bonus).
+    StorageReward {
+        node_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+    /// Layer B pool reward to sensor owners (type-aware sensor_score weighting).
+    SensorReward {
+        node_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+    /// Layer B pool reward to verifiers (proportional to value_score_total this epoch).
+    VerifierReward {
+        node_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+    /// Layer B pool reward to service hosts (proportional to container_hours this epoch).
+    ServiceReward {
+        node_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+    /// Layer B pool reward to mempool operators (inversely weighted by propagation latency).
+    MempoolReward {
+        operator: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+
+    // ── Mempool: staked relay node type ──────────────────────────────────────
+    /// Register as a mempool operator. Operator stakes BTCPC; lowest-latency
+    /// nodes earn the most.  Slashable for censorship, double-inclusion, or
+    /// fee front-running (slashing conditions enforced by governance + evidence entries).
+    MempoolOperatorRegister {
+        operator: AccountId,
+        /// Stake to lock — must meet MEMPOOL_MIN_STAKE.
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Periodic heartbeat from a mempool operator proving active relay work.
+    MempoolHeartbeat {
+        operator: AccountId,
+        epoch: Epoch,
+        /// P99 propagation latency in ms measured over this epoch.
+        propagation_latency_ms: u64,
+        /// Number of entries relayed to peers this epoch.
+        entries_relayed: u64,
+        signed_by: AccountId,
+    },
+
+    // ── Device claim stake ────────────────────────────────────────────────────
+    /// Stake BTCPC to claim ownership of a device identified by its hardware serial.
+    /// First staker of a serial wins.  Previous owner must DeviceClaimUnstake before
+    /// a new owner can claim.  Stake is slashable for fraudulent claims.
+    DeviceClaimStake {
+        /// Hardware-burned unique identifier (IMEI, CPU serial, TPM endorsement key).
+        device_serial: String,
+        owner: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Release a device claim, returning stake.  Required before a new owner can claim.
+    DeviceClaimUnstake {
+        device_serial: String,
+        owner: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
     },
 
     // ── Storage ───────────────────────────────────────────────────────────────
@@ -374,6 +464,9 @@ pub enum LedgerEntry {
         /// SHA-256 of the batch JSON.
         batch_hash: String,
         reading_count: u64,
+        /// Value model for scoring: "continuous" | "event" | "sampled" | "pulse"
+        /// Declared by the device at commit time; registry enforces consistency.
+        sensor_type: String,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -387,9 +480,10 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
     /// Device stakes yield to earn storage/sensor rewards.
+    /// Uses device_serial (hardware-burned ID) to match DeviceClaimStake.
     DeviceYieldStake {
-        device_id: String,
-        owner: AccountId,
+        device_serial: String,
+        staker: AccountId,
         amount: Dreams,
         epoch: Epoch,
         nonce: u64,
@@ -397,8 +491,8 @@ pub enum LedgerEntry {
     },
     /// Device unstakes yield.
     DeviceYieldUnstake {
-        device_id: String,
-        owner: AccountId,
+        device_serial: String,
+        staker: AccountId,
         amount: Dreams,
         epoch: Epoch,
         nonce: u64,
@@ -416,6 +510,29 @@ pub enum LedgerEntry {
         node_id: AccountId,
         epoch: Epoch,
         bytes_proven: u64,
+        /// Active data access queries served this epoch (used for query bonus up to 2×).
+        query_count: u64,
+        signed_by: AccountId,
+    },
+    /// Service node heartbeat proving active container-hours (decentralized compute).
+    ServiceHeartbeat {
+        node_id: AccountId,
+        epoch: Epoch,
+        /// Active container-hours in this epoch.
+        container_hours: u64,
+        signed_by: AccountId,
+    },
+    /// Buyer purchases a sensor data batch from a sensor owner.
+    SensorDataPurchase {
+        sensor_id: String,
+        buyer: AccountId,
+        owner: AccountId,
+        /// SHA-256 of the batch being purchased.
+        batch_hash: String,
+        /// Fee paid by buyer; split: owner majority + storage contract rate + recycle.
+        fee: Dreams,
+        epoch: Epoch,
+        nonce: u64,
         signed_by: AccountId,
     },
 
@@ -492,12 +609,206 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── Testnet ───────────────────────────────────────────────────────────────
+    /// Register a mainnet account as a testnet operator so clock nodes on mainnet
+    /// can reward it from the testnet fund each epoch.
+    TestnetOperatorRegister {
+        /// Mainnet account that will receive rewards.
+        mainnet_account: AccountId,
+        /// Identifying label for the testnet node (for logging / dedup).
+        testnet_node_id: String,
+        /// Chain ID of the testnet being operated (e.g. "btcpc-satoshi").
+        testnet_chain_id: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Periodic mainnet reward to a registered testnet operator.
+    /// Emitted by mainnet clock nodes each epoch from the testnet fund.
+    TestnetReward {
+        mainnet_account: AccountId,
+        testnet_node_id: String,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+
     // ── Genesis ───────────────────────────────────────────────────────────────
     GenesisAlloc {
         account: AccountId,
         amount: Dreams,
         token: String,
     },
+
+    // ── Scoped Delegation ────────────────────────────────────────────────────
+    /// Grant a delegate key permission to act on behalf of the grantor
+    /// for a specific set of capabilities until `expires_epoch`.
+    /// Capabilities: "Transfer", "Stake", "Inference", "SensorSubmission",
+    ///               "DeviceYield", "ServiceHeartbeat", "all"
+    DelegationGrant {
+        from: AccountId,
+        to: AccountId,
+        capabilities: Vec<String>,
+        expires_epoch: Epoch,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Revoke a previously granted delegation immediately.
+    DelegationRevoke {
+        from: AccountId,
+        to: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+
+    // ── Device Yield Opt-In ──────────────────────────────────────────────────
+    /// Device owner opts in to yield-sharing, allowing stakers up to `max_stakers`.
+    /// Reward split on device earnings: 70% owner, 20% stakers (pro-rata), 10% recycle.
+    DeviceYieldOptIn {
+        device_serial: String,
+        owner: AccountId,
+        max_stakers: u8,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Device owner opts out of yield-sharing. Existing yield stakers keep positions
+    /// but earn nothing until the owner opts back in.
+    DeviceYieldOptOut {
+        device_serial: String,
+        owner: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+
+    // ── Permissive Token Model ────────────────────────────────────────────────
+    /// Set a BTCPC fee that any sender must pay to deliver an unapproved token.
+    /// The fee is deducted from the sender's NATIVE_TOKEN balance and credited
+    /// to the recipient before the token lands.  Use token="*" to gate all tokens.
+    /// Pre-approved tokens (TokenApprove) bypass the gate entirely.
+    SpamGateSet {
+        account: AccountId,
+        /// Token being gated ("*" = all custom tokens).
+        token: String,
+        fee: Dreams,
+        /// Token the fee must be paid in (e.g. "BTCPC", "USDC", "USDT", "DAI").
+        /// Set to "EVM" to require off-chain EVM payment instead (see evm_address / evm_chain_id).
+        fee_token: String,
+        /// Optional EVM wallet address for off-chain fee payment (e.g. USDC on Ethereum).
+        /// When set, senders use SpamGatePayEvm instead of paying on-chain.
+        evm_address: Option<String>,
+        /// EVM chain ID where the off-chain fee should be paid (1=Ethereum, 137=Polygon, 8453=Base).
+        evm_chain_id: Option<u64>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Send a token to an EVM-gated recipient by attesting to an off-chain fee payment.
+    /// Debits `amount` of `token` from the sender and creates a pending transfer record
+    /// that includes the EVM tx hash.  Recipient verifies the EVM payment independently
+    /// then calls TokenAccept to release, or TokenReject to refund.
+    SpamGatePayEvm {
+        from: AccountId,
+        to: AccountId,
+        token: String,
+        amount: Dreams,
+        /// EVM transaction hash proving the fee was paid to the recipient's EVM address.
+        evm_tx_hash: String,
+        evm_chain_id: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Remove a previously set spam gate for a token (or "*").
+    SpamGateClear {
+        account: AccountId,
+        token: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Pre-approve a token type and/or sender so transfers arrive immediately.
+    /// Use "*" as a wildcard: token="*" means any token, from="*" means any sender.
+    /// Examples:
+    ///   token="USDC"  from="*"     — accept all USDC from anyone
+    ///   token="*"     from="alice" — accept any token from alice
+    ///   token="*"     from="*"     — fully open (no pending for this account)
+    TokenApprove {
+        account: AccountId,
+        token: String,
+        from: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Revoke a previously granted token approval.
+    TokenRevoke {
+        account: AccountId,
+        token: String,
+        from: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Recipient explicitly accepts a specific pending token transfer.
+    TokenAccept {
+        to: AccountId,
+        token: String,
+        from: AccountId,
+        pending_nonce: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Recipient rejects a pending token transfer — funds return to sender.
+    TokenReject {
+        to: AccountId,
+        token: String,
+        from: AccountId,
+        pending_nonce: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+
+    // ── Wallet Family ─────────────────────────────────────────────────────────
+    /// Permanently link a set of BIP44-derived addresses across chains to a BTCPC
+    /// account.  Addresses are additive-only — once published they cannot be removed.
+    /// The `signature` field for each address proves key ownership (optional but
+    /// strongly recommended): sign the canonical string
+    /// `"btcpc-family:{account}:{chain}:{address}"` with the corresponding chain key.
+    WalletFamilyPublish {
+        /// BTCPC account that owns all derived wallets.
+        account: AccountId,
+        /// Initial set of chain addresses to link.
+        chains: Vec<ChainAddress>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Add more chain addresses to an existing wallet family.
+    /// Signed by the same account as `WalletFamilyPublish`.
+    WalletFamilyAdd {
+        account: AccountId,
+        chains: Vec<ChainAddress>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+}
+
+/// A single chain address within a wallet family.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainAddress {
+    /// Chain identifier: "evm", "bitcoin", "solana", "monero", "btcpc", etc.
+    pub chain: String,
+    /// Address on that chain (format is chain-specific).
+    pub address: String,
+    /// BIP44 derivation path used (e.g. "m/44'/60'/0'/0/0" for EVM).
+    pub derivation_path: Option<String>,
+    /// Signature proving ownership: sign `"btcpc-family:{account}:{chain}:{address}"`.
+    pub signature: Option<String>,
 }
 
 impl LedgerEntry {
@@ -519,12 +830,17 @@ impl LedgerEntry {
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
             Self::InferenceJobComplete { epoch, .. } => *epoch,
+            Self::InferenceVerifyClaim { epoch, .. } => *epoch,
             Self::InferenceJobVerify { epoch, .. } => *epoch,
             Self::InferenceJobClaim { epoch, .. } => *epoch,
             Self::InferenceReviewVote { epoch, .. } => *epoch,
             Self::InferenceJobPay { epoch, .. } => *epoch,
             Self::InferenceJobCancel { epoch, .. } => *epoch,
             Self::ClockReward { epoch, .. } => *epoch,
+            Self::StorageReward { epoch, .. } => *epoch,
+            Self::SensorReward { epoch, .. } => *epoch,
+            Self::VerifierReward { epoch, .. } => *epoch,
+            Self::ServiceReward { epoch, .. } => *epoch,
             Self::BlobStore { epoch, .. } => *epoch,
             Self::StoreUpdate { epoch, .. } => *epoch,
             Self::ProductCreate { epoch, .. } => *epoch,
@@ -544,12 +860,34 @@ impl LedgerEntry {
             Self::DeviceYieldUnstake { epoch, .. } => *epoch,
             Self::GatewayHeartbeat { epoch, .. } => *epoch,
             Self::StorageHeartbeat { epoch, .. } => *epoch,
+            Self::ServiceHeartbeat { epoch, .. } => *epoch,
+            Self::SensorDataPurchase { epoch, .. } => *epoch,
             Self::LinkGitRepoCreate { epoch, .. } => *epoch,
             Self::LinkGitRefUpdate { epoch, .. } => *epoch,
             Self::LinkGitAccessGrant { epoch, .. } => *epoch,
             Self::LinkGitAccessRevoke { epoch, .. } => *epoch,
             Self::LinkGitPruneProof { epoch, .. } => *epoch,
             Self::LinkGitStorageExtend { epoch, .. } => *epoch,
+            Self::TestnetOperatorRegister { epoch, .. } => *epoch,
+            Self::TestnetReward { epoch, .. } => *epoch,
+            Self::MempoolReward { epoch, .. } => *epoch,
+            Self::MempoolOperatorRegister { epoch, .. } => *epoch,
+            Self::MempoolHeartbeat { epoch, .. } => *epoch,
+            Self::DeviceClaimStake { epoch, .. } => *epoch,
+            Self::DeviceClaimUnstake { epoch, .. } => *epoch,
+            Self::DelegationGrant { epoch, .. } => *epoch,
+            Self::DelegationRevoke { epoch, .. } => *epoch,
+            Self::DeviceYieldOptIn { epoch, .. } => *epoch,
+            Self::DeviceYieldOptOut { epoch, .. } => *epoch,
+            Self::SpamGateSet { epoch, .. } => *epoch,
+            Self::SpamGatePayEvm { epoch, .. } => *epoch,
+            Self::SpamGateClear { epoch, .. } => *epoch,
+            Self::TokenApprove { epoch, .. } => *epoch,
+            Self::TokenRevoke { epoch, .. } => *epoch,
+            Self::TokenAccept { epoch, .. } => *epoch,
+            Self::TokenReject { epoch, .. } => *epoch,
+            Self::WalletFamilyPublish { epoch, .. } => *epoch,
+            Self::WalletFamilyAdd { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
         }
     }

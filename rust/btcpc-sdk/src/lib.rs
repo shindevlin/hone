@@ -545,6 +545,232 @@ impl KeyPair {
     }
 }
 
+// ── Wallet: BIP39 mnemonic + multi-chain key derivation ──────────────────────
+
+/// On-disk wallet identity file.
+/// Contains ONLY public information: account name, BTCPC public key, and
+/// chain addresses.  No private keys, no mnemonic, ever.
+/// Private keys must be derived from the mnemonic at session time.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WalletFile {
+    pub version: u8,
+    /// BTCPC account name.
+    pub account: String,
+    /// Derived BTCPC ed25519 public key (hex). Used to verify identity.
+    pub btcpc_public_key_hex: String,
+    /// Derived chain addresses / public keys.
+    /// Keys: "evm", "solana", "bitcoin". Values: address strings (all public).
+    pub chain_addresses: std::collections::HashMap<String, String>,
+}
+
+/// Derivation paths used per chain.
+pub mod paths {
+    /// BTCPC ed25519 (SLIP10, all components hardened). Coin type 2301.
+    pub const BTCPC: &[u32] = &[0x8000002C, 0x800008FD, 0x80000000, 0x80000000, 0x80000000];
+    /// Ethereum/EVM secp256k1 BIP44.
+    pub const EVM: &str = "m/44'/60'/0'/0/0";
+    /// Solana ed25519 (SLIP10, all hardened).
+    pub const SOLANA: &[u32] = &[0x8000002C, 0x800001F5, 0x80000000, 0x80000000];
+    /// Bitcoin secp256k1 BIP44 (P2PKH).
+    pub const BITCOIN: &str = "m/44'/0'/0'/0/0";
+}
+
+/// Ephemeral wallet built from a BIP39 mnemonic.
+/// The mnemonic is held in memory only for the duration of wallet creation;
+/// after `save_to_file` it must be discarded.
+pub struct Wallet {
+    /// Shown to the user once; never persisted by this library.
+    pub mnemonic: bip39::Mnemonic,
+    pub account: String,
+    seed: Vec<u8>,
+}
+
+impl Wallet {
+    /// Generate a fresh 12-word mnemonic wallet.
+    pub fn generate(account: &str) -> Result<Self> {
+        let mnemonic = bip39::Mnemonic::generate(12)
+            .map_err(|e| anyhow!("mnemonic generation failed: {}", e))?;
+        Ok(Self::from_mnemonic(mnemonic, account))
+    }
+
+    /// Restore an ephemeral wallet from a mnemonic phrase (for re-publishing addresses).
+    pub fn from_phrase(phrase: &str, account: &str) -> Result<Self> {
+        let mnemonic = bip39::Mnemonic::parse(phrase)
+            .map_err(|e| anyhow!("invalid mnemonic: {}", e))?;
+        Ok(Self::from_mnemonic(mnemonic, account))
+    }
+
+    fn from_mnemonic(mnemonic: bip39::Mnemonic, account: &str) -> Self {
+        let seed = mnemonic.to_seed("").to_vec();
+        Self { mnemonic, account: account.to_string(), seed }
+    }
+
+    /// Save the wallet identity file.
+    /// Writes ONLY public information: account name, BTCPC public key, chain addresses.
+    /// No private key, no mnemonic, no seed — those must be kept by the user.
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let kp = self.btcpc_keypair()?;
+        let mut addrs = std::collections::HashMap::new();
+        if let Ok(a) = self.evm_address()       { addrs.insert("evm".into(), a); }
+        if let Ok(a) = self.bitcoin_pubkey_hex() { addrs.insert("bitcoin".into(), a); }
+        addrs.insert("solana".into(), self.solana_address());
+
+        let wf = WalletFile {
+            version: 2,
+            account: self.account.clone(),
+            btcpc_public_key_hex: kp.public_key_hex(),
+            chain_addresses: addrs,
+        };
+        fs::write(path, serde_json::to_string_pretty(&wf)?)?;
+        Ok(())
+    }
+
+    /// BTCPC signing key derived via SLIP10-ed25519.
+    pub fn btcpc_keypair(&self) -> Result<KeyPair> {
+        let key_bytes = slip10_ed25519_derive(&self.seed, paths::BTCPC);
+        KeyPair::from_bytes(&key_bytes)
+    }
+
+    /// EVM address string (0x-prefixed) from BIP44 secp256k1.
+    pub fn evm_address(&self) -> Result<String> {
+        let key_bytes = bip32_secp256k1_derive(&self.seed, paths::EVM)?;
+        let sk = k256::ecdsa::SigningKey::from_slice(&key_bytes)
+            .map_err(|_| anyhow!("invalid secp256k1 key"))?;
+        let vk = sk.verifying_key();
+        // Keccak256 of the 64-byte uncompressed public key (strip 0x04 prefix byte).
+        let uncompressed = vk.to_encoded_point(false);
+        use sha3::Digest;
+        let hash = sha3::Keccak256::digest(&uncompressed.as_bytes()[1..]);
+        Ok(format!("0x{}", hex::encode(&hash[12..])))
+    }
+
+    /// Solana address (base58 of ed25519 pubkey) derived via SLIP10.
+    pub fn solana_address(&self) -> String {
+        let key_bytes = slip10_ed25519_derive(&self.seed, paths::SOLANA);
+        let signing = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
+        bs58::encode(signing.verifying_key().to_bytes()).into_string()
+    }
+
+    /// Bitcoin secp256k1 compressed public key hex (BIP44).
+    /// Full P2WPKH bech32 encoding is deferred; the compressed pubkey is stored.
+    pub fn bitcoin_pubkey_hex(&self) -> Result<String> {
+        let key_bytes = bip32_secp256k1_derive(&self.seed, paths::BITCOIN)?;
+        let sk = k256::ecdsa::SigningKey::from_slice(&key_bytes)
+            .map_err(|_| anyhow!("invalid secp256k1 key for bitcoin"))?;
+        let compressed = sk.verifying_key().to_encoded_point(true);
+        Ok(hex::encode(compressed.as_bytes()))
+    }
+
+    /// All derived chain addresses for `WalletFamilyPublish`.
+    /// Returns `(chain, address, derivation_path)` tuples.
+    pub fn chain_addresses(&self) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        if let Ok(kp) = self.btcpc_keypair() {
+            out.push(("btcpc".into(), kp.public_key_hex(), "m/44'/2301'/0'/0'/0'".into()));
+        }
+        if let Ok(addr) = self.evm_address() {
+            out.push(("evm".into(), addr, "m/44'/60'/0'/0/0".into()));
+        }
+        out.push(("solana".into(), self.solana_address(), "m/44'/501'/0'/0'".into()));
+        if let Ok(pk) = self.bitcoin_pubkey_hex() {
+            out.push(("bitcoin".into(), pk, "m/44'/0'/0'/0/0".into()));
+        }
+        out
+    }
+}
+
+// ── SLIP10-ed25519 key derivation ─────────────────────────────────────────────
+
+fn hmac_sha512(key: &[u8], data: &[u8]) -> [u8; 64] {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+    let mut mac = Hmac::<Sha512>::new_from_slice(key).expect("HMAC key error");
+    mac.update(data);
+    mac.finalize().into_bytes().into()
+}
+
+/// Derive an ed25519 private key from `seed` using the SLIP10 scheme.
+/// All path components must be hardened (bit 31 set).
+fn slip10_ed25519_derive(seed: &[u8], path: &[u32]) -> [u8; 32] {
+    let master = hmac_sha512(b"ed25519 seed", seed);
+    let mut key: [u8; 32] = master[..32].try_into().unwrap();
+    let mut chain: [u8; 32] = master[32..].try_into().unwrap();
+
+    for &index in path {
+        let mut data = [0u8; 37];
+        data[0] = 0x00;
+        data[1..33].copy_from_slice(&key);
+        data[33..37].copy_from_slice(&index.to_be_bytes());
+        let result = hmac_sha512(&chain, &data);
+        key = result[..32].try_into().unwrap();
+        chain = result[32..].try_into().unwrap();
+    }
+    key
+}
+
+// ── BIP32-secp256k1 key derivation ───────────────────────────────────────────
+
+/// Derive a secp256k1 private key from `seed` using BIP32.
+/// Path format: "m/44'/60'/0'/0/0". Apostrophe = hardened (index | 0x80000000).
+fn bip32_secp256k1_derive(seed: &[u8], path: &str) -> Result<[u8; 32]> {
+    use k256::elliptic_curve::PrimeField;
+    use k256::Scalar;
+
+    // Master key ("Bitcoin seed" is the canonical HMAC key for all BIP32 secp256k1 chains).
+    let master = hmac_sha512(b"Bitcoin seed", seed);
+    let mut key: [u8; 32] = master[..32].try_into().unwrap();
+    let mut chain: [u8; 32] = master[32..].try_into().unwrap();
+
+    let segments = path.trim_start_matches("m/").split('/');
+    for seg in segments {
+        if seg.is_empty() { continue; }
+        let (idx_str, hardened) = if seg.ends_with('\'') {
+            (&seg[..seg.len() - 1], true)
+        } else {
+            (seg, false)
+        };
+        let index: u32 = idx_str.parse().map_err(|_| anyhow!("bad path segment '{}'", seg))?;
+        let child_index = if hardened { 0x8000_0000 | index } else { index };
+
+        let data: Vec<u8> = if hardened {
+            let mut d = vec![0x00u8];
+            d.extend_from_slice(&key);
+            d.extend_from_slice(&child_index.to_be_bytes());
+            d
+        } else {
+            let sk = k256::ecdsa::SigningKey::from_slice(&key)
+                .map_err(|_| anyhow!("invalid key at unhardened step"))?;
+            let compressed = sk.verifying_key().to_encoded_point(true);
+            let mut d = compressed.as_bytes().to_vec();
+            d.extend_from_slice(&child_index.to_be_bytes());
+            d
+        };
+
+        let result = hmac_sha512(&chain, &data);
+        let il = &result[..32];
+        chain = result[32..].try_into().unwrap();
+
+        // child_key = (parent_key + il) mod n.
+        let key_fb = k256::FieldBytes::clone_from_slice(&key);
+        let il_fb = k256::FieldBytes::clone_from_slice(il);
+        let parent = Option::<Scalar>::from(Scalar::from_repr(key_fb))
+            .ok_or_else(|| anyhow!("parent scalar invalid"))?;
+        let tweak = Option::<Scalar>::from(Scalar::from_repr(il_fb))
+            .ok_or_else(|| anyhow!("IL scalar invalid"))?;
+        let child = parent + tweak;
+        if bool::from(child.is_zero()) {
+            anyhow::bail!("derived a zero child key — try a different index");
+        }
+        let child_bytes = child.to_repr();
+        key.copy_from_slice(child_bytes.as_slice());
+    }
+
+    Ok(key)
+}
+
 // ── BSP contract wrappers ─────────────────────────────────────────────────────
 
 const DEFAULT_CONTRACT_GAS: u64 = 300_000_000_000;
@@ -565,7 +791,7 @@ impl<'a> Bsp20Client<'a> {
     pub async fn name(&self) -> Result<String> {
         let resp = self
             .client
-            .contract_view(&self.contract_id, "name", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
+            .contract_view(&self.contract_id, "ft_name", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
             .await?;
         parse_contract_result_string(resp)
     }
@@ -573,7 +799,7 @@ impl<'a> Bsp20Client<'a> {
     pub async fn symbol(&self) -> Result<String> {
         let resp = self
             .client
-            .contract_view(&self.contract_id, "symbol", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
+            .contract_view(&self.contract_id, "ft_symbol", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
             .await?;
         parse_contract_result_string(resp)
     }
@@ -583,7 +809,7 @@ impl<'a> Bsp20Client<'a> {
             .client
             .contract_view(
                 &self.contract_id,
-                "total_supply",
+                "ft_total_supply",
                 serde_json::Value::Null,
                 DEFAULT_CONTRACT_GAS,
             )
@@ -596,8 +822,8 @@ impl<'a> Bsp20Client<'a> {
             .client
             .contract_view(
                 &self.contract_id,
-                "balance_of",
-                serde_json::json!({ "account": account }),
+                "ft_balance_of",
+                serde_json::json!({ "account_id": account }),
                 DEFAULT_CONTRACT_GAS,
             )
             .await?;
@@ -613,14 +839,14 @@ impl<'a> Bsp20Client<'a> {
     ) -> Result<serde_json::Value> {
         let nonce = self.client.next_nonce(signer).await?;
         let epoch = self.client.latest().await?.current_epoch;
-        let msg = contract_call_message(signer, &self.contract_id, "transfer", nonce, epoch);
+        let msg = contract_call_message(signer, &self.contract_id, "ft_transfer", nonce, epoch);
         let signature = keypair.sign_bytes(&serde_json::to_vec(&msg)?);
 
         self.client
             .contract_call(
                 &self.contract_id,
-                "transfer",
-                serde_json::json!({ "to": to, "amount": amount }),
+                "ft_transfer",
+                serde_json::json!({ "receiver_id": to, "amount": amount }),
                 signer,
                 0,
                 DEFAULT_CONTRACT_GAS,
@@ -639,14 +865,14 @@ impl<'a> Bsp20Client<'a> {
     ) -> Result<serde_json::Value> {
         let nonce = self.client.next_nonce(signer).await?;
         let epoch = self.client.latest().await?.current_epoch;
-        let msg = contract_call_message(signer, &self.contract_id, "approve", nonce, epoch);
+        let msg = contract_call_message(signer, &self.contract_id, "ft_approve", nonce, epoch);
         let signature = keypair.sign_bytes(&serde_json::to_vec(&msg)?);
 
         self.client
             .contract_call(
                 &self.contract_id,
-                "approve",
-                serde_json::json!({ "spender": spender, "amount": amount }),
+                "ft_approve",
+                serde_json::json!({ "spender_id": spender, "amount": amount }),
                 signer,
                 0,
                 DEFAULT_CONTRACT_GAS,
@@ -673,7 +899,7 @@ impl<'a> Bsp721Client<'a> {
     pub async fn name(&self) -> Result<String> {
         let resp = self
             .client
-            .contract_view(&self.contract_id, "name", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
+            .contract_view(&self.contract_id, "nft_name", serde_json::Value::Null, DEFAULT_CONTRACT_GAS)
             .await?;
         parse_contract_result_string(resp)
     }
@@ -683,7 +909,7 @@ impl<'a> Bsp721Client<'a> {
             .client
             .contract_view(
                 &self.contract_id,
-                "total_supply",
+                "nft_total_supply",
                 serde_json::Value::Null,
                 DEFAULT_CONTRACT_GAS,
             )
@@ -696,8 +922,8 @@ impl<'a> Bsp721Client<'a> {
             .client
             .contract_view(
                 &self.contract_id,
-                "owner_of",
-                serde_json::json!({ "token_id": token_id }),
+                "nft_token",
+                serde_json::json!({ "token_id": token_id.to_string() }),
                 DEFAULT_CONTRACT_GAS,
             )
             .await?;
@@ -709,8 +935,8 @@ impl<'a> Bsp721Client<'a> {
             .client
             .contract_view(
                 &self.contract_id,
-                "token_uri",
-                serde_json::json!({ "token_id": token_id }),
+                "nft_token_metadata",
+                serde_json::json!({ "token_id": token_id.to_string() }),
                 DEFAULT_CONTRACT_GAS,
             )
             .await?;
@@ -726,14 +952,14 @@ impl<'a> Bsp721Client<'a> {
     ) -> Result<serde_json::Value> {
         let nonce = self.client.next_nonce(signer).await?;
         let epoch = self.client.latest().await?.current_epoch;
-        let msg = contract_call_message(signer, &self.contract_id, "transfer", nonce, epoch);
+        let msg = contract_call_message(signer, &self.contract_id, "nft_transfer", nonce, epoch);
         let signature = keypair.sign_bytes(&serde_json::to_vec(&msg)?);
 
         self.client
             .contract_call(
                 &self.contract_id,
-                "transfer",
-                serde_json::json!({ "to": to, "token_id": token_id }),
+                "nft_transfer",
+                serde_json::json!({ "receiver_id": to, "token_id": token_id.to_string() }),
                 signer,
                 0,
                 DEFAULT_CONTRACT_GAS,

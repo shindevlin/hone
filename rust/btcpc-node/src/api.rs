@@ -1,17 +1,21 @@
 //! HTTP API server (Axum) — replaces Node.js btcpc-api.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Instant;
 use axum::{
     Router,
     routing::{get, post},
     extract::{Path, State},
+    http::HeaderMap,
     Json, http::StatusCode,
+    response::sse::{Event, Sse},
 };
 use serde::{Deserialize, Deserializer};
 use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
+use tokio_stream::wrappers::ReceiverStream;
 use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID};
 
 /// Gossip envelope: entry JSON + out-of-band signature so peers can re-verify.
@@ -31,6 +35,8 @@ pub struct AppState {
     pub tx_broadcast: broadcast::Sender<GossipEntry>,
     /// Faucet rate-limiter: account → last claim time (testnet only).
     pub faucet_claims: Arc<parking_lot::Mutex<HashMap<String, Instant>>>,
+    /// Agent chat rate-limiter: IP → list of request timestamps in the current window.
+    pub agent_rate: Arc<parking_lot::Mutex<HashMap<String, Vec<Instant>>>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -65,6 +71,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inference/jobs", get(get_inference_jobs))
         .route("/api/inference/job/:id", get(get_inference_job))
         .route("/api/inference/reputation/:node", get(get_inference_reputation))
+        // ── Public onboarding agent (no auth, rate-limited) ──────────────
+        .route("/public/agent-chat", post(post_agent_chat))
         // ── Faucet (testnet only) ─────────────────────────────────────────
         .route("/api/faucet/claim", post(post_faucet_claim))
         // ── LinkGit ───────────────────────────────────────────────────────
@@ -629,6 +637,8 @@ struct InferenceVerifyBody {
     job_id: String,
     verifier: String,
     verdict: String,
+    #[serde(default)]
+    value_score: u64,
     reason: Option<String>,
     #[serde(default)]
     signature: String,
@@ -767,6 +777,7 @@ async fn post_inference_verify(
         job_id: body.job_id,
         verifier: body.verifier.clone(),
         verdict: body.verdict,
+        value_score: body.value_score,
         reason: body.reason,
         epoch,
         signed_by: body.verifier,
@@ -1095,6 +1106,134 @@ async fn post_linkgit_access_revoke(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+// ── POST /public/agent-chat ───────────────────────────────────────────────────
+
+const AGENT_SYSTEM_PROMPT: &str = "\
+You are the BTCPC setup assistant on btcpc.net. BTCPC is a sovereign blockchain where \
+miners earn by running AI inference via Ollama — no gatekeepers, no cloud.\n\n\
+Keep every reply under 3 sentences. Be direct and actionable. Give exact commands when asked.\n\n\
+Platform setup:\n\
+- Windows: download start-windows.bat from btcpc.net, double-click it. Handles Ollama binding and Docker automatically.\n\
+- Linux / Ubuntu / WSL: download start.sh from btcpc.net, run: bash start.sh\n\
+- Docker only (advanced): set OLLAMA_URL=http://host.docker.internal:11434 in .env, then: docker compose up -d\n\
+- Android: install the BTCPC app from btcpc.net/android\n\n\
+Requirements: Docker Desktop (Windows/Mac) or Docker Engine (Linux), plus Ollama on the host.\n\
+Recommended first model: qwen3:4b (run: ollama pull qwen3:4b)\n\n\
+Mining starts automatically once the node is running and a model is loaded.\n\
+Explorer: btcpc.net/explorer — wallet: btcpc.net/app";
+
+const AGENT_RATE_LIMIT: usize = 12; // requests per 60-second window per IP
+
+#[derive(Deserialize)]
+struct AgentChatReq {
+    message: String,
+    platform: Option<String>,
+}
+
+async fn post_agent_chat(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<AgentChatReq>,
+) -> Result<Sse<ReceiverStream<Result<Event, Infallible>>>, StatusCode> {
+    // Extract client IP from X-Real-IP (nginx) or X-Forwarded-For, fallback to unknown.
+    let ip = headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_owned())
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    // Rate limit: 12 requests per 60s per IP.
+    {
+        let mut map = s.agent_rate.lock();
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60);
+        let timestamps = map.entry(ip.clone()).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < window);
+        if timestamps.len() >= AGENT_RATE_LIMIT {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+        timestamps.push(now);
+    }
+
+    let message: String = req.message.chars().take(500).collect();
+    if message.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let platform = req.platform.unwrap_or_default();
+    let user_content = if platform.is_empty() {
+        message
+    } else {
+        format!("[User platform: {}]\n{}", platform, message)
+    };
+
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let model = std::env::var("BTCPC_MODEL")
+        .unwrap_or_else(|_| "qwen3:4b".to_owned());
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": AGENT_SYSTEM_PROMPT },
+            { "role": "user",   "content": user_content },
+        ],
+        "stream": true,
+    });
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
+
+    tokio::spawn(async move {
+        use tokio_stream::StreamExt as _;
+
+        let done_event = || Ok(Event::default().data("[DONE]"));
+
+        let client = reqwest::Client::new();
+        let resp = match client
+            .post(format!("{}/api/chat", ollama_url))
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => { let _ = tx.send(done_event()).await; return; }
+        };
+
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let Ok(bytes) = chunk else { break };
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+
+            while let Some(pos) = buf.find('\n') {
+                let line = buf[..pos].trim().to_owned();
+                buf = buf[pos + 1..].to_owned();
+                if line.is_empty() { continue; }
+
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(token) = v["message"]["content"].as_str() {
+                        if !token.is_empty() {
+                            let payload = serde_json::to_string(token).unwrap_or_default();
+                            if tx.send(Ok(Event::default().data(payload))).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    if v["done"].as_bool().unwrap_or(false) {
+                        let _ = tx.send(done_event()).await;
+                        return;
+                    }
+                }
+            }
+        }
+        let _ = tx.send(done_event()).await;
+    });
+
+    Ok(Sse::new(ReceiverStream::new(rx)))
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {
