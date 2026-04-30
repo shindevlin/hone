@@ -4,17 +4,15 @@
 //! compute_proof = SHA-256 hex of the inference output.
 //!
 //! No SHA-256 grinding. Running the model IS the proof of work.
+//! Miners submit only a Mine entry; MineReward is emitted by clock nodes
+//! after epoch seal quorum is reached.
 
 use std::sync::Arc;
 use std::time::Duration;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-use btcpc_types::{
-    Block, BlockHeader, LedgerEntry, block_reward_at,
-    era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
-    NATIVE_TOKEN, EPOCH_MS,
-};
+use btcpc_types::{LedgerEntry, EPOCH_MS};
 
 use crate::chain::Chain;
 use crate::llm::LlmEngine;
@@ -47,24 +45,13 @@ pub async fn run_miner(
             _ = sleep_until_epoch(next_epoch, genesis_ts) => {}
         }
 
-        if chain.store.has_block(next_epoch) {
-            last_produced = next_epoch;
-            continue;
-        }
-
-        let prev_hash = chain.store.read_block(next_epoch.saturating_sub(1))
-            .ok().flatten()
-            .and_then(|b| Block::from_bytes(&b))
-            .map(|b| b.header.hash())
-            .unwrap_or([0u8; 32]);
-
         // Run on-device inference — this is the proof of work.
         let (work_value, compute_proof) = {
             let mut engine = llm.lock().await;
             if engine.ensure_ready().await {
                 let prompt = format!(
-                    "btcpc epoch {} miner {} prev {}",
-                    next_epoch, account, &hex::encode(prev_hash)[..16]
+                    "btcpc epoch {} miner {}",
+                    next_epoch, account,
                 );
                 match engine.generate(&prompt, 64).await {
                     Ok(output) => {
@@ -79,93 +66,36 @@ pub async fn run_miner(
                     }
                 }
             } else {
-                // Model still downloading — produce block with zero work this epoch.
+                // Model still downloading — submit zero-work Mine entry this epoch.
                 (0, String::new())
             }
         };
 
-        match produce_block(&chain, &account, next_epoch, work_value, &compute_proof) {
-            Ok(block) => {
-                // Broadcast to peers.
-                let mut data = next_epoch.to_be_bytes().to_vec();
-                data.extend_from_slice(&block.to_bytes());
-                let _ = cmd_tx.send(NetCmd::Broadcast {
-                    topic: "btcpc/blocks",
-                    data,
-                }).await;
+        // Build and apply Mine entry locally, then broadcast as gossip.
+        let entry = LedgerEntry::Mine {
+            miner:      account.clone(),
+            epoch:      next_epoch,
+            work_value,
+            block_hash: compute_proof.clone(),
+        };
+        let _ = chain.apply_entry(&entry);
 
-                let mut cur = chain.current_epoch.write();
-                if next_epoch > *cur { *cur = next_epoch; }
-                last_produced = next_epoch;
-            }
-            Err(e) => warn!("miner: block {} failed: {}", next_epoch, e),
+        let envelope = serde_json::json!({"entry": entry});
+        if let Ok(data) = serde_json::to_vec(&envelope) {
+            let _ = cmd_tx.send(NetCmd::Broadcast {
+                topic: "btcpc/entries",
+                data,
+            }).await;
         }
+
+        let mut cur = chain.current_epoch.write();
+        if next_epoch > *cur { *cur = next_epoch; }
+        last_produced = next_epoch;
+
+        info!("miner: submitted Mine entry for epoch {}, tokens={}", next_epoch, work_value);
     }
 
     info!("miner: stopped");
-}
-
-// ── Block production ──────────────────────────────────────────────────────────
-
-fn produce_block(
-    chain:         &Chain,
-    miner:         &str,
-    epoch:         u64,
-    work_value:    u64,
-    compute_proof: &str,
-) -> anyhow::Result<Block> {
-    let prev_hash = chain.store.read_block(epoch.saturating_sub(1))?
-        .and_then(|b| Block::from_bytes(&b))
-        .map(|b| b.header.hash())
-        .unwrap_or([0u8; 32]);
-
-    let miner_id: [u8; 32] = Sha256::digest(miner.as_bytes()).into();
-
-    let reward = if era(epoch) >= RECYCLE_ERA {
-        let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
-        ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
-    } else {
-        block_reward_at(epoch)
-    };
-
-    let entries = vec![
-        LedgerEntry::Mine {
-            miner:      miner.to_owned(),
-            epoch,
-            work_value,
-            block_hash: String::new(),
-        },
-        LedgerEntry::MineReward {
-            miner:  miner.to_owned(),
-            amount: reward,
-            epoch,
-        },
-    ];
-
-    chain.apply_block_entries(&entries);
-
-    let entry_hashes: Vec<String> = entries.iter().map(|e| e.hash()).collect();
-    let tx_root = btcpc_types::merkle_root(&entry_hashes);
-
-    let mut header = BlockHeader::new(epoch as u32, prev_hash, miner_id);
-    header.merkle_root_transactions = tx_root;
-
-    let payload = serde_json::json!({
-        "ledger_entries": entries,
-        "compute_proofs": [{
-            "worker":      miner,
-            "output_hash": compute_proof,
-            "tokens":      work_value,
-            "epoch":       epoch,
-        }],
-        "chain_id": chain.chain_id,
-    });
-
-    let block = Block { header, payload };
-    chain.store.write_block(epoch, &block.to_bytes())?;
-
-    info!("miner: block {} — reward={} dreams, tokens={}", epoch, reward, work_value);
-    Ok(block)
 }
 
 async fn sleep_until_epoch(epoch: u64, genesis_ts: u64) {

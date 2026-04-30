@@ -53,10 +53,11 @@ impl Chain {
                 self.store.credit(to, token, *amount);
                 self.store.increment_nonce(from);
             }
-            Mine { miner, epoch, .. } => {
-                // Record that this miner produced a block this epoch.
+            Mine { miner, epoch, work_value, .. } => {
+                // Store work_value in state tree so the clock can scan it at seal time.
                 let key = format!("mine:{}:{}", epoch, miner);
-                let _ = self.store.set_meta(&key, b"1");
+                let rec = serde_json::json!({"miner": miner, "epoch": epoch, "work_value": work_value});
+                let _ = self.store.set_json(&key, &rec);
             }
             MineReward { miner, amount, epoch } => {
                 let reward = if era(*epoch) >= RECYCLE_ERA {

@@ -40,7 +40,7 @@ mod utils;
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::{info, warn};
-use btcpc_types::{Block, LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM, RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID};
+use btcpc_types::{LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM, RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID};
 
 use chain::Chain;
 use config::Config;
@@ -103,11 +103,12 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Wire: clock sealed events → chain epoch advancement
+    // Wire: clock sealed events → chain epoch advancement + MineReward emission
     {
         let mut sealed_rx = clock.subscribe();
         let chain_ref = chain.clone();
         let node_id_c = cfg.node_id.clone();
+        let cmd_tx_for_seal = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
             loop {
                 match sealed_rx.recv().await {
@@ -129,6 +130,55 @@ async fn main() -> Result<()> {
                         };
                         if let Err(e) = chain_ref.apply_entry(&entry) {
                             warn!("clock seal apply failed (epoch {}): {}", sealed.epoch, e);
+                        }
+
+                        // Emit MineReward entries for all miners that contributed this epoch.
+                        let sealed_epoch = sealed.epoch;
+                        let prefix = format!("mine:{}:", sealed_epoch);
+                        let mines: Vec<(String, u64)> = chain_ref.store.state_scan_prefix(&prefix)
+                            .into_iter()
+                            .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+                            .filter_map(|j| {
+                                let miner = j["miner"].as_str()?.to_owned();
+                                let wv = j["work_value"].as_u64().unwrap_or(0);
+                                Some((miner, wv))
+                            })
+                            .collect();
+
+                        if !mines.is_empty() {
+                            let total_reward = if era(sealed_epoch) >= RECYCLE_ERA {
+                                let fund = chain_ref.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+                                ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
+                            } else {
+                                block_reward_at(sealed_epoch)
+                            };
+                            let total_work: u64 = mines.iter().map(|(_, w)| w).sum();
+                            let n = mines.len() as u64;
+
+                            for (miner, work_value) in &mines {
+                                let amount = if total_work == 0 {
+                                    total_reward / n
+                                } else {
+                                    (total_reward as u128 * *work_value as u128 / total_work as u128) as u64
+                                };
+                                if amount == 0 { continue; }
+                                let reward_entry = LedgerEntry::MineReward {
+                                    miner: miner.clone(),
+                                    amount,
+                                    epoch: sealed_epoch,
+                                };
+                                if let Err(e) = chain_ref.apply_entry(&reward_entry) {
+                                    warn!("clock: MineReward apply failed for {} epoch {}: {}", miner, sealed_epoch, e);
+                                    continue;
+                                }
+                                let envelope = serde_json::json!({"entry": reward_entry});
+                                if let Ok(data) = serde_json::to_vec(&envelope) {
+                                    let _ = cmd_tx_for_seal.send(NetCmd::Broadcast {
+                                        topic: "btcpc/entries",
+                                        data,
+                                    }).await;
+                                }
+                            }
                         }
                     }
                     Ok(_) => {}
@@ -206,8 +256,9 @@ async fn main() -> Result<()> {
         let chain_ref = chain.clone();
         let account = cfg.account.clone();
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_for_miner = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
-            miner::run_miner(chain_ref, account, genesis_ts).await;
+            miner::run_miner(chain_ref, account, genesis_ts, cmd_for_miner).await;
         });
     }
 
@@ -319,82 +370,8 @@ async fn main() -> Result<()> {
                             Err(e) => tracing::debug!("net entry parse error: {}", e),
                         }
                     }
-                    Ok(NetworkEvent::Block { epoch, data }) => {
-                        if !chain_ref.store.has_block(epoch) {
-                            if let Some(block) = Block::from_bytes(&data) {
-                                let cur = chain_ref.current_epoch();
-                                // Reject blocks too far ahead (max +10 epochs).
-                                if epoch > cur + 10 {
-                                    warn!("gossip block {} too far ahead of epoch {} — ignoring", epoch, cur);
-                                } else if let Some(entries) = block.payload.get("ledger_entries")
-                                    .and_then(|v| serde_json::from_value::<Vec<LedgerEntry>>(v.clone()).ok())
-                                {
-                                    // Reject blocks containing privileged self-issued entries.
-                                    let has_privileged = entries.iter().any(|e| matches!(
-                                        e,
-                                        LedgerEntry::GenesisAlloc { .. }
-                                        | LedgerEntry::EpochFinalize { .. }
-                                    ));
-                                    // Reject MineReward without a corresponding Mine entry.
-                                    let has_mine_reward = entries.iter().any(|e| matches!(e, LedgerEntry::MineReward { .. }));
-                                    let has_mine = entries.iter().any(|e| matches!(e, LedgerEntry::Mine { .. }));
-                                    // Reject inflated MineReward — amount must not exceed emission/recycle schedule.
-                                    let reward_inflated = entries.iter().any(|e| {
-                                        if let LedgerEntry::MineReward { amount, epoch: reward_epoch, .. } = e {
-                                            let re = *reward_epoch;
-                                            if era(re) >= RECYCLE_ERA {
-                                                // Era 5+: capped at RECYCLE_REWARD_RATE/DENOM of fund balance.
-                                                let fund = chain_ref.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
-                                                let max = ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64;
-                                                *amount > max
-                                            } else {
-                                                *amount > block_reward_at(re)
-                                            }
-                                        } else {
-                                            false
-                                        }
-                                    });
-                                    // Reject Transfer entries with invalid nonces (already-used or wrong).
-                                    let has_bad_nonce = entries.iter().any(|e| {
-                                        if let LedgerEntry::Transfer { from, nonce, .. } = e {
-                                            let expected = chain_ref.store.get_account(from)
-                                                .ok().flatten()
-                                                .and_then(|s| s.get("nonce").and_then(|v| v.as_u64()))
-                                                .map(|n| n + 1)
-                                                .unwrap_or(1);
-                                            *nonce < expected // used or skipped
-                                        } else {
-                                            false
-                                        }
-                                    });
-
-                                    // Reject blocks from a different chain (cross-chain replay prevention).
-                                    let chain_id_mismatch = block.payload
-                                        .get("chain_id")
-                                        .and_then(|v| v.as_str())
-                                        .map_or(false, |cid| cid != chain_ref.chain_id);
-
-                                    if has_privileged {
-                                        warn!("gossip block {} contains privileged entries — rejected", epoch);
-                                    } else if chain_id_mismatch {
-                                        warn!("gossip block {} chain_id mismatch (expected '{}') — rejected", epoch, chain_ref.chain_id);
-                                    } else if has_mine_reward && !has_mine {
-                                        warn!("gossip block {} has MineReward without Mine — rejected", epoch);
-                                    } else if reward_inflated {
-                                        warn!("gossip block {} has inflated MineReward vs emission schedule — rejected", epoch);
-                                    } else if has_bad_nonce {
-                                        warn!("gossip block {} contains replay or bad-nonce transfers — rejected", epoch);
-                                    } else {
-                                        chain_ref.apply_block_entries(&entries);
-                                        let _ = chain_ref.store.write_block(epoch, &data);
-                                        let mut cur = chain_ref.current_epoch.write();
-                                        if epoch > *cur {
-                                            *cur = epoch;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    Ok(NetworkEvent::Block { .. }) => {
+                        // Miners no longer produce blocks — block gossip is ignored.
                     }
                     Ok(NetworkEvent::EpochSeal { seal }) => {
                         clock_ref.receive_seal(seal);

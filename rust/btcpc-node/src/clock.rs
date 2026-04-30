@@ -17,6 +17,15 @@ const EPOCH_MS: u64 = 30_000;
 const ISOLATION_EPOCH_THRESHOLD: u64 = 3;
 const MIN_QUORUM_FRACTION: f64 = 0.51;
 
+/// Minimum unique sealers required to seal an epoch.
+/// Configurable via BTCPC_CLOCK_QUORUM env var (default 2).
+pub fn quorum() -> usize {
+    std::env::var("BTCPC_CLOCK_QUORUM")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+}
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

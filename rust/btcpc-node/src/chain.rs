@@ -86,8 +86,12 @@ impl Chain {
                 self.store.credit(account, NATIVE_TOKEN, *amount)?;
             }
 
-            LedgerEntry::Mine { miner, epoch, .. } => {
+            LedgerEntry::Mine { miner, epoch, work_value, .. } => {
                 self.ensure_account(miner, *epoch)?;
+                let key = format!("mine:{}:{}", epoch, miner);
+                let _ = self.store.state_set(&key,
+                    &serde_json::to_vec(&serde_json::json!({"miner": miner, "epoch": epoch, "work_value": work_value}))
+                        .unwrap_or_default());
             }
 
             LedgerEntry::MineReward { miner, amount, epoch } => {

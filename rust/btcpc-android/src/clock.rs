@@ -14,10 +14,19 @@ use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
-use btcpc_types::{LedgerEntry, EPOCH_MS, CLOCK_REWARD_DREAMS};
+use btcpc_types::{
+    LedgerEntry, EPOCH_MS, CLOCK_REWARD_DREAMS,
+    block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
+    RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN,
+};
 use crate::net::NetCmd;
 
-const QUORUM: usize = 2; // minimum unique sealers for a sealed epoch
+fn quorum() -> usize {
+    std::env::var("BTCPC_CLOCK_QUORUM")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpochSeal {
@@ -69,7 +78,7 @@ impl ClockConsensus {
         let winner = entries.first().cloned();
         drop(map);
 
-        if count >= QUORUM {
+        if count >= quorum() {
             let sealed = SealedEpoch { epoch, sealed: true, winner };
             let _ = self.sealed_tx.send(sealed);
             info!("clock: epoch {} sealed ({} nodes)", epoch, count);
@@ -89,6 +98,7 @@ pub struct ClockConfig {
     pub chain_id:   String,
     pub genesis_ts: u64,
     pub is_clock:   bool,
+    pub quorum:     usize,
 }
 
 /// Runs the clock tick loop and seal emitter.
@@ -100,11 +110,12 @@ pub async fn run(
     chain: Arc<crate::chain::Chain>,
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
-    // Wire sealed events → chain epoch advancement
+    // Wire sealed events → chain epoch advancement + MineReward emission
     {
         let mut sealed_rx = clock.subscribe();
         let chain_ref = chain.clone();
         let node_id = cfg.node_id.clone();
+        let cmd_tx_clone = cmd_tx.clone();
         tokio::spawn(async move {
             loop {
                 match sealed_rx.recv().await {
@@ -123,6 +134,52 @@ pub async fn run(
                             signature: None,
                         };
                         let _ = chain_ref.apply_entry(&entry);
+
+                        // Emit MineReward entries for all miners that contributed this epoch.
+                        let sealed_epoch = s.epoch;
+                        let prefix = format!("mine:{}:", sealed_epoch);
+                        let mines: Vec<(String, u64)> = chain_ref.store.scan_prefix(&prefix)
+                            .into_iter()
+                            .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+                            .filter_map(|j| {
+                                let miner = j["miner"].as_str()?.to_owned();
+                                let wv = j["work_value"].as_u64().unwrap_or(0);
+                                Some((miner, wv))
+                            })
+                            .collect();
+
+                        if !mines.is_empty() {
+                            let total_reward = if era(sealed_epoch) >= RECYCLE_ERA {
+                                let fund = chain_ref.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+                                ((fund as u128 * RECYCLE_REWARD_RATE) / RECYCLE_REWARD_DENOM) as u64
+                            } else {
+                                block_reward_at(sealed_epoch)
+                            };
+                            let total_work: u64 = mines.iter().map(|(_, w)| w).sum();
+                            let n = mines.len() as u64;
+
+                            for (miner, work_value) in &mines {
+                                let amount = if total_work == 0 {
+                                    total_reward / n
+                                } else {
+                                    (total_reward as u128 * *work_value as u128 / total_work as u128) as u64
+                                };
+                                if amount == 0 { continue; }
+                                let reward_entry = LedgerEntry::MineReward {
+                                    miner: miner.clone(),
+                                    amount,
+                                    epoch: sealed_epoch,
+                                };
+                                let _ = chain_ref.apply_entry(&reward_entry);
+                                let envelope = serde_json::json!({"entry": reward_entry});
+                                if let Ok(data) = serde_json::to_vec(&envelope) {
+                                    let _ = cmd_tx_clone.send(crate::net::NetCmd::Broadcast {
+                                        topic: "btcpc/entries",
+                                        data,
+                                    }).await;
+                                }
+                            }
+                        }
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {

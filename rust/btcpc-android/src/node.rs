@@ -76,6 +76,8 @@ pub async fn start(cfg: NodeConfig, status: Arc<PLMutex<String>>) -> anyhow::Res
             chain_id:   cfg.chain_id.clone(),
             genesis_ts: cfg.genesis_ts,
             is_clock:   cfg.is_clock,
+            quorum:     std::env::var("BTCPC_CLOCK_QUORUM")
+                .ok().and_then(|v| v.parse().ok()).unwrap_or(2),
         };
         let sd      = shutdown_tx.subscribe();
         let cmd     = cmd_tx.clone();
