@@ -12,6 +12,9 @@ pub enum LedgerEntry {
         account: AccountId,
         keys: std::collections::HashMap<String, String>,  // role -> compressed pubkey hex
         epoch: Epoch,
+        /// Who pays the NAME_REGISTRATION_STAKE. None = genesis/exempt accounts only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        funded_by: Option<AccountId>,
     },
     AccountUpdateKey {
         account: AccountId,
@@ -19,6 +22,36 @@ pub enum LedgerEntry {
         new_public_key: String,
         epoch: Epoch,
         signed_by: AccountId,
+    },
+    /// Declare another account as the primary identity for this account's wallet.
+    /// Must be an existing account sharing the same posting key.
+    /// Required before AccountTransfer — proves the owner won't go keyless.
+    AccountSetPrimary {
+        account: AccountId,   // the account being configured, e.g. "josh"
+        primary: AccountId,   // the owner's other identity, e.g. "joshua"
+        epoch: Epoch,
+        signed_by: AccountId,
+        signature: Option<String>,
+    },
+    /// Set a chain-wide governance parameter. Initially only authorized accounts can call this.
+    /// key examples: "name_stake_enabled" ("true"/"false"), "name_stake_amount" (u64 as string)
+    ChainParameterSet {
+        key: String,
+        value: String,
+        signed_by: AccountId,
+        epoch: Epoch,
+        signature: Option<String>,
+    },
+    /// Transfer the identity (account name) to a new owner's full wallet set.
+    /// Requires AccountSetPrimary to have been called first — the stored primary
+    /// receives any balance automatically before keys are rotated.
+    AccountTransfer {
+        account: AccountId,
+        new_keys: std::collections::HashMap<String, String>,  // role -> pubkey (posting, btc, eth, …)
+        epoch: Epoch,
+        signed_by: AccountId,
+        nonce: u64,
+        signature: Option<String>,
     },
 
     // ── Transfers ────────────────────────────────────────────────────────────
@@ -631,6 +664,141 @@ pub enum LedgerEntry {
         epoch: Epoch,
     },
 
+    // ── BLE Tracker Sightings & Claims ───────────────────────────────────────
+    /// Privacy-preserving batch commit of BLE tracker sightings from a Pi or Android node.
+    /// No MAC addresses stored on-chain — only counts and a batch commitment hash.
+    TrackerSightingCommit {
+        /// "pi-{hostname}/ble" or "android-{accountId}/ble"
+        observer_id: String,
+        owner: AccountId,
+        airtag_count: u32,
+        android_fmd_count: u32,
+        tile_count: u32,
+        samsung_count: u32,
+        other_count: u32,
+        /// SHA-256 of the sorted per-sighting commitment hashes (stored locally).
+        batch_hash: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Claim ownership of a BLE tracker. Fee paid to treasury.
+    /// The manufacturer serial never appears on-chain — only a commitment hash.
+    TrackerClaim {
+        /// H(manufacturer_serial || claimer_btcpc_pubkey || nonce) — serial stays off-chain.
+        serial_commitment: String,
+        /// "AirTag" | "AndroidFMD" | "Tile" | "Samsung" | "Unknown"
+        tag_type: String,
+        claimer: AccountId,
+        fee: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Release a tracker claim, unlocking the fee for a new claimer.
+    TrackerClaimRelease {
+        serial_commitment: String,
+        claimer: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Acoustic + BLE co-event proof — signed by the witnessing gateway node.
+    /// Upgrades a TrackerClaim from "Registered" to "AcousticVerified".
+    TrackerAcousticProof {
+        serial_commitment: String,
+        /// ID of the Pi or Android node that witnessed the co-event.
+        witness_id: String,
+        /// H(tag_type || rssi_i16 || acoustic_peak_hz_u32 || acoustic_peak_db_i16
+        ///   || challenge_nonce || epoch) — signed locally, verified by any node.
+        proof_hash: String,
+        claimer: AccountId,
+        epoch: Epoch,
+        /// Signed by the witness gateway's posting key.
+        signed_by: AccountId,
+    },
+    /// Pay a per-epoch fee to receive push-delivered sighting data for a claimed tracker.
+    /// Fee is distributed to observer nodes that sight the tag each epoch.
+    /// Requires Verified or AcousticVerified claim status to receive location data.
+    TrackerSubscription {
+        serial_commitment: String,
+        claimer: AccountId,
+        /// Dreams burned per epoch from claimer's balance.
+        fee_per_epoch: Dreams,
+        /// Subscription auto-expires at this epoch.
+        expires_epoch: Epoch,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Encrypted sighting reference pushed by an observer node.
+    /// The encrypted payload is stored in BTCPC-FS; only the CID is gossiped.
+    /// Plaintext of the blob: { lat, lon, rssi, timestamp, accuracy_m, observer_id }
+    /// Only the subscriber's memo private key can decrypt the blob.
+    TrackerSightingData {
+        serial_commitment: String,
+        observer_id: String,
+        /// BTCPC-FS content ID of the encrypted sighting blob.
+        cid: String,
+        /// SHA-256 of the plaintext (before encryption) so subscriber can verify
+        /// integrity after decryption without re-fetching.
+        plaintext_hash: String,
+        epoch: Epoch,
+        /// Signed by the observer's posting key.
+        signed_by: AccountId,
+    },
+    /// Owner publishes current time-window commitment hint so observers can pre-link
+    /// rotating MACs to the claim. Gossiped on btcpc/tracker-hints.
+    TrackerHint {
+        serial_commitment: String,
+        /// H(epoch_window || observer_id || rotating_mac) for the current window.
+        /// Observers that receive this can match their local sightings to this claim.
+        window_commitment: String,
+        epoch_window: u64,
+        claimer: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Lost mode: owner sets a bounty and marks the tag as missing.
+    TrackerLostMode {
+        serial_commitment: String,
+        claimer: AccountId,
+        /// BTCPC escrowed on-chain, released to finder on confirmation.
+        bounty_dreams: Dreams,
+        expires_epoch: Epoch,
+        /// Contact info encrypted to claimer's own memo key (off-chain recovery).
+        contact_encrypted: Option<String>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Finder reports a lost tag at a location (GPS hashed for privacy until confirmed).
+    TrackerFoundReport {
+        serial_commitment: String,
+        finder: AccountId,
+        /// H(lat || lon || finder_account || nonce) — revealed after confirmation.
+        gps_commitment: String,
+        /// Optional acoustic proof hash proving physical proximity.
+        acoustic_proof_hash: Option<String>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Owner confirms a finder's report, releasing the bounty escrow.
+    TrackerFoundConfirm {
+        serial_commitment: String,
+        finder: AccountId,
+        claimer: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Per-epoch coverage reward minted to a BLE tracker observer node.
+    TrackerCoverageReward {
+        observer_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+    },
+
     // ── Genesis ───────────────────────────────────────────────────────────────
     GenesisAlloc {
         account: AccountId,
@@ -875,6 +1043,17 @@ impl LedgerEntry {
             Self::MempoolHeartbeat { epoch, .. } => *epoch,
             Self::DeviceClaimStake { epoch, .. } => *epoch,
             Self::DeviceClaimUnstake { epoch, .. } => *epoch,
+            Self::TrackerSightingCommit { epoch, .. } => *epoch,
+            Self::TrackerClaim { epoch, .. } => *epoch,
+            Self::TrackerClaimRelease { epoch, .. } => *epoch,
+            Self::TrackerAcousticProof { epoch, .. } => *epoch,
+            Self::TrackerSubscription { epoch, .. } => *epoch,
+            Self::TrackerSightingData { epoch, .. } => *epoch,
+            Self::TrackerHint { epoch, .. } => *epoch,
+            Self::TrackerLostMode { epoch, .. } => *epoch,
+            Self::TrackerFoundReport { epoch, .. } => *epoch,
+            Self::TrackerFoundConfirm { epoch, .. } => *epoch,
+            Self::TrackerCoverageReward { epoch, .. } => *epoch,
             Self::DelegationGrant { epoch, .. } => *epoch,
             Self::DelegationRevoke { epoch, .. } => *epoch,
             Self::DeviceYieldOptIn { epoch, .. } => *epoch,
@@ -888,6 +1067,9 @@ impl LedgerEntry {
             Self::TokenReject { epoch, .. } => *epoch,
             Self::WalletFamilyPublish { epoch, .. } => *epoch,
             Self::WalletFamilyAdd { epoch, .. } => *epoch,
+            Self::AccountSetPrimary { epoch, .. } => *epoch,
+            Self::AccountTransfer { epoch, .. } => *epoch,
+            Self::ChainParameterSet { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
         }
     }

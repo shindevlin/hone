@@ -20,3 +20,11 @@ pub const EPOCH_MS: u64 = 30_000;
 /// Chain identifiers — used in canonical signing messages and gossip validation.
 pub const MAINNET_CHAIN_ID: &str = "btcpc-1";
 pub const TESTNET_CHAIN_ID: &str = "btcpc-satoshi";
+
+/// Name registration stake: locked in the account on creation, released only if the
+/// account is dissolved. Prevents squatting. = 10 BTCPC.
+pub const NAME_REGISTRATION_STAKE: u64 = 10 * DREAMS_PER_BTCPC;
+
+/// Accounts that are exempt from paying the name registration stake (genesis operators,
+/// shindevlin's reserved namespace). These are created at genesis or via GenesisAlloc.
+pub const STAKE_EXEMPT_ACCOUNTS: &[&str] = &["shindevlin", "__testnet_fund__", "__recycle__", "treasury"];

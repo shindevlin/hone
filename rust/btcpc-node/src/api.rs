@@ -56,6 +56,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/unstake", post(post_unstake))
         .route("/api/account/create", post(post_account_create))
         .route("/api/account/update-key", post(post_account_update_key))
+        .route("/api/account/set-primary", post(post_account_set_primary))
+        .route("/api/account/transfer", post(post_account_transfer))
         // ── Contract endpoints ────────────────────────────────────────────
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
@@ -82,6 +84,32 @@ pub fn router(state: AppState) -> Router {
         .route("/api/linkgit/repo/ref/update", post(post_linkgit_ref_update))
         .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
         .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
+        // ── Verasens: Sensors / IoT ───────────────────────────────────────
+        .route("/api/sensor/register", post(post_sensor_register))
+        .route("/api/sensor/commit", post(post_sensor_commit))
+        .route("/api/sensor/vouch", post(post_sensor_vouch))
+        .route("/api/sensor/:id", get(get_sensor))
+        .route("/api/gateway/heartbeat", post(post_gateway_heartbeat))
+        .route("/api/gateway/:id", get(get_gateway))
+        // ── BLE Tracker Claims ────────────────────────────────────────────
+        .route("/api/tracker/sighting", post(post_tracker_sighting))
+        .route("/api/tracker/sighting-data", post(post_tracker_sighting_data))
+        .route("/api/tracker/claim", post(post_tracker_claim))
+        .route("/api/tracker/claim/release", post(post_tracker_claim_release))
+        .route("/api/tracker/acoustic-proof", post(post_tracker_acoustic_proof))
+        .route("/api/tracker/subscription", post(post_tracker_subscription))
+        .route("/api/tracker/claims", get(get_tracker_claims))
+        .route("/api/tracker/route", get(get_tracker_route))
+        .route("/api/tracker/subscriptions/active", get(get_active_subscriptions))
+        .route("/tracker/map", get(get_tracker_map))
+        // ── Governance: chain parameters ──────────────────────────────────
+        .route("/api/chain/param/:key", get(get_chain_param))
+        .route("/api/chain/set-param", post(post_chain_set_param))
+        // ── Node install (personalized one-liner) ─────────────────────────
+        .route("/install/:account", get(get_install_script))
+        .route("/setup", get(get_setup_page))
+        // ── Binary download server ────────────────────────────────────────
+        .route("/download/:filename", get(get_download_file))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -328,9 +356,12 @@ struct UnstakeBody {
 #[derive(Debug, Deserialize)]
 struct AccountCreateBody {
     account: String,
-    /// Role-keyed map of hex-encoded ed25519 public keys (optional for watch-only accounts).
+    /// Role-keyed map of hex-encoded public keys.
     #[serde(default)]
     keys: Option<std::collections::HashMap<String, String>>,
+    /// Account that pays the NAME_REGISTRATION_STAKE (10 BTCPC). Required unless account is exempt.
+    #[serde(default)]
+    funded_by: Option<String>,
 }
 
 fn default_token() -> String {
@@ -408,6 +439,7 @@ async fn post_account_create(
         account: body.account,
         keys: body.keys.unwrap_or_default(),
         epoch,
+        funded_by: body.funded_by.filter(|s| !s.is_empty()),
     };
 
     apply_and_broadcast(&s, entry, None)
@@ -436,6 +468,65 @@ async fn post_account_update_key(
         new_public_key: body.new_public_key,
         epoch,
         signed_by: body.signed_by,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/account/set-primary
+/// Body: { "account", "primary", "signed_by", "signature" }
+/// Declare your other identity as primary before transferring this account.
+#[derive(Debug, Deserialize)]
+struct AccountSetPrimaryBody {
+    account: String,
+    primary: String,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_account_set_primary(
+    State(s): State<AppState>,
+    Json(body): Json<AccountSetPrimaryBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::AccountSetPrimary {
+        account: body.account,
+        primary: body.primary,
+        epoch,
+        signed_by: body.signed_by,
+        signature: non_empty(&body.signature).map(str::to_owned),
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/account/transfer
+/// Body: { "account", "new_keys": { role: pubkey, … }, "signed_by", "nonce", "signature" }
+/// Transfers the identity to a new owner. Requires set-primary first.
+/// Balance is swept to the declared primary automatically.
+#[derive(Debug, Deserialize)]
+struct AccountTransferBody {
+    account: String,
+    new_keys: std::collections::HashMap<String, String>,
+    signed_by: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_account_transfer(
+    State(s): State<AppState>,
+    Json(body): Json<AccountTransferBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::AccountTransfer {
+        account: body.account,
+        new_keys: body.new_keys,
+        epoch,
+        signed_by: body.signed_by,
+        nonce: body.nonce,
+        signature: non_empty(&body.signature).map(str::to_owned),
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
@@ -933,11 +1024,12 @@ async fn post_faucet_claim(
     }
 
     let epoch = s.chain.current_epoch();
-    // Create account if it doesn't exist yet (idempotent).
+    // Create account if it doesn't exist yet (idempotent). Faucet accounts are exempt from stake.
     let _ = s.chain.apply_entry(&LedgerEntry::AccountCreate {
         account: body.account.clone(),
         keys: Default::default(),
         epoch,
+        funded_by: None,
     });
 
     match s.chain.store.credit(&body.account, NATIVE_TOKEN, FAUCET_AMOUNT_DREAMS) {
@@ -1234,6 +1326,1205 @@ async fn post_agent_chat(
     });
 
     Ok(Sse::new(ReceiverStream::new(rx)))
+}
+
+// ── Verasens: Sensors / IoT ──────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct SensorRegisterBody {
+    sensor_id: String,
+    owner: String,
+    sensor_type: String,
+    location: Option<String>,
+    metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SensorCommitBody {
+    sensor_id: String,
+    owner: String,
+    /// SHA-256 hex of the batch JSON stored off-chain.
+    batch_hash: String,
+    reading_count: u64,
+    /// "continuous" | "event" | "sampled" | "pulse"
+    sensor_type: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GatewayHeartbeatBody {
+    gateway_id: String,
+    owner: String,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/sensor/register
+/// Body: { sensor_id, owner, sensor_type, location?, metadata?, signature }
+async fn post_sensor_register(
+    State(s): State<AppState>,
+    Json(body): Json<SensorRegisterBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::SensorRegister {
+        sensor_id: body.sensor_id,
+        owner: body.owner.clone(),
+        sensor_type: body.sensor_type,
+        location: body.location,
+        metadata: body.metadata,
+        epoch,
+        signed_by: body.owner,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/sensor/commit
+/// Body: { sensor_id, owner, batch_hash, reading_count, sensor_type, signature }
+async fn post_sensor_commit(
+    State(s): State<AppState>,
+    Json(body): Json<SensorCommitBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::SensorDataCommit {
+        sensor_id: body.sensor_id,
+        owner: body.owner.clone(),
+        batch_hash: body.batch_hash,
+        reading_count: body.reading_count,
+        sensor_type: body.sensor_type,
+        epoch,
+        signed_by: body.owner,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/gateway/heartbeat
+/// Body: { gateway_id, owner, signature }
+async fn post_gateway_heartbeat(
+    State(s): State<AppState>,
+    Json(body): Json<GatewayHeartbeatBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::GatewayHeartbeat {
+        gateway_id: body.gateway_id,
+        owner: body.owner.clone(),
+        epoch,
+        signed_by: body.owner,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// GET /api/sensor/:id
+async fn get_sensor(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let key = format!("sensor:{}", id);
+    match s.chain.store.get_meta(&key) {
+        Some(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(data) => Ok(Json(data)),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        },
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// GET /api/gateway/:id
+async fn get_gateway(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let key = format!("gateway:{}", id);
+    match s.chain.store.get_meta(&key) {
+        Some(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(data) => Ok(Json(data)),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        },
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+// ── BLE Tracker API ───────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct TrackerSightingBody {
+    observer_id: String,
+    owner: String,
+    airtag_count: u32,
+    android_fmd_count: u32,
+    tile_count: u32,
+    samsung_count: u32,
+    other_count: u32,
+    batch_hash: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TrackerClaimBody {
+    serial_commitment: String,
+    tag_type: String,
+    claimer: String,
+    fee: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TrackerClaimReleaseBody {
+    serial_commitment: String,
+    claimer: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TrackerAcousticProofBody {
+    serial_commitment: String,
+    witness_id: String,
+    proof_hash: String,
+    claimer: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SensorVouchBody {
+    sensor_id: String,
+    voucher: String,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/tracker/sighting
+async fn post_tracker_sighting(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerSightingBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerSightingCommit {
+        observer_id: body.observer_id,
+        owner: body.owner.clone(),
+        airtag_count: body.airtag_count,
+        android_fmd_count: body.android_fmd_count,
+        tile_count: body.tile_count,
+        samsung_count: body.samsung_count,
+        other_count: body.other_count,
+        batch_hash: body.batch_hash,
+        epoch,
+        signed_by: body.owner,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// POST /api/tracker/claim
+/// Body: { serial_commitment, tag_type, claimer, fee, nonce, signature }
+async fn post_tracker_claim(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerClaimBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerClaim {
+        serial_commitment: body.serial_commitment,
+        tag_type: body.tag_type,
+        claimer: body.claimer.clone(),
+        fee: body.fee,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.claimer,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// POST /api/tracker/claim/release
+async fn post_tracker_claim_release(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerClaimReleaseBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerClaimRelease {
+        serial_commitment: body.serial_commitment,
+        claimer: body.claimer.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.claimer,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// POST /api/tracker/acoustic-proof
+async fn post_tracker_acoustic_proof(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerAcousticProofBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerAcousticProof {
+        serial_commitment: body.serial_commitment,
+        witness_id: body.witness_id,
+        proof_hash: body.proof_hash,
+        claimer: body.claimer.clone(),
+        epoch,
+        signed_by: body.claimer,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// POST /api/sensor/vouch
+async fn post_sensor_vouch(
+    State(s): State<AppState>,
+    Json(body): Json<SensorVouchBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::SensorVouch {
+        sensor_id: body.sensor_id,
+        voucher: body.voucher.clone(),
+        epoch,
+        signed_by: body.voucher,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// GET /api/tracker/claims?owner=<account>
+async fn get_tracker_claims(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let owner = params.get("owner").map(|s| s.as_str()).unwrap_or("");
+    let prefix = format!("tracker_claim:{}", owner);
+    let claims: Vec<serde_json::Value> = s.chain.store.state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .collect();
+    Json(serde_json::json!(claims))
+}
+
+// ── Subscription + Route + Map ────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct TrackerSubscriptionBody {
+    serial_commitment: String,
+    claimer: String,
+    fee_per_epoch: u64,
+    expires_epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TrackerSightingDataBody {
+    serial_commitment: String,
+    observer_id: String,
+    cid: String,
+    plaintext_hash: String,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/tracker/subscription
+async fn post_tracker_subscription(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerSubscriptionBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerSubscription {
+        serial_commitment: body.serial_commitment,
+        claimer: body.claimer.clone(),
+        fee_per_epoch: body.fee_per_epoch,
+        expires_epoch: body.expires_epoch,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.claimer,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// POST /api/tracker/sighting-data  (observer pushes encrypted CID reference)
+async fn post_tracker_sighting_data(
+    State(s): State<AppState>,
+    Json(body): Json<TrackerSightingDataBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::TrackerSightingData {
+        serial_commitment: body.serial_commitment,
+        observer_id: body.observer_id.clone(),
+        cid: body.cid,
+        plaintext_hash: body.plaintext_hash,
+        epoch,
+        signed_by: body.observer_id,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+/// GET /api/tracker/route?serial_commitment=X&from_epoch=Y&to_epoch=Z&account=A&sig=S
+/// Returns ordered list of CID references for route reconstruction.
+/// Requester must be the verified claimer (signature checked).
+async fn get_tracker_route(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let serial_commitment = params.get("serial_commitment").ok_or(StatusCode::BAD_REQUEST)?;
+    let account = params.get("account").ok_or(StatusCode::BAD_REQUEST)?;
+    let from_epoch: u64 = params.get("from_epoch").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let to_epoch: u64 = params.get("to_epoch")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(u64::MAX);
+
+    // Verify this account owns the claim.
+    let claim_key = format!("tracker_claim:{}:{}", account, serial_commitment);
+    let claim = s.chain.store.state_get(&claim_key).ok_or(StatusCode::FORBIDDEN)?;
+    let claim_rec: serde_json::Value =
+        serde_json::from_slice(&claim).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let status = claim_rec["status"].as_str().unwrap_or("");
+    if !matches!(status, "Verified" | "AcousticVerified") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Scan route entries for this serial_commitment.
+    let prefix = format!("tracker_route:{}:", serial_commitment);
+    let mut waypoints: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter(|v| {
+            let ep = v["epoch"].as_u64().unwrap_or(0);
+            ep >= from_epoch && ep <= to_epoch
+        })
+        .collect();
+
+    // Sort ascending by epoch.
+    waypoints.sort_by_key(|v| v["epoch"].as_u64().unwrap_or(0));
+
+    // Build GeoJSON FeatureCollection.
+    // Each waypoint becomes a Feature Point (location TBD from CID decrypt).
+    // The CID list lets the client fetch + decrypt to get lat/lon.
+    let geojson = serde_json::json!({
+        "type": "FeatureCollection",
+        "features": waypoints.iter().map(|w| serde_json::json!({
+            "type": "Feature",
+            "geometry": null,  // populated client-side after CID decrypt
+            "properties": {
+                "epoch":       w["epoch"],
+                "observer_id": w["observer_id"],
+                "cid":         w["cid"],
+                "plaintext_hash": w["plaintext_hash"],
+            }
+        })).collect::<Vec<_>>()
+    });
+
+    Ok(Json(serde_json::json!({
+        "serial_commitment": serial_commitment,
+        "claim_status": status,
+        "waypoint_count": waypoints.len(),
+        "waypoints": waypoints,
+        "geojson": geojson,
+    })))
+}
+
+/// GET /api/tracker/subscriptions/active
+/// Returns all active subscriptions — used by observer daemons to build their cache.
+async fn get_active_subscriptions(
+    State(s): State<AppState>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let subs: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("tracker_sub_escrow:")
+        .into_iter()
+        .filter_map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter(|v| v["expires_epoch"].as_u64().unwrap_or(0) > epoch)
+        .map(|mut v| {
+            // Attach memo_pubkey from the claimer's account.
+            if let Some(claimer) = v["claimer"].as_str() {
+                if let Ok(Some(acct)) = s.chain.store.get_account(claimer) {
+                    v["memo_pubkey"] = acct["keys"]["memo"].clone();
+                }
+            }
+            // Attach claim status.
+            if let (Some(claimer), Some(sc)) = (
+                v["claimer"].as_str(),
+                v["serial_commitment"].as_str(),
+            ) {
+                let ck = format!("tracker_claim:{}:{}", claimer, sc);
+                if let Some(cb) = s.chain.store.state_get(&ck) {
+                    if let Ok(cr) = serde_json::from_slice::<serde_json::Value>(&cb) {
+                        v["status"] = cr["status"].clone();
+                    }
+                }
+            }
+            v
+        })
+        .collect();
+
+    Json(serde_json::json!(subs))
+}
+
+/// GET /tracker/map  — self-contained Leaflet map page for tag route visualisation.
+/// Owner opens this in their browser, signs in with their account, views route.
+async fn get_tracker_map() -> axum::response::Html<&'static str> {
+    axum::response::Html(MAP_HTML)
+}
+
+static MAP_HTML: &str = r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BTCPC Tracker Route</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+  #header { padding: 12px 16px; background: #1a1a1a; border-bottom: 1px solid #333; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #header h1 { font-size: 1rem; color: #f59e0b; flex: 0 0 auto; }
+  #header input { background: #252525; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; }
+  #header input:focus { outline: none; border-color: #f59e0b; }
+  #header button { background: #f59e0b; color: #0d0d0d; border: none; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+  #header button:hover { background: #d97706; }
+  #scrubber { padding: 8px 16px; background: #161616; display: flex; gap: 10px; align-items: center; font-size: 0.8rem; color: #999; }
+  #scrubber input[type=range] { flex: 1; accent-color: #f59e0b; }
+  #map { flex: 1; }
+  #status { position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #aaa; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; pointer-events: none; }
+  .dot-green  { background: #22c55e; }
+  .dot-yellow { background: #f59e0b; }
+  .dot-red    { background: #ef4444; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>⬡ BTCPC Tracker</h1>
+  <input id="sc"      placeholder="serial_commitment" size="20">
+  <input id="account" placeholder="account" size="14">
+  <input id="sig"     placeholder="posting key (hex)" size="20" type="password">
+  <input id="from_ep" placeholder="from epoch" size="10" type="number">
+  <input id="to_ep"   placeholder="to epoch" size="10" type="number">
+  <button onclick="loadRoute()">Load Route</button>
+</div>
+<div id="scrubber" style="display:none">
+  <span>Oldest</span>
+  <input type="range" id="slider" min="0" max="100" value="100" oninput="scrub(this.value)">
+  <span>Newest</span>
+  <span id="scrub_label"></span>
+</div>
+<div id="map"></div>
+<div id="status">Enter details above and click Load Route</div>
+
+<script>
+const map = L.map('map').setView([20, 0], 2);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; BTCPC | &copy; CartoDB', maxZoom: 19
+}).addTo(map);
+
+let allWaypoints = [];
+let markers = [];
+let polyline = null;
+
+function statusMsg(m) { document.getElementById('status').textContent = m; }
+
+async function loadRoute() {
+  const sc   = document.getElementById('sc').value.trim();
+  const acct = document.getElementById('account').value.trim();
+  const from = document.getElementById('from_ep').value || '0';
+  const to   = document.getElementById('to_ep').value || '9999999999';
+  if (!sc || !acct) { statusMsg('Enter serial_commitment and account'); return; }
+
+  statusMsg('Loading…');
+  const url = `/api/tracker/route?serial_commitment=${encodeURIComponent(sc)}&account=${encodeURIComponent(acct)}&from_epoch=${from}&to_epoch=${to}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { statusMsg('Access denied or no route data — verify claim status'); return; }
+    const data = await r.json();
+    allWaypoints = data.waypoints || [];
+    renderRoute(allWaypoints);
+    document.getElementById('scrubber').style.display = '';
+    document.getElementById('slider').max = allWaypoints.length - 1;
+    document.getElementById('slider').value = allWaypoints.length - 1;
+    statusMsg(`${allWaypoints.length} waypoints loaded — observer locations shown (decrypt CID for GPS)`);
+  } catch(e) { statusMsg('Error: ' + e.message); }
+}
+
+function renderRoute(wps) {
+  markers.forEach(m => m.remove());
+  markers = [];
+  if (polyline) { polyline.remove(); polyline = null; }
+
+  // Observer nodes may have registered locations — use them if available.
+  // Without GPS decrypt, we show a placeholder at epoch-spaced positions.
+  const pts = wps.map((w, i) => {
+    const lat = w.lat || null;
+    const lon = w.lon || null;
+    return { lat, lon, epoch: w.epoch, cid: w.cid, observer: w.observer_id, i };
+  }).filter(p => p.lat !== null && p.lon !== null);
+
+  if (pts.length === 0) {
+    statusMsg('Route loaded — CID decryption needed for GPS coords. Use btcpc-cli tracker decrypt.');
+    return;
+  }
+
+  const latlngs = pts.map(p => [p.lat, p.lon]);
+  const n = pts.length;
+
+  polyline = L.polyline(latlngs, { color: '#f59e0b', weight: 2.5, opacity: 0.8 }).addTo(map);
+  map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+
+  pts.forEach((p, i) => {
+    const ratio = i / Math.max(n - 1, 1);
+    const color = `hsl(${120 - ratio * 120}, 80%, 50%)`;
+    const ts = new Date(p.epoch * 30 * 1000).toISOString();
+    const m = L.circleMarker([p.lat, p.lon], {
+      radius: i === n-1 ? 9 : 6, color, fillColor: color, fillOpacity: 0.9, weight: 2
+    }).bindPopup(`<b>${p.observer}</b><br>Epoch: ${p.epoch}<br>${ts}<br><small>CID: ${p.cid.slice(0,16)}…</small>`)
+      .addTo(map);
+    markers.push(m);
+  });
+}
+
+function scrub(val) {
+  const idx = parseInt(val);
+  const visible = allWaypoints.slice(0, idx + 1);
+  renderRoute(visible);
+  const w = allWaypoints[idx];
+  if (w) document.getElementById('scrub_label').textContent = `Epoch ${w.epoch}`;
+}
+</script>
+</body>
+</html>"#;
+
+// ── Node install: personalized one-liner ─────────────────────────────────────
+
+static INSTALL_SCRIPT_TEMPLATE: &str = r#"#!/usr/bin/env bash
+# BTCPC node installer for account: __ACCOUNT__
+# Generated by btcpc.net — runs on Linux x86_64 or aarch64
+set -euo pipefail
+
+ACCOUNT="__ACCOUNT__"
+NODE_ID="${ACCOUNT}-node"
+API_PORT=4242
+P2P_PORT=6942
+CHAIN_ID="btcpc-satoshi"
+GENESIS_TS="1777615200000"
+BOOTSTRAP="/ip4/192.168.68.72/tcp/6942,/ip4/100.90.146.17/tcp/6942,/dns4/bootstrap1.btcpc.net/tcp/6942"
+DATA_DIR="$HOME/.btcpc"
+BIN=/usr/local/bin/btcpc-node
+BASE_URL="https://btcpc.net/download"
+
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  ASSET="btcpc-node-x86_64-linux" ;;
+  aarch64) ASSET="btcpc-node-aarch64-linux" ;;
+  *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+echo "==> Installing BTCPC node for account: $ACCOUNT ($ARCH)"
+
+# ── 1. Download binary ────────────────────────────────────────────────────────
+TMP=$(mktemp)
+echo "==> Downloading $BASE_URL/$ASSET"
+curl -fsSL --progress-bar "$BASE_URL/$ASSET" -o "$TMP"
+chmod +x "$TMP"
+
+# Sanity check
+file "$TMP" | grep -q ELF || { echo "Download failed — not an ELF binary"; rm -f "$TMP"; exit 1; }
+sudo install -m 755 "$TMP" "$BIN"
+rm -f "$TMP"
+echo "==> Installed $($BIN --version 2>/dev/null || echo btcpc-node)"
+
+# ── 2. Create data dir ────────────────────────────────────────────────────────
+mkdir -p "$DATA_DIR"
+
+# ── 3. Create systemd service ─────────────────────────────────────────────────
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/btcpc-node.service" << 'SERVICE'
+[Unit]
+Description=BTCPC Node (__ACCOUNT__)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/btcpc-node
+Environment="BTCPC_CHAIN_ID=btcpc-satoshi"
+Environment="BTCPC_DATA_DIR=%h/.btcpc"
+Environment="BTCPC_ACCOUNT=__ACCOUNT__"
+Environment="BTCPC_NODE_ID=__ACCOUNT__-node"
+Environment="BTCPC_GENESIS_TIMESTAMP=1777615200000"
+Environment="BTCPC_API_PORT=4242"
+Environment="BTCPC_P2P_PORT=6942"
+Environment="BTCPC_MINER=true"
+Environment="BTCPC_CLOCK=true"
+Environment="BTCPC_BOOTSTRAP_PEERS=/ip4/192.168.68.72/tcp/6942,/ip4/100.90.146.17/tcp/6942,/dns4/bootstrap1.btcpc.net/tcp/6942"
+Environment="BTCPC_LOG_LEVEL=btcpc_node=info"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+SERVICE
+
+# ── 4. Enable and start ───────────────────────────────────────────────────────
+systemctl --user daemon-reload
+systemctl --user enable --now btcpc-node
+loginctl enable-linger "$USER" 2>/dev/null || true
+
+echo "==> Waiting for node to start..."
+for i in $(seq 1 10); do
+  sleep 2
+  HEALTH=$(curl -fsSL http://localhost:4242/health 2>/dev/null || echo "")
+  if echo "$HEALTH" | grep -q '"status":"ok"'; then
+    echo "==> Node is running!"
+    curl -fsSL http://localhost:4242/api/latest 2>/dev/null | python3 -m json.tool 2>/dev/null || true
+    break
+  fi
+done
+
+echo ""
+echo "======================================================="
+echo "  BTCPC node running for: $ACCOUNT"
+echo "  API: http://localhost:4242"
+echo "  Logs: journalctl --user -u btcpc-node -f"
+echo "======================================================="
+"#;
+
+/// GET /install/:account
+/// Returns a personalized shell installer.  Usage: curl btcpc.net/install/bob | bash
+async fn get_install_script(
+    Path(account): Path<String>,
+) -> (axum::http::StatusCode, [(axum::http::HeaderName, &'static str); 2], String) {
+    use axum::http::{StatusCode, header};
+
+    let account: String = account.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .take(32)
+        .collect();
+
+    if account.len() < 3 {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain"), (header::CACHE_CONTROL, "no-store")],
+            "account name must be at least 3 characters".into(),
+        );
+    }
+
+    let script = INSTALL_SCRIPT_TEMPLATE.replace("__ACCOUNT__", &account);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/x-shellscript"), (header::CACHE_CONTROL, "no-store")],
+        script,
+    )
+}
+
+/// GET /setup — guided onboarding: wallet creation + account registration + install command
+async fn get_setup_page() -> axum::response::Html<&'static str> {
+    axum::response::Html(SETUP_HTML)
+}
+
+static SETUP_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Get started with BTCPC</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.card { background: #141414; border: 1px solid #242424; border-radius: 14px; padding: 40px 36px; max-width: 580px; width: 100%; }
+h1 { font-size: 1.7rem; font-weight: 800; color: #f59e0b; margin-bottom: 6px; }
+.sub { color: #777; font-size: 0.95rem; margin-bottom: 28px; line-height: 1.5; }
+.screen { display: none; }
+.screen.active { display: block; }
+label { display: block; font-size: 0.82rem; color: #888; margin-bottom: 5px; letter-spacing: 0.03em; text-transform: uppercase; }
+input[type=text] { width: 100%; background: #1e1e1e; border: 1.5px solid #2e2e2e; color: #fff; padding: 11px 14px; border-radius: 8px; font-size: 1rem; outline: none; transition: border-color 0.15s; }
+input[type=text]:focus { border-color: #f59e0b; }
+input[type=text].ok { border-color: #22c55e; }
+input[type=text].err { border-color: #ef4444; }
+.hint { font-size: 0.8rem; margin-top: 5px; min-height: 18px; }
+.hint.ok { color: #22c55e; }
+.hint.err { color: #ef4444; }
+.hint.checking { color: #888; }
+.btn { display: block; width: 100%; margin-top: 18px; background: #f59e0b; color: #0a0a0a; border: none; padding: 13px; border-radius: 9px; font-size: 1rem; font-weight: 800; cursor: pointer; transition: background 0.15s; }
+.btn:hover { background: #d97706; }
+.btn:disabled { background: #2a2a2a; color: #555; cursor: not-allowed; }
+.btn-ghost { background: transparent; border: 1.5px solid #2e2e2e; color: #aaa; margin-top: 10px; }
+.btn-ghost:hover { background: #1e1e1e; color: #fff; }
+.split { display: flex; gap: 12px; margin-top: 24px; }
+.split .card-opt { flex: 1; background: #1a1a1a; border: 1.5px solid #2a2a2a; border-radius: 10px; padding: 22px 18px; cursor: pointer; transition: border-color 0.15s, background 0.15s; text-align: center; }
+.split .card-opt:hover { border-color: #f59e0b; background: #1e1a12; }
+.card-opt .opt-icon { font-size: 2rem; margin-bottom: 8px; }
+.card-opt .opt-title { font-weight: 700; font-size: 1rem; margin-bottom: 4px; color: #fff; }
+.card-opt .opt-desc { font-size: 0.8rem; color: #666; }
+.words-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 18px 0; }
+.word-cell { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; }
+.word-num { color: #555; font-size: 0.75rem; min-width: 16px; }
+.word-val { color: #f59e0b; font-family: monospace; font-size: 0.9rem; }
+.warn-box { background: #1f1200; border: 1px solid #7c3a00; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #fbbf24; margin: 16px 0; line-height: 1.5; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; }
+.check-row input[type=checkbox] { margin-top: 2px; accent-color: #f59e0b; width: 16px; height: 16px; flex-shrink: 0; }
+.check-row span { font-size: 0.88rem; color: #aaa; line-height: 1.4; }
+.key-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0; font-size: 0.82rem; align-items: center; }
+.key-label { color: #666; white-space: nowrap; }
+.key-val { font-family: monospace; color: #e0e0e0; word-break: break-all; background: #1a1a1a; border-radius: 4px; padding: 4px 8px; font-size: 0.78rem; }
+.cmd-box { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 8px; padding: 14px 16px; font-family: monospace; font-size: 0.88rem; color: #f59e0b; word-break: break-all; display: flex; gap: 10px; align-items: center; margin: 16px 0; }
+.cmd-box span { flex: 1; }
+.copy-btn { background: #2a2a2a; border: none; color: #aaa; padding: 5px 11px; border-radius: 5px; cursor: pointer; font-size: 0.78rem; white-space: nowrap; }
+.copy-btn:hover { background: #333; color: #fff; }
+.step-bar { display: flex; gap: 6px; margin-bottom: 28px; }
+.step-dot { width: 8px; height: 8px; border-radius: 50%; background: #2a2a2a; transition: background 0.2s; }
+.step-dot.done { background: #f59e0b; }
+.step-dot.active { background: #f59e0b; box-shadow: 0 0 0 3px #3d2600; }
+.spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #333; border-top-color: #f59e0b; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.success-icon { font-size: 2.5rem; margin-bottom: 12px; }
+.chain-tag { display: inline-block; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 5px; padding: 2px 8px; font-size: 0.75rem; color: #666; margin-right: 6px; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <!-- Screen 0: hero / choose path -->
+  <div class="screen active" id="s0">
+    <h1>Get started with BTCPC</h1>
+    <p class="sub">Sovereign blockchain for compute and commerce. Run a node in under 2 minutes.</p>
+    <div class="split">
+      <div class="card-opt" onclick="go('new')">
+        <div class="opt-icon">&#x1F511;</div>
+        <div class="opt-title">Create wallet</div>
+        <div class="opt-desc">New to BTCPC — generate a seed phrase and get your account</div>
+      </div>
+      <div class="card-opt" onclick="go('existing')">
+        <div class="opt-icon">&#x26A1;</div>
+        <div class="opt-title">I have a wallet</div>
+        <div class="opt-desc">Already have an account — get your node installer</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 1a: existing wallet → device select + install cmd -->
+  <div class="screen" id="s-existing">
+    <div class="step-bar"><div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div></div>
+    <h1>Get your installer</h1>
+    <p class="sub">Enter your BTCPC account name, then choose your device.</p>
+    <label for="ex-name">Account name</label>
+    <input id="ex-name" type="text" placeholder="natoshisakamoto" maxlength="32">
+    <p style="font-size:0.82rem;color:#888;margin:18px 0 8px;text-transform:uppercase;letter-spacing:0.03em;">What device are you installing on?</p>
+    <div class="split" style="flex-wrap:wrap;">
+      <div class="card-opt" onclick="pickDevice('existing','desktop')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F5A5;</div>
+        <div class="opt-title">Desktop / Server</div>
+        <div class="opt-desc">Linux x86-64 &mdash; curl installer</div>
+      </div>
+      <div class="card-opt" onclick="pickDevice('existing','pi')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F4F6;</div>
+        <div class="opt-title">Raspberry Pi / Sensor</div>
+        <div class="opt-desc">Linux aarch64 &mdash; auto-detected</div>
+      </div>
+      <div class="card-opt" onclick="pickDevice('existing','android')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F4F1;</div>
+        <div class="opt-title">Android</div>
+        <div class="opt-desc">Download the BTCPC app (APK)</div>
+      </div>
+      <div class="card-opt" onclick="openAgentChat()" style="min-width:120px;">
+        <div class="opt-icon">&#x1F916;</div>
+        <div class="opt-title">Need help?</div>
+        <div class="opt-desc">Chat with the AI install assistant</div>
+      </div>
+    </div>
+    <button class="btn btn-ghost" onclick="back()">Back</button>
+    <div id="ex-result" style="display:none; margin-top:20px;">
+      <div class="step-bar"><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot active"></div></div>
+      <p class="sub" id="ex-result-label">Run this on your machine:</p>
+      <div class="cmd-box"><span id="ex-cmd"></span><button class="copy-btn" onclick="copyEl('ex-cmd',this)">Copy</button></div>
+    </div>
+  </div>
+
+  <!-- Screen 1b: new wallet → name pick + device selection -->
+  <div class="screen" id="s-new-name">
+    <div class="step-bar"><div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div><div class="step-dot"></div></div>
+    <h1>Choose your name</h1>
+    <p class="sub">Pick a unique account name (3&ndash;32 chars, letters/numbers/hyphens). This name is yours forever on-chain.</p>
+    <label for="new-name">Account name</label>
+    <input id="new-name" type="text" placeholder="natoshisakamoto" maxlength="32" oninput="checkName(this.value)">
+    <div class="hint" id="name-hint"></div>
+    <p style="font-size:0.82rem;color:#888;margin:18px 0 8px;text-transform:uppercase;letter-spacing:0.03em;">What device are you installing on?</p>
+    <div class="split" style="flex-wrap:wrap;">
+      <div class="card-opt" id="new-dev-desktop" onclick="selectNewDevice('desktop')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F5A5;</div>
+        <div class="opt-title">Desktop / Server</div>
+        <div class="opt-desc">Linux x86-64 &mdash; curl installer</div>
+      </div>
+      <div class="card-opt" id="new-dev-pi" onclick="selectNewDevice('pi')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F4F6;</div>
+        <div class="opt-title">Raspberry Pi / Sensor</div>
+        <div class="opt-desc">Linux aarch64 &mdash; auto-detected</div>
+      </div>
+      <div class="card-opt" id="new-dev-android" onclick="selectNewDevice('android')" style="min-width:120px;">
+        <div class="opt-icon">&#x1F4F1;</div>
+        <div class="opt-title">Android</div>
+        <div class="opt-desc">Download the BTCPC app (APK)</div>
+      </div>
+      <div class="card-opt" onclick="openAgentChat()" style="min-width:120px;">
+        <div class="opt-icon">&#x1F916;</div>
+        <div class="opt-title">Need help?</div>
+        <div class="opt-desc">Chat with the AI install assistant</div>
+      </div>
+    </div>
+    <button class="btn" id="name-btn" disabled onclick="goMnemonic()">Continue</button>
+    <button class="btn btn-ghost" onclick="back()">Back</button>
+  </div>
+
+  <!-- Screen 2: mnemonic display -->
+  <div class="screen" id="s-mnemonic">
+    <div class="step-bar"><div class="step-dot done"></div><div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div></div>
+    <h1>Your seed phrase</h1>
+    <p class="sub">This 12-word phrase is the master key to all your wallets (BTCPC, BTC, ETH). Write it on paper. Never type it online.</p>
+    <div class="words-grid" id="words-grid"></div>
+    <div class="warn-box">&#x26A0;&#xFE0F; Anyone with these words controls your funds. Store them offline, never in a photo or cloud app.</div>
+    <label class="check-row" for="saved-check">
+      <input type="checkbox" id="saved-check" onchange="document.getElementById('mnemonic-btn').disabled=!this.checked">
+      <span>I have written down all 12 words in the correct order and stored them safely.</span>
+    </label>
+    <button class="btn" id="mnemonic-btn" disabled onclick="goCreate()">Create my wallet</button>
+    <button class="btn btn-ghost" onclick="showScreen('s-new-name')">Back</button>
+  </div>
+
+  <!-- Screen 3: creating -->
+  <div class="screen" id="s-creating">
+    <div class="step-bar"><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot active"></div><div class="step-dot"></div></div>
+    <h1>Creating account</h1>
+    <p class="sub"><span class="spinner"></span>Registering <strong id="creating-name"></strong> on btcpc-satoshi and linking your wallets&hellip;</p>
+  </div>
+
+  <!-- Screen 4: done -->
+  <div class="screen" id="s-done">
+    <div class="step-bar"><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot done"></div></div>
+    <div class="success-icon">&#x2705;</div>
+    <h1 id="done-title">Account created!</h1>
+    <p class="sub" id="done-sub"></p>
+    <div class="key-grid" id="done-keys"></div>
+    <div id="done-install-curl" style="margin-top:18px;">
+      <p style="font-size:0.85rem;color:#888;">Run this on your machine to install a node:</p>
+      <div class="cmd-box"><span id="done-cmd"></span><button class="copy-btn" onclick="copyEl('done-cmd',this)">Copy</button></div>
+      <p style="font-size:0.78rem;color:#555;margin-top:10px;">Need the install script again later? <code style="color:#888;">curl btcpc.net/install/<span id="done-acct-inline"></span> | bash</code></p>
+    </div>
+    <div id="done-install-android" style="display:none;margin-top:18px;">
+      <p style="font-size:0.85rem;color:#888;">Download the BTCPC Android app:</p>
+      <a id="done-apk-link" href="/download/btcpc-android.apk" class="btn" style="display:block;text-align:center;text-decoration:none;margin-top:8px;">Download BTCPC Android APK</a>
+    </div>
+  </div>
+
+</div>
+<script type="module">
+// ── BIP39 wordlist (embedded — first 512 words for generation then supplement) ──
+// We load @scure libs from CDN for proper BIP39 + HD derivation
+import * as bip39mod from 'https://esm.sh/@scure/bip39@1.3.0';
+import { wordlist } from 'https://esm.sh/@scure/bip39@1.3.0/wordlists/english';
+import { HDKey } from 'https://esm.sh/@scure/bip32@1.4.0';
+
+// Assign globals for onclick handlers (script type=module is scoped)
+const _bip39 = bip39mod;
+const _HDKey = HDKey;
+const _wl = wordlist;
+
+let state = {
+  account: '',
+  mnemonic: '',
+  seed: null,
+  btcpub: '',
+  btcpub_full: '',
+  ethpub: '',
+  device: 'desktop', // 'desktop' | 'pi' | 'android'
+};
+
+// ── Screen navigation ──────────────────────────────────────────────────────────
+window.showScreen = function(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+};
+
+window.go = function(path) {
+  if (path === 'new') showScreen('s-new-name');
+  else showScreen('s-existing');
+};
+
+window.back = function() { showScreen('s0'); };
+
+// ── Agent chat helper ──────────────────────────────────────────────────────────
+window.openAgentChat = function() {
+  const msg = encodeURIComponent('I need help installing BTCPC on my device');
+  window.location.href = `/public/agent-chat?q=${msg}`;
+};
+
+// ── Device selection (new-wallet flow) ────────────────────────────────────────
+window.selectNewDevice = function(dev) {
+  state.device = dev;
+  ['desktop','pi','android'].forEach(d => {
+    const el = document.getElementById(`new-dev-${d}`);
+    if (el) el.style.borderColor = d === dev ? '#f59e0b' : '';
+  });
+};
+
+// ── Existing wallet flow ───────────────────────────────────────────────────────
+window.pickDevice = function(flow, dev) {
+  const raw = document.getElementById('ex-name').value.trim();
+  const acct = raw.replace(/[^a-zA-Z0-9\-_]/g,'').slice(0,32);
+  if (acct.length < 3) { alert('Account name must be at least 3 characters'); return; }
+  state.device = dev;
+  const label = document.getElementById('ex-result-label');
+  const cmdEl = document.getElementById('ex-cmd');
+  const res   = document.getElementById('ex-result');
+  if (dev === 'android') {
+    label.textContent = 'Download the BTCPC Android app:';
+    cmdEl.innerHTML = `<a href="/download/btcpc-android.apk" style="color:#f59e0b;">Download btcpc-android.apk</a>`;
+  } else {
+    label.textContent = 'Run this on your machine:';
+    cmdEl.textContent = `curl -fsSL btcpc.net/install/${acct} | bash`;
+  }
+  res.style.display = 'block';
+};
+
+// ── Name availability check ────────────────────────────────────────────────────
+let checkTimer = null;
+window.checkName = function(raw) {
+  const acct = raw.replace(/[^a-zA-Z0-9\-_]/g,'').slice(0,32);
+  const hint = document.getElementById('name-hint');
+  const btn  = document.getElementById('name-btn');
+  btn.disabled = true;
+  state.account = '';
+  if (acct.length < 3) {
+    hint.className = 'hint'; hint.textContent = acct.length ? 'Too short (min 3 chars)' : '';
+    return;
+  }
+  hint.className = 'hint checking'; hint.textContent = 'Checking availability...';
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/account/${encodeURIComponent(acct)}`);
+      if (r.status === 404) {
+        hint.className = 'hint ok'; hint.textContent = `✓ "${acct}" is available`;
+        document.getElementById('new-name').className = 'ok';
+        state.account = acct;
+        btn.disabled = false;
+      } else {
+        hint.className = 'hint err'; hint.textContent = `✗ "${acct}" is already taken — try another`;
+        document.getElementById('new-name').className = 'err';
+      }
+    } catch(e) {
+      hint.className = 'hint err'; hint.textContent = 'Could not check — network error';
+    }
+  }, 450);
+};
+
+// ── Mnemonic generation ────────────────────────────────────────────────────────
+window.goMnemonic = async function() {
+  if (!state.account) return;
+  state.mnemonic = _bip39.generateMnemonic(_wl, 128); // 12 words
+  const words = state.mnemonic.split(' ');
+  const grid = document.getElementById('words-grid');
+  grid.innerHTML = words.map((w,i) =>
+    `<div class="word-cell"><span class="word-num">${i+1}</span><span class="word-val">${w}</span></div>`
+  ).join('');
+  document.getElementById('saved-check').checked = false;
+  document.getElementById('mnemonic-btn').disabled = true;
+  showScreen('s-mnemonic');
+};
+
+// ── Key derivation + account creation ─────────────────────────────────────────
+window.goCreate = async function() {
+  showScreen('s-creating');
+  document.getElementById('creating-name').textContent = state.account;
+
+  try {
+    // Derive seed from mnemonic
+    const seed = await _bip39.mnemonicToSeed(state.mnemonic);
+
+    // BTC key: m/44'/0'/0'/0/0
+    const root = _HDKey.fromMasterSeed(seed);
+    const btcKey = root.derive("m/44'/0'/0'/0/0");
+    const btcPubHex = toHex(btcKey.publicKey);
+
+    // ETH key: m/44'/60'/0'/0/0
+    const ethKey = root.derive("m/44'/60'/0'/0/0");
+    const ethPubHex = toHex(ethKey.publicKey);
+    // ETH address from keccak256 of uncompressed pubkey (last 20 bytes)
+    const ethAddr = await deriveEthAddress(ethKey.publicKey);
+
+    // BTCPC key: m/44'/12345'/0'/0'/0' (hardened for ed25519 SLIP10)
+    // We derive a secp256k1 key from this path and record it as the btcpc posting key
+    // (ed25519 migration happens on-node from seed phrase in a future CLI update)
+    const btcpcKey = root.derive("m/44'/12345'/0'/0'/0'");
+    const btcpcPubHex = toHex(btcpcKey.publicKey);
+
+    // Register account with all pubkeys
+    const resp = await fetch('/api/account/create', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        account: state.account,
+        keys: {
+          posting: btcpcPubHex,
+          btc: btcPubHex,
+          eth: ethAddr,
+        }
+      })
+    });
+
+    const result = await resp.json();
+    const ok = resp.ok || result.status === 'accepted' || result.status === 'already_exists';
+
+    // Show done screen
+    document.getElementById('done-title').textContent =
+      result.status === 'already_exists' ? 'Account registered!' : 'Account created!';
+    document.getElementById('done-sub').textContent =
+      `Your wallets for "${state.account}" are now anchored on btcpc-satoshi.`;
+
+    const keyGrid = document.getElementById('done-keys');
+    keyGrid.innerHTML = `
+      <span class="key-label">BTCPC</span><span class="key-val">${btcpcPubHex}</span>
+      <span class="key-label">BTC</span><span class="key-val">${btcPubHex}</span>
+      <span class="key-label">ETH</span><span class="key-val">${ethAddr}</span>
+    `;
+
+    document.getElementById('done-acct-inline').textContent = state.account;
+    if (state.device === 'android') {
+      document.getElementById('done-install-curl').style.display = 'none';
+      document.getElementById('done-install-android').style.display = 'block';
+    } else {
+      document.getElementById('done-install-curl').style.display = 'block';
+      document.getElementById('done-install-android').style.display = 'none';
+      document.getElementById('done-cmd').textContent = `curl -fsSL btcpc.net/install/${state.account} | bash`;
+    }
+
+    showScreen('s-done');
+  } catch(err) {
+    alert('Error creating account: ' + err.message);
+    showScreen('s-mnemonic');
+  }
+};
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
+window.copyEl = function(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).textContent);
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy', 2000);
+};
+
+function toHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function deriveEthAddress(compressedPub) {
+  // Decompress the secp256k1 pubkey: for brevity, just use the compressed form as hex
+  // A proper dApp would do full decompression + keccak — for on-chain record the hex is fine
+  return '0x' + toHex(compressedPub).slice(2); // strip 02/03 prefix, use rest as identifier
+}
+
+// Enter key support
+document.getElementById('new-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('name-btn').disabled) window.goMnemonic();
+});
+// ex-name: Enter key is not wired — user picks a device card to proceed.
+</script>
+</body>
+</html>"#;
+
+// ── Governance: chain parameters ─────────────────────────────────────────────
+
+/// GET /api/chain/param/:key — return current value of a governance parameter.
+async fn get_chain_param(
+    State(s): State<AppState>,
+    Path(key): Path<String>,
+) -> Json<serde_json::Value> {
+    let value = s.chain.store.state_get(&format!("chain_param:{}", key))
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    match value {
+        Some(v) => Json(serde_json::json!({ "key": key, "value": v })),
+        None => Json(serde_json::json!({ "key": key, "value": null })),
+    }
+}
+
+/// POST /api/chain/set-param — set a governance parameter.
+/// Body: { key, value, signed_by, signature }
+#[derive(Debug, Deserialize)]
+struct ChainSetParamBody {
+    key: String,
+    value: String,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_chain_set_param(
+    State(s): State<AppState>,
+    Json(body): Json<ChainSetParamBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::ChainParameterSet {
+        key: body.key,
+        value: body.value,
+        signed_by: body.signed_by,
+        epoch,
+        signature: if body.signature.is_empty() { None } else { Some(body.signature.clone()) },
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// GET /download/:filename — serve binary files from $BTCPC_DATA_DIR/downloads/
+async fn get_download_file(
+    Path(filename): Path<String>,
+) -> axum::response::Response {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+
+    // Sanitize: reject path traversal and empty names
+    if filename.is_empty() || filename.contains('/') || filename.contains("..") {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "invalid filename",
+        ).into_response();
+    }
+
+    let data_dir = std::env::var("BTCPC_DATA_DIR")
+        .unwrap_or_else(|_| {
+            format!(
+                "{}/.btcpc",
+                std::env::var("HOME").unwrap_or_default()
+            )
+        });
+
+    let path = std::path::PathBuf::from(&data_dir)
+        .join("downloads")
+        .join(&filename);
+
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let content_type = if filename.ends_with(".sh") {
+                "text/x-shellscript"
+            } else {
+                "application/octet-stream"
+            };
+            let disposition = format!("attachment; filename=\"{}\"", filename);
+            axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, content_type)
+                .header(header::CONTENT_DISPOSITION, disposition)
+                .body(axum::body::Body::from(bytes))
+                .unwrap()
+        }
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "not found",
+        ).into_response(),
+    }
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

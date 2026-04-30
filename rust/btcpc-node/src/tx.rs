@@ -155,9 +155,54 @@ pub fn validate_and_apply(
         }
 
         // ── AccountCreate ────────────────────────────────────────────────────
-        LedgerEntry::AccountCreate { account, .. } => {
+        LedgerEntry::AccountCreate { account, funded_by, .. } => {
             check_not_empty(account, "account")?;
+            // Block 3-digit all-numeric names (000-999) — reserved for future numeric namespace.
+            if account.len() == 3 && account.chars().all(|c| c.is_ascii_digit()) {
+                bail!("3-digit numeric names (000-999) are reserved and cannot be registered yet");
+            }
+            let exempt = btcpc_types::STAKE_EXEMPT_ACCOUNTS.contains(&account.as_str());
+            if !exempt {
+                // Check if name stake is enabled via on-chain governance param.
+                let stake_enabled = chain.store.state_get("chain_param:name_stake_enabled")
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .map(|s| s.trim() == "true")
+                    .unwrap_or(false); // default: OFF — free registration until shindevlin flips the switch
+
+                if stake_enabled {
+                    let stake_amount = chain.store.state_get("chain_param:name_stake_amount")
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .and_then(|s| s.trim().parse::<u64>().ok())
+                        .unwrap_or(btcpc_types::NAME_REGISTRATION_STAKE);
+
+                    let funder = funded_by.as_deref()
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| anyhow::anyhow!(
+                            "name registration requires a funded_by account with {} dreams",
+                            stake_amount
+                        ))?;
+                    let bal = chain.store.get_balance(funder, btcpc_types::NATIVE_TOKEN);
+                    anyhow::ensure!(
+                        bal >= stake_amount,
+                        "funded_by '{}' has {} dreams, need {} for name registration",
+                        funder, bal, stake_amount
+                    );
+                }
+            }
             chain.apply_entry(entry)?;
+        }
+
+        // ── ChainParameterSet ────────────────────────────────────────────────
+        LedgerEntry::ChainParameterSet { key, signed_by, .. } => {
+            // Only authorized accounts. shindevlin is the bootstrap governor.
+            // TODO: replace with on-chain governance vote once consensus is live.
+            const AUTHORIZED: &[&str] = &["shindevlin"];
+            if !AUTHORIZED.contains(&signed_by.as_str()) {
+                bail!("only authorized accounts can set chain parameters; '{}' is not authorized", signed_by);
+            }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = key;
         }
 
         // ── EpochSeal (signature embedded) ───────────────────────────────────
@@ -208,6 +253,86 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── AccountSetPrimary ─────────────────────────────────────────────────
+        // Declares another account as the owner's primary identity.
+        // The primary must exist and share the same posting key — proving ownership.
+        // Must be set before AccountTransfer is allowed.
+        LedgerEntry::AccountSetPrimary { account, primary, signed_by, .. } => {
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}'", signed_by, account);
+            }
+            anyhow::ensure!(account != primary, "primary cannot be the same as account");
+
+            let cur_state = chain.store.get_account(account)?
+                .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
+            let primary_state = chain.store.get_account(primary)?
+                .ok_or_else(|| anyhow::anyhow!(
+                    "primary '{}' does not exist — create it with your keys first", primary
+                ))?;
+
+            // Verify the primary shares the same posting key.
+            let cur_posting = cur_state.get("keys")
+                .and_then(|v| v.get("posting")).and_then(|v| v.as_str())
+                .filter(|k| !k.is_empty());
+            let pri_posting = primary_state.get("keys")
+                .and_then(|v| v.get("posting")).and_then(|v| v.as_str())
+                .filter(|k| !k.is_empty());
+
+            if cur_posting.is_some() && cur_posting != pri_posting {
+                bail!(
+                    "primary '{}' must share the same posting key as '{}' — \
+                     both must be controlled by your wallet",
+                    primary, account
+                );
+            }
+
+            if cur_posting.is_some() {
+                check_signature(chain, account, entry, sig_hex, "posting")?;
+            }
+            chain.apply_entry(entry)?;
+        }
+
+        // ── AccountTransfer ───────────────────────────────────────────────────
+        // Transfers the identity to a new owner. Requires AccountSetPrimary first.
+        // The stored primary receives any balance; the key map is replaced atomically.
+        LedgerEntry::AccountTransfer { account, signed_by, new_keys, .. } => {
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}' for AccountTransfer", signed_by, account);
+            }
+            anyhow::ensure!(!new_keys.is_empty(), "new_keys must not be empty");
+
+            let cur_state = chain.store.get_account(account)?
+                .ok_or_else(|| anyhow::anyhow!("cannot transfer non-existent account '{}'", account))?;
+
+            // Primary must be declared — that is where the balance goes and what proves
+            // the owner won't lose their chain presence.
+            let primary = cur_state.get("primary")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "call AccountSetPrimary first — declare your other identity (e.g. 'joshua') \
+                     before transferring 'josh'. This protects you from losing chain presence."
+                ))?;
+
+            // Confirm the primary still exists.
+            anyhow::ensure!(
+                chain.store.get_account(primary)?.is_some(),
+                "declared primary '{}' no longer exists", primary
+            );
+
+            let auth_key = cur_state.get("keys")
+                .and_then(|v| v.get("owner")).and_then(|v| v.as_str())
+                .filter(|k| !k.is_empty())
+                .or_else(|| cur_state.get("keys")
+                    .and_then(|v| v.get("posting")).and_then(|v| v.as_str())
+                    .filter(|k| !k.is_empty()));
+            if auth_key.is_some() {
+                check_signature(chain, account, entry, sig_hex, "owner")?;
+            }
+
+            chain.apply_entry(entry)?;
+        }
+
         // ── Allowlisted pass-through entries ──────────────────────────────────
         LedgerEntry::SensorReading { .. }
         | LedgerEntry::BlobStore { .. }
@@ -238,7 +363,18 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitAccessGrant { .. }
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
-        | LedgerEntry::LinkGitStorageExtend { .. } => {
+        | LedgerEntry::LinkGitStorageExtend { .. }
+        // BLE Tracker — recorded on-chain, state in chain.rs
+        | LedgerEntry::TrackerSightingCommit { .. }
+        | LedgerEntry::TrackerClaim { .. }
+        | LedgerEntry::TrackerClaimRelease { .. }
+        | LedgerEntry::TrackerAcousticProof { .. }
+        | LedgerEntry::TrackerSubscription { .. }
+        | LedgerEntry::TrackerSightingData { .. }
+        | LedgerEntry::TrackerHint { .. }
+        | LedgerEntry::TrackerLostMode { .. }
+        | LedgerEntry::TrackerFoundReport { .. }
+        | LedgerEntry::TrackerFoundConfirm { .. } => {
             chain.apply_entry(entry)?;
         }
 
@@ -612,6 +748,9 @@ pub fn validate_and_apply(
         LedgerEntry::MempoolReward { .. } => {
             bail!("MempoolReward is system-only and cannot be submitted externally");
         }
+        LedgerEntry::TrackerCoverageReward { .. } => {
+            bail!("TrackerCoverageReward is system-only and cannot be submitted externally");
+        }
     }
 
     Ok(hash)
@@ -860,6 +999,30 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "role": role,
                 "new_public_key": new_public_key,
             }),
+        LedgerEntry::AccountSetPrimary { account, primary, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "ACCOUNT_SET_PRIMARY",
+                "account": account,
+                "primary": primary,
+            }),
+        LedgerEntry::ChainParameterSet { key, value, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "CHAIN_PARAMETER_SET",
+                "key": key,
+                "value": value,
+            }),
+        LedgerEntry::AccountTransfer { account, new_keys, nonce, .. } => {
+            let sorted: std::collections::BTreeMap<_, _> = new_keys.iter().collect();
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "ACCOUNT_TRANSFER",
+                "account": account,
+                "new_keys": sorted,
+                "nonce": nonce,
+            })
+        }
         LedgerEntry::InferenceJobPost { requester, job_id, model, max_fee, nonce, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,

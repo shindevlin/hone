@@ -95,9 +95,25 @@ impl Chain {
                 info!("genesis alloc: {} {} → {}", amount, token, account);
             }
 
-            LedgerEntry::AccountCreate { account, keys, epoch } => {
+            LedgerEntry::AccountCreate { account, keys, epoch, funded_by } => {
                 if self.store.get_account(account)?.is_some() {
                     return Ok(()); // idempotent
+                }
+                let exempt = btcpc_types::STAKE_EXEMPT_ACCOUNTS.contains(&account.as_str());
+                if !exempt {
+                    let stake_enabled = self.store.state_get("chain_param:name_stake_enabled")
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .map(|s| s.trim() == "true")
+                        .unwrap_or(false);
+                    if stake_enabled {
+                        let stake_amount = self.store.state_get("chain_param:name_stake_amount")
+                            .and_then(|bytes| String::from_utf8(bytes).ok())
+                            .and_then(|s| s.trim().parse::<u64>().ok())
+                            .unwrap_or(btcpc_types::NAME_REGISTRATION_STAKE);
+                        if let Some(funder) = funded_by {
+                            self.store.debit(funder, NATIVE_TOKEN, stake_amount)?;
+                        }
+                    }
                 }
                 let state = serde_json::json!({
                     "account_id": account,
@@ -105,6 +121,7 @@ impl Chain {
                     "keys": keys,
                     "nonce": 0,
                     "stake": 0,
+                    "name_stake_locked": btcpc_types::NAME_REGISTRATION_STAKE,
                 });
                 self.store.set_account(account, &state)?;
             }
@@ -220,6 +237,43 @@ impl Chain {
                 info!("key '{}' registered for account '{}'", role, account);
             }
 
+            // Governance: set a chain-wide parameter.
+            LedgerEntry::ChainParameterSet { key, value, .. } => {
+                self.store.state_set(&format!("chain_param:{}", key), value.as_bytes())?;
+                info!("chain param '{}' set to '{}'", key, value);
+            }
+
+            // Record the owner's declared primary identity.
+            LedgerEntry::AccountSetPrimary { account, primary, .. } => {
+                let mut state = self.store.get_account(account)?
+                    .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
+                state["primary"] = serde_json::json!(primary);
+                self.store.set_account(account, &state)?;
+                info!("primary identity for '{}' set to '{}'", account, primary);
+            }
+
+            // Identity transfer: sweep funds to primary, then rotate keys.
+            LedgerEntry::AccountTransfer { account, new_keys, epoch, .. } => {
+                let mut state = self.store.get_account(account)?
+                    .ok_or_else(|| anyhow::anyhow!("cannot transfer non-existent account '{}'", account))?;
+                // Sweep all balances to the declared primary before handing off the identity.
+                if let Some(primary) = state.get("primary").and_then(|v| v.as_str()) {
+                    let primary = primary.to_owned();
+                    let balances = self.store.scan_balances(account);
+                    for (token, amount) in balances {
+                        if amount > 0 {
+                            self.store.debit(account, &token, amount)?;
+                            self.store.credit(&primary, &token, amount)?;
+                        }
+                    }
+                }
+                state["keys"] = serde_json::to_value(new_keys)?;
+                state["transferred_epoch"] = serde_json::json!(epoch);
+                state["primary"] = serde_json::Value::Null; // clear — new owner sets their own
+                self.store.set_account(account, &state)?;
+                info!("identity '{}' transferred at epoch {}", account, epoch);
+            }
+
             LedgerEntry::SensorReading { .. }
             | LedgerEntry::BlobStore { .. }
             | LedgerEntry::ContractDeploy { .. }
@@ -257,14 +311,30 @@ impl Chain {
             | LedgerEntry::OrderCancel { .. }
             | LedgerEntry::OrderDispute { .. }
             | LedgerEntry::EscrowRelease { .. }
-            | LedgerEntry::FlashSale { .. }
-            // Verasens sensors — recorded on-chain, state in sidecar
-            | LedgerEntry::SensorRegister { .. }
-            | LedgerEntry::SensorKeyRegister { .. }
+            | LedgerEntry::FlashSale { .. } => {}
+
+            // Verasens sensors — state written here for API queries.
+            LedgerEntry::SensorRegister { sensor_id, owner, sensor_type, location, metadata, epoch, .. } => {
+                let key = format!("sensor:{}", sensor_id);
+                let _ = self.store.set_meta(&key,
+                    &serde_json::to_vec(&serde_json::json!({
+                        "sensor_id": sensor_id, "owner": owner,
+                        "sensor_type": sensor_type, "location": location,
+                        "metadata": metadata, "registered_epoch": epoch,
+                    })).unwrap_or_default());
+            }
+            LedgerEntry::GatewayHeartbeat { gateway_id, owner, epoch, .. } => {
+                let key = format!("gateway:{}", gateway_id);
+                let _ = self.store.set_meta(&key,
+                    &serde_json::to_vec(&serde_json::json!({
+                        "gateway_id": gateway_id, "owner": owner,
+                        "last_heartbeat_epoch": epoch,
+                    })).unwrap_or_default());
+            }
+            LedgerEntry::SensorKeyRegister { .. }
             | LedgerEntry::SensorVouch { .. }
-            | LedgerEntry::DeviceKeyRegister { .. }
-            | LedgerEntry::GatewayHeartbeat { .. } => {
-                // Recorded in the ledger; state is managed by protocol sidecars.
+            | LedgerEntry::DeviceKeyRegister { .. } => {
+                // Recorded in the ledger only; state managed by protocol sidecars.
             }
 
             // Device yield stake — tracked on-chain so overbid handler can distribute premium.
@@ -692,6 +762,193 @@ impl Chain {
                 }
                 let val = serde_json::to_vec(&existing)?;
                 self.store.state_set(&family_key, &val)?;
+            }
+
+            // ── BLE Tracker ───────────────────────────────────────────────────
+
+            LedgerEntry::TrackerSightingCommit { observer_id, owner, airtag_count,
+                android_fmd_count, tile_count, samsung_count, other_count,
+                batch_hash, epoch, .. } => {
+                // Key: tracker_sighting:{epoch}:{observer_id} — epoch-first for prefix scans.
+                let key = format!("tracker_sighting:{}:{}", epoch, observer_id);
+                let val = serde_json::json!({
+                    "observer_id": observer_id,
+                    "owner": owner,
+                    "airtag_count": airtag_count,
+                    "android_fmd_count": android_fmd_count,
+                    "tile_count": tile_count,
+                    "samsung_count": samsung_count,
+                    "other_count": other_count,
+                    "batch_hash": batch_hash,
+                    "epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&val)?)?;
+            }
+
+            LedgerEntry::TrackerClaim { serial_commitment, tag_type, claimer,
+                fee, epoch, nonce, .. } => {
+                // Debit fee to treasury.
+                if *fee > 0 {
+                    self.store.debit(claimer, btcpc_types::NATIVE_TOKEN, *fee)?;
+                    self.store.credit("treasury", btcpc_types::NATIVE_TOKEN, *fee)?;
+                }
+                let key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                let val = serde_json::json!({
+                    "serial_commitment": serial_commitment,
+                    "tag_type": tag_type,
+                    "claimer": claimer,
+                    "fee": fee,
+                    "epoch": epoch,
+                    "nonce": nonce,
+                    "status": "Registered",
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&val)?)?;
+            }
+
+            LedgerEntry::TrackerClaimRelease { serial_commitment, claimer, .. } => {
+                let key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                self.store.state_delete(&key)?;
+            }
+
+            LedgerEntry::TrackerAcousticProof { serial_commitment, witness_id,
+                proof_hash, claimer, epoch, .. } => {
+                let key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                if let Some(bytes) = self.store.state_get(&key) {
+                    let mut rec: serde_json::Value =
+                        serde_json::from_slice(&bytes).unwrap_or_default();
+                    rec["status"]         = serde_json::json!("AcousticVerified");
+                    rec["witness_id"]     = serde_json::json!(witness_id);
+                    rec["proof_hash"]     = serde_json::json!(proof_hash);
+                    rec["verified_epoch"] = serde_json::json!(epoch);
+                    self.store.state_set(&key, &serde_json::to_vec(&rec)?)?;
+                }
+            }
+
+            LedgerEntry::TrackerSubscription { serial_commitment, claimer,
+                fee_per_epoch, expires_epoch, epoch, nonce, .. } => {
+                // Validate claim exists and is Verified or AcousticVerified.
+                let claim_key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                if let Some(bytes) = self.store.state_get(&claim_key) {
+                    let rec: serde_json::Value =
+                        serde_json::from_slice(&bytes).unwrap_or_default();
+                    let status = rec["status"].as_str().unwrap_or("");
+                    anyhow::ensure!(
+                        matches!(status, "Verified" | "AcousticVerified"),
+                        "TrackerSubscription requires Verified or AcousticVerified claim"
+                    );
+                } else {
+                    anyhow::bail!("no TrackerClaim found for serial_commitment");
+                }
+                // Escrow total fee upfront: fee_per_epoch × (expires_epoch - epoch).
+                let duration = expires_epoch.saturating_sub(*epoch);
+                let total_fee = fee_per_epoch.saturating_mul(duration);
+                if total_fee > 0 {
+                    self.store.debit(claimer, btcpc_types::NATIVE_TOKEN, total_fee)?;
+                    let escrow_key = format!("tracker_sub_escrow:{}:{}", claimer, serial_commitment);
+                    self.store.state_set(&escrow_key, &serde_json::to_vec(&serde_json::json!({
+                        "serial_commitment": serial_commitment,
+                        "claimer": claimer,
+                        "fee_per_epoch": fee_per_epoch,
+                        "expires_epoch": expires_epoch,
+                        "start_epoch": epoch,
+                        "nonce": nonce,
+                        "total_escrowed": total_fee,
+                    }))?)?;
+                }
+            }
+
+            LedgerEntry::TrackerSightingData { serial_commitment, observer_id,
+                cid, plaintext_hash, epoch, .. } => {
+                // Index CID reference for route reconstruction.
+                // Key: tracker_route:{serial_commitment}:{epoch:016x}
+                // Storing per-commitment (not per-claimer) so any node can relay,
+                // but only the memo-key holder can decrypt the blob via BTCPC-FS.
+                let route_key = format!("tracker_route:{}:{:016x}", serial_commitment, epoch);
+                self.store.state_set(&route_key, &serde_json::to_vec(&serde_json::json!({
+                    "epoch": epoch,
+                    "observer_id": observer_id,
+                    "cid": cid,
+                    "plaintext_hash": plaintext_hash,
+                }))?)?;
+            }
+
+            LedgerEntry::TrackerHint { .. } => {
+                // Hints are ephemeral gossip; no persistent state needed.
+            }
+
+            LedgerEntry::TrackerLostMode { serial_commitment, claimer,
+                bounty_dreams, expires_epoch, contact_encrypted, epoch, nonce, .. } => {
+                if *bounty_dreams > 0 {
+                    self.store.debit(claimer, btcpc_types::NATIVE_TOKEN, *bounty_dreams)?;
+                    let escrow_key = format!("tracker_lost_escrow:{}:{}", claimer, serial_commitment);
+                    self.store.state_set(&escrow_key, &serde_json::to_vec(&serde_json::json!({
+                        "serial_commitment": serial_commitment,
+                        "claimer": claimer,
+                        "bounty_dreams": bounty_dreams,
+                        "expires_epoch": expires_epoch,
+                        "contact_encrypted": contact_encrypted,
+                        "epoch": epoch,
+                        "nonce": nonce,
+                        "status": "active",
+                    }))?)?;
+                }
+                // Mark claim as lost.
+                let claim_key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                if let Some(bytes) = self.store.state_get(&claim_key) {
+                    let mut rec: serde_json::Value =
+                        serde_json::from_slice(&bytes).unwrap_or_default();
+                    rec["lost_mode"] = serde_json::json!(true);
+                    rec["lost_since"] = serde_json::json!(epoch);
+                    self.store.state_set(&claim_key, &serde_json::to_vec(&rec)?)?;
+                }
+            }
+
+            LedgerEntry::TrackerFoundReport { serial_commitment, finder,
+                gps_commitment, acoustic_proof_hash, epoch, nonce, .. } => {
+                let report_key = format!("tracker_found_report:{}:{}", serial_commitment, finder);
+                self.store.state_set(&report_key, &serde_json::to_vec(&serde_json::json!({
+                    "serial_commitment": serial_commitment,
+                    "finder": finder,
+                    "gps_commitment": gps_commitment,
+                    "acoustic_proof_hash": acoustic_proof_hash,
+                    "epoch": epoch,
+                    "nonce": nonce,
+                    "status": "pending",
+                }))?)?;
+            }
+
+            LedgerEntry::TrackerCoverageReward { observer_id, amount, .. } => {
+                self.store.credit(observer_id, btcpc_types::NATIVE_TOKEN, *amount)?;
+            }
+
+            LedgerEntry::TrackerFoundConfirm { serial_commitment, finder,
+                claimer, epoch, .. } => {
+                // Release escrow: 70% finder, 20% first-sighting observers, 10% treasury.
+                let escrow_key = format!("tracker_lost_escrow:{}:{}", claimer, serial_commitment);
+                if let Some(bytes) = self.store.state_get(&escrow_key) {
+                    let rec: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+                    let bounty = rec["bounty_dreams"].as_u64().unwrap_or(0);
+                    if bounty > 0 {
+                        let finder_share   = bounty * 70 / 100;
+                        let treasury_share = bounty - finder_share - (bounty * 20 / 100);
+                        let observer_share = bounty * 20 / 100;
+                        self.store.credit(finder, btcpc_types::NATIVE_TOKEN, finder_share)?;
+                        self.store.credit("treasury", btcpc_types::NATIVE_TOKEN, treasury_share)?;
+                        // Observer share goes to the sensor pool for epoch distribution.
+                        self.store.credit("sensor_pool", btcpc_types::NATIVE_TOKEN, observer_share)?;
+                    }
+                    // Close escrow and lost mode.
+                    let mut escrow = rec;
+                    escrow["status"] = serde_json::json!("confirmed");
+                    escrow["confirmed_epoch"] = serde_json::json!(epoch);
+                    self.store.state_set(&escrow_key, &serde_json::to_vec(&escrow)?)?;
+                }
+                let claim_key = format!("tracker_claim:{}:{}", claimer, serial_commitment);
+                if let Some(bytes) = self.store.state_get(&claim_key) {
+                    let mut rec: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+                    rec["lost_mode"] = serde_json::json!(false);
+                    self.store.state_set(&claim_key, &serde_json::to_vec(&rec)?)?;
+                }
             }
 
         }

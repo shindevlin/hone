@@ -16,6 +16,7 @@ use tracing::info;
 use btcpc_types::{Block, BlockHeader, LedgerEntry, NATIVE_TOKEN};
 
 use crate::chain::Chain;
+use crate::reserved_names;
 
 pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestamp: Option<u64>) -> Result<Block> {
     if chain.store.has_block(0) {
@@ -67,6 +68,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
                         account: account.clone(),
                         keys,
                         epoch: 0,
+                        funded_by: None, // genesis accounts are stake-exempt
                     });
                     if dreams > 0 {
                         entries.push(LedgerEntry::GenesisAlloc {
@@ -79,6 +81,27 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
             }
         }
     }
+
+    // Register shindevlin's reserved namespace: ~1050 names (singles, doubles, popular worldwide).
+    // All point to shindevlin's posting key so he can transfer them into the identity marketplace.
+    let shindevlin_keys: std::collections::HashMap<String, String> = [
+        ("posting".to_string(), reserved_names::SHINDEVLIN_POSTING_KEY.to_string()),
+    ].into_iter().collect();
+
+    for name in reserved_names::all_reserved() {
+        // Skip names that are already registered via genesis.json (shindevlin itself, etc.)
+        if chain.store.get_account(&name)?.is_some() {
+            continue;
+        }
+        entries.push(LedgerEntry::AccountCreate {
+            account: name,
+            keys: shindevlin_keys.clone(),
+            epoch: 0,
+            funded_by: None, // reserved namespace is stake-exempt at genesis
+        });
+    }
+
+    info!("reserved namespace: {} names registered to shindevlin", reserved_names::all_reserved().len());
 
     // Apply genesis entries
     for entry in &entries {
@@ -96,11 +119,18 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
         "rewards": [],
         "compute_proofs": [],
         "chain_id": chain.chain_id,
+        "launch": {
+            "proclamation": "BTCPC launched at midnight, Ireland, 2026-05-01 00:00:00 IST (UTC+1)",
+            "timestamp_tz": "2026-05-01T00:00:00+01:00",
+            "timestamp_utc": "2026-04-30T23:00:00Z",
+            "genesis_ms": 1777590000000u64,
+        },
     });
 
     let block = Block { header, payload };
     chain.store.write_block(0, &block.to_bytes())?;
     chain.store.set_meta("genesis_hash", block.header.hash_hex().as_bytes())?;
+    chain.store.set_meta("launch_proclamation", b"Launched at midnight, Ireland, 2026-05-01 00:00:00 IST")?;
 
     info!("genesis created: {}", block.header.hash_hex());
     Ok(block)

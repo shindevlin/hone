@@ -24,8 +24,8 @@ pub struct Config {
     pub chain_id: String,
     /// Unix millisecond timestamp for the genesis block.
     /// MUST be identical on every node — all nodes derive the same genesis hash from it.
-    /// Set via BTCPC_GENESIS_TIMESTAMP env var.  If unset, the node refuses to create
-    /// a new genesis (safe default — prevents accidental divergence).
+    /// Set via BTCPC_GENESIS_TIMESTAMP env var.
+    /// Default: 1777590000000 = 2026-05-01 00:00:00 IST (midnight Ireland, UTC+1).
     pub genesis_timestamp: Option<u64>,
 }
 
@@ -80,9 +80,12 @@ impl Config {
                 .unwrap_or_else(|_| "btcpc_node=info".to_string()),
             chain_id: std::env::var("BTCPC_CHAIN_ID")
                 .unwrap_or_else(|_| MAINNET_CHAIN_ID.to_string()),
-            genesis_timestamp: std::env::var("BTCPC_GENESIS_TIMESTAMP")
-                .ok()
-                .and_then(|s| s.parse().ok()),
+            genesis_timestamp: Some(
+                std::env::var("BTCPC_GENESIS_TIMESTAMP")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1777590000000u64)
+            ),
         }
     }
 }

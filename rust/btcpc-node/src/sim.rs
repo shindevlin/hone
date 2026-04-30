@@ -38,6 +38,7 @@ fn seed_accounts(chain: &Chain) {
             account: account.to_string(),
             keys: Default::default(),
             epoch: 0,
+            funded_by: None, // sim accounts are stake-exempt
         });
         let _ = chain.apply_entry(&LedgerEntry::GenesisAlloc {
             account: account.to_string(),

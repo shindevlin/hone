@@ -31,6 +31,7 @@ mod genesis;
 mod inference;
 mod inference_daemon;
 mod miner;
+mod reserved_names;
 mod net;
 mod sim;
 mod store;
@@ -48,8 +49,10 @@ use btcpc_types::{
     ACTIVITY_RATIO_DENOM, MIN_ACTIVITY_RATIO_NUM,
     CALIBRATION_INFERENCE, CALIBRATION_STORAGE, CALIBRATION_SENSOR,
     CALIBRATION_VERIFIER, CALIBRATION_SERVICE, CALIBRATION_MEMPOOL,
+    CALIBRATION_TRACKER,
     CRITICAL_MASS_INFERENCE, CRITICAL_MASS_STORAGE, CRITICAL_MASS_SENSOR,
     CRITICAL_MASS_VERIFIER, CRITICAL_MASS_SERVICE, CRITICAL_MASS_MEMPOOL,
+    CRITICAL_MASS_TRACKER,
 };
 
 use chain::Chain;
@@ -735,6 +738,36 @@ async fn emit_epoch_rewards(
             Some((j["operator"].as_str()?.to_owned(), mempool_relay_score(relayed, latency)))
         }).collect();
 
+    // Tracker coverage: BLE observer nodes that submitted sighting commits this epoch.
+    // Score = total sightings (all tag types count equally) treated as "event" sensor.
+    // AcousticVerified observers get a 1.5× boost (witness_id present in any claim they hold).
+    let tracker_nodes: Vec<(String, u64)> = {
+        let mut by_observer: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for (_, v) in chain.store.state_scan_prefix(&format!("tracker_sighting:{}:", epoch)) {
+            let Ok(j) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
+            let Some(observer) = j["observer_id"].as_str() else { continue };
+            let count = j["airtag_count"].as_u64().unwrap_or(0)
+                + j["android_fmd_count"].as_u64().unwrap_or(0)
+                + j["tile_count"].as_u64().unwrap_or(0)
+                + j["samsung_count"].as_u64().unwrap_or(0)
+                + j["other_count"].as_u64().unwrap_or(0);
+            if count == 0 { continue; }
+            // "event" sensor model: 100 points per event, capped at 20 events (2_000).
+            let base_score = sensor_score(count, "event");
+            // Acoustic multiplier: 3/2 if this observer is a witness on any AcousticVerified claim.
+            let has_acoustic = chain.store.state_scan_prefix("tracker_claim:")
+                .into_iter()
+                .any(|(_, cv)| {
+                    let Ok(cr) = serde_json::from_slice::<serde_json::Value>(&cv) else { return false };
+                    cr["status"].as_str() == Some("AcousticVerified")
+                        && cr["witness_id"].as_str() == Some(observer)
+                });
+            let score = if has_acoustic { base_score * 3 / 2 } else { base_score };
+            *by_observer.entry(observer.to_owned()).or_default() += score;
+        }
+        by_observer.into_iter().collect()
+    };
+
     // ── Layer B: calibration-normalized utilization + activity-gating + scarcity ─
     let inference_total: u64 = mines.iter().map(|(_, s)| s).sum();
     let storage_total:   u64 = storage_nodes.iter().map(|(_, s)| s).sum();
@@ -742,6 +775,7 @@ async fn emit_epoch_rewards(
     let verify_total:    u64 = verifiers.iter().map(|(_, s)| s).sum();
     let service_total:   u64 = service_nodes.iter().map(|(_, s)| s).sum();
     let mempool_total:   u64 = mempool_ops.iter().map(|(_, s)| s).sum();
+    let tracker_total:   u64 = tracker_nodes.iter().map(|(_, s)| s).sum();
 
     // Normalize each pool's raw score by its calibration target → [0, 1.0]
     let norm = |work: u64, target: u64| -> u64 {
@@ -755,12 +789,13 @@ async fn emit_epoch_rewards(
     let util_verify    = norm(verify_total,     CALIBRATION_VERIFIER);
     let util_service   = norm(service_total,    CALIBRATION_SERVICE);
     let util_mempool   = norm(mempool_total,    CALIBRATION_MEMPOOL);
+    let util_tracker   = norm(tracker_total,    CALIBRATION_TRACKER);
     let total_util     = util_inference + util_storage + util_sensor
-                       + util_verify + util_service + util_mempool;
+                       + util_verify + util_service + util_mempool + util_tracker;
 
     // Activity ratio = average utilization across active pools
     let active_pool_count = [util_inference, util_storage, util_sensor,
-                             util_verify, util_service, util_mempool]
+                             util_verify, util_service, util_mempool, util_tracker]
         .iter().filter(|&&u| u > 0).count() as u64;
     let activity_ratio_num = if total_util == 0 {
         0
@@ -785,6 +820,7 @@ async fn emit_epoch_rewards(
     let verify_pool_raw    = alloc_pool(util_verify);
     let service_pool_raw   = alloc_pool(util_service);
     let mempool_pool_raw   = alloc_pool(util_mempool);
+    let tracker_pool_raw   = alloc_pool(util_tracker);
 
     // Scarcity divider: each pool pays at reduced rate if participant count < critical mass.
     // Remainder flows to recycle — prevents sparse networks from extracting full rewards.
@@ -802,9 +838,10 @@ async fn emit_epoch_rewards(
     let (verify_pool,    scatter_verify) = apply_scarcity(verify_pool_raw,    payout_factor(verifiers.len(), CRITICAL_MASS_VERIFIER));
     let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), CRITICAL_MASS_SERVICE));
     let (mempool_pool,   scatter_mem)   = apply_scarcity(mempool_pool_raw,    payout_factor(mempool_ops.len(), CRITICAL_MASS_MEMPOOL));
+    let (tracker_pool,   scatter_track) = apply_scarcity(tracker_pool_raw,    payout_factor(tracker_nodes.len(), CRITICAL_MASS_TRACKER));
 
     let scarcity_recycle = scatter_infer + scatter_store + scatter_sensor
-                         + scatter_verify + scatter_svc + scatter_mem;
+                         + scatter_verify + scatter_svc + scatter_mem + scatter_track;
     if scarcity_recycle > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
     }
@@ -827,9 +864,15 @@ async fn emit_epoch_rewards(
     distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, cmd_tx, |operator, amount, ep| {
         LedgerEntry::MempoolReward { operator, amount, epoch: ep }
     }).await;
+    distribute_rewards_desktop(epoch, &tracker_nodes, tracker_pool, chain, cmd_tx, |observer_id, amount, ep| {
+        LedgerEntry::TrackerCoverageReward { observer_id, amount, epoch: ep }
+    }).await;
+
+    // ── Subscription fee release ───────────────────────────────────────────────
+    sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
 
     let distributed  = inference_pool + storage_pool + sensor_pool
-                     + verify_pool + service_pool + mempool_pool;
+                     + verify_pool + service_pool + mempool_pool + tracker_pool;
     let remainder    = gated_pool.saturating_sub(distributed).saturating_sub(scarcity_recycle);
     if remainder > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, remainder);
@@ -837,7 +880,7 @@ async fn emit_epoch_rewards(
 
     info!(
         "clock: epoch {} raw={} reserve={} gated={}({:.0}%) scarcity_recycle={} \
-         [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{}]",
+         [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{} tracker={}/{}]",
         epoch, raw_pool, reserve_total, gated_pool,
         activity_ratio_num as f64 / ACTIVITY_RATIO_DENOM as f64 * 100.0,
         scarcity_recycle + idle_recycle,
@@ -847,6 +890,7 @@ async fn emit_epoch_rewards(
         verify_pool, verifiers.len(),
         service_pool, service_nodes.len(),
         mempool_pool, mempool_ops.len(),
+        tracker_pool, tracker_nodes.len(),
     );
 }
 
@@ -873,6 +917,80 @@ fn sweep_expired_pending_transfers(epoch: u64, chain: &Arc<Chain>) {
         if from.is_empty() || token.is_empty() || amount == 0 { continue; }
         let _ = chain.store.state_delete(&key);
         let _ = chain.store.credit(&from, &token, amount);
+    }
+}
+
+/// Release per-epoch subscription fees from escrow → observers (50%) + treasury (15%) + recycle (35%).
+/// Called once per epoch seal after all other reward distributions.
+async fn sweep_tracker_subscription_fees(
+    epoch: u64,
+    chain: &Arc<Chain>,
+    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
+) {
+    let escrows = chain.store.state_scan_prefix("tracker_sub_escrow:");
+    for (escrow_key, raw) in escrows {
+        let Ok(mut rec) = serde_json::from_slice::<serde_json::Value>(&raw) else { continue };
+        let expires  = rec["expires_epoch"].as_u64().unwrap_or(0);
+        let start    = rec["start_epoch"].as_u64().unwrap_or(0);
+        let fee      = rec["fee_per_epoch"].as_u64().unwrap_or(0);
+        let escrowed = rec["total_escrowed"].as_u64().unwrap_or(0);
+        let paid_out = rec["paid_out"].as_u64().unwrap_or(0);
+
+        if expires < epoch || fee == 0 || paid_out >= escrowed { continue; }
+        if epoch < start { continue; }
+
+        let this_fee = fee.min(escrowed.saturating_sub(paid_out));
+        if this_fee == 0 { continue; }
+
+        // Split: 50% to observers who pushed data this epoch, 35% recycle, 15% treasury.
+        let serial = match rec["serial_commitment"].as_str() { Some(s) => s.to_owned(), None => continue };
+        let observer_cut = this_fee * 50 / 100;
+        let treasury_cut = this_fee * 15 / 100;
+        let recycle_cut  = this_fee.saturating_sub(observer_cut).saturating_sub(treasury_cut);
+
+        // Find observers who pushed TrackerSightingData for this serial this epoch.
+        let route_prefix = format!("tracker_route:{}:{:016x}", serial, epoch);
+        let sighting_data: Vec<String> = chain.store.state_scan_prefix(&route_prefix)
+            .into_iter()
+            .filter_map(|(_, v)| {
+                let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+                j["observer_id"].as_str().map(str::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let n = sighting_data.len() as u64;
+        if n > 0 {
+            let per_observer = observer_cut / n;
+            for obs in &sighting_data {
+                if per_observer == 0 { break; }
+                let entry = LedgerEntry::TrackerCoverageReward {
+                    observer_id: obs.clone(),
+                    amount: per_observer,
+                    epoch,
+                };
+                if let Err(e) = chain.apply_entry(&entry) {
+                    warn!("tracker sub fee: observer credit failed for {} epoch {}: {}", obs, epoch, e);
+                    continue;
+                }
+                broadcast_entry_desktop(&entry, cmd_tx).await;
+            }
+        } else {
+            // No observers pushed data — treat observer cut as recycle too.
+            chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, observer_cut);
+        }
+
+        if treasury_cut > 0 {
+            chain.store.credit("treasury", btcpc_types::NATIVE_TOKEN, treasury_cut);
+        }
+        if recycle_cut > 0 {
+            chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, recycle_cut);
+        }
+
+        // Update escrow paid_out.
+        rec["paid_out"] = serde_json::json!(paid_out + this_fee);
+        let _ = chain.store.state_set(&escrow_key, &serde_json::to_vec(&rec).unwrap_or_default());
     }
 }
 
