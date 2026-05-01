@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTCPC Node</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080808;--surface:#111;--border:#1e1e1e;
+  --orange:#f7931a;--green:#22c55e;--red:#ef4444;--dim:#4b5563;
+  --text:#e2e8f0;--muted:#64748b;
+  --font:'SF Mono','Fira Code','Cascadia Code',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+a{color:var(--orange);text-decoration:none}
+
+/* ── layout ── */
+#app{display:flex;flex-direction:column;height:100%;overflow:hidden}
+header{display:flex;align-items:center;gap:16px;padding:10px 20px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.logo{color:var(--orange);font-size:18px;font-weight:700;letter-spacing:2px}
+.hstat{display:flex;flex-direction:column;gap:1px}
+.hstat .lbl{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.hstat .val{font-size:14px}
+.spacer{flex:1}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block;margin-right:5px;transition:background .3s}
+.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.warn{background:var(--orange)}
+.dot.err{background:var(--red)}
+
+#body{display:flex;flex:1;overflow:hidden}
+#sidebar{width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:12px}
+#main{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+
+/* ── cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px}
+.card-title{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+/* ── role chips ── */
+.roles{display:flex;flex-wrap:wrap;gap:6px}
+.role{padding:3px 10px;border-radius:20px;font-size:11px;border:1px solid;display:flex;align-items:center;gap:5px}
+.role.active{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.08)}
+.role.inactive{border-color:var(--border);color:var(--muted)}
+
+/* ── stat ── */
+.stat{display:flex;flex-direction:column;gap:3px}
+.stat .n{font-size:22px;color:var(--orange)}
+.stat .l{color:var(--muted);font-size:11px}
+
+/* ── table ── */
+table{width:100%;border-collapse:collapse}
+th{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em;padding:4px 8px;text-align:left;font-weight:400}
+td{padding:5px 8px;border-top:1px solid var(--border);font-size:12px;vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+.badge{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px}
+.badge.posted{background:rgba(247,147,26,.15);color:var(--orange)}
+.badge.awarded{background:rgba(59,130,246,.15);color:#60a5fa}
+.badge.running,.badge.completed{background:rgba(34,197,94,.15);color:var(--green)}
+.badge.verified,.badge.paid{background:rgba(100,116,139,.15);color:var(--muted)}
+.badge.disputed,.badge.rejected{background:rgba(239,68,68,.15);color:var(--red)}
+
+/* ── sidebar items ── */
+.side-section{margin-bottom:16px}
+.side-section h3{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.peer-item{font-size:11px;color:var(--muted);padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.peer-item span{color:var(--text)}
+
+/* ── feed ── */
+.feed{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto}
+.feed-item{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px}
+.feed-item .etype{color:var(--orange);min-width:90px;flex-shrink:0}
+.feed-item .edetail{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── form ── */
+.form-row{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.form-row label{color:var(--muted);font-size:11px}
+input,textarea,select{background:#0e0e0e;border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--font);font-size:12px;padding:6px 8px;width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--orange)}
+textarea{resize:vertical;min-height:60px}
+.btn{background:var(--orange);color:#000;border:none;border-radius:4px;font-family:var(--font);font-size:12px;font-weight:700;padding:7px 16px;cursor:pointer;letter-spacing:.05em}
+.btn:hover{opacity:.85}
+.btn.sec{background:transparent;border:1px solid var(--border);color:var(--text);font-weight:400}
+.btn.sec:hover{border-color:var(--orange);color:var(--orange)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.msg{font-size:11px;padding:4px 0}
+.msg.ok{color:var(--green)}
+.msg.err{color:var(--red)}
+
+/* ── epoch ticker ── */
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.tick{animation:pulse 2s infinite;color:var(--orange)}
+
+/* ── responsive ── */
+@media(max-width:700px){
+  #sidebar{display:none}
+  .grid3{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">₿TC<span style="color:#fff">PC</span></div>
+  <div class="hstat"><div class="lbl">account</div><div class="val" id="h-account">—</div></div>
+  <div class="hstat"><div class="lbl">balance</div><div class="val" id="h-balance">—</div></div>
+  <div class="hstat"><div class="lbl">epoch</div><div class="val tick" id="h-epoch">—</div></div>
+  <div class="hstat"><div class="lbl">chain</div><div class="val" id="h-chain">—</div></div>
+  <div class="spacer"></div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+    <span class="dot" id="status-dot"></span><span id="status-text">connecting…</span>
+  </div>
+</header>
+
+<div id="body">
+
+<!-- ── Sidebar ── -->
+<div id="sidebar">
+  <div class="side-section">
+    <h3>Roles</h3>
+    <div class="roles" id="sb-roles"></div>
+  </div>
+  <div class="side-section">
+    <h3>Peers</h3>
+    <div id="sb-peers"><div class="peer-item" style="color:var(--muted)">—</div></div>
+  </div>
+  <div class="side-section">
+    <h3>Quick links</h3>
+    <div style="display:flex;flex-direction:column;gap:4px;font-size:11px">
+      <a href="/api/latest" target="_blank">Chain status →</a>
+      <a href="/api/inference/jobs?status=posted" target="_blank">Posted jobs →</a>
+      <a href="/tracker/map" target="_blank">Tracker map →</a>
+      <a href="/health" target="_blank">Health →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main ── -->
+<div id="main">
+
+  <!-- Stats row -->
+  <div class="grid3">
+    <div class="card">
+      <div class="card-title">balance</div>
+      <div class="stat">
+        <div class="n" id="s-balance">—</div>
+        <div class="l">BTCPC</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">current epoch</div>
+      <div class="stat">
+        <div class="n tick" id="s-epoch">—</div>
+        <div class="l">30s blocks</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">inference jobs</div>
+      <div class="stat">
+        <div class="n" id="s-jobs">—</div>
+        <div class="l">open / running</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Roles card -->
+  <div class="card">
+    <div class="card-title">node roles</div>
+    <div class="roles" id="roles-detail"></div>
+  </div>
+
+  <!-- Inference jobs -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="card-title" style="margin:0">inference jobs</div>
+      <button class="btn" onclick="openPostJob()">+ Post Job</button>
+    </div>
+    <div id="jobs-empty" style="color:var(--muted);font-size:12px">No open jobs.</div>
+    <table id="jobs-table" style="display:none">
+      <thead><tr>
+        <th>Job ID</th><th>Model</th><th>Status</th><th>Fee</th><th>Posted</th>
+      </tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Activity feed -->
+  <div class="card">
+    <div class="card-title">recent chain activity</div>
+    <div class="feed" id="feed"></div>
+  </div>
+
+  <!-- Post Job panel (hidden by default) -->
+  <div class="card" id="post-job-panel" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-title" style="margin:0">post inference job</div>
+      <button class="btn sec" onclick="closePostJob()">✕ close</button>
+    </div>
+    <div class="form-row">
+      <label>Model (must match a worker's BTCPC_MODEL)</label>
+      <input id="pj-model" placeholder="qwen3:4b" value="qwen3:4b">
+    </div>
+    <div class="form-row">
+      <label>Prompt</label>
+      <textarea id="pj-prompt" placeholder="What is Bitcoin?"></textarea>
+    </div>
+    <div class="grid2">
+      <div class="form-row">
+        <label>Max fee (BTCPC)</label>
+        <input id="pj-fee" type="number" value="1" min="0.001" step="0.001">
+      </div>
+      <div class="form-row">
+        <label>Bid window (epochs)</label>
+        <input id="pj-window" type="number" value="2" min="1" max="20">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn" onclick="submitJob()" id="pj-submit">Submit Job</button>
+      <div class="msg" id="pj-msg"></div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /body -->
+</div><!-- /app -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+var BASE = window.location.protocol + '//' + window.location.host;
+var account = '';
+var chainId  = '';
+var nodeInfo = {};
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    var info = await get('/api/node/info');
+    account = info.account || '';
+    chainId = info.chain_id || '';
+    nodeInfo = info;
+
+    document.getElementById('h-account').textContent = account || '—';
+    document.getElementById('h-chain').textContent   = chainId || '—';
+
+    renderRoles(info);
+    await refresh();
+    setInterval(refresh, 5000);
+    setStatus('live');
+  } catch(e) {
+    setStatus('err', 'node unreachable');
+  }
+}
+
+// ── Refresh loop ───────────────────────────────────────────────────────────────
+async function refresh() {
+  try {
+    var [latest, balance, jobs] = await Promise.all([
+      get('/api/latest'),
+      account ? get('/api/balance/' + account) : Promise.resolve({}),
+      get('/api/inference/jobs?limit=50'),
+    ]);
+
+    var epoch = latest.current_epoch || latest.epoch || 0;
+    document.getElementById('h-epoch').textContent  = epoch;
+    document.getElementById('s-epoch').textContent  = epoch;
+
+    var bal = (balance.balance || 0).toFixed(8);
+    document.getElementById('h-balance').textContent = bal + ' ₿';
+    document.getElementById('s-balance').textContent = bal;
+
+    renderJobs(jobs.jobs || []);
+    renderFeed(jobs.jobs || [], epoch);
+    setStatus('live');
+  } catch(e) {
+    setStatus('warn', 'refresh failed');
+  }
+}
+
+// ── Render roles ───────────────────────────────────────────────────────────────
+function renderRoles(info) {
+  var defs = [
+    { key:'is_clock',  label:'Clock' },
+    { key:'is_worker', label:'Worker' },
+    { key:'is_miner',  label:'Miner (legacy)' },
+    { key:'is_sensor', label:'Sensor' },
+  ];
+  var html = defs.map(function(d) {
+    var on = !!info[d.key];
+    return '<div class="role ' + (on ? 'active' : 'inactive') + '">'
+      + (on ? '●' : '○') + ' ' + d.label + '</div>';
+  }).join('');
+  document.getElementById('sb-roles').innerHTML    = html;
+  document.getElementById('roles-detail').innerHTML = html;
+}
+
+// ── Render jobs ────────────────────────────────────────────────────────────────
+function renderJobs(jobs) {
+  var open = jobs.filter(function(j) {
+    return j.status === 'posted' || j.status === 'awarded';
+  });
+  var total = jobs.length;
+  document.getElementById('s-jobs').textContent = open.length + ' / ' + total;
+
+  if (!total) {
+    document.getElementById('jobs-empty').style.display = '';
+    document.getElementById('jobs-table').style.display = 'none';
+    return;
+  }
+  document.getElementById('jobs-empty').style.display = 'none';
+  document.getElementById('jobs-table').style.display = '';
+
+  var rows = jobs.slice(0, 20).map(function(j) {
+    var fee = j.max_fee ? (j.max_fee / 1e8).toFixed(4) + ' ₿' : '—';
+    return '<tr>'
+      + '<td style="font-size:10px;color:var(--muted)">' + (j.job_id || '').slice(0,12) + '…</td>'
+      + '<td>' + (j.model || '—') + '</td>'
+      + '<td><span class="badge ' + (j.status||'') + '">' + (j.status||'—') + '</span></td>'
+      + '<td>' + fee + '</td>'
+      + '<td style="color:var(--muted)">#' + (j.posted_epoch || '—') + '</td>'
+      + '</tr>';
+  }).join('');
+  document.getElementById('jobs-body').innerHTML = rows;
+}
+
+// ── Render activity feed ───────────────────────────────────────────────────────
+function renderFeed(jobs, epoch) {
+  var items = [];
+  jobs.slice(0, 10).forEach(function(j) {
+    items.push({ type: 'job ' + j.status, detail: (j.job_id||'').slice(0,12) + ' · ' + (j.model||'') });
+  });
+  if (epoch) {
+    items.unshift({ type: 'epoch sealed', detail: '#' + epoch });
+  }
+  var html = items.map(function(item) {
+    return '<div class="feed-item">'
+      + '<span class="etype">' + item.type + '</span>'
+      + '<span class="edetail">' + item.detail + '</span>'
+      + '</div>';
+  }).join('');
+  document.getElementById('feed').innerHTML = html || '<div style="color:var(--muted)">No recent activity.</div>';
+}
+
+// ── Post job ───────────────────────────────────────────────────────────────────
+function openPostJob()  { document.getElementById('post-job-panel').style.display = ''; }
+function closePostJob() { document.getElementById('post-job-panel').style.display = 'none'; }
+
+async function submitJob() {
+  var model  = document.getElementById('pj-model').value.trim();
+  var prompt = document.getElementById('pj-prompt').value.trim();
+  var fee    = parseFloat(document.getElementById('pj-fee').value) || 1;
+  var window = parseInt(document.getElementById('pj-window').value) || 2;
+  var msgEl  = document.getElementById('pj-msg');
+  var btn    = document.getElementById('pj-submit');
+
+  if (!prompt) { msgEl.className = 'msg err'; msgEl.textContent = 'Enter a prompt.'; return; }
+  if (!account) { msgEl.className = 'msg err'; msgEl.textContent = 'No account — node not ready.'; return; }
+
+  btn.disabled = true;
+  msgEl.className = 'msg'; msgEl.textContent = 'Submitting…';
+
+  try {
+    var inputHash = await sha256(prompt);
+    var latest = await get('/api/latest');
+    var epoch = latest.current_epoch || 0;
+
+    var body = {
+      requester: account,
+      model: model || 'qwen3:4b',
+      mode: 'solo',
+      input_text: prompt,
+      input_hash: inputHash,
+      max_fee: Math.round(fee * 1e8),
+      min_reputation: 0,
+      bid_window_epochs: window,
+      deadline_epoch: epoch + window + 10,
+      nonce: Date.now(),
+      signature: '',
+    };
+
+    var resp = await post('/api/inference/post', body);
+    if (resp.accepted) {
+      msgEl.className = 'msg ok';
+      msgEl.textContent = 'Job posted — ID: ' + (resp.job_id || '').slice(0,12);
+      document.getElementById('pj-prompt').value = '';
+      setTimeout(refresh, 1000);
+    } else {
+      msgEl.className = 'msg err';
+      msgEl.textContent = resp.error || 'Post failed.';
+    }
+  } catch(e) {
+    msgEl.className = 'msg err';
+    msgEl.textContent = String(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────────
+function setStatus(state, msg) {
+  var dot  = document.getElementById('status-dot');
+  var text = document.getElementById('status-text');
+  dot.className = 'dot ' + state;
+  text.textContent = msg || (state === 'live' ? 'live' : state);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+async function get(path) {
+  var r = await fetch(BASE + path);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function post(path, body) {
+  var r = await fetch(BASE + path, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+async function sha256(str) {
+  var buf = new TextEncoder().encode(str);
+  var hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(function(b) {
+    return b.toString(16).padStart(2,'0');
+  }).join('');
+}
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

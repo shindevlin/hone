@@ -119,6 +119,10 @@ pub fn router(state: AppState) -> Router {
         // ── Peer bootstrap registry ───────────────────────────────────────
         .route("/api/peers/bootstrap", get(get_bootstrap_peers))
         .route("/api/peers/bootstrap", post(post_bootstrap_peer))
+        // ── Node dashboard ────────────────────────────────────────────────
+        .route("/api/node/info", get(get_node_info))
+        .route("/app", get(get_app_dashboard))
+        .route("/app.html", get(get_app_dashboard))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
         .route("/agent/:account", get(get_agent_instructions))
@@ -533,6 +537,31 @@ async fn get_epoch(
 // GET /health
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
+}
+
+// GET /api/node/info — node identity and active roles (reads env vars at call time)
+async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let account  = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
+    let chain_id = std::env::var("BTCPC_CHAIN_ID").unwrap_or_else(|_| "btcpc-1".to_owned());
+    let is_clock  = std::env::var("BTCPC_CLOCK").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let is_worker = std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let is_miner  = std::env::var("BTCPC_MINER").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let epoch = s.chain.current_epoch();
+    Json(serde_json::json!({
+        "account":   account,
+        "chain_id":  chain_id,
+        "epoch":     epoch,
+        "is_clock":  is_clock,
+        "is_worker": is_worker,
+        "is_miner":  is_miner,
+        "is_sensor": false,
+        "version":   env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+// GET /app  /app.html — self-contained node dashboard (also loaded by the Tauri desktop app)
+async fn get_app_dashboard() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../assets/app.html"))
 }
 
 // ── Peer bootstrap registry ───────────────────────────────────────────────────
