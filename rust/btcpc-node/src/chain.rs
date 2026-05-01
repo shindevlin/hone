@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use anyhow::{Context, Result};
 use parking_lot::{Mutex, RwLock};
+use sha2::{Sha256, Digest as Sha256Digest};
 use tracing::{info, warn};
 use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS};
 
@@ -117,6 +118,9 @@ pub struct Chain {
     pub chain_id: String,
     /// Serialises all write paths: nonce-check → debit/credit → nonce-bump.
     pub write_lock: parking_lot::Mutex<()>,
+    /// Pending user entries waiting to be committed at the next epoch seal.
+    /// System entries (EpochSeal, rewards, etc.) bypass this pool and apply immediately.
+    pub pending: Arc<Mutex<Vec<(LedgerEntry, Option<String>)>>>,
 }
 
 impl Chain {
@@ -133,7 +137,27 @@ impl Chain {
             node_id,
             chain_id,
             write_lock: Mutex::new(()),
+            pending: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Queue a user entry for application at the next epoch seal.
+    pub fn push_pending(&self, entry: LedgerEntry, sig: Option<String>) {
+        self.pending.lock().push((entry, sig));
+    }
+
+    /// Drain and sort the pending pool, returning entries in deterministic hash order.
+    /// All nodes that received the same gossip will sort identically, ensuring consistent
+    /// "first claim wins" across the whole network regardless of gossip arrival timing.
+    pub fn drain_pending_sorted(&self) -> Vec<(LedgerEntry, Option<String>)> {
+        let mut pool = self.pending.lock();
+        pool.sort_by_cached_key(|(e, _)| {
+            let bytes = serde_json::to_vec(e).unwrap_or_default();
+            let mut h = Sha256::new();
+            h.update(&bytes);
+            h.finalize().to_vec()
+        });
+        pool.drain(..).collect()
     }
 
     pub fn current_epoch(&self) -> u64 {

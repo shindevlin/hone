@@ -53,6 +53,25 @@ pub struct SubmitResult {
 
 // ── Public entry-points ───────────────────────────────────────────────────────
 
+/// Returns true for entries generated internally by the node (rewards, seals).
+/// These apply immediately when an epoch fires and are never queued in the pending pool.
+/// Everything else is a user entry that must go through epoch ordering.
+pub fn is_system_entry(entry: &LedgerEntry) -> bool {
+    matches!(entry,
+        LedgerEntry::EpochSeal       { .. }
+        | LedgerEntry::EpochFinalize { .. }
+        | LedgerEntry::MineReward    { .. }
+        | LedgerEntry::ClockReward   { .. }
+        | LedgerEntry::StorageReward { .. }
+        | LedgerEntry::SensorReward  { .. }
+        | LedgerEntry::VerifierReward{ .. }
+        | LedgerEntry::ServiceReward { .. }
+        | LedgerEntry::MempoolReward { .. }
+        | LedgerEntry::TrackerCoverageReward { .. }
+        | LedgerEntry::GenesisAlloc  { .. }
+    )
+}
+
 /// Validate and apply a ledger entry submitted via the API.
 ///
 /// `sig_hex`: optional hex-encoded ed25519 signature over the canonical JSON of

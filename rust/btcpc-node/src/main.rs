@@ -138,10 +138,13 @@ async fn main() -> Result<()> {
         warn!("wallet: account registration failed (non-fatal): {}", e);
     }
 
-    // Hardware anti-sybil: detect GPU serial / machine-id, submit HardwareClaim.
-    // If this machine's fingerprint is already claimed by a different account the node exits —
-    // one physical machine may only be tied to one BTCPC account.
+    // Hardware anti-sybil: detect GPU serial / machine-id, queue HardwareClaim.
+    // The claim goes into the pending pool and is gossiped to peers.
+    // At the next epoch seal, all nodes apply pending entries in the same deterministic
+    // hash order — the first valid claim per fingerprint wins network-wide.
     let hw = hardware::detect();
+    let hw_fingerprint_for_seal = hw.fingerprint.clone();
+    let hw_account_for_seal = cfg.account.clone();
     if !hw.fingerprint.is_empty() {
         let hw_entry = LedgerEntry::HardwareClaim {
             account:     cfg.account.clone(),
@@ -150,22 +153,10 @@ async fn main() -> Result<()> {
             epoch:       chain.current_epoch(),
             signed_by:   cfg.account.clone(),
         };
-        match chain.apply_entry(&hw_entry) {
-            Ok(_) => info!("[hardware] fingerprint registered ({})", hw.summary),
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("already claimed by account") {
-                    eprintln!(
-                        "btcpc-node: hardware conflict — this machine is registered to a \
-                         different account ({}). Only one BTCPC account per physical machine \
-                         is allowed.", msg
-                    );
-                    std::process::exit(1);
-                }
-                // Any other error (e.g. account not yet registered) is non-fatal.
-                warn!("[hardware] claim skipped: {}", msg);
-            }
-        }
+        // Queue for epoch-ordered application — do NOT apply directly.
+        chain.push_pending(hw_entry.clone(), None);
+        info!("[hardware] fingerprint {} queued for epoch commit ({})",
+            &hw.fingerprint[..hw.fingerprint.len().min(16)], hw.summary);
     } else {
         info!("[hardware] no identifiable hardware found — skipping hw claim");
     }
@@ -209,6 +200,9 @@ async fn main() -> Result<()> {
         let clock_ref = clock.clone();
         let node_id_c = cfg.node_id.clone();
         let cmd_tx_for_seal = net_handle.cmd_tx.clone();
+        // Hardware conflict check: after each epoch seal we verify our fingerprint is still ours.
+        let hw_fp  = hw_fingerprint_for_seal;
+        let hw_acc = hw_account_for_seal;
         tokio::spawn(async move {
             loop {
                 match sealed_rx.recv().await {
@@ -232,8 +226,43 @@ async fn main() -> Result<()> {
                             warn!("clock seal apply failed (epoch {}): {}", sealed.epoch, e);
                         }
 
-                        // Comprehensive epoch reward distribution across all work types.
+                        // ── Apply pending user entries for this epoch ─────────────────
+                        // All nodes sort by sha256(entry_bytes) — same gossip set = same order.
+                        // This is the commit boundary: entries are "on-chain" from here.
                         let sealed_epoch = sealed.epoch;
+                        let pending = chain_ref.drain_pending_sorted();
+                        if !pending.is_empty() {
+                            let mut applied = 0usize;
+                            for (e, sig) in &pending {
+                                match tx::validate_and_apply(&chain_ref, e, sig.as_deref()) {
+                                    Ok(_) => applied += 1,
+                                    Err(err) => tracing::debug!(
+                                        "[epoch {}] pending entry rejected: {}", sealed_epoch, err
+                                    ),
+                                }
+                            }
+                            info!("[epoch {}] committed {}/{} pending entries",
+                                sealed_epoch, applied, pending.len());
+                        }
+
+                        // Hardware conflict check: if our fingerprint is now claimed by
+                        // a different account (lost the ordering race), exit immediately.
+                        if !hw_fp.is_empty() {
+                            let claim_key = format!("hw_claim:{}", hw_fp);
+                            if let Some(bytes) = chain_ref.store.state_get(&claim_key) {
+                                let claimer = String::from_utf8_lossy(&bytes);
+                                if claimer != hw_acc.as_str() {
+                                    eprintln!(
+                                        "btcpc-node: hardware conflict at epoch {} — fingerprint \
+                                         claimed by '{}'. Only one BTCPC account per physical \
+                                         machine is allowed.", sealed_epoch, claimer
+                                    );
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+
+                        // Comprehensive epoch reward distribution across all work types.
                         emit_epoch_rewards(sealed_epoch, &chain_ref, &cmd_tx_for_seal).await;
 
                         // Compute reward hash and broadcast consensus proposal.
@@ -509,8 +538,14 @@ async fn main() -> Result<()> {
                         };
                         match tx::entry_from_json(&entry_val) {
                             Ok(e) => {
-                                if let Err(e) = tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
-                                    tracing::debug!("net entry rejected: {}", e);
+                                if tx::is_system_entry(&e) {
+                                    // System entries (rewards, seals) are generated locally
+                                    // on epoch seal — silently drop if received via gossip.
+                                    tracing::trace!("ignoring gossiped system entry");
+                                } else {
+                                    // User entries go into the pending pool and are applied
+                                    // at epoch seal in deterministic hash order across all nodes.
+                                    chain_ref.push_pending(e, sig);
                                 }
                             }
                             Err(e) => tracing::debug!("net entry parse error: {}", e),
