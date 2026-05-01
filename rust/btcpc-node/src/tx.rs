@@ -842,6 +842,9 @@ pub fn validate_and_apply(
         LedgerEntry::TrackerCoverageReward { .. } => {
             bail!("TrackerCoverageReward is system-only and cannot be submitted externally");
         }
+        LedgerEntry::HardwareClaim { .. } => {
+            chain.apply_entry(entry)?;
+        }
     }
 
     Ok(hash)

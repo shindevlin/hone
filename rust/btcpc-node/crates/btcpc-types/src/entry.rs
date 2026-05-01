@@ -1119,6 +1119,19 @@ pub enum LedgerEntry {
         /// BTCPC node submitting this witness (must sign with their posting key).
         signed_by: AccountId,
     },
+    /// Bind a hardware fingerprint to an account.
+    /// One fingerprint can only be claimed by one account — chain rejects duplicates
+    /// from a different account, preventing multiple profiles per physical machine.
+    /// fingerprint = SHA-256(gpu_serial | machine_id | ...) — stable per hardware.
+    HardwareClaim {
+        account: AccountId,
+        /// SHA-256 hex of stable hardware identifiers (GPU serial, machine-id, etc.)
+        fingerprint: String,
+        /// Human-readable summary of detected hardware (for display only, not enforced)
+        hw_info: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -1230,6 +1243,7 @@ impl LedgerEntry {
             Self::SetKeyPolicy { epoch, .. } => *epoch,
             Self::LivenessProof { epoch, .. } => *epoch,
             Self::EntropyWitness { epoch, .. } => *epoch,
+            Self::HardwareClaim { epoch, .. } => *epoch,
         }
     }
 

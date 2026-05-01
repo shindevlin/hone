@@ -30,6 +30,7 @@ mod contracts;
 mod discovery;
 mod finalize;
 mod genesis;
+mod hardware;
 mod inference;
 mod inference_daemon;
 mod miner;
@@ -135,6 +136,24 @@ async fn main() -> Result<()> {
     // Register this account on-chain (no-op if already exists) — links all public keys.
     if let Err(e) = wallet::register_account(&chain, &cfg.account, &wallet_keys) {
         warn!("wallet: account registration failed (non-fatal): {}", e);
+    }
+
+    // Hardware anti-sybil: detect GPU serial / machine-id, submit HardwareClaim.
+    let hw = hardware::detect();
+    if !hw.fingerprint.is_empty() {
+        let hw_entry = LedgerEntry::HardwareClaim {
+            account:   cfg.account.clone(),
+            fingerprint: hw.fingerprint.clone(),
+            hw_info:   hw.summary.clone(),
+            epoch:     chain.current_epoch(),
+            signed_by: cfg.account.clone(),
+        };
+        match chain.apply_entry(&hw_entry) {
+            Ok(_)  => info!("[hardware] fingerprint registered ({})", hw.summary),
+            Err(e) => warn!("[hardware] claim rejected: {}", e),
+        }
+    } else {
+        info!("[hardware] no identifiable hardware found — skipping hw claim");
     }
 
     info!("chain state ready — latest epoch={}", chain.current_epoch());
@@ -535,6 +554,8 @@ async fn main() -> Result<()> {
         agent_rate:       Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         chain_challenges: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         current_model:    Arc::new(tokio::sync::RwLock::new(default_model)),
+        hw_fingerprint:   Arc::new(hw.fingerprint),
+        hw_summary:       Arc::new(hw.summary),
     };
     api::serve(app_state, cfg.api_port).await?;
 

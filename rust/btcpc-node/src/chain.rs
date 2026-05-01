@@ -1140,6 +1140,31 @@ impl Chain {
                 }
             }
 
+            // ── Hardware Anti-Sybil ───────────────────────────────────────────
+            LedgerEntry::HardwareClaim { account, fingerprint, hw_info, epoch, .. } => {
+                anyhow::ensure!(!fingerprint.is_empty(), "empty hardware fingerprint");
+                let claim_key = format!("hw_claim:{}", fingerprint);
+                if let Some(existing) = self.store.state_get(&claim_key) {
+                    let existing_account = String::from_utf8_lossy(&existing);
+                    anyhow::ensure!(
+                        existing_account == account.as_str(),
+                        "hardware fingerprint already claimed by account '{}'", existing_account
+                    );
+                    // Same account re-claiming — update hw_info in case hardware changed.
+                    self.store.state_set(&claim_key, account.as_bytes())?;
+                } else {
+                    self.store.state_set(&claim_key, account.as_bytes())?;
+                    // Reverse index: hw_account:{account} → fingerprint (latest only).
+                    let rev_key = format!("hw_account:{}", account);
+                    self.store.state_set(&rev_key, fingerprint.as_bytes())?;
+                    info!(
+                        "[hardware] fingerprint {} claimed by '{}' ({})",
+                        &fingerprint[..fingerprint.len().min(16)], account, hw_info
+                    );
+                }
+                self.touch_alive(account, *epoch);
+            }
+
         }
 
         Ok(())

@@ -42,6 +42,10 @@ pub struct AppState {
     pub chain_challenges: Arc<parking_lot::Mutex<HashMap<String, (String, Instant)>>>,
     /// Runtime-switchable Ollama model (updated via PATCH /api/node/config).
     pub current_model: Arc<tokio::sync::RwLock<String>>,
+    /// SHA-256 hardware fingerprint (GPU serial + machine-id) for anti-sybil.
+    pub hw_fingerprint: Arc<String>,
+    /// Human-readable hardware summary (e.g. "nvidia:ABC123 machine:a1b2c3d4").
+    pub hw_summary: Arc<String>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -553,16 +557,20 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let is_miner  = std::env::var("BTCPC_MINER").map(|v| v == "true" || v == "1").unwrap_or(false);
     let epoch = s.chain.current_epoch();
     let model = s.current_model.read().await.clone();
+    let hw_fingerprint = s.hw_fingerprint.as_ref().clone();
+    let hw_summary = s.hw_summary.as_ref().clone();
     Json(serde_json::json!({
-        "account":   account,
-        "chain_id":  chain_id,
-        "epoch":     epoch,
-        "is_clock":  is_clock,
-        "is_worker": is_worker,
-        "is_miner":  is_miner,
-        "is_sensor": false,
-        "model":     model,
-        "version":   env!("CARGO_PKG_VERSION"),
+        "account":        account,
+        "chain_id":       chain_id,
+        "epoch":          epoch,
+        "is_clock":       is_clock,
+        "is_worker":      is_worker,
+        "is_miner":       is_miner,
+        "is_sensor":      false,
+        "model":          model,
+        "version":        env!("CARGO_PKG_VERSION"),
+        "hw_fingerprint": hw_fingerprint,
+        "hw_summary":     hw_summary,
     }))
 }
 
