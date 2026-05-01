@@ -70,19 +70,34 @@ async fn main() -> Result<()> {
     let mut cfg = Config::from_env();
 
     // Prevent multiple instances on the same machine.
-    let lock_path = cfg.data_dir.join("node.lock");
-    std::fs::create_dir_all(&cfg.data_dir)?;
-    let lock_file = std::fs::OpenOptions::new()
-        .create(true).write(true).open(&lock_path)?;
-    use std::os::unix::io::AsRawFd;
-    let locked = unsafe {
-        libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB)
-    };
-    if locked != 0 {
-        eprintln!("btcpc-node: another instance is already running (lock: {:?})", lock_path);
-        std::process::exit(1);
+    // Port pre-check works everywhere including WSL↔Windows cross-instance conflicts,
+    // since WSL2 and Windows share the localhost port namespace.
+    {
+        use std::net::TcpListener;
+        let probe_port = cfg.api_port;
+        match TcpListener::bind(("127.0.0.1", probe_port)) {
+            Ok(_) => {} // port is free; the listener is immediately dropped
+            Err(_) => {
+                eprintln!("btcpc-node: port {} is already in use — another instance may be running", probe_port);
+                std::process::exit(1);
+            }
+        }
     }
-    // Keep lock_file alive for the process lifetime — drop = unlock.
+    // Unix file lock catches same-OS duplicate starts sharing the same data dir.
+    #[cfg(unix)]
+    let _lock_file = {
+        use std::os::unix::io::AsRawFd;
+        std::fs::create_dir_all(&cfg.data_dir)?;
+        let lock_path = cfg.data_dir.join("node.lock");
+        let lf = std::fs::OpenOptions::new()
+            .create(true).write(true).open(&lock_path)?;
+        let locked = unsafe { libc::flock(lf.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if locked != 0 {
+            eprintln!("btcpc-node: another instance is already running (lock: {:?})", lock_path);
+            std::process::exit(1);
+        }
+        lf // keep alive until process exits
+    };
 
     // Load posting key. node_id stays as the account name for reward routing;
     // the derived pubkey goes into the seal's `pubkey` field for verification.

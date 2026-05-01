@@ -22,7 +22,6 @@ path = "src/main.rs"
 [dependencies]
 btcpc-types = { path = "crates/btcpc-types" }
 btcpc-contract-runtime = { path = "../btcpc-contract-runtime" }
-libc = "0.2"
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -83,3 +82,6 @@ parking_lot = "0.12"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
