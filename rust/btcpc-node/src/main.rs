@@ -491,6 +491,7 @@ async fn main() -> Result<()> {
     }
 
     // ── HTTP API ──────────────────────────────────────────────────────────────
+    let default_model = std::env::var("BTCPC_MODEL").unwrap_or_else(|_| "qwen3:4b".to_owned());
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
@@ -498,6 +499,7 @@ async fn main() -> Result<()> {
         faucet_claims:    Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         agent_rate:       Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         chain_challenges: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        current_model:    Arc::new(tokio::sync::RwLock::new(default_model)),
     };
     api::serve(app_state, cfg.api_port).await?;
 

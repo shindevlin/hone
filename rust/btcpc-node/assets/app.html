@@ -172,6 +172,30 @@ textarea{resize:vertical;min-height:60px}
     <div class="roles" id="roles-detail"></div>
   </div>
 
+  <!-- Node Admin -->
+  <div class="card" id="admin-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-title" style="margin:0">node admin</div>
+      <span style="font-size:10px;color:var(--muted)">localhost only</span>
+    </div>
+    <div class="grid2" style="margin-bottom:10px">
+      <div class="form-row" style="margin:0">
+        <label>Active model</label>
+        <select id="admin-model-select" style="width:100%">
+          <option id="admin-model-current" value="">loading…</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="color:var(--muted);font-size:11px">action</label>
+        <div style="display:flex;gap:6px;align-items:flex-end">
+          <button class="btn" id="admin-model-apply" onclick="applyModel()" style="flex:1">Apply</button>
+          <button class="btn sec" onclick="refreshModels()" style="padding:7px 10px" title="Reload model list">↺</button>
+        </div>
+      </div>
+    </div>
+    <div class="msg" id="admin-msg"></div>
+  </div>
+
   <!-- Inference jobs -->
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -246,6 +270,18 @@ async function init() {
     document.getElementById('h-chain').textContent   = chainId || '—';
 
     renderRoles(info);
+    // Pre-select the current model once node info loads.
+    if (info.model) {
+      var sel = document.getElementById('admin-model-select');
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === info.model) { sel.selectedIndex = i; break; }
+      }
+      if (!sel.value) {
+        var opt = document.createElement('option');
+        opt.value = info.model; opt.textContent = info.model; opt.selected = true;
+        sel.insertBefore(opt, sel.firstChild);
+      }
+    }
     await refresh();
     setInterval(refresh, 5000);
     setStatus('live');
@@ -428,8 +464,64 @@ async function sha256(str) {
   }).join('');
 }
 
+// ── Node admin ─────────────────────────────────────────────────────────────────
+var loadedModels = [];
+
+async function refreshModels() {
+  try {
+    var data = await get('/api/node/models');
+    loadedModels = data.models || [];
+    var sel = document.getElementById('admin-model-select');
+    var current = sel.value || nodeInfo.model || '';
+    sel.innerHTML = '';
+    if (!loadedModels.length) {
+      sel.innerHTML = '<option value="">no models found</option>';
+      return;
+    }
+    loadedModels.forEach(function(m) {
+      var opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      if (m === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    document.getElementById('admin-model-select').innerHTML =
+      '<option value="">Ollama unreachable</option>';
+  }
+}
+
+async function applyModel() {
+  var sel = document.getElementById('admin-model-select');
+  var model = sel.value;
+  var msg = document.getElementById('admin-msg');
+  var btn = document.getElementById('admin-model-apply');
+  if (!model) return;
+  btn.disabled = true;
+  msg.className = 'msg'; msg.textContent = 'Applying…';
+  try {
+    var r = await fetch(BASE + '/api/node/config', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ model: model }),
+    });
+    var data = await r.json();
+    if (data.ok) {
+      msg.className = 'msg ok'; msg.textContent = 'Model set to ' + model;
+      nodeInfo.model = model;
+    } else {
+      msg.className = 'msg err'; msg.textContent = data.error || 'Failed';
+    }
+  } catch(e) {
+    msg.className = 'msg err'; msg.textContent = String(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 init();
+refreshModels();
 </script>
 </body>
 </html>

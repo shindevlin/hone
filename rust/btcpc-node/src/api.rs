@@ -40,6 +40,8 @@ pub struct AppState {
     /// Pending hard-mode chain-link challenges: "{account}:{chain}" → (nonce, issued_at).
     /// Short-lived — expires after 10 minutes. Used only during the verify-chain flow.
     pub chain_challenges: Arc<parking_lot::Mutex<HashMap<String, (String, Instant)>>>,
+    /// Runtime-switchable Ollama model (updated via PATCH /api/node/config).
+    pub current_model: Arc<tokio::sync::RwLock<String>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -121,6 +123,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/peers/bootstrap", post(post_bootstrap_peer))
         // ── Node dashboard ────────────────────────────────────────────────
         .route("/api/node/info", get(get_node_info))
+        .route("/api/node/models", get(get_node_models))
+        .route("/api/node/config", axum::routing::patch(patch_node_config))
         .route("/app", get(get_app_dashboard))
         .route("/app.html", get(get_app_dashboard))
         .route("/", get(get_app_dashboard))
@@ -540,7 +544,7 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
 }
 
-// GET /api/node/info — node identity and active roles (reads env vars at call time)
+// GET /api/node/info — node identity and active roles
 async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let account  = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
     let chain_id = std::env::var("BTCPC_CHAIN_ID").unwrap_or_else(|_| "btcpc-1".to_owned());
@@ -548,6 +552,7 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let is_worker = std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false);
     let is_miner  = std::env::var("BTCPC_MINER").map(|v| v == "true" || v == "1").unwrap_or(false);
     let epoch = s.chain.current_epoch();
+    let model = s.current_model.read().await.clone();
     Json(serde_json::json!({
         "account":   account,
         "chain_id":  chain_id,
@@ -556,8 +561,55 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         "is_worker": is_worker,
         "is_miner":  is_miner,
         "is_sensor": false,
+        "model":     model,
         "version":   env!("CARGO_PKG_VERSION"),
     }))
+}
+
+// GET /api/node/models — list models available in the local Ollama instance
+async fn get_node_models() -> Json<serde_json::Value> {
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    match reqwest::Client::new()
+        .get(format!("{}/api/tags", ollama_url))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(body) = r.json::<serde_json::Value>().await {
+                let names: Vec<String> = body["models"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|m| m["name"].as_str().map(str::to_owned))
+                    .collect();
+                return Json(serde_json::json!({ "models": names }));
+            }
+        }
+        _ => {}
+    }
+    Json(serde_json::json!({ "models": [] }))
+}
+
+#[derive(serde::Deserialize)]
+struct NodeConfigPatch {
+    model: Option<String>,
+}
+
+// PATCH /api/node/config — update runtime node config (currently: model selection)
+async fn patch_node_config(
+    State(s): State<AppState>,
+    Json(body): Json<NodeConfigPatch>,
+) -> Json<serde_json::Value> {
+    if let Some(model) = body.model {
+        let m = model.trim().to_owned();
+        if !m.is_empty() {
+            *s.current_model.write().await = m.clone();
+            return Json(serde_json::json!({ "ok": true, "model": m }));
+        }
+    }
+    Json(serde_json::json!({ "ok": false, "error": "no valid field to update" }))
 }
 
 // GET /app  /app.html — self-contained node dashboard (also loaded by the Tauri desktop app)
