@@ -45,7 +45,7 @@ impl Config {
 
         Self {
             node_id: std::env::var("BTCPC_NODE_ID")
-                .unwrap_or_else(|_| "node-0".to_string()),
+                .unwrap_or_else(|_| std::env::var("BTCPC_ACCOUNT").unwrap_or_else(|_| "node-0".to_string())),
             account: std::env::var("BTCPC_ACCOUNT")
                 .unwrap_or_else(|_| "genesis".to_string()),
             data_dir,
