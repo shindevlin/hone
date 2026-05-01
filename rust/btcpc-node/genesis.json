@@ -1,27 +1,96 @@
 {
-  "accounts": {
-    "natoshisakamoto": { "keys": { "posting": "02ba0165043b050bbbcc2b2aec75f300f2c7585d16cf819564bde53ecfd9b7241c" } },
-    "shindevlin":      { "keys": { "posting": "03ead081731267c738282c3b854c19ec05b916b39899f491cb8af5cb6a107efb6b" } },
-    "josh":            { "keys": { "posting": "02b2e61bdf04b3f2b0ff00d398e741552da0cb700e225714ea2d87b40d677db81c" } },
-    "bullship":        {},
-    "brutus11":        {},
-    "ursos":           {},
-    "realfake":        {},
-    "redaktly":        {},
-    "buswingspread":   {},
-    "betchu-bot":      {},
-    "counselflow":     {},
-    "spirit-of-ngu":   {},
-    "itsurs":          {},
-    "waitlyfi":        {},
-    "clock-984f1a06":  {},
-    "bridgeproof":        {},
-    "freeport":           { "keys": { "posting": "03628aa62fd3a7383d547a6fa8b275c15893c9b857382a8be0f545c3c66fe22a5f" } },
-    "verasens":           { "keys": { "posting": "03281dd0f69f2392a60aa88e7cd199ef16d4efcff82c3de004a998185c74fbe41c" } },
-    "freeport-escrow":    {},
-    "verasens-registry":  {},
-    "linkgit":            { "keys": { "posting": "0322efc6558bd4d7622347c449892edbc2cda65a1d89c8e0d06e155a6469b3bafb" } },
-    "linkgit-registry":   {},
-    "__testnet_fund__":   {}
-  }
+    "accounts": {
+        "natoshisakamoto": {
+            "keys": {
+                "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
+                "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
+                "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
+                "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
+                "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
+                "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
+            }
+        },
+        "shindevlin": {
+            "keys": {
+                "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
+                "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
+                "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
+                "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
+                "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
+                "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+            }
+        },
+        "josh": {
+            "keys": {
+                "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
+                "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
+                "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
+                "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
+                "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
+                "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
+            }
+        },
+        "bullship": {},
+        "brutus11": {},
+        "ursos": {},
+        "realfake": {},
+        "redaktly": {},
+        "buswingspread": {},
+        "betchu-bot": {},
+        "counselflow": {},
+        "spirit-of-ngu": {},
+        "itsurs": {},
+        "waitlyfi": {},
+        "clock-984f1a06": {},
+        "bridgeproof": {},
+        "freeport": {
+            "keys": {
+                "posting": "03628aa62fd3a7383d547a6fa8b275c15893c9b857382a8be0f545c3c66fe22a5f"
+            }
+        },
+        "verasens": {
+            "keys": {
+                "posting": "03281dd0f69f2392a60aa88e7cd199ef16d4efcff82c3de004a998185c74fbe41c"
+            }
+        },
+        "freeport-escrow": {},
+        "verasens-registry": {},
+        "linkgit": {
+            "keys": {
+                "posting": "0322efc6558bd4d7622347c449892edbc2cda65a1d89c8e0d06e155a6469b3bafb"
+            }
+        },
+        "linkgit-registry": {},
+        "__testnet_fund__": {},
+        "shin": {
+            "keys": {
+                "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
+                "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
+                "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
+                "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
+                "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
+                "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+            }
+        },
+        "nk": {
+            "keys": {
+                "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
+                "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
+                "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
+                "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
+                "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
+                "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
+            }
+        },
+        "joshua": {
+            "keys": {
+                "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
+                "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
+                "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
+                "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
+                "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
+                "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
+            }
+        }
+    }
 }
