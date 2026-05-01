@@ -1,13 +1,62 @@
 //! Chain state machine — applies ledger entries and advances chain state.
 
 use std::sync::Arc;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use parking_lot::{Mutex, RwLock};
 use tracing::{info, warn};
 use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS};
 
 use crate::inference;
 use crate::store::Store;
+
+/// Recover the signer's address from an external-chain signature.
+/// Currently supports Ethereum personal_sign (EIP-191).
+fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyhow::Result<String> {
+    match sig_type {
+        "eth_personal_sign" => {
+            // EIP-191: keccak256("\x19Ethereum Signed Message:\n" + len + message)
+            use sha3::{Digest, Keccak256};
+            use secp256k1::{Message, ecdsa::RecoverableSignature, ecdsa::RecoveryId};
+
+            let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+            let hash: [u8; 32] = Keccak256::new()
+                .chain_update(prefix.as_bytes())
+                .chain_update(message.as_bytes())
+                .finalize()
+                .into();
+
+            let sig_bytes = hex::decode(signature.trim_start_matches("0x"))
+                .context("signature hex decode")?;
+            anyhow::ensure!(sig_bytes.len() == 65, "eth signature must be 65 bytes");
+
+            // Last byte is v (27 or 28, or 0/1 for some wallets). Normalize to 0/1.
+            let v = sig_bytes[64];
+            let rec_id = RecoveryId::from_i32(((v % 27) % 2) as i32)
+                .map_err(|e| anyhow::anyhow!("bad recovery id: {}", e))?;
+            let rec_sig = RecoverableSignature::from_compact(&sig_bytes[..64], rec_id)
+                .map_err(|e| anyhow::anyhow!("bad recoverable sig: {}", e))?;
+            let msg = Message::from_digest(hash);
+            let secp = secp256k1::Secp256k1::new();
+            let pubkey = secp.recover_ecdsa(&msg, &rec_sig)
+                .map_err(|e| anyhow::anyhow!("ecdsa recovery failed: {}", e))?;
+
+            // Ethereum address = last 20 bytes of keccak256(uncompressed_pubkey[1..])
+            let uncompressed = pubkey.serialize_uncompressed();
+            let addr_hash: [u8; 32] = Keccak256::digest(&uncompressed[1..]).into();
+            let addr_bytes = &addr_hash[12..];
+
+            // EIP-55 checksum
+            let hex_lower = hex::encode(addr_bytes);
+            let checksum_hash: [u8; 32] = Keccak256::digest(hex_lower.as_bytes()).into();
+            let checksummed: String = hex_lower.chars().enumerate().map(|(i, c)| {
+                let nib = (checksum_hash[i / 2] >> (if i % 2 == 0 { 4 } else { 0 })) & 0x0f;
+                if c.is_alphabetic() && nib >= 8 { c.to_ascii_uppercase() } else { c }
+            }).collect();
+            Ok(format!("0x{}", checksummed))
+        }
+        other => anyhow::bail!("unsupported sig_type '{}' — supported: eth_personal_sign", other),
+    }
+}
 
 /// Returns true if `to` has pre-approved `token` from `from`.
 /// Checks four wildcard combinations in order (most-specific first).
@@ -95,7 +144,7 @@ impl Chain {
                 info!("genesis alloc: {} {} → {}", amount, token, account);
             }
 
-            LedgerEntry::AccountCreate { account, keys, epoch, funded_by } => {
+            LedgerEntry::AccountCreate { account, keys, chain_proofs, epoch, funded_by } => {
                 if self.store.get_account(account)?.is_some() {
                     return Ok(()); // idempotent
                 }
@@ -115,15 +164,29 @@ impl Chain {
                         }
                     }
                 }
+                // chain_proofs: store commitment + mode, never the raw address.
+                let proofs_json: serde_json::Value = chain_proofs.iter().map(|p| {
+                    (p.chain.clone(), serde_json::json!({
+                        "commitment": p.commitment,
+                        "mode": p.mode,
+                    }))
+                }).collect::<serde_json::Map<_, _>>().into();
+
                 let state = serde_json::json!({
                     "account_id": account,
                     "created_epoch": epoch,
                     "keys": keys,
+                    "chain_proofs": proofs_json,
                     "nonce": 0,
                     "stake": 0,
                     "name_stake_locked": btcpc_types::NAME_REGISTRATION_STAKE,
                 });
                 self.store.set_account(account, &state)?;
+                info!(
+                    account,
+                    chains = chain_proofs.iter().map(|p| p.chain.as_str()).collect::<Vec<_>>().join(","),
+                    "account created with {} chain proof(s)", chain_proofs.len()
+                );
             }
 
             LedgerEntry::Transfer { from, to, amount, token, epoch, nonce, .. } => {
@@ -241,6 +304,50 @@ impl Chain {
             LedgerEntry::ChainParameterSet { key, value, .. } => {
                 self.store.state_set(&format!("chain_param:{}", key), value.as_bytes())?;
                 info!("chain param '{}' set to '{}'", key, value);
+            }
+
+            // Hard-mode chain link: verify external signature, store commitment only.
+            LedgerEntry::VerifyChainLink { account, chain, commitment, signed_message, signature, sig_type, .. } => {
+                let mut state = self.store.get_account(account)?
+                    .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
+
+                // Recover address from signature and verify it matches the commitment.
+                let recovered_addr = recover_chain_address(sig_type, signed_message, signature)
+                    .with_context(|| format!("signature recovery failed for {} link on '{}'", chain, account))?;
+
+                // Re-derive commitment from recovered address and the nonce embedded in signed_message.
+                // Message format: "btcpc:link:{account}:{chain}:{nonce}"
+                let nonce = signed_message.split(':').nth(4)
+                    .ok_or_else(|| anyhow::anyhow!("malformed signed_message — expected btcpc:link:account:chain:nonce"))?;
+                let expected = {
+                    use sha2::{Digest, Sha256};
+                    let mut h = Sha256::new();
+                    h.update(chain.as_bytes());
+                    h.update(b":");
+                    h.update(recovered_addr.as_bytes());
+                    h.update(b":");
+                    h.update(nonce.as_bytes());
+                    hex::encode(h.finalize())
+                };
+                anyhow::ensure!(
+                    expected == *commitment,
+                    "commitment mismatch: recovered address does not match submitted commitment"
+                );
+
+                // Store commitment only — address is discarded after verification.
+                if state.get("chain_proofs").is_none() {
+                    state["chain_proofs"] = serde_json::json!({});
+                }
+                state["chain_proofs"][chain] = serde_json::json!({
+                    "commitment": commitment,
+                    "mode": "hard",
+                    "sig_type": sig_type,
+                    // Store signed_message and signature so anyone can independently verify.
+                    "signed_message": signed_message,
+                    "signature": signature,
+                });
+                self.store.set_account(account, &state)?;
+                info!(account, chain, "hard-mode chain link verified and stored");
             }
 
             // Record the owner's declared primary identity.

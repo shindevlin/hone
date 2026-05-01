@@ -65,10 +65,11 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
                     };
 
                     entries.push(LedgerEntry::AccountCreate {
-                        account: account.clone(),
+                        account:      account.clone(),
                         keys,
-                        epoch: 0,
-                        funded_by: None, // genesis accounts are stake-exempt
+                        chain_proofs: vec![],
+                        epoch:        0,
+                        funded_by:    None,
                     });
                     if dreams > 0 {
                         entries.push(LedgerEntry::GenesisAlloc {
@@ -94,10 +95,11 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
             continue;
         }
         entries.push(LedgerEntry::AccountCreate {
-            account: name,
-            keys: shindevlin_keys.clone(),
-            epoch: 0,
-            funded_by: None, // reserved namespace is stake-exempt at genesis
+            account:      name,
+            keys:         shindevlin_keys.clone(),
+            chain_proofs: vec![],
+            epoch:        0,
+            funded_by:    None,
         });
     }
 

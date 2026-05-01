@@ -455,8 +455,9 @@ async fn main() -> Result<()> {
         chain: chain.clone(),
         contracts,
         tx_broadcast,
-        faucet_claims: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        agent_rate: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        faucet_claims:    Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        agent_rate:       Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        chain_challenges: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
     };
     api::serve(app_state, cfg.api_port).await?;
 

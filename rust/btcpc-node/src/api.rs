@@ -37,6 +37,9 @@ pub struct AppState {
     pub faucet_claims: Arc<parking_lot::Mutex<HashMap<String, Instant>>>,
     /// Agent chat rate-limiter: IP → list of request timestamps in the current window.
     pub agent_rate: Arc<parking_lot::Mutex<HashMap<String, Vec<Instant>>>>,
+    /// Pending hard-mode chain-link challenges: "{account}:{chain}" → (nonce, issued_at).
+    /// Short-lived — expires after 10 minutes. Used only during the verify-chain flow.
+    pub chain_challenges: Arc<parking_lot::Mutex<HashMap<String, (String, Instant)>>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -58,6 +61,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/account/update-key", post(post_account_update_key))
         .route("/api/account/set-primary", post(post_account_set_primary))
         .route("/api/account/transfer", post(post_account_transfer))
+        // Hard-mode chain linking — prove an external wallet without revealing the address
+        .route("/api/account/:account/chain-link-challenge", get(get_chain_link_challenge))
+        .route("/api/account/verify-chain", post(post_verify_chain))
         // ── Contract endpoints ────────────────────────────────────────────
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
@@ -157,11 +163,157 @@ async fn get_account(
     State(s): State<AppState>,
     Path(account): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    match s.chain.store.get_account(&account) {
-        Ok(Some(data)) => Ok(Json(data)),
-        Ok(None) => Err(StatusCode::NOT_FOUND),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    let data = match s.chain.store.get_account(&account) {
+        Ok(Some(d)) => d,
+        Ok(None)    => return Err(StatusCode::NOT_FOUND),
+        Err(_)      => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    // Strip cross-chain plaintext addresses — return only BTCPC keys and proven chain names.
+    // Raw addresses are never stored on-chain; only commitments are.
+    // chain_proofs stores { chain: { commitment, mode, [sig_type, signed_message, signature] } }
+    let proven_chains: Vec<serde_json::Value> = data
+        .get("chain_proofs")
+        .and_then(|p| p.as_object())
+        .map(|m| m.iter().map(|(chain, proof)| serde_json::json!({
+            "chain": chain,
+            "mode":  proof.get("mode").and_then(|v| v.as_str()).unwrap_or("easy"),
+        })).collect())
+        .unwrap_or_default();
+
+    Ok(Json(serde_json::json!({
+        "account":        data["account_id"],
+        "created_epoch":  data["created_epoch"],
+        "keys":           data["keys"],       // BTCPC posting/owner/memo — public by design
+        "chains_proven":  proven_chains,      // which external chains, no addresses
+        "nonce":          data["nonce"],
+        "stake":          data["stake"],
+    })))
+}
+
+// ── Hard-mode chain linking ───────────────────────────────────────────────────
+//
+// Two-step flow:
+//   1. GET  /api/account/:account/chain-link-challenge?chain=ethereum
+//      → returns a challenge string to sign with the external wallet
+//   2. POST /api/account/verify-chain
+//      → submits signature + pre-computed commitment; node verifies and records
+
+/// Step 1: generate a short-lived challenge for the user to sign with their external wallet.
+///
+/// The challenge format is: "btcpc:link:{account}:{chain}:{nonce}"
+///
+/// Sign it with:
+///   Ethereum / EVM — MetaMask: personal_sign(challenge, account)
+///                  — Ledger:   hardware wallet personal_sign
+///   (More sig types coming: Solana, Bitcoin)
+///
+/// The nonce is included in the message so the user can compute the commitment
+/// offline: sha256(chain + ":" + their_address + ":" + nonce) as hex.
+async fn get_chain_link_challenge(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let chain = params.get("chain")
+        .ok_or((StatusCode::BAD_REQUEST, "missing ?chain= parameter"))?
+        .to_lowercase();
+
+    let supported = ["ethereum", "solana"];
+    if !supported.contains(&chain.as_str()) {
+        return Err((StatusCode::BAD_REQUEST, "unsupported chain — supported: ethereum, solana"));
     }
+
+    if s.chain.store.get_account(&account).ok().flatten().is_none() {
+        return Err((StatusCode::NOT_FOUND, "account not found"));
+    }
+
+    // Generate a random nonce and build the challenge string.
+    let nonce = hex::encode(rand::random::<[u8; 16]>());
+    let challenge = format!("btcpc:link:{}:{}:{}", account, chain, nonce);
+
+    // Store challenge for 10 minutes (verified at submission time).
+    let key = format!("{}:{}", account, chain);
+    s.chain_challenges.lock().insert(key, (nonce.clone(), Instant::now()));
+
+    Ok(Json(serde_json::json!({
+        "challenge":    challenge,
+        "nonce":        nonce,
+        "chain":        chain,
+        "account":      account,
+        "sig_type":     if chain == "ethereum" { "eth_personal_sign" } else { "sol_sign" },
+        "instructions": format!(
+            "Sign the challenge string with your {} wallet, then POST to /api/account/verify-chain",
+            chain
+        ),
+        "expires_in_seconds": 600,
+    })))
+}
+
+#[derive(serde::Deserialize)]
+struct VerifyChainBody {
+    account:    String,
+    chain:      String,
+    /// sha256(chain + ":" + your_address + ":" + nonce) as hex — computed locally, never sent to node
+    commitment: String,
+    /// Raw hex signature from your external wallet
+    signature:  String,
+    /// "eth_personal_sign" | "sol_sign"
+    sig_type:   String,
+}
+
+/// Step 2: submit the signature. The node verifies it, recovers the address, confirms
+/// the commitment matches, then records the proof. The address is discarded — never stored.
+async fn post_verify_chain(
+    State(s): State<AppState>,
+    Json(body): Json<VerifyChainBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let key = format!("{}:{}", body.account, body.chain);
+
+    // Check challenge exists and hasn't expired (10 min).
+    let nonce = {
+        let mut challenges = s.chain_challenges.lock();
+        match challenges.get(&key) {
+            None => return Err((StatusCode::BAD_REQUEST, "no pending challenge — call GET /api/account/:account/chain-link-challenge?chain=... first".into())),
+            Some((nonce, issued_at)) => {
+                if issued_at.elapsed().as_secs() > 600 {
+                    challenges.remove(&key);
+                    return Err((StatusCode::BAD_REQUEST, "challenge expired — request a new one".into()));
+                }
+                nonce.clone()
+            }
+        }
+    };
+
+    let signed_message = format!("btcpc:link:{}:{}:{}", body.account, body.chain, nonce);
+
+    // Build the VerifyChainLink entry — chain.rs verifies the signature and commitment.
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::VerifyChainLink {
+        account:        body.account.clone(),
+        chain:          body.chain.clone(),
+        commitment:     body.commitment.clone(),
+        signed_message: signed_message.clone(),
+        signature:      body.signature.clone(),
+        sig_type:       body.sig_type.clone(),
+        epoch,
+        signed_by:      body.account.clone(),
+    };
+
+    s.chain.apply_entry(&entry).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    // Remove the used challenge.
+    s.chain_challenges.lock().remove(&key);
+
+    let _ = s.tx_broadcast.send((entry, None));
+
+    Ok(Json(serde_json::json!({
+        "ok":      true,
+        "account": body.account,
+        "chain":   body.chain,
+        "mode":    "hard",
+        "message": "Chain ownership proven. Your address was verified and discarded — only the commitment is on-chain.",
+    })))
 }
 
 // GET /api/block/:epoch
@@ -521,10 +673,11 @@ async fn post_account_create(
     let epoch = s.chain.current_epoch();
 
     let entry = LedgerEntry::AccountCreate {
-        account: body.account,
-        keys: body.keys.unwrap_or_default(),
+        account:      body.account,
+        keys:         body.keys.unwrap_or_default(),
+        chain_proofs: vec![],
         epoch,
-        funded_by: body.funded_by.filter(|s| !s.is_empty()),
+        funded_by:    body.funded_by.filter(|s| !s.is_empty()),
     };
 
     apply_and_broadcast(&s, entry, None)
@@ -1111,10 +1264,11 @@ async fn post_faucet_claim(
     let epoch = s.chain.current_epoch();
     // Create account if it doesn't exist yet (idempotent). Faucet accounts are exempt from stake.
     let _ = s.chain.apply_entry(&LedgerEntry::AccountCreate {
-        account: body.account.clone(),
-        keys: Default::default(),
+        account:      body.account.clone(),
+        keys:         Default::default(),
+        chain_proofs: vec![],
         epoch,
-        funded_by: None,
+        funded_by:    None,
     });
 
     match s.chain.store.credit(&body.account, NATIVE_TOKEN, FAUCET_AMOUNT_DREAMS) {

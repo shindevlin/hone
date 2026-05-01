@@ -4,15 +4,41 @@
 use serde::{Deserialize, Serialize};
 use crate::account::{AccountId, Dreams, Epoch};
 
+/// A cryptographic commitment to an external-chain address.
+///
+/// The actual address is NEVER stored on-chain. Only `sha256(chain:address:nonce)`
+/// is recorded, so the chain can prove ownership without deanonymizing the user.
+///
+/// To reveal the address to a specific party later, share (address, nonce) privately.
+/// They verify: sha256(chain + ":" + address + ":" + nonce) == commitment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainProof {
+    /// Chain name: "bitcoin", "ethereum", "solana", "near", "sui", etc.
+    pub chain: String,
+    /// sha256(chain + ":" + address + ":" + nonce) encoded as lowercase hex.
+    pub commitment: String,
+    /// "easy"  — self-asserted; all keys derived from one BIP-39 mnemonic by the node.
+    /// "hard"  — cryptographically verified; user signed a challenge with an existing
+    ///           external wallet (MetaMask, Ledger, Phantom, etc.). The signature is
+    ///           stored in the VerifyChainLink entry for independent verification.
+    pub mode: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LedgerEntry {
     // ── Account ──────────────────────────────────────────────────────────────
     AccountCreate {
         account: AccountId,
-        keys: std::collections::HashMap<String, String>,  // role -> compressed pubkey hex
+        /// BTCPC protocol keys — public, required for transaction verification.
+        /// Roles: "posting" (daily use), "owner" (key rotation), "memo" (encrypted msgs).
+        keys: std::collections::HashMap<String, String>,
+        /// Cross-chain address commitments — no plaintext addresses stored.
+        /// Easy mode: populated automatically from BIP-39 derived wallet.
+        /// Hard mode: added later via VerifyChainLink entries.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        chain_proofs: Vec<ChainProof>,
         epoch: Epoch,
-        /// Who pays the NAME_REGISTRATION_STAKE. None = genesis/exempt accounts only.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         funded_by: Option<AccountId>,
     },
@@ -52,6 +78,32 @@ pub enum LedgerEntry {
         signed_by: AccountId,
         nonce: u64,
         signature: Option<String>,
+    },
+
+    /// Prove ownership of an external-chain address via a signed challenge.
+    ///
+    /// Hard-mode chain linking: the user signs a canonical challenge with their existing
+    /// wallet (MetaMask, Ledger, Phantom, etc.) and submits it here. The node verifies the
+    /// signature, recovers the address, confirms it matches the commitment, then records
+    /// the proof. The address itself is never stored — only the commitment.
+    ///
+    /// Anyone can independently verify the link by checking the stored signature against
+    /// the stored challenge message — no trust required.
+    VerifyChainLink {
+        account: AccountId,
+        /// Chain being proven: "ethereum", "bitcoin", "solana", etc.
+        chain: String,
+        /// sha256(chain + ":" + address + ":" + nonce) hex — submitted by user pre-computed.
+        /// Node verifies this matches what it recovers from the signature.
+        commitment: String,
+        /// The exact message that was signed: "btcpc:link:{account}:{chain}:{nonce}"
+        signed_message: String,
+        /// Hex-encoded raw signature bytes.
+        signature: String,
+        /// Signature scheme used: "eth_personal_sign" | "sol_sign"
+        sig_type: String,
+        epoch: Epoch,
+        signed_by: AccountId,
     },
 
     // ── Transfers ────────────────────────────────────────────────────────────
@@ -1071,6 +1123,7 @@ impl LedgerEntry {
             Self::AccountTransfer { epoch, .. } => *epoch,
             Self::ChainParameterSet { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
+            Self::VerifyChainLink { epoch, .. } => *epoch,
         }
     }
 

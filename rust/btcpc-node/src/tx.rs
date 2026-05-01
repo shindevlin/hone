@@ -744,6 +744,17 @@ pub fn validate_and_apply(
             bump_nonce(chain, account)?;
         }
 
+        // ── Hard-mode chain link: verify external wallet signature ────────────
+        LedgerEntry::VerifyChainLink { account, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account for VerifyChainLink");
+            }
+            require_key(chain, account)?;
+            // No nonce bump — chain link proofs are idempotent per chain.
+            chain.apply_entry(entry)?;
+        }
+
         // ── System-only entries (not externally submittable) ──────────────────
         LedgerEntry::MempoolReward { .. } => {
             bail!("MempoolReward is system-only and cannot be submitted externally");
