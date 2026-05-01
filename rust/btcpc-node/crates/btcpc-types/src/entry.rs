@@ -24,6 +24,36 @@ pub struct ChainProof {
     pub mode: String,
 }
 
+/// Cross-chain 2FA factor attached to a protected transaction.
+///
+/// Each key slot can independently have a 2FA policy backed by a different
+/// external-chain wallet. Including a `TwoFactor` proves the slot's 2FA
+/// requirement is satisfied without revealing which on-chain address it maps to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwoFactor {
+    /// Chain the 2FA wallet lives on: "ethereum", "base", "solana", …
+    pub chain: String,
+    /// Hex-encoded signature over sha256(entry_hash + ":" + epoch) using the
+    /// 2FA wallet's key. The node verifies via ecrecover / ed25519 as appropriate.
+    pub signature: String,
+}
+
+/// Owner-level authority bundle for the 3-of-4 adaptive threshold.
+/// Required when an action needs owner-level approval (key rotation, 2FA changes).
+///
+/// Threshold: owner key sign + any 2 of { owner_2fa, corroborant_key }.
+/// With all factors present this is 3-of-4; absent factors lower the bar
+/// proportionally (e.g. only owner key + owner_2fa = 2-of-3 when no corroborant).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerAuth {
+    /// 2FA sig from the wallet linked to the owner slot (if any).
+    pub owner_2fa: Option<TwoFactor>,
+    /// A corroborating BTCPC role: "active" | "posting" — signing key sig.
+    pub corroborant_key: Option<String>,
+    /// ed25519 hex sig from the corroborant key over the entry canonical message.
+    pub corroborant_sig: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LedgerEntry {
@@ -106,6 +136,26 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    /// Configure the 2FA policy for a specific key slot on an account.
+    ///
+    /// Setting `twofactor_chain` to Some enables 2FA for the slot backed by the
+    /// commitment already stored on-chain for that chain. Setting it to None clears
+    /// the slot's 2FA policy. Owner slot changes always require `owner_auth`.
+    /// Non-owner slot changes require a valid sig from the owner key.
+    SetKeyPolicy {
+        account: AccountId,
+        /// Which slot: "owner" | "active" | "posting" | "memo" | "hide" | "seek"
+        role: String,
+        /// Chain whose stored commitment is the 2FA wallet. None = clear 2FA.
+        twofactor_chain: Option<String>,
+        /// Owner-threshold bundle (required for owner slot; optional corroboration otherwise).
+        owner_auth: OwnerAuth,
+        epoch: Epoch,
+        signed_by: AccountId,
+        /// ed25519 sig over canonical message from the owner key (or posting if no owner).
+        signature: Option<String>,
+    },
+
     // ── Transfers ────────────────────────────────────────────────────────────
     Transfer {
         from: AccountId,
@@ -116,6 +166,9 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
         nonce: u64,
+        /// Optional 2FA factor for the active key slot (if the slot has a policy set).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twofactor: Option<TwoFactor>,
     },
 
     // ── Staking ──────────────────────────────────────────────────────────────
@@ -1124,6 +1177,7 @@ impl LedgerEntry {
             Self::ChainParameterSet { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
             Self::VerifyChainLink { epoch, .. } => *epoch,
+            Self::SetKeyPolicy { epoch, .. } => *epoch,
         }
     }
 

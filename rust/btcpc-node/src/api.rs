@@ -64,6 +64,8 @@ pub fn router(state: AppState) -> Router {
         // Hard-mode chain linking — prove an external wallet without revealing the address
         .route("/api/account/:account/chain-link-challenge", get(get_chain_link_challenge))
         .route("/api/account/verify-chain", post(post_verify_chain))
+        // 2FA key slot policies
+        .route("/api/account/set-key-policy", post(post_set_key_policy))
         // ── Contract endpoints ────────────────────────────────────────────
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
@@ -181,10 +183,24 @@ async fn get_account(
         })).collect())
         .unwrap_or_default();
 
+    // Show which slots have 2FA (chain name only, not the address commitment).
+    let slot_policies: serde_json::Value = data
+        .get("key_policies")
+        .and_then(|p| p.as_object())
+        .map(|m| m.iter().map(|(role, policy)| (
+            role.clone(),
+            serde_json::json!({
+                "twofactor_chain": policy.get("twofactor_chain"),
+            })
+        )).collect::<serde_json::Map<_, _>>())
+        .map(serde_json::Value::Object)
+        .unwrap_or(serde_json::json!({}));
+
     Ok(Json(serde_json::json!({
         "account":        data["account_id"],
         "created_epoch":  data["created_epoch"],
-        "keys":           data["keys"],       // BTCPC posting/owner/memo — public by design
+        "keys":           data["keys"],       // all 6 BTCPC role keys — public by design
+        "key_policies":   slot_policies,      // which slots have 2FA enabled (no addresses)
         "chains_proven":  proven_chains,      // which external chains, no addresses
         "nonce":          data["nonce"],
         "stake":          data["stake"],
@@ -313,6 +329,68 @@ async fn post_verify_chain(
         "chain":   body.chain,
         "mode":    "hard",
         "message": "Chain ownership proven. Your address was verified and discarded — only the commitment is on-chain.",
+    })))
+}
+
+/// POST /api/account/set-key-policy
+/// Enable, disable, or change the 2FA policy for a key slot.
+///
+/// Body:
+///   account        — BTCPC account name
+///   role           — "owner" | "active" | "posting" | "memo" | "hide" | "seek"
+///   twofactor_chain — chain name to enable 2FA (e.g. "ethereum"), or null to clear
+///   signature      — ed25519 hex sig from owner key over the canonical entry message
+///   corroborant_key — optional: "active" | "posting" (for owner slot changes)
+///   corroborant_sig — optional: ed25519 hex sig from the corroborant key
+///
+/// The chain must already have a verified proof on-chain (easy or hard mode).
+/// Owner slot changes additionally require the corroborant_key (3-of-4 threshold).
+#[derive(serde::Deserialize)]
+struct SetKeyPolicyBody {
+    account:          String,
+    role:             String,
+    twofactor_chain:  Option<String>,
+    signature:        Option<String>,
+    corroborant_key:  Option<String>,
+    corroborant_sig:  Option<String>,
+}
+
+async fn post_set_key_policy(
+    State(s): State<AppState>,
+    Json(body): Json<SetKeyPolicyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let epoch = s.chain.current_epoch();
+    let owner_auth = btcpc_types::OwnerAuth {
+        owner_2fa:       None, // future: accept via body
+        corroborant_key: body.corroborant_key.clone(),
+        corroborant_sig: body.corroborant_sig.clone(),
+    };
+    let entry = btcpc_types::LedgerEntry::SetKeyPolicy {
+        account:         body.account.clone(),
+        role:            body.role.clone(),
+        twofactor_chain: body.twofactor_chain.clone(),
+        owner_auth,
+        epoch,
+        signed_by:       body.account.clone(),
+        signature:       body.signature.clone(),
+    };
+
+    let sig_ref = body.signature.as_deref();
+    crate::tx::validate_and_apply(&s.chain, &entry, sig_ref)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let _ = s.tx_broadcast.send((entry, None));
+
+    let action = match &body.twofactor_chain {
+        Some(c) => format!("2FA enabled for slot '{}' via '{}'", body.role, c),
+        None    => format!("2FA cleared for slot '{}'", body.role),
+    };
+
+    Ok(Json(serde_json::json!({
+        "ok":      true,
+        "account": body.account,
+        "role":    body.role,
+        "message": action,
     })))
 }
 
@@ -623,6 +701,7 @@ async fn post_transfer(
         epoch,
         signed_by: body.signed_by,
         nonce: body.nonce,
+        twofactor: None,
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)

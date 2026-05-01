@@ -11,6 +11,11 @@ use crate::store::Store;
 
 /// Recover the signer's address from an external-chain signature.
 /// Currently supports Ethereum personal_sign (EIP-191).
+/// Also used by tx.rs for 2FA signature verification.
+pub fn recover_chain_address_public(sig_type: &str, message: &str, signature: &str) -> anyhow::Result<String> {
+    recover_chain_address(sig_type, message, signature)
+}
+
 fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyhow::Result<String> {
     match sig_type {
         "eth_personal_sign" => {
@@ -348,6 +353,42 @@ impl Chain {
                 });
                 self.store.set_account(account, &state)?;
                 info!(account, chain, "hard-mode chain link verified and stored");
+            }
+
+            // Set or clear the 2FA policy for a key slot.
+            // Policies live on the slot — they survive key rotation.
+            LedgerEntry::SetKeyPolicy { account, role, twofactor_chain, .. } => {
+                let mut state = self.store.get_account(account)?
+                    .ok_or_else(|| anyhow::anyhow!("account '{}' not found", account))?;
+
+                if state.get("key_policies").is_none() {
+                    state["key_policies"] = serde_json::json!({});
+                }
+                match twofactor_chain {
+                    Some(chain_name) => {
+                        // Verify that a chain proof exists for this chain first.
+                        let proof_exists = state.get("chain_proofs")
+                            .and_then(|cp| cp.get(chain_name.as_str()))
+                            .is_some();
+                        anyhow::ensure!(
+                            proof_exists,
+                            "no chain proof for '{}' on account '{}' — link the chain first",
+                            chain_name, account
+                        );
+                        state["key_policies"][role] = serde_json::json!({
+                            "twofactor_chain": chain_name,
+                        });
+                        info!(account, role, chain = %chain_name, "2FA policy set for slot");
+                    }
+                    None => {
+                        // Clear the policy for this slot.
+                        if let Some(policies) = state["key_policies"].as_object_mut() {
+                            policies.remove(role.as_str());
+                        }
+                        info!(account, role, "2FA policy cleared for slot");
+                    }
+                }
+                self.store.set_account(account, &state)?;
             }
 
             // Record the owner's declared primary identity.

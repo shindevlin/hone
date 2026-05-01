@@ -1,7 +1,13 @@
 //! BTCPC multi-chain wallet — one BIP39 mnemonic, all supported chains.
 //!
 //! Derivation:
-//!   BTCPC           — seed[0..32]               ed25519
+//!   BTCPC role keys — SLIP-10 m/44'/6942'/role_index'/0'  ed25519
+//!     role 0 = owner    (key rotation, governance — store cold)
+//!     role 1 = active   (transfers, staking — sign with active key)
+//!     role 2 = posting  (daily activity — can be on device)
+//!     role 3 = memo     (encrypted messages / selective disclosure)
+//!     role 4 = hide     (encrypt private content for your eyes only)
+//!     role 5 = seek     (encrypted digital delivery to buyers)
 //!   Bitcoin         — BIP44  m/44'/0'/0'/0/0     secp256k1
 //!   Ethereum + EVM  — BIP44  m/44'/60'/0'/0/0    secp256k1 (Polygon/BSC/Avax/Arb/Op/Base)
 //!   XRP             — BIP44  m/44'/144'/0'/0/0   secp256k1
@@ -50,13 +56,32 @@ fn chain_commitment(chain: &str, address: &str, nonce: &str) -> String {
 
 // ── Key bundle ────────────────────────────────────────────────────────────────
 
+/// BTCPC coin type in SLIP-44 (coin index 6942 = BTCPC).
+const BTCPC_COIN: u32 = 6942;
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct WalletKeys {
     pub mnemonic: String,
 
-    // BTCPC — ed25519
-    pub btcpc_private_key: String,
+    // BTCPC role keys — SLIP-10 m/44'/6942'/role'/0'
+    // Owner: key rotation and governance. Keep this one cold.
+    pub btcpc_owner_private_key:   String,
+    pub btcpc_owner_public_key:    String,
+    // Active: transfers and staking.
+    pub btcpc_active_private_key:  String,
+    pub btcpc_active_public_key:   String,
+    // Posting: daily ops. Safe to keep on device.
+    pub btcpc_private_key: String,  // ← kept as canonical "posting" for back-compat
     pub btcpc_public_key:  String,
+    // Memo: encrypted messages and selective disclosure.
+    pub btcpc_memo_private_key:    String,
+    pub btcpc_memo_public_key:     String,
+    // Hide: encrypt private content for your own eyes only.
+    pub btcpc_hide_private_key:    String,
+    pub btcpc_hide_public_key:     String,
+    // Seek: encrypted digital delivery to buyers.
+    pub btcpc_seek_private_key:    String,
+    pub btcpc_seek_public_key:     String,
 
     // Bitcoin — secp256k1 BIP44 m/44'/0'/0'/0/0
     pub bitcoin_wif:    String,
@@ -134,11 +159,13 @@ pub fn init(data_dir: &Path) -> Result<WalletKeys> {
 
         // Try current format
         if let Ok(keys) = serde_json::from_str::<WalletKeys>(&json) {
-            // Upgrade if new chains are missing (mnemonic is the source of truth)
-            if keys.xrp_address.is_empty() || keys.sui_address.is_empty() {
+            // Upgrade if new chains or role keys are missing (mnemonic is the source of truth)
+            if keys.xrp_address.is_empty() || keys.sui_address.is_empty()
+                || keys.btcpc_owner_public_key.is_empty()
+            {
                 let upgraded = restore_from_input(&keys.mnemonic)?;
                 save(&key_path, &upgraded)?;
-                warn!(btcpc = %upgraded.btcpc_public_key, "wallet: upgraded to full multi-chain format");
+                warn!(btcpc = %upgraded.btcpc_public_key, "wallet: upgraded to full multi-chain + role key format");
                 return Ok(upgraded);
             }
             info!(btcpc = %keys.btcpc_public_key, "wallet: loaded from wallet.key");
@@ -194,9 +221,14 @@ pub fn register_account(
         .filter(|k| k.len() == 64)
         .unwrap_or_else(|| keys.btcpc_public_key.clone());
 
-    // BTCPC protocol keys — public, needed for transaction verification.
+    // All 6 BTCPC role keys — all public, registered on-chain for verification.
     let mut km: HashMap<String, String> = HashMap::new();
+    km.insert("owner".to_string(),   keys.btcpc_owner_public_key.clone());
+    km.insert("active".to_string(),  keys.btcpc_active_public_key.clone());
     km.insert("posting".to_string(), posting_key);
+    km.insert("memo".to_string(),    keys.btcpc_memo_public_key.clone());
+    km.insert("hide".to_string(),    keys.btcpc_hide_public_key.clone());
+    km.insert("seek".to_string(),    keys.btcpc_seek_public_key.clone());
 
     // Build easy-mode chain proofs: commitment per chain, no plaintext addresses on-chain.
     // The nonces live in wallet.key — back it up for future selective disclosure.
@@ -231,10 +263,11 @@ pub fn register_account(
 
     info!(
         account,
-        btcpc    = %keys.btcpc_public_key,
+        owner    = %keys.btcpc_owner_public_key,
+        posting  = %keys.btcpc_public_key,
         eth      = %keys.ethereum_address,
         sol      = %keys.solana_address,
-        "wallet: account registered on-chain with all chain keys"
+        "wallet: account registered on-chain with 6 role keys + all chain commitments"
     );
     Ok(())
 }
@@ -268,11 +301,18 @@ fn generate_fresh() -> Result<WalletKeys> {
 fn derive_all(mnemonic: Mnemonic) -> Result<WalletKeys> {
     let seed = mnemonic.to_seed("");
 
-    // ── BTCPC ────────────────────────────────────────────────────────────────
-    let btcpc_sk = Ed25519SigningKey::from_bytes(&seed[..32].try_into().unwrap());
+    // ── BTCPC role keys — SLIP-10 m/44'/6942'/role'/0' ───────────────────────
+    // role 0=owner, 1=active, 2=posting, 3=memo, 4=hide, 5=seek
+    let (owner_priv,   owner_pub)   = slip10(&seed, &[44|H, BTCPC_COIN|H, 0|H, 0|H])?;
+    let (active_priv,  active_pub)  = slip10(&seed, &[44|H, BTCPC_COIN|H, 1|H, 0|H])?;
+    let (post_priv,    post_pub)    = slip10(&seed, &[44|H, BTCPC_COIN|H, 2|H, 0|H])?;
+    let (memo_priv,    memo_pub)    = slip10(&seed, &[44|H, BTCPC_COIN|H, 3|H, 0|H])?;
+    let (hide_priv,    hide_pub)    = slip10(&seed, &[44|H, BTCPC_COIN|H, 4|H, 0|H])?;
+    let (seek_priv,    seek_pub)    = slip10(&seed, &[44|H, BTCPC_COIN|H, 5|H, 0|H])?;
 
     // ── secp256k1 BIP44 ──────────────────────────────────────────────────────
     let (master, mchain) = bip32_master(&seed)?;
+
 
     let (btc_sk, _)  = bip44_secp(&master, &mchain, 0)?;
     let (eth_sk, _)  = bip44_secp(&master, &mchain, 60)?;
@@ -326,8 +366,18 @@ fn derive_all(mnemonic: Mnemonic) -> Result<WalletKeys> {
     Ok(WalletKeys {
         mnemonic: mnemonic.to_string(),
 
-        btcpc_private_key: hex::encode(btcpc_sk.as_bytes()),
-        btcpc_public_key:  hex::encode(btcpc_sk.verifying_key().as_bytes()),
+        btcpc_owner_private_key:  hex::encode(&owner_priv),
+        btcpc_owner_public_key:   hex::encode(&owner_pub),
+        btcpc_active_private_key: hex::encode(&active_priv),
+        btcpc_active_public_key:  hex::encode(&active_pub),
+        btcpc_private_key:        hex::encode(&post_priv),
+        btcpc_public_key:         hex::encode(&post_pub),
+        btcpc_memo_private_key:   hex::encode(&memo_priv),
+        btcpc_memo_public_key:    hex::encode(&memo_pub),
+        btcpc_hide_private_key:   hex::encode(&hide_priv),
+        btcpc_hide_public_key:    hex::encode(&hide_pub),
+        btcpc_seek_private_key:   hex::encode(&seek_priv),
+        btcpc_seek_public_key:    hex::encode(&seek_pub),
 
         bitcoin_wif:    btc_addr.clone(),
         bitcoin_pubkey: btc_pub,
@@ -561,7 +611,27 @@ fn print_new_wallet(k: &WalletKeys) {
 ║  {:<80}║\n\
 ║                                                                                  ║\n\
 ╠══════════════════════════════════════════════════════════════════════════════════╣\n\
-║  BTCPC  (ed25519)                                                                ║\n\
+║  BTCPC OWNER KEY  (SLIP-10 m/44'/6942'/0'/0') — store cold, key rotation only  ║\n\
+║    Public key  : {:<64}║\n\
+║    Private key : {:<64}║\n\
+╠══════════════════════════════════════════════════════════════════════════════════╣\n\
+║  BTCPC ACTIVE KEY  (SLIP-10 m/44'/6942'/1'/0') — transfers and staking         ║\n\
+║    Public key  : {:<64}║\n\
+║    Private key : {:<64}║\n\
+╠══════════════════════════════════════════════════════════════════════════════════╣\n\
+║  BTCPC POSTING KEY  (SLIP-10 m/44'/6942'/2'/0') — daily activity on device     ║\n\
+║    Public key  : {:<64}║\n\
+║    Private key : {:<64}║\n\
+╠══════════════════════════════════════════════════════════════════════════════════╣\n\
+║  BTCPC MEMO KEY  (SLIP-10 m/44'/6942'/3'/0') — encrypted messages             ║\n\
+║    Public key  : {:<64}║\n\
+║    Private key : {:<64}║\n\
+╠══════════════════════════════════════════════════════════════════════════════════╣\n\
+║  BTCPC HIDE KEY  (SLIP-10 m/44'/6942'/4'/0') — private content encryption     ║\n\
+║    Public key  : {:<64}║\n\
+║    Private key : {:<64}║\n\
+╠══════════════════════════════════════════════════════════════════════════════════╣\n\
+║  BTCPC SEEK KEY  (SLIP-10 m/44'/6942'/5'/0') — encrypted delivery to buyers   ║\n\
 ║    Public key  : {:<64}║\n\
 ║    Private key : {:<64}║\n\
 ╠══════════════════════════════════════════════════════════════════════════════════╣\n\
@@ -614,7 +684,12 @@ fn print_new_wallet(k: &WalletKeys) {
 ║  All public keys registered on-chain — your identity spans every chain.         ║\n\
 ╚══════════════════════════════════════════════════════════════════════════════════╝\n",
         k.mnemonic,
-        k.btcpc_public_key,   k.btcpc_private_key,
+        k.btcpc_owner_public_key,   k.btcpc_owner_private_key,
+        k.btcpc_active_public_key,  k.btcpc_active_private_key,
+        k.btcpc_public_key,         k.btcpc_private_key,
+        k.btcpc_memo_public_key,    k.btcpc_memo_private_key,
+        k.btcpc_hide_public_key,    k.btcpc_hide_private_key,
+        k.btcpc_seek_public_key,    k.btcpc_seek_private_key,
         k.bitcoin_pubkey,     k.bitcoin_wif,
         k.ethereum_address,   k.ethereum_private_key,
         k.xrp_address,        k.xrp_private_key,

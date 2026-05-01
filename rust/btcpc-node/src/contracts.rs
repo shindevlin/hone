@@ -183,6 +183,7 @@ impl ContractEngine {
                 epoch,
                 signed_by: contract_id.to_string(),
                 nonce: 0,
+                twofactor: None,
             };
             if let Err(e) = self.chain.apply_entry(&entry) {
                 // Refund deposit; storage not yet written so no partial state.

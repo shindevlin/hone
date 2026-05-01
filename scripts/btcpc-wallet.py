@@ -329,11 +329,15 @@ def derive_all(words: str) -> dict:
     """
     seed = mnemonic_to_seed(words)
 
-    # BTCPC: not a BIP-32 path. Takes the first 32 bytes of the BIP-39 seed
-    # directly as an ed25519 private key seed.
-    btcpc_sk   = _Ed25519PK.from_private_bytes(seed[:32])
-    btcpc_priv = seed[:32]
-    btcpc_pub  = btcpc_sk.public_key().public_bytes_raw()
+    # BTCPC role keys: SLIP-10 m/44'/6942'/role'/0'
+    # coin 6942 = BTCPC. role 0=owner,1=active,2=posting,3=memo,4=hide,5=seek
+    BTCPC_COIN = 6942
+    owner_priv,   owner_pub   = slip10(seed, [44, BTCPC_COIN, 0, 0])
+    active_priv,  active_pub  = slip10(seed, [44, BTCPC_COIN, 1, 0])
+    post_priv,    post_pub    = slip10(seed, [44, BTCPC_COIN, 2, 0])
+    memo_priv,    memo_pub    = slip10(seed, [44, BTCPC_COIN, 3, 0])
+    hide_priv,    hide_pub    = slip10(seed, [44, BTCPC_COIN, 4, 0])
+    seek_priv,    seek_pub    = slip10(seed, [44, BTCPC_COIN, 5, 0])
 
     # secp256k1 BIP-44 chains
     btc = bip44(seed, 0)    # Bitcoin
@@ -353,8 +357,19 @@ def derive_all(words: str) -> dict:
     return {
         "mnemonic":            words,
 
-        "btcpc_private_key":   btcpc_priv.hex(),
-        "btcpc_public_key":    btcpc_pub.hex(),
+        # BTCPC role keys (SLIP-10 m/44'/6942'/role'/0')
+        "btcpc_owner_private_key":   owner_priv.hex(),
+        "btcpc_owner_public_key":    owner_pub.hex(),
+        "btcpc_active_private_key":  active_priv.hex(),
+        "btcpc_active_public_key":   active_pub.hex(),
+        "btcpc_private_key":         post_priv.hex(),   # posting (back-compat field name)
+        "btcpc_public_key":          post_pub.hex(),
+        "btcpc_memo_private_key":    memo_priv.hex(),
+        "btcpc_memo_public_key":     memo_pub.hex(),
+        "btcpc_hide_private_key":    hide_priv.hex(),
+        "btcpc_hide_public_key":     hide_pub.hex(),
+        "btcpc_seek_private_key":    seek_priv.hex(),
+        "btcpc_seek_public_key":     seek_pub.hex(),
 
         "bitcoin_wif":         _btc_wif(btc),
         "bitcoin_pubkey":      _btc_pubkey(btc),
@@ -423,9 +438,29 @@ def print_wallet(w: dict, show_private: bool = False) -> None:
     print("─" * W)
 
     chains = [
-        ("BTCPC  (ed25519 — raw seed[0:32])",
+        ("BTCPC OWNER KEY  (SLIP-10 m/44'/6942'/0'/0') — key rotation & governance",
+         [("public key",   w["btcpc_owner_public_key"]),
+          ("private key",  priv(w["btcpc_owner_private_key"]))]),
+
+        ("BTCPC ACTIVE KEY  (SLIP-10 m/44'/6942'/1'/0') — transfers & staking",
+         [("public key",   w["btcpc_active_public_key"]),
+          ("private key",  priv(w["btcpc_active_private_key"]))]),
+
+        ("BTCPC POSTING KEY  (SLIP-10 m/44'/6942'/2'/0') — daily activity",
          [("public key",   w["btcpc_public_key"]),
           ("private key",  priv(w["btcpc_private_key"]))]),
+
+        ("BTCPC MEMO KEY  (SLIP-10 m/44'/6942'/3'/0') — encrypted messages",
+         [("public key",   w["btcpc_memo_public_key"]),
+          ("private key",  priv(w["btcpc_memo_private_key"]))]),
+
+        ("BTCPC HIDE KEY  (SLIP-10 m/44'/6942'/4'/0') — private content",
+         [("public key",   w["btcpc_hide_public_key"]),
+          ("private key",  priv(w["btcpc_hide_private_key"]))]),
+
+        ("BTCPC SEEK KEY  (SLIP-10 m/44'/6942'/5'/0') — encrypted delivery",
+         [("public key",   w["btcpc_seek_public_key"]),
+          ("private key",  priv(w["btcpc_seek_private_key"]))]),
 
         ("BITCOIN  (BIP-44  m/44'/0'/0'/0/0)",
          [("pubkey",       w["bitcoin_pubkey"]),
@@ -525,7 +560,10 @@ def cmd_verify(path, show_private):
     derived = derive_all(words)
 
     check_keys = [
-        "btcpc_public_key", "bitcoin_pubkey", "ethereum_address",
+        "btcpc_owner_public_key", "btcpc_active_public_key",
+        "btcpc_public_key", "btcpc_memo_public_key",
+        "btcpc_hide_public_key", "btcpc_seek_public_key",
+        "bitcoin_pubkey", "ethereum_address",
         "solana_address", "near_address", "sui_address", "aptos_address",
     ]
     mismatches = [k for k in check_keys if saved.get(k) != derived.get(k)]

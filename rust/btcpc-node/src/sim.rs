@@ -69,6 +69,7 @@ fn run_tick(chain: &Chain, tick: u64, epoch: u64) {
             epoch,
             signed_by: from.to_string(),
             nonce: 0,
+            twofactor: None,
         };
         if let Err(e) = chain.apply_entry(&entry) {
             warn!("sim: transfer failed: {}", e);
