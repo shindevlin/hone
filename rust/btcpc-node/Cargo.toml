@@ -22,6 +22,7 @@ path = "src/main.rs"
 [dependencies]
 btcpc-types = { path = "crates/btcpc-types" }
 btcpc-contract-runtime = { path = "../btcpc-contract-runtime" }
+libc = "0.2"
 
 # Async
 tokio = { version = "1", features = ["full"] }

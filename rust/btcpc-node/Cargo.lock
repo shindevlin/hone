@@ -469,6 +469,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "libc",
  "libp2p",
  "openssl",
  "parking_lot",

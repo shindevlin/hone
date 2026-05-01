@@ -69,13 +69,29 @@ use store::Store;
 async fn main() -> Result<()> {
     let mut cfg = Config::from_env();
 
-    // Load posting key; derive node_id from pubkey so it is self-authenticating.
+    // Prevent multiple instances on the same machine.
+    let lock_path = cfg.data_dir.join("node.lock");
+    std::fs::create_dir_all(&cfg.data_dir)?;
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true).write(true).open(&lock_path)?;
+    use std::os::unix::io::AsRawFd;
+    let locked = unsafe {
+        libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB)
+    };
+    if locked != 0 {
+        eprintln!("btcpc-node: another instance is already running (lock: {:?})", lock_path);
+        std::process::exit(1);
+    }
+    // Keep lock_file alive for the process lifetime — drop = unlock.
+
+    // Load posting key. node_id stays as the account name for reward routing;
+    // the derived pubkey goes into the seal's `pubkey` field for verification.
     let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
         cfg.posting_key.as_deref().and_then(load_signing_key)
     );
-    if let Some(ref sk) = *signing_key {
-        cfg.node_id = hex::encode(sk.verifying_key().to_bytes());
-    }
+    let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
+        signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
+    );
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -246,6 +262,7 @@ async fn main() -> Result<()> {
         let cmd_tx = net_handle.cmd_tx.clone();
         let node_id_c = cfg.node_id.clone();
         let signing_key_c = Arc::clone(&signing_key);
+        let signing_pubkey_c = Arc::clone(&signing_pubkey_hex);
         // Epoch is relative to genesis, not Unix epoch.
         // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
@@ -264,6 +281,8 @@ async fn main() -> Result<()> {
                         h.update(epoch.to_le_bytes());
                         hex::encode(h.finalize())
                     };
+                    // node_id is the account name (for reward routing).
+                    // pubkey is the ed25519 verifying key hex (for signature verification).
                     let sig_hex = signing_key_c.as_ref().as_ref().map(|sk| {
                         use ed25519_dalek::Signer;
                         let msg = format!("seal:{}:{}:{}:{}", epoch, seal_hash, node_id_c, now);
@@ -275,6 +294,7 @@ async fn main() -> Result<()> {
                         "timestamp": now,
                         "seal_hash": seal_hash,
                         "signature": sig_hex,
+                        "pubkey": *signing_pubkey_c,
                     });
                     // Self-ingest so we count toward quorum on single-node networks.
                     clock_ref.receive_seal(seal.clone());

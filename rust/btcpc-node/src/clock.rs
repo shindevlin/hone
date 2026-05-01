@@ -41,6 +41,11 @@ pub struct EpochSeal {
     pub timestamp: u64,
     pub seal_hash: String,
     pub signature: Option<String>,
+    /// ed25519 public key hex (32 bytes = 64 chars).
+    /// When present, used for signature verification instead of node_id,
+    /// allowing node_id to be the account name for reward routing.
+    #[serde(default)]
+    pub pubkey: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,11 +213,14 @@ impl ClockConsensus {
             }
         };
 
-        // Verify ed25519 signature when node_id is a hex public key (64 chars = 32 bytes).
-        // Nodes without a posting key use a plain string node_id and send signature=null — allowed.
+        // Verify ed25519 signature when a pubkey is available.
+        // pubkey field takes priority; fall back to node_id if it looks like a raw pubkey hex.
+        // Nodes without a posting key send signature=null — allowed.
         if let Some(ref sig_hex) = parsed.signature {
-            if parsed.node_id.len() == 64 {
-                if !verify_seal_signature(&parsed, sig_hex) {
+            let key_hex = parsed.pubkey.as_deref()
+                .or_else(|| if parsed.node_id.len() == 64 { Some(&parsed.node_id) } else { None });
+            if let Some(kh) = key_hex {
+                if !verify_seal_signature(&parsed, kh, sig_hex) {
                     warn!("[clock] rejected seal from {} — bad signature", parsed.node_id);
                     return;
                 }
@@ -546,10 +554,10 @@ impl Inner {
 
 // ── Seal signature verification ───────────────────────────────────────────────
 
-fn verify_seal_signature(seal: &EpochSeal, sig_hex: &str) -> bool {
+fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> bool {
     use ed25519_dalek::{VerifyingKey, Verifier};
 
-    let pk_bytes = match hex::decode(&seal.node_id) {
+    let pk_bytes = match hex::decode(pubkey_hex) {
         Ok(b) => b,
         Err(_) => return false,
     };
