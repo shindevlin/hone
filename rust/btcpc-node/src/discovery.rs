@@ -183,11 +183,11 @@ async fn fetch_btc_peers(client: &Client) -> Result<Vec<String>> {
 // json payload: {"multiaddr": "/ip4/...", "chain_id": "btcpc-1", "node_id": "..."}
 
 /// Announce this node's multiaddr to the Hive peer registry.
-/// Set BTCPC_HIVE_ANNOUNCE_ADDR to the multiaddr to publish.
+/// Set BTCPC_ANNOUNCE_ADDR to the multiaddr to publish.
 /// Set BTCPC_HIVE_POSTING_KEY to a WIF posting key for the registry account.
 /// Both are optional — if absent, announcement is skipped silently.
 pub async fn announce_to_hive(chain_id: &str, node_id: &str) {
-    let multiaddr = match std::env::var("BTCPC_HIVE_ANNOUNCE_ADDR") {
+    let multiaddr = match std::env::var("BTCPC_ANNOUNCE_ADDR") {
         Ok(v) if !v.is_empty() => v,
         _ => return, // no address to announce
     };
@@ -384,9 +384,88 @@ fn sign_hive_tx(
     }))
 }
 
+// ── btcpc.net bootstrap API ───────────────────────────────────────────────────
+//
+// The genesis node at btcpc.net hosts a lightweight peer registry via its HTTP API.
+// Nodes announce themselves on startup and fetch the list at boot.
+//
+// GET  https://btcpc.net/api/peers/bootstrap?chain_id=btcpc-1  → multiaddr list
+// POST https://btcpc.net/api/peers/bootstrap                   → register self
+
+const BTCPC_NET_API: &str = "https://btcpc.net";
+
+async fn fetch_btcpc_net_peers(client: &Client, chain_id: &str) -> Result<Vec<String>> {
+    let resp = client
+        .get(format!("{}/api/peers/bootstrap", BTCPC_NET_API))
+        .query(&[("chain_id", chain_id)])
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let peers = resp
+        .get("peers")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default();
+
+    Ok(peers)
+}
+
+/// Announce an explicit multiaddr to btcpc.net (called from net.rs with peer_id built in).
+pub async fn announce_to_btcpc_net_addr(multiaddr: &str, chain_id: &str, node_id: &str) {
+    let client = match Client::builder().timeout(std::time::Duration::from_secs(10)).build() {
+        Ok(c) => c,
+        Err(e) => { warn!("discovery: btcpc.net announce: client error: {}", e); return; }
+    };
+    let payload = serde_json::json!({
+        "multiaddr": multiaddr,
+        "chain_id": chain_id,
+        "node_id": node_id,
+    });
+    match client.post(format!("{}/api/peers/bootstrap", BTCPC_NET_API)).json(&payload).send().await {
+        Ok(resp) if resp.status().is_success() =>
+            info!("discovery: registered {} in peer registry", multiaddr),
+        Ok(resp) => warn!("discovery: peer registry returned {}", resp.status()),
+        Err(e)   => warn!("discovery: peer registry unreachable: {}", e),
+    }
+}
+
+/// Announce this node's public multiaddr to btcpc.net.
+/// Reads BTCPC_ANNOUNCE_ADDR for the multiaddr to publish.
+pub async fn announce_to_btcpc_net(chain_id: &str, node_id: &str) {
+    let multiaddr = match std::env::var("BTCPC_ANNOUNCE_ADDR") {
+        Ok(v) if !v.is_empty() => v,
+        _ => return,
+    };
+
+    let client = match Client::builder().timeout(std::time::Duration::from_secs(10)).build() {
+        Ok(c) => c,
+        Err(e) => { warn!("discovery: btcpc.net announce: client error: {}", e); return; }
+    };
+
+    let payload = serde_json::json!({
+        "multiaddr": multiaddr,
+        "chain_id": chain_id,
+        "node_id": node_id,
+    });
+
+    match client
+        .post(format!("{}/api/peers/bootstrap", BTCPC_NET_API))
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            info!("discovery: announced {} to btcpc.net ({} chain)", multiaddr, chain_id);
+        }
+        Ok(resp) => warn!("discovery: btcpc.net announce returned {}", resp.status()),
+        Err(e) => warn!("discovery: btcpc.net announce failed: {}", e),
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
-/// Query Hive, TON, and Bitcoin Ordinals concurrently.
+/// Query Hive, TON, Bitcoin Ordinals, and btcpc.net concurrently.
 /// Returns merged, deduplicated list.  Never fails — any error is logged and
 /// that source returns empty so the node starts regardless.
 pub async fn fetch_all_peers(chain_id: &str) -> Vec<String> {
@@ -401,10 +480,11 @@ pub async fn fetch_all_peers(chain_id: &str) -> Vec<String> {
         }
     };
 
-    let (hive_result, ton_result, btc_result) = tokio::join!(
+    let (hive_result, ton_result, btc_result, btcpc_net_result) = tokio::join!(
         fetch_hive_peers(&client, chain_id),
         fetch_ton_peers(&client),
         fetch_btc_peers(&client),
+        fetch_btcpc_net_peers(&client, chain_id),
     );
 
     let mut peers: Vec<String> = Vec::new();
@@ -434,6 +514,15 @@ pub async fn fetch_all_peers(chain_id: &str) -> Vec<String> {
         }
         Ok(_) => {}
         Err(e) => warn!("discovery: BTC Ordinals query failed: {}", e),
+    }
+
+    match btcpc_net_result {
+        Ok(p) if !p.is_empty() => {
+            info!("discovery: btcpc.net registry returned {} peers", p.len());
+            peers.extend(p);
+        }
+        Ok(_) => {}
+        Err(e) => warn!("discovery: btcpc.net query failed (offline?): {}", e),
     }
 
     peers.sort();

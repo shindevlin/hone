@@ -120,10 +120,10 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
         "compute_proofs": [],
         "chain_id": chain.chain_id,
         "launch": {
-            "proclamation": "BTCPC launched at midnight, Ireland, 2026-05-01 00:00:00 IST (UTC+1)",
-            "timestamp_tz": "2026-05-01T00:00:00+01:00",
-            "timestamp_utc": "2026-04-30T23:00:00Z",
-            "genesis_ms": 1777590000000u64,
+            "proclamation": "BTCPC launched at noon, Ireland, 2026-05-01 12:00:00 IST (UTC+1)",
+            "timestamp_tz": "2026-05-01T12:00:00+01:00",
+            "timestamp_utc": "2026-05-01T11:00:00Z",
+            "genesis_ms": 1777633200000u64,
         },
     });
 

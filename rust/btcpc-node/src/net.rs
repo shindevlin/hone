@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use libp2p::futures::StreamExt;
 use libp2p::{
-    gossipsub, identify, kad,
+    gossipsub, identify, kad, mdns,
     kad::store::MemoryStore,
     noise, ping,
     swarm::{NetworkBehaviour, SwarmEvent},
@@ -78,6 +78,7 @@ struct BtcpcBehaviour {
     kademlia:  kad::Behaviour<MemoryStore>,
     identify:  identify::Behaviour,
     ping:      ping::Behaviour,
+    mdns:      mdns::tokio::Behaviour,
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +133,11 @@ impl Network {
                 noise::Config::new,
                 yamux::Config::default,
             )?
-            .with_quic()
+            .with_websocket(
+                noise::Config::new,
+                yamux::Config::default,
+            )
+            .await?
             .with_behaviour(|key| {
                 // Gossipsub — content-hash message dedup
                 let msg_id_fn = |msg: &gossipsub::Message| {
@@ -175,7 +180,12 @@ impl Network {
                         .with_timeout(Duration::from_secs(30)),
                 );
 
-                Ok(BtcpcBehaviour { gossipsub, kademlia, identify, ping })
+                let mdns = mdns::tokio::Behaviour::new(
+                    mdns::Config::default(),
+                    key.public().to_peer_id(),
+                ).map_err(|e| anyhow::anyhow!("mDNS init failed: {}", e))?;
+
+                Ok(BtcpcBehaviour { gossipsub, kademlia, identify, ping, mdns })
             })?
             .with_swarm_config(|cfg| {
                 cfg.with_idle_connection_timeout(Duration::from_secs(60))
@@ -204,9 +214,12 @@ impl Network {
             format!("/ip4/0.0.0.0/tcp/{}", self.config.p2p_port).parse()?;
         swarm.listen_on(listen_tcp)?;
 
-        let listen_quic: Multiaddr =
-            format!("/ip4/0.0.0.0/udp/{}/quic-v1", self.config.p2p_port).parse()?;
-        swarm.listen_on(listen_quic)?;
+        // WebSocket transport — allows nodes behind NAT to connect via the
+        // cloudflared tunnel at wss://p2p.btcpc.net (port 443 → local 4943).
+        let ws_port = std::env::var("BTCPC_WS_PORT")
+            .ok().and_then(|s| s.parse().ok()).unwrap_or(4943u16);
+        let listen_ws: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}/ws", ws_port).parse()?;
+        swarm.listen_on(listen_ws)?;
 
         // ------------------------------------------------------------------
         // 5. Load stored peers + run discovery, then dial all
@@ -247,6 +260,23 @@ impl Network {
                 }
                 Err(e) => warn!("Invalid bootstrap addr '{}': {}", addr_str, e),
             }
+        }
+
+        // Announce own WS multiaddr to btcpc.net peer registry.
+        // BTCPC_ANNOUNCE_ADDR overrides; otherwise builds from peer_id + p2p.btcpc.net.
+        {
+            let peer_id = swarm.local_peer_id().to_string();
+            let chain_id = self.config.chain_id.clone();
+            let node_id  = self.config.node_id.clone();
+            let announce_addr = std::env::var("BTCPC_ANNOUNCE_ADDR").unwrap_or_else(|_| {
+                format!("/dns4/p2p.btcpc.net/tcp/443/wss/p2p/{}", peer_id)
+            });
+            // Fire-and-forget; never blocks startup.
+            tokio::spawn(async move {
+                // Small delay so the swarm is fully initialised.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                discovery::announce_to_btcpc_net_addr(&announce_addr, &chain_id, &node_id).await;
+            });
         }
 
         // Kick off Kademlia bootstrap (harmless if no peers yet).
@@ -366,6 +396,26 @@ impl Network {
             )) => {
                 if let Err(e) = result {
                     debug!("Ping failed for {}: {}", peer, e);
+                }
+            }
+
+            // mDNS — local network peer discovery
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Mdns(
+                mdns::Event::Discovered(peers)
+            )) => {
+                for (peer_id, addr) in peers {
+                    info!("mDNS: discovered {} at {}", peer_id, addr);
+                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                    let _ = swarm.dial(addr);
+                }
+            }
+            SwarmEvent::Behaviour(BtcpcBehaviourEvent::Mdns(
+                mdns::Event::Expired(peers)
+            )) => {
+                for (peer_id, _addr) in peers {
+                    if !swarm.is_connected(&peer_id) {
+                        swarm.behaviour_mut().kademlia.remove_peer(&peer_id);
+                    }
                 }
             }
 

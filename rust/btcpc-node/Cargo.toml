@@ -46,11 +46,17 @@ rand = "0.8"
 base64 = "0.22"
 secp256k1 = { version = "0.29", features = ["recovery"] }
 bs58 = "0.5"
+bip39 = "2"
+hmac = "0.12"
+sha3 = "0.10"
+ripemd = "0.1"
+bech32 = "0.9"
+blake2 = "0.10"
 
 # Networking
 libp2p = { version = "0.55", features = [
-    "tcp", "quic", "noise", "yamux",
-    "gossipsub", "kad", "identify", "ping", "macros", "tokio",
+    "tcp", "quic", "noise", "yamux", "websocket", "dns",
+    "gossipsub", "kad", "identify", "ping", "macros", "tokio", "mdns",
 ] }
 
 # WASM contracts

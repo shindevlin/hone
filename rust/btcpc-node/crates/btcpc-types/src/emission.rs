@@ -249,6 +249,13 @@ pub const CRITICAL_MASS_SENSOR:    u64 = 20;
 pub const CRITICAL_MASS_VERIFIER:  u64 = 5;
 pub const CRITICAL_MASS_SERVICE:   u64 = 3;
 pub const CRITICAL_MASS_MEMPOOL:   u64 = 3;
+pub const CRITICAL_MASS_TRACKER:   u64 = 5;
+
+// ── BLE tracker calibration ───────────────────────────────────────────────────
+
+/// Tracker coverage calibration target — sensor_score("event") total per epoch.
+/// ≈ 5 observers × 4 sighting batches × 100 score = 2_000.
+pub const CALIBRATION_TRACKER: u64 = 2_000;
 
 // ── Stake-weighted mining ─────────────────────────────────────────────────────
 

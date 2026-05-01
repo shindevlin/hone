@@ -37,6 +37,7 @@ mod sim;
 mod store;
 mod tx;
 mod utils;
+mod wallet;
 
 use std::sync::Arc;
 use anyhow::Result;
@@ -74,6 +75,9 @@ async fn main() -> Result<()> {
 
     info!("btcpc-node starting — account={} chain={} data={:?}", cfg.account, cfg.chain_id, cfg.data_dir);
 
+    // Wallet: restore / load / generate all chain keys (BTCPC, Bitcoin, Ethereum).
+    let wallet_keys = wallet::init(&cfg.data_dir)?;
+
     // Open state database
     let db_path = cfg.data_dir.join("state");
     let store = Store::open(&db_path)?;
@@ -86,6 +90,11 @@ async fn main() -> Result<()> {
     // Genesis
     genesis::init_genesis(&chain, cfg.genesis_file.as_deref(), cfg.genesis_timestamp)?;
 
+    // Register this account on-chain (no-op if already exists) — links all public keys.
+    if let Err(e) = wallet::register_account(&chain, &cfg.account, &wallet_keys) {
+        warn!("wallet: account registration failed (non-fatal): {}", e);
+    }
+
     info!("chain state ready — latest epoch={}", chain.current_epoch());
     tokio::spawn(async move {
         if let Err(e) = network.run().await {
@@ -93,14 +102,16 @@ async fn main() -> Result<()> {
         }
     });
 
-    // ── Hive self-announce (best-effort, fire-and-forget) ─────────────────────
+    // ── Self-announce to Hive + btcpc.net (best-effort, fire-and-forget) ───────
     {
         let chain_id = cfg.chain_id.clone();
         let node_id = cfg.node_id.clone();
         tokio::spawn(async move {
-            // Small delay so the node is fully up before announcing.
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            discovery::announce_to_hive(&chain_id, &node_id).await;
+            tokio::join!(
+                discovery::announce_to_hive(&chain_id, &node_id),
+                discovery::announce_to_btcpc_net(&chain_id, &node_id),
+            );
         });
     }
 

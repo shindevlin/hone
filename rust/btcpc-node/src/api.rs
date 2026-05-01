@@ -105,8 +105,12 @@ pub fn router(state: AppState) -> Router {
         // ── Governance: chain parameters ──────────────────────────────────
         .route("/api/chain/param/:key", get(get_chain_param))
         .route("/api/chain/set-param", post(post_chain_set_param))
+        // ── Peer bootstrap registry ───────────────────────────────────────
+        .route("/api/peers/bootstrap", get(get_bootstrap_peers))
+        .route("/api/peers/bootstrap", post(post_bootstrap_peer))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
+        .route("/agent/:account", get(get_agent_instructions))
         .route("/setup", get(get_setup_page))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
@@ -231,6 +235,87 @@ async fn get_epoch(
 // GET /health
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
+}
+
+// ── Peer bootstrap registry ───────────────────────────────────────────────────
+//
+// Nodes self-announce their public multiaddr here on startup.
+// Other nodes (including Android) fetch the list to find bootstrap peers.
+// Entries expire after 24 hours and are pruned on each GET.
+
+const PEER_ANNOUNCE_TTL_SECS: u64 = 86_400;
+
+// GET /api/peers/bootstrap?chain_id=...
+async fn get_bootstrap_peers(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let chain_id = params.get("chain_id").map(|s| s.as_str()).unwrap_or("btcpc-1");
+    let prefix = format!("peer_announce:{}:", chain_id);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut peers: Vec<String> = Vec::new();
+    let mut to_delete: Vec<String> = Vec::new();
+
+    for (key, val) in s.chain.store.state_scan_prefix(&prefix) {
+        let Ok(rec) = serde_json::from_slice::<serde_json::Value>(&val) else { continue };
+        let ts = rec["ts"].as_u64().unwrap_or(0);
+        if now.saturating_sub(ts) > PEER_ANNOUNCE_TTL_SECS {
+            to_delete.push(key);
+            continue;
+        }
+        if let Some(addr) = rec["multiaddr"].as_str() {
+            peers.push(addr.to_owned());
+        }
+    }
+
+    for key in to_delete {
+        let _ = s.chain.store.state_delete(&key);
+    }
+
+    peers.sort();
+    peers.dedup();
+    Json(serde_json::json!({ "peers": peers, "count": peers.len() }))
+}
+
+#[derive(serde::Deserialize)]
+struct PeerAnnounceBody {
+    multiaddr: String,
+    chain_id:  String,
+    node_id:   String,
+}
+
+// POST /api/peers/bootstrap
+async fn post_bootstrap_peer(
+    State(s): State<AppState>,
+    Json(body): Json<PeerAnnounceBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if body.multiaddr.is_empty() || body.chain_id.is_empty() || body.node_id.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "missing fields"})));
+    }
+    // Sanity check: must look like a multiaddr
+    if !body.multiaddr.starts_with('/') {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid multiaddr"})));
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let key = format!("peer_announce:{}:{}", body.chain_id, body.node_id);
+    let rec = serde_json::json!({
+        "multiaddr": body.multiaddr,
+        "node_id":   body.node_id,
+        "chain_id":  body.chain_id,
+        "ts":        now,
+    });
+    match s.chain.store.state_set(&key, &serde_json::to_vec(&rec).unwrap_or_default()) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({"ok": true}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+    }
 }
 
 // ── Amount deserializer ───────────────────────────────────────────────────────
@@ -1905,13 +1990,20 @@ static INSTALL_SCRIPT_TEMPLATE: &str = r#"#!/usr/bin/env bash
 set -euo pipefail
 
 ACCOUNT="__ACCOUNT__"
-NODE_ID="${ACCOUNT}-node"
-API_PORT=4242
-P2P_PORT=6942
+NODE_ID="${ACCOUNT}"
 CHAIN_ID="btcpc-satoshi"
-GENESIS_TS="1777615200000"
-BOOTSTRAP="/ip4/192.168.68.72/tcp/6942,/ip4/100.90.146.17/tcp/6942,/dns4/bootstrap1.btcpc.net/tcp/6942"
+GENESIS_TS="1777633200000"
+# Fetch live peer list from the registry; fall back to WS relay if registry is empty.
+REGISTRY_PEERS=$(curl -fsSL --connect-timeout 5 "https://btcpc.net/api/peers/bootstrap?chain_id=btcpc-satoshi" 2>/dev/null \
+  | grep -o '"[^"]*"' | grep '^"/dns' | tr -d '"' | tr '\n' ',' | sed 's/,$//')
+if [ -n "$REGISTRY_PEERS" ]; then
+  BOOTSTRAP="$REGISTRY_PEERS"
+else
+  # Fall back: connect via WebSocket relay (works behind any NAT/firewall)
+  BOOTSTRAP="/dns4/p2p.btcpc.net/tcp/443/wss"
+fi
 DATA_DIR="$HOME/.btcpc"
+ENV_FILE="$DATA_DIR/node.env"
 BIN=/usr/local/bin/btcpc-node
 BASE_URL="https://btcpc.net/download"
 
@@ -1922,26 +2014,131 @@ case "$ARCH" in
   *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-echo "==> Installing BTCPC node for account: $ACCOUNT ($ARCH)"
+# Detect WSL — affects systemd availability and P2P inbound routing
+IS_WSL=false
+if grep -qi microsoft /proc/version 2>/dev/null || grep -qi wsl /proc/version 2>/dev/null; then
+    IS_WSL=true
+fi
+
+echo ""
+echo "  ╔══════════════════════════════════════════════╗"
+echo "  ║          BTCPC Node Installer                ║"
+echo "  ║          Account: __ACCOUNT__                ║"
+if $IS_WSL; then
+echo "  ║          Platform: Windows / WSL             ║"
+fi
+echo "  ╚══════════════════════════════════════════════╝"
+echo ""
+
+# ── WSL: ensure systemd is enabled ───────────────────────────────────────────
+if $IS_WSL; then
+    WSL_CONF=/etc/wsl.conf
+    if ! grep -q "systemd=true" "$WSL_CONF" 2>/dev/null; then
+        echo "  ==> WSL detected. Enabling systemd (required for background service)..."
+        # Append [boot] section only if it doesn't already exist
+        if grep -q "^\[boot\]" "$WSL_CONF" 2>/dev/null; then
+            sudo bash -c "printf '\nsystemd=true\n' >> $WSL_CONF"
+        else
+            sudo bash -c "printf '\n[boot]\nsystemd=true\n' >> $WSL_CONF"
+        fi
+        echo ""
+        echo "  ╔══════════════════════════════════════════════════════════════╗"
+        echo "  ║  ACTION REQUIRED: systemd was just enabled in WSL.          ║"
+        echo "  ║                                                              ║"
+        echo "  ║  You must restart WSL for this to take effect:              ║"
+        echo "  ║    1. Close this terminal                                   ║"
+        echo "  ║    2. In PowerShell/CMD run:  wsl --shutdown                ║"
+        echo "  ║    3. Re-open WSL and re-run the install command            ║"
+        echo "  ╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+        exit 0
+    fi
+    # Confirm systemd is actually running (not just configured)
+    if ! systemctl is-system-running --quiet 2>/dev/null; then
+        echo "  ⚠  systemd is enabled in /etc/wsl.conf but not running."
+        echo "     Restart WSL:  wsl --shutdown  (run from PowerShell/CMD)"
+        echo "     Then re-run this installer."
+        exit 1
+    fi
+fi
+
+# ── 0. Account setup ─────────────────────────────────────────────────────────
+# [ -t 0 ] = stdin is a real terminal (not a pipe).  When run as `curl | bash`
+# or from a CI/agent context stdin is a pipe, so we skip prompts entirely.
+ACCOUNT_PUBKEY=""
+if [ -t 0 ]; then
+    read -r -p "  Do you have an existing BTCPC posting public key? [y/N]: " HAS_ACCOUNT
+    echo ""
+
+    if [[ "${HAS_ACCOUNT,,}" == y* ]]; then
+        echo "  Enter your BTCPC account posting public key (64-char hex)."
+        echo "  PUBLIC key only — never enter your private key or mnemonic here."
+        echo ""
+        read -r -p "  Posting public key: " ACCOUNT_PUBKEY
+        echo ""
+        if [[ -z "$ACCOUNT_PUBKEY" ]]; then
+            echo "  (nothing entered — fresh wallet will be generated on first start)"
+        elif [[ ${#ACCOUNT_PUBKEY} -ne 64 ]]; then
+            echo "  ⚠  Key is ${#ACCOUNT_PUBKEY} chars — expected 64. Continuing, verify it."
+        else
+            echo "  ✓ Posting public key saved."
+        fi
+    else
+        echo "  Fresh wallet will be generated on first start."
+        echo "  Your 12-word mnemonic and all chain addresses will be shown — write them down."
+    fi
+else
+    echo "  Non-interactive mode — fresh wallet will be generated on first start."
+fi
+
+# ── Check for existing wallet ─────────────────────────────────────────────────
+if [ -f "$DATA_DIR/wallet.key" ]; then
+    echo "  ✓ Existing wallet found at $DATA_DIR/wallet.key — it will be preserved."
+    echo "  (Delete $DATA_DIR/wallet.key only if you want to generate a new identity)"
+    echo ""
+fi
 
 # ── 1. Download binary ────────────────────────────────────────────────────────
+echo ""
+echo "  ==> Downloading btcpc-node ($ARCH)..."
 TMP=$(mktemp)
-echo "==> Downloading $BASE_URL/$ASSET"
 curl -fsSL --progress-bar "$BASE_URL/$ASSET" -o "$TMP"
 chmod +x "$TMP"
 
-# Sanity check
-file "$TMP" | grep -q ELF || { echo "Download failed — not an ELF binary"; rm -f "$TMP"; exit 1; }
+file "$TMP" 2>/dev/null | grep -q ELF || { echo "Download failed — not an ELF binary"; rm -f "$TMP"; exit 1; }
 sudo install -m 755 "$TMP" "$BIN"
 rm -f "$TMP"
-echo "==> Installed $($BIN --version 2>/dev/null || echo btcpc-node)"
+echo "  ==> Installed: $($BIN --version 2>/dev/null || echo btcpc-node)"
 
-# ── 2. Create data dir ────────────────────────────────────────────────────────
+# ── 2. Create data dir and env file ──────────────────────────────────────────
 mkdir -p "$DATA_DIR"
+
+cat > "$ENV_FILE" << ENVEOF
+BTCPC_CHAIN_ID=$CHAIN_ID
+BTCPC_ACCOUNT=$ACCOUNT
+BTCPC_NODE_ID=$NODE_ID
+BTCPC_GENESIS_TIMESTAMP=$GENESIS_TS
+BTCPC_API_PORT=4242
+BTCPC_P2P_PORT=6942
+BTCPC_MINER=true
+BTCPC_CLOCK=true
+BTCPC_BOOTSTRAP_PEERS=$BOOTSTRAP
+BTCPC_LOG_LEVEL=btcpc_node=info
+ENVEOF
+
+if [[ -n "$ACCOUNT_PUBKEY" ]]; then
+    echo "BTCPC_ACCOUNT_PUBKEY=$ACCOUNT_PUBKEY" >> "$ENV_FILE"
+fi
+
+chmod 600 "$ENV_FILE"
 
 # ── 3. Create systemd service ─────────────────────────────────────────────────
 mkdir -p "$HOME/.config/systemd/user"
-cat > "$HOME/.config/systemd/user/btcpc-node.service" << 'SERVICE'
+
+# Stop existing service if running
+systemctl --user stop btcpc-node 2>/dev/null || true
+
+cat > "$HOME/.config/systemd/user/btcpc-node.service" << SERVICE
 [Unit]
 Description=BTCPC Node (__ACCOUNT__)
 After=network-online.target
@@ -1950,19 +2147,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/btcpc-node
-Environment="BTCPC_CHAIN_ID=btcpc-satoshi"
-Environment="BTCPC_DATA_DIR=%h/.btcpc"
-Environment="BTCPC_ACCOUNT=__ACCOUNT__"
-Environment="BTCPC_NODE_ID=__ACCOUNT__-node"
-Environment="BTCPC_GENESIS_TIMESTAMP=1777615200000"
-Environment="BTCPC_API_PORT=4242"
-Environment="BTCPC_P2P_PORT=6942"
-Environment="BTCPC_MINER=true"
-Environment="BTCPC_CLOCK=true"
-Environment="BTCPC_BOOTSTRAP_PEERS=/ip4/192.168.68.72/tcp/6942,/ip4/100.90.146.17/tcp/6942,/dns4/bootstrap1.btcpc.net/tcp/6942"
-Environment="BTCPC_LOG_LEVEL=btcpc_node=info"
+EnvironmentFile=$DATA_DIR/node.env
+Environment="BTCPC_DATA_DIR=$DATA_DIR"
 Restart=on-failure
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
@@ -1973,23 +2163,54 @@ systemctl --user daemon-reload
 systemctl --user enable --now btcpc-node
 loginctl enable-linger "$USER" 2>/dev/null || true
 
-echo "==> Waiting for node to start..."
-for i in $(seq 1 10); do
-  sleep 2
-  HEALTH=$(curl -fsSL http://localhost:4242/health 2>/dev/null || echo "")
-  if echo "$HEALTH" | grep -q '"status":"ok"'; then
-    echo "==> Node is running!"
-    curl -fsSL http://localhost:4242/api/latest 2>/dev/null | python3 -m json.tool 2>/dev/null || true
-    break
-  fi
-done
-
+# ── 5. Wait for node to come up ──────────────────────────────────────────────
 echo ""
-echo "======================================================="
-echo "  BTCPC node running for: $ACCOUNT"
-echo "  API: http://localhost:4242"
-echo "  Logs: journalctl --user -u btcpc-node -f"
-echo "======================================================="
+echo "  ==> Starting node..."
+STARTED=0
+for i in $(seq 1 15); do
+    sleep 2
+    HEALTH=$(curl -fsSL http://localhost:4242/health 2>/dev/null || true)
+    if echo "$HEALTH" | grep -q '"status":"ok"'; then
+        STARTED=1
+        break
+    fi
+    printf "."
+done
+echo ""
+
+if [ $STARTED -eq 1 ]; then
+    LATEST=$(curl -fsSL http://localhost:4242/api/latest 2>/dev/null || true)
+    EPOCH=$(echo "$LATEST" | grep -o '"epoch":[0-9]*' | grep -o '[0-9]*' || echo "?")
+    echo ""
+    echo "  ╔══════════════════════════════════════════════╗"
+    echo "  ║  ✓  BTCPC node is running!                  ║"
+    echo "  ║                                              ║"
+    echo "  ║  Account : __ACCOUNT__                      ║"
+    echo "  ║  Epoch   : $EPOCH"
+    echo "  ║  API     : http://localhost:4242             ║"
+    echo "  ║  Logs    : journalctl --user -u btcpc-node -f ║"
+    echo "  ╚══════════════════════════════════════════════╝"
+    echo ""
+    if $IS_WSL; then
+    echo "  WSL NOTE: The API is accessible from Windows at http://localhost:4242"
+    echo "  P2P inbound (port 6942) requires Windows port forwarding."
+    echo "  Run this in PowerShell (as Admin) to enable it:"
+    echo ""
+    WSL_IP=$(hostname -I | awk '{print $1}')
+    echo "    netsh interface portproxy add v4tov4 listenport=6942 listenaddress=0.0.0.0 connectport=6942 connectaddress=$WSL_IP"
+    echo "    netsh advfirewall firewall add rule name=\"BTCPC P2P\" dir=in action=allow protocol=TCP localport=6942"
+    echo ""
+    echo "  (Optional — only needed if you want other nodes to connect TO you)"
+    fi
+else
+    echo "  ⚠  Node did not start in time. Check logs:"
+    echo "     journalctl --user -u btcpc-node -n 50"
+    if $IS_WSL; then
+    echo ""
+    echo "  WSL tip: if 'systemctl' gives 'System has not been booted with systemd',"
+    echo "  restart WSL (run 'wsl --shutdown' from PowerShell/CMD) then re-run installer."
+    fi
+fi
 "#;
 
 /// GET /install/:account
@@ -2018,6 +2239,139 @@ async fn get_install_script(
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/x-shellscript"), (header::CACHE_CONTROL, "no-store")],
         script,
+    )
+}
+
+/// GET /agent/:account — plain-text install instructions for AI agents / CI / automation
+///
+/// Explains what BTCPC is, why the bash script is safe, and gives exact OS-specific commands.
+/// Returns text/plain so any LLM or shell can consume it without HTML parsing.
+async fn get_agent_instructions(
+    Path(account): Path<String>,
+) -> (axum::http::StatusCode, [(axum::http::HeaderName, &'static str); 2], String) {
+    use axum::http::{StatusCode, header};
+
+    let account: String = account.chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .take(32)
+        .collect();
+
+    if account.len() < 3 {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain"), (header::CACHE_CONTROL, "no-store")],
+            "account name must be at least 3 characters".into(),
+        );
+    }
+
+    let instructions = format!(r#"BTCPC Node — Agent Install Instructions
+Account: {account}
+========================================
+
+WHAT IS BTCPC?
+--------------
+BTCPC (https://btcpc.net) is a sovereign blockchain for compute, storage, and commerce.
+Miners earn BTCPC by running verified AI inference jobs. The node is a single statically-
+linked binary (~30 MB) that handles consensus, networking, wallet, and API in one process.
+
+WHY A BASH SCRIPT?
+------------------
+The one-liner `curl ... | bash` is the standard pattern for node installers (e.g. Rust's
+rustup, Node Version Manager, Homebrew). The script is open source and hosted at:
+
+  https://btcpc.net/install/{account}
+
+You can inspect it before running — it does only four things:
+  1. Downloads the btcpc-node binary from https://btcpc.net/download/
+  2. Creates ~/.btcpc/node.env (your config, chmod 600)
+  3. Installs a systemd user service (btcpc-node.service)
+  4. Starts the node and waits for /health to respond
+
+The script NEVER asks for private keys or mnemonics. It only optionally accepts a
+64-character hex PUBLIC posting key if you are restoring an existing account.
+
+NO INTERACTION REQUIRED — the script is fully non-interactive in agent/CI environments.
+If /dev/tty is unavailable (piped execution), it skips all prompts automatically.
+
+HOW TO INSTALL
+--------------
+
+Linux (x86_64 or aarch64):
+  curl -sL https://btcpc.net/install/{account} | bash
+
+macOS (requires Homebrew for systemd alternative — or run in Docker/Linux VM):
+  curl -sL https://btcpc.net/install/{account} | bash
+
+Windows — use WSL (Windows Subsystem for Linux):
+  Step 1 — install WSL if you don't have it (run in PowerShell/CMD as Administrator):
+    wsl --install -d Ubuntu
+    (Reboot if prompted, then open "Ubuntu" from the Start menu to finish setup)
+
+  Step 2 — install the node inside WSL:
+    wsl -d Ubuntu -- bash -c "curl -sL https://btcpc.net/install/{account} | bash"
+
+  The installer detects WSL automatically and enables systemd if it isn't already.
+  If it prints "restart WSL required", run this from PowerShell/CMD then retry Step 2:
+    wsl --shutdown
+
+WSL NETWORKING NOTES (Windows only)
+-------------------------------------
+  - The node API (port 4242) is accessible from Windows at http://localhost:4242
+    because WSL2 automatically proxies localhost ports to Windows. This works out of the box.
+  - P2P inbound (port 6942, for other nodes connecting TO you) needs port forwarding.
+    The installer prints the exact netsh commands on success. They look like:
+      netsh interface portproxy add v4tov4 listenport=6942 listenaddress=0.0.0.0 connectport=6942 connectaddress=<WSL_IP>
+      netsh advfirewall firewall add rule name="BTCPC P2P" dir=in action=allow protocol=TCP localport=6942
+    Run these in PowerShell as Administrator. Your WSL IP changes on each WSL restart,
+    so rerun the portproxy command after wsl --shutdown.
+  - If you only want to mine and use the API (not be a public peer), port forwarding is optional.
+
+Docker (any platform):
+  docker run --rm -it ubuntu:24.04 bash -c \
+    "apt-get update -qq && apt-get install -y curl && curl -sL https://btcpc.net/install/{account} | bash"
+
+WHAT HAPPENS ON FIRST RUN
+--------------------------
+If no existing wallet is detected, the node generates a fresh 12-word BIP39 mnemonic and
+derives addresses for ALL of the following chains from that single mnemonic:
+
+  BTCPC, Bitcoin, Ethereum (+ all EVM chains), XRP, Cosmos, Tron,
+  Solana, TON, Stellar, NEAR, Sui, Aptos
+
+All public keys are registered on the BTCPC chain under account: {account}
+
+IMPORTANT: The mnemonic is printed to the terminal on first start. Write it down.
+It is saved to ~/.btcpc/wallet.key (chmod 600) and is NOT sent anywhere.
+
+VERIFY THE NODE IS RUNNING
+--------------------------
+  curl http://localhost:4242/health
+  # Expected: {{"status":"ok","account":"{account}"}}
+
+  curl http://localhost:4242/api/latest
+  # Returns current epoch number and block hash
+
+LOGS
+----
+  journalctl --user -u btcpc-node -f          # live log stream
+  journalctl --user -u btcpc-node -n 50       # last 50 lines
+
+STOP / RESTART
+--------------
+  systemctl --user stop btcpc-node
+  systemctl --user restart btcpc-node
+
+FURTHER READING
+---------------
+  Whitepaper : https://btcpc.net/docs/whitepaper
+  Explorer   : https://btcpc.net
+  API docs   : https://btcpc.net/docs/api
+"#, account = account);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/plain"), (header::CACHE_CONTROL, "no-store")],
+        instructions,
     )
 }
 

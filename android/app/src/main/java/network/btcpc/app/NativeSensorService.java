@@ -5,6 +5,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanRecord;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -100,6 +108,30 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private BroadcastReceiver batteryReceiver;
     private volatile boolean gpsUpdatesActive;
 
+    // ── BLE tracker scanner ───────────────────────────────────────────────────
+    // Apple company ID 0x004C, Find My marker bytes 0x12 / 0x1E
+    private static final int APPLE_COMPANY_ID   = 0x004C;
+    private static final int GOOGLE_COMPANY_ID  = 0x00E0;
+    private static final int SAMSUNG_COMPANY_ID = 0x0075;
+    // Tile service UUID 0xFEED → parcelUuid "0000feed-0000-1000-8000-00805f9b34fb"
+    private static final String UUID_TILE        = "0000feed-0000-1000-8000-00805f9b34fb";
+    private static final String UUID_AIRTAG      = "0000fd6f-0000-1000-8000-00805f9b34fb";
+    private static final String UUID_ANDROID_FMD = "0000fce0-0000-1000-8000-00805f9b34fb";
+    private static final String UUID_SAMSUNG     = "0000fd5a-0000-1000-8000-00805f9b34fb";
+    private static final int MIN_RSSI = -90; // dBm
+
+    private BluetoothLeScanner bleScanner;
+    private ScanCallback bleScanCallback;
+    // Sighting counts for current epoch, reset each flush.
+    private final java.util.concurrent.atomic.AtomicInteger airtagCount   = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger androidFmdCount = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger tileCount     = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger samsungCount  = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger otherCount    = new java.util.concurrent.atomic.AtomicInteger(0);
+    // Per-epoch commitment hashes (for batch_hash).
+    private final java.util.concurrent.CopyOnWriteArrayList<String> sightingCommitments =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -127,6 +159,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
         registerNetworkMonitor();
         applyGpsPolicy();
         registerBatteryReceiver();
+        startBleTrackerScan();
         scheduler.scheduleAtFixedRate(this::flushSnapshotsSafe, 10, 30, TimeUnit.SECONDS);
         persistState("Sensors: running");
         return START_STICKY;
@@ -135,6 +168,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     @Override
     public void onDestroy() {
         running = false;
+        stopBleTrackerScan();
         scheduler.shutdownNow();
         io.shutdownNow();
         if (sensorManager != null) sensorManager.unregisterListener(this);
@@ -145,6 +179,151 @@ public class NativeSensorService extends Service implements SensorEventListener,
         }
         persistState("Sensors: stopped");
         super.onDestroy();
+    }
+
+    // ── BLE tracker scanning ──────────────────────────────────────────────────
+
+    private void startBleTrackerScan() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "BLUETOOTH_SCAN not granted — BLE tracker scan skipped");
+                return;
+            }
+        }
+        BluetoothManager btMgr = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+        if (btMgr == null) return;
+        BluetoothAdapter adapter = btMgr.getAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            Log.w(TAG, "BLE not available, tracker scan skipped");
+            return;
+        }
+        bleScanner = adapter.getBluetoothLeScanner();
+        if (bleScanner == null) return;
+
+        ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .build();
+
+        bleScanCallback = new ScanCallback() {
+            @Override
+            public void onScanResult(int callbackType, ScanResult result) {
+                if (!running) return;
+                int rssi = result.getRssi();
+                if (rssi < MIN_RSSI) return;
+                ScanRecord rec = result.getScanRecord();
+                if (rec == null) return;
+
+                String tagType = classifyBleTag(rec);
+                if (tagType == null) return;
+
+                // Privacy commitment: H(epochWindow || accountBytes || macBytes)
+                String mac = result.getDevice().getAddress();
+                long epochWindow = System.currentTimeMillis() / 1000L / 30L / 30L; // ~15-min windows
+                String commitment = sha256Hex(epochWindow + account + mac);
+                sightingCommitments.add(commitment);
+
+                switch (tagType) {
+                    case "AirTag":     airtagCount.incrementAndGet();   break;
+                    case "AndroidFMD": androidFmdCount.incrementAndGet(); break;
+                    case "Tile":       tileCount.incrementAndGet();     break;
+                    case "Samsung":    samsungCount.incrementAndGet();  break;
+                    default:           otherCount.incrementAndGet();    break;
+                }
+                Log.d(TAG, "BLE tracker: " + tagType + " rssi=" + rssi);
+            }
+
+            @Override
+            public void onScanFailed(int errorCode) {
+                Log.w(TAG, "BLE scan failed: " + errorCode);
+            }
+        };
+
+        bleScanner.startScan(null, settings, bleScanCallback);
+        Log.i(TAG, "BLE tracker scan started");
+    }
+
+    private void stopBleTrackerScan() {
+        if (bleScanner != null && bleScanCallback != null) {
+            try { bleScanner.stopScan(bleScanCallback); } catch (Exception ignored) {}
+        }
+    }
+
+    /** Classify a BLE advertisement by manufacturer data + service UUIDs. */
+    private String classifyBleTag(ScanRecord rec) {
+        // Apple check (manufacturer data, company ID 0x004C)
+        byte[] appleData = rec.getManufacturerSpecificData(APPLE_COMPANY_ID);
+        if (appleData != null && appleData.length >= 2) {
+            int type = appleData[0] & 0xFF;
+            if (type == 0x12 || type == 0x1E) return "AirTag";
+        }
+
+        // Google Find My Device
+        if (rec.getManufacturerSpecificData(GOOGLE_COMPANY_ID) != null) return "AndroidFMD";
+
+        // Samsung SmartTag
+        byte[] samsungData = rec.getManufacturerSpecificData(SAMSUNG_COMPANY_ID);
+        if (samsungData != null && samsungData.length >= 4) return "Samsung";
+
+        // Service UUID checks
+        List<android.os.ParcelUuid> uuids = rec.getServiceUuids();
+        if (uuids != null) {
+            for (android.os.ParcelUuid uuid : uuids) {
+                String s = uuid.toString().toLowerCase(Locale.ROOT);
+                if (s.equals(UUID_AIRTAG))      return "AirTag";
+                if (s.equals(UUID_ANDROID_FMD)) return "AndroidFMD";
+                if (s.equals(UUID_TILE))        return "Tile";
+                if (s.equals(UUID_SAMSUNG))     return "Samsung";
+            }
+        }
+        return null;
+    }
+
+    /** Flush BLE sighting batch to the node API, then reset counters. */
+    private void flushBleTrackerBatch(long epoch) {
+        int at = airtagCount.getAndSet(0);
+        int af = androidFmdCount.getAndSet(0);
+        int ti = tileCount.getAndSet(0);
+        int sa = samsungCount.getAndSet(0);
+        int ot = otherCount.getAndSet(0);
+        if (at + af + ti + sa + ot == 0) return;
+
+        java.util.ArrayList<String> commits = new java.util.ArrayList<>(sightingCommitments);
+        sightingCommitments.clear();
+        java.util.Collections.sort(commits);
+        String batchHash = sha256Hex(String.join("|", commits));
+        String observerId = "android-" + account + "/ble";
+
+        try {
+            JSONObject body = new JSONObject();
+            body.put("observer_id", observerId);
+            body.put("owner", account);
+            body.put("airtag_count", at);
+            body.put("android_fmd_count", af);
+            body.put("tile_count", ti);
+            body.put("samsung_count", sa);
+            body.put("other_count", ot);
+            body.put("batch_hash", batchHash);
+            body.put("epoch", epoch);
+            body.put("signed_by", account);
+            postJson(API_BASE + "/tracker/sighting", body);
+            Log.i(TAG, "BLE batch committed: airtag=" + at + " fmd=" + af + " tile=" + ti);
+        } catch (Exception e) {
+            Log.w(TAG, "BLE batch commit failed: " + e.getMessage());
+        }
+    }
+
+    private static String sha256Hex(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     @Override
@@ -447,6 +626,9 @@ public class NativeSensorService extends Service implements SensorEventListener,
                 ensureKeyRegistered(snapshot);
                 submitReading(snapshot);
             }
+            // Flush BLE tracker batch alongside sensor snapshots.
+            long epoch = System.currentTimeMillis() / 1000L / 30L;
+            flushBleTrackerBatch(epoch);
         });
     }
 
