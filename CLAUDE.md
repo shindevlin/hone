@@ -1,63 +1,68 @@
-# Freeport Protocol
+# BTCPC — Sovereign Chain Node
 
-Sovereign blockchain for compute, storage, and commerce — no gatekeepers.
+> **THE ACTIVE IMPLEMENTATION IS RUST. DO NOT REFERENCE OR MODIFY NODE.JS CODE.**
+>
+> `src/`, `bin/`, `package.json`, `node_modules/` — these are the **deprecated** Node.js prototype.
+> They are kept only for historical reference. All active development happens in `rust/btcpc-node/`.
 
-## Stack
-- Node.js, MongoDB, WebSocket P2P
-- Ollama for mining inference — model-agnostic. Miners run any Ollama model (qwen, llama, mistral, gemma, deepseek, etc.). Work value scales with verified parameter count from Ollama's /api/show, not the model name.
-- Git author: Shin Devlin <shindevlin@proton.me> (NO Claude attribution ever)
+## Active Stack
 
-## Key Files
-- `bin/btcpc-mine` — mining daemon CLI
-- `bin/btcpc-cli` — wallet/transaction CLI
-- `src/models/` — 10 Mongoose models (Epoch, Wallet, Transaction, etc.)
-- `src/controllers/` — auth, wallet, staking, node, dream, delegation, recovery
-- `src/network/` — P2P WebSocket, peer discovery, chain sync
-- `docs/FREEPORT_PROTOCOL_WHITEPAPER.md` — full whitepaper (inscribed on Dream #0)
+- **Rust** — single binary, `rust/btcpc-node/src/main.rs`
+- **libp2p** — gossipsub P2P networking (port 6942)
+- **RocksDB** — chain state (not MongoDB)
+- **Axum** — HTTP API (port 4242)
+- **Ollama** — inference for miners/workers (model-agnostic)
+- Git author: Shin Devlin <shindevlin@proton.me> (NO AI attribution ever)
+
+## Key Files (Rust)
+
+- `rust/btcpc-node/src/main.rs` — node entry point, epoch seal handler, reward wiring
+- `rust/btcpc-node/src/chain.rs` — state machine, apply_entry, pending pool
+- `rust/btcpc-node/src/clock.rs` — clock consensus, epoch sealing, quorum
+- `rust/btcpc-node/src/tx.rs` — validate_and_apply, is_system_entry
+- `rust/btcpc-node/src/api.rs` — Axum HTTP API routes
+- `rust/btcpc-node/src/hardware.rs` — GPU serial / machine-id anti-sybil
+- `rust/btcpc-node/crates/btcpc-types/src/entry.rs` — LedgerEntry enum (canonical)
+- `rust/btcpc-node/crates/btcpc-types/src/emission.rs` — supply/reward schedule
+- `rust/btcpc-node/genesis.json` — mainnet genesis block
 - `website/` — landing page
 
 ## Run
+
 ```bash
-systemctl --user status btcpc-miner  # check miner
-node bin/btcpc-mine --miner shindevlin  # manual mine
+systemctl --user status btcpc-node      # check Rust node
+systemctl --user restart btcpc-node     # restart after binary update
+curl http://localhost:4242/api/node/info
 ```
 
 ## Key Specs
-- Supply: 42,000,000 BTCPC (1 BTCPC = 100M dreams)
-- Current package version: 3.0.87
-- Genesis timestamp: 1776236400000 (2026-04-15T07:00:00.000Z). Do not change.
-- Epochs: 30 seconds
-- Genesis reward: 243.06 BTCPC/epoch during bootstrap; current reward logic lives in `src/chain/blockProposal.js`
-- MongoDB: optional (post-Phase F). Default: disabled. Set BTCPC_MONGO_MODE=enabled and MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin to re-enable for legacy migration.
+
+- Supply: 42,000,000 BTCPC (1 BTCPC = 100,000,000 dreams)
+- Epoch duration: 30 seconds
+- Genesis timestamp: 1777633200000 (2026-05-01 noon Ireland, UTC+1). Do not change.
+- Chain ID: btcpc-satoshi (testnet), btcpc-1 (mainnet)
 - Explorer: port 4242, P2P: port 6942
 
-## Version Rule
-- When bumping BTCPC version, update `package.json` and `package-lock.json` in the same change.
-- Verify with: `node -e "const p=require('./package.json'); const l=require('./package-lock.json'); if (p.version !== l.version || p.version !== l.packages[''].version) process.exit(1)"`
-- Do not commit a version bump if those three values differ.
+## Architecture
+
+Entries flow: **gossip received → Chain::pending pool → epoch seals → drain_pending_sorted → validate_and_apply in sha256 order → RocksDB**
+
+System entries (EpochSeal, ClockReward, MineReward, etc.) apply immediately on epoch seal — they do NOT go through the pending pool.
+
+The epoch IS the block. `signing_clocks` in SealedEpoch is who gets ClockReward.
 
 ## Telegram Bots
+
 See [docs/bots.md](docs/bots.md) for full bot documentation.
 - Bots are thin HTTP clients — no direct DB access, all via `/api/bot/*`
 - Live in standalone repos: `~/repos/btcpcbot/`, `~/repos/btcpcwalletbot/`
 - Tokens in `.env` files only — NEVER in git, NEVER in chat
-- Kill zombies before starting (see bots.md for commands)
 
-## Current State
-- Genesis miner (shindevlin) running on GPU node
-- 420 reserved premium names
-- Whitepaper v0.3 complete with 12 appendices
+## DEPRECATED: Node.js (do not use)
 
-## Session Notes
-- Detailed handoff notes for the 2026-04-08 cleanup/test pass live in `docs/CLAUDE_HANDOFF_2026-04-08.md`
-- Use that handoff before touching auth, tests, tracker docs, or CI added in that pass
-
-## Autopilot
-- A Ralph-loop driver lives at `~/.btcpc-autopilot/` (operator config, NOT in this repo)
-- Cron-driven; reads `docs/SELF_HEAL_PRD.md`, picks the next unticked item, dispatches one agent in a worktree, cherry-picks, tests, commits, pushes, ticks the box
-- Setup walkthrough: `~/.btcpc-autopilot/README.md` (claude setup-token → env file → manual test → crontab line)
-- `docs/SELF_HEAL_PRD.md` IS the autopilot's spec — every fix lives there as a checkbox
-- Hard rule for ALL fail paths: `feedback_self_heal_no_asks.md` in memory — never ask the user to do something technical, always auto-repair
+`src/`, `bin/`, `package.json` — legacy Node.js prototype, v3.x era.
+Do not run, do not modify, do not reference in new code.
+Kept for migration reference only. Will be archived.
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

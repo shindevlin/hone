@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Express Server
+ * DEPRECATED — Node.js prototype. DO NOT USE OR MODIFY.
+ * The active BTCPC node is rust/btcpc-node/ (Rust, libp2p, RocksDB).
+ * This file is kept for migration reference only.
  */
 
 require('dotenv').config();
