@@ -209,7 +209,6 @@ pub fn register_account(
     keys: &WalletKeys,
 ) -> Result<()> {
     use btcpc_types::LedgerEntry;
-    use std::collections::HashMap;
 
     if chain.store.get_account(account)?.is_some() {
         return Ok(());
@@ -222,7 +221,7 @@ pub fn register_account(
         .unwrap_or_else(|| keys.btcpc_public_key.clone());
 
     // All 6 BTCPC role keys — all public, registered on-chain for verification.
-    let mut km: HashMap<String, String> = HashMap::new();
+    let mut km: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     km.insert("owner".to_string(),   keys.btcpc_owner_public_key.clone());
     km.insert("active".to_string(),  keys.btcpc_active_public_key.clone());
     km.insert("posting".to_string(), posting_key);

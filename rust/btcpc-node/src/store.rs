@@ -228,6 +228,29 @@ impl Store {
         Ok(())
     }
 
+    // ── Chain Entropy Protocol — alive-epoch tracking ─────────────────────────
+
+    pub fn get_alive_epoch(&self, account: &str) -> u64 {
+        self.state_get(&format!("alive:{}", account))
+            .and_then(|b| b.try_into().ok())
+            .map(u64::from_le_bytes)
+            .unwrap_or(0)
+    }
+
+    pub fn set_alive_epoch(&self, account: &str, epoch: u64) -> Result<()> {
+        self.state_set(&format!("alive:{}", account), &epoch.to_le_bytes())
+    }
+
+    /// Iterate all account IDs. Used by the entropy decay sweep in finalize.
+    pub fn scan_account_ids(&self) -> Vec<String> {
+        let Some(cf) = self.db.cf_handle(CF_ACCOUNTS) else { return vec![] };
+        let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
+        iter.filter_map(|item| {
+            let (k, _) = item.ok()?;
+            String::from_utf8(k.to_vec()).ok()
+        }).collect()
+    }
+
     /// Scan all keys with the given prefix in CF_META.
     /// Returns (key, value) pairs where `key` is the full stored key string.
     pub fn state_scan_prefix(&self, prefix: &str) -> Vec<(String, Vec<u8>)> {

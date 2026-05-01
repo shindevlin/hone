@@ -7,7 +7,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
-use btcpc_types::{Block, NATIVE_TOKEN, RECYCLE_FUND_ACCOUNT, block_reward_at};
+use btcpc_types::{
+    Block, NATIVE_TOKEN, RECYCLE_FUND_ACCOUNT, block_reward_at,
+    LIVENESS_GRACE_EPOCHS, LIVENESS_DECAY_DELAY_EPOCHS, LIVENESS_HALF_LIFE_EPOCHS,
+};
 use crate::chain::Chain;
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -82,6 +85,9 @@ pub async fn finalize_epoch(chain: &Arc<Chain>, epoch: u64) -> Result<()> {
     // Redirect unearned rewards (epochs with no miner activity) to the recycle fund.
     redirect_unearned_rewards(chain, prev_finalized, epoch);
 
+    // Chain Entropy Protocol — bleed dormant account balances to recycle.
+    apply_entropy_decay(chain, epoch);
+
     info!(
         "[finalize] epoch {} finalized: state_root={} block={}",
         epoch,
@@ -137,6 +143,81 @@ fn redirect_unearned_rewards(chain: &Arc<Chain>, prev_finalized: u64, boundary: 
         } else {
             info!("[finalize] epoch {} had no block — {} dreams → recycle fund", ep, reward);
         }
+    }
+}
+
+// ── Chain Entropy Protocol ────────────────────────────────────────────────────
+
+/// Half-life decay: bleed a fraction of dormant balances to the recycle fund.
+///
+/// Runs at every finalization boundary. Only accounts that have been silent for
+/// longer than GRACE + DELAY epochs are affected. The bleed rate is derived from
+/// a 2-year half-life: at each finalization interval (100 epochs), the dormant
+/// balance decreases by `balance × (1 - 2^(-100 / HALF_LIFE))`.
+///
+/// No keys required. No user action needed to trigger this — it runs automatically.
+/// The only way to stop it is to do anything on BTCPC with the account's own keys.
+fn apply_entropy_decay(chain: &Arc<Chain>, current_epoch: u64) {
+    const FINALIZE_INTERVAL: u64 = 100;
+    let decay_threshold = LIVENESS_GRACE_EPOCHS + LIVENESS_DECAY_DELAY_EPOCHS;
+
+    // Pre-compute: fraction bled per finalization interval.
+    // rate = 1 - 2^(-interval / half_life)
+    // Use fixed-point integer math: rate_num / rate_denom where denom = 1_000_000.
+    // 2^(-100 / 2_103_840) ≈ 1 - 0.0000000329  →  rate ≈ 33 per billion per interval.
+    // At this rate, balance halves in ~2_103_840 epochs ≈ 2 years.
+    const RATE_DENOM: u64 = 1_000_000_000;
+    // ln(2) / HALF_LIFE * INTERVAL * RATE_DENOM ≈ 32.94 → 33 per billion per interval.
+    let rate_num: u64 = (FINALIZE_INTERVAL as f64 / LIVENESS_HALF_LIFE_EPOCHS as f64
+        * std::f64::consts::LN_2
+        * RATE_DENOM as f64) as u64;
+
+    if rate_num == 0 {
+        return;
+    }
+
+    let account_ids = chain.store.scan_account_ids();
+    let mut decayed = 0u32;
+
+    for account in &account_ids {
+        // Skip protocol / system accounts — they never decay.
+        if matches!(account.as_str(), "__recycle__" | "__testnet_fund__" | "treasury" | "shindevlin") {
+            continue;
+        }
+
+        let last_alive = chain.store.get_alive_epoch(account);
+        let silence = current_epoch.saturating_sub(last_alive);
+        if silence <= decay_threshold {
+            continue;
+        }
+
+        // Decay ALL token balances held by this dormant account, not just BTCPC.
+        // Every token on the chain bleeds to the recycle fund proportionally.
+        let balances = chain.store.scan_balances(account);
+        if balances.is_empty() {
+            continue;
+        }
+
+        let mut any_bled = false;
+        for (token, balance) in balances {
+            if balance == 0 {
+                continue;
+            }
+            let bleed = (balance / RATE_DENOM).saturating_mul(rate_num).max(1).min(balance);
+            if let (Ok(_), Ok(_)) = (
+                chain.store.debit(account, &token, bleed),
+                chain.store.credit(RECYCLE_FUND_ACCOUNT, &token, bleed),
+            ) {
+                any_bled = true;
+            }
+        }
+        if any_bled {
+            decayed += 1;
+        }
+    }
+
+    if decayed > 0 {
+        info!("[entropy] decay applied to {} dormant accounts at epoch {}", decayed, current_epoch);
     }
 }
 

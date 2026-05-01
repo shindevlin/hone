@@ -68,6 +68,15 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".ConfigReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="network.btcpc.app.CONFIGURE" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".LocalRelayService"
             android:enabled="true"

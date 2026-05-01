@@ -800,6 +800,41 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Chain Entropy Protocol — liveness ping ────────────────────────────
+        LedgerEntry::LivenessProof { account, signed_by, nonce, key_role, signature, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by must equal account for LivenessProof");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            // Accept a signature from any of the 6 BTCPC role keys.
+            check_signature(chain, account, entry, sig_hex.or(signature.as_deref()), key_role)?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        // ── Chain Entropy Protocol — cross-chain witness ──────────────────────
+        LedgerEntry::EntropyWitness { account, chain: ext_chain, address, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            // Submitter must be a known BTCPC account.
+            require_key(chain, signed_by)?;
+            // The address must be in the published wallet family for this account.
+            let rev_key = format!("wallet_addr:{}:{}", ext_chain, address);
+            let stored = chain.store.state_get(&rev_key)
+                .and_then(|b| String::from_utf8(b).ok());
+            match stored {
+                Some(ref a) if a == account => {}
+                _ => bail!(
+                    "address '{}:{}' is not in {}'s published wallet family",
+                    ext_chain, address, account
+                ),
+            }
+            // Submitting node signs with their posting key — no nonce, witnesses are idempotent.
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
         // ── System-only entries (not externally submittable) ──────────────────
         LedgerEntry::MempoolReward { .. } => {
             bail!("MempoolReward is system-only and cannot be submitted externally");

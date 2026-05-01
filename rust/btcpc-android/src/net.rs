@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-    gossipsub, identify, kad, noise, ping, tcp, yamux,
+    gossipsub, identify, kad, mdns, noise, ping, tcp, yamux,
     swarm::{NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, StreamProtocol,
     identity::Keypair,
@@ -39,6 +39,7 @@ struct Behaviour {
     kad:       kad::Behaviour<kad::store::MemoryStore>,
     identify:  identify::Behaviour,
     ping:      ping::Behaviour,
+    mdns:      mdns::tokio::Behaviour,
 }
 
 // ── Swarm runner ──────────────────────────────────────────────────────────────
@@ -102,7 +103,10 @@ pub async fn run_swarm(
 
     let ping = ping::Behaviour::default();
 
-    let behaviour = Behaviour { gossipsub, kad, identify, ping };
+    let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)
+        .map_err(|e| anyhow::anyhow!("mDNS init: {}", e))?;
+
+    let behaviour = Behaviour { gossipsub, kad, identify, ping, mdns };
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
@@ -123,9 +127,13 @@ pub async fn run_swarm(
         }
     }
 
-    // Also fetch peers from Hive registry.
-    if let Ok(hive_peers) = fetch_hive_peers(&cfg.chain_id).await {
-        for addr in hive_peers {
+    // Fetch peers from Hive and btcpc.net concurrently.
+    let (hive_peers, btcpc_net_peers) = tokio::join!(
+        fetch_hive_peers(&cfg.chain_id),
+        fetch_btcpc_net_peers(&cfg.chain_id),
+    );
+    for peers in [hive_peers.unwrap_or_default(), btcpc_net_peers.unwrap_or_default()] {
+        for addr in peers {
             if let Ok(ma) = addr.parse::<Multiaddr>() {
                 swarm.dial(ma).ok();
             }
@@ -148,6 +156,16 @@ pub async fn run_swarm(
 
             // Swarm events.
             event = swarm.select_next_some() => {
+                // Handle mDNS here so we can dial discovered addresses.
+                if let SwarmEvent::Behaviour(BehaviourEvent::Mdns(
+                    mdns::Event::Discovered(peers)
+                )) = &event {
+                    for (peer_id, addr) in peers.clone() {
+                        info!("net: mDNS local peer {} at {}", peer_id, addr);
+                        swarm.behaviour_mut().kad.add_address(&peer_id, addr.clone());
+                        let _ = swarm.dial(addr);
+                    }
+                }
                 handle_event(event, &event_tx).await;
             }
         }
@@ -221,6 +239,27 @@ fn load_or_create_keypair(data_dir: &str) -> Keypair {
         let _ = std::fs::write(&path, &bytes);
     }
     kp
+}
+
+// ── btcpc.net peer discovery ──────────────────────────────────────────────────
+
+async fn fetch_btcpc_net_peers(chain_id: &str) -> Result<Vec<String>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    let resp: serde_json::Value = client
+        .get("https://btcpc.net/api/peers/bootstrap")
+        .query(&[("chain_id", chain_id)])
+        .send().await?
+        .json().await?;
+
+    let peers = resp
+        .get("peers")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default();
+
+    Ok(peers)
 }
 
 // ── Hive peer discovery ───────────────────────────────────────────────────────

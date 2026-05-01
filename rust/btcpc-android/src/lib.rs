@@ -145,6 +145,90 @@ pub extern "C" fn Java_network_btcpc_app_MinerService_nativeGetEpoch(
         .unwrap_or(0)
 }
 
+// ── JNI: NativeClockService ──────────────────────────────────────────────────
+
+static CLOCK_NODE: OnceLock<Mutex<Option<RunningNode>>> = OnceLock::new();
+
+fn clock_cell() -> &'static Mutex<Option<RunningNode>> {
+    CLOCK_NODE.get_or_init(|| Mutex::new(None))
+}
+
+#[no_mangle]
+pub extern "C" fn Java_network_btcpc_app_NativeClockService_nativeStart(
+    mut env: JNIEnv,
+    _class:  JClass,
+    account:          JString,
+    api_base:         JString,
+    chain_id:         JString,
+    genesis_ts:       jlong,
+    posting_key:      JString,
+    bootstrap_peers:  JString,
+) {
+    let mut guard = clock_cell().lock().unwrap();
+    if guard.is_some() { return; }
+
+    macro_rules! str { ($j:expr) => { env.get_string(&$j).map(String::from).unwrap_or_default() } }
+
+    let _api_base = str!(api_base);
+
+    let cfg = NodeConfig {
+        account:         str!(account),
+        posting_key:     str!(posting_key),
+        chain_id:        str!(chain_id),
+        genesis_ts:      genesis_ts as u64,
+        data_dir:        "/data/data/network.btcpc.app/files/btcpc-clock".to_owned(),
+        model_id:        String::new(),
+        model_dir:       String::new(),
+        bootstrap_peers: str!(bootstrap_peers)
+            .split(',').filter(|s| !s.is_empty()).map(str::to_owned).collect(),
+        p2p_port:        6943,
+        is_miner:        false,
+        is_clock:        true,
+    };
+
+    let status = Arc::new(PLMutex::new("Starting…".to_owned()));
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .thread_name("btcpc-clock")
+        .build()
+        .expect("tokio runtime");
+
+    let status_clone = status.clone();
+    let handle = rt.block_on(async move {
+        node::start(cfg, status_clone).await
+    });
+
+    match handle {
+        Ok(h) => { *guard = Some(RunningNode { handle: h, runtime: rt }); }
+        Err(e) => { tracing::error!("clock start failed: {}", e); }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn Java_network_btcpc_app_NativeClockService_nativeStop(
+    _env: JNIEnv, _class: JClass,
+) {
+    let mut guard = clock_cell().lock().unwrap();
+    if let Some(running) = guard.take() {
+        let _ = running.handle.shutdown_tx.send(());
+        drop(running);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn Java_network_btcpc_app_NativeClockService_nativeGetStatus(
+    env: JNIEnv, _class: JClass,
+) -> jstring {
+    let s = {
+        let guard = clock_cell().lock().unwrap();
+        guard.as_ref()
+            .map(|r| r.handle.status.lock().clone())
+            .unwrap_or_else(|| "Stopped".to_owned())
+    };
+    env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 // ── JNI: NativeSensorService ─────────────────────────────────────────────────
 
 #[no_mangle]

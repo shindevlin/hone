@@ -110,6 +110,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tracker/route", get(get_tracker_route))
         .route("/api/tracker/subscriptions/active", get(get_active_subscriptions))
         .route("/tracker/map", get(get_tracker_map))
+        // ── Chain Entropy Protocol ────────────────────────────────────────
+        .route("/api/account/prove-alive", post(post_liveness_proof))
+        .route("/api/account/:name/alive-epoch", get(get_alive_epoch))
         // ── Governance: chain parameters ──────────────────────────────────
         .route("/api/chain/param/:key", get(get_chain_param))
         .route("/api/chain/set-param", post(post_chain_set_param))
@@ -391,6 +394,71 @@ async fn post_set_key_policy(
         "account": body.account,
         "role":    body.role,
         "message": action,
+    })))
+}
+
+// ── Chain Entropy Protocol ────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct LivenessProofBody {
+    account:   String,
+    key_role:  String,
+    nonce:     u64,
+    signature: Option<String>,
+}
+
+async fn post_liveness_proof(
+    State(s): State<AppState>,
+    Json(body): Json<LivenessProofBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::LivenessProof {
+        account:   body.account.clone(),
+        epoch,
+        nonce:     body.nonce,
+        key_role:  body.key_role.clone(),
+        signed_by: body.account.clone(),
+        signature: body.signature.clone(),
+    };
+    let sig_ref = body.signature.as_deref();
+    crate::tx::validate_and_apply(&s.chain, &entry, sig_ref)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let _ = s.tx_broadcast.send((entry, None));
+    Ok(Json(serde_json::json!({
+        "ok":      true,
+        "account": body.account,
+        "epoch":   epoch,
+        "message": "liveness clock reset",
+    })))
+}
+
+async fn get_alive_epoch(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if s.chain.store.get_account(&name).ok().flatten().is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let alive = s.chain.store.get_alive_epoch(&name);
+    let current = s.chain.current_epoch();
+    let silence = current.saturating_sub(alive);
+    let grace = btcpc_types::LIVENESS_GRACE_EPOCHS;
+    let decay_start = grace + btcpc_types::LIVENESS_DECAY_DELAY_EPOCHS;
+    let status = if silence <= grace {
+        "healthy"
+    } else if silence <= decay_start {
+        "warning"
+    } else {
+        "decaying"
+    };
+    Ok(Json(serde_json::json!({
+        "account":        name,
+        "last_alive_epoch": alive,
+        "current_epoch":  current,
+        "silence_epochs": silence,
+        "status":         status,
+        "grace_ends":     alive + grace,
+        "decay_starts":   alive + decay_start,
     })))
 }
 
@@ -753,7 +821,7 @@ async fn post_account_create(
 
     let entry = LedgerEntry::AccountCreate {
         account:      body.account,
-        keys:         body.keys.unwrap_or_default(),
+        keys:         body.keys.unwrap_or_default().into_iter().collect(),
         chain_proofs: vec![],
         epoch,
         funded_by:    body.funded_by.filter(|s| !s.is_empty()),
@@ -839,7 +907,7 @@ async fn post_account_transfer(
     let epoch = s.chain.current_epoch();
     let entry = LedgerEntry::AccountTransfer {
         account: body.account,
-        new_keys: body.new_keys,
+        new_keys: body.new_keys.into_iter().collect(),
         epoch,
         signed_by: body.signed_by,
         nonce: body.nonce,

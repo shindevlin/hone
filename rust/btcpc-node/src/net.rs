@@ -493,7 +493,7 @@ impl Network {
             }
 
             TOPIC_SEALS => {
-                debug!("Received epoch seal from {}", source);
+                info!("Received epoch seal from {}", source);
                 self.emit(NetworkEvent::EpochSeal { seal: json });
             }
 

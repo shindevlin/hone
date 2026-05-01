@@ -1,12 +1,19 @@
 # BTCPC full-stack Docker Compose
 #
 # Profiles:
-#   (default)  — btcpc-node + btcpc-market + nginx + ollama
-#   legacy     — adds MongoDB for legacy migration
+#   (default)         — btcpc-node + btcpc-market + nginx
+#   bundled-ollama    — also starts an Ollama container (Linux GPU hosts)
+#   legacy            — also adds MongoDB for legacy migration
 #
 # Usage:
-#   docker compose up -d                      # default stack
-#   docker compose --profile legacy up -d     # + MongoDB
+#   docker compose up -d                               # default (use host Ollama)
+#   docker compose --profile bundled-ollama up -d     # + containerised Ollama
+#   docker compose --profile legacy up -d             # + MongoDB
+#
+# Windows / macOS users running Ollama natively:
+#   Set OLLAMA_URL=http://host.docker.internal:11434 in your .env file and also
+#   ensure Ollama is bound to all interfaces by setting OLLAMA_HOST=0.0.0.0 in
+#   the Windows/macOS environment before starting Ollama.
 #
 # Secrets: copy .env.example → .env and fill in values before starting.
 
@@ -14,8 +21,10 @@ env_file: .env
 
 services:
 
-  # ── Ollama inference engine ────────────────────────────────────────────────
+  # ── Ollama inference engine (optional — Linux GPU hosts only) ─────────────
+  # Windows/macOS: skip this service; point OLLAMA_URL at your native Ollama.
   ollama:
+    profiles: [bundled-ollama]
     image: ollama/ollama:latest
     container_name: btcpc-ollama
     restart: unless-stopped
@@ -41,16 +50,20 @@ services:
     restart: unless-stopped
     networks:
       - btcpc-net
-    depends_on:
-      ollama:
-        condition: service_started
+    extra_hosts:
+      # Makes host.docker.internal resolve to the Docker host on Linux.
+      # Docker Desktop (Windows/macOS) sets this automatically.
+      - "host.docker.internal:host-gateway"
     env_file: .env
     environment:
       NODE_ENV: production
       PORT: 3000
       BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
       MONGODB_URI: ${MONGODB_URI:-}
-      OLLAMA_URL: http://ollama:11434
+      # host.docker.internal resolves to the Docker host on all platforms.
+      # Linux: mapped via extra_hosts below. Windows/macOS: automatic.
+      # Bundled container users: port 11434 is exposed on the host, so this still works.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
       BTCPC_MINER: ${BTCPC_MINER:-}

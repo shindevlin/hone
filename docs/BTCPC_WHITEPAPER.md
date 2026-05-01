@@ -39,29 +39,53 @@ BTCPC replaces the arbitrary SHA-256 puzzle with a requirement that miners produ
 output that someone requested. The principle is simple: **mining should produce output
 that someone wanted.**
 
-Five categories of work earn emission each epoch. Each category has its own reward
-pool with a fixed share of each epoch's total emission:
+BTCPC uses a fully dynamic reward model. Every epoch, the chain measures actual proven
+work across six categories: inference/compute, storage, sensors/IoT, verifiers,
+services (decentralized compute), and clock nodes. The share each category receives
+from the epoch reward is proportional to its actual utilization against a calibrated
+target — not a fixed percentage. If the chain becomes a storage chain, storage earns
+the majority. If inference dominates, inference earns the majority. The market decides.
 
-| Pool | Share | Earner |
-|------|-------|--------|
-| Inference | 55% | Nodes completing AI inference jobs |
-| IoT | 10% | Sensor bridges and data relayers |
-| Storage | 12% | Nodes storing committed chain data |
-| Services | 8% | Application and API hosts |
-| Clock | 5% | Permissionless clock nodes |
-| Verifiers | 10% | Nodes validating work proofs |
+**Active work categories:**
 
-Every pool pays out pro-rata to all active participants in that category during the
-epoch. A pool with no claimants does not accumulate — it recycles via the
-`btcpc_recycle` system account into future block rewards. Tokens are never burned.
-The supply ceiling of 42,000,000 BTCPC is a hard limit, not a target that gets
-compressed by burning.
+- **Inference/Compute:** Nodes completing AI inference jobs requested by users.
+  Rewarded proportional to verified value score — output tokens multiplied by hardware
+  tier weight, model weight, and complexity factor — as assessed by verifiers.
 
-The chain does not verify that an AI inference result is *correct* in any philosophical
-sense. It verifies that the job was submitted, that the miner produced a response of
-the required format within the epoch window, and that the response hash matches the
-on-chain commitment. Reputation over time does the rest. Miners with low acceptance
-rates from job submitters earn fewer future jobs from the routing layer.
+- **Storage:** Nodes storing committed chain data, proven via `StorageHeartbeat`.
+  Rewarded proportional to bytes proven multiplied by query activity. Also earns
+  contract fees when stored data is accessed.
+
+- **Sensors/IoT:** Sensor nodes submitting verified readings. Baseline epoch reward
+  for uptime; additional purchase premium when data is actually bought via
+  `SensorDataPurchase`.
+
+- **Verifiers:** Nodes that receive encrypted inference job payloads (prompt and
+  result, encrypted to their memo key) and assess whether real work was done
+  commensurate with the request. Earn only when verifications occur — zero
+  verifications means zero verifier reward. Also earn from job escrow
+  (`InferenceJobPay`).
+
+- **Services:** Nodes hosting decentralized containerized services (equivalent to
+  decentralized Docker/Kubernetes). Rewarded for active container uptime.
+
+- **Clock:** Permissionless clock nodes that advance epoch consensus.
+
+**Infrastructure base (fires every epoch, regardless of activity):**
+
+- Clock nodes receive a tiny era-scaled reward per active clock node to keep
+  consensus alive.
+- Testnet operators receive a tiny era-scaled reward to keep the development
+  network alive.
+- A mandatory 2% reserve is withheld each epoch: 1.5% to the recycle fund,
+  0.5% to the testnet fund, providing perpetual top-up for both.
+
+**Human reviewers (dispute path only):** paid purely from job escrow, with no
+allocation from the epoch pool.
+
+A pool with no claimants does not accumulate — surplus recycles via the
+`btcpc_recycle` system account. Tokens are never burned. The supply ceiling of
+42,000,000 BTCPC is a hard limit, not a target that gets compressed by burning.
 
 ### 1.2 Supply and Emission
 
@@ -70,16 +94,44 @@ with no exception. The smallest unit is one **dream**: 1 BTCPC = 10,000,000,000 
 (10^10, ten decimal places). All on-chain accounting is denominated in dreams; the
 BTCPC display unit is a human convenience.
 
-Emission follows a decay schedule tied to epoch number. The per-epoch reward
-decreases as the epoch count increases, asymptotically approaching but never
-exceeding the total supply cap. No tokens exist at chain launch except those
-earned through the emission schedule. There is no pre-mine. There is no team
-allocation. The 17 founding accounts seeded at genesis carry preserved keys —
-not pre-allocated balances.
+Emission is structured in four layers that combine each epoch:
 
-If the emission schedule projects that the remaining unissued supply would be
-exhausted before the target epoch, the final epochs reduce proportionally to
-land exactly on 42,000,000. The chain enforces this at the block level.
+**Layer D — Infrastructure base:** Minimal emission, always fires regardless of
+network activity. Covers clock node rewards, testnet operator rewards, and the
+mandatory 2% reserve (1.5% recycle, 0.5% testnet). Well under 1% of the block
+reward in idle epochs. This layer ensures the network stays alive even during
+periods of zero user activity.
+
+**Layer B — Activity pools:** Each of the six work categories has a calibration
+target. A pool's share of the epoch reward equals its actual utilization divided
+by its target, normalized across all active pools. Calibration targets auto-adjust
+slowly in an EIP-1559 style, drifting toward 50% long-run utilization per pool.
+An empty pool's share recycles immediately — reward never accumulates in an
+unearned pool.
+
+**Layer A — Long-term scalar:** A dual exponential moving average governs the
+block reward ceiling. A 7-day fast EMA tracks recent utilization (responsive to
+activity spikes and troughs). A 90-day slow EMA is the permanent gravity center
+that the fast EMA always decays back toward. Together they adjust the block reward
+ceiling between 70% and 100% of the nominal schedule: a sustained busy network
+approaches the 100% ceiling; a sustained idle network floors at 70%. Short-term
+spikes cannot permanently inflate emission — only sustained utilization raises the
+ceiling.
+
+**Layer C — Fee-driven boost:** Verified fee volume from the previous epoch can
+boost activity pool emission toward the ceiling set by Layer A. Three mechanisms
+prevent circular self-payment from inflating rewards: only jobs with an
+approved verifier verdict count; net flow accounting per address pair cancels
+circular same-epoch flows; the previous-epoch lag requires that capital be locked
+across two consecutive epochs.
+
+Total emission each epoch equals base plus activity plus fee boost, hard-capped at
+the Layer A adjusted ceiling. Any remainder flows to `btcpc_recycle`. Tokens are
+never burned.
+
+No tokens exist at chain launch except those earned through the emission schedule.
+There is no pre-mine. There is no team allocation. The 17 founding accounts seeded
+at genesis carry preserved keys — not pre-allocated balances.
 
 ### 1.3 Account Model
 

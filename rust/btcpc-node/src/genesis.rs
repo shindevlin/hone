@@ -43,7 +43,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
                 for (account, val) in accounts {
                     let (keys, dreams) = if val.is_object() {
                         // Support new "keys" map or legacy "public_key" as shorthand for posting key.
-                        let mut km: std::collections::HashMap<String, String> = val
+                        let mut km: std::collections::BTreeMap<String, String> = val
                             .get("keys")
                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                             .unwrap_or_default();
@@ -61,7 +61,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
                         let dreams = val.as_u64().ok_or_else(|| anyhow::anyhow!(
                             "genesis: account '{}' must be an object or integer", account
                         ))?;
-                        (std::collections::HashMap::new(), dreams)
+                        (std::collections::BTreeMap::new(), dreams)
                     };
 
                     entries.push(LedgerEntry::AccountCreate {
@@ -85,7 +85,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
 
     // Register shindevlin's reserved namespace: ~1050 names (singles, doubles, popular worldwide).
     // All point to shindevlin's posting key so he can transfer them into the identity marketplace.
-    let shindevlin_keys: std::collections::HashMap<String, String> = [
+    let shindevlin_keys: std::collections::BTreeMap<String, String> = [
         ("posting".to_string(), reserved_names::SHINDEVLIN_POSTING_KEY.to_string()),
     ].into_iter().collect();
 

@@ -25,7 +25,7 @@ public class NativeClockService extends Service {
     private static final String CHANNEL_ID   = "btcpc_clock";
     private static final int    NOTIF_ID     = 9430;
     private static final long   STATUS_INTERVAL_MS = 5000;
-    private static final long   MAINNET_GENESIS_TS = 1777615200000L;
+    private static final long   MAINNET_GENESIS_TS = 1777633200000L;
 
     private static boolean nativeAvailable = false;
 
@@ -38,9 +38,13 @@ public class NativeClockService extends Service {
         }
     }
 
+    private static final String DEFAULT_BOOTSTRAP_PEERS =
+            "/dns4/p2p.btcpc.net/tcp/443/wss/p2p/12D3KooWLLim8VHdYP1Ev5kiAi1ewC2Sj6GKcV3qWDu4E9sNTy5N";
+
     // ---------- JNI bridge (Rust) ----------
     private static native void nativeStart(String account, String apiBase, String chainId,
-                                           long genesisTs, String postingKey);
+                                           long genesisTs, String postingKey,
+                                           String bootstrapPeers);
     private static native void nativeStop();
     private static native String nativeGetStatus();
 
@@ -92,7 +96,8 @@ public class NativeClockService extends Service {
             return START_NOT_STICKY;
         }
 
-        nativeStart(account, apiBase, chainId, genesisTs, postingKey);
+        String bootstrapPeers = prefs.getBootstrapPeers(DEFAULT_BOOTSTRAP_PEERS);
+        nativeStart(account, apiBase, chainId, genesisTs, postingKey, bootstrapPeers);
         handler.post(statusPoller);
         return START_STICKY;
     }

@@ -28,3 +28,17 @@ pub const NAME_REGISTRATION_STAKE: u64 = 10 * DREAMS_PER_BTCPC;
 /// Accounts that are exempt from paying the name registration stake (genesis operators,
 /// shindevlin's reserved namespace). These are created at genesis or via GenesisAlloc.
 pub const STAKE_EXEMPT_ACCOUNTS: &[&str] = &["shindevlin", "__testnet_fund__", "__recycle__", "treasury"];
+
+// ── Liveness / dead-man's-switch ─────────────────────────────────────────────
+
+/// Epochs of silence before the liveness countdown begins.
+/// 30 s/epoch × 1_051_920 epochs ≈ 1 year.  Grace = 3 years.
+pub const LIVENESS_GRACE_EPOCHS: u64 = 3 * 1_051_920;
+
+/// After grace + LIVENESS_DECAY_DELAY epochs of additional silence, token decay begins.
+/// 2 more years = 5 total years of silence before any bleed.
+pub const LIVENESS_DECAY_DELAY_EPOCHS: u64 = 2 * 1_051_920;
+
+/// Half-life in epochs.  Tokens halve every 2 years once decay starts.
+/// Applied at each finalization boundary (every 100 epochs).
+pub const LIVENESS_HALF_LIFE_EPOCHS: u64 = 2 * 1_051_920;

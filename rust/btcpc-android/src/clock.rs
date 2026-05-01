@@ -323,7 +323,6 @@ pub async fn run(
         let seal_hash = {
             let mut h = Sha256::new();
             h.update(epoch.to_le_bytes());
-            h.update(node_id.as_bytes());
             hex::encode(h.finalize())
         };
         let seal = serde_json::json!({

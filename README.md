@@ -1,106 +1,143 @@
 # Bitcoin Proof of Compute (BTCPC)
 
-AI inference on a blockchain. Mine with your GPU. Earn BTCPC. Every token backed by real work.
+**Mine by doing useful work.** GPU, Raspberry Pi, phone, spare drive, or AI agent. Every token earned by a machine doing something real.
 
-> **Genesis: 12:00 AM May 1, 2026 (Ireland / IST) — `BTCPC_GENESIS_TIMESTAMP=1777590000000`**
-> Install now, fill in your service file, and be ready. The network goes live at midnight Ireland time.
+> **Chain is live.** Install now and start earning.
 > See [Install a node](#install-a-node) below.
 
-> **⚠ Node.js layer deprecated — clean genesis in progress.**
-> The canonical chain implementation is now `rust/btcpc-node` (single Rust binary).
-> `src/` is retained for reference only and will be removed after genesis cutover.
-> See [`rust/btcpc-node/`](rust/btcpc-node/) for the active codebase.
+---
+
+## What it is
+
+BTCPC is a blockchain where mining means running AI inference, covering BLE tracker networks, hosting encrypted storage, and keeping network time — not grinding hashes that prove nothing.
+
+Three native markets create real token demand from day one:
+
+- **Verasens** — sensor data marketplace. Telecoms, logistics companies, and researchers pay BTCPC to query verified on-chain sensor data. Sensor nodes earn from query fees.
+- **Freeport** — peer-to-peer commerce without a platform between buyer and seller. No 15% cut, no account bans. Storage nodes and service nodes earn from marketplace activity.
+- **LinkGit** — decentralized, Git-compatible code hosting on BTCPC-FS. Repos are content-addressed, permanent, and encrypted at rest. Storage nodes earn per object stored.
+
+This is where mining rewards come from. Not just inflation — real economic activity.
+
+---
 
 ## Stack
 
 - **Rust** — `rust/btcpc-node` — single binary: libp2p networking, RocksDB state, clock consensus, miner, WASM contracts, Axum HTTP API
 - **Rust** — `rust/btcpc-contract-sdk` — BSP-20 / BSP-721 smart contract SDK
-- **Rust** — `rust/btcpc-contract-runtime` — wasmtime WASM execution sandbox
-- Node.js (`src/`) — **deprecated**, retained for reference only
-- Ollama — AI inference backend, model-agnostic
+- **Rust** — `rust/btcpc-ble-tracker` — passive BLE tracker oracle for Pi and desktop nodes
+- Ollama — AI inference backend, model-agnostic (qwen, llama, mistral, gemma, deepseek, etc.)
 
-## Rust Chain Core Wiring
+> `src/` (Node.js) is retained for reference only. The canonical chain is `rust/btcpc-node`.
 
-- `btcpc-chain` listens on `/tmp/btcpc-chain.sock` (override: `BTCPC_CHAIN_SOCK`).
-- Set `BTCPC_USE_RUST_CHAIN=true` to route `src/chain/blockStore.js` through Rust IPC (`block_write`, `block_read`, `block_prune`, latest checks).
-- Default behavior is safe fallback to file store if IPC is unavailable. Set `BTCPC_RUST_CHAIN_STRICT=true` to fail fast instead.
-- IPC timeout is configurable via `BTCPC_CHAIN_IPC_TIMEOUT_MS` (default `5000`).
+---
 
 ## Install a node
 
-Requires Ubuntu/Debian, root or sudo. Installs Rust, builds the binary, creates the `btcpc` system user, and enables the auto-update timer (tracks `stable` branch, checks every 10 min).
+Requires Ubuntu/Debian, root or sudo. Installs the Rust binary, creates the `btcpc` system user, and enables auto-update (tracks `stable` branch, checks every 10 min).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shindevlin/btcpc/main/scripts/install.sh | sudo bash
+curl -fsSL https://btcpc.net/install.sh | sudo bash
 ```
 
 After install, edit the service file before starting:
 
 ```bash
 sudo nano /etc/systemd/system/btcpc-node.service
-# Fill in: BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_GENESIS_TIMESTAMP
+# Set: BTCPC_ACCOUNT, BTCPC_NODE_ID
 ```
 
-> **Do not start the node until a genesis timestamp is announced.**
+Start it:
+
+```bash
+systemctl enable --now btcpc-node
+```
+
+### Docker
+
+```bash
+docker run -d \
+  -e BTCPC_ACCOUNT=yourname \
+  -p 4242:4242 -p 6942:6942 \
+  btcpc/node
+```
 
 ### Running over a VPN (recommended for privacy)
 
-Nodes communicate over TCP/UDP on port 6942. For privacy, run your node behind a VPN (WireGuard recommended) so your public IP is never exposed to peers.
+Nodes communicate on port 6942. For privacy, run behind WireGuard:
 
-1. Bring up your VPN interface (e.g. `wg0`, typically `10.x.x.x`)
-2. In `/etc/systemd/system/btcpc-node.service`, set:
-   ```
-   Environment="BTCPC_P2P_ANNOUNCE_ADDR=/ip4/10.x.x.x/tcp/6942"
-   ```
-   Replace `10.x.x.x` with your VPN interface IP. The node will advertise this address to peers instead of your real IP.
-3. Firewall: allow port 6942 only from your VPN subnet, not the public interface.
-
-For the bootstrap node, we use **Cloudflare Tunnel** so the real IP is never in DNS. To set up a bootstrap tunnel on your machine:
-
-```bash
-# Install cloudflared
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
-sudo apt update && sudo apt install -y cloudflared
-
-# Authenticate and create a tunnel (run once)
-cloudflared tunnel login
-cloudflared tunnel create btcpc-bootstrap
-
-# Route bootstrap1.btcpc.network through the tunnel
-cloudflared tunnel route dns btcpc-bootstrap bootstrap1.btcpc.network
-
-# Create tunnel config at /etc/cloudflared/config.yml:
-# tunnel: <tunnel-id>
-# credentials-file: /root/.cloudflared/<tunnel-id>.json
-# ingress:
-#   - hostname: bootstrap1.btcpc.network
-#     service: tcp://localhost:6942
-#   - service: http_status:404
-
-# Run as a service
-cloudflared service install
-systemctl enable --now cloudflared
+```ini
+# In /etc/systemd/system/btcpc-node.service
+Environment="BTCPC_P2P_ANNOUNCE_ADDR=/ip4/10.x.x.x/tcp/6942"
 ```
 
-With this setup, `bootstrap1.btcpc.network` reaches your node through Cloudflare — your real IP never appears in DNS or peer logs.
+Replace `10.x.x.x` with your VPN interface IP.
+
+---
+
+## Earn BTCPC
+
+Every device earns by doing useful work. Rewards are demand-driven — no fixed split. Pools with more activity earn more of the epoch reward.
+
+| Role | What it does | Hardware |
+|------|-------------|----------|
+| **Clock** | Keeps epoch timing alive | Anything — phone, Pi, laptop |
+| **Miner** | AI inference via Ollama | Any computer (GPU earns more) |
+| **Sensor** | Reports BLE trackers, environmental data | Android phone, Raspberry Pi, LoRa gateway |
+| **Storage** | Hosts BTCPC-FS blobs | Spare SSD or HDD |
+| **Service** | Runs apps and APIs for the network | VPS or server |
+
+Multiple roles stack. A Raspberry Pi running BLE scanning + clock earns from two pools simultaneously.
+
+### GPU Mining
+
+```bash
+# Install Ollama and pull a model
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull qwen2.5:7b
+
+# Start the node with mining enabled
+BTCPC_ACCOUNT=yourname btcpc-node
+```
+
+### Raspberry Pi (BLE Tracker + Clock)
+
+```bash
+BTCPC_ACCOUNT=yourname \
+BTCPC_BLE_TRACKER=true \
+btcpc-node
+```
+
+The Pi passively scans for AirTags, Android Find My, Tile, and Samsung SmartTags without pairing with any device. Owners of tracked devices pay a subscription fee to receive encrypted sighting data — a share of that fee goes to the observer nodes that reported sightings.
+
+### Phone
+
+Download the [Android APK](https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk) or open [btcpc.net/app](https://btcpc.net/app) in your browser. Enable sensors and clock from the app UI. First epoch reward arrives within 30 seconds.
+
+### Telegram Wallet
+
+No install needed. Message [@btcpcbot](https://t.me/btcpcbot):
+
+```
+/create yourname
+```
+
+---
 
 ## Use BTCPC in your project
 
-```javascript
-const BTCPC = require('@btcpc/sdk');
-const ai = new BTCPC({ apiKey: process.env.BTCPC_API_KEY });
-
-const answer = await ai.ask({ prompt: 'Explain quantum computing' });
-```
-
-Or drop-in replace OpenAI:
+Drop-in replace OpenAI with the BTCPC inference API:
 
 ```javascript
 const OpenAI = require('openai');
 const client = new OpenAI({
   baseURL: 'https://btcpc.net/v1',
   apiKey: process.env.BTCPC_API_KEY
+});
+
+const answer = await client.chat.completions.create({
+  model: 'auto',
+  messages: [{ role: 'user', content: 'Explain quantum computing' }]
 });
 ```
 
@@ -113,84 +150,70 @@ curl -X POST https://btcpc.net/v1/chat/completions \
   -d '{"model": "auto", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-## Get an API key
+Get an API key: create an account via [Telegram bot](https://t.me/btcpcbot), then claim 1 BTCPC free from the faucet: `POST /api/faucet/claim`.
 
-1. Create an account via [Telegram bot](https://t.me/btcpcbot) or the install wizard
-2. Register your project: `POST /api/projects/register`
-3. Get 1 BTCPC free from the faucet: `POST /api/faucet/claim`
-
-## Earn BTCPC
-
-Every device earns by doing useful work:
-
-| Role | What it does | Hardware needed |
-|------|-------------|-----------------|
-| **Miner** | AI inference via Ollama | Any computer (GPU = more earnings) |
-| **Clock** | Keeps epoch timing alive | Anything (phone, Pi, laptop) |
-| **Storage** | Hosts files for the network | Disk space |
-| **Gateway** | Relays IoT sensor data | LoRa gateway (Nebra, RAK, etc.) |
-| **Sensor** | Reports real-world data | Any sensor (temp, GPS, air quality) |
-
-Bigger stake = higher reward weight. More useful work = more earnings.
+---
 
 ## LinkGit
 
-Decentralized git on btcpc-fs. Repository objects (commits, trees, blobs) are stored as content-addressed blobs in btcpc-fs; branch and tag refs are recorded on-chain. Private repos are encrypted to the owner's hide key — no storage node can read the content without the per-repo symmetric key. Dead objects are pruned by default after each ref update; owners pay `LinkGitStorageExtend` to retain orphaned CIDs beyond the default prune window.
+Decentralized git on BTCPC-FS. Repository objects (commits, trees, blobs) stored as content-addressed blobs. Branch and tag refs recorded on-chain. Private repos encrypted to the owner's hide key — no storage node can read the content.
 
 ```bash
-git remote add origin linkgit://shindevlin/btcpc
+git remote add origin linkgit://yourname/yourrepo
 git push origin main
 ```
 
 See [docs/LINKGIT_PROTOCOL.md](docs/LINKGIT_PROTOCOL.md) for the full protocol reference.
 
-## Commerce
+---
 
-BTCPC Market is a sovereign, censorship-resistant marketplace for hardware, digital goods, and AI compute — built directly into the chain.
+## Freeport Commerce
 
-**Decentralized catalog.** All commerce state (stores, products, orders) flows through the same append-only ledger as the rest of the chain. Every BTCPC node that replays the ledger holds a complete, verifiable copy of the market catalog. No central marketplace server is required. Catalog reads are served from any node via `GET /api/peer/commerce/stores` and `GET /api/peer/commerce/products`.
+Sovereign, censorship-resistant marketplace built into the chain. All commerce state (stores, products, orders) flows through the same append-only ledger. Every BTCPC node holds a complete, verifiable copy of the catalog.
 
-**Public access without running a node.** The store frontend (`website/store.html`) is a static file that can be hosted anywhere. `API_BASE` defaults to same-origin for local nodes and is overridable via `?node=` query parameter or `localStorage`. Users without a local node point at any public BTCPC gateway — the gateway serves the catalog from its local ledger, and the data is verifiable on-chain.
+- Escrow-protected orders, automatic on delivery
+- Digital goods fulfill instantly via BTCPC-FS `delivery_cid`
+- Tor onion routing for vendor privacy
+- No central marketplace server required
 
-**Vendor features:**
-
-- Escrow-protected orders with automatic dispute resolution
-- Auto-deliver for digital goods: products with a BTCPC-FS `delivery_cid` fulfill instantly on order placement — zero seller action, trustless delivery
-- Flash sales and time-limited pricing
-- Shipping account integration: carrier credentials stored on-chain, auto-populated at fulfillment
-- Tor onion routing: vendors generate a `.onion` address, register it on-chain, buyers on Tor Browser route through it automatically
-
-**btcpc-market.** The `btcpc-market` Rust service (port 7042) is an optional sidecar that vendors run for full seller operations. Standard BTCPC nodes handle read-only catalog access without it.
-
-## Key management
-
-BTCPC accounts support three separate keys, each scoped to a different privilege level:
-
-| Key | One-line description |
-|-----|---------------------|
-| **Posting key** | Signs all non-financial chain entries — store ops, product listings, order actions, Q&A |
-| **Active key** | Signs token transfers — escrow debit on order placement, escrow release on delivery |
-| **Memo key** | Encrypts and signs reputation memos written after a completed trade |
-
-Phase G ships with posting-key-only operations. Active key escrow and memo key reputation are Phase H.
-
-See [Appendix N of the whitepaper](docs/BTCPC_WHITEPAPER.md#appendix-n--key-architecture) for full details on key types, escrow flow, reputation memos, and buyer staking.
+---
 
 ## How it works
 
-- 30-second epochs, 42M total supply
-- 6-pool rewards: 55% miners, 10% verifiers, 5% clocks, 12% storage, 8% services, 10% IoT
-- Proof of Compute: every token represents real AI inference, not wasted energy
-- All chain state lives on disk (no database required)
-- P2P mesh network — every node is a relay
+- 30-second epochs, 42M total supply — fixed forever, like Bitcoin
+- Reward pools: calibration-normalized, demand-driven every epoch — no fixed percentages
+- Proof of Compute: every token represents real AI inference, sensor coverage, or storage
+- All chain state on RocksDB (no separate database required)
+- P2P mesh via libp2p — every node is a relay
+
+---
+
+## For agents and developers
+
+See [AGENTS.md](AGENTS.md) for the agent onboarding guide, repo map, and contribution rules.
+
+Copy-paste prompt for Codex, Claude, Cursor, or local agents:
+
+```
+You are working on BTCPC (Bitcoin Proof of Compute). Read AGENTS.md,
+CONTRIBUTING.md, and README.md first. Use the code-review-graph MCP tools
+before Grep or file scanning. Identify the highest-impact change that
+improves onboarding, install reliability, or live network proof. Make the
+smallest safe patch, run tests, produce a PR summary. Do not change token
+economics, genesis constants, or security-sensitive flows unless explicitly
+asked.
+```
+
+---
 
 ## Links
 
 - **Website:** [btcpc.net](https://btcpc.net)
 - **Telegram:** [@btcpcbot](https://t.me/btcpcbot)
-- **Explorer:** [scan.btcpc.net](https://scan.btcpc.net)
-- **Whitepaper:** [BTCPC_WHITEPAPER.md](docs/BTCPC_WHITEPAPER.md)
-- **SDK:** [sdk/](sdk/)
+- **Explorer:** [btcpc.net/dashboard](https://btcpc.net/dashboard)
+- **Whitepaper:** [docs/BTCPC_WHITEPAPER.md](docs/BTCPC_WHITEPAPER.md)
+- **Reddit:** [r/btcpc](https://reddit.com/r/btcpc)
+- **Substack:** [btcpc.substack.com](https://btcpc.substack.com)
 
 ## License
 

@@ -62,7 +62,7 @@ pub enum LedgerEntry {
         account: AccountId,
         /// BTCPC protocol keys — public, required for transaction verification.
         /// Roles: "posting" (daily use), "owner" (key rotation), "memo" (encrypted msgs).
-        keys: std::collections::HashMap<String, String>,
+        keys: std::collections::BTreeMap<String, String>,
         /// Cross-chain address commitments — no plaintext addresses stored.
         /// Easy mode: populated automatically from BIP-39 derived wallet.
         /// Hard mode: added later via VerifyChainLink entries.
@@ -103,7 +103,7 @@ pub enum LedgerEntry {
     /// receives any balance automatically before keys are rotated.
     AccountTransfer {
         account: AccountId,
-        new_keys: std::collections::HashMap<String, String>,  // role -> pubkey (posting, btc, eth, …)
+        new_keys: std::collections::BTreeMap<String, String>,  // role -> pubkey (posting, btc, eth, …)
         epoch: Epoch,
         signed_by: AccountId,
         nonce: u64,
@@ -1069,6 +1069,56 @@ pub enum LedgerEntry {
         nonce: u64,
         signed_by: AccountId,
     },
+
+    // ── Chain Entropy Protocol ────────────────────────────────────────────────
+
+    /// Prove liveness using a BTCPC key — the cheapest possible "I'm here" signal.
+    ///
+    /// No external chain involvement. The signer must hold one of the account's
+    /// six BTCPC role keys (owner, active, posting, memo, hide, seek). Accepted
+    /// entries reset `last_alive_epoch`, stopping half-life decay.
+    ///
+    /// This is the only user-initiated way to reset the entropy clock without
+    /// performing another on-chain action (transfer, stake, mine, etc.).
+    /// Cost: one signature. No token movement, no fee.
+    LivenessProof {
+        account: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        /// Which key role is signing: "owner" | "active" | "posting" | "memo" | "hide" | "seek"
+        key_role: String,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Reset the liveness clock from observed external-chain activity.
+    ///
+    /// Any BTCPC node that detects a transaction on a published wallet-family
+    /// address (WalletFamilyPublish / WalletFamilyAdd) can submit this entry.
+    /// The account owner doesn't need to be online — their published cross-chain
+    /// addresses are the proof. Once accepted, `last_alive_epoch` resets and
+    /// half-life decay is paused.
+    ///
+    /// The submitting node signs with their own posting key. Multiple nodes may
+    /// independently submit witnesses for the same activity — all are idempotent
+    /// (decay clock resets to max of current and witnessed epoch).
+    EntropyWitness {
+        /// BTCPC account whose liveness is being attested.
+        /// Must have a published wallet-family entry for `chain`:`address`.
+        account: AccountId,
+        /// External chain: "ethereum", "bitcoin", "solana", "base", etc.
+        chain: String,
+        /// External address that was active (must match a published wallet-family entry).
+        address: String,
+        /// External chain transaction hash proving the observed activity.
+        tx_hash: String,
+        /// External chain block height at which the activity occurred.
+        block_height: u64,
+        epoch: Epoch,
+        /// BTCPC node submitting this witness (must sign with their posting key).
+        signed_by: AccountId,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -1178,6 +1228,8 @@ impl LedgerEntry {
             Self::GenesisAlloc { .. } => 0,
             Self::VerifyChainLink { epoch, .. } => *epoch,
             Self::SetKeyPolicy { epoch, .. } => *epoch,
+            Self::LivenessProof { epoch, .. } => *epoch,
+            Self::EntropyWitness { epoch, .. } => *epoch,
         }
     }
 

@@ -752,4 +752,106 @@ router.get('/android-apk', function(req, res) {
   fs.createReadStream(apkPath).pipe(res);
 });
 
+// ---------------------------------------------------------------------------
+// Onboarding agent — unauthenticated, streaming SSE
+// ---------------------------------------------------------------------------
+
+const agentChatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many messages. Wait a minute.' },
+});
+
+const AGENT_SYSTEM_PROMPT = `You are the BTCPC setup assistant on btcpc.net. BTCPC is a sovereign blockchain where miners earn by running AI inference via Ollama — no gatekeepers, no cloud.
+
+Keep every reply under 3 sentences. Be direct and actionable. Give exact commands when asked.
+
+Platform setup:
+- Windows: download start-windows.bat from btcpc.net, double-click it. Handles Ollama binding and Docker automatically.
+- Linux / Ubuntu / WSL: download start.sh from btcpc.net, run: bash start.sh
+- Docker only (advanced): set OLLAMA_URL=http://host.docker.internal:11434 in .env, then: docker compose up -d
+- Android: install the BTCPC app from btcpc.net/android
+
+Requirements: Docker Desktop (Windows/Mac) or Docker Engine (Linux), plus Ollama installed on the host.
+Recommended first model: qwen3:4b (run: ollama pull qwen3:4b)
+
+Mining starts automatically once the node is running and a model is loaded.
+Explorer: btcpc.net/explorer — wallet: btcpc.net/app`;
+
+/**
+ * POST /public/agent-chat
+ * Body: { message: string, platform?: string }
+ * Streams the assistant reply as SSE: data: <token>\n\n, then data: [DONE]\n\n
+ */
+router.post('/agent-chat', agentChatLimiter, async (req, res) => {
+  try {
+    const objErr = rejectObjectInputs(req.body, ['message', 'platform']);
+    if (objErr) return res.status(400).json({ error: objErr });
+
+    const message = sanitizeString(req.body.message, 500);
+    const platform = sanitizeString(req.body.platform || '', 40);
+
+    if (!message || message.length < 1) {
+      return res.status(400).json({ error: 'message required' });
+    }
+
+    const axios = require('axios');
+    const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+
+    const userContent = platform ? `[User platform: ${platform}]\n${message}` : message;
+
+    const body = {
+      model: process.env.BTCPC_MODEL || 'qwen3:4b',
+      messages: [
+        { role: 'system', content: AGENT_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+      stream: true,
+    };
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const ollamaRes = await axios.post(`${OLLAMA_URL}/api/chat`, body, {
+      responseType: 'stream',
+      timeout: 30000,
+    });
+
+    ollamaRes.data.on('data', (chunk) => {
+      const lines = chunk.toString().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          const token = parsed?.message?.content;
+          if (token) res.write(`data: ${JSON.stringify(token)}\n\n`);
+          if (parsed?.done) res.write('data: [DONE]\n\n');
+        } catch (_) {}
+      }
+    });
+
+    ollamaRes.data.on('end', () => {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+
+    ollamaRes.data.on('error', () => {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+
+    req.on('close', () => ollamaRes.data.destroy());
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(503).json({ error: 'Agent unavailable — node may be starting up.' });
+    } else {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
+});
+
 module.exports = router;

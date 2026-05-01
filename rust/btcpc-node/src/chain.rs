@@ -140,6 +140,15 @@ impl Chain {
         *self.current_epoch.read()
     }
 
+    /// Update an account's last-alive epoch (Chain Entropy Protocol).
+    /// Silently no-ops if the store write fails — liveness tracking is best-effort.
+    pub fn touch_alive(&self, account: &str, epoch: u64) {
+        let current = self.store.get_alive_epoch(account);
+        if epoch > current {
+            let _ = self.store.set_alive_epoch(account, epoch);
+        }
+    }
+
     /// Apply a single ledger entry to state. Returns Ok(()) or a validation error.
     pub fn apply_entry(&self, entry: &LedgerEntry) -> Result<()> {
         match entry {
@@ -187,6 +196,8 @@ impl Chain {
                     "name_stake_locked": btcpc_types::NAME_REGISTRATION_STAKE,
                 });
                 self.store.set_account(account, &state)?;
+                // Seed liveness clock at creation epoch.
+                self.touch_alive(account, *epoch);
                 info!(
                     account,
                     chains = chain_proofs.iter().map(|p| p.chain.as_str()).collect::<Vec<_>>().join(","),
@@ -195,6 +206,7 @@ impl Chain {
             }
 
             LedgerEntry::Transfer { from, to, amount, token, epoch, nonce, .. } => {
+                self.touch_alive(from, *epoch);
                 anyhow::ensure!(*amount > 0, "transfer amount must be positive");
                 self.ensure_account(to, *epoch)?;
                 self.store.debit(from, token, *amount)?;
@@ -231,7 +243,8 @@ impl Chain {
                 }
             }
 
-            LedgerEntry::Stake { account, amount, .. } => {
+            LedgerEntry::Stake { account, amount, epoch, .. } => {
+                self.touch_alive(account, *epoch);
                 anyhow::ensure!(*amount > 0, "stake amount must be positive");
                 self.store.debit(account, NATIVE_TOKEN, *amount)?;
                 let current_stake = self.store.get_stake(account);
@@ -240,7 +253,8 @@ impl Chain {
                 self.store.set_stake(account, new_stake)?;
             }
 
-            LedgerEntry::Unstake { account, amount, .. } => {
+            LedgerEntry::Unstake { account, amount, epoch, .. } => {
+                self.touch_alive(account, *epoch);
                 let current_stake = self.store.get_stake(account);
                 anyhow::ensure!(current_stake >= *amount, "insufficient stake");
                 self.store.set_stake(account, current_stake - amount)?;
@@ -248,6 +262,7 @@ impl Chain {
             }
 
             LedgerEntry::Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, compute_proof } => {
+                self.touch_alive(miner, *epoch);
                 self.ensure_account(miner, *epoch)?;
                 let key = format!("mine:{}:{}", epoch, miner);
                 let _ = self.store.state_set(&key,
@@ -882,9 +897,35 @@ impl Chain {
                 self.store.credit(from, token, amount)?;
             }
 
+            // ── Chain Entropy Protocol ────────────────────────────────────────
+            LedgerEntry::LivenessProof { account, epoch, .. } => {
+                anyhow::ensure!(
+                    self.store.get_account(account)?.is_some(),
+                    "account '{}' does not exist", account
+                );
+                self.touch_alive(account, *epoch);
+                info!("[entropy] liveness proof: {} at epoch {}", account, epoch);
+            }
+            LedgerEntry::EntropyWitness { account, chain: ext_chain, address, tx_hash, epoch, .. } => {
+                anyhow::ensure!(
+                    self.store.get_account(account)?.is_some(),
+                    "account '{}' does not exist", account
+                );
+                self.touch_alive(account, *epoch);
+                info!(
+                    "[entropy] cross-chain witness: {} alive ({}:{} tx={}) at epoch {}",
+                    account,
+                    ext_chain,
+                    &address[..address.len().min(12)],
+                    &tx_hash[..tx_hash.len().min(16)],
+                    epoch,
+                );
+            }
+
             // ── Wallet Family ─────────────────────────────────────────────────
-            LedgerEntry::WalletFamilyPublish { account, chains, .. }
-            | LedgerEntry::WalletFamilyAdd { account, chains, .. } => {
+            LedgerEntry::WalletFamilyPublish { account, chains, epoch, .. }
+            | LedgerEntry::WalletFamilyAdd { account, chains, epoch, .. } => {
+                self.touch_alive(account, *epoch);
                 let family_key = format!("wallet_family:{}", account);
                 // Load existing list (additive-only — never remove).
                 let mut existing: Vec<serde_json::Value> = self.store.state_get(&family_key)

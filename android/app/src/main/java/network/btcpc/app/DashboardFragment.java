@@ -28,7 +28,7 @@ public class DashboardFragment extends Fragment {
 
     private static final long REFRESH_MS = 5000;
     private static final long EPOCH_DURATION_MS = 30_000L;
-    private static final long EPOCH_ZERO_MS = 1776236400000L;
+    private static final long EPOCH_ZERO_MS = 1777590000000L;
 
     private AppPrefs prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());

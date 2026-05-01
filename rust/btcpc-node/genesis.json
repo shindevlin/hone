@@ -12,12 +12,12 @@
         },
         "shindevlin": {
             "keys": {
-                "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
-                "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
-                "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
-                "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
-                "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
-                "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+                "owner":   "fc1b21c5c1bda1ae81d4b0f927c9086ea7654b5d6406ca756034d5b265d9ac47",
+                "active":  "55a343071425acfd0cc22d8e7ff056e6cfebff06c3a6dceb3fe5a647542d25af",
+                "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2",
+                "memo":    "76f74f8c87270f9ba44e7d00a89b1df2821701da764821f2a1752cbf1fc67fad",
+                "hide":    "9cb38d3709175b2b67ace60e4564c114386ddb2c6e0f63bf56bfbbbc61e1e48d",
+                "seek":    "8b5c9af81431659e882f94fc376b620956dcd269be4c1a87724d58323a0b2591"
             }
         },
         "josh": {
@@ -45,31 +45,56 @@
         "bridgeproof": {},
         "freeport": {
             "keys": {
-                "posting": "03628aa62fd3a7383d547a6fa8b275c15893c9b857382a8be0f545c3c66fe22a5f"
+                "owner":   "e84c1393c307a760f9d8cf3307e30deae2ef966c9ffb5e90f4a64516243d68a3",
+                "active":  "d4e565ca593d6b22c5fc82590fd0f5e0f5455495038d8cf4f8f8e397482d10c1",
+                "posting": "d39fbcd02ff5c04147b063b81de59e73814c9c4b4eed390139d650defd75421d",
+                "memo":    "29fc995b11887ca44aef1c61ff630e525ac01f293b090242fa2e5711966d6dcd",
+                "hide":    "2edaf160430e29097eba4e7f9bdd66aa1d3268e8b61893c835d11969dc736cc1",
+                "seek":    "7bd753b437ae23bc39c408a478e030055a2b9060a15fe7d7201a0f71a289c48a"
             }
         },
         "verasens": {
             "keys": {
-                "posting": "03281dd0f69f2392a60aa88e7cd199ef16d4efcff82c3de004a998185c74fbe41c"
+                "owner":   "af2b087aef2934dcaa3b6f35074afaefffa0dde2b8de5d6de1ff67d42d90fc75",
+                "active":  "d5e6c1bdc7b0770116efaffbca811aad7c640faca5dda25802e948b4076cd85f",
+                "posting": "ec917a3214585d446ccdf5e08ae67a8451bf7111afc73024a162ce407bacf0b4",
+                "memo":    "3e78c4368cf4ce27656332c90b34f2abae2506de5188e341b82ddc104267dac0",
+                "hide":    "b7e5800c8a119aede55e4ebff78745efb4d3720f1c1ca77908bdc7d85b3da46c",
+                "seek":    "0f637086d49802602f139cd7020b7e7368e5a15cac383391da42856b6a34b3c5"
             }
         },
         "freeport-escrow": {},
         "verasens-registry": {},
         "linkgit": {
             "keys": {
-                "posting": "0322efc6558bd4d7622347c449892edbc2cda65a1d89c8e0d06e155a6469b3bafb"
+                "owner":   "5111c10d97bc8f873a01e95757ec90448d768884154575cf53083063c7d42cc2",
+                "active":  "e2e850f5d9f7f4a4f8f1614f744bbc27c30280040f51199eee710e68bbfbef94",
+                "posting": "1c225668a729ba187b02138e94bbe96f21a6659f7bedac9d7ddf025f01019fbf",
+                "memo":    "66bb6fa55c5220ce1634cc79c6035a203297e1e88882f9d684848ac9859dc232",
+                "hide":    "a7bb9867e232f5c84a16123c8aa261d20ec2f4be68bff215fc9246284b63d026",
+                "seek":    "1fde35dd473a42f0165991f15f5c4a77ceed0117cc4f54da3567658d1731fe5f"
             }
         },
         "linkgit-registry": {},
         "__testnet_fund__": {},
+        "btcpc": {
+            "keys": {
+                "owner":   "291545af54484475083677304114b8f798159421c1b2b3ffccdd4c501146b9e9",
+                "active":  "7af72460d11441394863ac37a62f19dd56d01c2eaca503f728db6777a2b603f0",
+                "posting": "4a559a6658cc76207ded5a509918760ec14e706c79f59ac1c90a20143539f6a4",
+                "memo":    "d018d94e68f153e006a245f569c5ca4b31ea4096a0f8aa5a0636a640cc6d5854",
+                "hide":    "90b0eff041c5fad111ae38a38e14e6bd5b92cd38917ab8f92f27172fc7a91d73",
+                "seek":    "cb89fe490fc9703e0c9ba288ae7f6a11188e0147cfb7c30b3af953af5ed0e39d"
+            }
+        },
         "shin": {
             "keys": {
-                "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
-                "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
-                "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
-                "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
-                "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
-                "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+                "owner":   "fc1b21c5c1bda1ae81d4b0f927c9086ea7654b5d6406ca756034d5b265d9ac47",
+                "active":  "55a343071425acfd0cc22d8e7ff056e6cfebff06c3a6dceb3fe5a647542d25af",
+                "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2",
+                "memo":    "76f74f8c87270f9ba44e7d00a89b1df2821701da764821f2a1752cbf1fc67fad",
+                "hide":    "9cb38d3709175b2b67ace60e4564c114386ddb2c6e0f63bf56bfbbbc61e1e48d",
+                "seek":    "8b5c9af81431659e882f94fc376b620956dcd269be4c1a87724d58323a0b2591"
             }
         },
         "nk": {

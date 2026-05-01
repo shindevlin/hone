@@ -15,6 +15,8 @@ use tracing::{info, warn};
 use crate::store::Store;
 
 const SEAL_COLLECT_MS: u64 = 5_000;
+/// Extra wait after initial deadline when we have live peers but only 1 seal.
+const PEER_SEAL_WAIT_MS: u64 = 20_000;
 const OUTLIER_EPOCH_TOLERANCE: u64 = 2;
 const EPOCH_MS: u64 = 30_000;
 const ISOLATION_EPOCH_THRESHOLD: u64 = 3;
@@ -92,6 +94,9 @@ struct EpochState {
     resolved: bool,
     winner: Option<EpochSeal>,
     deadline: Instant,
+    /// Extended deadline: if we have 1 seal and live peers, wait until this
+    /// before self-sealing. Set to deadline + PEER_SEAL_WAIT_MS on first wait.
+    peer_fallback_deadline: Option<Instant>,
 }
 
 struct RewardState {
@@ -215,6 +220,7 @@ impl ClockConsensus {
                     resolved: false,
                     winner: None,
                     deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
+                    peer_fallback_deadline: None,
                 });
 
             if state.resolved {
@@ -360,8 +366,16 @@ impl ClockConsensus {
                 })
             } else if seals.len() == 1 {
                 if external_peer_count > 0 {
-                    // Have live peers but only one seal — not enough for quorum yet.
-                    return;
+                    // Have live peers but only one seal — wait up to PEER_SEAL_WAIT_MS
+                    // for a peer seal to arrive before self-sealing.
+                    let state = inner.epoch_states.get_mut(&epoch).unwrap();
+                    let fallback = state.peer_fallback_deadline.get_or_insert_with(|| {
+                        Instant::now() + Duration::from_millis(PEER_SEAL_WAIT_MS)
+                    });
+                    if Instant::now() < *fallback {
+                        return; // still waiting
+                    }
+                    // Fallback expired — self-seal despite having peers.
                 }
                 let winner = seals[0].clone();
                 inner.update_clock_score(&winner.node_id, true);

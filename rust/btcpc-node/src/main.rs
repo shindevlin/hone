@@ -250,7 +250,6 @@ async fn main() -> Result<()> {
                         use sha2::Digest;
                         let mut h = sha2::Sha256::new();
                         h.update(epoch.to_le_bytes());
-                        h.update(node_id_c.as_bytes());
                         hex::encode(h.finalize())
                     };
                     let seal = serde_json::json!({
@@ -362,8 +361,17 @@ async fn main() -> Result<()> {
         let clock_ref = clock.clone();
         let mut events = net_events;
         tokio::spawn(async move {
+            let mut peer_count: usize = 0;
             loop {
                 match events.recv().await {
+                    Ok(NetworkEvent::PeerConnected { .. }) => {
+                        peer_count = peer_count.saturating_add(1);
+                        clock_ref.update_peers(peer_count);
+                    }
+                    Ok(NetworkEvent::PeerDisconnected { .. }) => {
+                        peer_count = peer_count.saturating_sub(1);
+                        clock_ref.update_peers(peer_count);
+                    }
                     Ok(NetworkEvent::Entry { entry }) => {
                         // Extract and store any plaintext attached to the gossip envelope
                         // so the local verifier can access it later.
@@ -419,7 +427,7 @@ async fn main() -> Result<()> {
                             epoch, rewards_hash, node_id,
                         });
                     }
-                    Ok(_) => {} // PeerConnected / PeerDisconnected
+                    Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         warn!("net events lagged by {}", n);
                     }
