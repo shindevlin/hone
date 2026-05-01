@@ -263,7 +263,10 @@ async fn main() -> Result<()> {
                         }
 
                         // Comprehensive epoch reward distribution across all work types.
-                        emit_epoch_rewards(sealed_epoch, &chain_ref, &cmd_tx_for_seal).await;
+                        // Pass the signing_clocks list directly — the seal:{epoch}: store
+                        // scan was dead (those keys were never written anywhere).
+                        let signing_clocks = sealed.signing_clocks.clone();
+                        emit_epoch_rewards(sealed_epoch, &signing_clocks, &chain_ref, &cmd_tx_for_seal).await;
 
                         // Compute reward hash and broadcast consensus proposal.
                         let rewards_hash = clock::compute_rewards_hash(sealed_epoch, &chain_ref.store);
@@ -748,6 +751,7 @@ async fn run_inference_verifier(
 /// state persistence comes in a follow-up; for now they fall back to 1.0.
 async fn emit_epoch_rewards(
     epoch: u64,
+    clock_sealers: &[String],
     chain: &Arc<Chain>,
     cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
@@ -778,14 +782,7 @@ async fn emit_epoch_rewards(
 
     // ── Layer D: era-scaled clock reward (infrastructure base) ───────────────
     let clock_reward = clock_reward_at(epoch);
-    let clock_sealers: Vec<String> = chain.store.state_scan_prefix(&format!("seal:{}:", epoch))
-        .into_iter()
-        .filter_map(|(_, v)| {
-            serde_json::from_slice::<serde_json::Value>(&v).ok()
-                .and_then(|j| j["node_id"].as_str().map(str::to_owned))
-        }).collect();
-
-    for node_id in &clock_sealers {
+    for node_id in clock_sealers {
         if clock_reward == 0 { break; }
         let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount: clock_reward, epoch };
         if let Err(e) = chain.apply_entry(&entry) {
