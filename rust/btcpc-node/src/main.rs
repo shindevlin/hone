@@ -34,6 +34,7 @@ mod inference;
 mod inference_daemon;
 mod miner;
 mod reserved_names;
+mod worker;
 mod net;
 mod sim;
 mod store;
@@ -304,7 +305,10 @@ async fn main() -> Result<()> {
         });
     }
 
-    // ── Mining ────────────────────────────────────────────────────────────────
+    // ── Mining (legacy direct-inference loop) ────────────────────────────────
+    // NOTE: BTCPC_MINER submits Mine entries each epoch via a local Ollama call.
+    // This bypasses the inference marketplace. New deployments should use
+    // BTCPC_WORKER=true instead, which bids on posted jobs and earns job fees.
     if cfg.is_miner {
         let chain_ref = chain.clone();
         let account = cfg.account.clone();
@@ -312,6 +316,18 @@ async fn main() -> Result<()> {
         let cmd_for_miner = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
             miner::run_miner(chain_ref, account, genesis_ts, cmd_for_miner).await;
+        });
+    }
+
+    // ── Worker (inference marketplace participant) ────────────────────────────
+    // BTCPC_WORKER=true: watches the chain for posted inference jobs, bids on
+    // them, calls Ollama when awarded, and submits InferenceJobComplete.
+    if std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref = chain.clone();
+        let account = cfg.account.clone();
+        let cmd_for_worker = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            worker::run_worker(chain_ref, account, cmd_for_worker).await;
         });
     }
 
