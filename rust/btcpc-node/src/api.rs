@@ -123,6 +123,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/node/info", get(get_node_info))
         .route("/app", get(get_app_dashboard))
         .route("/app.html", get(get_app_dashboard))
+        .route("/", get(get_app_dashboard))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
         .route("/agent/:account", get(get_agent_instructions))

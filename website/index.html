@@ -34,8 +34,10 @@
     <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
     <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy BTCPC</a>
     <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Explorer</a>
+    <a href="/profile.html" style="color:#c8ccd4;text-decoration:none;">Profile</a>
     <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
     <div style="flex:1;"></div>
+    <a href="/node" id="nav-mynode" style="color:#f7931a;text-decoration:none;font-weight:600;font-size:12px;white-space:nowrap;padding:6px 12px;border:1px solid rgba(247,147,26,0.3);border-radius:6px;">My Node</a>
     <a href="#pick-your-role" style="background:#f7931a;color:#000;padding:6px 16px;border-radius:6px;font-weight:700;text-decoration:none;font-size:12px;white-space:nowrap;">Start Earning &rarr;</a>
   </div>
 
@@ -57,6 +59,7 @@
     <p class="hero-tagline">BTCPC pays machines for useful work: AI inference, sensor coverage, encrypted storage, and network hosting. Use a phone, GPU, Raspberry Pi, spare drive, or an AI agent. Pick your role and start earning.</p>
     <div style="display:flex;gap:12px;justify-content:center;margin-top:28px;flex-wrap:wrap;">
       <a href="#pick-your-role" style="background:#f7931a;color:#000;padding:14px 36px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;">Start Earning With What I Have &rarr;</a>
+      <a href="/node" style="background:rgba(247,147,26,0.1);color:#f7931a;padding:14px 28px;border-radius:8px;font-weight:600;text-decoration:none;font-size:15px;border:1px solid rgba(247,147,26,0.3);" id="hero-mynode">My Node →</a>
     </div>
     <div style="display:flex;gap:16px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
       <a href="/globe" style="color:#c8ccd4;text-decoration:none;font-size:13px;">See Live Network</a>
@@ -65,6 +68,26 @@
       <span style="color:#64748b;">·</span>
       <a href="https://github.com/shindevlin/btcpc" style="color:#c8ccd4;text-decoration:none;font-size:13px;" target="_blank">GitHub</a>
     </div>
+    <script>
+    // Silently check if local node is running and upgrade the "My Node" links
+    (function(){
+      function tryPort(p, cb) {
+        fetch('http://localhost:'+p+'/api/node/info',{mode:'cors',cache:'no-store',signal:AbortSignal.timeout(1500)})
+          .then(function(r){return r.json()})
+          .then(function(d){cb(p,d)}).catch(function(){if(p===4242)tryPort(4243,cb)});
+      }
+      tryPort(4242, function(port, info) {
+        var acct = info.account ? ' ('+info.account+')' : '';
+        var url = 'http://localhost:'+port+'/app.html';
+        var h = document.getElementById('hero-mynode');
+        var n = document.getElementById('nav-mynode');
+        if(h){ h.href=url; h.textContent='Open My Dashboard'+acct+' →';
+               h.style.background='rgba(34,197,94,0.12)'; h.style.borderColor='rgba(34,197,94,0.4)'; h.style.color='#22c55e'; }
+        if(n){ n.href=url; n.textContent='● Dashboard'+acct;
+               n.style.color='#22c55e'; n.style.borderColor='rgba(34,197,94,0.4)'; }
+      });
+    })();
+    </script>
     <div class="hero-badge" style="margin-top:28px;">42,000,000 BTCPC</div>
     <p class="hero-sub">Total supply — fixed forever, like Bitcoin. Every token earned by a machine doing something useful.</p>
   </section>
@@ -236,7 +259,8 @@
       </div>
       <div style="margin-top:16px;">
         <a href="/clock" style="display:inline-block;background:#f7931a;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;margin-right:12px;">Start in Browser &rarr;</a>
-        <a href="/install" style="display:inline-block;background:rgba(247,147,26,0.1);color:#f7931a;padding:12px 22px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;border:1px solid rgba(247,147,26,0.4);">Install Node</a>
+        <a href="/node" style="display:inline-block;background:rgba(247,147,26,0.1);color:#f7931a;padding:12px 22px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;border:1px solid rgba(247,147,26,0.4);margin-right:8px;">Desktop App</a>
+        <a href="/install" style="display:inline-block;color:#64748b;padding:12px 16px;text-decoration:none;font-size:13px;">CLI install</a>
       </div>
     </div>
 
@@ -259,7 +283,8 @@ curl -fsSL https://btcpc.net/install.sh | sudo bash
 <span class="hlg"># 3. Set your account and start</span>
 <span class="hl">BTCPC_ACCOUNT</span>=yourname btcpc-node</pre>
       </div>
-      <a href="/install" style="display:inline-block;background:#f7931a;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">Full GPU Setup Guide &rarr;</a>
+      <a href="/node" style="display:inline-block;background:#f7931a;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;margin-right:12px;">Download Desktop App &rarr;</a>
+      <a href="/install" style="display:inline-block;background:rgba(247,147,26,0.1);color:#f7931a;padding:12px 22px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;border:1px solid rgba(247,147,26,0.4);">CLI Setup Guide</a>
     </div>
 
     <div id="role-pi" class="role-panel">

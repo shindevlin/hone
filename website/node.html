@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Node — BTCPC</title>
+<meta name="description" content="Open your BTCPC node dashboard, or download the desktop app to get started.">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080c14;--surface:#0f1420;--border:rgba(247,147,26,.18);
+  --orange:#f7931a;--green:#22c55e;--red:#ef4444;--dim:#4b5563;
+  --text:#e2e8f0;--muted:#64748b;
+  --font:'SF Mono','Fira Code','Courier New',monospace;
+}
+html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+a{color:var(--orange);text-decoration:none}
+a:hover{text-decoration:underline}
+
+nav{display:flex;align-items:center;padding:10px 24px;border-bottom:1px solid var(--border);gap:20px;background:rgba(8,12,20,.95)}
+.logo{color:var(--orange);font-weight:700;font-size:15px}
+nav a{color:var(--muted);font-size:12px}
+nav a:hover{color:var(--text)}
+
+.page{max-width:680px;margin:0 auto;padding:64px 24px 80px;text-align:center}
+.logo-big{width:72px;height:72px;border-radius:16px;object-fit:cover;margin:0 auto 24px;display:block;box-shadow:0 0 32px rgba(247,147,26,.25)}
+
+h1{font-size:30px;font-weight:800;margin-bottom:8px;letter-spacing:-1px}
+h1 span{color:var(--orange)}
+.sub{color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:40px}
+
+/* ── Status card ── */
+.status-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;margin-bottom:32px;position:relative;overflow:hidden}
+.status-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0,rgba(247,147,26,.06) 0,transparent 70%);pointer-events:none}
+
+.spinner{width:40px;height:40px;border:3px solid rgba(247,147,26,.2);border-top-color:var(--orange);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.status-icon{font-size:40px;margin-bottom:12px}
+.status-title{font-size:18px;font-weight:700;margin-bottom:6px}
+.status-desc{color:var(--muted);font-size:13px;margin-bottom:20px}
+
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;border:none;font-family:var(--font);text-decoration:none;transition:opacity .15s}
+.btn:hover{opacity:.85;text-decoration:none}
+.btn-primary{background:var(--orange);color:#000}
+.btn-ghost{background:rgba(247,147,26,.1);color:var(--orange);border:1px solid rgba(247,147,26,.3)}
+
+.port-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.port-chip{padding:4px 12px;border-radius:20px;font-size:11px;border:1px solid var(--border);color:var(--muted);cursor:pointer}
+.port-chip.active{border-color:var(--orange);color:var(--orange);background:rgba(247,147,26,.08)}
+.port-chip:hover{border-color:var(--orange);color:var(--orange)}
+
+/* ── Download section ── */
+.dl-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;text-align:left}
+.dl-section h2{font-size:16px;font-weight:700;margin-bottom:4px}
+.dl-section .desc{color:var(--muted);font-size:13px;margin-bottom:20px}
+
+.dl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
+.dl-btn{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.02);cursor:pointer;text-decoration:none;color:var(--text);transition:border-color .15s}
+.dl-btn:hover{border-color:var(--orange);color:var(--text);text-decoration:none}
+.dl-btn .os-icon{font-size:28px}
+.dl-btn .os-name{font-size:13px;font-weight:600}
+.dl-btn .os-sub{font-size:11px;color:var(--muted)}
+
+.divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:20px 0}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
+.code-block{background:#070a10;border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-size:12px;line-height:1.8;position:relative;text-align:left;overflow-x:auto}
+.hl{color:var(--orange)}
+.hlg{color:#64748b}
+.copy-btn{position:absolute;top:10px;right:10px;background:rgba(247,147,26,.15);color:var(--orange);border:1px solid rgba(247,147,26,.3);border-radius:5px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:var(--font)}
+.copy-btn:hover{background:rgba(247,147,26,.25)}
+
+.note{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="logo">₿TCPC</a>
+  <a href="/">Home</a>
+  <a href="/install">Install</a>
+  <a href="/dashboard">Explorer</a>
+  <div style="flex:1"></div>
+  <a href="/clock" style="color:var(--muted)">Browser clock →</a>
+</nav>
+
+<div class="page">
+  <img src="/btcpc-logo.jpeg" class="logo-big" alt="BTCPC">
+  <h1>My <span>Node</span></h1>
+  <p class="sub">Your node dashboard runs locally on your machine.<br>We'll check if it's already running, or get you set up in minutes.</p>
+
+  <!-- Detection card -->
+  <div class="status-card" id="status-card">
+    <div id="state-checking">
+      <div class="spinner"></div>
+      <div class="status-title">Checking for local node…</div>
+      <div class="status-desc">Trying ports 4242 and 4243</div>
+    </div>
+    <div id="state-found" style="display:none">
+      <div class="status-icon">✅</div>
+      <div class="status-title" style="color:var(--green)">Node is running!</div>
+      <div class="status-desc" id="found-desc">Found on port 4242</div>
+      <a id="open-btn" href="#" class="btn btn-primary" style="margin:0 auto;display:inline-flex">Open My Dashboard →</a>
+      <div class="port-row">
+        <div class="port-chip active" id="chip-4242" onclick="selectPort(4242)">:4242 local</div>
+        <div class="port-chip" id="chip-4243" onclick="selectPort(4243)">:4243 nebra</div>
+      </div>
+    </div>
+    <div id="state-notfound" style="display:none">
+      <div class="status-icon">⚫</div>
+      <div class="status-title">No node found</div>
+      <div class="status-desc">Start it or install it below — takes under 5 minutes.</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="recheck()">Check Again</button>
+        <a href="/install" class="btn btn-ghost">Install Guide →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download section -->
+  <div class="dl-section">
+    <h2>Desktop App</h2>
+    <p class="desc">The easiest way — installs the node, manages Ollama, and opens your dashboard automatically. No terminal required.</p>
+
+    <div class="dl-grid">
+      <a class="dl-btn" id="dl-win" href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC_x64-setup.exe">
+        <span class="os-icon">🪟</span>
+        <span class="os-name">Windows</span>
+        <span class="os-sub">x64 installer</span>
+      </a>
+      <a class="dl-btn" id="dl-mac-arm" href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC_aarch64.dmg">
+        <span class="os-icon">🍎</span>
+        <span class="os-name">macOS (Apple)</span>
+        <span class="os-sub">M1/M2/M3 .dmg</span>
+      </a>
+      <a class="dl-btn" id="dl-mac-intel" href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC_x64.dmg">
+        <span class="os-icon">🍎</span>
+        <span class="os-name">macOS (Intel)</span>
+        <span class="os-sub">x64 .dmg</span>
+      </a>
+      <a class="dl-btn" id="dl-linux" href="https://github.com/shindevlin/btcpc/releases/latest/download/btcpc_amd64.AppImage">
+        <span class="os-icon">🐧</span>
+        <span class="os-name">Linux</span>
+        <span class="os-sub">AppImage / .deb</span>
+      </a>
+    </div>
+
+    <div class="divider">or install from the terminal</div>
+
+    <div class="code-block">
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<span class="hlg"># Linux / macOS / Raspberry Pi — one line</span>
+curl -fsSL https://btcpc.net/install.sh | sudo bash
+
+<span class="hlg"># Then start your node</span>
+<span class="hl">BTCPC_ACCOUNT</span>=yourname btcpc-node
+    </div>
+    <p class="note">The node listens on port 4242. Once started, come back here and click "Check Again" — or bookmark <code style="color:var(--orange)">http://localhost:4242/app.html</code> directly.</p>
+
+    <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <a href="/install" class="btn btn-ghost" style="font-size:13px">Full install guide</a>
+        <a href="/android-install" class="btn btn-ghost" style="font-size:13px">Android APK</a>
+        <a href="/run-a-node" class="btn btn-ghost" style="font-size:13px">Run a node (advanced)</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var foundPort = null;
+var ports = [4242, 4243];
+
+async function checkPort(port) {
+  try {
+    var r = await fetch('http://localhost:' + port + '/health', {
+      method: 'GET', mode: 'cors', cache: 'no-store',
+      signal: AbortSignal.timeout(2500),
+    });
+    return r.ok;
+  } catch(e) {
+    return false;
+  }
+}
+
+async function detect() {
+  show('checking');
+  for (var i = 0; i < ports.length; i++) {
+    var ok = await checkPort(ports[i]);
+    if (ok) { foundPort = ports[i]; break; }
+  }
+  if (foundPort) {
+    document.getElementById('found-desc').textContent = 'Running on port ' + foundPort;
+    document.getElementById('open-btn').href = 'http://localhost:' + foundPort + '/app.html';
+    updateChips();
+    show('found');
+  } else {
+    show('notfound');
+  }
+}
+
+function selectPort(p) {
+  foundPort = p;
+  document.getElementById('open-btn').href = 'http://localhost:' + p + '/app.html';
+  document.getElementById('found-desc').textContent = 'Running on port ' + p;
+  updateChips();
+}
+
+function updateChips() {
+  ports.forEach(function(p) {
+    var el = document.getElementById('chip-' + p);
+    if (el) el.className = 'port-chip' + (p === foundPort ? ' active' : '');
+  });
+}
+
+function recheck() { detect(); }
+
+function show(state) {
+  ['checking','found','notfound'].forEach(function(s) {
+    document.getElementById('state-' + s).style.display = s === state ? '' : 'none';
+  });
+}
+
+function copyCode(btn) {
+  var code = btn.parentElement.textContent.replace('Copy','').trim();
+  navigator.clipboard.writeText(code).then(function() {
+    btn.textContent = 'Copied!';
+    setTimeout(function(){ btn.textContent = 'Copy'; }, 1800);
+  });
+}
+
+// Auto-detect OS and highlight the right download button
+(function() {
+  var ua = navigator.userAgent;
+  var id = 'dl-linux';
+  if (ua.includes('Win')) id = 'dl-win';
+  else if (ua.includes('Mac')) id = ua.includes('arm') || ua.includes('Apple') ? 'dl-mac-arm' : 'dl-mac-intel';
+  var el = document.getElementById(id);
+  if (el) { el.style.borderColor = 'var(--orange)'; el.style.background = 'rgba(247,147,26,.06)'; }
+})();
+
+detect();
+</script>
+</body>
+</html>
