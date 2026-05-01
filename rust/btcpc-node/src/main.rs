@@ -139,18 +139,32 @@ async fn main() -> Result<()> {
     }
 
     // Hardware anti-sybil: detect GPU serial / machine-id, submit HardwareClaim.
+    // If this machine's fingerprint is already claimed by a different account the node exits —
+    // one physical machine may only be tied to one BTCPC account.
     let hw = hardware::detect();
     if !hw.fingerprint.is_empty() {
         let hw_entry = LedgerEntry::HardwareClaim {
-            account:   cfg.account.clone(),
+            account:     cfg.account.clone(),
             fingerprint: hw.fingerprint.clone(),
-            hw_info:   hw.summary.clone(),
-            epoch:     chain.current_epoch(),
-            signed_by: cfg.account.clone(),
+            hw_info:     hw.summary.clone(),
+            epoch:       chain.current_epoch(),
+            signed_by:   cfg.account.clone(),
         };
         match chain.apply_entry(&hw_entry) {
-            Ok(_)  => info!("[hardware] fingerprint registered ({})", hw.summary),
-            Err(e) => warn!("[hardware] claim rejected: {}", e),
+            Ok(_) => info!("[hardware] fingerprint registered ({})", hw.summary),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("already claimed by account") {
+                    eprintln!(
+                        "btcpc-node: hardware conflict — this machine is registered to a \
+                         different account ({}). Only one BTCPC account per physical machine \
+                         is allowed.", msg
+                    );
+                    std::process::exit(1);
+                }
+                // Any other error (e.g. account not yet registered) is non-fatal.
+                warn!("[hardware] claim skipped: {}", msg);
+            }
         }
     } else {
         info!("[hardware] no identifiable hardware found — skipping hw claim");
