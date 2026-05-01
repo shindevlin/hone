@@ -18,6 +18,8 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_LOG_LEVEL           — tracing filter (default: btcpc_node=info)
     BTCPC_BOOTSTRAP_PEERS     — comma-separated multiaddrs for DHT bootstrap
     BTCPC_CHAIN_ID            — "btcpc-1" (mainnet) or "btcpc-satoshi" (testnet)
+    BTCPC_POSTING_KEY         — hex-encoded 32-byte ed25519 seed; node_id is derived from
+                                the public key and all clock seals are signed with it
 */
 
 mod api;
@@ -64,7 +66,15 @@ use store::Store;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cfg = Config::from_env();
+    let mut cfg = Config::from_env();
+
+    // Load posting key; derive node_id from pubkey so it is self-authenticating.
+    let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
+        cfg.posting_key.as_deref().and_then(load_signing_key)
+    );
+    if let Some(ref sk) = *signing_key {
+        cfg.node_id = hex::encode(sk.verifying_key().to_bytes());
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -234,6 +244,7 @@ async fn main() -> Result<()> {
         let clock_ref = clock.clone();
         let cmd_tx = net_handle.cmd_tx.clone();
         let node_id_c = cfg.node_id.clone();
+        let signing_key_c = Arc::clone(&signing_key);
         // Epoch is relative to genesis, not Unix epoch.
         // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
@@ -252,12 +263,17 @@ async fn main() -> Result<()> {
                         h.update(epoch.to_le_bytes());
                         hex::encode(h.finalize())
                     };
+                    let sig_hex = signing_key_c.as_ref().as_ref().map(|sk| {
+                        use ed25519_dalek::Signer;
+                        let msg = format!("seal:{}:{}:{}:{}", epoch, seal_hash, node_id_c, now);
+                        hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+                    });
                     let seal = serde_json::json!({
                         "epoch_number": epoch,
                         "node_id": node_id_c,
                         "timestamp": now,
                         "seal_hash": seal_hash,
-                        "signature": null,
+                        "signature": sig_hex,
                     });
                     // Self-ingest so we count toward quorum on single-node networks.
                     clock_ref.receive_seal(seal.clone());
@@ -1041,4 +1057,12 @@ async fn distribute_rewards_desktop<F>(
             let _ = cmd_tx.send(NetCmd::Broadcast { topic: "btcpc/entries", data }).await;
         }
     }
+}
+
+// ── Key helpers ───────────────────────────────────────────────────────────────
+
+fn load_signing_key(hex_seed: &str) -> Option<ed25519_dalek::SigningKey> {
+    let bytes = hex::decode(hex_seed.trim()).ok()?;
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    Some(ed25519_dalek::SigningKey::from_bytes(&arr))
 }

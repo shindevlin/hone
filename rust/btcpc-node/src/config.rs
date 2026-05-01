@@ -27,6 +27,10 @@ pub struct Config {
     /// Set via BTCPC_GENESIS_TIMESTAMP env var.
     /// Default: 1777633200000 = 2026-05-01 00:00:00 IST (midnight Ireland, UTC+1).
     pub genesis_timestamp: Option<u64>,
+    /// Hex-encoded 32-byte ed25519 seed for signing clock seals.
+    /// If set, node_id is derived from the public key so it is self-authenticating.
+    /// Set via BTCPC_POSTING_KEY env var.
+    pub posting_key: Option<String>,
 }
 
 impl Config {
@@ -86,6 +90,7 @@ impl Config {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1777633200000u64)
             ),
+            posting_key: std::env::var("BTCPC_POSTING_KEY").ok(),
         }
     }
 }

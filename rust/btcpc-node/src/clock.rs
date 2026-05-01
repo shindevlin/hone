@@ -208,6 +208,17 @@ impl ClockConsensus {
             }
         };
 
+        // Verify ed25519 signature when node_id is a hex public key (64 chars = 32 bytes).
+        // Nodes without a posting key use a plain string node_id and send signature=null — allowed.
+        if let Some(ref sig_hex) = parsed.signature {
+            if parsed.node_id.len() == 64 {
+                if !verify_seal_signature(&parsed, sig_hex) {
+                    warn!("[clock] rejected seal from {} — bad signature", parsed.node_id);
+                    return;
+                }
+            }
+        }
+
         let epoch = parsed.epoch_number;
 
         {
@@ -531,4 +542,34 @@ impl Inner {
             s.score = (s.score - 10).max(0);
         }
     }
+}
+
+// ── Seal signature verification ───────────────────────────────────────────────
+
+fn verify_seal_signature(seal: &EpochSeal, sig_hex: &str) -> bool {
+    use ed25519_dalek::{VerifyingKey, Verifier};
+
+    let pk_bytes = match hex::decode(&seal.node_id) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let arr: [u8; 32] = match pk_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let vk = match VerifyingKey::from_bytes(&arr) {
+        Ok(k) => k,
+        Err(_) => return false,
+    };
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+    let msg = format!("seal:{}:{}:{}:{}", seal.epoch_number, seal.seal_hash, seal.node_id, seal.timestamp);
+    vk.verify(msg.as_bytes(), &sig).is_ok()
 }
