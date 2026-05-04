@@ -51,6 +51,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         // ── GET endpoints ────────────────────────────────────────────────
+        .route("/api/accounts", get(get_all_accounts))
         .route("/api/balance/:account", get(get_balance))
         .route("/api/balances/:account", get(get_all_balances))
         .route("/api/account/:account", get(get_account))
@@ -86,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/inference/cancel", post(post_inference_cancel))
         .route("/api/inference/jobs", get(get_inference_jobs))
         .route("/api/inference/job/:id", get(get_inference_job))
+        .route("/api/inference/job/:id/io", get(get_inference_job_io))
         .route("/api/inference/reputation/:node", get(get_inference_reputation))
         // ── Public onboarding agent (no auth, rate-limited) ──────────────
         .route("/public/agent-chat", post(post_agent_chat))
@@ -230,6 +232,34 @@ async fn get_account(
 //      → returns a challenge string to sign with the external wallet
 //   2. POST /api/account/verify-chain
 //      → submits signature + pre-computed commitment; node verifies and records
+
+// GET /api/accounts — list all on-chain accounts with balances and key slots.
+// Used for genesis export before a state wipe.
+async fn get_all_accounts(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let ids = s.chain.store.scan_account_ids();
+    let mut accounts = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let keys = s.chain.store.get_account(id)
+            .ok().flatten()
+            .and_then(|d| d.get("keys").cloned())
+            .unwrap_or_default();
+        let balances = s.chain.store.scan_balances(id);
+        let balance_map: serde_json::Value = balances.into_iter()
+            .filter(|(_, v)| *v > 0)
+            .map(|(token, amount)| (token, serde_json::json!(amount)))
+            .collect::<serde_json::Map<_, _>>()
+            .into();
+        accounts.push(serde_json::json!({
+            "account": id,
+            "keys": keys,
+            "balances": balance_map,
+        }));
+    }
+    Json(serde_json::json!({
+        "count": accounts.len(),
+        "accounts": accounts,
+    }))
+}
 
 /// Step 1: generate a short-lived challenge for the user to sign with their external wallet.
 ///
@@ -1441,6 +1471,25 @@ async fn get_inference_job(
         }
         None => Err(StatusCode::NOT_FOUND),
     }
+}
+
+// GET /api/inference/job/:id/io — exposes input/output text so remote verifiers can assess quality
+async fn get_inference_job_io(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let input = s.chain.store.state_get(&format!("infer_input:{}", id))
+        .and_then(|b| String::from_utf8(b).ok());
+    let output = s.chain.store.state_get(&format!("infer_output:{}", id))
+        .and_then(|b| String::from_utf8(b).ok());
+    if input.is_none() && output.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Json(serde_json::json!({
+        "job_id": id,
+        "input_text": input,
+        "output_text": output,
+    })))
 }
 
 // GET /api/inference/reputation/:node

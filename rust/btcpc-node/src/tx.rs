@@ -1201,12 +1201,11 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "nonce": nonce,
             })
         }
-        LedgerEntry::InferenceJobPost { requester, job_id, model, max_fee, nonce, .. } =>
+        LedgerEntry::InferenceJobPost { requester, model, max_fee, nonce, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
                 "type": "INFERENCE_JOB_POST",
                 "requester": requester,
-                "job_id": job_id,
                 "model": model,
                 "max_fee": max_fee,
                 "nonce": nonce,

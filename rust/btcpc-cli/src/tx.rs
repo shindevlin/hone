@@ -36,8 +36,9 @@ pub fn cmd_transfer(
     let key_path = resolve_key_file(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, from)?;
+    let chain_id = node_chain_id(&api)?;
 
-    let sig = sign_transfer(&keypair, from, to, amount, "BTCPC", nonce);
+    let sig = sign_transfer(&keypair, &chain_id, from, to, amount, "BTCPC", nonce);
 
     let body = json!({
         "from": from,
@@ -63,8 +64,9 @@ pub fn cmd_stake_add(account: &str, amount: u64, key_file: Option<&Path>) -> Res
     let key_path = resolve_key_file(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
+    let chain_id = node_chain_id(&api)?;
 
-    let sig = sign_stake(&keypair, account, amount, nonce);
+    let sig = sign_stake(&keypair, &chain_id, account, amount, nonce);
 
     let body = json!({
         "account": account,
@@ -87,8 +89,9 @@ pub fn cmd_stake_remove(account: &str, amount: u64, key_file: Option<&Path>) -> 
     let key_path = resolve_key_file(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
+    let chain_id = node_chain_id(&api)?;
 
-    let sig = sign_unstake(&keypair, account, amount, nonce);
+    let sig = sign_unstake(&keypair, &chain_id, account, amount, nonce);
 
     let body = json!({
         "account": account,
@@ -152,10 +155,19 @@ fn next_nonce(api: &ApiClient, account: &str) -> Result<u64> {
         .ok_or_else(|| anyhow!("nonce overflow for account '{}'", account))
 }
 
+fn node_chain_id(api: &ApiClient) -> Result<String> {
+    let info: Value = api.get("/api/node/info")?;
+    info.get("chain_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("node info missing chain_id"))
+}
+
 /// Build and sign the canonical message that the node's check_signature verifies.
-/// Field names and order must exactly match `tx::canonical_signing_message`.
-fn sign_transfer(keypair: &KeyPair, from: &str, to: &str, amount: u64, token: &str, nonce: u64) -> String {
+/// Field order is BTreeMap alphabetical — must exactly match `tx::canonical_signing_message`.
+fn sign_transfer(keypair: &KeyPair, chain_id: &str, from: &str, to: &str, amount: u64, token: &str, nonce: u64) -> String {
     let msg = serde_json::to_string(&serde_json::json!({
+        "chain_id": chain_id,
         "type": "TRANSFER",
         "from": from,
         "to": to,
@@ -166,8 +178,9 @@ fn sign_transfer(keypair: &KeyPair, from: &str, to: &str, amount: u64, token: &s
     keypair.sign_entry_json(&msg)
 }
 
-fn sign_stake(keypair: &KeyPair, account: &str, amount: u64, nonce: u64) -> String {
+fn sign_stake(keypair: &KeyPair, chain_id: &str, account: &str, amount: u64, nonce: u64) -> String {
     let msg = serde_json::to_string(&serde_json::json!({
+        "chain_id": chain_id,
         "type": "STAKE",
         "account": account,
         "amount": amount,
@@ -176,8 +189,9 @@ fn sign_stake(keypair: &KeyPair, account: &str, amount: u64, nonce: u64) -> Stri
     keypair.sign_entry_json(&msg)
 }
 
-fn sign_unstake(keypair: &KeyPair, account: &str, amount: u64, nonce: u64) -> String {
+fn sign_unstake(keypair: &KeyPair, chain_id: &str, account: &str, amount: u64, nonce: u64) -> String {
     let msg = serde_json::to_string(&serde_json::json!({
+        "chain_id": chain_id,
         "type": "UNSTAKE",
         "account": account,
         "amount": amount,

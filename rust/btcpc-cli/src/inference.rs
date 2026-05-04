@@ -26,6 +26,14 @@ fn next_nonce(api: &ApiClient, account: &str) -> Result<u64> {
     current.checked_add(1).ok_or_else(|| anyhow!("nonce overflow"))
 }
 
+fn node_chain_id(api: &ApiClient) -> Result<String> {
+    let info: Value = api.get("/api/node/info")?;
+    info.get("chain_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("node info missing chain_id"))
+}
+
 /// Hash the input string to produce an input_hash for the job.
 fn hash_input(input: &str) -> String {
     use sha2::Digest;
@@ -60,12 +68,14 @@ pub fn cmd_post(
     let key_path = resolve_key(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
+    let chain_id = node_chain_id(&api)?;
     let input_hash = hash_input(input);
 
+    // job_id is excluded: server derives it from requester+nonce+epoch; nonce prevents replay.
     let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
         "type": "INFERENCE_JOB_POST",
         "requester": account,
-        "job_id": "",  // server generates job_id; client signs intent
         "model": model,
         "max_fee": max_fee,
         "nonce": nonce,
@@ -154,8 +164,10 @@ pub fn cmd_bid(
     let key_path = resolve_key(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
+    let chain_id = node_chain_id(&api)?;
 
     let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
         "type": "INFERENCE_JOB_BID",
         "bidder": account,
         "job_id": job_id,
@@ -191,8 +203,10 @@ pub fn cmd_complete(
     let api = ApiClient::new();
     let key_path = resolve_key(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
+    let chain_id = node_chain_id(&api)?;
 
     let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
         "type": "INFERENCE_JOB_COMPLETE",
         "worker": account,
         "job_id": job_id,
@@ -224,8 +238,10 @@ pub fn cmd_cancel(
     let key_path = resolve_key(key_file)?;
     let keypair = KeyPair::from_file(&key_path)?;
     let nonce = next_nonce(&api, account)?;
+    let chain_id = node_chain_id(&api)?;
 
     let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
         "type": "INFERENCE_JOB_CANCEL",
         "cancelled_by": account,
         "job_id": job_id,

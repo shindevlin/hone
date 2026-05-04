@@ -20,6 +20,9 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_CHAIN_ID            — "btcpc-1" (mainnet) or "btcpc-satoshi" (testnet)
     BTCPC_POSTING_KEY         — hex-encoded 32-byte ed25519 seed; node_id is derived from
                                 the public key and all clock seals are signed with it
+    BTCPC_STORAGE             — "true" to emit StorageHeartbeat each epoch (earns StorageReward)
+    BTCPC_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
+    BTCPC_SENSOR              — "true" to emit SensorDataCommit each epoch (earns SensorReward)
 */
 
 mod api;
@@ -35,6 +38,9 @@ mod inference;
 mod inference_daemon;
 mod miner;
 mod reserved_names;
+mod sensor;
+mod services;
+mod storage;
 mod worker;
 mod net;
 mod sim;
@@ -419,6 +425,45 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Storage node (StorageHeartbeat each epoch) ───────────────────────────
+    // BTCPC_STORAGE=true: proves bytes on disk each epoch, earns StorageReward.
+    if std::env::var("BTCPC_STORAGE").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref   = chain.clone();
+        let account     = cfg.account.clone();
+        let data_dir    = cfg.data_dir.clone();
+        let genesis_ts  = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_storage = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            storage::run_storage_node(chain_ref, account, data_dir, genesis_ts, cmd_storage).await;
+        });
+    }
+
+    // ── Service node (ServiceHeartbeat each epoch) ───────────────────────────
+    // BTCPC_SERVICE=true: proves active container-hours, earns ServiceReward.
+    // Covers general service nodes; LinkGit storage nodes set this flag too.
+    if std::env::var("BTCPC_SERVICE").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref   = chain.clone();
+        let account     = cfg.account.clone();
+        let genesis_ts  = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_service = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            services::run_service_node(chain_ref, account, genesis_ts, cmd_service).await;
+        });
+    }
+
+    // ── Sensor node (SensorDataCommit each epoch) ────────────────────────────
+    // BTCPC_SENSOR=true: reads system sensors (CPU temp, uptime) and submits
+    // SensorDataCommit each epoch, earning SensorReward.
+    if std::env::var("BTCPC_SENSOR").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref  = chain.clone();
+        let account    = cfg.account.clone();
+        let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_sensor = net_handle.cmd_tx.clone();
+        tokio::spawn(async move {
+            sensor::run_sensor_node(chain_ref, account, genesis_ts, cmd_sensor).await;
+        });
+    }
+
     // ── Worker (inference marketplace participant) ────────────────────────────
     // BTCPC_WORKER=true: watches the chain for posted inference jobs, bids on
     // them, calls Ollama when awarded, and submits InferenceJobComplete.
@@ -642,6 +687,17 @@ async fn run_inference_verifier(
     let local_model = std::env::var("BTCPC_MODEL")
         .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
 
+    // Peers to try when IO text is not stored locally (worker node has the actual output).
+    let peer_apis: Vec<String> = std::env::var("BTCPC_PEER_APIS")
+        .unwrap_or_else(|_| "http://192.168.68.72:4242,http://192.168.68.75:4242".to_owned())
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+
+    let http = reqwest::Client::new();
+
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
 
@@ -657,24 +713,42 @@ async fn run_inference_verifier(
             // Only verify completed jobs from other nodes.
             if job.winner.as_deref() == Some(account.as_str()) { continue; }
             if job.status != inference::JobStatus::Completed { continue; }
-            if job.model != local_model { continue; }
 
             let job_id = &job.job_id;
             let verdict_key = format!("infer_verdict:{}:{}", job_id, account);
             if chain.store.state_get(&verdict_key).is_some() { continue; }
 
-            // Need both the original request and the submitted output to judge quality.
-            let input_text = match chain.store.state_get(&format!("infer_input:{}", job_id))
-                .and_then(|b| String::from_utf8(b).ok())
-            {
-                Some(t) => t,
-                None => continue, // can't assess without the actual input
-            };
-            let output_text = match chain.store.state_get(&format!("infer_output:{}", job_id))
-                .and_then(|b| String::from_utf8(b).ok())
-            {
-                Some(t) => t,
-                None => continue, // can't assess without the actual output
+            // Fetch IO text: check local store first, then fall back to peer APIs.
+            let (input_text, output_text) = {
+                let local_in = chain.store.state_get(&format!("infer_input:{}", job_id))
+                    .and_then(|b| String::from_utf8(b).ok());
+                let local_out = chain.store.state_get(&format!("infer_output:{}", job_id))
+                    .and_then(|b| String::from_utf8(b).ok());
+
+                if local_in.is_some() && local_out.is_some() {
+                    (local_in.unwrap(), local_out.unwrap())
+                } else {
+                    let mut fetched_in = local_in;
+                    let mut fetched_out = local_out;
+                    for peer in &peer_apis {
+                        if fetched_in.is_some() && fetched_out.is_some() { break; }
+                        let url = format!("{}/api/inference/job/{}/io", peer, job_id);
+                        if let Ok(r) = http.get(&url).timeout(Duration::from_secs(10)).send().await {
+                            if let Ok(body) = r.json::<serde_json::Value>().await {
+                                if fetched_in.is_none() {
+                                    fetched_in = body["input_text"].as_str().map(str::to_owned);
+                                }
+                                if fetched_out.is_none() {
+                                    fetched_out = body["output_text"].as_str().map(str::to_owned);
+                                }
+                            }
+                        }
+                    }
+                    match (fetched_in, fetched_out) {
+                        (Some(i), Some(o)) => (i, o),
+                        _ => continue,
+                    }
+                }
             };
 
             // Ask the local model to evaluate whether the work was done.
@@ -686,8 +760,7 @@ async fn run_inference_verifier(
                 output_text.chars().take(512).collect::<String>(),
             );
 
-            let client = reqwest::Client::new();
-            let resp = client
+            let resp = http
                 .post(format!("{}/api/generate", ollama_url))
                 .timeout(Duration::from_secs(30))
                 .json(&serde_json::json!({

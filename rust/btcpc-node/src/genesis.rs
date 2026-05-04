@@ -23,6 +23,36 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
         let data = chain.store.read_block(0)?.expect("genesis exists");
         let block = Block::from_bytes(&data).expect("genesis parseable");
         info!("existing genesis: {}", block.header.hash_hex());
+
+        // Enforce chain_id consistency. If not yet stamped (legacy DB), stamp it now.
+        // If stamped and mismatching, refuse to start — prevents accidental cross-chain DB reuse.
+        match chain.store.get_meta("chain_id") {
+            Some(stored) => {
+                let stored_id = String::from_utf8_lossy(&stored);
+                if stored_id != chain.chain_id.as_str() {
+                    // Allow one-time re-stamp when explicitly migrating a DB to a new chain_id.
+                    // Set BTCPC_CHAIN_ID_MIGRATION=1 for a single restart, then remove it.
+                    if std::env::var("BTCPC_CHAIN_ID_MIGRATION").is_ok() {
+                        chain.store.set_meta("chain_id", chain.chain_id.as_bytes())?;
+                        info!("chain_id migrated: '{}' → '{}'", stored_id, chain.chain_id);
+                    } else {
+                        eprintln!(
+                            "btcpc-node: chain_id mismatch — this database was initialized as '{}' \
+                             but BTCPC_CHAIN_ID='{}'. Use a separate BTCPC_DATA_DIR for each chain. \
+                             To migrate deliberately, set BTCPC_CHAIN_ID_MIGRATION=1 for one restart.",
+                            stored_id, chain.chain_id
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            None => {
+                // Legacy DB without stored chain_id — stamp it now.
+                chain.store.set_meta("chain_id", chain.chain_id.as_bytes())?;
+                info!("chain_id '{}' stamped into existing database", chain.chain_id);
+            }
+        }
+
         return Ok(block);
     }
 
@@ -132,6 +162,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
     let block = Block { header, payload };
     chain.store.write_block(0, &block.to_bytes())?;
     chain.store.set_meta("genesis_hash", block.header.hash_hex().as_bytes())?;
+    chain.store.set_meta("chain_id", chain.chain_id.as_bytes())?;
     chain.store.set_meta("launch_proclamation", b"Launched at midnight, Ireland, 2026-05-01 00:00:00 IST")?;
 
     info!("genesis created: {}", block.header.hash_hex());
