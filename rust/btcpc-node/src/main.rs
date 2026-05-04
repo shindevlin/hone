@@ -545,6 +545,13 @@ async fn main() -> Result<()> {
                                     // System entries (rewards, seals) are generated locally
                                     // on epoch seal — silently drop if received via gossip.
                                     tracing::trace!("ignoring gossiped system entry");
+                                } else if matches!(e, btcpc_types::LedgerEntry::Mine { .. }) {
+                                    // Mine entries must be in every node's DB before reward
+                                    // hash is computed at epoch seal. Apply directly so the
+                                    // reward consensus hash matches across all nodes.
+                                    if let Err(err) = chain_ref.apply_entry(&e) {
+                                        tracing::debug!("gossip Mine apply failed: {}", err);
+                                    }
                                 } else {
                                     // User entries go into the pending pool and are applied
                                     // at epoch seal in deterministic hash order across all nodes.

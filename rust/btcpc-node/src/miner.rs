@@ -31,7 +31,11 @@ pub async fn run_miner(
         tokio::time::sleep(Duration::from_millis(wait)).await;
     }
 
-    let mut last_produced: u64 = chain.store.latest_epoch().unwrap_or(0);
+    // Start from the current time-based epoch so Mine entries land where the
+    // clock seals, not sequentially from 0 after a state wipe.
+    let elapsed = now_ms().saturating_sub(genesis_ts);
+    let time_epoch = elapsed / EPOCH_MS;
+    let mut last_produced: u64 = time_epoch.saturating_sub(1);
 
     loop {
         let next_epoch = last_produced + 1;
