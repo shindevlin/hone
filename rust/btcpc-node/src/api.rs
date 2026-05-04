@@ -55,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/balance/:account", get(get_balance))
         .route("/api/balances/:account", get(get_all_balances))
         .route("/api/account/:account", get(get_account))
+        .route("/api/account/:account/history", get(get_account_history))
         .route("/api/block/:epoch", get(get_block))
         .route("/api/latest", get(get_latest))
         .route("/api/stake/:account", get(get_stake))
@@ -222,6 +223,50 @@ async fn get_account(
         "chains_proven":  proven_chains,      // which external chains, no addresses
         "nonce":          data["nonce"],
         "stake":          data["stake"],
+    })))
+}
+
+// GET /api/account/:account/history — full on-chain transaction history for an account.
+// Scans the txhist: index written by chain::index_tx_history on every apply_entry.
+// Query params: ?limit=N (default 200, max 1000), ?before_epoch=E
+async fn get_account_history(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if s.chain.store.get_account(&account).ok().flatten().is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(200).min(1000);
+    let before_epoch: u64 = params.get("before_epoch").and_then(|v| v.parse().ok())
+        .unwrap_or(u64::MAX);
+
+    let prefix = format!("txhist:{}:", account);
+    let mut entries: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(key, val)| {
+            // Key format: txhist:{account}:{epoch:016x}:{role}:{hash}
+            let epoch_hex = key.split(':').nth(2)?;
+            let epoch = u64::from_str_radix(epoch_hex, 16).ok()?;
+            if epoch >= before_epoch { return None; }
+            let mut rec: serde_json::Value = serde_json::from_slice(&val).ok()?;
+            rec["_epoch"] = serde_json::json!(epoch);
+            let role = key.split(':').nth(3).unwrap_or("").to_owned();
+            rec["_role"] = serde_json::json!(role);
+            Some(rec)
+        })
+        .collect();
+
+    // Sort descending by epoch (most recent first).
+    entries.sort_by(|a, b| b["_epoch"].as_u64().unwrap_or(0).cmp(&a["_epoch"].as_u64().unwrap_or(0)));
+    entries.truncate(limit);
+
+    Ok(Json(serde_json::json!({
+        "account": account,
+        "count": entries.len(),
+        "entries": entries,
     })))
 }
 

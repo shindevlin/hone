@@ -173,6 +173,60 @@ impl Chain {
         }
     }
 
+    /// Persist a tx-history record for every account touched by a balance-affecting entry.
+    /// Key: `txhist:{account}:{epoch:016x}:{type_tag}:{hash[:8]}` — lexicographic order = chronological.
+    fn index_tx_history(&self, entry: &LedgerEntry) {
+        use std::collections::BTreeMap;
+        let epoch = entry.epoch();
+        let entry_hash = entry.hash();
+        let key_prefix = &entry_hash[..8.min(entry_hash.len())];
+
+        // Build list of (account, role) pairs that had a balance event.
+        let mut touched: Vec<(String, &'static str)> = Vec::new();
+        match entry {
+            LedgerEntry::Transfer { from, to, .. } => {
+                touched.push((from.clone(), "sender"));
+                touched.push((to.clone(), "recipient"));
+            }
+            LedgerEntry::GenesisAlloc { account, .. } => touched.push((account.clone(), "genesis")),
+            LedgerEntry::MineReward { miner, .. } => touched.push((miner.clone(), "mine_reward")),
+            LedgerEntry::ClockReward { node_id, .. } => touched.push((node_id.clone(), "clock_reward")),
+            LedgerEntry::StorageReward { node_id, .. } => touched.push((node_id.clone(), "storage_reward")),
+            LedgerEntry::ServiceReward { node_id, .. } => touched.push((node_id.clone(), "service_reward")),
+            LedgerEntry::SensorReward { node_id, .. } => touched.push((node_id.clone(), "sensor_reward")),
+            LedgerEntry::VerifierReward { node_id, .. } => touched.push((node_id.clone(), "verify_reward")),
+            LedgerEntry::InferenceJobPay { worker, verifier_payments, .. } => {
+                touched.push((worker.clone(), "inference_fee"));
+                for (v, _) in verifier_payments {
+                    touched.push((v.clone(), "verifier_fee"));
+                }
+            }
+            LedgerEntry::Stake { account, .. } => touched.push((account.clone(), "stake")),
+            LedgerEntry::Unstake { account, .. } => touched.push((account.clone(), "unstake")),
+            _ => {}
+        }
+
+        if touched.is_empty() { return; }
+
+        // Derive entry type from the first key of the JSON object.
+        let entry_json = serde_json::to_value(entry).unwrap_or_default();
+        let entry_type = entry_json.as_object()
+            .and_then(|m| m.keys().next())
+            .map(String::as_str)
+            .unwrap_or("unknown");
+
+        let record = serde_json::to_vec(&serde_json::json!({
+            "epoch": epoch,
+            "type": entry_type,
+            "entry": entry,
+        })).unwrap_or_default();
+
+        for (account, role) in touched {
+            let key = format!("txhist:{}:{:016x}:{}:{}", account, epoch, role, key_prefix);
+            let _ = self.store.state_set(&key, &record);
+        }
+    }
+
     /// Apply a single ledger entry to state. Returns Ok(()) or a validation error.
     pub fn apply_entry(&self, entry: &LedgerEntry) -> Result<()> {
         match entry {
@@ -1191,6 +1245,7 @@ impl Chain {
 
         }
 
+        self.index_tx_history(entry);
         Ok(())
     }
 

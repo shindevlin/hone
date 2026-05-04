@@ -353,8 +353,14 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     if job.status != JobStatus::Completed {
         bail!("job '{}' not in completed state for verification", job_id);
     }
-    if !job.verifiers.contains(verifier) {
+    // If verifiers were pre-assigned (via bid), only they may verify.
+    // If none were assigned, any node may verify (open verification).
+    if !job.verifiers.is_empty() && !job.verifiers.contains(verifier) {
         bail!("'{}' is not an assigned verifier for job '{}'", verifier, job_id);
+    }
+    // Register this verifier if not already tracked.
+    if !job.verifiers.contains(verifier) {
+        job.verifiers.push(verifier.clone());
     }
 
     match verdict.as_str() {

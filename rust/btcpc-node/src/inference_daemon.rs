@@ -24,12 +24,16 @@ pub async fn run(chain: Arc<Chain>) {
     }
 }
 
+/// Grace period (epochs) before a completed-but-unverified job auto-settles.
+const VERIFICATION_GRACE_EPOCHS: u64 = 20;
+
 fn process_epoch(chain: &Chain, current_epoch: u64) {
     award_pending_jobs(chain, current_epoch);
     expire_stale_claims(chain, current_epoch);
     expire_stale_jobs(chain, current_epoch);
     pay_verified_jobs(chain, current_epoch);
     pay_resolved_disputes(chain, current_epoch);
+    auto_settle_unverified(chain, current_epoch);
 }
 
 /// Award jobs whose bid window has closed.
@@ -161,6 +165,35 @@ fn pay_resolved_disputes(chain: &Chain, current_epoch: u64) {
                 warn!("dispute pay failed for job {}: {}", job.job_id, e);
             } else {
                 info!("inference job {} paid (dispute resolved: {:?})", job.job_id, job.status);
+            }
+        }
+    }
+}
+
+/// Auto-settle Completed jobs that received no verification within VERIFICATION_GRACE_EPOCHS.
+/// Worker still gets paid; verifier pool is recycled.
+fn auto_settle_unverified(chain: &Chain, current_epoch: u64) {
+    let unverified: Vec<_> = chain.store.state_scan_prefix("infer_job:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<inference::JobState>(&v).ok())
+        .filter(|j| {
+            j.status == inference::JobStatus::Completed
+                && j.verifiers.is_empty()
+                && j.latency_ms.is_some() // must have actually completed
+        })
+        .collect();
+
+    for job in unverified {
+        // Grace period: VERIFICATION_GRACE_EPOCHS after the deadline.
+        if current_epoch < job.deadline_epoch + VERIFICATION_GRACE_EPOCHS {
+            continue;
+        }
+        let verifiers = job.verifiers.clone();
+        if let Some(pay) = inference::build_pay_entry_happy(&job, &verifiers, current_epoch) {
+            if let Err(e) = chain.apply_entry(&pay) {
+                warn!("auto-settle pay failed for job {}: {}", job.job_id, e);
+            } else {
+                info!("inference job {} auto-settled (no verifiers in grace period)", job.job_id);
             }
         }
     }
