@@ -3,6 +3,7 @@ mod chain;
 mod contract;
 mod inference;
 mod key;
+mod session;
 mod tx;
 mod wallet;
 
@@ -131,6 +132,25 @@ enum Commands {
         #[command(subcommand)]
         action: InferenceCommands,
     },
+
+    /// Sign in with a key file — saves session to ~/.btcpc/session.json
+    Login {
+        /// Account name to associate with this session
+        #[arg(long)]
+        account: String,
+        /// Path to key file (default: ~/.btcpc/key.json)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+        /// Node URL (default: http://localhost:4242)
+        #[arg(long)]
+        node_url: Option<String>,
+    },
+
+    /// Clear the saved session
+    Logout,
+
+    /// Show the currently active session
+    Whoami,
 }
 
 #[derive(Subcommand)]
@@ -448,8 +468,61 @@ fn run() -> Result<()> {
                 wallet::cmd_wallet_publish(wallet_file.as_deref(), &mnemonic)?;
             }
         },
+
+        Commands::Login { account, key_file, node_url } => {
+            cmd_login(&account, key_file.as_deref(), node_url.as_deref())?;
+        }
+        Commands::Logout => {
+            cmd_logout()?;
+        }
+        Commands::Whoami => {
+            cmd_whoami()?;
+        }
     }
 
+    Ok(())
+}
+
+fn cmd_login(account: &str, key_file: Option<&std::path::Path>, node_url: Option<&str>) -> Result<()> {
+    use colored::Colorize;
+    let key_path = session::resolve_key_file(key_file, None)?;
+    // verify the key file is readable
+    btcpc_sdk::KeyPair::from_file(&key_path)
+        .map_err(|e| anyhow::anyhow!("cannot read key file {}: {}", key_path.display(), e))?;
+
+    let sess = session::Session {
+        account: account.to_owned(),
+        key_file: key_path.clone(),
+        node_url: node_url.unwrap_or("http://localhost:4242").to_owned(),
+    };
+    session::save(&sess)?;
+    println!("{}", "Logged in.".green().bold());
+    println!("{} {}", "Account:".bold(), sess.account);
+    println!("{} {}", "Key file:".bold(), sess.key_file.display());
+    println!("{} {}", "Node:".bold(), sess.node_url);
+    Ok(())
+}
+
+fn cmd_logout() -> Result<()> {
+    use colored::Colorize;
+    session::clear()?;
+    println!("{}", "Session cleared.".green().bold());
+    Ok(())
+}
+
+fn cmd_whoami() -> Result<()> {
+    use colored::Colorize;
+    match session::load() {
+        Some(s) => {
+            println!("{} {}", "Account:".bold(), s.account);
+            println!("{} {}", "Key file:".bold(), s.key_file.display());
+            println!("{} {}", "Node:".bold(), s.node_url);
+        }
+        None => {
+            println!("{}", "Not logged in.".yellow());
+            println!("Run: btcpc login --account <name> [--key-file <path>] [--node-url <url>]");
+        }
+    }
     Ok(())
 }
 

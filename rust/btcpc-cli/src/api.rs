@@ -11,8 +11,10 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new() -> Self {
-        let base_url = env::var("BTCPC_API_URL")
-            .unwrap_or_else(|_| "http://localhost:4242".to_string());
+        let base_url = env::var("BTCPC_API_URL").ok()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| crate::session::load().map(|s| s.node_url))
+            .unwrap_or_else(|| "http://localhost:4242".to_string());
         Self {
             base_url,
             client: Client::new(),

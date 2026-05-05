@@ -1,0 +1,20 @@
+[package]
+name = "btcpc-gui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "BTCPC native desktop GUI"
+
+[[bin]]
+name = "btcpc-gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+egui = "0.34"
+egui_tiles = { version = "0.15", features = ["serde"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+glow = "0.17"

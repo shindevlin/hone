@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use crate::api::ApiClient;
+use crate::session;
 
 fn print_result(resp: &Value) {
     // Try to display a useful confirmation message
@@ -127,20 +128,7 @@ pub fn cmd_account_create(account: &str, pubkey: Option<&str>) -> Result<()> {
 }
 
 fn resolve_key_file(key_file: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = key_file {
-        return Ok(path.to_path_buf());
-    }
-
-    if let Ok(path) = std::env::var("BTCPC_KEY_FILE") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-
-    Err(anyhow!(
-        "missing key file: pass --key-file <path> or set BTCPC_KEY_FILE"
-    ))
+    session::resolve_key_file(key_file, session::load().as_ref())
 }
 
 fn next_nonce(api: &ApiClient, account: &str) -> Result<u64> {
