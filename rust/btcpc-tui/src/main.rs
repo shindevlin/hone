@@ -236,10 +236,12 @@ fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
             }
         }
 
-        // Inference (posting key is sufficient)
+        // Inference job posting locks max_fee — requires active key
         (KeyCode::Char('n'), _) if app.tab == 3 => {
-            if app.session.is_some() {
-                app.mode = Mode::PostJobForm(PostJobState::new());
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::PostJobForm(PostJobState::new()),
+                Some(_) => app.status_msg = "Posting inference jobs requires the active key (tokens are committed)".into(),
+                None => {}
             }
         }
 
