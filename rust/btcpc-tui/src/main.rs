@@ -4,7 +4,7 @@ mod sign;
 mod ui;
 
 use anyhow::Result;
-use app::{Mode, PostJobState, StakeAction, StakeState, TransferState};
+use app::{LoginState, Mode, PostJobState, StakeAction, StakeState, TransferState};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -42,6 +42,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         if event::poll(std::time::Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 match &app.mode.clone() {
+                    Mode::Login(_) => {
+                        if handle_login_keys(key, &mut app) {
+                            break;
+                        }
+                    }
                     Mode::Normal => {
                         if handle_normal_keys(key, &mut app) {
                             break;
@@ -67,6 +72,66 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
     }
 
     Ok(())
+}
+
+/// Returns true if the loop should break (quit).
+fn handle_login_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
+        KeyCode::Tab | KeyCode::Down => advance_field(app, 1),
+        KeyCode::BackTab | KeyCode::Up => advance_field(app, -1),
+        KeyCode::Backspace => pop_current_field(app),
+        KeyCode::Enter => submit_login(app),
+        KeyCode::Char(c) => {
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+            {
+                push_current_field(app, c);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+fn submit_login(app: &mut app::App) {
+    let (account, key_file_str, node_url) = match &app.mode {
+        Mode::Login(s) => (s.account.trim().to_owned(), s.key_file.trim().to_owned(), s.node_url.trim().to_owned()),
+        _ => return,
+    };
+
+    if account.is_empty() {
+        if let Mode::Login(s) = &mut app.mode { s.error = Some("Account name is required".into()); }
+        return;
+    }
+
+    let key_path = std::path::PathBuf::from(&key_file_str);
+    match btcpc_sdk::KeyPair::from_file(&key_path) {
+        Err(e) => {
+            if let Mode::Login(s) = &mut app.mode {
+                s.error = Some(format!("Cannot read key file: {}", e));
+            }
+            return;
+        }
+        Ok(_) => {}
+    }
+
+    let node_url = if node_url.is_empty() { "http://localhost:4242".to_owned() } else { node_url };
+    let session = app::Session {
+        account: account.clone(),
+        key_file: key_path,
+        node_url: node_url.clone(),
+    };
+    if let Err(e) = app::save_session(&session) {
+        if let Mode::Login(s) = &mut app.mode {
+            s.error = Some(format!("Failed to save session: {}", e));
+        }
+        return;
+    }
+
+    app.session = Some(session);
+    app.mode = Mode::Normal;
+    app.refresh();
 }
 
 /// Returns true if the loop should break (quit).
@@ -151,6 +216,10 @@ fn handle_form_keys(key: event::KeyEvent, app: &mut app::App) {
 
 fn advance_field(app: &mut app::App, delta: i32) {
     match &mut app.mode {
+        Mode::Login(s) => {
+            let count = LoginState::field_count() as i32;
+            s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
+        }
         Mode::TransferForm(s) => {
             let count = TransferState::field_count() as i32;
             s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
@@ -169,18 +238,20 @@ fn advance_field(app: &mut app::App, delta: i32) {
 
 fn pop_current_field(app: &mut app::App) {
     match &mut app.mode {
+        Mode::Login(s)        => { s.current_field_mut().pop(); }
         Mode::TransferForm(s) => { s.current_field_mut().pop(); }
-        Mode::StakeForm(s) => { s.current_field_mut().pop(); }
-        Mode::PostJobForm(s) => { s.current_field_mut().pop(); }
+        Mode::StakeForm(s)    => { s.current_field_mut().pop(); }
+        Mode::PostJobForm(s)  => { s.current_field_mut().pop(); }
         _ => {}
     }
 }
 
 fn push_current_field(app: &mut app::App, c: char) {
     match &mut app.mode {
+        Mode::Login(s)        => { s.current_field_mut().push(c); }
         Mode::TransferForm(s) => { s.current_field_mut().push(c); }
-        Mode::StakeForm(s) => { s.current_field_mut().push(c); }
-        Mode::PostJobForm(s) => { s.current_field_mut().push(c); }
+        Mode::StakeForm(s)    => { s.current_field_mut().push(c); }
+        Mode::PostJobForm(s)  => { s.current_field_mut().push(c); }
         _ => {}
     }
 }

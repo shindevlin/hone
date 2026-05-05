@@ -2,7 +2,7 @@ use crate::api;
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Session {
     pub account: String,
     pub key_file: std::path::PathBuf,
@@ -14,6 +14,16 @@ pub fn load_session() -> Option<Session> {
     let path = std::path::PathBuf::from(home).join(".btcpc").join("session.json");
     let bytes = std::fs::read(path).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+pub fn save_session(s: &Session) -> anyhow::Result<()> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let dir = std::path::PathBuf::from(home).join(".btcpc");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("session.json");
+    let json = serde_json::to_string_pretty(s)?;
+    std::fs::write(&path, json)?;
+    Ok(())
 }
 
 // ── Mode / form state ─────────────────────────────────────────────────────────
@@ -109,7 +119,45 @@ impl PostJobState {
 }
 
 #[derive(Clone)]
+pub struct LoginState {
+    pub field: usize,      // 0=account, 1=key_file, 2=node_url
+    pub account: String,
+    pub key_file: String,
+    pub node_url: String,
+    pub error: Option<String>,
+}
+
+impl LoginState {
+    pub fn new() -> Self {
+        let home = std::env::var("HOME").unwrap_or_default();
+        Self {
+            field: 0,
+            account: String::new(),
+            key_file: format!("{}/.btcpc/key.json", home),
+            node_url: "http://localhost:4242".into(),
+            error: None,
+        }
+    }
+    pub fn field_count() -> usize { 3 }
+    pub fn current_field_mut(&mut self) -> &mut String {
+        match self.field {
+            0 => &mut self.account,
+            1 => &mut self.key_file,
+            _ => &mut self.node_url,
+        }
+    }
+    pub fn fields(&self) -> Vec<(&'static str, &str)> {
+        vec![
+            ("Account name", self.account.as_str()),
+            ("Key file path", self.key_file.as_str()),
+            ("Node URL",      self.node_url.as_str()),
+        ]
+    }
+}
+
+#[derive(Clone)]
 pub enum Mode {
+    Login(LoginState),
     Normal,
     TransferForm(TransferState),
     StakeForm(StakeState),
@@ -137,10 +185,15 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let session = load_session();
+        let initial_mode = if session.is_none() {
+            Mode::Login(LoginState::new())
+        } else {
+            Mode::Normal
+        };
         let mut app = App {
             tab: 0,
             session,
-            mode: Mode::Normal,
+            mode: initial_mode,
             node_info: None,
             explorer_status: None,
             blocks: Vec::new(),

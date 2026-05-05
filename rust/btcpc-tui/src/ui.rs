@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs},
 };
 
-use crate::app::{App, Mode, StakeAction};
+use crate::app::{App, Mode, StakeAction, LoginState};
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
@@ -23,6 +23,12 @@ fn truncate(s: &str, n: usize) -> &str {
 // ── Top-level render ──────────────────────────────────────────────────────────
 
 pub fn render(f: &mut Frame, app: &App) {
+    // Login screen takes over the whole terminal
+    if let Mode::Login(ref s) = app.mode {
+        render_login(f, s);
+        return;
+    }
+
     let size = f.area();
 
     let chunks = Layout::default()
@@ -37,6 +43,73 @@ pub fn render(f: &mut Frame, app: &App) {
     render_tabs(f, app, chunks[0]);
     render_body(f, app, chunks[1]);
     render_footer(f, app, chunks[2]);
+}
+
+fn render_login(f: &mut Frame, s: &LoginState) {
+    let size = f.area();
+
+    // Centre a box: 60 wide, 14 tall
+    let box_w = 62u16.min(size.width.saturating_sub(4));
+    let box_h = 14u16.min(size.height.saturating_sub(4));
+    let x = (size.width.saturating_sub(box_w)) / 2;
+    let y = (size.height.saturating_sub(box_h)) / 2;
+    let area = Rect::new(x, y, box_w, box_h);
+
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" BTCPC — Sign In ")
+        .title_alignment(Alignment::Center)
+        .style(Style::default().fg(Color::Yellow));
+    f.render_widget(block, area);
+
+    // Inner area for fields
+    let inner = Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(4), area.height.saturating_sub(2));
+
+    let field_areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // account
+            Constraint::Length(2), // key_file
+            Constraint::Length(2), // node_url
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // hint
+            Constraint::Length(1), // error
+        ])
+        .split(inner);
+
+    for (i, (label, value)) in s.fields().iter().enumerate() {
+        let focused = s.field == i;
+        let display = if focused {
+            format!("{}: {}_", label, value)
+        } else {
+            format!("{}: {}", label, value)
+        };
+        let style = if focused {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        f.render_widget(
+            Paragraph::new(display).style(style),
+            field_areas[i],
+        );
+    }
+
+    f.render_widget(
+        Paragraph::new("Tab / ↓↑ navigate  Enter sign in  Ctrl-C quit")
+            .style(Style::default().fg(Color::DarkGray)),
+        field_areas[4],
+    );
+
+    if let Some(ref err) = s.error {
+        f.render_widget(
+            Paragraph::new(err.as_str())
+                .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            field_areas[5],
+        );
+    }
 }
 
 // ── Tabs bar ──────────────────────────────────────────────────────────────────
@@ -71,7 +144,7 @@ fn render_body(f: &mut Frame, app: &App, area: Rect) {
     }
 
     match &app.mode {
-        Mode::Normal => {}
+        Mode::Login(_) | Mode::Normal => {}
         Mode::TransferForm(state) => render_transfer_form(f, area, state),
         Mode::StakeForm(state) => render_stake_form(f, area, state),
         Mode::PostJobForm(state) => render_post_job_form(f, area, state),
