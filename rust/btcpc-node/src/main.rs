@@ -64,6 +64,12 @@ use btcpc_types::{
     CRITICAL_MASS_INFERENCE, CRITICAL_MASS_STORAGE, CRITICAL_MASS_SENSOR,
     CRITICAL_MASS_VERIFIER, CRITICAL_MASS_SERVICE, CRITICAL_MASS_MEMPOOL,
     CRITICAL_MASS_TRACKER,
+    MINE_GRACE_PERIOD_EPOCHS, MINE_GRACE_REWARD_BPS, MINE_GRACE_BENCHMARK_JOBS_PER_EPOCH,
+    INFERENCE_PRUNE_WINDOW_EPOCHS,
+    STORAGE_PROOF_NO_PROOF_BPS,
+    SENSOR_LOCATION_BOOST_BPS, SENSOR_LOCATION_REQUIRED_EPOCH,
+    EMA_ALPHA_NUM, EMA_ALPHA_DENOM,
+    entry_weight, compute_next_base_fee, BASE_FEE_INITIAL_DREAMS, EPOCH_TARGET_WEIGHT_UNITS,
 };
 
 use chain::Chain;
@@ -268,6 +274,76 @@ async fn main() -> Result<()> {
                             }
                         }
 
+                        // Sum entry weights for this epoch (T3-2): used to adjust base fee.
+                        // Counts all submitted entries (including rejected) — bandwidth is bandwidth.
+                        let epoch_total_weight: u64 = pending.iter()
+                            .map(|(e, _)| entry_weight(e))
+                            .sum();
+
+                        // Release matured unbonding tokens and apply timelocked param changes.
+                        chain_ref.drain_unbonding(sealed_epoch);
+                        chain_ref.drain_pending_params(sealed_epoch);
+
+                        // Dynamic base fee update (EIP-1559-style ±10%/epoch toward 50% target).
+                        let current_base_fee: u64 = chain_ref.store.state_get("chain_param:base_fee")
+                            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                            .and_then(|j| j["fee"].as_u64())
+                            .unwrap_or(BASE_FEE_INITIAL_DREAMS);
+                        let new_base_fee = compute_next_base_fee(
+                            current_base_fee, epoch_total_weight, EPOCH_TARGET_WEIGHT_UNITS
+                        );
+                        let _ = chain_ref.store.state_set(
+                            "chain_param:base_fee",
+                            &serde_json::to_vec(&serde_json::json!({ "fee": new_base_fee }))
+                                .unwrap_or_default(),
+                        );
+                        if new_base_fee != current_base_fee {
+                            info!(
+                                "clock: epoch {} base_fee {} → {} (epoch_weight={} target={})",
+                                sealed_epoch, current_base_fee, new_base_fee,
+                                epoch_total_weight, EPOCH_TARGET_WEIGHT_UNITS
+                            );
+                        }
+
+                        // Count unique active verifiers over last VERIFIER_ACTIVITY_TRACK_EPOCHS.
+                        // Stored as `active_verifier_count` for auto-scaling min_verifiers per job.
+                        {
+                            use btcpc_types::VERIFIER_ACTIVITY_TRACK_EPOCHS;
+                            let window_start = sealed_epoch.saturating_sub(VERIFIER_ACTIVITY_TRACK_EPOCHS);
+                            let mut unique: std::collections::HashSet<String> = std::collections::HashSet::new();
+                            for ep in window_start..=sealed_epoch {
+                                for (k, _) in chain_ref.store.state_scan_prefix(&format!("infer_verify:{}:", ep)) {
+                                    // key format: "infer_verify:{epoch}:{verifier}"
+                                    if let Some(verifier) = k.strip_prefix(&format!("infer_verify:{}:", ep)) {
+                                        unique.insert(verifier.to_string());
+                                    }
+                                }
+                            }
+                            let count = unique.len() as u64;
+                            let _ = chain_ref.store.state_set("active_verifier_count", &count.to_le_bytes());
+                        }
+
+                        // Refresh the registered clock node set so quorum uses the live list.
+                        let reg_clocks = clock::registered_clock_nodes(&chain_ref.store);
+                        // Persist the validator snapshot for this epoch — used by fork choice
+                        // and external auditors to verify quorum claims against the registered set.
+                        let _ = chain_ref.store.state_set(
+                            &format!("epoch_validators:{}", sealed_epoch),
+                            &serde_json::to_vec(&reg_clocks).unwrap_or_default(),
+                        );
+                        clock_ref.set_registered_clocks(reg_clocks);
+
+                        // Epoch entropy: XOR all winning seal hashes → SHA-256.
+                        let seal_hashes: Vec<&str> = sealed.signing_clocks.iter().map(|_| {
+                            // Use the winner seal_hash if present; fall back to empty string.
+                            sealed.winner.as_ref().map(|w| w.seal_hash.as_str()).unwrap_or("")
+                        }).collect();
+                        let entropy = clock::compute_epoch_entropy(&seal_hashes);
+                        let _ = chain_ref.store.state_set(
+                            &format!("epoch_entropy:{}", sealed_epoch),
+                            entropy.as_bytes(),
+                        );
+
                         // Comprehensive epoch reward distribution across all work types.
                         // Pass the signing_clocks list directly — the seal:{epoch}: store
                         // scan was dead (those keys were never written anywhere).
@@ -313,13 +389,14 @@ async fn main() -> Result<()> {
             loop {
                 match finalized_rx.recv().await {
                     Ok(fin) => {
+                        let state_root = chain_ref.store.balance_merkle_root();
                         let entry = LedgerEntry::EpochFinalize {
                             epoch: fin.epoch,
                             node_id: node_id_c.clone(),
                             rewards_hash: fin.rewards_hash,
                             quorum: fin.quorum as u64,
                             sealed_by: vec![],
-                            state_root: String::new(),
+                            state_root,
                             timestamp: now_ms(),
                         };
                         if let Err(e) = chain_ref.apply_entry(&entry) {
@@ -655,7 +732,9 @@ async fn main() -> Result<()> {
         contracts,
         tx_broadcast,
         faucet_claims:    Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        faucet_ip_claims: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         agent_rate:       Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        post_rate:        Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         chain_challenges: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         current_model:    Arc::new(tokio::sync::RwLock::new(default_model)),
         hw_fingerprint:   Arc::new(hw.fingerprint),
@@ -801,6 +880,7 @@ async fn run_inference_verifier(
                 verdict:     verdict.to_owned(),
                 value_score,
                 reason:      None,
+                reveal_salt: None,
                 epoch,
                 signed_by:   account.clone(),
             };
@@ -860,11 +940,69 @@ async fn emit_epoch_rewards(
         chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
     }
 
-    // ── Layer D: era-scaled clock reward (infrastructure base) ───────────────
-    let clock_reward = clock_reward_at(epoch);
+    // ── Layer D: era-scaled clock reward (infrastructure base) ──────────────
+    // Reward is scaled by uptime reputation: 0.5× (low uptime) → 1.0× (perfect).
+    // Uptime is tracked as a sliding window (CLOCK_UPTIME_WINDOW epochs).
+    // New nodes earn full reward for the first CLOCK_UPTIME_MIN_EPOCHS epochs.
+    const CLOCK_UPTIME_WINDOW: u64 = 100;
+    const CLOCK_UPTIME_MIN_EPOCHS: u64 = 10;
+
+    let base_clock_reward = clock_reward_at(epoch);
+
+    // Collect all registered clock nodes for the uptime window update.
+    let registered_nodes: Vec<String> = chain.store.state_scan_prefix("clock_reg:")
+        .into_iter()
+        .filter_map(|(_, v)| {
+            let j = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
+            // Only track nodes that still have stake (not slashed).
+            if j["stake"].as_u64().unwrap_or(0) == 0 { return None; }
+            j["node_id"].as_str().map(|s| s.to_owned())
+        })
+        .collect();
+
+    let sealer_set: std::collections::HashSet<&str> =
+        clock_sealers.iter().map(|s| s.as_str()).collect();
+
+    // Update uptime window for every registered node; compute multiplier for sealers.
+    for node_id in &registered_nodes {
+        let uptime_key = format!("clock_uptime:{}", node_id);
+        let prev: serde_json::Value = chain.store.state_get(&uptime_key)
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
+        let mut seals  = prev["seals"].as_u64().unwrap_or(0);
+        let mut epochs = prev["epochs"].as_u64().unwrap_or(0);
+
+        epochs = (epochs + 1).min(CLOCK_UPTIME_WINDOW);
+        let sealed = sealer_set.contains(node_id.as_str());
+        if sealed {
+            seals = (seals + 1).min(epochs);
+        } else if epochs == CLOCK_UPTIME_WINDOW {
+            // Steady-state: missed seal leaks one point from the window.
+            seals = seals.saturating_sub(1);
+        }
+
+        let _ = chain.store.state_set(&uptime_key, &serde_json::to_vec(
+            &serde_json::json!({ "seals": seals, "epochs": epochs })
+        ).unwrap_or_default());
+    }
+
+    // Emit ClockReward for each sealer, scaled by uptime.
     for node_id in clock_sealers {
-        if clock_reward == 0 { break; }
-        let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount: clock_reward, epoch };
+        if base_clock_reward == 0 { break; }
+        let uptime_key = format!("clock_uptime:{}", node_id);
+        let uptime: serde_json::Value = chain.store.state_get(&uptime_key)
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or(serde_json::json!({"seals": 1, "epochs": 1}));
+        let seals  = uptime["seals"].as_u64().unwrap_or(1).max(1);
+        let epochs = uptime["epochs"].as_u64().unwrap_or(1).max(1);
+        let multiplier = if epochs < CLOCK_UPTIME_MIN_EPOCHS {
+            1_000u64 // grace period: full reward, millipct units
+        } else {
+            500 + 500 * seals / epochs // 500–1000 (0.5× – 1.0×)
+        };
+        let scaled_reward = (base_clock_reward as u128 * multiplier as u128 / 1_000) as u64;
+        if scaled_reward == 0 { continue; }
+        let entry = LedgerEntry::ClockReward { node_id: node_id.clone(), amount: scaled_reward, epoch };
         if let Err(e) = chain.apply_entry(&entry) {
             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
             continue;
@@ -904,9 +1042,30 @@ async fn emit_epoch_rewards(
 
     if activity_pool == 0 { return; }
 
+    // ── T3-4: Read EMA critical-mass targets from previous epoch ─────────────
+    // EMA is updated AFTER reward distribution so it doesn't influence itself this epoch.
+    // Static CRITICAL_MASS_* constants serve as cold-start seeds when no EMA exists yet.
+    let read_ema_cm = |pool: &str, default: u64| -> u64 {
+        chain.store.state_get(&format!("ema_critical_mass:{}", pool))
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|j| j["ema"].as_u64())
+            .unwrap_or(default)
+    };
+    let cm_inference = read_ema_cm("inference", CRITICAL_MASS_INFERENCE);
+    let cm_storage   = read_ema_cm("storage",   CRITICAL_MASS_STORAGE);
+    let cm_sensor    = read_ema_cm("sensor",     CRITICAL_MASS_SENSOR);
+    let cm_verifier  = read_ema_cm("verifier",   CRITICAL_MASS_VERIFIER);
+    let cm_service   = read_ema_cm("service",    CRITICAL_MASS_SERVICE);
+    let cm_mempool   = read_ema_cm("mempool",    CRITICAL_MASS_MEMPOOL);
+    let cm_tracker   = read_ema_cm("tracker",    CRITICAL_MASS_TRACKER);
+
     // ── Layer B: collect work contributors ────────────────────────────────────
 
     // Inference: score = output_tokens × hw_tier_weight × model_weight × stake_weight(stake)
+    // Grace period (D8): unlinked Mine earns 20% during first MINE_GRACE_PERIOD_EPOCHS.
+    // After grace period: unlinked Mine earns 0% (dropped from mines list entirely).
+    // Linked Mine (job_id present): must have an approved InferenceJobVerify for the job.
+    let in_grace_period = epoch < MINE_GRACE_PERIOD_EPOCHS;
     let mines: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("mine:{}:", epoch))
         .into_iter()
         .filter_map(|(_, v)| {
@@ -917,10 +1076,43 @@ async fn emit_epoch_rewards(
             let miner    = j["miner"].as_str()?.to_owned();
             let stake    = chain.store.get_stake(&miner);
             let sw       = stake_weight(stake);
-            Some((miner, inference_score(out_toks, hw_tier, model).saturating_mul(sw)))
+            let raw_score = inference_score(out_toks, hw_tier, model).saturating_mul(sw);
+
+            // Determine effective score based on job linkage.
+            let job_id = j.get("job_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let effective_score = if let Some(jid) = job_id {
+                // Linked Mine: job must be Verified by the verifier board, and miner must
+                // be the awarded worker. Load job state directly — the old infer_verify key
+                // lookup was keyed by verifier account, not job_id, so it was always false.
+                let job_ok = crate::inference::get_job(&chain, jid)
+                    .map(|job| {
+                        job.status == crate::inference::JobStatus::Verified
+                            || job.status == crate::inference::JobStatus::Paid
+                    })
+                    .unwrap_or(false);
+                if job_ok { raw_score } else {
+                    // Job not yet verified (pending board quorum) — grace period rules apply.
+                    if in_grace_period {
+                        raw_score * MINE_GRACE_REWARD_BPS / 10_000
+                    } else {
+                        return None; // drop entirely after grace period
+                    }
+                }
+            } else {
+                // Unlinked Mine.
+                if in_grace_period {
+                    raw_score * MINE_GRACE_REWARD_BPS / 10_000
+                } else {
+                    return None; // unlinked Mine earns nothing after grace period
+                }
+            };
+            if effective_score == 0 { return None; }
+            Some((miner, effective_score))
         }).collect();
 
-    // Storage: score = bytes_proven + query_bonus (up to 2× for active query traffic)
+    // Storage: score = bytes_proven + query_bonus (up to 2× for active query traffic).
+    // Nodes that include a valid Merkle range proof earn full score (T4-1, D10).
+    // Nodes without a proof earn STORAGE_PROOF_NO_PROOF_BPS (20%) of normal score.
     let storage_nodes: Vec<(String, u64)> = chain.store.state_scan_prefix(&format!("storage_beat:{}:", epoch))
         .into_iter()
         .filter_map(|(_, v)| {
@@ -928,19 +1120,57 @@ async fn emit_epoch_rewards(
             let bytes   = j["bytes_proven"].as_u64().unwrap_or(0);
             let queries = j["query_count"].as_u64().unwrap_or(0);
             let bonus   = (bytes as u128 * queries.min(100) as u128 / 100) as u64;
-            Some((j["node_id"].as_str()?.to_owned(), bytes.saturating_add(bonus)))
+            let raw     = bytes.saturating_add(bonus);
+            let proof_valid = j["proof_valid"].as_bool().unwrap_or(false);
+            let score = if proof_valid { raw } else { raw * STORAGE_PROOF_NO_PROOF_BPS / 10_000 };
+            if score == 0 { return None; }
+            Some((j["node_id"].as_str()?.to_owned(), score))
         }).collect();
 
     // Sensors: type-aware sensor_score() per individual sensor, then grouped by owner.
-    // Different sensor types (continuous/event/sampled/pulse) have different value models.
+    // Sensors with a registered location earn a 1.3× boost (T4-3, SENSOR_LOCATION_BOOST_BPS).
+    // After SENSOR_LOCATION_REQUIRED_EPOCH, unlocated sensors are skipped entirely.
     let sensor_nodes: Vec<(String, u64)> = {
         let mut by_owner: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
         for (_, v) in chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch)) {
             let Ok(j) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
             let Some(owner) = j["owner"].as_str() else { continue };
+            let sensor_id     = j["sensor_id"].as_str().unwrap_or("");
             let reading_count = j["reading_count"].as_u64().unwrap_or(0);
             let stype         = j["sensor_type"].as_str().unwrap_or("continuous");
-            *by_owner.entry(owner.to_owned()).or_default() += sensor_score(reading_count, stype);
+            let has_location  = chain.store.get_meta(&format!("sensor:{}", sensor_id))
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                .and_then(|s| s.get("location").and_then(|l| l.as_str()).map(|l| !l.is_empty()))
+                .unwrap_or(false);
+            if SENSOR_LOCATION_REQUIRED_EPOCH > 0 && epoch >= SENSOR_LOCATION_REQUIRED_EPOCH && !has_location {
+                continue; // location required after mainnet month 3; skip if absent
+            }
+            let base  = sensor_score(reading_count, stype);
+            let score = if has_location {
+                (base as u128 * SENSOR_LOCATION_BOOST_BPS as u128 / 10_000) as u64
+            } else { base };
+            *by_owner.entry(owner.to_owned()).or_default() += score;
+        }
+        // Coverage reports: dead-spot reports earn more; corroborated cells earn 1.5× bonus.
+        // Scores merged into sensor_nodes pool so coverage reporters share the sensor reward pool.
+        use btcpc_types::{COVERAGE_SCORE_SIGNAL, COVERAGE_SCORE_DEAD_SPOT, COVERAGE_CORROBORATION_BONUS_BPS};
+        for (_, v) in chain.store.state_scan_prefix(&format!("coverage_report:{}:", epoch)) {
+            let Ok(j) = serde_json::from_slice::<serde_json::Value>(&v) else { continue };
+            let Some(reporter) = j["reporter"].as_str() else { continue };
+            let is_dead = j["is_dead_spot"].as_bool().unwrap_or(true);
+            let lat_q   = j["lat_q"].as_i64().unwrap_or(0);
+            let lon_q   = j["lon_q"].as_i64().unwrap_or(0);
+            let carrier = j["carrier_mcc_mnc"].as_str().unwrap_or("");
+            let base    = if is_dead { COVERAGE_SCORE_DEAD_SPOT } else { COVERAGE_SCORE_SIGNAL };
+            let cell_key = format!("coverage_cell:{}:{}:{}:{}", epoch, lat_q, lon_q, carrier);
+            let corroborated = chain.store.state_get(&cell_key)
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                .and_then(|c| c["corroborated"].as_bool())
+                .unwrap_or(false);
+            let score = if corroborated {
+                (base as u128 * COVERAGE_CORROBORATION_BONUS_BPS as u128 / 10_000) as u64
+            } else { base };
+            *by_owner.entry(reporter.to_owned()).or_default() += score;
         }
         by_owner.into_iter().collect()
     };
@@ -988,17 +1218,31 @@ async fn emit_epoch_rewards(
                 + j["samsung_count"].as_u64().unwrap_or(0)
                 + j["other_count"].as_u64().unwrap_or(0);
             if count == 0 { continue; }
+
+            // T4-4: physical-presence gate. The observer must hold at least one
+            // TrackerClaim that reached "Verified" status via TrackerAcousticProof.
+            // Observers with only "Registered" claims earn zero sighting reward —
+            // desk-based fake sightings are excluded from the reward pool.
+            let observer_claims: Vec<serde_json::Value> = chain.store
+                .state_scan_prefix(&format!("tracker_claim:{}:", observer))
+                .into_iter()
+                .filter_map(|(_, cv)| serde_json::from_slice(&cv).ok())
+                .collect();
+            let has_verified = observer_claims.iter()
+                .any(|cr| cr["status"].as_str() == Some("Verified"));
+            if !has_verified { continue; }
+
             // "event" sensor model: 100 points per event, capped at 20 events (2_000).
             let base_score = sensor_score(count, "event");
-            // Acoustic multiplier: 3/2 if this observer is a witness on any AcousticVerified claim.
-            let has_acoustic = chain.store.state_scan_prefix("tracker_claim:")
+            // Acoustic witness multiplier: 3/2 if observer is a witness on any AcousticVerified claim.
+            let has_acoustic_witness = chain.store.state_scan_prefix("tracker_claim:")
                 .into_iter()
                 .any(|(_, cv)| {
                     let Ok(cr) = serde_json::from_slice::<serde_json::Value>(&cv) else { return false };
                     cr["status"].as_str() == Some("AcousticVerified")
                         && cr["witness_id"].as_str() == Some(observer)
                 });
-            let score = if has_acoustic { base_score * 3 / 2 } else { base_score };
+            let score = if has_acoustic_witness { base_score * 3 / 2 } else { base_score };
             *by_observer.entry(observer.to_owned()).or_default() += score;
         }
         by_observer.into_iter().collect()
@@ -1068,13 +1312,13 @@ async fn emit_epoch_rewards(
         (effective, pool.saturating_sub(effective))
     };
 
-    let (inference_pool, scatter_infer)  = apply_scarcity(inference_pool_raw, payout_factor(mines.len(), CRITICAL_MASS_INFERENCE));
-    let (storage_pool,   scatter_store)  = apply_scarcity(storage_pool_raw,   payout_factor(storage_nodes.len(), CRITICAL_MASS_STORAGE));
-    let (sensor_pool,    scatter_sensor) = apply_scarcity(sensor_pool_raw,    payout_factor(sensor_nodes.len(), CRITICAL_MASS_SENSOR));
-    let (verify_pool,    scatter_verify) = apply_scarcity(verify_pool_raw,    payout_factor(verifiers.len(), CRITICAL_MASS_VERIFIER));
-    let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), CRITICAL_MASS_SERVICE));
-    let (mempool_pool,   scatter_mem)   = apply_scarcity(mempool_pool_raw,    payout_factor(mempool_ops.len(), CRITICAL_MASS_MEMPOOL));
-    let (tracker_pool,   scatter_track) = apply_scarcity(tracker_pool_raw,    payout_factor(tracker_nodes.len(), CRITICAL_MASS_TRACKER));
+    let (inference_pool, scatter_infer)  = apply_scarcity(inference_pool_raw, payout_factor(mines.len(),        cm_inference));
+    let (storage_pool,   scatter_store)  = apply_scarcity(storage_pool_raw,   payout_factor(storage_nodes.len(), cm_storage));
+    let (sensor_pool,    scatter_sensor) = apply_scarcity(sensor_pool_raw,    payout_factor(sensor_nodes.len(),  cm_sensor));
+    let (verify_pool,    scatter_verify) = apply_scarcity(verify_pool_raw,    payout_factor(verifiers.len(),     cm_verifier));
+    let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), cm_service));
+    let (mempool_pool,   scatter_mem)   = apply_scarcity(mempool_pool_raw,    payout_factor(mempool_ops.len(),   cm_mempool));
+    let (tracker_pool,   scatter_track) = apply_scarcity(tracker_pool_raw,    payout_factor(tracker_nodes.len(), cm_tracker));
 
     let scarcity_recycle = scatter_infer + scatter_store + scatter_sensor
                          + scatter_verify + scatter_svc + scatter_mem + scatter_track;
@@ -1104,6 +1348,23 @@ async fn emit_epoch_rewards(
         LedgerEntry::TrackerCoverageReward { observer_id, amount, epoch: ep }
     }).await;
 
+    // ── T3-4: Update EMA critical-mass targets for next epoch ────────────────
+    // alpha = EMA_ALPHA_NUM / EMA_ALPHA_DENOM ≈ 2/20161 ≈ 7-day smoothing window.
+    let update_ema_cm = |pool: &str, current: u64, prev: u64| {
+        let new_ema = (EMA_ALPHA_NUM * current + (EMA_ALPHA_DENOM - EMA_ALPHA_NUM) * prev) / EMA_ALPHA_DENOM;
+        let _ = chain.store.state_set(
+            &format!("ema_critical_mass:{}", pool),
+            &serde_json::to_vec(&serde_json::json!({ "ema": new_ema })).unwrap_or_default(),
+        );
+    };
+    update_ema_cm("inference", mines.len()        as u64, cm_inference);
+    update_ema_cm("storage",   storage_nodes.len() as u64, cm_storage);
+    update_ema_cm("sensor",    sensor_nodes.len()  as u64, cm_sensor);
+    update_ema_cm("verifier",  verifiers.len()     as u64, cm_verifier);
+    update_ema_cm("service",   service_nodes.len() as u64, cm_service);
+    update_ema_cm("mempool",   mempool_ops.len()   as u64, cm_mempool);
+    update_ema_cm("tracker",   tracker_nodes.len() as u64, cm_tracker);
+
     // ── Subscription fee release ───────────────────────────────────────────────
     sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
 
@@ -1128,6 +1389,71 @@ async fn emit_epoch_rewards(
         mempool_pool, mempool_ops.len(),
         tracker_pool, tracker_nodes.len(),
     );
+
+    // ── Protocol benchmark jobs (D8 grace period) ─────────────────────────────
+    // Post MINE_GRACE_BENCHMARK_JOBS_PER_EPOCH jobs from __testnet_fund__ so miners
+    // have real demand to serve during the 90-day grace period (D16: open model selection).
+    if in_grace_period {
+        for i in 0..MINE_GRACE_BENCHMARK_JOBS_PER_EPOCH {
+            let job_id = format!("benchmark:{}:{}", epoch, i);
+            // Only post if this job hasn't been posted yet (idempotent).
+            let job_key = format!("job:{}", job_id);
+            if chain.store.state_get(&job_key).is_some() { continue; }
+            let max_fee: u64 = 1_000_000; // 0.0001 BTCPC — small fee from testnet fund
+            let fund = chain.store.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
+            if fund < max_fee { break; }
+            let entry = LedgerEntry::InferenceJobPost {
+                job_id: job_id.clone(),
+                requester: TESTNET_FUND_ACCOUNT.to_owned(),
+                model: "auto".to_owned(),
+                mode: "solo".to_owned(),
+                input_hash: format!("{:064x}", epoch * 1000 + i),
+                max_fee,
+                min_reputation: 0,
+                bid_window_epochs: 2,
+                deadline_epoch: epoch + 10,
+                epoch,
+                nonce: epoch * 1000 + i,
+                signed_by: TESTNET_FUND_ACCOUNT.to_owned(),
+                persist_on_fs: None,
+                fs_fee: None,
+                min_verifiers: None,
+            };
+            if let Err(e) = chain.apply_entry(&entry) {
+                warn!("benchmark job {} failed: {}", job_id, e);
+            } else {
+                broadcast_entry_desktop(&entry, cmd_tx).await;
+            }
+        }
+    }
+
+    // ── Inference proof pruning (D1) ──────────────────────────────────────────
+    // After InferenceJobPay + INFERENCE_PRUNE_WINDOW_EPOCHS, clear proof payload fields.
+    // Verdict and reward records are kept forever; only the raw proof data is cleared.
+    if epoch >= INFERENCE_PRUNE_WINDOW_EPOCHS {
+        let prune_epoch = epoch - INFERENCE_PRUNE_WINDOW_EPOCHS;
+        let prefix = format!("prune_ready:{}", prune_epoch);
+        for (key, val) in chain.store.state_scan_prefix(&prefix) {
+            let job_id = match std::str::from_utf8(&val).ok().filter(|s| !s.is_empty()) {
+                Some(s) => s.to_owned(),
+                None => continue,
+            };
+            let job_key = format!("job:{}", job_id);
+            if let Some(raw) = chain.store.state_get(&job_key) {
+                if let Ok(mut j) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                    // Null out payload fields but preserve verdict/reward structure.
+                    j["output_hash"]   = serde_json::json!(null);
+                    j["input_hash"]    = serde_json::json!(null);
+                    j["result_hash"]   = serde_json::json!(null);
+                    j["pruned_epoch"]  = serde_json::json!(epoch);
+                    if let Ok(bytes) = serde_json::to_vec(&j) {
+                        let _ = chain.store.state_set(&job_key, &bytes);
+                    }
+                }
+            }
+            let _ = chain.store.state_delete(&key);
+        }
+    }
 }
 
 async fn broadcast_entry_desktop(

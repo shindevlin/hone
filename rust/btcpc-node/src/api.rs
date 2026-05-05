@@ -2,13 +2,16 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use axum::{
     Router,
     routing::{get, post},
-    extract::{Path, State},
-    http::HeaderMap,
+    extract::{ConnectInfo, Path, State},
+    http::{HeaderMap, Method, Request},
+    middleware::Next,
+    response::IntoResponse,
     Json, http::StatusCode,
     response::sse::{Event, Sse},
 };
@@ -16,7 +19,7 @@ use serde::{Deserialize, Deserializer};
 use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::ReceiverStream;
-use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID};
+use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID, EPOCH_MS};
 
 /// Gossip envelope: entry JSON + out-of-band signature so peers can re-verify.
 pub type GossipEntry = (LedgerEntry, Option<String>);
@@ -46,6 +49,41 @@ pub struct AppState {
     pub hw_fingerprint: Arc<String>,
     /// Human-readable hardware summary (e.g. "nvidia:ABC123 machine:a1b2c3d4").
     pub hw_summary: Arc<String>,
+    /// Per-IP POST rate limiter: IP → list of request timestamps in the current window.
+    /// Shared with the rate_limit middleware; initialized empty in main.
+    pub post_rate: Arc<parking_lot::Mutex<HashMap<String, Vec<Instant>>>>,
+    /// Faucet IP limiter: ip → (claims_in_window, window_start).
+    /// Max 3 claims per 24-hour rolling window per IP.
+    pub faucet_ip_claims: Arc<parking_lot::Mutex<HashMap<String, (u32, Instant)>>>,
+}
+
+/// POST rate limit: max requests per IP per window.
+const RATE_LIMIT_MAX_REQS: usize = 60;
+const RATE_LIMIT_WINDOW_SECS: u64 = 60;
+
+/// Middleware: reject POST/PATCH requests exceeding RATE_LIMIT_MAX_REQS per IP per window.
+/// GET requests are never rate-limited (they're read-only and cheap).
+async fn rate_limit_middleware(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> impl IntoResponse {
+    if req.method() == Method::POST || req.method() == Method::PATCH {
+        let ip = addr.ip().to_string();
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(RATE_LIMIT_WINDOW_SECS);
+        let mut map = state.post_rate.lock();
+        let timestamps = map.entry(ip).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < window);
+        if timestamps.len() >= RATE_LIMIT_MAX_REQS {
+            return (StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({"error": "rate limit exceeded — max 60 POST/PATCH per minute per IP"}))
+            ).into_response();
+        }
+        timestamps.push(now);
+    }
+    next.run(req).await
 }
 
 pub fn router(state: AppState) -> Router {
@@ -78,22 +116,39 @@ pub fn router(state: AppState) -> Router {
         .route("/api/contract/deploy", post(post_contract_deploy))
         .route("/api/contract/call", post(post_contract_call))
         .route("/api/contract/view", post(post_contract_view))
-        // ── Inference marketplace ─────────────────────────────────────────
-        .route("/api/inference/post", post(post_inference_job))
-        .route("/api/inference/bid", post(post_inference_bid))
-        .route("/api/inference/complete", post(post_inference_complete))
-        .route("/api/inference/verify", post(post_inference_verify))
-        .route("/api/inference/claim", post(post_inference_claim))
-        .route("/api/inference/review", post(post_inference_review))
-        .route("/api/inference/cancel", post(post_inference_cancel))
-        .route("/api/inference/jobs", get(get_inference_jobs))
-        .route("/api/inference/job/:id", get(get_inference_job))
-        .route("/api/inference/job/:id/io", get(get_inference_job_io))
-        .route("/api/inference/reputation/:node", get(get_inference_reputation))
+        // ── AI task marketplace ───────────────────────────────────────────
+        .route("/api/task/post", post(post_inference_job))
+        .route("/api/task/bid", post(post_inference_bid))
+        .route("/api/task/complete", post(post_inference_complete))
+        .route("/api/task/commit", post(post_inference_commit))
+        .route("/api/task/verify", post(post_inference_verify))
+        .route("/api/task/claim", post(post_inference_claim))
+        .route("/api/task/review", post(post_inference_review))
+        .route("/api/task/cancel", post(post_inference_cancel))
+        .route("/api/task/jobs", get(get_inference_jobs))
+        .route("/api/task/job/:id", get(get_inference_job))
+        .route("/api/task/job/:id/io", get(get_inference_job_io))
+        .route("/api/task/reputation/:node", get(get_inference_reputation))
         // ── Public onboarding agent (no auth, rate-limited) ──────────────
         .route("/public/agent-chat", post(post_agent_chat))
         // ── Faucet (testnet only) ─────────────────────────────────────────
         .route("/api/faucet/claim", post(post_faucet_claim))
+        .route("/api/faucet/status", get(get_faucet_status))
+        // ── Explorer ──────────────────────────────────────────────────────
+        .route("/api/explorer/status", get(get_explorer_status))
+        .route("/api/explorer/supply", get(get_explorer_supply))
+        .route("/api/explorer/blocks", get(get_explorer_blocks))
+        .route("/api/explorer/miners", get(get_explorer_miners))
+        .route("/api/explorer/activity", get(get_explorer_activity))
+        // ── Staking extras ────────────────────────────────────────────────
+        .route("/api/staking/network", get(get_staking_network))
+        .route("/api/staking/requirements", get(get_staking_requirements))
+        // ── Node capability marketplace ───────────────────────────────────
+        .route("/api/node/capability", post(post_node_capability))
+        .route("/api/node/miners/all", get(get_node_miners_all))
+        .route("/api/node/miners/capable", get(get_node_miners_capable))
+        .route("/api/node/miners/:name", get(get_node_miner))
+        .route("/api/node/network/capabilities", get(get_network_capabilities))
         // ── LinkGit ───────────────────────────────────────────────────────
         .route("/api/linkgit/repos/:owner", get(get_linkgit_repos))
         .route("/api/linkgit/repo/:owner/:repo", get(get_linkgit_repo))
@@ -105,6 +160,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/register", post(post_sensor_register))
         .route("/api/sensor/commit", post(post_sensor_commit))
         .route("/api/sensor/vouch", post(post_sensor_vouch))
+        .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/:id", get(get_sensor))
         .route("/api/gateway/heartbeat", post(post_gateway_heartbeat))
         .route("/api/gateway/:id", get(get_gateway))
@@ -122,6 +178,14 @@ pub fn router(state: AppState) -> Router {
         // ── Chain Entropy Protocol ────────────────────────────────────────
         .route("/api/account/prove-alive", post(post_liveness_proof))
         .route("/api/account/:name/alive-epoch", get(get_alive_epoch))
+        // ── State Proofs (Phase 7) ────────────────────────────────────────
+        .route("/api/proof/balance/:account/:token", get(get_balance_proof))
+        .route("/api/chain/state_root", get(get_state_root))
+        // ── Clock node reputation (Phase 8) ───────────────────────────────
+        .route("/api/clock/:node_id/uptime", get(get_clock_uptime))
+        // ── Consensus / fork choice (T1-7, T1-8) ─────────────────────────
+        .route("/api/chain/validators/:epoch", get(get_epoch_validators))
+        .route("/api/chain/fork/:epoch", get(get_fork_evidence))
         // ── Governance: chain parameters ──────────────────────────────────
         .route("/api/chain/param/:key", get(get_chain_param))
         .route("/api/chain/set-param", post(post_chain_set_param))
@@ -142,6 +206,7 @@ pub fn router(state: AppState) -> Router {
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
         .layer(CorsLayer::permissive())
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state)
 }
 
@@ -560,6 +625,7 @@ async fn get_block(
             let block = Block::from_bytes(&data).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
             Ok(Json(serde_json::json!({
                 "epoch": epoch,
+                "status": s.chain.epoch_status(epoch),
                 "hash": block.header.hash_hex(),
                 "header": block.header,
                 "payload": block.payload,
@@ -572,17 +638,20 @@ async fn get_block(
 
 // GET /api/latest
 async fn get_latest(State(s): State<AppState>) -> Json<serde_json::Value> {
-    let epoch = s.chain.store.latest_epoch().unwrap_or(0);
-    let hash = s.chain.store.read_block(epoch)
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let current = s.chain.current_epoch();
+    let hash = s.chain.store.read_block(latest)
         .ok().flatten()
         .and_then(|d| Block::from_bytes(&d))
         .map(|b| b.header.hash_hex())
         .unwrap_or_default();
 
     Json(serde_json::json!({
-        "epoch": epoch,
+        "epoch": latest,
+        "status": s.chain.epoch_status(latest),
         "hash": hash,
-        "current_epoch": s.chain.current_epoch(),
+        "current_epoch": current,
+        "pending_epoch": current + 1,
     }))
 }
 
@@ -604,12 +673,16 @@ async fn get_epoch(
     State(s): State<AppState>,
     Path(epoch): Path<u64>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let status = s.chain.epoch_status(epoch);
     match s.chain.store.get_epoch_meta(epoch) {
-        Ok(Some(meta)) => Ok(Json(meta)),
+        Ok(Some(mut meta)) => {
+            meta["status"] = serde_json::json!(status);
+            Ok(Json(meta))
+        }
         Ok(None) => {
-            // Return basic info if no metadata yet
             Ok(Json(serde_json::json!({
                 "epoch": epoch,
+                "status": status,
                 "has_block": s.chain.store.has_block(epoch),
                 "finalized": false,
             })))
@@ -1281,6 +1354,7 @@ struct InferenceVerifyBody {
     #[serde(default)]
     value_score: u64,
     reason: Option<String>,
+    reveal_salt: Option<String>,
     #[serde(default)]
     signature: String,
 }
@@ -1348,6 +1422,9 @@ async fn post_inference_job(
         epoch,
         nonce: body.nonce,
         signed_by: requester,
+        persist_on_fs: None,
+        fs_fee: None,
+        min_verifiers: None,
     };
     let sig = non_empty(&body.signature);
     match tx::validate_and_apply(&s.chain, &entry, sig) {
@@ -1409,6 +1486,31 @@ async fn post_inference_complete(
     apply_and_broadcast(&s, entry, sig)
 }
 
+#[derive(Debug, Deserialize)]
+struct InferenceCommitBody {
+    job_id: String,
+    verifier: String,
+    commit_hash: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_inference_commit(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceCommitBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::InferenceJobCommit {
+        job_id: body.job_id,
+        verifier: body.verifier.clone(),
+        commit_hash: body.commit_hash,
+        epoch,
+        signed_by: body.verifier,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
 async fn post_inference_verify(
     State(s): State<AppState>,
     Json(body): Json<InferenceVerifyBody>,
@@ -1420,6 +1522,7 @@ async fn post_inference_verify(
         verdict: body.verdict,
         value_score: body.value_score,
         reason: body.reason,
+        reveal_salt: body.reveal_salt,
         epoch,
         signed_by: body.verifier,
     };
@@ -1477,7 +1580,7 @@ async fn post_inference_cancel(
     apply_and_broadcast(&s, entry, sig)
 }
 
-// GET /api/inference/jobs?status=posted&model=llama3
+// GET /api/task/jobs?status=posted&model=llama3
 async fn get_inference_jobs(
     State(s): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -1499,7 +1602,7 @@ async fn get_inference_jobs(
     Json(serde_json::json!({ "jobs": jobs, "count": count }))
 }
 
-// GET /api/inference/job/:id
+// GET /api/task/job/:id
 async fn get_inference_job(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -1518,7 +1621,7 @@ async fn get_inference_job(
     }
 }
 
-// GET /api/inference/job/:id/io — exposes input/output text so remote verifiers can assess quality
+// GET /api/task/job/:id/io — exposes input/output text so remote verifiers can assess quality
 async fn get_inference_job_io(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -1537,7 +1640,7 @@ async fn get_inference_job_io(
     })))
 }
 
-// GET /api/inference/reputation/:node
+// GET /api/task/reputation/:node
 async fn get_inference_reputation(
     State(s): State<AppState>,
     Path(node): Path<String>,
@@ -1548,72 +1651,628 @@ async fn get_inference_reputation(
 
 // ── Faucet (testnet only) ─────────────────────────────────────────────────────
 
-const FAUCET_AMOUNT_DREAMS: u64 = 10 * 10_000_000_000; // 10 BTCPC
-const FAUCET_COOLDOWN_SECS: u64 = 3600; // 1 hour
+const FAUCET_ACCOUNT: &str = "__testnet_fund__";
+const FAUCET_IP_MAX_PER_DAY: u32 = 3;
+const FAUCET_IP_WINDOW_SECS: u64 = 86_400;
+/// Epochs an account must be on-chain before it can claim (prevents mass-wallet farming).
+const FAUCET_MIN_ACCOUNT_AGE_EPOCHS: u64 = 120; // ~1 hour at 30 s/epoch
+/// Epochs before an account can claim again (even if balance is zero).
+const FAUCET_RECLAIM_COOLDOWN_EPOCHS: u64 = 720; // ~6 hours
+
+fn faucet_amount_dreams(epoch: u64) -> u64 {
+    if epoch <= 1_000     { 10_000_000_000 }  // 1 BTCPC
+    else if epoch <= 10_000 { 1_000_000_000 } // 0.1 BTCPC
+    else                   { 100_000_000 }    // 0.01 BTCPC
+}
+fn faucet_amount_btcpc(epoch: u64) -> f64 {
+    faucet_amount_dreams(epoch) as f64 / 10_000_000_000.0
+}
 
 #[derive(Debug, Deserialize)]
 struct FaucetClaimBody {
     account: String,
 }
 
-/// POST /api/faucet/claim
-/// Body: { "account": "..." }
-/// Returns 403 on mainnet.  Rate-limited to 1 claim per account per hour on testnet.
+/// POST /api/faucet/claim — issues testnet BTCPC to a zero-balance account.
+/// Guards: testnet-only, IP rate limit (3/day), account must exist and be ≥120 epochs old,
+/// wallet balance must be zero, per-account cooldown (720 epochs / ~6 hours).
 async fn post_faucet_claim(
     State(s): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<FaucetClaimBody>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if s.chain.chain_id != TESTNET_CHAIN_ID {
         return (StatusCode::FORBIDDEN, Json(serde_json::json!({
-            "success": false,
-            "message": "Faucet not available on mainnet. Acquire BTCPC by mining or transfers.",
+            "error": "Faucet not available on mainnet. Earn BTCPC by mining, running sensors, or storing data.",
         })));
     }
 
-    if body.account.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "success": false,
-            "message": "account must not be empty",
-        })));
+    let account = body.account.trim().to_lowercase();
+    if account.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "account required" })));
     }
 
+    // IP rate limit
+    let ip = addr.ip().to_string();
     let now = Instant::now();
     {
+        let mut ip_map = s.faucet_ip_claims.lock();
+        let entry = ip_map.entry(ip.clone()).or_insert((0, now));
+        if now.duration_since(entry.1).as_secs() >= FAUCET_IP_WINDOW_SECS {
+            *entry = (1, now);
+        } else if entry.0 >= FAUCET_IP_MAX_PER_DAY {
+            return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({
+                "error": format!("Too many faucet claims from this IP ({}/day max). Earn BTCPC by mining, running sensors, or storing data.", FAUCET_IP_MAX_PER_DAY),
+            })));
+        } else {
+            entry.0 += 1;
+        }
+    }
+
+    let current_epoch = s.chain.current_epoch();
+
+    // Account must exist
+    let acc_data = match s.chain.store.get_account(&account) {
+        Ok(Some(d)) => d,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "Account not found on chain. Register first.",
+        }))),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": "chain error",
+        }))),
+    };
+
+    // Account age gate
+    let created_epoch = acc_data["created_epoch"].as_u64().unwrap_or(0);
+    let age_epochs = current_epoch.saturating_sub(created_epoch);
+    if age_epochs < FAUCET_MIN_ACCOUNT_AGE_EPOCHS {
+        let epochs_left = FAUCET_MIN_ACCOUNT_AGE_EPOCHS - age_epochs;
+        let minutes_left = (epochs_left * 30 + 59) / 60;
+        return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({
+            "error": format!("Account too new. Wait {} more minutes before claiming.", minutes_left),
+            "epochs_remaining": epochs_left,
+        })));
+    }
+
+    // Wallet balance must be zero
+    let balance = s.chain.store.get_balance(&account, NATIVE_TOKEN);
+    if balance > 0 {
+        let btcpc = balance as f64 / 10_000_000_000.0;
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": format!("You already have {:.4} BTCPC. Use your tokens before claiming more.", btcpc),
+            "balance_btcpc": btcpc,
+        })));
+    }
+
+    // Per-account cooldown (in-memory)
+    {
         let mut claims = s.faucet_claims.lock();
-        if let Some(&last) = claims.get(body.account.as_str()) {
-            let elapsed = now.duration_since(last).as_secs();
-            if elapsed < FAUCET_COOLDOWN_SECS {
+        if let Some(&last) = claims.get(account.as_str()) {
+            let elapsed_secs = now.duration_since(last).as_secs();
+            let cooldown_secs = FAUCET_RECLAIM_COOLDOWN_EPOCHS * 30;
+            if elapsed_secs < cooldown_secs {
+                let remaining_mins = (cooldown_secs - elapsed_secs + 59) / 60;
                 return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({
-                    "success": false,
-                    "message": format!("Faucet cooldown: {} seconds remaining", FAUCET_COOLDOWN_SECS - elapsed),
+                    "error": format!("Faucet cooldown active — {} minutes remaining. Use your tokens on network services.", remaining_mins),
                 })));
             }
         }
-        claims.insert(body.account.clone(), now);
+        claims.insert(account.clone(), now);
     }
 
-    let epoch = s.chain.current_epoch();
-    // Create account if it doesn't exist yet (idempotent). Faucet accounts are exempt from stake.
-    let _ = s.chain.apply_entry(&LedgerEntry::AccountCreate {
-        account:      body.account.clone(),
-        keys:         Default::default(),
-        chain_proofs: vec![],
-        epoch,
-        funded_by:    None,
-    });
+    // Faucet reserve must have funds
+    let faucet_balance = s.chain.store.get_balance(FAUCET_ACCOUNT, NATIVE_TOKEN);
+    let amount = faucet_amount_dreams(current_epoch);
+    if faucet_balance < amount {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+            "error": "Faucet reserve is empty. Check back later.",
+        })));
+    }
 
-    match s.chain.store.credit(&body.account, NATIVE_TOKEN, FAUCET_AMOUNT_DREAMS) {
+    // Debit faucet, credit recipient
+    let result = (|| -> anyhow::Result<()> {
+        s.chain.store.debit(FAUCET_ACCOUNT, NATIVE_TOKEN, amount)?;
+        s.chain.store.credit(&account, NATIVE_TOKEN, amount)?;
+        Ok(())
+    })();
+
+    match result {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({
             "success": true,
-            "message": format!("Sent 10 BTCPC to {}", body.account),
-            "amount": 10.0_f64,
-            "dreams": FAUCET_AMOUNT_DREAMS,
+            "type": "transfer",
+            "amount_btcpc": faucet_amount_btcpc(current_epoch),
+            "amount_dreams": amount,
+            "message": format!(
+                "Welcome to BTCPC — {:.4} BTCPC sent to {}. Earn more by mining, running sensors, or storing data.",
+                faucet_amount_btcpc(current_epoch), account
+            ),
         }))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-            "success": false,
-            "message": e.to_string(),
+            "error": e.to_string(),
         }))),
     }
+}
+
+/// GET /api/faucet/status — public faucet reserve and current claim amount.
+async fn get_faucet_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let reserve = s.chain.store.get_balance(FAUCET_ACCOUNT, NATIVE_TOKEN);
+    Json(serde_json::json!({
+        "faucet_account": FAUCET_ACCOUNT,
+        "testnet_only": true,
+        "available": s.chain.chain_id == TESTNET_CHAIN_ID,
+        "reserve_btcpc": reserve as f64 / 10_000_000_000.0,
+        "reserve_dreams": reserve,
+        "claim_amount_btcpc": faucet_amount_btcpc(epoch),
+        "claim_amount_dreams": faucet_amount_dreams(epoch),
+        "cooldown_hours": FAUCET_RECLAIM_COOLDOWN_EPOCHS * 30 / 3600,
+        "ip_limit_per_day": FAUCET_IP_MAX_PER_DAY,
+        "min_account_age_epochs": FAUCET_MIN_ACCOUNT_AGE_EPOCHS,
+    }))
+}
+
+// ── Explorer ──────────────────────────────────────────────────────────────────
+//
+// Aggregates chain data for public explorer UIs.  All endpoints are read-only
+// and do not require authentication.
+
+const GENESIS_TS_MS: u64 = 1_777_633_200_000; // 2026-05-01 12:00:00 IST (UTC+1)
+
+fn epoch_timestamp_ms(epoch: u64) -> u64 {
+    GENESIS_TS_MS + epoch * EPOCH_MS
+}
+
+/// Scan blocks in [from, latest] and return:
+/// - account → active roles, reward total, epochs active, last seen
+/// - entry type → count
+/// - recent entries (up to `entry_limit`)
+fn scan_blocks_window(
+    store: &crate::store::Store,
+    from: u64,
+    latest: u64,
+    entry_limit: usize,
+) -> (
+    std::collections::HashMap<String, (std::collections::HashSet<&'static str>, u64, u64, u64)>,
+    std::collections::HashMap<String, u64>,
+    Vec<serde_json::Value>,
+) {
+    let mut by_account: std::collections::HashMap<String, (std::collections::HashSet<&'static str>, u64, u64, u64)> = std::collections::HashMap::new();
+    let mut by_type: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+
+    for epoch in (from..=latest).rev() {
+        let data = match store.read_block(epoch) {
+            Ok(Some(d)) => d,
+            _ => continue,
+        };
+        let block = match Block::from_bytes(&data) {
+            Some(b) => b,
+            None => continue,
+        };
+        let ledger = match block.payload["ledger_entries"].as_array() {
+            Some(a) => a.clone(),
+            None => continue,
+        };
+        for entry in &ledger {
+            let etype = entry["type"].as_str().unwrap_or("").to_owned();
+            *by_type.entry(etype.clone()).or_insert(0) += 1;
+
+            let role: Option<&'static str> = match etype.as_str() {
+                "MineReward"          => Some("miner"),
+                "ClockReward"         => Some("clock"),
+                "SensorReward"        => Some("sensor"),
+                "StorageHeartbeat"    => Some("storage"),
+                _ => None,
+            };
+            let account = entry["account"].as_str()
+                .or_else(|| entry["to"].as_str())
+                .or_else(|| entry["from"].as_str())
+                .map(str::to_owned);
+
+            if let (Some(role), Some(acct)) = (role, account.clone()) {
+                let amount = entry["amount"].as_u64().unwrap_or(0);
+                let rec = by_account.entry(acct).or_insert_with(|| (std::collections::HashSet::new(), 0, 0, epoch));
+                rec.0.insert(role);
+                rec.1 += amount;
+                rec.2 += 1;
+                if epoch > rec.3 { rec.3 = epoch; }
+            }
+
+            if entry_limit == 0 || entries.len() < entry_limit {
+                let mut e = entry.clone();
+                e["_epoch"] = serde_json::json!(epoch);
+                e["_ts"] = serde_json::json!(epoch_timestamp_ms(epoch));
+                entries.push(e);
+            }
+        }
+    }
+    (by_account, by_type, entries)
+}
+
+/// GET /api/explorer/status — chain overview for explorer dashboards.
+async fn get_explorer_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let current = s.chain.current_epoch();
+    let scan_from = latest.saturating_sub(100);
+    let account_ids = s.chain.store.scan_account_ids();
+
+    let (by_account, by_type, _) = scan_blocks_window(&s.chain.store, scan_from, latest, 0);
+
+    let mut roles = std::collections::HashMap::<&str, u32>::new();
+    for (_, (role_set, _, _, _)) in &by_account {
+        for &r in role_set { *roles.entry(r).or_insert(0) += 1; }
+    }
+
+    let circulating: u64 = account_ids.iter()
+        .map(|id| s.chain.store.get_balance(id, NATIVE_TOKEN))
+        .sum();
+
+    Json(serde_json::json!({
+        "chain_height": latest,
+        "current_epoch": current,
+        "epoch_ms": EPOCH_MS,
+        "genesis_timestamp_ms": GENESIS_TS_MS,
+        "accounts": account_ids.len(),
+        "circulating_btcpc": circulating as f64 / 10_000_000_000.0,
+        "circulating_dreams": circulating,
+        "max_supply_btcpc": 42_000_000,
+        "active_nodes_last_100": by_account.len(),
+        "miners": roles.get("miner").copied().unwrap_or(0),
+        "clock_nodes": roles.get("clock").copied().unwrap_or(0),
+        "sensor_nodes": roles.get("sensor").copied().unwrap_or(0),
+        "storage_nodes": roles.get("storage").copied().unwrap_or(0),
+        "entry_types_last_100": by_type,
+        "timestamp_ms": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+    }))
+}
+
+/// GET /api/explorer/supply — token supply breakdown by account.
+async fn get_explorer_supply(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let account_ids = s.chain.store.scan_account_ids();
+    let mut total: u64 = 0;
+    let mut holders: Vec<serde_json::Value> = Vec::new();
+    for id in &account_ids {
+        let bal = s.chain.store.get_balance(id, NATIVE_TOKEN);
+        if bal > 0 {
+            total += bal;
+            holders.push(serde_json::json!({
+                "account": id,
+                "btcpc": bal as f64 / 10_000_000_000.0,
+                "dreams": bal,
+            }));
+        }
+    }
+    holders.sort_by(|a, b| b["dreams"].as_u64().cmp(&a["dreams"].as_u64()));
+
+    Json(serde_json::json!({
+        "max_supply_btcpc": 42_000_000,
+        "circulating_btcpc": total as f64 / 10_000_000_000.0,
+        "circulating_dreams": total,
+        "holders": holders.len(),
+        "balances": holders,
+        "chain_height": s.chain.store.latest_epoch().unwrap_or(0),
+    }))
+}
+
+/// GET /api/explorer/blocks?limit=50 — recent blocks with per-block summary.
+async fn get_explorer_blocks(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit: u64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).min(200);
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let from = latest.saturating_sub(limit.saturating_sub(1));
+
+    let mut blocks: Vec<serde_json::Value> = Vec::new();
+    for epoch in (from..=latest).rev() {
+        let summary = match s.chain.store.read_block(epoch) {
+            Ok(Some(data)) => {
+                let block = Block::from_bytes(&data);
+                let hash = block.as_ref().map(|b| b.header.hash_hex()).unwrap_or_default();
+                let ledger = block.as_ref()
+                    .and_then(|b| b.payload["ledger_entries"].as_array().cloned())
+                    .unwrap_or_default();
+                let entry_count = ledger.len();
+                let entry_types: Vec<String> = ledger.iter()
+                    .filter_map(|e| e["type"].as_str().map(str::to_owned))
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter().collect();
+                let miner = ledger.iter()
+                    .find(|e| e["type"].as_str() == Some("MineReward"))
+                    .and_then(|e| e["account"].as_str().or_else(|| e["to"].as_str()))
+                    .map(str::to_owned);
+                serde_json::json!({
+                    "epoch": epoch,
+                    "hash": hash,
+                    "timestamp_ms": epoch_timestamp_ms(epoch),
+                    "entry_count": entry_count,
+                    "entry_types": entry_types,
+                    "miner": miner,
+                    "status": s.chain.epoch_status(epoch),
+                })
+            }
+            _ => serde_json::json!({
+                "epoch": epoch,
+                "hash": null,
+                "timestamp_ms": epoch_timestamp_ms(epoch),
+                "entry_count": 0,
+                "status": s.chain.epoch_status(epoch),
+            }),
+        };
+        blocks.push(summary);
+    }
+
+    Json(serde_json::json!({
+        "blocks": blocks,
+        "count": blocks.len(),
+        "chain_height": latest,
+    }))
+}
+
+/// GET /api/explorer/miners — nodes active in the last 100 epochs.
+async fn get_explorer_miners(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let from = latest.saturating_sub(100);
+    let (by_account, _, _) = scan_blocks_window(&s.chain.store, from, latest, 0);
+
+    let mut nodes: Vec<serde_json::Value> = by_account.into_iter().map(|(account, (roles, rewards, epochs_active, last_epoch))| {
+        let balance = s.chain.store.get_balance(&account, NATIVE_TOKEN);
+        serde_json::json!({
+            "account": account,
+            "roles": roles.into_iter().collect::<Vec<_>>(),
+            "balance_btcpc": balance as f64 / 10_000_000_000.0,
+            "rewards_window_btcpc": rewards as f64 / 10_000_000_000.0,
+            "epochs_active": epochs_active,
+            "last_epoch": last_epoch,
+            "last_seen_ms": epoch_timestamp_ms(last_epoch),
+        })
+    }).collect();
+    nodes.sort_by(|a, b| b["last_epoch"].as_u64().cmp(&a["last_epoch"].as_u64()));
+
+    Json(serde_json::json!({
+        "nodes": nodes,
+        "count": nodes.len(),
+        "window_epochs": 100,
+        "chain_height": latest,
+    }))
+}
+
+/// GET /api/explorer/activity?limit=50 — recent ledger entry feed.
+async fn get_explorer_activity(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).min(200);
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let from = latest.saturating_sub(200);
+    let (_, by_type, mut entries) = scan_blocks_window(&s.chain.store, from, latest, limit);
+    entries.truncate(limit);
+
+    Json(serde_json::json!({
+        "entries": entries,
+        "entry_types": by_type,
+        "count": entries.len(),
+        "chain_height": latest,
+    }))
+}
+
+// ── Staking extras ────────────────────────────────────────────────────────────
+
+/// GET /api/staking/network — aggregate network staking stats.
+async fn get_staking_network(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let ids = s.chain.store.scan_account_ids();
+    let mut total_staked: u64 = 0;
+    let mut stakers: u64 = 0;
+    for id in &ids {
+        let stake = s.chain.store.get_stake(id);
+        if stake > 0 { total_staked += stake; stakers += 1; }
+    }
+    let avg_stake = if stakers > 0 { total_staked / stakers } else { 0 };
+    Json(serde_json::json!({
+        "total_staked_btcpc": total_staked as f64 / 10_000_000_000.0,
+        "total_staked_dreams": total_staked,
+        "stakers": stakers,
+        "avg_stake_btcpc": avg_stake as f64 / 10_000_000_000.0,
+        "chain_height": s.chain.current_epoch(),
+    }))
+}
+
+/// GET /api/staking/requirements — per-role minimum stake requirements.
+async fn get_staking_requirements(State(s): State<AppState>) -> Json<serde_json::Value> {
+    // Read from governance params if set, else use compile-time defaults.
+    let read_param = |key: &str, default: u64| -> u64 {
+        s.chain.store.state_get(&format!("param:{}", key))
+            .and_then(|b| String::from_utf8(b).ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(default)
+    };
+    let miner   = read_param("stake_min_miner",   100 * 10_000_000_000);
+    let clock   = read_param("stake_min_clock",   100 * 10_000_000_000);
+    let storage = read_param("stake_min_storage",  10 * 10_000_000_000);
+    let sensor  = read_param("stake_min_sensor",   10 * 10_000_000_000);
+    Json(serde_json::json!({
+        "miner":   { "dreams": miner,   "btcpc": miner   as f64 / 10_000_000_000.0 },
+        "clock":   { "dreams": clock,   "btcpc": clock   as f64 / 10_000_000_000.0 },
+        "storage": { "dreams": storage, "btcpc": storage as f64 / 10_000_000_000.0 },
+        "sensor":  { "dreams": sensor,  "btcpc": sensor  as f64 / 10_000_000_000.0 },
+    }))
+}
+
+// ── Node capability marketplace ───────────────────────────────────────────────
+//
+// Miners self-announce their hardware capabilities (vision, audio, finetune, etc.)
+// via POST /api/node/capability.  Stored in CF_META as "miner_caps:{account}".
+// Job posters use GET /api/node/miners/capable?vision=1&tier=reasoning to find
+// nodes that can serve their requirements.
+
+#[derive(Debug, Deserialize)]
+struct NodeCapabilityBody {
+    account: String,
+    signature: String,
+    vision: Option<bool>,
+    audio: Option<bool>,
+    code_exec: Option<bool>,
+    finetune: Option<bool>,
+    browser: Option<bool>,
+    /// "fast" | "reasoning"
+    tier: Option<String>,
+    models: Option<Vec<String>>,
+    gpu_vram_gb: Option<u32>,
+    epoch: u64,
+}
+
+/// POST /api/node/capability — miner self-announces hardware capabilities.
+/// Verified with the posting key (the same key used for mine submissions).
+async fn post_node_capability(
+    State(s): State<AppState>,
+    Json(body): Json<NodeCapabilityBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let msg = format!("btcpc-capability:{}:{}", body.account, body.epoch);
+    if let Err(e) = crate::tx::check_sig_raw(&s.chain, &body.account, msg.as_bytes(), Some(&body.signature)) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": format!("invalid signature: {}", e) })));
+    }
+
+    let caps = serde_json::json!({
+        "account": body.account,
+        "vision": body.vision.unwrap_or(false),
+        "audio": body.audio.unwrap_or(false),
+        "code_exec": body.code_exec.unwrap_or(false),
+        "finetune": body.finetune.unwrap_or(false),
+        "browser": body.browser.unwrap_or(false),
+        "tier": body.tier.as_deref().unwrap_or("fast"),
+        "models": body.models.clone().unwrap_or_default(),
+        "gpu_vram_gb": body.gpu_vram_gb.unwrap_or(0),
+        "announced_epoch": body.epoch,
+    });
+
+    let key = format!("miner_caps:{}", body.account);
+    match s.chain.store.state_set(&key, &serde_json::to_vec(&caps).unwrap_or_default()) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "capabilities": caps }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/node/miners/all — all miners active in last 100 epochs (from block scan).
+async fn get_node_miners_all(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let latest = s.chain.store.latest_epoch().unwrap_or(0);
+    let from = latest.saturating_sub(100);
+    let (by_account, _, _) = scan_blocks_window(&s.chain.store, from, latest, 0);
+
+    let miners: Vec<serde_json::Value> = by_account.into_iter()
+        .filter(|(_, (roles, _, _, _))| roles.contains("miner"))
+        .map(|(account, (roles, rewards, epochs_active, last_epoch))| {
+            // Merge with any announced capabilities
+            let caps = s.chain.store.state_get(&format!("miner_caps:{}", account))
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+            let mut v = serde_json::json!({
+                "account": account,
+                "roles": roles.into_iter().collect::<Vec<_>>(),
+                "epochs_active": epochs_active,
+                "last_epoch": last_epoch,
+                "rewards_window_btcpc": rewards as f64 / 10_000_000_000.0,
+            });
+            if let Some(c) = caps {
+                v["capabilities"] = c;
+            }
+            v
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "miners": miners,
+        "count": miners.len(),
+        "window_epochs": 100,
+    }))
+}
+
+/// GET /api/node/miners/capable?vision=1&audio=1&tier=reasoning — filter by capabilities.
+async fn get_node_miners_capable(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let want_vision    = params.get("vision").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let want_audio     = params.get("audio").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let want_code_exec = params.get("code_exec").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let want_finetune  = params.get("finetune").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let want_browser   = params.get("browser").map(|v| v == "1" || v == "true").unwrap_or(false);
+    let want_tier      = params.get("tier").cloned();
+
+    let all_caps: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("miner_caps:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .filter(|c: &serde_json::Value| {
+            if want_vision    && !c["vision"].as_bool().unwrap_or(false)    { return false; }
+            if want_audio     && !c["audio"].as_bool().unwrap_or(false)     { return false; }
+            if want_code_exec && !c["code_exec"].as_bool().unwrap_or(false) { return false; }
+            if want_finetune  && !c["finetune"].as_bool().unwrap_or(false)  { return false; }
+            if want_browser   && !c["browser"].as_bool().unwrap_or(false)   { return false; }
+            if let Some(ref tier) = want_tier {
+                if c["tier"].as_str().unwrap_or("fast") != tier { return false; }
+            }
+            true
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "miners": all_caps,
+        "count": all_caps.len(),
+        "requirements": {
+            "vision": want_vision,
+            "audio": want_audio,
+            "code_exec": want_code_exec,
+            "finetune": want_finetune,
+            "browser": want_browser,
+            "tier": want_tier,
+        },
+    }))
+}
+
+/// GET /api/node/miners/:name — specific miner's announced capabilities.
+async fn get_node_miner(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match s.chain.store.state_get(&format!("miner_caps:{}", name)) {
+        Some(bytes) => {
+            let caps: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::json!({}));
+            Ok(Json(caps))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// GET /api/node/network/capabilities — aggregate capability summary across all announced miners.
+async fn get_network_capabilities(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let all: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("miner_caps:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+
+    let count = all.len();
+    let vision    = all.iter().filter(|c| c["vision"].as_bool().unwrap_or(false)).count();
+    let audio     = all.iter().filter(|c| c["audio"].as_bool().unwrap_or(false)).count();
+    let code_exec = all.iter().filter(|c| c["code_exec"].as_bool().unwrap_or(false)).count();
+    let finetune  = all.iter().filter(|c| c["finetune"].as_bool().unwrap_or(false)).count();
+    let browser   = all.iter().filter(|c| c["browser"].as_bool().unwrap_or(false)).count();
+    let reasoning = all.iter().filter(|c| c["tier"].as_str() == Some("reasoning")).count();
+    let total_vram: u64 = all.iter().map(|c| c["gpu_vram_gb"].as_u64().unwrap_or(0)).sum();
+
+    Json(serde_json::json!({
+        "announced_miners": count,
+        "vision_capable": vision,
+        "audio_capable": audio,
+        "code_exec_capable": code_exec,
+        "finetune_capable": finetune,
+        "browser_capable": browser,
+        "reasoning_tier": reasoning,
+        "fast_tier": count.saturating_sub(reasoning),
+        "total_gpu_vram_gb": total_vram,
+    }))
 }
 
 // ── LinkGit request bodies ────────────────────────────────────────────────────
@@ -1774,7 +2433,7 @@ async fn post_linkgit_access_revoke(
 
 const AGENT_SYSTEM_PROMPT: &str = "\
 You are the BTCPC setup assistant on btcpc.net. BTCPC is a sovereign blockchain where \
-miners earn by running AI inference via Ollama — no gatekeepers, no cloud.\n\n\
+miners earn by running AI tasks via Ollama — no gatekeepers, no cloud.\n\n\
 Keep every reply under 3 sentences. Be direct and actionable. Give exact commands when asked.\n\n\
 Platform setup:\n\
 - Windows: download start-windows.bat from btcpc.net, double-click it. Handles Ollama binding and Docker automatically.\n\
@@ -1967,6 +2626,41 @@ async fn post_sensor_commit(
         sensor_type: body.sensor_type,
         epoch,
         signed_by: body.owner,
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/coverage/report
+/// Body: { reporter, lat, lon, signal_dbm?, carrier_mcc_mnc, technology, data_hash, signature }
+#[derive(Debug, Deserialize)]
+struct CoverageReportBody {
+    reporter: String,
+    lat: f64,
+    lon: f64,
+    signal_dbm: Option<i32>,
+    carrier_mcc_mnc: String,
+    technology: String,
+    data_hash: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_coverage_report(
+    State(s): State<AppState>,
+    Json(body): Json<CoverageReportBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::CoverageReport {
+        reporter: body.reporter.clone(),
+        lat: body.lat,
+        lon: body.lon,
+        signal_dbm: body.signal_dbm,
+        carrier_mcc_mnc: body.carrier_mcc_mnc,
+        technology: body.technology,
+        data_hash: body.data_hash,
+        epoch,
+        signed_by: body.reporter,
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
@@ -3253,6 +3947,111 @@ document.getElementById('new-name').addEventListener('keydown', e => {
 </body>
 </html>"#;
 
+// ── State Proofs (Phase 7) ────────────────────────────────────────────────────
+
+/// GET /api/proof/balance/:account/:token — Merkle proof that `account` holds `balance` of `token`.
+async fn get_balance_proof(
+    State(s): State<AppState>,
+    Path((account, token)): Path<(String, String)>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match s.chain.store.balance_merkle_proof(&account, &token) {
+        Some(proof) => (StatusCode::OK, Json(serde_json::json!({
+            "account":    proof.account,
+            "token":      proof.token,
+            "balance":    proof.balance,
+            "leaf_hash":  proof.leaf_hash,
+            "path":       proof.path.iter().map(|(h, l)| serde_json::json!({"sibling": h, "is_left": l})).collect::<Vec<_>>(),
+            "root":       proof.root,
+            "valid":      proof.verify(),
+        }))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "no balance found for account/token",
+            "account": account,
+            "token": token,
+        }))),
+    }
+}
+
+/// GET /api/chain/state_root — current Merkle root of the balance tree + epoch.
+async fn get_state_root(
+    State(s): State<AppState>,
+) -> Json<serde_json::Value> {
+    let root = s.chain.store.balance_merkle_root();
+    let epoch = s.chain.current_epoch();
+    Json(serde_json::json!({ "state_root": root, "epoch": epoch }))
+}
+
+// ── Consensus / fork choice (T1-7, T1-8) ─────────────────────────────────────
+
+/// GET /api/chain/validators/:epoch — registered validator set snapshot at that epoch.
+async fn get_epoch_validators(
+    State(s): State<AppState>,
+    Path(epoch): Path<u64>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match s.chain.store.state_get(&format!("epoch_validators:{}", epoch)) {
+        Some(bytes) => {
+            let validators: Vec<String> = serde_json::from_slice(&bytes)
+                .unwrap_or_default();
+            (StatusCode::OK, Json(serde_json::json!({
+                "epoch": epoch,
+                "validators": validators,
+                "count": validators.len(),
+                "quorum_threshold": ((validators.len() as f64 * 0.51).ceil() as u64).max(1),
+            })))
+        }
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "no validator snapshot for this epoch",
+            "epoch": epoch,
+        }))),
+    }
+}
+
+/// GET /api/chain/fork/:epoch — fork evidence if competing EpochFinalizes were seen.
+async fn get_fork_evidence(
+    State(s): State<AppState>,
+    Path(epoch): Path<u64>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match s.chain.store.state_get(&format!("fork_evidence:{}", epoch)) {
+        Some(bytes) => {
+            let evidence: serde_json::Value = serde_json::from_slice(&bytes)
+                .unwrap_or(serde_json::json!({}));
+            (StatusCode::OK, Json(evidence))
+        }
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "epoch": epoch,
+            "fork_detected": false,
+        }))),
+    }
+}
+
+// ── Clock node reputation (Phase 8) ──────────────────────────────────────────
+
+/// GET /api/clock/:node_id/uptime — uptime stats and current reward multiplier.
+async fn get_clock_uptime(
+    State(s): State<AppState>,
+    Path(node_id): Path<String>,
+) -> Json<serde_json::Value> {
+    const UPTIME_MIN_EPOCHS: u64 = 10;
+    let uptime_key = format!("clock_uptime:{}", node_id);
+    let uptime: serde_json::Value = s.chain.store.state_get(&uptime_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
+    let seals  = uptime["seals"].as_u64().unwrap_or(0);
+    let epochs = uptime["epochs"].as_u64().unwrap_or(0);
+    let multiplier_millipct = if epochs < UPTIME_MIN_EPOCHS {
+        1_000u64
+    } else {
+        500 + 500 * seals / epochs.max(1)
+    };
+    Json(serde_json::json!({
+        "node_id": node_id,
+        "seals_in_window": seals,
+        "epochs_in_window": epochs,
+        "uptime_pct": if epochs == 0 { 100u64 } else { seals * 100 / epochs },
+        "reward_multiplier": multiplier_millipct as f64 / 1000.0,
+    }))
+}
+
 // ── Governance: chain parameters ─────────────────────────────────────────────
 
 /// GET /api/chain/param/:key — return current value of a governance parameter.
@@ -3351,6 +4150,6 @@ pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("API listening on http://{}", addr);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
