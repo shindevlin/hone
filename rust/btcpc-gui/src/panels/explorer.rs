@@ -4,7 +4,7 @@ fn dreams_to_btcpc(dreams: u64) -> String {
     format!("{:.8}", dreams as f64 / 100_000_000.0)
 }
 
-pub fn show(ui: &mut egui::Ui, data: &AppData) {
+pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
     ui.heading("Explorer");
     ui.separator();
 

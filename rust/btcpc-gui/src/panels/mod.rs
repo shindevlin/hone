@@ -15,6 +15,27 @@ pub enum PaneKind {
     Settings,
 }
 
+#[derive(Default)]
+pub struct FormState {
+    // Transfer
+    pub transfer_to: String,
+    pub transfer_amount: String,
+    pub transfer_memo: String,
+    pub transfer_result: Option<(bool, String)>,
+
+    // Stake
+    pub stake_amount: String,
+    pub stake_add: bool,
+    pub stake_result: Option<(bool, String)>,
+
+    // Inference post
+    pub job_model: String,
+    pub job_input: String,
+    pub job_max_fee: String,
+    pub job_deadline: String,
+    pub job_result: Option<(bool, String)>,
+}
+
 pub struct AppData {
     pub node_info: Option<serde_json::Value>,
     pub explorer_status: Option<serde_json::Value>,
@@ -25,6 +46,8 @@ pub struct AppData {
     pub status_msg: String,
     pub node_url: String,
     pub account: Option<String>,
+    pub key_file: Option<std::path::PathBuf>,
+    pub forms: FormState,
 }
 
 impl Default for AppData {
@@ -39,6 +62,8 @@ impl Default for AppData {
             status_msg: String::new(),
             node_url: "http://localhost:4242".to_string(),
             account: None,
+            key_file: None,
+            forms: FormState::default(),
         }
     }
 }

@@ -1,4 +1,5 @@
 /* btcpcscan — blockchain explorer logic */
+/* Rewired for Rust node on port 4242 — May 2026 */
 "use strict";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -53,10 +54,10 @@ function badgeRole(role) {
 
 function entryTypeBadge(type) {
   if (!type) return "";
-  const cls = type.includes("MINING") ? "badge-miner"
-    : type.includes("STORAGE") ? "badge-storage"
-    : type.includes("CLOCK") ? "badge-clock"
-    : type.includes("SENSOR") ? "badge-sensor"
+  const cls = type.includes("Mine") || type.includes("MINING") ? "badge-miner"
+    : type.includes("Storage") || type.includes("STORAGE") ? "badge-storage"
+    : type.includes("Clock") || type.includes("CLOCK") ? "badge-clock"
+    : type.includes("Sensor") || type.includes("SENSOR") ? "badge-sensor"
     : "badge-tx";
   return `<span class="badge ${cls}">${type.replace(/_/g, " ")}</span>`;
 }
@@ -140,21 +141,26 @@ async function loadHome() {
 
 async function refreshHome() {
   try {
+    // Rust node routes: /api/explorer/status, /api/explorer/blocks, /api/explorer/activity
     const [status, blocks, activity] = await Promise.all([
-      apiFetch("/status"),
-      apiFetch("/blocks?limit=10"),
-      apiFetch("/activity?limit=20"),
+      apiFetch("/api/explorer/status"),
+      apiFetch("/api/explorer/blocks?limit=10"),
+      apiFetch("/api/explorer/activity?limit=20"),
     ]);
     renderStats(status);
     renderRecentBlocks(blocks.blocks || []);
     renderRecentActivity(activity.entries || []);
-    renderSupplyBar(status);
   } catch (err) {
     errMsg("stats-grid", err.message);
   }
 }
 
 function renderStats(s) {
+  // Rust node /api/explorer/status fields:
+  //   chain_height, current_epoch, epoch_ms, accounts,
+  //   circulating_btcpc, max_supply_btcpc,
+  //   active_nodes_last_100, miners, clock_nodes, storage_nodes
+  const epochSecs = ((s.epoch_ms || 30000) / 1000).toFixed(0);
   setHTML("stats-grid", `
     <div class="stat-card">
       <div class="stat-label">Block Height</div>
@@ -162,11 +168,11 @@ function renderStats(s) {
     </div>
     <div class="stat-card">
       <div class="stat-label">Epoch Time</div>
-      <div class="stat-value">${(s.epoch_time_ms / 1000)}s</div>
+      <div class="stat-value">${epochSecs}s</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Active Nodes</div>
-      <div class="stat-value green">${fmtInt(s.active_nodes)}</div>
+      <div class="stat-label">Active Nodes (last 100)</div>
+      <div class="stat-value green">${fmtInt(s.active_nodes_last_100)}</div>
       <div class="stat-sub">${s.miners || 0} miners · ${s.storage_nodes || 0} storage · ${s.clock_nodes || 0} clocks</div>
     </div>
     <div class="stat-card">
@@ -175,28 +181,25 @@ function renderStats(s) {
     </div>
     <div class="stat-card">
       <div class="stat-label">Circulating Supply</div>
-      <div class="stat-value mono">${fmt(s.circulating_supply, 2)}</div>
-      <div class="stat-sub">of ${fmtInt(s.max_supply)} BTCPC max</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Epoch Reward</div>
-      <div class="stat-value">${fmt(s.current_reward_per_epoch, 2)}</div>
-      <div class="stat-sub">BTCPC / epoch</div>
+      <div class="stat-value mono">${fmt(s.circulating_btcpc, 2)}</div>
+      <div class="stat-sub">of ${fmtInt(s.max_supply_btcpc || 42000000)} BTCPC max</div>
     </div>
   `);
 
+  const circ = s.circulating_btcpc || 0;
+  const maxS = s.max_supply_btcpc || 42000000;
   setHTML("supply-bar-section", `
     <div class="card">
       <div class="card-title">Supply Distribution</div>
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
-        <span>Circulating: <strong>${fmt(s.circulating_supply, 4)} BTCPC</strong></span>
-        <span style="color:var(--text-dim)">Max: 42,000,000 BTCPC</span>
+        <span>Circulating: <strong>${fmt(circ, 4)} BTCPC</strong></span>
+        <span style="color:var(--text-dim)">Max: ${fmtInt(maxS)} BTCPC</span>
       </div>
       <div class="supply-bar-wrap">
-        <div class="supply-bar" id="supply-bar" style="width:${Math.min(100, (s.circulating_supply / 42000000) * 100).toFixed(3)}%"></div>
+        <div class="supply-bar" id="supply-bar" style="width:${Math.min(100, (circ / maxS) * 100).toFixed(3)}%"></div>
       </div>
       <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">
-        ${((s.circulating_supply / 42000000) * 100).toFixed(4)}% of max supply issued
+        ${((circ / maxS) * 100).toFixed(4)}% of max supply issued
       </div>
     </div>
   `);
@@ -208,15 +211,14 @@ function renderRecentBlocks(blocks) {
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Epoch</th><th>Age</th><th>Miner</th><th>Entries</th><th>Reward</th>
+          <th>Epoch</th><th>Age</th><th>Miner</th><th>Entries</th>
         </tr></thead>
         <tbody>${blocks.map(b => `
           <tr>
             <td><a class="link" onclick="navigate('#block/${b.epoch}')">${fmtInt(b.epoch)}</a></td>
-            <td style="color:var(--text-dim)">${fmtAge(b.timestamp)}</td>
-            <td><a class="link" onclick="navigate('#account/${escHtml(b.miner || b.proposer || '')}')">${escHtml(b.miner || b.proposer || "—")}</a></td>
+            <td style="color:var(--text-dim)">${fmtAge(b.timestamp_ms)}</td>
+            <td><a class="link" onclick="navigate('#account/${escHtml(b.miner || '')}')">${escHtml(b.miner || "—")}</a></td>
             <td>${b.entry_count}</td>
-            <td>${b.reward != null ? fmt(b.reward, 2) + " BTCPC" : "—"}</td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -230,13 +232,15 @@ function renderRecentActivity(entries) {
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Epoch</th><th>Age</th><th>Type</th><th>Account</th><th>Amount</th>
+          <th>Epoch</th><th>Type</th><th>Account</th><th>Amount</th>
         </tr></thead>
         <tbody>${entries.map(e => {
+    // Rust entries have a "type" field with the LedgerEntry variant name
+    // and various field names depending on the entry type
     const acct = e.to || e.from || e.account || "—";
+    const epoch = e.epoch || e._epoch || "—";
     return `<tr>
-            <td><a class="link" onclick="navigate('#block/${e.epoch}')">${fmtInt(e.epoch)}</a></td>
-            <td style="color:var(--text-dim)">${fmtAge(e._ts)}</td>
+            <td><a class="link" onclick="navigate('#block/${epoch}')">${fmtInt(epoch)}</a></td>
             <td>${entryTypeBadge(e.type)}</td>
             <td><a class="link" onclick="navigate('#account/${escHtml(acct)}')">${escHtml(acct)}</a></td>
             <td>${e.amount != null ? fmt(e.amount, 4) + " BTCPC" : "—"}</td>
@@ -248,33 +252,33 @@ function renderRecentActivity(entries) {
   `);
 }
 
-function renderSupplyBar(s) { /* handled inline in renderStats */ }
-
 // ─── Blocks list ──────────────────────────────────────────────────────────────
 
 async function loadBlocks() {
   loading("blocks-table");
   try {
-    const data = await apiFetch("/blocks?limit=100");
+    // Rust: GET /api/explorer/blocks?limit=100
+    // Returns: { blocks: [{epoch, hash, timestamp_ms, entry_count, entry_types, miner, status}], count, chain_height }
+    const data = await apiFetch("/api/explorer/blocks?limit=100");
     const blocks = data.blocks || [];
     if (!blocks.length) { empty("blocks-table", "No blocks indexed."); return; }
     setHTML("blocks-table", `
       <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
-        Showing ${blocks.length} of ${fmtInt(data.total_indexed)} indexed epochs
+        Showing ${blocks.length} blocks — chain height ${fmtInt(data.chain_height)}
       </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>Epoch</th><th>Timestamp</th><th>Miner</th><th>Entries</th><th>Types</th><th>Reward</th>
+            <th>Epoch</th><th>Timestamp</th><th>Miner</th><th>Entries</th><th>Types</th><th>Status</th>
           </tr></thead>
           <tbody>${blocks.map(b => `
             <tr>
               <td><a class="link" onclick="navigate('#block/${b.epoch}')">${fmtInt(b.epoch)}</a></td>
-              <td style="color:var(--text-dim);font-size:12px">${fmtDate(b.timestamp)}</td>
-              <td><a class="link" onclick="navigate('#account/${escHtml(b.miner || b.proposer || '')}')">${escHtml(b.miner || b.proposer || "—")}</a></td>
+              <td style="color:var(--text-dim);font-size:12px">${fmtDate(b.timestamp_ms)}</td>
+              <td><a class="link" onclick="navigate('#account/${escHtml(b.miner || '')}')">${escHtml(b.miner || "—")}</a></td>
               <td>${b.entry_count}</td>
               <td style="font-size:11px">${(b.entry_types || []).map(t => entryTypeBadge(t)).join(" ")}</td>
-              <td>${b.reward != null ? fmt(b.reward, 2) + " BTCPC" : "—"}</td>
+              <td style="font-size:11px;color:var(--text-dim)">${b.status || "—"}</td>
             </tr>`).join("")}
           </tbody>
         </table>
@@ -290,33 +294,33 @@ async function loadBlocks() {
 async function loadBlockDetail(num) {
   loading("block-detail-content");
   try {
-    const b = await apiFetch(`/block/${num}`);
-    const entries = b.ledger_entries || [];
+    // Rust: GET /api/block/:epoch
+    // Returns: { epoch, status, hash, header: {...}, payload: { ledger_entries: [...] } }
+    const b = await apiFetch(`/api/block/${num}`);
+    const header = b.header || {};
+    const payload = b.payload || {};
+    const entries = payload.ledger_entries || [];
     setHTML("block-detail-content", `
       <button class="back-btn" onclick="history.back()">← Back</button>
       <div class="page-header">
         <h2>Epoch ${fmtInt(b.epoch)}</h2>
-        <span class="sub">${fmtDate(b.timestamp)}</span>
+        <span class="sub">${fmtDate(header.timestamp_ms)}</span>
       </div>
       <div class="card">
         <div class="card-title">Block Header</div>
         <div class="detail-grid">
           <span class="dk">Epoch</span>
           <span class="dv">${fmtInt(b.epoch)}</span>
-          <span class="dk">Timestamp</span>
-          <span class="dv">${fmtDate(b.timestamp)}</span>
-          <span class="dk">Proposer</span>
-          <span class="dv"><a class="link" onclick="navigate('#account/${escHtml(b.proposer || '')}')">${escHtml(b.proposer || "—")}</a></span>
+          <span class="dk">Status</span>
+          <span class="dv">${escHtml(b.status || "—")}</span>
           <span class="dk">Hash</span>
           <span class="dv hash">${escHtml(b.hash || "—")}</span>
           <span class="dk">Prev Hash</span>
-          <span class="dv hash">${escHtml(b.previous_hash || "—")}</span>
+          <span class="dv hash">${escHtml(header.previous_hash || "—")}</span>
           <span class="dk">State Root</span>
-          <span class="dv hash">${escHtml(b.state_root || "—")}</span>
-          <span class="dk">Difficulty</span>
-          <span class="dv">${b.difficulty != null ? b.difficulty : "—"}</span>
+          <span class="dv hash">${escHtml(header.state_root || "—")}</span>
           <span class="dk">Entry Count</span>
-          <span class="dv">${b.entry_count}</span>
+          <span class="dv">${entries.length}</span>
         </div>
       </div>
       <div class="card">
@@ -348,38 +352,46 @@ async function loadBlockDetail(num) {
 async function loadAccount(name) {
   loading("account-content");
   try {
-    const [acct, hist] = await Promise.all([
-      apiFetch(`/account/${encodeURIComponent(name)}`),
-      apiFetch(`/account/${encodeURIComponent(name)}/history?limit=50`),
+    // Rust: GET /api/account/:account
+    // Returns: { account, created_epoch, keys, nonce, stake, chains_proven, key_policies }
+    // Rust: GET /api/account/:account/history
+    // Returns: { account, count, entries: [{type, from/to/account, amount, memo, _epoch, _role}] }
+    // Rust: GET /api/balance/:account
+    // Returns: { account, balance (float), dreams, token }
+    const [acct, hist, balResp] = await Promise.all([
+      apiFetch(`/api/account/${encodeURIComponent(name)}`),
+      apiFetch(`/api/account/${encodeURIComponent(name)}/history?limit=50`),
+      apiFetch(`/api/balance/${encodeURIComponent(name)}`),
     ]);
-    const history = hist.history || [];
+    const history = hist.entries || [];
+    const balance = balResp.balance || 0;
+    const stake = acct.stake || 0;
 
     setHTML("account-content", `
       <button class="back-btn" onclick="history.back()">← Back</button>
       <div class="page-header">
         <h2 class="mono">${escHtml(acct.account)}</h2>
-        ${acct.node_roles && acct.node_roles.length ? `<span>${acct.node_roles.map(badgeRole).join(" ")}</span>` : ""}
       </div>
 
       <div class="stat-grid">
         <div class="stat-card">
           <div class="stat-label">Balance</div>
-          <div class="stat-value orange">${fmt(acct.balance, 4)}</div>
+          <div class="stat-value orange">${fmt(balance, 4)}</div>
           <div class="stat-sub">BTCPC</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Staked</div>
-          <div class="stat-value">${fmt(acct.staked || 0, 4)}</div>
+          <div class="stat-value">${fmt(stake, 4)}</div>
           <div class="stat-sub">BTCPC</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Epochs Active (last 100)</div>
-          <div class="stat-value green">${fmtInt(acct.epochs_active_last_100)}</div>
+          <div class="stat-label">Nonce</div>
+          <div class="stat-value">${fmtInt(acct.nonce || 0)}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Rewards (last 100 ep)</div>
-          <div class="stat-value">${fmt(acct.rewards_last_100_epochs, 4)}</div>
-          <div class="stat-sub">BTCPC</div>
+          <div class="stat-label">Tx History</div>
+          <div class="stat-value">${fmtInt(hist.count || 0)}</div>
+          <div class="stat-sub">entries</div>
         </div>
       </div>
 
@@ -392,12 +404,12 @@ async function loadAccount(name) {
           <span class="dv">${acct.nonce || 0}</span>
           <span class="dk">Created Epoch</span>
           <span class="dv"><a class="link" onclick="navigate('#block/${acct.created_epoch}')">${fmtInt(acct.created_epoch)}</a></span>
-          <span class="dk">Created At</span>
-          <span class="dv">${fmtDate(acct.created_at)}</span>
-          <span class="dk">Last Active</span>
-          <span class="dv">${acct.last_active_at ? fmtDate(acct.last_active_at) + ` (epoch ${fmtInt(acct.last_active_epoch)})` : "—"}</span>
-          <span class="dk">Roles</span>
-          <span class="dv">${acct.node_roles && acct.node_roles.length ? acct.node_roles.map(badgeRole).join(" ") : "—"}</span>
+          <span class="dk">Stake</span>
+          <span class="dv">${fmt(stake, 4)} BTCPC</span>
+          ${(acct.chains_proven || []).length ? `
+          <span class="dk">Proven Chains</span>
+          <span class="dv">${(acct.chains_proven || []).map(c => escHtml(c.chain || c)).join(", ")}</span>
+          ` : ""}
         </div>
       </div>
 
@@ -406,16 +418,18 @@ async function loadAccount(name) {
         ${history.length === 0 ? '<div class="empty-msg">No history found.</div>' : `
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Epoch</th><th>Age</th><th>Type</th><th>From</th><th>To</th><th>Amount</th></tr></thead>
-            <tbody>${history.map(e => `
+            <thead><tr><th>Epoch</th><th>Type</th><th>From</th><th>To</th><th>Amount</th></tr></thead>
+            <tbody>${history.map(e => {
+    const epoch = e._epoch || e.epoch || "—";
+    return `
               <tr>
-                <td><a class="link" onclick="navigate('#block/${e.epoch}')">${fmtInt(e.epoch)}</a></td>
-                <td style="color:var(--text-dim);font-size:12px">${fmtAge(e._ts)}</td>
+                <td><a class="link" onclick="navigate('#block/${epoch}')">${fmtInt(epoch)}</a></td>
                 <td>${entryTypeBadge(e.type)}</td>
                 <td>${e.from ? `<a class="link" onclick="navigate('#account/${escHtml(e.from)}')">${escHtml(e.from)}</a>` : "—"}</td>
                 <td>${(e.to || e.account) ? `<a class="link" onclick="navigate('#account/${escHtml(e.to || e.account)}')">${escHtml(e.to || e.account)}</a>` : "—"}</td>
                 <td>${e.amount != null ? fmt(e.amount, 8) + " BTCPC" : "—"}</td>
-              </tr>`).join("")}
+              </tr>`;
+  }).join("")}
             </tbody>
           </table>
         </div>`}
@@ -431,9 +445,22 @@ async function loadAccount(name) {
 async function loadAccounts() {
   loading("accounts-table");
   try {
-    const data = await apiFetch("/accounts");
+    // Rust: GET /api/accounts
+    // Returns: { count, accounts: [{account, keys, balances: {BTCPC: dreams_int}}] }
+    const data = await apiFetch("/api/accounts");
     const accounts = data.accounts || [];
     if (!accounts.length) { empty("accounts-table", "No accounts found."); return; }
+
+    // Convert dreams integer to BTCPC float (1 BTCPC = 10,000,000,000 dreams)
+    const DREAMS_PER_BTCPC = 10_000_000_000;
+    const rows = accounts.map((a, i) => {
+      const dreamsRaw = (a.balances && a.balances.BTCPC) ? Number(a.balances.BTCPC) : 0;
+      const btcpc = dreamsRaw / DREAMS_PER_BTCPC;
+      return { account: a.account, btcpc, i };
+    });
+    // Sort by balance descending
+    rows.sort((a, b) => b.btcpc - a.btcpc);
+
     setHTML("accounts-table", `
       <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
         ${fmtInt(accounts.length)} accounts
@@ -441,16 +468,13 @@ async function loadAccounts() {
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>#</th><th>Account</th><th>Balance</th><th>Staked</th><th>Nonce</th><th>Created Epoch</th>
+            <th>#</th><th>Account</th><th>Balance (BTCPC)</th>
           </tr></thead>
-          <tbody>${accounts.map((a, i) => `
+          <tbody>${rows.map((a, i) => `
             <tr>
               <td style="color:var(--text-dim)">${i + 1}</td>
               <td><a class="link" onclick="navigate('#account/${escHtml(a.account)}')">${escHtml(a.account)}</a></td>
-              <td class="mono">${fmt(a.balance, 4)} BTCPC</td>
-              <td>${fmt(a.staked || 0, 4)}</td>
-              <td>${a.nonce || 0}</td>
-              <td><a class="link" onclick="navigate('#block/${a.created_epoch}')">${fmtInt(a.created_epoch)}</a></td>
+              <td class="mono">${fmt(a.btcpc, 4)}</td>
             </tr>`).join("")}
           </tbody>
         </table>
@@ -468,12 +492,11 @@ let allSensors = [];
 async function loadSensors() {
   loading("sensors-table");
   try {
-    const data = await apiFetch("/api/sensors");
-    allSensors = data.sensors || data || [];
-    renderSensors(allSensors);
-    buildSensorFilters();
+    // No sensor list endpoint exists yet in the Rust node.
+    // Sensors are registered individually via /api/sensor/:id (GET) and /api/sensor/register (POST).
+    // Show graceful empty state until a sensor index is added.
+    throw new Error("sensor_list_unavailable");
   } catch (err) {
-    // Sensors may not be deployed — show graceful state
     setHTML("sensors-table", `
       <div class="empty-msg">
         Sensor data market not yet active — sensors will appear here once registered on-chain.
@@ -550,7 +573,9 @@ function renderSensors(sensors) {
 async function loadSensorDetail(id) {
   loading("sensor-detail-content");
   try {
-    const s = await apiFetch(`/api/sensors/${encodeURIComponent(id)}`);
+    // Rust: GET /api/sensor/:id
+    // Returns sensor registration data stored on-chain
+    const s = await apiFetch(`/api/sensor/${encodeURIComponent(id)}`);
     const sensor = s.sensor || s;
     const readings = s.readings || sensor.recent_readings || [];
     const status = sensor.status || "active";
@@ -627,9 +652,9 @@ async function doSearch() {
     return;
   }
 
-  // Try account first
+  // Try account first — Rust: GET /api/account/:account
   try {
-    const data = await apiFetch(`/account/${encodeURIComponent(raw)}`);
+    const data = await apiFetch(`/api/account/${encodeURIComponent(raw)}`);
     if (data && data.account) {
       navigate(`#account/${raw}`);
       el("search-input").value = "";

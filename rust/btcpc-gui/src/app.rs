@@ -67,12 +67,14 @@ impl BtcpcApp {
             .unwrap_or_else(|| "http://localhost:4242".to_string());
 
         let account = session.as_ref().map(|s| s.account.clone());
+        let key_file = session.as_ref().map(|s| s.key_file.clone());
 
         let mut app = BtcpcApp {
             tree,
             data: AppData {
                 node_url,
                 account,
+                key_file,
                 ..Default::default()
             },
             session,

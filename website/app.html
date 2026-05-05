@@ -637,6 +637,13 @@
         <div id="mnemonic-account" style="color:#22c55e;font-size:14px;"></div>
         <div id="mnemonic-balance" style="color:#f7931a;font-size:12px;margin-top:4px;">Starter faucet value is delegated for direct network services.</div>
       </div>
+      <!-- Key file download -->
+      <div style="background:#0d1a0a;border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="color:#22c55e;font-size:12px;font-weight:700;margin-bottom:6px;">&#x1F511; Download Your Key Files</div>
+        <div style="color:#94a3b8;font-size:11px;margin-bottom:10px;">Each role has its own .key file. Use posting.key to log into btcpc.net. Keep owner.key offline. The ZIP contains all keys — store it somewhere safe.</div>
+        <button class="btn btn-secondary" id="btn-download-keys" style="margin-top:0;font-size:13px;">Download keys.zip</button>
+        <div id="keys-download-status" style="font-size:11px;color:#64748b;margin-top:6px;"></div>
+      </div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;cursor:pointer;">
         <input type="checkbox" id="mnemonic-confirm" style="accent-color:#f7931a;width:20px;height:20px;">
         <span style="font-size:13px;">I saved my recovery phrase and private keys somewhere safe</span>
@@ -1749,40 +1756,40 @@
           if (labelEl) labelEl.textContent = active ? 'Mining' : 'Idle';
         }
 
-        // ── Fetch network stats ─────────────────────────────────────────────────
+        // ── Fetch network stats — Rust: GET /api/explorer/status ──────────────
         async function refreshStatus() {
           try {
-            var r = await fetch(API_BASE + '/public/network');
+            // Rust: /api/explorer/status → { chain_height, active_nodes_last_100, miners, clock_nodes, storage_nodes }
+            var r = await fetch(API_BASE + '/api/explorer/status');
             var net = await r.json();
-            var nodes = net.nodes || 0, miners = net.miners || 0, clocks = net.clocks || 0;
+            var nodes = net.active_nodes_last_100 || 0, miners = net.miners || 0, clocks = net.clock_nodes || 0;
             document.getElementById('st-net-nodes').textContent = nodes;
             document.getElementById('st-net-miners').textContent = miners;
             document.getElementById('st-net-clocks').textContent = clocks;
             drawHexGraph(nodes, miners, clocks);
             var netStatus = document.getElementById('st-net-status');
             if (netStatus) {
-              netStatus.style.color = net.alive ? '#22c55e' : '#ef4444';
-              netStatus.textContent = net.alive ? '● Live' : '● Stalled';
+              netStatus.style.color = net.chain_height ? '#22c55e' : '#ef4444';
+              netStatus.textContent = net.chain_height ? '● Live' : '● Stalled';
             }
           } catch (_) {}
 
-          // Wallet balance
-          var jwt = localStorage.getItem('btcpc-jwt');
+          // Wallet balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
           var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
-          if (jwt && acct) {
+          if (acct) {
             try {
-              var br = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              var br = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct));
               var bd = await br.json();
-              var bal = bd && bd.balance && typeof bd.balance === 'object' ? (bd.balance.BTCPC || 0) : (bd.balance || 0);
+              var bal = (bd && bd.balance != null) ? bd.balance : 0;
               document.getElementById('st-wallet-bal').textContent = parseFloat(bal).toFixed(4);
             } catch (_) {}
 
-            // Epoch reward
+            // Epoch info — Rust: GET /api/latest → { epoch, status, hash, current_epoch, pending_epoch }
             try {
-              var er = await fetch(API_BASE + '/node/epoch/current');
+              var er = await fetch(API_BASE + '/api/latest');
               var ed = await er.json();
-              if (ed.success && ed.epoch) {
-                document.getElementById('st-epoch-reward').textContent = 'reward ' + (ed.epoch.block_reward || 0).toFixed(2) + ' BTCPC';
+              if (ed.epoch != null) {
+                document.getElementById('st-epoch-reward').textContent = 'epoch #' + ed.epoch;
               }
             } catch (_) {}
           }
@@ -2472,41 +2479,44 @@
 
       async function refreshNode() {
         try {
-          // 1. Network stats (always available — works against any node)
-          var netResp = await fetch(API_BASE + '/public/network');
+          // 1. Network stats — Rust: GET /api/explorer/status
+          // Returns: { chain_height, current_epoch, epoch_ms, accounts,
+          //   circulating_btcpc, max_supply_btcpc, active_nodes_last_100,
+          //   miners, clock_nodes, storage_nodes }
+          var netResp = await fetch(API_BASE + '/api/explorer/status');
           var net = await netResp.json();
 
           var dot = document.getElementById('node-conn-dot');
           var label = document.getElementById('node-conn-label');
-          if (net.alive) {
+          if (net.chain_height != null) {
             dot.style.background = '#22c55e';
             label.style.color = '#22c55e';
-            label.textContent = 'btcpc.net · epoch age ' + net.epoch_age_seconds + 's';
+            label.textContent = 'Node online · height ' + net.chain_height;
           } else {
             dot.style.background = '#ef4444';
             label.style.color = '#ef4444';
-            label.textContent = 'Node stalled — last block ' + Math.round(net.epoch_age_seconds / 60) + 'm ago';
+            label.textContent = 'Node not responding';
           }
 
-          document.getElementById('node-stat-nodes').textContent = net.nodes || '—';
+          document.getElementById('node-stat-nodes').textContent = net.active_nodes_last_100 || '—';
           document.getElementById('node-stat-miners').textContent = net.miners || '—';
-          document.getElementById('node-stat-clocks').textContent = net.clocks || '—';
-          document.getElementById('node-verifiers').textContent = net.verifiers || '0';
-          document.getElementById('node-storage').textContent = net.storage || '0';
-          document.getElementById('node-gateways').textContent = net.gateways || '0';
-          document.getElementById('node-browser-clocks').textContent = net.browser_clocks || '0';
+          document.getElementById('node-stat-clocks').textContent = net.clock_nodes || '—';
+          document.getElementById('node-verifiers').textContent = net.sensor_nodes || '0';
+          document.getElementById('node-storage').textContent = net.storage_nodes || '0';
+          document.getElementById('node-gateways').textContent = '—';
+          document.getElementById('node-browser-clocks').textContent = '—';
 
-          // 2. Epoch info
-          var epResp = await fetch(API_BASE + '/node/epoch/current');
+          // 2. Epoch info — Rust: GET /api/latest → { epoch, status, hash, current_epoch, pending_epoch }
+          var epResp = await fetch(API_BASE + '/api/latest');
           var epData = await epResp.json();
-          if (epData.success && epData.epoch) {
-            var ep = epData.epoch;
-            document.getElementById('node-epoch-num').textContent = '#' + ep.epoch_number;
-            document.getElementById('node-block-reward').textContent = ep.block_reward ? ep.block_reward.toFixed(4) : '—';
-            document.getElementById('node-epoch-status').textContent = ep.status || '—';
+          var epNum = epData.current_epoch || epData.epoch || 0;
+          if (epNum) {
+            document.getElementById('node-epoch-num').textContent = '#' + epNum;
+            document.getElementById('node-block-reward').textContent = '—';
+            document.getElementById('node-epoch-status').textContent = epData.status || '—';
 
             // Progress bar — compute elapsed time within current epoch
-            var epochStart = GENESIS_TS + (ep.epoch_number * EPOCH_MS);
+            var epochStart = GENESIS_TS + (epNum * EPOCH_MS);
             var elapsed = Math.max(0, Math.min(EPOCH_MS, Date.now() - epochStart));
             var pct = (elapsed / EPOCH_MS * 100).toFixed(1);
             document.getElementById('node-epoch-bar').style.width = pct + '%';
@@ -2514,52 +2524,43 @@
             document.getElementById('node-epoch-remain').textContent = Math.round((EPOCH_MS - elapsed) / 1000) + 's remaining';
           }
 
-          // 3. My node — balance + loaded models (requires JWT)
-          var jwt = localStorage.getItem('btcpc-jwt');
+          // 3. My node — balance (Rust: GET /api/balance/:account)
           var account = localStorage.getItem('btcpc-account') || localStorage.getItem('btcpc-sensor-account');
-          if (jwt && account) {
+          if (account) {
             document.getElementById('node-my-stats').style.display = 'block';
             try {
-              var balResp = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              // Rust: GET /api/balance/:account → { account, balance (float BTCPC), dreams, token }
+              var balResp = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(account));
               var bal = await balResp.json();
-              var btcpcBal = bal && bal.balance && typeof bal.balance === 'object'
-                ? (bal.balance.BTCPC || 0)
-                : (bal.balance || bal.btcpc || 0);
+              var btcpcBal = (bal && bal.balance != null) ? bal.balance : 0;
               document.getElementById('node-my-balance').textContent = parseFloat(btcpcBal).toFixed(4) + ' BTCPC';
             } catch(_) {}
             try {
-              var modResp = await fetch(API_BASE + '/v1/models', { headers: { 'Authorization': 'Bearer ' + jwt } });
+              // Ollama local model list (localhost:11434) — not a node endpoint
+              var modResp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) });
               var modData = await modResp.json();
-              var names = (modData.data || []).map(function(m){ return m.id; }).join(', ') || 'None loaded';
+              var names = (modData.models || []).map(function(m){ return m.name; }).join(', ') || 'None loaded';
               document.getElementById('node-my-models').textContent = names;
             } catch(_) {
               document.getElementById('node-my-models').textContent = 'Ollama not running';
             }
-            if (epData.success && epData.epoch) {
-              document.getElementById('node-my-commitments').textContent = epData.epoch.commitments_count || '0';
-            }
           }
 
-          // 4. Recent blocks — last 8 epochs
+          // 4. Recent blocks — Rust: GET /api/explorer/blocks?limit=8
+          // Returns: { blocks: [{epoch, hash, timestamp_ms, entry_count, entry_types, miner, status}] }
           try {
+            var blocksResp = await fetch(API_BASE + '/api/explorer/blocks?limit=8');
+            var blocksData = await blocksResp.json();
+            var recentBlocks = blocksData.blocks || [];
             var blocksHtml = '';
-            var epNum = (epData.success && epData.epoch) ? epData.epoch.epoch_number : net.epoch;
-            for (var i = 0; i < 8; i++) {
-              var n = epNum - i;
-              if (n < 0) break;
-              var bResp = await fetch(API_BASE + '/node/epoch/' + n);
-              var bData = await bResp.json();
-              if (bData.success && bData.epoch) {
-                var b = bData.epoch;
-                var ago = b.ended_at ? Math.round((Date.now() - new Date(b.ended_at).getTime()) / 1000) + 's ago' : 'active';
-                blocksHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;">' +
-                  '<span style="color:var(--orange);">#' + b.epoch_number + '</span>' +
-                  '<span style="color:var(--muted);">' + (b.commitments_count || 0) + ' commits</span>' +
-                  '<span style="color:var(--muted);">' + (b.total_work ? b.total_work.toFixed(2) : '0') + ' work</span>' +
-                  '<span style="color:var(--muted);font-size:10px;">' + ago + '</span>' +
-                  '</div>';
-              }
-            }
+            recentBlocks.forEach(function(b) {
+              var ago = b.timestamp_ms ? Math.round((Date.now() - b.timestamp_ms) / 1000) + 's ago' : (b.status || 'active');
+              blocksHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;">' +
+                '<span style="color:var(--orange);">#' + b.epoch + '</span>' +
+                '<span style="color:var(--muted);">' + (b.entry_count || 0) + ' entries</span>' +
+                '<span style="color:var(--muted);font-size:10px;">' + ago + '</span>' +
+                '</div>';
+            });
             document.getElementById('node-blocks-list').innerHTML = blocksHtml || '<span style="color:var(--muted);">No blocks yet</span>';
           } catch(_) {}
 
@@ -3040,6 +3041,10 @@ document.getElementById('btn-start').addEventListener('click', async () => {
         if (createData.token) localStorage.setItem('btcpc-jwt', createData.token);
         saveAccountToDB();
 
+        // Store signup data for key file download
+        window._btcpcSignupData = createData;
+        window._btcpcSignupAccount = val;
+
         document.getElementById('mnemonic-words').textContent = createData.mnemonic;
         document.getElementById('mnemonic-account').textContent = val;
         document.getElementById('wallet-export').value = createData.wallet_export || createData.mnemonic;
@@ -3074,6 +3079,132 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   btn.textContent = 'Start Earning';
   btn.disabled = false;
 });
+
+// ── Key file download ──────────────────────────────────────────────────────
+(function() {
+  var dlBtn = document.getElementById('btn-download-keys');
+  if (!dlBtn) return;
+
+  function bytesToHex(b) { return Array.from(b).map(function(x) { return x.toString(16).padStart(2,'0'); }).join(''); }
+
+  function makeKeyFile(account, role, privateKey, publicKey, description) {
+    return JSON.stringify({
+      btcpc_keyfile: '1.0',
+      account: account,
+      role: role,
+      description: description,
+      public_key: publicKey,
+      private_key: privateKey
+    }, null, 2);
+  }
+
+  function makeReadme(account) {
+    return [
+      'BTCPC Key Files — ' + account,
+      '='.repeat(40),
+      '',
+      'Each file contains one role key for your BTCPC account.',
+      '',
+      'posting.key  — Use this to log into btcpc.net/profile.html and the inference API.',
+      '               Safe for daily use. Cannot move funds.',
+      'active.key   — Authorizes token transfers and staking. Keep this private.',
+      'memo.key     — For encrypted messages and future message features.',
+      'owner.key    — Key rotation only. Keep this OFFLINE. Never paste it online.',
+      'mnemonic.txt — Your 12-word recovery phrase. Regenerates all keys above.',
+      '               STORE THIS LIKE CASH. Anyone with these words owns your wallet.',
+      '',
+      'To log into btcpc.net/profile.html:',
+      '  1. Go to btcpc.net/profile.html',
+      '  2. Drop your posting.key file into the login area',
+      '  3. Done — no password required',
+      '',
+      'To use the inference API:',
+      '  Authorization: Bearer <your posting.key private_key value>',
+      '',
+    ].join('\n');
+  }
+
+  async function buildZip(data, accountName) {
+    // Load JSZip lazily from CDN
+    if (!window.JSZip) {
+      await new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    var zip = new window.JSZip();
+    var keys = data.role_private_keys || {};
+    var pubs = data.public_keys || {};
+    var roleDesc = {
+      posting: 'Daily auth, inference API, mining. Cannot move funds.',
+      active:  'Token transfers and staking. Keep private.',
+      memo:    'Encrypted messages.',
+      owner:   'Key rotation only. Keep offline.',
+      hide:    'Private content encryption.',
+      seek:    'Auto-deliver encrypted content.',
+    };
+
+    var roles = ['posting', 'active', 'memo', 'owner', 'hide', 'seek'];
+    roles.forEach(function(role) {
+      if (!keys[role]) return;
+      zip.file(role + '.key', makeKeyFile(accountName, role, keys[role], pubs[role] || '', roleDesc[role] || ''));
+    });
+
+    if (data.mnemonic) {
+      zip.file('mnemonic.txt', [
+        'BTCPC Recovery Mnemonic — ' + accountName,
+        'STORE OFFLINE. Anyone with these words owns your wallet.',
+        '',
+        data.mnemonic,
+        '',
+        'Generated: ' + new Date().toISOString(),
+      ].join('\n'));
+    }
+
+    zip.file('README.txt', makeReadme(accountName));
+
+    return zip.generateAsync({ type: 'blob' });
+  }
+
+  dlBtn.addEventListener('click', async function() {
+    var data = window._btcpcSignupData;
+    var acct = window._btcpcSignupAccount || localStorage.getItem('btcpc-sensor-account') || 'btcpc';
+    var statusEl = document.getElementById('keys-download-status');
+
+    if (!data || !data.role_private_keys) {
+      statusEl.textContent = 'Key data not available. Copy the wallet export above instead.';
+      statusEl.style.color = '#ef4444';
+      return;
+    }
+
+    dlBtn.disabled = true;
+    dlBtn.textContent = 'Building…';
+    statusEl.textContent = '';
+
+    try {
+      var blob = await buildZip(data, acct);
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'btcpc-keys-' + acct + '.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      statusEl.textContent = 'Downloaded. Store this file securely — it contains your private keys.';
+      statusEl.style.color = '#22c55e';
+      dlBtn.textContent = 'Downloaded ✓';
+    } catch(e) {
+      statusEl.textContent = 'Download failed: ' + e.message;
+      statusEl.style.color = '#ef4444';
+      dlBtn.disabled = false;
+      dlBtn.textContent = 'Download keys.zip';
+    }
+  });
+}());
 
 // Mnemonic confirm checkbox + continue
 const mnemonicConfirm = document.getElementById('mnemonic-confirm');
@@ -4942,16 +5073,12 @@ if (account) {
     var nameEl = document.getElementById('sb-account-name');
     if (nameEl && acct) nameEl.textContent = acct;
 
-    // Try to load balance
+    // Try to load balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
     if (acct) {
-      var jwt = localStorage.getItem('btcpc-jwt');
-      if (!jwt) return;
-      fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } })
+      fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct))
         .then(function(r) { return r.json(); })
         .then(function(d) {
-          var bal = d && d.balance && typeof d.balance === 'object'
-            ? d.balance.BTCPC
-            : (d.balance !== undefined ? d.balance : (d.btcpc !== undefined ? d.btcpc : null));
+          var bal = (d && d.balance != null) ? d.balance : null;
           var el = document.getElementById('sb-balance');
           if (el && bal !== null) el.textContent = parseFloat(bal).toFixed(4) + ' BTCPC';
           // Mirror to home panel balance
@@ -5032,10 +5159,11 @@ if (account) {
     }
   }
 
-  // ── Version ───────────────────────────────────────────────────────────────
-  fetch(API_BASE + '/public/network').then(function(r) { return r.json(); }).then(function(d) {
+  // ── Version — Rust: GET /api/latest → { epoch, current_epoch, ... } ─────
+  fetch(API_BASE + '/api/latest').then(function(r) { return r.json(); }).then(function(d) {
     var el = document.getElementById('sb-version');
-    if (el && d.epoch) el.textContent = 'epoch ' + d.epoch + ' · v' + (window.BTCPC_VERSION || '3.1');
+    var ep = d.current_epoch || d.epoch;
+    if (el && ep) el.textContent = 'epoch ' + ep + ' · v' + (window.BTCPC_VERSION || '3.1');
   }).catch(function() {});
 
   // ── Init + periodic updates ────────────────────────────────────────────────
@@ -5158,44 +5286,37 @@ if (account) {
     function fmt6(n) { return Number(n || 0).toFixed(6).replace(/\.?0+$/, '') || '0'; }
 
     async function loadWallet() {
-      var jwt = localStorage.getItem('btcpc-jwt');
-      if (!jwt) {
-        document.getElementById('wallet-tx-list').textContent = 'Log in to view wallet.';
+      // Rust node: no JWT for reads — use account name with /api/balance/:account
+      var acct = window.account || localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account') || '';
+      if (!acct) {
+        document.getElementById('wallet-tx-list').textContent = 'Set up your account to view wallet.';
         document.getElementById('wallet-balance-main').textContent = '—';
         return;
       }
       try {
-        var r = await fetch(API_BASE + '/api/wallet/balance', {
-          headers: { 'Authorization': 'Bearer ' + jwt }
-        });
+        // Rust: GET /api/balance/:account → { account, balance (float BTCPC), dreams, token }
+        var r = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct));
         var d = await r.json();
-        if (d.success) {
-          var bal = (d.balance && d.balance.BTCPC != null) ? d.balance.BTCPC : 0;
-          document.getElementById('wallet-balance-main').textContent = fmt6(bal);
-          if (d.address) document.getElementById('wallet-address').textContent = d.address;
-          var del = d.delegated_balance || 0;
-          if (del > 0) {
-            document.getElementById('wallet-balance-delegated').textContent = fmt6(del);
-            document.getElementById('wallet-delegated-row').style.display = '';
-          }
-        }
+        var bal = (d && d.balance != null) ? d.balance : 0;
+        document.getElementById('wallet-balance-main').textContent = fmt6(bal);
       } catch(e) { /* network error — leave as — */ }
 
       try {
-        var tr = await fetch(API_BASE + '/api/wallet/transactions', {
-          headers: { 'Authorization': 'Bearer ' + jwt }
-        });
+        // Rust: GET /api/account/:account/history → { account, count, entries: [{type, from, to, account, amount, memo, _epoch, _role}] }
+        var tr = await fetch(API_BASE + '/api/account/' + encodeURIComponent(acct) + '/history?limit=20');
         var td = await tr.json();
         var list = document.getElementById('wallet-tx-list');
-        var txs = (td && td.transactions) || [];
+        var txs = (td && td.entries) || [];
         if (txs.length === 0) {
-          list.textContent = 'No transactions yet. Balance available via on-chain replay.';
+          list.textContent = 'No transactions yet.';
         } else {
           list.innerHTML = txs.slice(0, 20).map(function(tx) {
-            var sign = tx.type === 'receive' ? '+' : '-';
-            var col = tx.type === 'receive' ? '#22c55e' : '#ef4444';
+            var isReceive = tx.to === acct || (tx.account === acct && tx.type && tx.type.includes('Reward'));
+            var sign = isReceive ? '+' : '-';
+            var col = isReceive ? '#22c55e' : '#ef4444';
+            var counterpart = isReceive ? (tx.from || 'network') : (tx.to || tx.account || 'network');
             return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">' +
-              '<span style="color:var(--muted);">' + (tx.counterpart || tx.from || tx.to || 'network') + '</span>' +
+              '<span style="color:var(--muted);">' + counterpart + '</span>' +
               '<span style="color:' + col + ';font-weight:600;">' + sign + fmt6(tx.amount) + ' BTCPC</span>' +
               '</div>';
           }).join('');
@@ -5213,14 +5334,12 @@ if (account) {
         var jwt = localStorage.getItem('btcpc-jwt');
         var acct = window.account || localStorage.getItem('btcpc-sensor-account') || '';
 
-        // Balance
-        if (acct && jwt) {
-          fetch(API_BASE + '/api/wallet/balance', { headers: { Authorization: 'Bearer ' + jwt } })
+        // Balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
+        if (acct) {
+          fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct))
             .then(function(r) { return r.json(); })
             .then(function(d) {
-              var bal = d && d.balance && typeof d.balance === 'object'
-                ? d.balance.BTCPC
-                : (d.balance !== undefined ? d.balance : (d.btcpc !== undefined ? d.btcpc : null));
+              var bal = (d && d.balance != null) ? d.balance : null;
               var el = document.getElementById('home-balance');
               if (el && bal !== null) {
                 var amount = parseFloat(bal);

@@ -1,8 +1,10 @@
 mod api;
 mod app;
+mod sign;
 mod ui;
 
 use anyhow::Result;
+use app::{Mode, PostJobState, StakeAction, StakeState, TransferState};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -12,7 +14,6 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 fn main() -> Result<()> {
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -21,7 +22,6 @@ fn main() -> Result<()> {
 
     let result = run_app(&mut terminal);
 
-    // Restore terminal
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -39,34 +39,272 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
     loop {
         terminal.draw(|f| ui::render(f, &app))?;
 
-        // Poll for events with 250ms timeout
         if event::poll(std::time::Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                match (key.code, key.modifiers) {
-                    (KeyCode::Char('q'), _)
-                    | (KeyCode::Esc, _)
-                    | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        break;
+                match &app.mode.clone() {
+                    Mode::Normal => {
+                        if handle_normal_keys(key, &mut app) {
+                            break;
+                        }
                     }
-                    (KeyCode::Char('r'), _) => {
-                        app.status_msg.clear();
-                        app.refresh();
+                    Mode::TransferForm(_) | Mode::StakeForm(_) | Mode::PostJobForm(_) => {
+                        handle_form_keys(key, &mut app);
                     }
-                    (KeyCode::Char('1'), _) => app.tab = 0,
-                    (KeyCode::Char('2'), _) => app.tab = 1,
-                    (KeyCode::Char('3'), _) => app.tab = 2,
-                    (KeyCode::Char('4'), _) => app.tab = 3,
-                    _ => {}
+                    Mode::Result { .. } => {
+                        app.mode = Mode::Normal;
+                    }
                 }
             }
         }
 
-        // Auto-refresh
-        if app.last_refresh.elapsed() >= app.refresh_interval {
-            app.status_msg.clear();
-            app.refresh();
+        // Auto-refresh (only in Normal mode to avoid clobbering form state)
+        if matches!(app.mode, Mode::Normal) {
+            if app.last_refresh.elapsed() >= app.refresh_interval {
+                app.status_msg.clear();
+                app.refresh();
+            }
         }
     }
 
     Ok(())
+}
+
+/// Returns true if the loop should break (quit).
+fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('q'), _)
+        | (KeyCode::Esc, _)
+        | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            return true;
+        }
+        (KeyCode::Char('r'), _) => {
+            app.status_msg.clear();
+            app.refresh();
+        }
+        (KeyCode::Char('1'), _) => app.tab = 0,
+        (KeyCode::Char('2'), _) => app.tab = 1,
+        (KeyCode::Char('3'), _) => app.tab = 2,
+        (KeyCode::Char('4'), _) => app.tab = 3,
+
+        // Wallet tab actions (only when logged in)
+        (KeyCode::Char('t'), _) if app.tab == 1 => {
+            if app.session.is_some() {
+                app.mode = Mode::TransferForm(TransferState::new());
+            }
+        }
+        (KeyCode::Char('a'), _) if app.tab == 1 => {
+            if app.session.is_some() {
+                app.mode = Mode::StakeForm(StakeState::new(StakeAction::Add));
+            }
+        }
+        (KeyCode::Char('x'), _) if app.tab == 1 => {
+            if app.session.is_some() {
+                app.mode = Mode::StakeForm(StakeState::new(StakeAction::Remove));
+            }
+        }
+
+        // Inference tab actions (only when logged in)
+        (KeyCode::Char('n'), _) if app.tab == 3 => {
+            if app.session.is_some() {
+                app.mode = Mode::PostJobForm(PostJobState::new());
+            }
+        }
+
+        _ => {}
+    }
+    false
+}
+
+fn handle_form_keys(key: event::KeyEvent, app: &mut app::App) {
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Normal;
+        }
+
+        KeyCode::Tab | KeyCode::Down => {
+            advance_field(app, 1);
+        }
+        KeyCode::BackTab | KeyCode::Up => {
+            advance_field(app, -1);
+        }
+
+        KeyCode::Backspace => {
+            pop_current_field(app);
+        }
+
+        KeyCode::Enter => {
+            submit_form(app);
+        }
+
+        KeyCode::Char(c) => {
+            // Filter to printable chars only
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+            {
+                push_current_field(app, c);
+            }
+        }
+
+        _ => {}
+    }
+}
+
+fn advance_field(app: &mut app::App, delta: i32) {
+    match &mut app.mode {
+        Mode::TransferForm(s) => {
+            let count = TransferState::field_count() as i32;
+            s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
+        }
+        Mode::StakeForm(s) => {
+            let count = StakeState::field_count() as i32;
+            s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
+        }
+        Mode::PostJobForm(s) => {
+            let count = PostJobState::field_count() as i32;
+            s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
+        }
+        _ => {}
+    }
+}
+
+fn pop_current_field(app: &mut app::App) {
+    match &mut app.mode {
+        Mode::TransferForm(s) => { s.current_field_mut().pop(); }
+        Mode::StakeForm(s) => { s.current_field_mut().pop(); }
+        Mode::PostJobForm(s) => { s.current_field_mut().pop(); }
+        _ => {}
+    }
+}
+
+fn push_current_field(app: &mut app::App, c: char) {
+    match &mut app.mode {
+        Mode::TransferForm(s) => { s.current_field_mut().push(c); }
+        Mode::StakeForm(s) => { s.current_field_mut().push(c); }
+        Mode::PostJobForm(s) => { s.current_field_mut().push(c); }
+        _ => {}
+    }
+}
+
+/// Parse a BTCPC decimal string to dreams (u64). 1 BTCPC = 10^10 dreams.
+fn parse_btcpc_amount(s: &str) -> Result<u64, String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err("amount is empty".to_string());
+    }
+    match trimmed.parse::<f64>() {
+        Ok(f) if f < 0.0 => Err("amount must be positive".to_string()),
+        Ok(f) => Ok((f * 10_000_000_000.0) as u64),
+        Err(_) => Err(format!("invalid amount: '{}'", trimmed)),
+    }
+}
+
+fn submit_form(app: &mut app::App) {
+    let session = match app.session.clone() {
+        Some(s) => s,
+        None => {
+            app.mode = Mode::Result {
+                msg: "Not logged in".to_string(),
+                success: false,
+            };
+            return;
+        }
+    };
+
+    let base = app.node_url();
+
+    match app.mode.clone() {
+        Mode::TransferForm(state) => {
+            let amount_dreams = match parse_btcpc_amount(&state.amount) {
+                Ok(a) => a,
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e, success: false };
+                    return;
+                }
+            };
+            let result = sign::submit_transfer(
+                &base,
+                session.key_file.as_path(),
+                &session.account,
+                &state.to,
+                amount_dreams,
+                &state.memo,
+            );
+            match result {
+                Ok(msg) => {
+                    app.mode = Mode::Result { msg, success: true };
+                    app.refresh();
+                }
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e.to_string(), success: false };
+                }
+            }
+        }
+
+        Mode::StakeForm(state) => {
+            let amount_dreams = match parse_btcpc_amount(&state.amount) {
+                Ok(a) => a,
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e, success: false };
+                    return;
+                }
+            };
+            let add = state.action == StakeAction::Add;
+            let result = sign::submit_stake(
+                &base,
+                session.key_file.as_path(),
+                &session.account,
+                amount_dreams,
+                add,
+            );
+            match result {
+                Ok(msg) => {
+                    app.mode = Mode::Result { msg, success: true };
+                    app.refresh();
+                }
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e.to_string(), success: false };
+                }
+            }
+        }
+
+        Mode::PostJobForm(state) => {
+            let max_fee = match parse_btcpc_amount(&state.max_fee) {
+                Ok(a) => a,
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e, success: false };
+                    return;
+                }
+            };
+            let deadline: u64 = match state.deadline.trim().parse() {
+                Ok(d) => d,
+                Err(_) => {
+                    app.mode = Mode::Result {
+                        msg: format!("invalid deadline epoch: '{}'", state.deadline),
+                        success: false,
+                    };
+                    return;
+                }
+            };
+            let result = sign::submit_post_job(
+                &base,
+                session.key_file.as_path(),
+                &session.account,
+                &state.model,
+                &state.input,
+                max_fee,
+                deadline,
+            );
+            match result {
+                Ok(msg) => {
+                    app.mode = Mode::Result { msg, success: true };
+                    app.refresh();
+                }
+                Err(e) => {
+                    app.mode = Mode::Result { msg: e.to_string(), success: false };
+                }
+            }
+        }
+
+        _ => {}
+    }
 }

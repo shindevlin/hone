@@ -204,6 +204,7 @@
   <a href="/store" style="color:#c8ccd4;text-decoration:none;">Store</a>
   <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy BTCPC</a>
   <a href="/dashboard" style="color:#22c55e;text-decoration:none;font-weight:600;">Explorer</a>
+  <a href="/profile.html" style="color:#c8ccd4;text-decoration:none;">Profile</a>
   <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
   <div style="flex:1;"></div>
   <a href="/app" style="background:#f7931a;color:#000;padding:6px 16px;border-radius:6px;font-weight:700;text-decoration:none;font-size:12px;white-space:nowrap;">Create Wallet &rarr;</a>
@@ -283,17 +284,20 @@
   }
 
   function fetchNetwork() {
-    fetch(API_BASE + '/public/network')
+    // Rust node: GET /api/explorer/status
+    // Returns: { chain_height, current_epoch, epoch_ms, accounts,
+    //   circulating_btcpc, active_nodes_last_100, miners, clock_nodes, storage_nodes }
+    fetch(API_BASE + '/api/explorer/status')
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        document.getElementById('s-epoch').textContent = d.epoch || 0;
-        document.getElementById('s-nodes').textContent = d.nodes || 0;
+        document.getElementById('s-epoch').textContent = d.current_epoch || d.chain_height || 0;
+        document.getElementById('s-nodes').textContent = d.active_nodes_last_100 || 0;
         document.getElementById('s-miners').textContent = d.miners || 0;
-        document.getElementById('s-clocks').textContent = d.clocks || 0;
-        document.getElementById('s-storage').textContent = d.storage || 0;
+        document.getElementById('s-clocks').textContent = d.clock_nodes || 0;
+        document.getElementById('s-storage').textContent = d.storage_nodes || 0;
 
         var aliveEl = document.getElementById('s-alive');
-        if (d.alive) {
+        if (d.chain_height != null) {
           aliveEl.textContent = 'ALIVE';
           aliveEl.className = 'value alive';
         } else {
@@ -307,34 +311,43 @@
   }
 
   function fetchLeaderboard() {
-    fetch(API_BASE + '/public/leaderboard')
+    // Rust node: GET /api/accounts
+    // Returns: { count, accounts: [{account, keys, balances: {BTCPC: dreams_int}}] }
+    // No dedicated leaderboard endpoint — derive from accounts list.
+    var DREAMS_PER_BTCPC = 10000000000;
+    fetch(API_BASE + '/api/accounts')
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (!d.leaderboard || d.leaderboard.length === 0) {
+        var accounts = d.accounts || [];
+        if (accounts.length === 0) {
           document.getElementById('leaderboard-wrap').innerHTML =
             '<div class="loading">No accounts yet</div>';
           return;
         }
 
+        // Sort by balance descending
+        accounts = accounts.map(function(a) {
+          var dreams = (a.balances && a.balances.BTCPC) ? Number(a.balances.BTCPC) : 0;
+          return { account: a.account, balance: dreams / DREAMS_PER_BTCPC };
+        });
+        accounts.sort(function(a, b) { return b.balance - a.balance; });
+        var top = accounts.slice(0, 20);
+
         var html = '<table><thead><tr>'
-          + '<th>#</th><th>Account</th><th>Roles</th><th style="text-align:right">Balance (BTCPC)</th>'
+          + '<th>#</th><th>Account</th><th style="text-align:right">Balance (BTCPC)</th>'
           + '</tr></thead><tbody>';
 
-        d.leaderboard.forEach(function(entry, i) {
-          var roles = (entry.roles || []).map(roleTag).join('');
+        top.forEach(function(entry, i) {
           html += '<tr>'
             + '<td class="rank">' + (i + 1) + '</td>'
             + '<td class="account-name">' + entry.account + '</td>'
-            + '<td>' + (roles || '<span style="color:#475569">--</span>') + '</td>'
             + '<td class="balance-val">' + formatBalance(entry.balance) + '</td>'
             + '</tr>';
         });
 
         html += '</tbody></table>';
-        if (d.total_accounts) {
-          html += '<div style="text-align:right;font-size:11px;color:#475569;margin-top:8px;">'
-            + d.total_accounts + ' total accounts</div>';
-        }
+        html += '<div style="text-align:right;font-size:11px;color:#475569;margin-top:8px;">'
+          + accounts.length + ' total accounts</div>';
         document.getElementById('leaderboard-wrap').innerHTML = html;
       })
       .catch(function() {
@@ -344,32 +357,31 @@
   }
 
   function fetchBlocks() {
-    // Use the /public/network endpoint to get epoch, then show basic block info.
-    // If a dedicated blocks endpoint exists, use it; otherwise derive from network.
-    fetch(API_BASE + '/public/network')
+    // Rust node: GET /api/explorer/blocks?limit=10
+    // Returns: { blocks: [{epoch, hash, timestamp_ms, entry_count, entry_types, miner, status}] }
+    fetch(API_BASE + '/api/explorer/blocks?limit=10')
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        var currentEpoch = d.epoch || 0;
-        if (currentEpoch === 0) {
+        var blocks = d.blocks || [];
+        if (blocks.length === 0) {
           document.getElementById('blocks-list').innerHTML =
             '<div class="loading">No blocks yet</div>';
           return;
         }
 
+        var now = Date.now();
         var html = '';
-        var epochAge = d.epoch_age_seconds || 0;
-        // Show the latest few epochs as "recent blocks"
-        var count = Math.min(currentEpoch, 10);
-        for (var i = 0; i < count; i++) {
-          var ep = currentEpoch - i;
-          var age = i === 0 ? epochAge : (epochAge + i * 300);
+        blocks.forEach(function(b) {
+          var ageS = b.timestamp_ms ? Math.round((now - b.timestamp_ms) / 1000) : 0;
           html += '<div class="block-item">'
             + '<div>'
-            + '<span class="block-epoch">Epoch ' + ep + '</span>'
+            + '<span class="block-epoch">Epoch ' + b.epoch + '</span>'
+            + (b.miner ? ' <span class="block-meta">' + b.miner + '</span>' : '')
             + '</div>'
-            + '<div class="block-age">' + timeAgo(age) + '</div>'
+            + '<span class="block-meta">' + (b.entry_count || 0) + ' entries</span>'
+            + '<div class="block-age">' + timeAgo(ageS) + '</div>'
             + '</div>';
-        }
+        });
 
         document.getElementById('blocks-list').innerHTML = html;
       })

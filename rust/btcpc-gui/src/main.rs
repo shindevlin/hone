@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod panels;
+mod sign;
 
 fn main() {
     let options = eframe::NativeOptions {

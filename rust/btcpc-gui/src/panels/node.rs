@@ -1,6 +1,6 @@
 use super::AppData;
 
-pub fn show(ui: &mut egui::Ui, data: &AppData) {
+pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
     ui.heading("Node Status");
     ui.separator();
 

@@ -1,9 +1,10 @@
 use crate::api;
 
+// ── Session ───────────────────────────────────────────────────────────────────
+
 #[derive(serde::Deserialize, Clone)]
 pub struct Session {
     pub account: String,
-    #[allow(dead_code)]
     pub key_file: std::path::PathBuf,
     pub node_url: String,
 }
@@ -15,9 +16,113 @@ pub fn load_session() -> Option<Session> {
     serde_json::from_slice(&bytes).ok()
 }
 
+// ── Mode / form state ─────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct TransferState {
+    pub field: usize, // 0=to, 1=amount, 2=memo
+    pub to: String,
+    pub amount: String,
+    pub memo: String,
+}
+
+impl TransferState {
+    pub fn new() -> Self {
+        Self { field: 0, to: String::new(), amount: String::new(), memo: String::new() }
+    }
+    pub fn field_count() -> usize { 3 }
+    pub fn current_field_mut(&mut self) -> &mut String {
+        match self.field {
+            0 => &mut self.to,
+            1 => &mut self.amount,
+            _ => &mut self.memo,
+        }
+    }
+    pub fn field_values(&self) -> Vec<(&'static str, &str)> {
+        vec![
+            ("To", self.to.as_str()),
+            ("Amount (BTCPC)", self.amount.as_str()),
+            ("Memo (optional)", self.memo.as_str()),
+        ]
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StakeAction { Add, Remove }
+
+#[derive(Clone)]
+pub struct StakeState {
+    pub field: usize,
+    pub amount: String,
+    pub action: StakeAction,
+}
+
+impl StakeState {
+    pub fn new(action: StakeAction) -> Self {
+        Self { field: 0, amount: String::new(), action }
+    }
+    pub fn field_count() -> usize { 1 }
+    pub fn current_field_mut(&mut self) -> &mut String {
+        &mut self.amount
+    }
+    pub fn field_values(&self) -> Vec<(&'static str, &str)> {
+        vec![("Amount (BTCPC)", self.amount.as_str())]
+    }
+}
+
+#[derive(Clone)]
+pub struct PostJobState {
+    pub field: usize, // 0=model, 1=input, 2=max_fee, 3=deadline
+    pub model: String,
+    pub input: String,
+    pub max_fee: String,
+    pub deadline: String,
+}
+
+impl PostJobState {
+    pub fn new() -> Self {
+        Self {
+            field: 0,
+            model: String::new(),
+            input: String::new(),
+            max_fee: String::new(),
+            deadline: String::new(),
+        }
+    }
+    pub fn field_count() -> usize { 4 }
+    pub fn current_field_mut(&mut self) -> &mut String {
+        match self.field {
+            0 => &mut self.model,
+            1 => &mut self.input,
+            2 => &mut self.max_fee,
+            _ => &mut self.deadline,
+        }
+    }
+    pub fn field_values(&self) -> Vec<(&'static str, &str)> {
+        vec![
+            ("Model", self.model.as_str()),
+            ("Input", self.input.as_str()),
+            ("Max Fee (BTCPC)", self.max_fee.as_str()),
+            ("Deadline Epoch", self.deadline.as_str()),
+        ]
+    }
+}
+
+#[derive(Clone)]
+pub enum Mode {
+    Normal,
+    TransferForm(TransferState),
+    StakeForm(StakeState),
+    PostJobForm(PostJobState),
+    Result { msg: String, success: bool },
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
 pub struct App {
     pub tab: usize,
     pub session: Option<Session>,
+    pub mode: Mode,
     pub node_info: Option<serde_json::Value>,
     pub explorer_status: Option<serde_json::Value>,
     pub blocks: Vec<serde_json::Value>,
@@ -35,6 +140,7 @@ impl App {
         let mut app = App {
             tab: 0,
             session,
+            mode: Mode::Normal,
             node_info: None,
             explorer_status: None,
             blocks: Vec::new(),
@@ -95,6 +201,8 @@ impl App {
             match api::get_json(&base, &format!("/api/balance/{}", account)) {
                 Ok(v) => {
                     if let Some(b) = v.get("balance").and_then(|b| b.as_u64()) {
+                        self.wallet_balance = Some(b);
+                    } else if let Some(b) = v.get("dreams").and_then(|b| b.as_u64()) {
                         self.wallet_balance = Some(b);
                     }
                 }
