@@ -122,21 +122,21 @@ fn submit_login(app: &mut app::App) {
 
     let node_url = if node_url.is_empty() { "http://localhost:4242".to_owned() } else { node_url };
 
-    // Challenge-response: sign a timestamp nonce with the private key, then
-    // verify the signature against the on-chain registered public key.
-    // This proves both that the key file is for this account AND that the
-    // private key is functional — not just that the public keys match.
-    match api::get_json(&node_url, &format!("/api/account/{}", account)) {
+    // Challenge-response: sign a nonce, verify it against each named key on the account,
+    // identify the role (active/posting/owner), and enforce that token operations
+    // (transfer, stake) require the active key.
+    let key_role = match api::get_json(&node_url, &format!("/api/account/{}", account)) {
         Err(e) => {
             set_login_error(app, format!("Cannot reach node to verify account: {}", e));
             return;
         }
         Ok(v) => {
-            let registered = v.get("public_key").and_then(|k| k.as_str()).unwrap_or("");
-            if registered.is_empty() {
-                // No key registered yet — let through so user can register
+            let keys = v.get("keys");
+            if keys.is_none() {
+                // New account with no keys registered yet — allow login with unverified role
+                app::KeyRole::Active
             } else {
-                // 1. Sign a fresh challenge with the private key
+                // Sign a fresh timestamp challenge with the private key
                 let ts = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -144,29 +144,43 @@ fn submit_login(app: &mut app::App) {
                 let challenge = format!("btcpc-auth:{}:{}", account, ts);
                 let sig_hex = keypair.sign_bytes(challenge.as_bytes());
 
-                // 2. Verify the signature against the chain's registered public key
                 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-                let ok = (|| -> Option<()> {
-                    let pk_bytes: [u8; 32] = hex::decode(registered).ok()?.try_into().ok()?;
-                    let vk = VerifyingKey::from_bytes(&pk_bytes).ok()?;
-                    let sig_bytes: [u8; 64] = hex::decode(&sig_hex).ok()?.try_into().ok()?;
-                    let sig = Signature::from_bytes(&sig_bytes);
-                    vk.verify(challenge.as_bytes(), &sig).ok()?;
-                    Some(())
-                })().is_some();
+                let verify_against = |pubkey_hex: &str| -> bool {
+                    (|| -> Option<()> {
+                        let pk_bytes: [u8; 32] = hex::decode(pubkey_hex).ok()?.try_into().ok()?;
+                        let vk = VerifyingKey::from_bytes(&pk_bytes).ok()?;
+                        let sig_bytes: [u8; 64] = hex::decode(&sig_hex).ok()?.try_into().ok()?;
+                        let sig = Signature::from_bytes(&sig_bytes);
+                        vk.verify(challenge.as_bytes(), &sig).ok()?;
+                        Some(())
+                    })().is_some()
+                };
 
-                if !ok {
+                // Check in priority order: active → posting → owner
+                let active_key  = keys.and_then(|k| k.get("active")).and_then(|v| v.as_str()).unwrap_or("");
+                let posting_key = keys.and_then(|k| k.get("posting")).and_then(|v| v.as_str()).unwrap_or("");
+                let owner_key   = keys.and_then(|k| k.get("owner")).and_then(|v| v.as_str()).unwrap_or("");
+
+                if !active_key.is_empty() && verify_against(active_key) {
+                    app::KeyRole::Active
+                } else if !posting_key.is_empty() && verify_against(posting_key) {
+                    // Posting key: inference/node ops only — no token spend
+                    app::KeyRole::Posting
+                } else if !owner_key.is_empty() && verify_against(owner_key) {
+                    app::KeyRole::Owner
+                } else {
                     set_login_error(app,
-                        "Signature verification failed — key file does not prove ownership of this account".into());
+                        "Key does not match any registered key for this account (active/posting/owner)".into());
                     return;
                 }
             }
         }
-    }
+    };
     let session = app::Session {
         account: account.clone(),
         key_file: key_path,
         node_url: node_url.clone(),
+        key_role: key_role.clone(),
     };
     if let Err(e) = app::save_session(&session) {
         if let Mode::Login(s) = &mut app.mode {
@@ -175,9 +189,11 @@ fn submit_login(app: &mut app::App) {
         return;
     }
 
+    let role_str = key_role.to_string();
     app.session = Some(session);
     app.mode = Mode::Normal;
     app.refresh();
+    app.status_msg = format!("Signed in as {} ({})", account, role_str);
 }
 
 /// Returns true if the loop should break (quit).
@@ -197,24 +213,30 @@ fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
         (KeyCode::Char('3'), _) => app.tab = 2,
         (KeyCode::Char('4'), _) => app.tab = 3,
 
-        // Wallet tab actions (only when logged in)
+        // Token-spend actions require active key
         (KeyCode::Char('t'), _) if app.tab == 1 => {
-            if app.session.is_some() {
-                app.mode = Mode::TransferForm(TransferState::new());
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::TransferForm(TransferState::new()),
+                Some(_) => app.status_msg = "Transfer requires the active key (you are logged in with posting/owner key)".into(),
+                None => {}
             }
         }
         (KeyCode::Char('a'), _) if app.tab == 1 => {
-            if app.session.is_some() {
-                app.mode = Mode::StakeForm(StakeState::new(StakeAction::Add));
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::StakeForm(StakeState::new(StakeAction::Add)),
+                Some(_) => app.status_msg = "Staking requires the active key".into(),
+                None => {}
             }
         }
         (KeyCode::Char('x'), _) if app.tab == 1 => {
-            if app.session.is_some() {
-                app.mode = Mode::StakeForm(StakeState::new(StakeAction::Remove));
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::StakeForm(StakeState::new(StakeAction::Remove)),
+                Some(_) => app.status_msg = "Unstaking requires the active key".into(),
+                None => {}
             }
         }
 
-        // Inference tab actions (only when logged in)
+        // Inference (posting key is sufficient)
         (KeyCode::Char('n'), _) if app.tab == 3 => {
             if app.session.is_some() {
                 app.mode = Mode::PostJobForm(PostJobState::new());

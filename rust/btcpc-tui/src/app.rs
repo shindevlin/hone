@@ -2,11 +2,42 @@ use crate::api;
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
+/// Which named key role was verified at login.
+/// Determines which operations are permitted in this session.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyRole {
+    /// Full token authority: transfer, stake, unstake, delegate
+    Active,
+    /// Inference and node operations only; no token spend
+    Posting,
+    /// Key rotation only
+    Owner,
+}
+
+impl std::fmt::Display for KeyRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KeyRole::Active  => write!(f, "active"),
+            KeyRole::Posting => write!(f, "posting"),
+            KeyRole::Owner   => write!(f, "owner"),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Session {
     pub account: String,
     pub key_file: std::path::PathBuf,
     pub node_url: String,
+    /// The key role that was challenge-verified at login.
+    pub key_role: KeyRole,
+}
+
+impl Session {
+    pub fn can_spend_tokens(&self) -> bool {
+        self.key_role == KeyRole::Active
+    }
 }
 
 pub fn load_session() -> Option<Session> {

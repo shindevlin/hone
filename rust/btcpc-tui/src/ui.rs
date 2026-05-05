@@ -338,7 +338,10 @@ fn render_inference_tab(f: &mut Frame, app: &App, area: Rect) {
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    let account = app.session.as_ref().map(|s| s.account.as_str()).unwrap_or("none");
+    let account_str = match &app.session {
+        Some(s) => format!("{} ({})", s.account, s.key_role),
+        None => "none".to_string(),
+    };
     let url = app.node_url();
     let status = if app.status_msg.is_empty() {
         String::new()
@@ -347,7 +350,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     };
     let text = format!(
         " q quit  r refresh  1-4 tabs | Node: {} | Account: {}{}",
-        url, account, status
+        url, account_str, status
     );
     let paragraph = Paragraph::new(Line::from(vec![Span::styled(
         text,
