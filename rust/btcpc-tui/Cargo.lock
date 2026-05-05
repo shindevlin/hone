@@ -118,6 +118,7 @@ dependencies = [
  "anyhow",
  "btcpc-sdk",
  "crossterm",
+ "ed25519-dalek",
  "hex",
  "ratatui",
  "reqwest",

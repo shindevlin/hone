@@ -122,25 +122,44 @@ fn submit_login(app: &mut app::App) {
 
     let node_url = if node_url.is_empty() { "http://localhost:4242".to_owned() } else { node_url };
 
-    // Fetch the account's registered public key from the node and compare.
-    // This proves the key file matches the account — without this check anyone
-    // could type any account name and point to any key file.
+    // Challenge-response: sign a timestamp nonce with the private key, then
+    // verify the signature against the on-chain registered public key.
+    // This proves both that the key file is for this account AND that the
+    // private key is functional — not just that the public keys match.
     match api::get_json(&node_url, &format!("/api/account/{}", account)) {
         Err(e) => {
-            set_login_error(app, format!("Cannot verify account (node unreachable?): {}", e));
+            set_login_error(app, format!("Cannot reach node to verify account: {}", e));
             return;
         }
         Ok(v) => {
-            let registered = v
-                .get("public_key")
-                .and_then(|k| k.as_str())
-                .unwrap_or("");
+            let registered = v.get("public_key").and_then(|k| k.as_str()).unwrap_or("");
             if registered.is_empty() {
-                // Account exists but has no key registered yet — allow login
-                // so the user can still register their key via `btcpc key register`
-            } else if registered != keypair.public_key_hex() {
-                set_login_error(app, "Key does not match the registered key for this account".into());
-                return;
+                // No key registered yet — let through so user can register
+            } else {
+                // 1. Sign a fresh challenge with the private key
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let challenge = format!("btcpc-auth:{}:{}", account, ts);
+                let sig_hex = keypair.sign_bytes(challenge.as_bytes());
+
+                // 2. Verify the signature against the chain's registered public key
+                use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+                let ok = (|| -> Option<()> {
+                    let pk_bytes: [u8; 32] = hex::decode(registered).ok()?.try_into().ok()?;
+                    let vk = VerifyingKey::from_bytes(&pk_bytes).ok()?;
+                    let sig_bytes: [u8; 64] = hex::decode(&sig_hex).ok()?.try_into().ok()?;
+                    let sig = Signature::from_bytes(&sig_bytes);
+                    vk.verify(challenge.as_bytes(), &sig).ok()?;
+                    Some(())
+                })().is_some();
+
+                if !ok {
+                    set_login_error(app,
+                        "Signature verification failed — key file does not prove ownership of this account".into());
+                    return;
+                }
             }
         }
     }
