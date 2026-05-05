@@ -94,6 +94,12 @@ fn handle_login_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
     false
 }
 
+fn set_login_error(app: &mut app::App, msg: String) {
+    if let Mode::Login(s) = &mut app.mode {
+        s.error = Some(msg);
+    }
+}
+
 fn submit_login(app: &mut app::App) {
     let (account, key_file_str, node_url) = match &app.mode {
         Mode::Login(s) => (s.account.trim().to_owned(), s.key_file.trim().to_owned(), s.node_url.trim().to_owned()),
@@ -101,22 +107,43 @@ fn submit_login(app: &mut app::App) {
     };
 
     if account.is_empty() {
-        if let Mode::Login(s) = &mut app.mode { s.error = Some("Account name is required".into()); }
+        set_login_error(app, "Account name is required".into());
         return;
     }
 
     let key_path = std::path::PathBuf::from(&key_file_str);
-    match btcpc_sdk::KeyPair::from_file(&key_path) {
+    let keypair = match btcpc_sdk::KeyPair::from_file(&key_path) {
         Err(e) => {
-            if let Mode::Login(s) = &mut app.mode {
-                s.error = Some(format!("Cannot read key file: {}", e));
-            }
+            set_login_error(app, format!("Cannot read key file: {}", e));
             return;
         }
-        Ok(_) => {}
-    }
+        Ok(k) => k,
+    };
 
     let node_url = if node_url.is_empty() { "http://localhost:4242".to_owned() } else { node_url };
+
+    // Fetch the account's registered public key from the node and compare.
+    // This proves the key file matches the account — without this check anyone
+    // could type any account name and point to any key file.
+    match api::get_json(&node_url, &format!("/api/account/{}", account)) {
+        Err(e) => {
+            set_login_error(app, format!("Cannot verify account (node unreachable?): {}", e));
+            return;
+        }
+        Ok(v) => {
+            let registered = v
+                .get("public_key")
+                .and_then(|k| k.as_str())
+                .unwrap_or("");
+            if registered.is_empty() {
+                // Account exists but has no key registered yet — allow login
+                // so the user can still register their key via `btcpc key register`
+            } else if registered != keypair.public_key_hex() {
+                set_login_error(app, "Key does not match the registered key for this account".into());
+                return;
+            }
+        }
+    }
     let session = app::Session {
         account: account.clone(),
         key_file: key_path,
