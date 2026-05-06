@@ -1,7 +1,48 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use btcpc_sdk::KeyPair;
 use serde_json::{json, Value};
 use std::path::Path;
+
+// ── Key loading ───────────────────────────────────────────────────────────────
+
+/// Load a keypair from a key file. Understands two formats:
+///
+/// 1. `wallet.key` — full WalletKeys bundle produced by the node.
+///    Contains `btcpc_active_private_key`, `btcpc_private_key` (posting), etc.
+///    `role` selects which key to extract: "active", "posting", "owner".
+///
+/// 2. `key.json` — simple standalone key: `{ "private_key_hex": "..." }`.
+///    The `role` parameter is ignored; the single key is used.
+pub fn load_keypair(path: &Path, role: &str) -> Result<KeyPair> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("cannot read key file {}", path.display()))?;
+    let v: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("invalid JSON in {}", path.display()))?;
+
+    // wallet.key format — pick the private key for the requested role
+    let wallet_fields: &[&str] = match role {
+        "owner"   => &["btcpc_owner_private_key"],
+        "posting" => &["btcpc_private_key", "btcpc_posting_private_key"],
+        _         => &["btcpc_active_private_key"],
+    };
+    for field in wallet_fields {
+        if let Some(hex) = v.get(*field).and_then(|h| h.as_str()).filter(|h| !h.is_empty()) {
+            return KeyPair::from_hex(hex)
+                .with_context(|| format!("bad {} in {}", field, path.display()));
+        }
+    }
+
+    // simple key.json format
+    if let Some(hex) = v.get("private_key_hex").and_then(|h| h.as_str()).filter(|h| !h.is_empty()) {
+        return KeyPair::from_hex(hex)
+            .with_context(|| format!("bad private_key_hex in {}", path.display()));
+    }
+
+    Err(anyhow!(
+        "{}: unrecognised key file — expected wallet.key (btcpc_active_private_key) or key.json (private_key_hex)",
+        path.display()
+    ))
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,7 +72,7 @@ pub fn submit_transfer(
     amount_dreams: u64,
     memo: &str,
 ) -> Result<String> {
-    let keypair = KeyPair::from_file(key_file)?;
+    let keypair = load_keypair(key_file, "active")?;
     let nonce = get_nonce(base, from)?;
     let chain_id = get_chain_id(base)?;
 
@@ -86,7 +127,7 @@ pub fn submit_stake(
     amount_dreams: u64,
     add: bool,
 ) -> Result<String> {
-    let keypair = KeyPair::from_file(key_file)?;
+    let keypair = load_keypair(key_file, "active")?;
     let nonce = get_nonce(base, account)?;
     let chain_id = get_chain_id(base)?;
 
@@ -121,6 +162,55 @@ pub fn submit_stake(
     }
 }
 
+// ── Role stake / unstake ──────────────────────────────────────────────────────
+
+pub fn submit_role_stake(
+    base: &str,
+    key_file: &Path,
+    staker: &str,
+    node: &str,
+    role: &str,
+    amount_dreams: u64,
+    add: bool,
+) -> Result<String> {
+    let keypair = load_keypair(key_file, "active")?;
+    let nonce = get_nonce(base, staker)?;
+    let chain_id = get_chain_id(base)?;
+    let (kind, path) = if add {
+        ("NODE_ROLE_STAKE", "/api/node/role/stake")
+    } else {
+        ("NODE_ROLE_UNSTAKE", "/api/node/role/unstake")
+    };
+    let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
+        "type": kind,
+        "node": node,
+        "role": role,
+        "staker": staker,
+        "amount": amount_dreams,
+        "nonce": nonce,
+    }))?;
+    let sig = keypair.sign_entry_json(&msg);
+    let body = json!({
+        "node": node,
+        "role": role,
+        "staker": staker,
+        "amount": amount_dreams,
+        "signed_by": staker,
+        "nonce": nonce,
+        "signature": sig,
+    });
+    let resp: Value = crate::api::post_json(base, path, &body)?;
+    let ok = resp.get("ok").and_then(|v| v.as_bool())
+        .or_else(|| resp.get("accepted").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+    if ok {
+        Ok(format!("{} accepted.", if add { "Stake" } else { "Unstake" }))
+    } else {
+        Err(anyhow!("{}", resp.get("error").and_then(|v| v.as_str()).unwrap_or("rejected")))
+    }
+}
+
 // ── Inference job post ────────────────────────────────────────────────────────
 
 pub fn submit_post_job(
@@ -132,7 +222,7 @@ pub fn submit_post_job(
     max_fee: u64,
     deadline: u64,
 ) -> Result<String> {
-    let keypair = KeyPair::from_file(key_file)?;
+    let keypair = load_keypair(key_file, "active")?;
     let nonce = get_nonce(base, account)?;
     let chain_id = get_chain_id(base)?;
 

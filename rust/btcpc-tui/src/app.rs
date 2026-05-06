@@ -88,6 +88,10 @@ impl TransferState {
     }
 }
 
+pub const STAKE_ROLES: &[&str] = &[
+    "clock", "miner", "storage", "sensor", "service", "verifier", "mempool",
+];
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum StakeAction { Add, Remove }
 
@@ -108,6 +112,40 @@ impl StakeState {
     }
     pub fn field_values(&self) -> Vec<(&'static str, &str)> {
         vec![("Amount (BTCPC)", self.amount.as_str())]
+    }
+}
+
+#[derive(Clone)]
+pub struct RoleStakeState {
+    pub field: usize,   // 0=node, 1=role (cycle with ←/→), 2=amount
+    pub node: String,
+    pub role_idx: usize,
+    pub amount: String,
+    pub add: bool,
+}
+
+impl RoleStakeState {
+    pub fn new(add: bool) -> Self {
+        Self { field: 0, node: String::new(), role_idx: 0, amount: String::new(), add }
+    }
+    pub fn role(&self) -> &'static str {
+        STAKE_ROLES[self.role_idx % STAKE_ROLES.len()]
+    }
+    pub fn field_count() -> usize { 3 }
+    pub fn current_text_field_mut(&mut self) -> Option<&mut String> {
+        match self.field {
+            0 => Some(&mut self.node),
+            2 => Some(&mut self.amount),
+            _ => None,
+        }
+    }
+    pub fn cycle_role(&mut self, forward: bool) {
+        let n = STAKE_ROLES.len();
+        self.role_idx = if forward {
+            (self.role_idx + 1) % n
+        } else {
+            (self.role_idx + n - 1) % n
+        };
     }
 }
 
@@ -188,6 +226,7 @@ impl LoginState {
 
 #[derive(Clone)]
 pub enum Mode {
+    RoleStakeForm(RoleStakeState),
     Login(LoginState),
     Normal,
     TransferForm(TransferState),
@@ -208,6 +247,7 @@ pub struct App {
     pub wallet_balance: Option<u64>,
     pub wallet_staked: Option<u64>,
     pub staking_requirements: Option<serde_json::Value>,
+    pub role_positions: Vec<serde_json::Value>,
     pub jobs: Vec<serde_json::Value>,
     pub last_refresh: std::time::Instant,
     pub refresh_interval: std::time::Duration,
@@ -232,6 +272,7 @@ impl App {
             wallet_balance: None,
             wallet_staked: None,
             staking_requirements: None,
+            role_positions: Vec::new(),
             jobs: Vec::new(),
             last_refresh: std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(10))
@@ -289,6 +330,14 @@ impl App {
 
         if let Some(ref session) = self.session.clone() {
             let account = session.account.clone();
+            match api::get_json(&base, &format!("/api/staking/account/{}/positions", account)) {
+                Ok(v) => {
+                    if let Some(arr) = v.get("positions").and_then(|a| a.as_array()) {
+                        self.role_positions = arr.clone();
+                    }
+                }
+                Err(_) => {}
+            }
             match api::get_json(&base, &format!("/api/balance/{}", account)) {
                 Ok(v) => {
                     if let Some(b) = v.get("balance").and_then(|b| b.as_u64()) {

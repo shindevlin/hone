@@ -4,11 +4,12 @@ mod sign;
 mod ui;
 
 use anyhow::Result;
-use app::{LoginState, Mode, PostJobState, StakeAction, StakeState, TransferState};
+use app::{LoginState, Mode, PostJobState, RoleStakeState, StakeAction, StakeState, TransferState};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    event::{EnableBracketedPaste, DisableBracketedPaste},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
@@ -16,14 +17,14 @@ use std::io;
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_app(&mut terminal);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste)?;
     terminal.show_cursor()?;
 
     if let Err(e) = result {
@@ -40,25 +41,29 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> 
         terminal.draw(|f| ui::render(f, &app))?;
 
         if event::poll(std::time::Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                match &app.mode.clone() {
-                    Mode::Login(_) => {
-                        if handle_login_keys(key, &mut app) {
-                            break;
+            match event::read()? {
+                Event::Paste(s) => paste_current_field(&mut app, &s),
+                Event::Key(key) => {
+                    match &app.mode.clone() {
+                        Mode::Login(_) => {
+                            if handle_login_keys(key, &mut app) {
+                                break;
+                            }
                         }
-                    }
-                    Mode::Normal => {
-                        if handle_normal_keys(key, &mut app) {
-                            break;
+                        Mode::Normal => {
+                            if handle_normal_keys(key, &mut app) {
+                                break;
+                            }
                         }
-                    }
-                    Mode::TransferForm(_) | Mode::StakeForm(_) | Mode::PostJobForm(_) => {
-                        handle_form_keys(key, &mut app);
-                    }
-                    Mode::Result { .. } => {
-                        app.mode = Mode::Normal;
+                        Mode::TransferForm(_) | Mode::StakeForm(_) | Mode::RoleStakeForm(_) | Mode::PostJobForm(_) => {
+                            handle_form_keys(key, &mut app);
+                        }
+                        Mode::Result { .. } => {
+                            app.mode = Mode::Normal;
+                        }
                     }
                 }
+                _ => {}
             }
         }
 
@@ -111,68 +116,116 @@ fn submit_login(app: &mut app::App) {
         return;
     }
 
-    let key_path = std::path::PathBuf::from(&key_file_str);
-    let keypair = match btcpc_sdk::KeyPair::from_file(&key_path) {
-        Err(e) => {
-            set_login_error(app, format!("Cannot read key file: {}", e));
-            return;
+    // If key file was left blank, try common locations derived from the account name
+    let key_file_str = if key_file_str.is_empty() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let data_dir = std::env::var("BTCPC_DATA_DIR").unwrap_or_default();
+        let candidates: Vec<String> = [
+            format!("{}/.btcpc/{}.wallet.key", home, account),
+            format!("{}/.btcpc/wallet.key", home),
+            format!("{}/wallet.key", data_dir),
+            format!("{}/.btcpc/key.json", home),
+        ]
+        .into_iter()
+        .filter(|p| !p.starts_with('/') || !p.trim_start_matches('/').is_empty())
+        .collect();
+        match candidates.iter().find(|p| !p.is_empty() && std::path::Path::new(p.as_str()).exists()) {
+            Some(p) => {
+                // Show the user what was found
+                if let Mode::Login(s) = &mut app.mode {
+                    s.key_file = p.clone();
+                }
+                p.clone()
+            }
+            None => {
+                set_login_error(app, format!(
+                    "No key file found — tried ~/.btcpc/{}.wallet.key, wallet.key, key.json",
+                    account
+                ));
+                return;
+            }
         }
-        Ok(k) => k,
+    } else {
+        key_file_str
     };
 
+    let key_path = std::path::PathBuf::from(&key_file_str);
     let node_url = if node_url.is_empty() { "http://localhost:4242".to_owned() } else { node_url };
 
-    // Challenge-response: sign a nonce, verify it against each named key on the account,
-    // identify the role (active/posting/owner), and enforce that token operations
-    // (transfer, stake) require the active key.
-    let key_role = match api::get_json(&node_url, &format!("/api/account/{}", account)) {
+    // Fetch on-chain keys first so we can figure out which role this file covers.
+    let account_data = match api::get_json(&node_url, &format!("/api/account/{}", account)) {
         Err(e) => {
             set_login_error(app, format!("Cannot reach node to verify account: {}", e));
             return;
         }
-        Ok(v) => {
-            let keys = v.get("keys");
-            if keys.is_none() {
-                // New account with no keys registered yet — allow login with unverified role
-                app::KeyRole::Active
-            } else {
-                // Sign a fresh timestamp challenge with the private key
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let challenge = format!("btcpc-auth:{}:{}", account, ts);
-                let sig_hex = keypair.sign_bytes(challenge.as_bytes());
+        Ok(v) => v,
+    };
 
-                use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-                let verify_against = |pubkey_hex: &str| -> bool {
-                    (|| -> Option<()> {
-                        let pk_bytes: [u8; 32] = hex::decode(pubkey_hex).ok()?.try_into().ok()?;
-                        let vk = VerifyingKey::from_bytes(&pk_bytes).ok()?;
-                        let sig_bytes: [u8; 64] = hex::decode(&sig_hex).ok()?.try_into().ok()?;
-                        let sig = Signature::from_bytes(&sig_bytes);
-                        vk.verify(challenge.as_bytes(), &sig).ok()?;
-                        Some(())
-                    })().is_some()
-                };
+    let on_chain_keys = account_data.get("keys");
 
-                // Check in priority order: active → posting → owner
-                let active_key  = keys.and_then(|k| k.get("active")).and_then(|v| v.as_str()).unwrap_or("");
-                let posting_key = keys.and_then(|k| k.get("posting")).and_then(|v| v.as_str()).unwrap_or("");
-                let owner_key   = keys.and_then(|k| k.get("owner")).and_then(|v| v.as_str()).unwrap_or("");
+    // If account has no registered keys yet, allow login so they can register.
+    let key_role = if on_chain_keys.is_none() {
+        match sign::load_keypair(&key_path, "active") {
+            Ok(_) => app::KeyRole::Active,
+            Err(e) => {
+                set_login_error(app, format!("Cannot read key file: {}", e));
+                return;
+            }
+        }
+    } else {
+        // Build a fresh timestamp challenge.
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let challenge = format!("btcpc-auth:{}:{}", account, ts);
 
-                if !active_key.is_empty() && verify_against(active_key) {
-                    app::KeyRole::Active
-                } else if !posting_key.is_empty() && verify_against(posting_key) {
-                    // Posting key: inference/node ops only — no token spend
-                    app::KeyRole::Posting
-                } else if !owner_key.is_empty() && verify_against(owner_key) {
-                    app::KeyRole::Owner
-                } else {
-                    set_login_error(app,
-                        "Key does not match any registered key for this account (active/posting/owner)".into());
-                    return;
-                }
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+        // Try each role: load the keypair for that role from the file, sign the
+        // challenge, and verify it against the on-chain key for that role.
+        // First match wins; active is tried first.
+        let candidates: &[(&str, app::KeyRole)] = &[
+            ("active",  app::KeyRole::Active),
+            ("posting", app::KeyRole::Posting),
+            ("owner",   app::KeyRole::Owner),
+        ];
+
+        let mut matched_role: Option<app::KeyRole> = None;
+        for (role_name, role_variant) in candidates {
+            let on_chain_pubkey = on_chain_keys
+                .and_then(|k| k.get(*role_name))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if on_chain_pubkey.is_empty() { continue; }
+
+            let kp = match sign::load_keypair(&key_path, role_name) {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+
+            let sig_hex = kp.sign_bytes(challenge.as_bytes());
+            let ok = (|| -> Option<()> {
+                let pk: [u8; 32] = hex::decode(on_chain_pubkey).ok()?.try_into().ok()?;
+                let vk = VerifyingKey::from_bytes(&pk).ok()?;
+                let sb: [u8; 64] = hex::decode(&sig_hex).ok()?.try_into().ok()?;
+                let sig = Signature::from_bytes(&sb);
+                vk.verify(challenge.as_bytes(), &sig).ok()?;
+                Some(())
+            })().is_some();
+
+            if ok {
+                matched_role = Some(role_variant.clone());
+                break;
+            }
+        }
+
+        match matched_role {
+            Some(r) => r,
+            None => {
+                set_login_error(app,
+                    "Key file does not match any registered key for this account (tried active, posting, owner)".into());
+                return;
             }
         }
     };
@@ -208,27 +261,28 @@ fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
             app.status_msg.clear();
             app.refresh();
         }
+        // Tab 0=Wallet, 1=Staking, 2=Explorer, 3=Inference
         (KeyCode::Char('1'), _) => app.tab = 0,
         (KeyCode::Char('2'), _) => app.tab = 1,
         (KeyCode::Char('3'), _) => app.tab = 2,
         (KeyCode::Char('4'), _) => app.tab = 3,
 
-        // Token-spend actions require active key
-        (KeyCode::Char('t'), _) if app.tab == 1 => {
+        // Wallet tab actions — require active key
+        (KeyCode::Char('t'), _) if app.tab == 0 => {
             match &app.session {
                 Some(s) if s.can_spend_tokens() => app.mode = Mode::TransferForm(TransferState::new()),
-                Some(_) => app.status_msg = "Transfer requires the active key (you are logged in with posting/owner key)".into(),
+                Some(_) => app.status_msg = "Transfer requires the active key".into(),
                 None => {}
             }
         }
-        (KeyCode::Char('a'), _) if app.tab == 1 => {
+        (KeyCode::Char('a'), _) if app.tab == 0 => {
             match &app.session {
                 Some(s) if s.can_spend_tokens() => app.mode = Mode::StakeForm(StakeState::new(StakeAction::Add)),
                 Some(_) => app.status_msg = "Staking requires the active key".into(),
                 None => {}
             }
         }
-        (KeyCode::Char('x'), _) if app.tab == 1 => {
+        (KeyCode::Char('x'), _) if app.tab == 0 => {
             match &app.session {
                 Some(s) if s.can_spend_tokens() => app.mode = Mode::StakeForm(StakeState::new(StakeAction::Remove)),
                 Some(_) => app.status_msg = "Unstaking requires the active key".into(),
@@ -236,11 +290,27 @@ fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
             }
         }
 
-        // Inference job posting locks max_fee — requires active key
+        // Staking tab actions — require active key
+        (KeyCode::Char('s'), _) if app.tab == 1 => {
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::RoleStakeForm(RoleStakeState::new(true)),
+                Some(_) => app.status_msg = "Role staking requires the active key".into(),
+                None => {}
+            }
+        }
+        (KeyCode::Char('u'), _) if app.tab == 1 => {
+            match &app.session {
+                Some(s) if s.can_spend_tokens() => app.mode = Mode::RoleStakeForm(RoleStakeState::new(false)),
+                Some(_) => app.status_msg = "Role unstaking requires the active key".into(),
+                None => {}
+            }
+        }
+
+        // Inference tab actions — require active key
         (KeyCode::Char('n'), _) if app.tab == 3 => {
             match &app.session {
                 Some(s) if s.can_spend_tokens() => app.mode = Mode::PostJobForm(PostJobState::new()),
-                Some(_) => app.status_msg = "Posting inference jobs requires the active key (tokens are committed)".into(),
+                Some(_) => app.status_msg = "Posting inference jobs requires the active key".into(),
                 None => {}
             }
         }
@@ -251,6 +321,16 @@ fn handle_normal_keys(key: event::KeyEvent, app: &mut app::App) -> bool {
 }
 
 fn handle_form_keys(key: event::KeyEvent, app: &mut app::App) {
+    // ←/→ cycle role when on field 1 of RoleStakeForm
+    if matches!(key.code, KeyCode::Left | KeyCode::Right) {
+        if let Mode::RoleStakeForm(ref mut s) = app.mode {
+            if s.field == 1 {
+                s.cycle_role(key.code == KeyCode::Right);
+                return;
+            }
+        }
+    }
+
     match key.code {
         KeyCode::Esc => {
             app.mode = Mode::Normal;
@@ -272,7 +352,6 @@ fn handle_form_keys(key: event::KeyEvent, app: &mut app::App) {
         }
 
         KeyCode::Char(c) => {
-            // Filter to printable chars only
             if !key.modifiers.contains(KeyModifiers::CONTROL)
                 && !key.modifiers.contains(KeyModifiers::ALT)
             {
@@ -298,6 +377,10 @@ fn advance_field(app: &mut app::App, delta: i32) {
             let count = StakeState::field_count() as i32;
             s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
         }
+        Mode::RoleStakeForm(s) => {
+            let count = RoleStakeState::field_count() as i32;
+            s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
+        }
         Mode::PostJobForm(s) => {
             let count = PostJobState::field_count() as i32;
             s.field = ((s.field as i32 + delta).rem_euclid(count)) as usize;
@@ -308,20 +391,33 @@ fn advance_field(app: &mut app::App, delta: i32) {
 
 fn pop_current_field(app: &mut app::App) {
     match &mut app.mode {
-        Mode::Login(s)        => { s.current_field_mut().pop(); }
-        Mode::TransferForm(s) => { s.current_field_mut().pop(); }
-        Mode::StakeForm(s)    => { s.current_field_mut().pop(); }
-        Mode::PostJobForm(s)  => { s.current_field_mut().pop(); }
+        Mode::Login(s)          => { s.current_field_mut().pop(); }
+        Mode::TransferForm(s)   => { s.current_field_mut().pop(); }
+        Mode::StakeForm(s)      => { s.current_field_mut().pop(); }
+        Mode::RoleStakeForm(s)  => { if let Some(f) = s.current_text_field_mut() { f.pop(); } }
+        Mode::PostJobForm(s)    => { s.current_field_mut().pop(); }
         _ => {}
     }
 }
 
 fn push_current_field(app: &mut app::App, c: char) {
     match &mut app.mode {
-        Mode::Login(s)        => { s.current_field_mut().push(c); }
-        Mode::TransferForm(s) => { s.current_field_mut().push(c); }
-        Mode::StakeForm(s)    => { s.current_field_mut().push(c); }
-        Mode::PostJobForm(s)  => { s.current_field_mut().push(c); }
+        Mode::Login(s)          => { s.current_field_mut().push(c); }
+        Mode::TransferForm(s)   => { s.current_field_mut().push(c); }
+        Mode::StakeForm(s)      => { s.current_field_mut().push(c); }
+        Mode::RoleStakeForm(s)  => { if let Some(f) = s.current_text_field_mut() { f.push(c); } }
+        Mode::PostJobForm(s)    => { s.current_field_mut().push(c); }
+        _ => {}
+    }
+}
+
+fn paste_current_field(app: &mut app::App, text: &str) {
+    match &mut app.mode {
+        Mode::Login(s)          => s.current_field_mut().push_str(text),
+        Mode::TransferForm(s)   => s.current_field_mut().push_str(text),
+        Mode::StakeForm(s)      => s.current_field_mut().push_str(text),
+        Mode::RoleStakeForm(s)  => { if let Some(f) = s.current_text_field_mut() { f.push_str(text); } }
+        Mode::PostJobForm(s)    => s.current_field_mut().push_str(text),
         _ => {}
     }
 }
@@ -405,6 +501,30 @@ fn submit_form(app: &mut app::App) {
                 Err(e) => {
                     app.mode = Mode::Result { msg: e.to_string(), success: false };
                 }
+            }
+        }
+
+        Mode::RoleStakeForm(state) => {
+            if state.node.trim().is_empty() {
+                app.mode = Mode::Result { msg: "Node account is required".into(), success: false };
+                return;
+            }
+            let amount_dreams = match parse_btcpc_amount(&state.amount) {
+                Ok(a) => a,
+                Err(e) => { app.mode = Mode::Result { msg: e, success: false }; return; }
+            };
+            let result = sign::submit_role_stake(
+                &base,
+                session.key_file.as_path(),
+                &session.account,
+                state.node.trim(),
+                state.role(),
+                amount_dreams,
+                state.add,
+            );
+            match result {
+                Ok(msg) => { app.mode = Mode::Result { msg, success: true }; app.refresh(); }
+                Err(e)  => { app.mode = Mode::Result { msg: e.to_string(), success: false }; }
             }
         }
 

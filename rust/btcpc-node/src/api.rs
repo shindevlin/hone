@@ -2223,27 +2223,36 @@ async fn get_staking_requirements(State(s): State<AppState>) -> Json<serde_json:
             .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
             .unwrap_or(default)
     };
-    let miner   = read_param("miner_min_stake",   100 * 10_000_000_000);
-    let clock   = read_param("clock_min_stake",   100 * 10_000_000_000);
-    let storage = read_param("storage_min_stake",  10 * 10_000_000_000);
-    let sensor  = read_param("sensor_min_stake",   10 * 10_000_000_000);
-    // loyalty_slope_bps: fraction of a minimum-increase that existing operators must cover.
-    //   effective_min = min_at_reg + (current_min - min_at_reg) * slope / 10_000
-    // stake_increase_cap_bps: max a governance action may raise any *_min_stake,
-    //   expressed as a fraction of the doubling gap (= current value). 2500 = 25%.
+    // Per-role minimum stake in dreams (1 BTCPC = 10_000_000_000 dreams).
+    // Defaults are intentionally low for launch — governance can raise them as the
+    // network grows.  Each role has a distinct minimum reflecting its scarcity and
+    // infrastructure value.
+    let clock    = read_param("clock_min_stake",    5  * 10_000_000_000); //   5 BTCPC
+    let miner    = read_param("miner_min_stake",   10  * 10_000_000_000); //  10 BTCPC
+    let storage  = read_param("storage_min_stake",  2  * 10_000_000_000); //   2 BTCPC
+    let sensor   = read_param("sensor_min_stake",   2  * 10_000_000_000); //   2 BTCPC
+    let service  = read_param("service_min_stake",  3  * 10_000_000_000); //   3 BTCPC
+    let verifier = read_param("verifier_min_stake", 5  * 10_000_000_000); //   5 BTCPC
+    let mempool  = read_param("mempool_min_stake",  2  * 10_000_000_000); //   2 BTCPC
     let loyalty_slope_bps      = read_param("loyalty_slope_bps",      5000);
     let stake_increase_cap_bps = read_param("stake_increase_cap_bps", 2500);
     Json(serde_json::json!({
         "requirements": {
-            "miner":   miner,
-            "clock":   clock,
-            "storage": storage,
-            "sensor":  sensor,
+            "clock":    clock,
+            "miner":    miner,
+            "storage":  storage,
+            "sensor":   sensor,
+            "service":  service,
+            "verifier": verifier,
+            "mempool":  mempool,
         },
-        "miner":   { "dreams": miner,   "btcpc": miner   as f64 / 10_000_000_000.0 },
-        "clock":   { "dreams": clock,   "btcpc": clock   as f64 / 10_000_000_000.0 },
-        "storage": { "dreams": storage, "btcpc": storage as f64 / 10_000_000_000.0 },
-        "sensor":  { "dreams": sensor,  "btcpc": sensor  as f64 / 10_000_000_000.0 },
+        "clock":    { "dreams": clock,    "btcpc": clock    as f64 / 10_000_000_000.0 },
+        "miner":    { "dreams": miner,    "btcpc": miner    as f64 / 10_000_000_000.0 },
+        "storage":  { "dreams": storage,  "btcpc": storage  as f64 / 10_000_000_000.0 },
+        "sensor":   { "dreams": sensor,   "btcpc": sensor   as f64 / 10_000_000_000.0 },
+        "service":  { "dreams": service,  "btcpc": service  as f64 / 10_000_000_000.0 },
+        "verifier": { "dreams": verifier, "btcpc": verifier as f64 / 10_000_000_000.0 },
+        "mempool":  { "dreams": mempool,  "btcpc": mempool  as f64 / 10_000_000_000.0 },
         "loyalty_slope_bps":      loyalty_slope_bps,
         "stake_increase_cap_bps": stake_increase_cap_bps,
     }))
