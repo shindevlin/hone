@@ -147,7 +147,6 @@ pub fn submit_role_stake(
         "role": role,
         "staker": staker,
         "amount": amount_dreams,
-        "epoch": epoch,
         "nonce": nonce,
     }))?;
     let sig = keypair.sign_entry_json(&msg);
