@@ -133,7 +133,7 @@ pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
                     ui.label(egui::RichText::new("Node").color(DIM_TEXT).small());
                     ui.vertical(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut data.forms.role_stake_node)
-                            .hint_text("account name or 'self'")
+                            .hint_text("account name")
                             .desired_width(200.0));
                         ui.label(egui::RichText::new("Type your own account name (or 'self') to stake your node")
                             .size(10.0).color(DIM_TEXT));
