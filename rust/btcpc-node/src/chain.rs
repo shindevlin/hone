@@ -1146,8 +1146,6 @@ impl Chain {
                     self.store.state_get(&key).is_none(),
                     "runtime '{}' already registered", runtime_id
                 );
-                anyhow::ensure!(*bond >= RUNTIME_MIN_BOND,
-                    "bond {} is below minimum {} dreams", bond, RUNTIME_MIN_BOND);
                 // Lock bond into per-runtime escrow account.
                 let escrow = format!("__runtime_bond_{}__", runtime_id);
                 self.store.debit(owner, NATIVE_TOKEN, *bond)?;
@@ -2693,6 +2691,7 @@ mod tests {
             timestamp: epoch * 30_000,
             seal_hash: format!("seal-{:08x}", epoch),
             signature: None,
+            node_version: None,
         };
         chain.apply_entry(&seal).expect("epoch seal");
         chain.drain_unbonding(epoch);
@@ -4620,6 +4619,7 @@ mod tests {
             timestamp: 30_000,
             seal_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
             signature: None,
+            node_version: None,
         };
         let seal_b = LedgerEntry::EpochSeal {
             node_id: "node-alice".into(),
@@ -4627,6 +4627,7 @@ mod tests {
             timestamp: 30_000,
             seal_hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
             signature: None,
+            node_version: None,
         };
 
         chain.apply_entry(&seal_a).expect("first seal accepted");
@@ -4942,6 +4943,7 @@ mod property_tests {
             timestamp: 30_000,
             seal_hash: "a".repeat(64),
             signature: None,
+            node_version: None,
         }).unwrap();
         assert_eq!(chain.epoch_status(1), "sealed");
 
@@ -4972,9 +4974,19 @@ mod property_tests {
             manifest_cid: "cid-runtime-1".into(),
             runtime_class: "stateful_session_service".into(),
             nonce: "n-1".into(),
+            bond: 0,
             epoch: 10,
             signed_by: "alice".into(),
         }).expect("runtime register");
+
+        chain.apply_entry(&LedgerEntry::RuntimeDeploy {
+            runtime_id: "rt-1".into(),
+            owner: "alice".into(),
+            host_id: "host-a".into(),
+            manifest_cid: None,
+            epoch: 10,
+            signed_by: "alice".into(),
+        }).expect("runtime deploy");
 
         chain.apply_entry(&LedgerEntry::RuntimeJobEnqueue {
             job_id: "job-1".into(),
@@ -4982,6 +4994,7 @@ mod property_tests {
             job_class: "worker".into(),
             due_epoch: 12,
             payload_cid: Some("cid-job-1".into()),
+            fee: 0,
             epoch: 11,
             signed_by: "alice".into(),
         }).expect("job enqueue");
@@ -5002,6 +5015,7 @@ mod property_tests {
             job_id: "job-1".into(),
             host_id: "host-a".into(),
             output_commitment: "out-123".into(),
+            runtime_sha: None,
             epoch: 13,
             signed_by: "host-a".into(),
         }).expect("runtime attest");
@@ -5023,9 +5037,51 @@ mod property_tests {
             manifest_cid: "cid-runtime-2".into(),
             runtime_class: "http_service".into(),
             nonce: "n-2".into(),
+            bond: 0,
             epoch: 20,
             signed_by: "alice".into(),
         }).expect("runtime register");
+
+        chain.apply_entry(&LedgerEntry::RuntimeDeploy {
+            runtime_id: "rt-2".into(),
+            owner: "alice".into(),
+            host_id: "host-b".into(),
+            manifest_cid: None,
+            epoch: 20,
+            signed_by: "alice".into(),
+        }).expect("runtime deploy");
+
+        chain.apply_entry(&LedgerEntry::RuntimeJobEnqueue {
+            job_id: "job-2".into(),
+            runtime_id: "rt-2".into(),
+            job_class: "worker".into(),
+            due_epoch: 22,
+            payload_cid: None,
+            fee: 0,
+            epoch: 20,
+            signed_by: "alice".into(),
+        }).expect("job enqueue");
+
+        chain.apply_entry(&LedgerEntry::RuntimeClaim {
+            lease_id: "lease-2".into(),
+            runtime_id: "rt-2".into(),
+            job_id: "job-2".into(),
+            host_id: "host-b".into(),
+            expires_epoch: 25,
+            epoch: 21,
+            signed_by: "host-b".into(),
+        }).expect("runtime claim");
+
+        chain.apply_entry(&LedgerEntry::RuntimeAttest {
+            attestation_id: "att-x".into(),
+            runtime_id: "rt-2".into(),
+            job_id: "job-2".into(),
+            host_id: "host-b".into(),
+            output_commitment: "out-456".into(),
+            runtime_sha: None,
+            epoch: 21,
+            signed_by: "host-b".into(),
+        }).expect("runtime attest");
 
         chain.apply_entry(&LedgerEntry::RuntimeChallenge {
             challenge_id: "ch-1".into(),

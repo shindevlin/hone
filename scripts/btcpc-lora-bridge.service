@@ -1,0 +1,29 @@
+[Unit]
+Description=BTCPC LoRa/BLE Sensor Bridge
+After=network-online.target btcpc-node.service
+Wants=network-online.target
+Requires=btcpc-node.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi
+
+ExecStart=/usr/local/bin/btcpc-lora-bridge \
+    --node-url http://localhost:4243 \
+    --owner shindevlin \
+    --gateway-id AA555A0000000101 \
+    --lora-port 1700 \
+    --epoch-secs 30 \
+    --ble
+
+Environment="BTCPC_LOG_LEVEL=btcpc_lora_bridge=info"
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=btcpc-lora-bridge
+
+[Install]
+WantedBy=multi-user.target

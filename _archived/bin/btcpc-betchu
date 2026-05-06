@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+/**
+ * btcpc-betchu — BetChu P2P betting bot role for btcpc-all supervisor
+ *
+ * Thin launcher that spawns betchu_bot from its own directory. All
+ * auto-restart, circuit-breaking, and signal handling is managed by
+ * btcpc-all; this script just sets up the environment and forwards I/O.
+ *
+ * Usage (via btcpc-all):
+ *   BTCPC_ROLES=betchu node bin/btcpc-all
+ *
+ * Standalone:
+ *   node bin/btcpc-betchu
+ */
+
+"use strict";
+
+const path      = require("path");
+const fs        = require("fs");
+const { spawn } = require("child_process");
+
+const BTCPC_DIR  = path.resolve(__dirname, "..");
+const BETCHU_DIR = path.resolve(BTCPC_DIR, "..", "betchu_bot");
+
+if (!fs.existsSync(BETCHU_DIR)) {
+  console.error("betchu_bot directory not found at " + BETCHU_DIR);
+  process.exit(1);
+}
+
+if (!fs.existsSync(path.join(BETCHU_DIR, "app.js"))) {
+  console.error("app.js not found in " + BETCHU_DIR);
+  process.exit(1);
+}
+
+// betchu_bot loads its own .envbtcpc + .env on startup; we only need
+// to ensure node_modules exist before spawning.
+var modulesDir = path.join(BETCHU_DIR, "node_modules");
+if (!fs.existsSync(modulesDir)) {
+  console.error("node_modules missing in " + BETCHU_DIR + " — run: cd " + BETCHU_DIR + " && npm install");
+  process.exit(1);
+}
+
+var child = spawn("node", ["app.js"], {
+  cwd:   BETCHU_DIR,
+  env:   process.env,
+  stdio: ["ignore", "inherit", "inherit"],
+});
+
+child.on("error", function (err) {
+  console.error("spawn error: " + err.message);
+  process.exit(1);
+});
+
+child.on("exit", function (code, signal) {
+  // Exit with same code so btcpc-all's circuit breaker and restart
+  // logic correctly accounts for the exit reason.
+  process.exit(code !== null ? code : 1);
+});
+
+function forward(signal) {
+  try { child.kill(signal); } catch (_) {}
+}
+
+process.on("SIGTERM", function () { forward("SIGTERM"); });
+process.on("SIGINT",  function () { forward("SIGINT");  });

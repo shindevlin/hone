@@ -1,0 +1,176 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-05-05T19:04:17.500029629Z",
+  "ArtifactName": "/repo",
+  "ArtifactType": "filesystem",
+  "Metadata": {
+    "ImageConfig": {
+      "architecture": "",
+      "created": "0001-01-01T00:00:00Z",
+      "os": "",
+      "rootfs": {
+        "type": "",
+        "diff_ids": null
+      },
+      "config": {}
+    }
+  },
+  "Results": [
+    {
+      "Target": "_archived/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "android/rust/btcpc-miner/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "GHSA-82j2-j2ch-gfr8",
+          "PkgID": "rustls-webpki@0.101.7",
+          "PkgName": "rustls-webpki",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/rustls-webpki@0.101.7",
+            "UID": "ee11647adb794480"
+          },
+          "InstalledVersion": "0.101.7",
+          "FixedVersion": "0.103.13, 0.104.0-alpha.7",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://github.com/advisories/GHSA-82j2-j2ch-gfr8",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rustls-webpki: Denial of service via panic on malformed CRL BIT STRING",
+          "Description": "### Summary\n\n`bit_string_flags()` in `src/der.rs` panics with an index-out-of-bounds when given a BIT STRING whose content is exactly `[0x00]` (one byte: zero padding bits, zero data bytes). This is reachable through the public API `BorrowedCertRevocationList::from_der()` via the `issuingDistributionPoint` CRL extension.\n\n**Precondition**: CRL checking is opt-in in rustls-webpki. This vulnerability affects only applications that explicitly pass `RevocationOptions` to `verify_for_usage()` and load CRL bytes from a source the attacker can influence. The default rustls configuration (no `RevocationOptions`) is not affected.\n\n\u003e **AI disclosure**: This report was prepared with AI assistance (Claude). The vulnerability was discovered by differential fuzzing against a formally-verified Rust oracle. All technical claims have been independently verified against the live source code before submission.\n\n### Details\n`bit_string_flags()` in `src/der.rs` reads the content of named-bit BIT\nSTRINGs (KeyUsage, ReasonFlags, etc.). Its input guard:\n\n```rust\nif padding_bits \u003e 7 || (raw_bits.is_empty() \u0026\u0026 padding_bits != 0) {\n    return Err(Error::BadDer);\n}\nlet last_byte = raw_bits[raw_bits.len() - 1];  // ← crash\n```\nmisses the case `padding_bits == 0 \u0026\u0026 raw_bits.is_empty()`.\nWhen a BIT STRING has content `[0x00]`  (one padding-bits byte set to zero, no data bytes):\n- padding_bits = 0x00 — passes the \u003e 7 check ✓\n- raw_bits = [] — passes is_empty() \u0026\u0026 != 0 check ✓ (because 0 != 0 is false)\n- raw_bits.len() - 1 = 0usize - 1 = underflow → usize::MAX\n- raw_bits[usize::MAX] → panic\n\n\nDebug:   thread 'main' panicked: attempt to subtract with overflow\nRelease: thread 'main' panicked: index out of bounds: the len is 0\n         but the index is 18446744073709551615\n\n### PoC\nCargo.toml:\n```\n[dependencies]\nrustls-webpki = \"0.102.8\"   # also reproduces on 0.103.12\n```\nsrc/main.rs:\n```\nfn main() {\n    let crl: \u0026[u8] = \u0026[\n        0x30, 0x65, 0x30, 0x50, 0x02, 0x01, 0x01, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x30, 0x0c, 0x31, 0x0a, 0x30, 0x08, 0x06, 0x03, 0x55, 0x04, 0x03,\n        0x13, 0x01, 0x41, 0x17, 0x0d, 0x32, 0x30, 0x30, 0x31, 0x30, 0x31,\n        0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a, 0x17, 0x0d, 0x32, 0x31,\n        0x30, 0x31, 0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a,\n        0xa0, 0x10, 0x30, 0x0e, 0x30, 0x0c, 0x06, 0x03, 0x55, 0x1d, 0x1c,\n        0x04, 0x05, 0x30, 0x03, 0x83, 0x01, 0x00, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x03, 0x02, 0x00, 0x00,\n    ];\n    // Panics — never returns\n    let _ = webpki::BorrowedCertRevocationList::from_der(crl);\n}\n```\noutput:\n```\nthread 'main' panicked at src/der.rs:...\nindex out of bounds: the len is 0 but the index is 18446744073709551615\n```\n#### Trigger\n```\na0 10            -- cRLExtensions [0] EXPLICIT\n  30 0e          -- SEQUENCE OF Extension\n    30 0c        -- Extension SEQUENCE\n      06 03 55 1d 1c   -- OID 2.5.29.28 (id-ce-issuingDistributionPoint)\n      04 05            -- OCTET STRING (extnValue)\n        30 03          -- IssuingDistributionPoint SEQUENCE\n          83 01 00     -- [3] onlySomeReasons: BIT STRING, len=1, content=0x00\n                       --   padding_bits=0, data=[]  ← TRIGGER\n```\n\n\n### Impact\n- Who is affected: \nApplications that (1) use rustls-webpki with CRL\nrevocation checking explicitly enabled via RevocationOptions, and (2)\nload CRL bytes from a source an attacker can influence.\n- Attack paths:\n    - mTLS server (most realistic): An attacker obtains any certificate from a CA that permits custom CDP URLs — common in enterprise PKI. They set the CDP to a server they control, serve the 103-byte crafted CRL, and connect to the target. The server fetches the attacker's CRL during the handshake and panics. No MITM required.\n    - TLS client with server-cert CRL checking: An attacker who can MITM an HTTP CRL distribution point (ARP/DNS poisoning on a local network) serves the crafted CRL in place of the legitimate one.",
+          "Severity": "HIGH",
+          "VendorSeverity": {
+            "ghsa": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/rustls/webpki",
+            "https://github.com/rustls/webpki/security/advisories/GHSA-82j2-j2ch-gfr8",
+            "https://rustsec.org/advisories/RUSTSEC-2026-0104.html"
+          ],
+          "PublishedDate": "2026-04-24T16:20:17Z",
+          "LastModifiedDate": "2026-04-24T16:20:17Z"
+        }
+      ]
+    },
+    {
+      "Target": "android/rust/ort-patched/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "GHSA-82j2-j2ch-gfr8",
+          "PkgID": "rustls-webpki@0.103.5",
+          "PkgName": "rustls-webpki",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/rustls-webpki@0.103.5",
+            "UID": "268833c8cb24d35c"
+          },
+          "InstalledVersion": "0.103.5",
+          "FixedVersion": "0.103.13, 0.104.0-alpha.7",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://github.com/advisories/GHSA-82j2-j2ch-gfr8",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rustls-webpki: Denial of service via panic on malformed CRL BIT STRING",
+          "Description": "### Summary\n\n`bit_string_flags()` in `src/der.rs` panics with an index-out-of-bounds when given a BIT STRING whose content is exactly `[0x00]` (one byte: zero padding bits, zero data bytes). This is reachable through the public API `BorrowedCertRevocationList::from_der()` via the `issuingDistributionPoint` CRL extension.\n\n**Precondition**: CRL checking is opt-in in rustls-webpki. This vulnerability affects only applications that explicitly pass `RevocationOptions` to `verify_for_usage()` and load CRL bytes from a source the attacker can influence. The default rustls configuration (no `RevocationOptions`) is not affected.\n\n\u003e **AI disclosure**: This report was prepared with AI assistance (Claude). The vulnerability was discovered by differential fuzzing against a formally-verified Rust oracle. All technical claims have been independently verified against the live source code before submission.\n\n### Details\n`bit_string_flags()` in `src/der.rs` reads the content of named-bit BIT\nSTRINGs (KeyUsage, ReasonFlags, etc.). Its input guard:\n\n```rust\nif padding_bits \u003e 7 || (raw_bits.is_empty() \u0026\u0026 padding_bits != 0) {\n    return Err(Error::BadDer);\n}\nlet last_byte = raw_bits[raw_bits.len() - 1];  // ← crash\n```\nmisses the case `padding_bits == 0 \u0026\u0026 raw_bits.is_empty()`.\nWhen a BIT STRING has content `[0x00]`  (one padding-bits byte set to zero, no data bytes):\n- padding_bits = 0x00 — passes the \u003e 7 check ✓\n- raw_bits = [] — passes is_empty() \u0026\u0026 != 0 check ✓ (because 0 != 0 is false)\n- raw_bits.len() - 1 = 0usize - 1 = underflow → usize::MAX\n- raw_bits[usize::MAX] → panic\n\n\nDebug:   thread 'main' panicked: attempt to subtract with overflow\nRelease: thread 'main' panicked: index out of bounds: the len is 0\n         but the index is 18446744073709551615\n\n### PoC\nCargo.toml:\n```\n[dependencies]\nrustls-webpki = \"0.102.8\"   # also reproduces on 0.103.12\n```\nsrc/main.rs:\n```\nfn main() {\n    let crl: \u0026[u8] = \u0026[\n        0x30, 0x65, 0x30, 0x50, 0x02, 0x01, 0x01, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x30, 0x0c, 0x31, 0x0a, 0x30, 0x08, 0x06, 0x03, 0x55, 0x04, 0x03,\n        0x13, 0x01, 0x41, 0x17, 0x0d, 0x32, 0x30, 0x30, 0x31, 0x30, 0x31,\n        0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a, 0x17, 0x0d, 0x32, 0x31,\n        0x30, 0x31, 0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a,\n        0xa0, 0x10, 0x30, 0x0e, 0x30, 0x0c, 0x06, 0x03, 0x55, 0x1d, 0x1c,\n        0x04, 0x05, 0x30, 0x03, 0x83, 0x01, 0x00, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x03, 0x02, 0x00, 0x00,\n    ];\n    // Panics — never returns\n    let _ = webpki::BorrowedCertRevocationList::from_der(crl);\n}\n```\noutput:\n```\nthread 'main' panicked at src/der.rs:...\nindex out of bounds: the len is 0 but the index is 18446744073709551615\n```\n#### Trigger\n```\na0 10            -- cRLExtensions [0] EXPLICIT\n  30 0e          -- SEQUENCE OF Extension\n    30 0c        -- Extension SEQUENCE\n      06 03 55 1d 1c   -- OID 2.5.29.28 (id-ce-issuingDistributionPoint)\n      04 05            -- OCTET STRING (extnValue)\n        30 03          -- IssuingDistributionPoint SEQUENCE\n          83 01 00     -- [3] onlySomeReasons: BIT STRING, len=1, content=0x00\n                       --   padding_bits=0, data=[]  ← TRIGGER\n```\n\n\n### Impact\n- Who is affected: \nApplications that (1) use rustls-webpki with CRL\nrevocation checking explicitly enabled via RevocationOptions, and (2)\nload CRL bytes from a source an attacker can influence.\n- Attack paths:\n    - mTLS server (most realistic): An attacker obtains any certificate from a CA that permits custom CDP URLs — common in enterprise PKI. They set the CDP to a server they control, serve the 103-byte crafted CRL, and connect to the target. The server fetches the attacker's CRL during the handshake and panics. No MITM required.\n    - TLS client with server-cert CRL checking: An attacker who can MITM an HTTP CRL distribution point (ARP/DNS poisoning on a local network) serves the crafted CRL in place of the legitimate one.",
+          "Severity": "HIGH",
+          "VendorSeverity": {
+            "ghsa": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/rustls/webpki",
+            "https://github.com/rustls/webpki/security/advisories/GHSA-82j2-j2ch-gfr8",
+            "https://rustsec.org/advisories/RUSTSEC-2026-0104.html"
+          ],
+          "PublishedDate": "2026-04-24T16:20:17Z",
+          "LastModifiedDate": "2026-04-24T16:20:17Z"
+        }
+      ]
+    },
+    {
+      "Target": "btcpc/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "camofox-browser/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "rust/betchu-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-android/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-ble-tracker/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-cli/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-runtime/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-node/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": ".env",
+      "Class": "secret"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=BetChu Bot — BTCPC-native P2P sports betting (Rust)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/betchu_bot
+ExecStart=%h/repos/btcpc/rust/betchu-bot/target/release/betchu-bot
+Restart=always
+RestartSec=10
+
+# Load BTCPC inference credentials first, then betchu-specific env
+EnvironmentFile=-%h/repos/betchu_bot/.envbtcpc
+EnvironmentFile=-%h/repos/betchu_bot/.env
+
+# Service health port (BTCPC compliance)
+Environment=SERVICE_PORT=8765
+
+[Install]
+WantedBy=default.target

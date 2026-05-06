@@ -1,0 +1,98 @@
+name: Constant Drift Check
+
+on:
+  push:
+    paths:
+      - 'docs/CHAIN_CONSTANTS.md'
+      - 'rust/btcpc-node/crates/btcpc-types/src/**'
+      - 'rust/btcpc-node/src/config.rs'
+      - 'rust/btcpc-node/genesis.json'
+  pull_request:
+    paths:
+      - 'docs/CHAIN_CONSTANTS.md'
+      - 'rust/btcpc-node/crates/btcpc-types/src/**'
+      - 'rust/btcpc-node/src/config.rs'
+      - 'rust/btcpc-node/genesis.json'
+
+jobs:
+  check-constants:
+    name: Verify doc/code constant agreement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check DREAMS_PER_BTCPC = 10_000_000_000
+        run: |
+          grep -q "DREAMS_PER_BTCPC.*10_000_000_000" rust/btcpc-node/crates/btcpc-types/src/lib.rs \
+            || (echo "FAIL: DREAMS_PER_BTCPC mismatch in lib.rs" && exit 1)
+          grep -q "10,000,000,000" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: dreams-per-BTCPC not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check supply cap = 42_000_000 BTCPC
+        run: |
+          grep -q "SUPPLY_CAP_DREAMS.*42_000_000" rust/btcpc-node/crates/btcpc-types/src/emission.rs \
+            || (echo "FAIL: SUPPLY_CAP_DREAMS mismatch in emission.rs" && exit 1)
+          grep -q "42,000,000" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: supply cap not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check block reward = 2 BTCPC
+        run: |
+          grep -q "BLOCK_REWARD_DREAMS.*2 \* 10_000_000_000" rust/btcpc-node/crates/btcpc-types/src/emission.rs \
+            || (echo "FAIL: BLOCK_REWARD_DREAMS mismatch in emission.rs" && exit 1)
+          grep -q "2 BTCPC per epoch" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: block reward not documented correctly in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check genesis timestamp
+        run: |
+          grep -q "1777633200000" rust/btcpc-node/src/config.rs \
+            || (echo "FAIL: genesis timestamp missing from config.rs" && exit 1)
+          grep -q "1777633200000" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: genesis timestamp not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check epoch duration = 30s
+        run: |
+          grep -q "INITIAL_EPOCH_MS.*30_000" rust/btcpc-node/crates/btcpc-types/src/emission.rs \
+            || (echo "FAIL: INITIAL_EPOCH_MS mismatch in emission.rs" && exit 1)
+          grep -q "30 s\|30 seconds" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: epoch duration not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check doubling interval = 4_200_000
+        run: |
+          grep -q "DOUBLING_INTERVAL.*4_200_000" rust/btcpc-node/crates/btcpc-types/src/emission.rs \
+            || (echo "FAIL: DOUBLING_INTERVAL mismatch in emission.rs" && exit 1)
+          grep -q "4,200,000" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: doubling interval not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check chain IDs
+        run: |
+          grep -q 'MAINNET_CHAIN_ID.*"btcpc-1"' rust/btcpc-node/crates/btcpc-types/src/lib.rs \
+            || (echo "FAIL: MAINNET_CHAIN_ID mismatch" && exit 1)
+          grep -q 'TESTNET_CHAIN_ID.*"btcpc-satoshi"' rust/btcpc-node/crates/btcpc-types/src/lib.rs \
+            || (echo "FAIL: TESTNET_CHAIN_ID mismatch" && exit 1)
+          grep -q "btcpc-1" docs/CHAIN_CONSTANTS.md && grep -q "btcpc-satoshi" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: chain IDs not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check API port = 4242
+        run: |
+          grep -q "unwrap_or(4242)" rust/btcpc-node/src/config.rs \
+            || (echo "FAIL: API port default missing from config.rs" && exit 1)
+          grep -q "4242" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: API port not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: Check P2P port = 6942
+        run: |
+          grep -q "unwrap_or(6942)" rust/btcpc-node/src/config.rs \
+            || (echo "FAIL: P2P port default missing from config.rs" && exit 1)
+          grep -q "6942" docs/CHAIN_CONSTANTS.md \
+            || (echo "FAIL: P2P port not documented in CHAIN_CONSTANTS.md" && exit 1)
+
+      - name: No Node.js constants conflict
+        run: |
+          # Ensure any JS files that define supply or genesis don't contradict Rust
+          # (If no JS files define them, the check passes trivially)
+          JS_SUPPLY=$(grep -r "42000000\|42_000_000" src/ --include="*.js" -l 2>/dev/null || true)
+          if [ -n "$JS_SUPPLY" ]; then
+            echo "WARNING: Node.js files still reference supply cap: $JS_SUPPLY"
+            echo "These are deprecated files — verify they are not served publicly."
+          fi
+          echo "Constant check complete."

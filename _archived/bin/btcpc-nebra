@@ -1,0 +1,554 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-nebra — BTCPC Nebra Helium Hotspot daemon
+ * Shin Devlin
+ *
+ * Runs on a Nebra Helium Hotspot (or any SBC with a LoRa concentrator).
+ * Responsibilities:
+ *   1. Detect ARM hardware + LoRa concentrator
+ *   2. Configure frequency plan (US915, EU868, AU915, AS923, IN865)
+ *   3. Register as a BTCPC gateway via POST /api/gateways
+ *   4. Listen for LoRa packets from the concentrator
+ *   5. Parse Cayenne LPP sensor readings from packets
+ *   6. Submit readings via POST /api/sensors/:id/readings
+ *
+ * Role integration: set BTCPC_ROLES=clock,sensor,gateway to also run
+ * the clock heartbeat alongside the LoRa gateway.
+ *
+ * Usage:
+ *   node bin/btcpc-nebra [options]
+ *
+ * Options:
+ *   --account <name>    BTCPC account name (owner of this gateway)
+ *   --gateway <name>    gateway device name (slug, default: nebra-1)
+ *   --region <region>   LoRa region: US915 | EU868 | AU915 | AS923 | IN865
+ *   --lat <float>       GPS latitude
+ *   --lon <float>       GPS longitude
+ *   --node-url <url>    BTCPC node API base URL (default: https://btcpc.net)
+ *   --lora-device <dev> LoRa concentrator device (default: /dev/spidev0.0)
+ *   --dry-run           Parse and log packets without submitting
+ */
+
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const https = require('https');
+const { execSync, spawn } = require('child_process');
+
+// ─── Argument parsing ───────────────────────────────────────────
+
+const args = process.argv.slice(2);
+
+function getArg(flag, fallback) {
+  const idx = args.indexOf(flag);
+  if (idx !== -1 && args[idx + 1]) return args[idx + 1];
+  return fallback;
+}
+
+function hasFlag(flag) {
+  return args.indexOf(flag) !== -1;
+}
+
+const ACCOUNT    = getArg('--account', process.env.BTCPC_MINER || '');
+const GATEWAY_NAME = getArg('--gateway', process.env.BTCPC_GATEWAY_NAME || 'nebra-1');
+const REGION     = (getArg('--region', process.env.BTCPC_LORA_REGION || 'US915')).toUpperCase();
+const LAT        = parseFloat(getArg('--lat', process.env.BTCPC_LAT || '0'));
+const LON        = parseFloat(getArg('--lon', process.env.BTCPC_LON || '0'));
+const NODE_URL   = getArg('--node-url', process.env.BTCPC_NODE_URL || 'https://btcpc.net');
+const LORA_DEV   = getArg('--lora-device', process.env.BTCPC_LORA_DEVICE || '/dev/spidev0.0');
+const DRY_RUN    = hasFlag('--dry-run') || process.env.BTCPC_DRY_RUN === '1';
+const AUTH_TOKEN = process.env.BTCPC_AUTH_TOKEN || '';
+const ROLES = (process.env.BTCPC_ROLES || 'gateway').split(',').map(r => r.trim());
+
+// Nebra config file path (auto-detects region if available)
+const NEBRA_CONFIG_PATH = '/etc/nebra/config.json';
+const PACKET_FWD_CONFIG = '/etc/lora_pkt_fwd/global_conf.json';
+
+// ─── Hardware detection ──────────────────────────────────────────
+
+function isARM() {
+  const arch = os.arch();
+  return arch === 'arm' || arch === 'arm64';
+}
+
+function hasLoRaConcentrator() {
+  if (fs.existsSync(LORA_DEV)) return true;
+  // Also check /dev/spidev0.1 (some SX1302 hats)
+  if (fs.existsSync('/dev/spidev0.1')) return true;
+  return false;
+}
+
+function detectNebraRegion() {
+  // Try Nebra-specific config first
+  if (fs.existsSync(NEBRA_CONFIG_PATH)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(NEBRA_CONFIG_PATH, 'utf8'));
+      if (cfg.region) return cfg.region.toUpperCase();
+    } catch (_) {}
+  }
+  // Try packet forwarder config
+  if (fs.existsSync(PACKET_FWD_CONFIG)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(PACKET_FWD_CONFIG, 'utf8'));
+      if (cfg.SX130x_conf && cfg.SX130x_conf.chan_multiSF_0) {
+        // US915 uses 902 MHz, EU868 uses 868 MHz
+        const freq = cfg.SX130x_conf.chan_multiSF_0.freq || 0;
+        if (freq >= 902000000 && freq < 928000000) return 'US915';
+        if (freq >= 863000000 && freq < 870000000) return 'EU868';
+        if (freq >= 915000000 && freq < 928000000) return 'AU915';
+        if (freq >= 923000000 && freq < 925000000) return 'AS923';
+        if (freq >= 865000000 && freq < 867000000) return 'IN865';
+      }
+    } catch (_) {}
+  }
+  return REGION;
+}
+
+// ─── Cayenne LPP parser ──────────────────────────────────────────
+// Cayenne Low Power Payload is the standard LPWAN sensor format.
+// https://developers.mydevices.com/cayenne/docs/lora/#lora-cayenne-low-power-payload
+
+const CAYENNE_CHANNELS = {
+  0x67: { name: 'temperature',  unit: 'celsius',  size: 2, scale: 0.1,  signed: true  },
+  0x68: { name: 'humidity',     unit: 'pct',      size: 1, scale: 0.5,  signed: false },
+  0x73: { name: 'air_quality',  unit: 'ppm',      size: 2, scale: 1.0,  signed: false },
+  0x88: { name: 'gps',         unit: 'degrees',  size: 9, scale: null,  signed: true  },
+  0x65: { name: 'analog',      unit: 'v',        size: 2, scale: 0.01, signed: true  },
+  0x02: { name: 'analog',      unit: 'v',        size: 2, scale: 0.01, signed: true  },
+};
+
+function parseCayenneLPP(buffer) {
+  const readings = [];
+  let offset = 0;
+  while (offset < buffer.length - 1) {
+    const channel = buffer[offset];
+    const type = buffer[offset + 1];
+    offset += 2;
+    const spec = CAYENNE_CHANNELS[type];
+    if (!spec) break;
+    if (offset + spec.size > buffer.length) break;
+
+    if (type === 0x88) {
+      // GPS: lat (3 bytes), lon (3 bytes), alt (3 bytes), all signed, scale 0.0001
+      const lat = buffer.readIntBE(offset, 3) * 0.0001;
+      const lon = buffer.readIntBE(offset + 3, 3) * 0.0001;
+      const alt = buffer.readIntBE(offset + 6, 3) * 0.01;
+      readings.push({ channel, type: 'gps', unit: 'degrees', value: lat, metadata: { longitude: lon, altitude: alt } });
+    } else {
+      const raw = spec.signed
+        ? buffer.readIntBE(offset, spec.size)
+        : buffer.readUIntBE(offset, spec.size);
+      readings.push({ channel, type: spec.name, unit: spec.unit, value: raw * spec.scale, metadata: {} });
+    }
+    offset += spec.size;
+  }
+  return readings;
+}
+
+// ─── HTTP helpers ────────────────────────────────────────────────
+
+function apiRequest(method, urlPath, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlPath, NODE_URL);
+    const mod = url.protocol === 'https:' ? https : http;
+    const bodyStr = body ? JSON.stringify(body) : '';
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(bodyStr),
+    };
+    if (AUTH_TOKEN) headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+
+    const req = mod.request({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers,
+      timeout: 10000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch (_) { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(new Error('request timeout')); });
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ─── Gateway registration ────────────────────────────────────────
+
+async function registerGateway(account, name, region, lat, lon) {
+  if (!account) {
+    console.error('[btcpc-nebra] --account is required for gateway registration');
+    return false;
+  }
+  const gwId = account + '/' + name;
+  console.log('[btcpc-nebra] Registering gateway: ' + gwId + ' (' + region + ')');
+
+  if (DRY_RUN) {
+    console.log('[btcpc-nebra] DRY RUN — skipping registration');
+    return true;
+  }
+
+  try {
+    const resp = await apiRequest('POST', '/api/gateways', {
+      account: account,
+      name: name,
+      region: region,
+      latitude: lat,
+      longitude: lon,
+      hardware_model: 'nebra-indoor-helium',
+      firmware_version: '1.0.0',
+      max_sensors: 100,
+    });
+    if (resp.status === 201 || resp.status === 200) {
+      console.log('[btcpc-nebra] Gateway registered: ' + gwId);
+      return true;
+    }
+    if (resp.status === 409) {
+      console.log('[btcpc-nebra] Gateway already registered: ' + gwId);
+      return true;
+    }
+    console.error('[btcpc-nebra] Registration failed: HTTP ' + resp.status, resp.body);
+    return false;
+  } catch (err) {
+    console.error('[btcpc-nebra] Registration error:', err.message);
+    return false;
+  }
+}
+
+async function sendHeartbeat(account, name, stats) {
+  const gwId = encodeURIComponent(account + '/' + name);
+  if (DRY_RUN) return;
+  try {
+    await apiRequest('POST', '/api/gateways/' + gwId + '/heartbeat', Object.assign({ account: account }, stats));
+  } catch (_) {}
+}
+
+// Track which sensors have been successfully registered to avoid redundant calls
+const _registeredSensors = new Set();
+
+async function ensureSensorRegistered(sensorId, metadata) {
+  if (_registeredSensors.has(sensorId)) return;
+  const parts = sensorId.split('/');
+  const account = parts[0];
+  const name = parts.slice(1).join('/');
+  const type = (metadata && metadata.type) || 'custom';
+  const unit = (metadata && metadata.unit) || 'raw';
+  const region = (metadata && metadata.region) || 'onboard/' + ACCOUNT;
+  try {
+    const resp = await apiRequest('POST', '/api/sensors', { account, name, type, unit, region, decimals: 4, device_name: GATEWAY_NAME });
+    if (resp.status === 201 || resp.status === 409) {
+      _registeredSensors.add(sensorId);
+      if (resp.status === 201) console.log('[btcpc-nebra] Registered sensor:', sensorId);
+    } else {
+      console.warn('[btcpc-nebra] Sensor registration failed for', sensorId, 'HTTP', resp.status, (resp.body || {}).error || '');
+    }
+  } catch (err) {
+    console.warn('[btcpc-nebra] Sensor registration error:', err.message);
+  }
+}
+
+async function submitSensorReading(sensorId, value, metadata) {
+  const encId = encodeURIComponent(sensorId);
+  if (DRY_RUN) {
+    console.log('[btcpc-nebra] DRY RUN reading:', sensorId, value, metadata);
+    return;
+  }
+  try {
+    const account = sensorId.split('/')[0];
+    const resp = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
+    const needsRegister = resp.status === 404 ||
+      (resp.status === 422 && resp.body && /retired/i.test(resp.body.error || ''));
+    if (needsRegister) {
+      // Sensor not registered or was retired — re-register and retry once
+      _registeredSensors.delete(sensorId); // force re-registration attempt
+      await ensureSensorRegistered(sensorId, metadata);
+      const retry = await apiRequest('POST', '/api/sensors/' + encId + '/readings', { account, value, metadata });
+      if (retry.status !== 201 && retry.status !== 200) {
+        const b = retry.body || {};
+        if (!(retry.status === 422 && b.error && /duplicate/i.test(b.error))) {
+          console.warn('[btcpc-nebra] Reading retry failed for', sensorId, 'HTTP', retry.status, b.error || '');
+        }
+      }
+      return;
+    }
+    if (resp.status !== 201 && resp.status !== 200) {
+      const body = resp.body || {};
+      if (resp.status === 422 && body.error && /duplicate/i.test(body.error)) return;
+      console.warn('[btcpc-nebra] Reading submission failed for', sensorId, 'HTTP', resp.status, body.error || '');
+    }
+  } catch (err) {
+    console.error('[btcpc-nebra] Reading error:', err.message);
+  }
+}
+
+// ─── LoRa packet listener ────────────────────────────────────────
+// Listens on the lora_pkt_fwd UDP push port (1700) for PUSH_DATA frames.
+// This is the standard Semtech UDP protocol used by lora_pkt_fwd and
+// the sx1302_hal packet forwarder.
+
+const dgram = require('dgram');
+
+function startLoRaListener(account, gatewayName) {
+  const LORA_PORT = parseInt(process.env.BTCPC_LORA_PORT || '1700', 10);
+  const server = dgram.createSocket('udp4');
+  let packetsRelayed = 0;
+  let rssiSum = 0;
+  let rssiCount = 0;
+  let snrSum = 0;
+  let snrCount = 0;
+
+  server.on('message', (msg, rinfo) => {
+    // Semtech UDP PUSH_DATA: 1 byte version + 2 bytes token + 1 byte PUSH_DATA (0x00) + 8 bytes gwEUI + JSON
+    if (msg.length < 12) return;
+    const msgType = msg[3];
+    if (msgType !== 0x00) return; // Only PUSH_DATA
+
+    const jsonStart = 12;
+    let jsonStr;
+    try {
+      jsonStr = msg.slice(jsonStart).toString('utf8');
+    } catch (_) { return; }
+
+    let pushData;
+    try {
+      pushData = JSON.parse(jsonStr);
+    } catch (_) { return; }
+
+    if (!pushData.rxpk) return;
+
+    for (const pkt of pushData.rxpk) {
+      packetsRelayed++;
+      if (typeof pkt.rssi === 'number') { rssiSum += pkt.rssi; rssiCount++; }
+      if (typeof pkt.lsnr === 'number') { snrSum += pkt.lsnr; snrCount++; }
+      // Decode base64 payload
+      let payload;
+      try {
+        payload = Buffer.from(pkt.data || '', 'base64');
+      } catch (_) { continue; }
+
+      // Parse Cayenne LPP
+      const readings = parseCayenneLPP(payload);
+      if (readings.length === 0) continue;
+
+      // Derive sensor ID from gateway EUI in packet or from a device addr
+      // Convention: gateway sensors use "<account>/sensor-<devaddr_hex>"
+      const devAddr = pkt.devaddr ? pkt.devaddr.toString(16).padStart(8, '0') : 'unknown';
+      const sensorId = account + '/sensor-' + devAddr;
+
+      for (const r of readings) {
+        const metadata = Object.assign({
+          gateway_id: account + '/' + gatewayName,
+          signal_strength_dbm: pkt.rssi || null,
+          latitude: LAT || null,
+          longitude: LON || null,
+        }, r.metadata || {});
+        submitSensorReading(sensorId, r.value, metadata).catch(() => {});
+      }
+    }
+  });
+
+  server.on('error', (err) => {
+    console.error('[btcpc-nebra] LoRa UDP error:', err.message);
+  });
+
+  server.bind(LORA_PORT, '127.0.0.1', () => {
+    console.log('[btcpc-nebra] Listening for LoRa packets on UDP port ' + LORA_PORT);
+  });
+
+  // Heartbeat + onboard sensor readings every epoch
+  const HEARTBEAT_INTERVAL_MS = parseInt(process.env.BTCPC_HEARTBEAT_INTERVAL_MS || '30000', 10);
+  var onboardReadingCount = 0;
+
+  setInterval(() => {
+    const stats = {
+      sensors_connected: 0,
+      packets_relayed_this_epoch: packetsRelayed,
+      uptime_seconds: process.uptime(),
+    };
+    sendHeartbeat(account, gatewayName, stats).catch(() => {});
+
+    // ── Onboard sensor readings ─────────────────────────────────
+    // The Pi itself is a sensor node — report everything it can measure.
+    onboardReadingCount++;
+    var sensorBase = account + '/' + gatewayName + '-';
+
+    // CPU temperature (always available on Pi)
+    try {
+      var cpuTemp = parseFloat(fs.readFileSync('/sys/class/thermal/thermal_zone0/temp', 'utf8')) / 1000;
+      submitSensorReading(sensorBase + 'cpu-temp', cpuTemp, {
+        type: 'temperature', unit: 'celsius', source: 'onboard',
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // WiFi signal strength
+    try {
+      var wifiInfo = fs.readFileSync('/proc/net/wireless', 'utf8');
+      var lines = wifiInfo.trim().split('\n');
+      if (lines.length >= 3) {
+        var parts = lines[2].trim().split(/\s+/);
+        var signalDbm = parseFloat(parts[3]) || 0;
+        submitSensorReading(sensorBase + 'wifi-signal', signalDbm, {
+          type: 'power', unit: 'dBm', source: 'onboard',
+          interface: parts[0].replace(':', ''),
+          reading_number: onboardReadingCount,
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // System load average (1 min)
+    try {
+      var loadAvg = os.loadavg()[0];
+      submitSensorReading(sensorBase + 'load', loadAvg, {
+        type: 'custom', unit: 'load_1m', source: 'onboard',
+        cpu_count: os.cpus().length,
+        memory_free_mb: Math.round(os.freemem() / 1048576),
+        memory_total_mb: Math.round(os.totalmem() / 1048576),
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // Disk usage
+    try {
+      var diskInfo = require('child_process').execSync("df -B1 / | tail -1", { encoding: 'utf8' }).trim().split(/\s+/);
+      var diskUsedPct = parseFloat(diskInfo[4]) || 0;
+      submitSensorReading(sensorBase + 'disk', diskUsedPct, {
+        type: 'custom', unit: 'percent_used', source: 'onboard',
+        total_bytes: parseInt(diskInfo[1]) || 0,
+        used_bytes: parseInt(diskInfo[2]) || 0,
+        available_bytes: parseInt(diskInfo[3]) || 0,
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+    } catch (_) {}
+
+    // LoRa radio metrics
+    try {
+      var loraAlive = fs.existsSync(LORA_DEV) || fs.existsSync('/dev/spidev0.1');
+      var epochPackets = packetsRelayed;
+      var avgRssi = rssiCount > 0 ? Math.round(rssiSum / rssiCount) : null;
+      var avgSnr  = snrCount  > 0 ? Math.round((snrSum  / snrCount) * 10) / 10 : null;
+
+      // packets forwarded this epoch
+      submitSensorReading(sensorBase + 'lora-packets', epochPackets, {
+        type: 'custom', unit: 'packets', source: 'onboard',
+        concentrator_present: loraAlive,
+        device: LORA_DEV,
+        reading_number: onboardReadingCount,
+      }).catch(() => {});
+
+      // average RSSI this epoch (dBm) — only submit when packets actually received
+      if (rssiCount > 0) {
+        submitSensorReading(sensorBase + 'lora-rssi', avgRssi, {
+          type: 'rf-scanner', unit: 'dBm', source: 'onboard',
+          sample_count: rssiCount,
+          avg_snr_db: avgSnr,
+          reading_number: onboardReadingCount,
+        }).catch(() => {});
+      }
+
+      // reset accumulators
+      packetsRelayed = 0;
+      rssiSum = 0; rssiCount = 0;
+      snrSum = 0;  snrCount = 0;
+    } catch (_) {}
+  }, HEARTBEAT_INTERVAL_MS);
+
+  return server;
+}
+
+// ─── Main ────────────────────────────────────────────────────────
+
+async function main() {
+  console.log('[btcpc-nebra] Starting BTCPC Nebra gateway daemon');
+  console.log('[btcpc-nebra] Platform:', os.platform(), os.arch());
+
+  // Hardware checks
+  if (!isARM()) {
+    console.warn('[btcpc-nebra] WARNING: Not running on ARM. Nebra hardware detection may fail.');
+  }
+
+  const loraAvailable = hasLoRaConcentrator();
+  if (!loraAvailable) {
+    console.warn('[btcpc-nebra] WARNING: LoRa concentrator not found at', LORA_DEV);
+    console.warn('[btcpc-nebra] Running in software-only mode (packet listener only).');
+  } else {
+    console.log('[btcpc-nebra] LoRa concentrator detected at', LORA_DEV);
+  }
+
+  // Auto-detect region from Nebra config
+  const detectedRegion = detectNebraRegion();
+  const activeRegion = detectedRegion || REGION;
+  console.log('[btcpc-nebra] LoRa region:', activeRegion);
+
+  if (!ACCOUNT) {
+    console.error('[btcpc-nebra] ERROR: --account <btcpc-username> is required');
+    console.error('[btcpc-nebra] Run: node bin/btcpc-nebra --account <name> --lat <float> --lon <float>');
+    process.exit(1);
+  }
+
+  // Register gateway — retry for up to 60s to handle API startup race
+  let registered = false;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    registered = await registerGateway(ACCOUNT, GATEWAY_NAME, activeRegion, LAT, LON);
+    if (registered) break;
+    if (attempt < 6) {
+      console.log('[btcpc-nebra] Registration retry in 10s (attempt ' + attempt + '/6)...');
+      await new Promise(r => setTimeout(r, 10000));
+    }
+  }
+  if (!registered) {
+    console.warn('[btcpc-nebra] Gateway registration failed after retries. Continuing in listener mode.');
+  }
+
+  // Start LoRa listener
+  startLoRaListener(ACCOUNT, GATEWAY_NAME);
+
+  // Clock node — spawn btcpc-clock as a child process if role is enabled
+  let clockProc = null;
+  if (ROLES.includes('clock')) {
+    function spawnClock() {
+      console.log('[btcpc-nebra] Starting clock node (BTCPC_ROLES includes clock)');
+      clockProc = spawn(process.execPath, [path.resolve(__dirname, 'btcpc-clock')], {
+        env: { ...process.env, BTCPC_CLOCK_ACCOUNT: ACCOUNT },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      clockProc.stdout.on('data', d => process.stdout.write('[btcpc-clock] ' + d));
+      clockProc.stderr.on('data', d => process.stderr.write('[btcpc-clock] ' + d));
+      clockProc.on('exit', code => {
+        console.warn('[btcpc-nebra] Clock process exited (' + code + ') — restarting in 10s');
+        setTimeout(spawnClock, 10000);
+      });
+    }
+    spawnClock();
+  }
+
+  // Handle SIGTERM cleanly
+  process.on('SIGTERM', () => {
+    console.log('[btcpc-nebra] Received SIGTERM, shutting down');
+    if (clockProc) clockProc.kill('SIGTERM');
+    process.exit(0);
+  });
+  process.on('SIGINT', () => {
+    console.log('[btcpc-nebra] Received SIGINT, shutting down');
+    if (clockProc) clockProc.kill('SIGTERM');
+    process.exit(0);
+  });
+
+  console.log('[btcpc-nebra] Gateway daemon running. Account:', ACCOUNT, '| Gateway:', ACCOUNT + '/' + GATEWAY_NAME);
+  console.log('[btcpc-nebra] Roles:', ROLES.join(', '));
+}
+
+main().catch((err) => {
+  console.error('[btcpc-nebra] Fatal:', err.message);
+  process.exit(1);
+});

@@ -1,0 +1,25 @@
+# ZeroClaw — BTCPC Marketing Drafter
+# Routes inference through the BTCPC chain (POST /v1/chat/completions → miners)
+# api_key is injected at runtime from btcpc .env by draft.sh
+
+workspace_dir       = "/home/ubuntclaw/repos/btcpc/marketing-dashboard/zeroclaw/drafter/workspace"
+default_provider    = "openai"
+default_model       = "qwen3.5:9b"
+api_key             = "btcpc_8226f240144a376f3164e7d78ce7d956"
+api_url             = "http://localhost:4242"
+default_temperature = 0.85
+provider_timeout_secs = 300
+
+[agent]
+max_tool_iterations  = 20
+max_history_messages = 30
+max_context_tokens   = 16000
+
+[memory]
+backend = "none"
+
+[tools.http_request]
+enabled           = true
+allowed_domains   = ["localhost:7979"]
+max_response_size = 524288
+timeout_secs      = 15

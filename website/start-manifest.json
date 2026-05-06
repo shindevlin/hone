@@ -1,0 +1,147 @@
+{
+  "version": "2026-04-24-v7",
+  "route": "/start",
+  "legacy_alias": "/agent",
+  "goal": "Install BTCPC, save the wallet export to disk, open inference, and start node roles with the least possible ambiguity.",
+  "audiences": {
+    "human": {
+      "goal": "Find one obvious next step at a time.",
+      "success_target": 90
+    },
+    "agent": {
+      "goal": "Execute the onboarding deterministically with minimal branching.",
+      "success_target": 100
+    },
+    "technical": {
+      "goal": "Reach the right docs, code, and runtime surfaces quickly.",
+      "success_target": 90
+    }
+  },
+  "ordered_steps": [
+    {
+      "id": "choose-username",
+      "title": "Choose your on-chain username",
+      "instruction": "Ask the user which BTCPC username they want, then check whether it is available on chain before continuing.",
+      "why": "The username is the on-chain identity and should be confirmed before account creation.",
+      "primary_action": {
+        "label": "Check username availability",
+        "kind": "check-username"
+      },
+      "done_when": [
+        "username is chosen",
+        "username availability is confirmed",
+        "username is saved locally for the setup flow"
+      ]
+    },
+    {
+      "id": "create-or-import",
+      "title": "Create or import an account",
+      "instruction": "Open /setup and create or import the BTCPC account that will control this machine.",
+      "why": "You need a wallet before inference or node roles can be used safely.",
+      "primary_action": {
+        "label": "Open /setup",
+        "href": "/setup",
+        "kind": "route"
+      },
+      "fallbacks": ["/install", "/app"],
+      "done_when": [
+        "account exists",
+        "wallet export is visible",
+        "mnemonic is saved offline"
+      ]
+    },
+    {
+      "id": "save-export",
+      "title": "Save the wallet export to disk",
+      "instruction": "Download the BTCPC wallet export and confirm it exists on local disk before continuing.",
+      "why": "The export is the recovery path if the browser session is lost.",
+      "primary_action": {
+        "label": "Open /setup export section",
+        "href": "/setup",
+        "kind": "route"
+      },
+      "secondary_action": {
+        "label": "Mark export saved",
+        "kind": "mark-complete"
+      },
+      "done_when": [
+        "wallet export file exists on local disk"
+      ]
+    },
+    {
+      "id": "open-inference",
+      "title": "Open BTCPC inference",
+      "instruction": "Open the browser app and send one prompt so the inference surface is proven live.",
+      "why": "Inference is the main user-facing runtime, so this should work before node roles are added.",
+      "primary_action": {
+        "label": "Open /app",
+        "href": "/app",
+        "kind": "route"
+      },
+      "done_when": [
+        "inference tab is reachable",
+        "a prompt can be sent",
+        "a response is returned"
+      ]
+    },
+    {
+      "id": "choose-roles",
+      "title": "Start node roles",
+      "instruction": "Choose the node roles you want this machine to run, then start them from the node page.",
+      "why": "Clock, miner, storage, gateway, and sensor roles are the core ways BTCPC earns and contributes.",
+      "primary_action": {
+        "label": "Open /run-a-node",
+        "href": "/run-a-node",
+        "kind": "route"
+      },
+      "fallbacks": ["/install", "/app"],
+      "done_when": [
+        "clock, miner, storage, gateway, or sensor roles are started"
+      ]
+    },
+    {
+      "id": "controller-opt-in",
+      "title": "Optional: controller mode",
+      "instruction": "If you want external-chain control, open the controller page and approve the BTCPC spend policy with your linked wallet.",
+      "why": "Controller mode lets an external chain act as the spend approval layer instead of the BTCPC active key alone.",
+      "primary_action": {
+        "label": "Open controller page",
+        "href": "/controller.html",
+        "kind": "route"
+      },
+      "done_when": [
+        "controller wallet is connected",
+        "BTCPC spend challenge is signed",
+        "approval is submitted"
+      ]
+    }
+  ],
+  "human_rules": [
+    "Show one primary action first.",
+    "Ask for the on-chain username before account creation.",
+    "Defer advanced policy language until controller mode is selected.",
+    "Keep legal links visible."
+  ],
+  "agent_rules": [
+    "Do the steps in order.",
+    "Ask for the on-chain username first and confirm availability before moving on.",
+    "Stop only when a step has a clear done condition.",
+    "If a step fails, use the listed fallback before inventing a new path."
+  ],
+  "progress_notes": [
+    "One visible step at a time for humans.",
+    "Use the manifest as the machine-readable source of truth.",
+    "Username availability is the first deterministic branch.",
+    "Keep advanced policy language collapsed until controller mode is selected."
+  ],
+  "links": {
+    "start": "/start",
+    "install": "/install",
+    "setup": "/setup",
+    "app": "/app",
+    "run_a_node": "/run-a-node",
+    "controller": "/controller.html",
+    "terms": "/terms",
+    "privacy": "/privacy"
+  }
+}

@@ -1,0 +1,8 @@
+App(
+    appid="btcpc_sensor",
+    name="BTCPC Sensor",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="btcpc_sensor_app",
+    stack_size=8 * 1024,
+    fap_category="BTCPC",
+)

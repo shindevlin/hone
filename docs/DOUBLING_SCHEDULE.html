@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BTCPC Doubling Schedule — Era & Supply Projection</title>
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --card: #141414;
+    --border: #2a2a2a;
+    --accent: #f7931a;
+    --blue: #4da6ff;
+    --green: #00c87a;
+    --muted: #555;
+    --text: #e0e0e0;
+    --sub: #888;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.6; padding: 32px 24px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 22px; color: var(--accent); margin-bottom: 4px; }
+  h2 { font-size: 15px; color: var(--blue); margin: 32px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  p { color: var(--sub); margin-bottom: 12px; }
+  .tag { display: inline-block; background: #1a1a1a; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 12px; color: var(--sub); margin-right: 6px; }
+  .tag.btc { border-color: #f7931a44; color: var(--accent); }
+  .tag.era { border-color: #4da6ff44; color: var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th { background: #1a1a1a; color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #181818; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .era-0 td:first-child { border-left: 3px solid #4da6ff; }
+  .era-1 td:first-child { border-left: 3px solid #7bc8ff; }
+  .era-2 td:first-child { border-left: 3px solid #00c87a; }
+  .era-3 td:first-child { border-left: 3px solid #a8e6c3; }
+  .era-4 td:first-child { border-left: 3px solid #f7931a; }
+  .era-5 td:first-child { border-left: 3px solid var(--muted); }
+  .highlight { color: var(--accent); font-weight: 600; }
+  .dim { color: var(--muted); }
+  .green { color: var(--green); }
+  .blue { color: var(--blue); }
+
+  .bar-wrap { background: #1a1a1a; border-radius: 4px; height: 8px; width: 100%; min-width: 120px; overflow: hidden; }
+  .bar-fill { height: 8px; border-radius: 4px; transition: width 0.3s; }
+
+  .footnote { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px; }
+  .card-val { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .card-sub { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+  .oracle-box { background: #0a1a0a; border: 1px solid #1a3a1a; border-radius: 6px; padding: 16px 20px; margin-bottom: 24px; }
+  .oracle-box h3 { font-size: 13px; color: var(--green); margin-bottom: 8px; }
+  .oracle-box ul { color: var(--sub); padding-left: 20px; font-size: 13px; }
+  .oracle-box li { margin-bottom: 4px; }
+  .oracle-box code { background: #111; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #aaa; }
+</style>
+</head>
+<body>
+
+<h1>BTCPC Doubling Schedule</h1>
+<p style="margin-bottom:20px;">
+  <span class="tag btc">BTC-Aligned</span>
+  <span class="tag era">5 Eras</span>
+  <span class="tag">42,000,000 BTCPC Supply</span>
+  <span class="tag">Genesis: 2026-05-01 11:00 UTC</span>
+</p>
+
+<div class="two-col">
+  <div class="card">
+    <div class="card-title">Total Supply</div>
+    <div class="card-val">42,000,000</div>
+    <div class="card-sub">BTCPC &mdash; fully mined by ~2140-10-01, same day as Bitcoin's last satoshi</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Mechanism</div>
+    <div class="card-val">2 BTCPC</div>
+    <div class="card-sub">constant reward per epoch &mdash; epoch duration doubles each era (not reward)</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Epochs per Era</div>
+    <div class="card-val">4,200,000</div>
+    <div class="card-sub">5 eras × 4,200,000 × 2 BTCPC = 42,000,000 BTCPC total</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Era 0 Epoch Duration</div>
+    <div class="card-val">30 seconds</div>
+    <div class="card-sub">Fixed. Eras 1–4 auto-calibrate to BTC end date at each era boundary</div>
+  </div>
+</div>
+
+<h2>Era Schedule — BTC-Calibrated Projection</h2>
+<p>Era 0 uses a fixed 30-second epoch. At each subsequent era boundary the chain recomputes the next era's epoch
+duration so that all remaining eras exhaust supply exactly at Bitcoin's projected last-coin timestamp.
+The values below assume the compile-time constant <code style="color:#aaa;background:#111;padding:1px 5px;border-radius:3px;font-size:12px;">BTC_PROJECTED_END_MS</code> (~2140-10-01 18:15 UTC).</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Era</th>
+      <th>Start Date</th>
+      <th>End Date</th>
+      <th>Duration</th>
+      <th>Epoch Duration</th>
+      <th>Epochs/Day</th>
+      <th>BTCPC/Day</th>
+      <th>BTCPC in Era</th>
+      <th>Cumulative</th>
+      <th>% Supply</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="era-0">
+      <td><strong class="blue">0</strong></td>
+      <td>2026-05-01</td>
+      <td>2030-03-05</td>
+      <td>3.99 years</td>
+      <td><strong>30s</strong> <span class="dim">(fixed)</span></td>
+      <td class="num">2,880</td>
+      <td class="num green">5,760</td>
+      <td class="num">8,400,000</td>
+      <td class="num">8,400,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:20%;background:#4da6ff;"></div></div>
+          <span class="dim">20%</span>
+        </div>
+      </td>
+    </tr>
+    <tr class="era-1">
+      <td><strong class="blue">1</strong></td>
+      <td>2030-03-05</td>
+      <td>2037-07-15</td>
+      <td>7.36 years</td>
+      <td><strong>~55.3s</strong> <span class="dim">(calibrated)</span></td>
+      <td class="num">1,562</td>
+      <td class="num green">3,124</td>
+      <td class="num">8,400,000</td>
+      <td class="num">16,800,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:40%;background:#7bc8ff;"></div></div>
+          <span class="dim">40%</span>
+        </div>
+      </td>
+    </tr>
+    <tr class="era-2">
+      <td><strong class="blue">2</strong></td>
+      <td>2037-07-15</td>
+      <td>2052-04-06</td>
+      <td>14.73 years</td>
+      <td><strong>~110.6s</strong> <span class="dim">(1m 50s, calibrated)</span></td>
+      <td class="num">781</td>
+      <td class="num green">1,562</td>
+      <td class="num">8,400,000</td>
+      <td class="num">25,200,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:60%;background:#00c87a;"></div></div>
+          <span class="dim">60%</span>
+        </div>
+      </td>
+    </tr>
+    <tr class="era-3">
+      <td><strong class="blue">3</strong></td>
+      <td>2052-04-06</td>
+      <td>2081-09-19</td>
+      <td>29.45 years</td>
+      <td><strong>~221.3s</strong> <span class="dim">(3m 41s, calibrated)</span></td>
+      <td class="num">391</td>
+      <td class="num green">781</td>
+      <td class="num">8,400,000</td>
+      <td class="num">33,600,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:80%;background:#a8e6c3;"></div></div>
+          <span class="dim">80%</span>
+        </div>
+      </td>
+    </tr>
+    <tr class="era-4">
+      <td><strong class="highlight">4</strong></td>
+      <td>2081-09-19</td>
+      <td><strong class="highlight">2140-10-01</strong></td>
+      <td>58.93 years</td>
+      <td><strong>~442.6s</strong> <span class="dim">(7m 22s, calibrated)</span></td>
+      <td class="num">195</td>
+      <td class="num green">390</td>
+      <td class="num">8,400,000</td>
+      <td class="num highlight">42,000,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:100%;background:#f7931a;"></div></div>
+          <span class="highlight">100%</span>
+        </div>
+      </td>
+    </tr>
+    <tr class="era-5">
+      <td><span class="dim">5+</span></td>
+      <td><span class="dim">2140-10-01</span></td>
+      <td><span class="dim">∞</span></td>
+      <td><span class="dim">∞</span></td>
+      <td><span class="dim">16 min (cap)</span></td>
+      <td class="num dim">~90</td>
+      <td class="num dim">recycled only</td>
+      <td class="num dim">0</td>
+      <td class="num dim">42,000,000</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap"><div class="bar-fill" style="width:100%;background:#333;"></div></div>
+          <span class="dim">100%</span>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p class="footnote">Era 1–4 epoch durations are computed at each era boundary via <code style="color:#aaa;background:#111;padding:1px 4px;border-radius:3px;">calibrate_era_epoch_ms()</code>. Dates above assume the compile-time BTC projection. Oracle refinements will shift them by at most ±days at era 1, narrowing to ±hours by era 4.</p>
+
+<h2>Calibration Formula</h2>
+<p>At each era <em>N</em> boundary, the chain reads the current wall-clock and computes:</p>
+<div style="background:#111;border:1px solid #222;border-radius:6px;padding:16px 20px;font-family:monospace;font-size:13px;color:#ccc;margin-bottom:16px;overflow-x:auto;">
+  remaining_ms = btc_end_ms − now_ms<br>
+  remaining_eras = RECYCLE_ERA − N &nbsp;&nbsp;// = 5 − N<br>
+  series_sum = 2<sup>remaining_eras</sup> − 1<br>
+  base_epoch_ms = remaining_ms ÷ (4,200,000 × series_sum)<br>
+  <br>
+  <span style="color:#555;">// Stores per-era durations (base, 2×base, 4×base, …) in chain_param:era_epoch_ms:N</span>
+</div>
+<p>The <em>series_sum</em> term encodes the geometric structure: if the base epoch is <em>b</em>, the remaining supply is exhausted in
+4.2M×b + 4.2M×2b + … + 4.2M×2<sup>r-1</sup>b = 4.2M×b×(2<sup>r</sup>−1) milliseconds.</p>
+
+<h2>Comparison: Idealized 2× vs BTC-Calibrated</h2>
+<p>Without calibration the chain would end ~2150 (124 years). Calibration compresses eras 1–4 to end in 2140, losing ~10 years of the "tail" — or equivalently, making later eras slightly shorter to match Bitcoin's decay.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Era</th>
+      <th>Idealized Epoch</th>
+      <th>Idealized End</th>
+      <th>Calibrated Epoch</th>
+      <th>Calibrated End</th>
+      <th>Difference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="era-0">
+      <td>0</td>
+      <td>30s</td>
+      <td>2030-03-05</td>
+      <td>30s</td>
+      <td>2030-03-05</td>
+      <td class="dim">—</td>
+    </tr>
+    <tr class="era-1">
+      <td>1</td>
+      <td>60s (2×)</td>
+      <td>2038-02-03</td>
+      <td>55.3s (1.84×)</td>
+      <td>2037-07-15</td>
+      <td class="dim">−7 months</td>
+    </tr>
+    <tr class="era-2">
+      <td>2</td>
+      <td>120s (4×)</td>
+      <td>2054-01-31</td>
+      <td>110.6s (3.69×)</td>
+      <td>2052-04-06</td>
+      <td class="dim">−1.7 years</td>
+    </tr>
+    <tr class="era-3">
+      <td>3</td>
+      <td>240s (8×)</td>
+      <td>2085-12-22</td>
+      <td>221.3s (7.38×)</td>
+      <td>2081-09-19</td>
+      <td class="dim">−4.3 years</td>
+    </tr>
+    <tr class="era-4">
+      <td>4</td>
+      <td>480s (16×)</td>
+      <td><strong>~2149-10</strong></td>
+      <td>442.6s (14.75×)</td>
+      <td><strong class="highlight">2140-10-01</strong></td>
+      <td class="highlight">BTC aligned ✓</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Cumulative Supply Milestones</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Year</th>
+      <th>Era</th>
+      <th>Approx Daily Rate</th>
+      <th>Cumulative BTCPC</th>
+      <th>% of 42M</th>
+      <th>Remaining</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>2026-05-01</td><td>0</td><td class="blue">0</td><td class="num">5,760 / day</td><td class="num">0</td><td><div class="bar-wrap"><div class="bar-fill" style="width:0%;background:#4da6ff;"></div></div></td><td class="num dim">42,000,000</td></tr>
+    <tr><td>2027-05-01</td><td>1</td><td class="blue">0</td><td class="num">5,760 / day</td><td class="num">2,102,400</td><td><div class="bar-wrap"><div class="bar-fill" style="width:5%;background:#4da6ff;"></div></div></td><td class="num dim">39,897,600</td></tr>
+    <tr><td>2028-05-01</td><td>2</td><td class="blue">0</td><td class="num">5,760 / day</td><td class="num">4,204,800</td><td><div class="bar-wrap"><div class="bar-fill" style="width:10%;background:#4da6ff;"></div></div></td><td class="num dim">37,795,200</td></tr>
+    <tr><td>2029-05-01</td><td>3</td><td class="blue">0</td><td class="num">5,760 / day</td><td class="num">6,307,200</td><td><div class="bar-wrap"><div class="bar-fill" style="width:15%;background:#4da6ff;"></div></div></td><td class="num dim">35,692,800</td></tr>
+    <tr style="background:#151515"><td><strong>2030-03-05</strong></td><td>3.8</td><td class="blue"><strong>0→1</strong></td><td class="num dim">—</td><td class="num"><strong>8,400,000</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:20%;background:#7bc8ff;"></div></div></td><td class="num dim">33,600,000</td></tr>
+    <tr><td>2031-03-05</td><td>4.8</td><td class="blue">1</td><td class="num">3,124 / day</td><td class="num">9,540,260</td><td><div class="bar-wrap"><div class="bar-fill" style="width:22.7%;background:#7bc8ff;"></div></div></td><td class="num dim">32,459,740</td></tr>
+    <tr><td>2033-01-01</td><td>6.7</td><td class="blue">1</td><td class="num">3,124 / day</td><td class="num">11,875,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:28.3%;background:#7bc8ff;"></div></div></td><td class="num dim">30,125,000</td></tr>
+    <tr><td>2035-01-01</td><td>8.7</td><td class="blue">1</td><td class="num">3,124 / day</td><td class="num">14,155,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:33.7%;background:#7bc8ff;"></div></div></td><td class="num dim">27,845,000</td></tr>
+    <tr style="background:#151515"><td><strong>2037-07-15</strong></td><td>11.2</td><td class="blue"><strong>1→2</strong></td><td class="num dim">—</td><td class="num"><strong>16,800,000</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:40%;background:#00c87a;"></div></div></td><td class="num dim">25,200,000</td></tr>
+    <tr><td>2040-01-01</td><td>13.7</td><td class="blue">2</td><td class="num">1,562 / day</td><td class="num">18,212,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:43.4%;background:#00c87a;"></div></div></td><td class="num dim">23,788,000</td></tr>
+    <tr><td>2045-01-01</td><td>18.7</td><td class="blue">2</td><td class="num">1,562 / day</td><td class="num">21,062,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:50.1%;background:#00c87a;"></div></div></td><td class="num dim">20,938,000</td></tr>
+    <tr><td>2050-01-01</td><td>23.7</td><td class="blue">2</td><td class="num">1,562 / day</td><td class="num">23,872,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:56.8%;background:#00c87a;"></div></div></td><td class="num dim">18,128,000</td></tr>
+    <tr style="background:#151515"><td><strong>2052-04-06</strong></td><td>25.9</td><td class="blue"><strong>2→3</strong></td><td class="num dim">—</td><td class="num"><strong>25,200,000</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:60%;background:#a8e6c3;"></div></div></td><td class="num dim">16,800,000</td></tr>
+    <tr><td>2060-01-01</td><td>33.7</td><td class="blue">3</td><td class="num">781 / day</td><td class="num">27,376,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:65.2%;background:#a8e6c3;"></div></div></td><td class="num dim">14,624,000</td></tr>
+    <tr><td>2070-01-01</td><td>43.7</td><td class="blue">3</td><td class="num">781 / day</td><td class="num">30,227,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:72%;background:#a8e6c3;"></div></div></td><td class="num dim">11,773,000</td></tr>
+    <tr><td>2080-01-01</td><td>53.7</td><td class="blue">3</td><td class="num">781 / day</td><td class="num">33,048,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:78.7%;background:#a8e6c3;"></div></div></td><td class="num dim">8,952,000</td></tr>
+    <tr style="background:#151515"><td><strong>2081-09-19</strong></td><td>55.4</td><td class="highlight"><strong>3→4</strong></td><td class="num dim">—</td><td class="num"><strong>33,600,000</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:80%;background:#f7931a;"></div></div></td><td class="num dim">8,400,000</td></tr>
+    <tr><td>2090-01-01</td><td>63.7</td><td class="highlight">4</td><td class="num">390 / day</td><td class="num">36,750,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:87.5%;background:#f7931a;"></div></div></td><td class="num dim">5,250,000</td></tr>
+    <tr><td>2100-01-01</td><td>73.7</td><td class="highlight">4</td><td class="num">390 / day</td><td class="num">38,100,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:90.7%;background:#f7931a;"></div></div></td><td class="num dim">3,900,000</td></tr>
+    <tr><td>2120-01-01</td><td>93.7</td><td class="highlight">4</td><td class="num">390 / day</td><td class="num">40,800,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:97.1%;background:#f7931a;"></div></div></td><td class="num dim">1,200,000</td></tr>
+    <tr style="background:#151a10"><td><strong>2140-10-01</strong></td><td>114.4</td><td class="highlight"><strong>4→5</strong></td><td class="num dim">—</td><td class="num highlight"><strong>42,000,000</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:100%;background:#f7931a;"></div></div></td><td class="num highlight">0</td></tr>
+    <tr><td>2140-10-01+</td><td>114.4+</td><td class="dim">5+</td><td class="num dim">recycled</td><td class="num dim">42,000,000</td><td><div class="bar-wrap"><div class="bar-fill" style="width:100%;background:#333;"></div></div></td><td class="num dim">0</td></tr>
+  </tbody>
+</table>
+
+<h2>Oracle Layer — Automatic BTC Tracking</h2>
+<div class="oracle-box">
+  <h3>No governance. No voting. Automatic.</h3>
+  <p style="color:#888;font-size:13px;margin-bottom:10px;">BTCPC nodes that also run a Bitcoin full node submit <code>BtcHeightReport</code> entries to the chain. These are used to refine the target end timestamp automatically, with no human intervention required.</p>
+  <ul>
+    <li>Signed by an active <strong>clock-node</strong> posting key (trusted role)</li>
+    <li>Height must be monotonically increasing — rewinding rejected</li>
+    <li>Implied block rate must be within ±10% of 10 minutes (540–660 s)</li>
+    <li>Reports older than 720 epochs are ignored (~6 hours at era 0)</li>
+    <li>Chain holds 7-entry rolling median → stored as <code>chain_param:btc_end_ms</code></li>
+    <li>Era calibration reads <code>chain_param:btc_end_ms</code> in preference to the compile-time constant</li>
+  </ul>
+  <p style="color:#888;font-size:12px;margin-top:10px;">Precision grows each decade: by era 4 (starting 2081) Bitcoin's block schedule is known to within weeks, so BTCPC's final epoch durations converge to within ±1 epoch (~7 minutes) of the BTC last-coin event.</p>
+</div>
+
+<h2>Key Numbers</h2>
+<table>
+  <thead>
+    <tr><th>Constant</th><th>Value</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code style="color:#aaa;">DOUBLING_INTERVAL</code></td><td class="num">4,200,000 epochs</td><td>Epochs per era</td></tr>
+    <tr><td><code style="color:#aaa;">BLOCK_REWARD_DREAMS</code></td><td class="num">20,000,000,000</td><td>2 BTCPC per epoch (constant, all eras)</td></tr>
+    <tr><td><code style="color:#aaa;">SUPPLY_CAP_DREAMS</code></td><td class="num">420,000,000,000,000,000</td><td>42,000,000 BTCPC total</td></tr>
+    <tr><td><code style="color:#aaa;">RECYCLE_ERA</code></td><td class="num">5</td><td>First era with no new supply</td></tr>
+    <tr><td><code style="color:#aaa;">INITIAL_EPOCH_MS</code></td><td class="num">30,000 ms</td><td>Era 0 only; fixed</td></tr>
+    <tr><td><code style="color:#aaa;">BTC_GENESIS_MS</code></td><td class="num">1,231,006,505,000</td><td>2009-01-03 18:15:05 UTC</td></tr>
+    <tr><td><code style="color:#aaa;">BTC_LAST_BLOCK</code></td><td class="num">6,930,000</td><td>Block where subsidy rounds to 0 satoshis</td></tr>
+    <tr><td><code style="color:#aaa;">BTC_PROJECTED_END_MS</code></td><td class="num">5,389,006,505,000</td><td>≈ 2140-10-01 18:15 UTC</td></tr>
+    <tr><td>Genesis timestamp</td><td class="num">1,777,633,200,000 ms</td><td>2026-05-01 11:00:00 UTC (noon Ireland, UTC+1)</td></tr>
+    <tr><td>Era 0 supply</td><td class="num">8,400,000 BTCPC</td><td>= 20% of total</td></tr>
+    <tr><td>Dreams per BTCPC</td><td class="num">10,000,000,000</td><td>10<sup>10</sup> (like satoshis to BTC)</td></tr>
+  </tbody>
+</table>
+
+<p class="footnote" style="margin-top:24px;">
+  Generated for BTCPC — <a href="BTCPC_WHITEPAPER.md" style="color:#4da6ff;">See Whitepaper §1.2.1</a> for full Bitcoin Supply Alignment specification.<br>
+  Dates are UTC. Era 1–4 endpoints will shift slightly as oracle reports refine <code>chain_param:btc_end_ms</code> over decades.
+</p>
+
+</body>
+</html>

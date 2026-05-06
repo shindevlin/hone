@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BTCPC + OpenClaw / Hermes — Mine with Your AI Agent</title>
+    <meta name="description" content="Run BTCPC inside OpenClaw or Hermes. One command installs the skill. Ask your agent to check your balance, start mining, or send BTCPC — in plain English." />
+    <meta property="og:title" content="BTCPC + OpenClaw / Hermes" />
+    <meta property="og:description" content="Mine Bitcoin Proof of Compute through your AI agent. Works with OpenClaw and Hermes." />
+    <meta property="og:url" content="https://btcpc.net/openclaw" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      body {
+        background: #0a0e17;
+        color: #e2e8f0;
+        font-family: -apple-system, system-ui, sans-serif;
+        margin: 0;
+      }
+
+      /* ── Nav ── */
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 32px;
+        border-bottom: 1px solid #1e2d45;
+        position: sticky;
+        top: 0;
+        background: rgba(10,14,23,0.95);
+        backdrop-filter: blur(8px);
+        z-index: 100;
+      }
+      .nav-logo { font-weight: 800; font-size: 18px; color: #f7931a; text-decoration: none; }
+      .nav-links { display: flex; gap: 24px; align-items: center; }
+      .nav-links a { color: #94a3b8; text-decoration: none; font-size: 14px; }
+      .nav-links a:hover { color: #e2e8f0; }
+      .nav-cta {
+        background: #f7931a; color: #000 !important; padding: 8px 18px;
+        border-radius: 8px; font-weight: 700; font-size: 14px;
+      }
+      .nav-cta:hover { background: #e8821a; }
+
+      /* ── Hero ── */
+      .hero {
+        text-align: center;
+        padding: 90px 24px 56px;
+        max-width: 780px;
+        margin: 0 auto;
+      }
+      .hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(247,147,26,0.1);
+        border: 1px solid rgba(247,147,26,0.3);
+        border-radius: 20px;
+        padding: 6px 16px;
+        font-size: 13px;
+        color: #f7931a;
+        margin-bottom: 28px;
+        font-weight: 600;
+      }
+      .hero h1 {
+        font-size: 52px;
+        font-weight: 800;
+        line-height: 1.1;
+        margin: 0 0 20px;
+      }
+      .hero h1 span { color: #f7931a; }
+      .hero p {
+        font-size: 19px;
+        color: #94a3b8;
+        line-height: 1.65;
+        margin: 0 auto 36px;
+        max-width: 600px;
+      }
+      .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+      .btn-primary {
+        background: #f7931a; color: #000; padding: 14px 28px;
+        border-radius: 10px; font-weight: 700; font-size: 16px;
+        text-decoration: none; display: inline-block;
+      }
+      .btn-primary:hover { background: #e8821a; }
+      .btn-secondary {
+        background: transparent; color: #e2e8f0; padding: 14px 28px;
+        border-radius: 10px; font-weight: 600; font-size: 16px;
+        text-decoration: none; display: inline-block;
+        border: 1px solid #2a3550;
+      }
+      .btn-secondary:hover { border-color: #f7931a; color: #f7931a; }
+
+      /* ── Agent cards ── */
+      .agents-section {
+        max-width: 860px;
+        margin: 0 auto 64px;
+        padding: 0 24px;
+      }
+      .agents-section h2 {
+        text-align: center;
+        font-size: 14px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin: 0 0 24px;
+      }
+      .agent-cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 600px) { .agent-cards { grid-template-columns: 1fr; } }
+      .agent-card {
+        background: #111827;
+        border: 1px solid #1e2d45;
+        border-radius: 14px;
+        padding: 24px;
+      }
+      .agent-card h3 { margin: 0 0 6px; font-size: 18px; color: #e2e8f0; }
+      .agent-card p { margin: 0 0 16px; font-size: 14px; color: #64748b; line-height: 1.5; }
+      .agent-tag {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 12px;
+        background: rgba(34,197,94,0.1);
+        color: #22c55e;
+        border: 1px solid rgba(34,197,94,0.25);
+      }
+      .agent-tag.successor {
+        background: rgba(56,189,248,0.1);
+        color: #38bdf8;
+        border-color: rgba(56,189,248,0.25);
+      }
+
+      /* ── Install section ── */
+      .section {
+        max-width: 860px;
+        margin: 0 auto 72px;
+        padding: 0 24px;
+      }
+      .section-label {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #f7931a;
+        margin-bottom: 12px;
+      }
+      .section h2 {
+        font-size: 32px;
+        font-weight: 800;
+        margin: 0 0 16px;
+        color: #e2e8f0;
+      }
+      .section > p {
+        font-size: 16px;
+        color: #94a3b8;
+        line-height: 1.7;
+        margin: 0 0 32px;
+        max-width: 640px;
+      }
+
+      /* ── Steps ── */
+      .steps { display: flex; flex-direction: column; gap: 20px; }
+      .step {
+        background: #111827;
+        border: 1px solid #1e2d45;
+        border-radius: 14px;
+        padding: 28px 32px;
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 20px;
+        align-items: start;
+      }
+      .step-num {
+        width: 40px; height: 40px;
+        background: rgba(247,147,26,0.15);
+        border: 1px solid rgba(247,147,26,0.3);
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 15px; color: #f7931a;
+        flex-shrink: 0;
+      }
+      .step h3 { margin: 0 0 8px; font-size: 17px; color: #e2e8f0; }
+      .step p { margin: 0 0 14px; font-size: 14px; color: #94a3b8; line-height: 1.6; }
+      .step p:last-child { margin-bottom: 0; }
+
+      /* ── Code blocks ── */
+      .code-block {
+        background: #0d1117;
+        border: 1px solid #1e2d45;
+        border-radius: 10px;
+        padding: 16px 20px;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 14px;
+        color: #e2e8f0;
+        position: relative;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      .code-block .comment { color: #4b5563; }
+      .code-block .cmd { color: #f7931a; }
+      .copy-btn {
+        position: absolute;
+        top: 10px; right: 10px;
+        background: #1e2d45;
+        border: none;
+        border-radius: 6px;
+        color: #94a3b8;
+        font-size: 12px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .copy-btn:hover { background: #2a3f5e; color: #e2e8f0; }
+
+      /* ── Conversation demo ── */
+      .demo-card {
+        background: #111827;
+        border: 1px solid #1e2d45;
+        border-radius: 14px;
+        padding: 28px;
+        margin-top: 32px;
+      }
+      .demo-card h3 {
+        margin: 0 0 20px;
+        font-size: 16px;
+        color: #94a3b8;
+        font-weight: 600;
+      }
+      .chat { display: flex; flex-direction: column; gap: 14px; }
+      .msg { display: flex; gap: 12px; align-items: flex-start; }
+      .msg.agent { flex-direction: row-reverse; }
+      .avatar {
+        width: 32px; height: 32px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 16px; flex-shrink: 0;
+        background: #1e2d45;
+      }
+      .msg.agent .avatar { background: rgba(247,147,26,0.2); }
+      .bubble {
+        background: #1a2235;
+        border: 1px solid #1e2d45;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-size: 14px;
+        color: #e2e8f0;
+        line-height: 1.5;
+        max-width: 480px;
+      }
+      .msg.agent .bubble {
+        background: rgba(247,147,26,0.08);
+        border-color: rgba(247,147,26,0.2);
+        color: #fbbf24;
+      }
+      .bubble strong { color: #22c55e; }
+
+      /* ── Commands grid ── */
+      .cmd-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .cmd-item {
+        background: #0d1117;
+        border: 1px solid #1e2d45;
+        border-radius: 10px;
+        padding: 16px 18px;
+      }
+      .cmd-item .say { font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+      .cmd-item .phrase {
+        font-size: 14px;
+        color: #e2e8f0;
+        font-style: italic;
+      }
+      .cmd-item .phrase::before { content: '"'; color: #f7931a; }
+      .cmd-item .phrase::after  { content: '"'; color: #f7931a; }
+      .cmd-item .action {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #38bdf8;
+        font-family: 'SF Mono', monospace;
+      }
+
+      /* ── Feature pills ── */
+      .features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 24px;
+      }
+      .feature-pill {
+        background: #111827;
+        border: 1px solid #1e2d45;
+        border-radius: 20px;
+        padding: 8px 16px;
+        font-size: 13px;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .feature-pill span { color: #22c55e; font-size: 14px; }
+
+      /* ── Skill file download ── */
+      .skill-download {
+        background: linear-gradient(135deg, rgba(247,147,26,0.08) 0%, rgba(56,189,248,0.04) 100%);
+        border: 1px solid rgba(247,147,26,0.2);
+        border-radius: 14px;
+        padding: 28px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+      .skill-download h3 { margin: 0 0 6px; font-size: 18px; color: #e2e8f0; }
+      .skill-download p { margin: 0; font-size: 14px; color: #64748b; }
+
+      /* ── Footer ── */
+      footer {
+        border-top: 1px solid #1e2d45;
+        padding: 32px 24px;
+        text-align: center;
+        color: #4b5563;
+        font-size: 13px;
+        margin-top: 40px;
+      }
+      footer a { color: #64748b; text-decoration: none; margin: 0 12px; }
+      footer a:hover { color: #94a3b8; }
+
+      @media (max-width: 680px) {
+        .hero h1 { font-size: 36px; }
+        .step { grid-template-columns: 1fr; }
+        .step-num { width: 32px; height: 32px; font-size: 13px; }
+        .skill-download { flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- Nav -->
+    <nav>
+      <a href="/" class="nav-logo">⛏ BTCPC</a>
+      <div class="nav-links">
+        <a href="/install">Install</a>
+        <a href="/run-a-node">Run a Node</a>
+        <a href="/android-install">Android</a>
+        <a href="https://btcpc.net" class="nav-cta">Get Started →</a>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-badge">🤖 Agent Integration</div>
+      <h1>Mine BTCPC through<br/><span>your AI agent</span></h1>
+      <p>
+        Install the BTCPC skill into OpenClaw or Hermes. Then just ask —
+        check your balance, start mining, send tokens — all in plain English,
+        from inside your existing agent.
+      </p>
+      <div class="hero-actions">
+        <a href="#install" class="btn-primary">Install the skill →</a>
+        <a href="#commands" class="btn-secondary">See what you can say</a>
+      </div>
+    </div>
+
+    <!-- Agent compat -->
+    <div class="agents-section">
+      <h2>Works with</h2>
+      <div class="agent-cards">
+        <div class="agent-card">
+          <h3>OpenClaw</h3>
+          <p>The original self-improving agent. Skill drops into <code>~/.openclaw/skills/</code> automatically.</p>
+          <span class="agent-tag">✓ Supported</span>
+        </div>
+        <div class="agent-card">
+          <h3>Hermes by Nous Research</h3>
+          <p>OpenClaw's successor. Same skill format. Run <code>hermes claw migrate</code> first if you're switching from OpenClaw.</p>
+          <span class="agent-tag successor">✓ Supported</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Install -->
+    <div class="section" id="install">
+      <div class="section-label">Installation</div>
+      <h2>Two ways to get started</h2>
+      <p>If BTCPC is already installed on this machine, the skill install is one command. If you're starting fresh, run the full setup first.</p>
+
+      <div class="steps">
+
+        <!-- Option A: Already have BTCPC -->
+        <div class="step">
+          <div class="step-num">A</div>
+          <div>
+            <h3>Already have BTCPC installed</h3>
+            <p>Drop the skill into your agent. Works for both OpenClaw and Hermes.</p>
+            <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># OpenClaw</span>
+<span class="cmd">node ~/.btcpc/repo/bin/btcpc-setup --engine openclaw</span>
+
+<span class="comment"># Hermes</span>
+<span class="cmd">node ~/.btcpc/repo/bin/btcpc-setup --engine hermes</span></div>
+            <p style="margin-top:14px;">This copies <code>btcpc.md</code> into your agent's skills directory and verifies the node is reachable.</p>
+          </div>
+        </div>
+
+        <!-- Option B: Fresh install -->
+        <div class="step">
+          <div class="step-num">B</div>
+          <div>
+            <h3>Fresh install — BTCPC + skill in one shot</h3>
+            <p>Installs BTCPC, creates your wallet, installs Hermes if not present, and drops in the skill.</p>
+            <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="cmd">curl -fsSL https://btcpc.net/install.sh | bash -s -- --engine hermes</span></div>
+            <p style="margin-top:14px;">The installer detects OpenClaw or Hermes and skips any parts already done.</p>
+          </div>
+        </div>
+
+        <!-- Manual -->
+        <div class="step">
+          <div class="step-num">C</div>
+          <div>
+            <h3>Manual skill install</h3>
+            <p>Download the skill file and place it yourself if you prefer.</p>
+            <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># OpenClaw</span>
+<span class="cmd">curl -fsSL https://btcpc.net/downloads/btcpc-skill.md -o ~/.openclaw/skills/btcpc.md</span>
+
+<span class="comment"># Hermes</span>
+<span class="cmd">curl -fsSL https://btcpc.net/downloads/btcpc-skill.md -o ~/.hermes/skills/btcpc.md</span></div>
+            <p style="margin-top:14px;">Restart your agent after placing the file.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- What you can say -->
+    <div class="section" id="commands">
+      <div class="section-label">Natural Language Commands</div>
+      <h2>Just ask your agent</h2>
+      <p>No commands to memorize. The skill maps plain English to the right BTCPC CLI calls.</p>
+
+      <div class="cmd-grid">
+        <div class="cmd-item">
+          <div class="say">Check balance</div>
+          <div class="phrase">what's my BTCPC balance</div>
+          <div class="action">btcpc-cli balance</div>
+        </div>
+        <div class="cmd-item">
+          <div class="say">Start mining</div>
+          <div class="phrase">start mining</div>
+          <div class="action">systemctl --user start btcpc-miner</div>
+        </div>
+        <div class="cmd-item">
+          <div class="say">Stop mining</div>
+          <div class="phrase">stop the miner</div>
+          <div class="action">systemctl --user stop btcpc-miner</div>
+        </div>
+        <div class="cmd-item">
+          <div class="say">Send tokens</div>
+          <div class="phrase">send 5 BTCPC to natoshisakamoto</div>
+          <div class="action">btcpc-cli transfer {to} {amount}</div>
+        </div>
+        <div class="cmd-item">
+          <div class="say">Node status</div>
+          <div class="phrase">is my node running</div>
+          <div class="action">btcpc-cli status</div>
+        </div>
+        <div class="cmd-item">
+          <div class="say">View logs</div>
+          <div class="phrase">show me the miner logs</div>
+          <div class="action">journalctl --user -u btcpc-miner -n 50</div>
+        </div>
+      </div>
+
+      <!-- Chat demo -->
+      <div class="demo-card">
+        <h3>Example conversation</h3>
+        <div class="chat">
+          <div class="msg user">
+            <div class="avatar">🧑</div>
+            <div class="bubble">how much BTCPC do I have?</div>
+          </div>
+          <div class="msg agent">
+            <div class="avatar">🤖</div>
+            <div class="bubble"><strong>133.68 BTCPC</strong> — your node has been mining for ~314 hours. Want me to start a transfer or check the current epoch?</div>
+          </div>
+          <div class="msg user">
+            <div class="avatar">🧑</div>
+            <div class="avatar">🧑</div>
+            <div class="bubble">send 10 to natoshisakamoto</div>
+          </div>
+          <div class="msg agent">
+            <div class="avatar">🤖</div>
+            <div class="bubble">Sent. <strong>10 BTCPC → natoshisakamoto</strong> at epoch 37691. Your new balance is 123.68 BTCPC.</div>
+          </div>
+          <div class="msg user">
+            <div class="avatar">🧑</div>
+            <div class="bubble">is the miner still running?</div>
+          </div>
+          <div class="msg agent">
+            <div class="avatar">🤖</div>
+            <div class="bubble"><strong>Yes — active</strong> since 13 days ago. Currently on epoch 37692, reward 0.243 BTCPC/epoch.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- What you get -->
+    <div class="section">
+      <div class="section-label">Why run it through an agent</div>
+      <h2>Your agent becomes a node operator</h2>
+      <p>The skill doesn't just answer questions — it can act. Your agent can monitor your balance, alert you when mining stalls, schedule transfers, and manage your node without you opening a terminal.</p>
+
+      <div class="features">
+        <div class="feature-pill"><span>✓</span> Natural language balance checks</div>
+        <div class="feature-pill"><span>✓</span> Start / stop miner on demand</div>
+        <div class="feature-pill"><span>✓</span> Send BTCPC from conversation</div>
+        <div class="feature-pill"><span>✓</span> Live log tailing</div>
+        <div class="feature-pill"><span>✓</span> Node status at a glance</div>
+        <div class="feature-pill"><span>✓</span> Works while you're doing other things</div>
+        <div class="feature-pill"><span>✓</span> Hermes cron — schedule daily reports</div>
+        <div class="feature-pill"><span>✓</span> No private keys ever in chat</div>
+      </div>
+    </div>
+
+    <!-- Skill file download -->
+    <div class="section">
+      <div class="skill-download">
+        <div>
+          <h3>📄 btcpc-skill.md</h3>
+          <p>The raw skill file. Drop it into any OpenClaw-compatible agent manually.</p>
+        </div>
+        <a href="/downloads/btcpc-skill.md" class="btn-primary" download>Download skill file</a>
+      </div>
+    </div>
+
+    <!-- Hermes note -->
+    <div class="section">
+      <div class="section-label">Migrating from OpenClaw to Hermes?</div>
+      <h2>Your skill migrates automatically</h2>
+      <p>Hermes can import your OpenClaw memories, skills, and settings in one command. The BTCPC skill comes along for the ride.</p>
+      <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># Migrate everything from OpenClaw → Hermes</span>
+<span class="cmd">hermes claw migrate</span>
+
+<span class="comment"># Preview first</span>
+<span class="cmd">hermes claw migrate --dry-run</span></div>
+    </div>
+
+    <footer>
+      <div>
+        <a href="/">Home</a>
+        <a href="/install">Install</a>
+        <a href="/run-a-node">Run a Node</a>
+        <a href="/android-install">Android</a>
+        <a href="/meshtastic">Meshtastic</a>
+        <a href="https://github.com/btcpc-network" target="_blank">GitHub</a>
+      </div>
+      <div style="margin-top: 16px;">Bitcoin Proof of Compute — sovereign chain for AI inference.</div>
+    </footer>
+
+    <script>
+      function copy(btn) {
+        const block = btn.closest('.code-block');
+        const text = block.innerText.replace('copy\n', '').trim();
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = 'copied!';
+          setTimeout(() => btn.textContent = 'copy', 2000);
+        });
+      }
+
+      // Smooth scroll for anchor links
+      document.querySelectorAll('a[href^="#"]').forEach(a => {
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          const el = document.querySelector(a.getAttribute('href'));
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,94 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-05-05T19:43:01.034458897Z",
+  "ArtifactName": "/repo",
+  "ArtifactType": "filesystem",
+  "Metadata": {
+    "ImageConfig": {
+      "architecture": "",
+      "created": "0001-01-01T00:00:00Z",
+      "os": "",
+      "rootfs": {
+        "type": "",
+        "diff_ids": null
+      },
+      "config": {}
+    }
+  },
+  "Results": [
+    {
+      "Target": "_archived/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "android/rust/btcpc-miner/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "android/rust/ort-patched/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "btcpc/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "camofox-browser/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "rust/betchu-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-android/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-ble-tracker/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-cli/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-runtime/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-node/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": ".env",
+      "Class": "secret"
+    }
+  ]
+}

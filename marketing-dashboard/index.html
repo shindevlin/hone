@@ -1,0 +1,1917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC — Marketing Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --surface2: #1c1c1c;
+      --border: #272727;
+      --text: #e8e8e8;
+      --text-dim: #777;
+      --text-muted: #444;
+      --shin: #F59E0B;
+      --natoshi: #38BDF8;
+      --josh: #A78BFA;
+      --twitter: #1DA1F2;
+      --reddit: #FF4500;
+      --hn: #FF6600;
+      --substack: #FF6719;
+      --green: #22C55E;
+      --red: #EF4444;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      height: 50px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    #topbar .logo { font-size: 13px; font-weight: 800; letter-spacing: 0.06em; }
+    #topbar .logo em { color: var(--shin); font-style: normal; }
+    .persona-tabs { display: flex; gap: 4px; margin-left: auto; }
+    .persona-tab {
+      padding: 4px 11px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .persona-tab:hover { color: var(--text); border-color: #444; }
+    .persona-tab.active { color: #000; }
+    .persona-tab[data-persona="shin"].active    { background: var(--shin);    border-color: var(--shin); }
+    .persona-tab[data-persona="natoshi"].active { background: var(--natoshi); border-color: var(--natoshi); }
+    .persona-tab[data-persona="josh"].active    { background: var(--josh);    border-color: var(--josh); }
+    .persona-tab[data-persona="all"].active     { background: var(--text);    border-color: var(--text); }
+
+    /* ── Layout ── */
+    #layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 190px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 10px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .nav-section {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      color: var(--text-muted);
+      padding: 8px 10px 4px;
+      text-transform: uppercase;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .12s;
+      border: 1px solid transparent;
+      user-select: none;
+    }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: var(--surface2); color: var(--text); border-color: var(--border); }
+    .nav-icon { font-size: 14px; width: 18px; text-align: center; }
+
+    /* ── Main ── */
+    #main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .view { display: none; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
+    .view.active { display: flex; }
+
+    .view-header {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .view-header h2 { font-size: 17px; font-weight: 700; }
+    .view-header p { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+    .view-body { padding: 18px 22px; flex: 1; overflow-y: auto; }
+    #view-calendar { overflow: hidden; }
+    #view-calendar .view-body { display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Calendar ── */
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+    .cal-nav button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .cal-nav button:hover { border-color: #555; }
+    .cal-label { font-size: 15px; font-weight: 700; }
+
+    /* day-of-week header row */
+    .cal-dow-row {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      margin-bottom: 4px;
+      flex-shrink: 0;
+    }
+    .cal-dow {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 2px 0;
+    }
+
+    /* month grid */
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .day-col {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 90px;
+    }
+    .day-col.today  { border-color: var(--shin); }
+    .day-col.faded  { opacity: .35; }           /* days outside current month */
+    .day-header {
+      padding: 4px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .day-num {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+    }
+    .today .day-num {
+      background: var(--shin);
+      color: #000;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+    }
+    .day-posts { padding: 2px 4px 4px; display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+    .post-chip {
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      transition: opacity .12s;
+    }
+    .post-chip:hover { opacity: .75; }
+    .post-chip.posted { opacity: .4; }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .add-day-btn {
+      padding: 3px;
+      text-align: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 4px;
+      transition: color .12s;
+    }
+    .add-day-btn:hover { color: var(--text-dim); }
+
+    /* ── Queue ── */
+    .filter-row { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-btn {
+      padding: 4px 11px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .filter-btn:hover { border-color: #444; color: var(--text); }
+    .filter-btn.active { background: var(--surface2); color: var(--text); border-color: #555; }
+
+    .queue-list { display: flex; flex-direction: column; gap: 7px; }
+    .queue-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 13px 15px;
+      transition: border-color .12s;
+    }
+    .queue-card:hover { border-color: #383838; }
+    .queue-card-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .persona-badge {
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .platform-tag {
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .status-badge {
+      margin-left: auto;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .s-draft    { background: #1f1800; color: #FFD700; border: 1px solid #332900; }
+    .s-approved { background: #001a10; color: #22C55E; border: 1px solid #003020; }
+    .s-posted   { background: #141414; color: #555;    border: 1px solid var(--border); }
+
+    /* approve button */
+    .btn-approve {
+      padding: 5px 14px;
+      border-radius: 5px;
+      border: 1px solid #003a20;
+      background: #001a10;
+      color: #22C55E;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .btn-approve:hover { background: #003020; border-color: #22C55E; }
+
+    /* pending badge in topbar */
+    .pending-badge {
+      background: var(--shin);
+      color: #000;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 4px;
+    }
+
+    .queue-content {
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: pre-wrap;
+    }
+    .queue-footer {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 9px;
+      flex-wrap: wrap;
+    }
+    .queue-date { font-size: 11px; color: var(--text-muted); }
+    .queue-actions { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+
+    .btn-xs {
+      padding: 3px 9px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .12s;
+      white-space: nowrap;
+    }
+    .btn-xs:hover { background: var(--surface2); color: var(--text); }
+    .btn-xs.share { color: var(--twitter); border-color: #1a3f5e; }
+    .btn-xs.share:hover { background: #001525; }
+    .btn-xs.posted-action { color: var(--green); border-color: #1a3a1a; }
+    .btn-xs.posted-action:hover { background: #001500; }
+    .btn-xs.danger:hover { color: var(--red); border-color: #5e1a1a; background: #1a0000; }
+
+    /* ── Compose ── */
+    .compose-layout {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 20px;
+      height: 100%;
+    }
+    .compose-main { display: flex; flex-direction: column; gap: 13px; }
+    .form-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-dim);
+      margin-bottom: 5px;
+      display: block;
+    }
+    .form-group { display: flex; flex-direction: column; }
+    .form-row { display: flex; gap: 10px; }
+    .form-row > * { flex: 1; }
+
+    .persona-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+    .persona-pill {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .persona-pill:hover { border-color: #444; color: var(--text); }
+    .persona-pill[data-id="shin"].sel    { border-color: var(--shin);    color: var(--shin);    background: #1a1000; }
+    .persona-pill[data-id="natoshi"].sel { border-color: var(--natoshi); color: var(--natoshi); background: #001018; }
+    .persona-pill[data-id="josh"].sel    { border-color: var(--josh);    color: var(--josh);    background: #0e0018; }
+
+    .platform-picker { display: flex; gap: 5px; flex-wrap: wrap; }
+    .platform-pill {
+      padding: 5px 11px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .12s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .platform-pill:hover { border-color: #444; color: var(--text); }
+    .platform-pill.sel { color: var(--text); }
+
+    textarea.compose-ta {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.6;
+      padding: 11px;
+      resize: vertical;
+      min-height: 180px;
+      transition: border-color .12s;
+    }
+    textarea.compose-ta:focus { outline: none; border-color: #555; }
+
+    .char-info { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 3px; }
+    .char-info.warn { color: #FFD700; }
+    .char-info.over { color: var(--red); }
+
+    input[type="datetime-local"], input[type="text"], select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 6px 9px;
+      width: 100%;
+      transition: border-color .12s;
+    }
+    input:focus, select:focus { outline: none; border-color: #555; }
+    select option { background: var(--surface2); }
+
+    .compose-actions { display: flex; gap: 7px; align-items: center; }
+    .btn {
+      padding: 7px 15px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .12s;
+    }
+    .btn-primary { background: var(--shin); border-color: var(--shin); color: #000; }
+    .btn-primary:hover { opacity: .85; }
+    .btn-secondary { background: var(--surface2); color: var(--text); }
+    .btn-secondary:hover { border-color: #555; }
+    .btn-ghost { background: transparent; color: var(--text-dim); }
+    .btn-ghost:hover { color: var(--text); background: var(--surface2); }
+
+    /* ── Compose sidebar ── */
+    .compose-side {
+      border-left: 1px solid var(--border);
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .side-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted);
+      margin-bottom: 7px;
+    }
+    .voice-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 11px;
+    }
+    .voice-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .voice-role { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; }
+    .voice-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+    .starter-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 7px 9px;
+      font-size: 11px;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all .12s;
+      line-height: 1.4;
+      margin-bottom: 4px;
+    }
+    .starter-item:hover { border-color: #444; color: var(--text); }
+
+    /* ── Metrics ── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 10px;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .metric-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+      margin-bottom: 7px;
+    }
+    .metric-value { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+    .metric-edit { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+    .metric-input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 3px 7px;
+      width: 75px;
+      text-align: right;
+    }
+    .metric-input:focus { outline: none; border-color: #555; }
+    .metric-save {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 3px 9px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .metric-save:hover { color: var(--text); border-color: #555; }
+
+    /* ── Pillars ── */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .pillar-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 15px;
+    }
+    .pillar-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+    .pillar-num {
+      width: 26px; height: 26px;
+      border-radius: 5px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; color: var(--shin);
+      flex-shrink: 0;
+    }
+    .pillar-title { font-size: 13px; font-weight: 700; }
+    .pillar-personas { display: flex; gap: 4px; margin-bottom: 9px; flex-wrap: wrap; }
+    .pillar-desc { font-size: 12px; color: var(--text-dim); line-height: 1.55; }
+    .pillar-examples {
+      margin-top: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .example-line {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      padding: 2px 0;
+      border-bottom: 1px solid #191919;
+    }
+    .example-line:last-child { border: none; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.72);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      width: 580px;
+      max-width: 94vw;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0,0,0,.6);
+    }
+    .modal-header {
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+    .modal-close {
+      margin-left: auto;
+      background: none; border: none;
+      color: var(--text-dim);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body {
+      padding: 18px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-content-text {
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+    .modal-meta { font-size: 12px; color: var(--text-dim); margin-top: 5px; }
+    .modal-footer {
+      padding: 11px 18px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* Share section in modal */
+    .share-section {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .share-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .share-buttons { display: flex; gap: 7px; flex-wrap: wrap; }
+    .share-btn {
+      padding: 6px 13px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .12s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      text-decoration: none;
+    }
+    .share-btn:hover { border-color: #555; }
+    .share-btn.tw  { color: var(--twitter);  border-color: #1a3f5e; }
+    .share-btn.tw:hover  { background: #001525; }
+    .share-btn.rd  { color: var(--reddit);   border-color: #5e2a1a; }
+    .share-btn.rd:hover  { background: #1a0800; }
+    .share-btn.hn  { color: var(--hn);       border-color: #5e3800; }
+    .share-btn.hn:hover  { background: #1a1000; }
+    .share-btn.sub { color: var(--substack); border-color: #5e3800; }
+    .share-btn.sub:hover { background: #1a0f00; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 52px 24px; color: var(--text-muted); }
+    .empty-icon { font-size: 28px; margin-bottom: 10px; }
+    .empty-state p { font-size: 13px; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #444; }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar ── -->
+<div id="topbar">
+  <div class="logo">◈ <em>BTCPC</em> MARKETING</div>
+  <span id="pending-count" style="font-size:12px;color:var(--text-dim)">
+    Pending: <span id="pending-num" class="pending-badge">0</span>
+  </span>
+  <div class="persona-tabs">
+    <button class="persona-tab active" data-persona="all">All</button>
+    <button class="persona-tab" data-persona="shin">Shin</button>
+    <button class="persona-tab" data-persona="natoshi">Natoshi</button>
+    <button class="persona-tab" data-persona="josh">Josh</button>
+  </div>
+</div>
+
+<!-- ── Layout ── -->
+<div id="layout">
+  <nav id="sidebar">
+    <div class="nav-section">Views</div>
+    <div class="nav-item active" data-view="calendar"><span class="nav-icon">📅</span> Calendar</div>
+    <div class="nav-item" data-view="queue"><span class="nav-icon">📬</span> Queue</div>
+    <div class="nav-item" data-view="compose"><span class="nav-icon">✏️</span> Compose</div>
+    <div class="nav-section" style="margin-top:6px">Reference</div>
+    <div class="nav-item" data-view="metrics"><span class="nav-icon">📊</span> Metrics</div>
+    <div class="nav-item" data-view="pillars"><span class="nav-icon">🎯</span> Pillars</div>
+    <div class="nav-item" data-view="settings" style="margin-top:auto"><span class="nav-icon">⚙️</span> Settings</div>
+  </nav>
+
+  <main id="main">
+
+    <!-- Calendar -->
+    <div id="view-calendar" class="view active">
+      <div class="view-header">
+        <h2>Posting Calendar</h2>
+        <p>Schedule posts — click any day slot or chip to open a post</p>
+      </div>
+      <div class="view-body">
+        <div class="cal-nav">
+          <button id="prev-month">← Back 1 week</button>
+          <button id="today-btn">Upcoming</button>
+          <button id="next-month">Forward 1 week →</button>
+          <span class="cal-label" id="cal-label"></span>
+          <button style="margin-left:auto" onclick="switchView('compose')">+ New Post</button>
+        </div>
+        <div class="cal-dow-row">
+          <div class="cal-dow">Mon</div><div class="cal-dow">Tue</div>
+          <div class="cal-dow">Wed</div><div class="cal-dow">Thu</div>
+          <div class="cal-dow">Fri</div><div class="cal-dow">Sat</div>
+          <div class="cal-dow">Sun</div>
+        </div>
+        <div class="month-grid" id="month-grid"></div>
+      </div>
+    </div>
+
+    <!-- Queue -->
+    <div id="view-queue" class="view">
+      <div class="view-header">
+        <h2>Post Queue</h2>
+        <p>Your only job: read and click Approve. ZeroClaw posts via CamoFox.</p>
+      </div>
+      <div class="view-body">
+        <div class="filter-row">
+          <button class="filter-btn" data-filter="all">All</button>
+          <button class="filter-btn active" data-filter="draft">Needs Approval</button>
+          <button class="filter-btn" data-filter="approved">Approved</button>
+          <button class="filter-btn" data-filter="posted">Posted</button>
+          <button class="filter-btn" data-filter="failed" style="color:var(--red)">Failed</button>
+        </div>
+        <div class="queue-list" id="queue-list"></div>
+      </div>
+    </div>
+
+    <!-- Compose -->
+    <div id="view-compose" class="view">
+      <div class="view-header">
+        <h2>Compose</h2>
+        <p>Draft content — you review and post manually</p>
+      </div>
+      <div class="view-body">
+        <div class="compose-layout">
+          <div class="compose-main">
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Persona</label>
+                <div class="persona-picker" id="persona-picker"></div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status</label>
+                <select id="c-status">
+                  <option value="draft">Draft (needs approval)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Platform</label>
+              <div class="platform-picker" id="platform-picker"></div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Content</label>
+              <textarea class="compose-ta" id="c-content" placeholder="Write your post…" rows="7"></textarea>
+              <div class="char-info" id="char-info">0 chars</div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Schedule For</label>
+                <input type="datetime-local" id="c-schedule">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Content Pillar</label>
+                <select id="c-pillar">
+                  <option value="">— None —</option>
+                  <option value="1">1 · PoW Extended, Not Criticized</option>
+                  <option value="2">2 · My Machine Does Real Work</option>
+                  <option value="3">3 · Five Ways to Earn, Any Device</option>
+                  <option value="4">4 · No Burn, No Punishment</option>
+                  <option value="5">5 · Built to Hand Off</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Internal Notes</label>
+              <input type="text" id="c-notes" placeholder="e.g. reply to thread X, use this week's mining stats">
+            </div>
+
+            <div class="compose-actions">
+              <button class="btn btn-primary" id="save-btn">Save Post</button>
+              <button class="btn btn-secondary" id="clear-btn">Clear</button>
+              <span id="save-feedback" style="font-size:12px;color:var(--green);display:none">Saved!</span>
+            </div>
+            <input type="hidden" id="c-edit-id">
+          </div>
+
+          <div class="compose-side">
+            <div>
+              <div class="side-title">Persona Voice</div>
+              <div id="voice-card"></div>
+            </div>
+            <div>
+              <div class="side-title">Post Starters — click to insert</div>
+              <div id="starters"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metrics -->
+    <div id="view-metrics" class="view">
+      <div class="view-header">
+        <h2>Metrics</h2>
+        <p>Inference jobs/day is the only number that matters long-term</p>
+      </div>
+      <div class="view-body">
+        <div class="metrics-grid" id="metrics-grid"></div>
+      </div>
+    </div>
+
+    <!-- Pillars -->
+    <div id="view-pillars" class="view">
+      <div class="view-header">
+        <h2>Content Pillars</h2>
+        <p>Every post maps to one of five themes</p>
+      </div>
+      <div class="view-body">
+        <div class="pillars-grid" id="pillars-grid"></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="view-settings" class="view">
+      <div class="view-header">
+        <h2>Settings</h2>
+        <p>Export, import, and manage all dashboard data</p>
+      </div>
+      <div class="view-body" style="max-width:420px">
+        <div class="form-group" style="gap:8px;margin-bottom:18px">
+          <label class="form-label">Data</label>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button class="btn-approve" style="padding:7px 14px;font-size:13px" id="zeroclaw-export-btn">↓ Export Approved for ZeroClaw</button>
+            <button class="btn btn-secondary" id="export-btn">Export All JSON</button>
+            <button class="btn btn-secondary" id="import-btn">Import JSON</button>
+            <button class="btn btn-ghost" id="clear-all-btn" style="color:var(--red)">Clear All</button>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:6px">ZeroClaw export: approved posts only, with disclosure appended. Drop the file in ZeroClaw's watched queue folder.</p>
+          <input type="file" id="import-file" accept=".json" style="display:none">
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div class="side-title" style="margin-bottom:8px">About</div>
+          <p style="font-size:12px;color:var(--text-dim);line-height:1.65">
+            BTCPC Marketing Dashboard — human-in-the-loop content management.<br><br>
+            ZeroClaw drafts posts daily. <strong>Your only job is to approve or reject.</strong>
+            Rejection notes feed back into ZeroClaw's voice memory so it learns your personas.<br><br>
+            Data lives on the local server at <code>localhost:7979</code> → <code>marketing-dashboard/data/</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── Post modal ── -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header" id="modal-header">
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================
+   CONFIG — edit here to adapt for another project
+========================================================== */
+const C = {
+  project: 'BTCPC',
+
+  personas: [
+    {
+      id: 'shin', name: 'shindevlin', display: 'Shin Devlin',
+      color: '#F59E0B',
+      role: 'Genesis Miner / Technical Founder',
+      voice: 'Direct. No hype. Shows math and code. Posts data, not vision. Dense, factual, self-evident — like Satoshi\'s bitcoin-dev posts.',
+      platforms: ['twitter','reddit_localllama','hn','substack'],
+      starters: [
+        'BTCPC epoch stats: [X] inference jobs completed today across [N] active miners.',
+        'Shipped: [feature]. Here\'s how the math works:',
+        'Why Lucid Pruning works: the chain only stores what current state needs.',
+        'CPU vs GPU miners — both earn pro-rata. Last week\'s reward split:',
+        'The consensus model handles competing proposals by…',
+      ]
+    },
+    {
+      id: 'natoshi', name: 'natoshisakamoto', display: 'Natoshi Sakamoto',
+      color: '#38BDF8',
+      role: 'Second Miner / Skeptic Turned Believer',
+      voice: 'Skeptical. Practical. Talks in numbers. Reports personal experience. "My i5 earned X for doing Y." Doesn\'t evangelize — just reports.',
+      platforms: ['twitter','reddit_gpumining','reddit_cryptocurrency','reddit_bitcoin'],
+      starters: [
+        'CPU mining update: my i5-13500T earned [X] BTCPC this week running qwen3:4b.',
+        'I was wrong about this one. Here\'s what changed my mind:',
+        'Real numbers from [time period]: [X] inference jobs, [Y] BTCPC earned.',
+        'Compare: GPU mining vs BTCPC CPU — the actual numbers:',
+        'My machine did actual work today. Not hashes. Inference that someone paid for.',
+      ]
+    },
+    {
+      id: 'josh', name: 'josh', display: 'Josh',
+      color: '#A78BFA',
+      role: 'Legal Advisor / Post-Handover Voice',
+      voice: 'Legal clarity. Governance explainer. Responds to questions, doesn\'t initiate. Pre-handover: advisor only.',
+      platforms: ['twitter'],
+      starters: [
+        'On the regulatory framing: BTCPC tokens represent work done, not…',
+        'Governance question from the community — structural answer:',
+        'Clock node update: still running, still keeping time.',
+      ]
+    }
+  ],
+
+  pillars: [
+    {
+      id:1, title:'PoW Extended, Not Criticized',
+      personas:['shin','natoshi'],
+      desc:'Bitcoin\'s proof of work is elegant and necessary. SHA-256 IS the security model. BTCPC extends the insight — what if the work also produced something people wanted?',
+      examples:[
+        '"Bitcoin mining isn\'t wasteful — the hash IS the security. We just added useful output."',
+        '"SHA-256 proved commitment in 2009. Useful work proves commitment + delivers value."',
+        '"Never criticize Bitcoin. BTCPC is the next step, not a correction."',
+      ]
+    },
+    {
+      id:2, title:'My Machine Does Real Work',
+      personas:['natoshi'],
+      desc:'A CPU running Ollama earns tokens for real inference jobs real users submitted. Not hashing. Working.',
+      examples:[
+        '"My i5 earned [X] BTCPC last week running qwen3:4b. That\'s a real job someone paid for."',
+        '"CPU vs GPU doesn\'t matter — both earn proportional to verified param count."',
+        '"Week 1 numbers: [X] jobs, [Y] BTCPC earned, [Z]% of total miner pool."',
+      ]
+    },
+    {
+      id:3, title:'Five Ways to Earn, Any Device',
+      personas:['shin','natoshi'],
+      desc:'GPU → inference. Phone/laptop → clock. NAS/disk → storage. Pi/LoRa → IoT. Cloud VM → services. Every hardware type has an entry point.',
+      examples:[
+        '"You don\'t need a GPU. Clock nodes earn 5% of every block — any device."',
+        '"Real decentralization means heterogeneous hardware. One architecture can\'t take down the network."',
+        '"GPU, CPU, phone, NAS, Raspberry Pi — all participate."',
+      ]
+    },
+    {
+      id:4, title:'No Burn, No Punishment, No Gatekeeping',
+      personas:['shin'],
+      desc:'42M BTCPC forever. No slashing for going offline. No staking requirement to mine. No synthetic work. Unclaimed pools recycle.',
+      examples:[
+        '"No burn, ever. 42M BTCPC, permanently in circulation."',
+        '"No slashing for going offline. Your balance is untouched — you just stop earning."',
+        '"If nobody submits an inference job today, the miner pool recycles. No fake work."',
+      ]
+    },
+    {
+      id:5, title:'Built to Hand Off',
+      personas:['shin','josh'],
+      desc:'The founder\'s exit is designed into the protocol from day one. Genesis Operator NFT transfers to governance automatically.',
+      examples:[
+        '"Build it so well that you become unnecessary."',
+        '"The Genesis Operator role transfers to governance automatically."',
+        '"A chain built by a true believer and validated by a skeptic is stronger than one built by two believers."',
+      ]
+    }
+  ],
+
+  platforms: {
+    twitter:              { name:'Twitter/X',        icon:'𝕏',  color:'#1DA1F2', limit:280,  disclosure:'\n\n— AI-assisted, human-approved.' },
+    reddit_localllama:    { name:'r/LocalLLaMA',     icon:'🤖', color:'#FF4500', limit:null, disclosure:'\n\n---\n*AI-assisted, human-approved.*' },
+    reddit_gpumining:     { name:'r/gpumining',      icon:'⛏️', color:'#FF5500', limit:null, disclosure:'\n\n---\n*AI-assisted, human-approved.*' },
+    reddit_cryptocurrency:{ name:'r/CryptoCurrency', icon:'₿',  color:'#FF6600', limit:null, disclosure:'\n\n---\n*AI-assisted, human-approved.*' },
+    reddit_bitcoin:       { name:'r/Bitcoin',        icon:'🟠', color:'#FF9900', limit:null, disclosure:'\n\n---\n*AI-assisted, human-approved.*' },
+    hn:                   { name:'HackerNews',        icon:'Y',  color:'#FF6600', limit:null, disclosure:'' },
+    substack:             { name:'Substack',          icon:'◎',  color:'#FF6719', limit:null, disclosure:'\n\n*Drafted with AI assistance, approved by a human.*' },
+  },
+
+  metrics: [
+    { id:'inference_jobs', label:'Inference Jobs / Day', color:'#F59E0B', primary:true },
+    { id:'active_miners',  label:'Active Miners',        color:'#38BDF8' },
+    { id:'shin_twitter',   label:'Shin — Twitter Followers', color:'#1DA1F2' },
+    { id:'shin_reddit',    label:'Shin — Reddit Karma',      color:'#FF4500' },
+    { id:'natoshi_twitter',label:'Natoshi — Twitter Followers', color:'#1DA1F2' },
+    { id:'natoshi_reddit', label:'Natoshi — Reddit Karma',   color:'#FF4500' },
+    { id:'github_stars',   label:'GitHub Stars',             color:'#6e40c9' },
+  ]
+};
+
+/* ==========================================================
+   SHARE URL BUILDERS
+   All open the platform's native compose UI with content
+   pre-filled so the user just hits submit.
+========================================================== */
+function shareUrls(post) {
+  const pl  = C.platforms[post.platform];
+  const txt = post.content;
+  const enc = encodeURIComponent;
+
+  // Twitter / X — intent/tweet pre-fills the composer
+  if (post.platform === 'twitter') {
+    return [{ label:'Open in Twitter/X', cls:'tw', icon:'𝕏',
+      url:`https://twitter.com/intent/tweet?text=${enc(txt)}` }];
+  }
+
+  // Reddit — submit/text pre-fills title field; body goes in selftext
+  const redditSubs = {
+    reddit_localllama:     'LocalLLaMA',
+    reddit_gpumining:      'gpumining',
+    reddit_cryptocurrency: 'CryptoCurrency',
+    reddit_bitcoin:        'Bitcoin',
+  };
+  const sub = redditSubs[post.platform];
+  if (sub) {
+    // Extract first line as title, rest as body
+    const lines  = txt.split('\n');
+    const title  = lines[0].slice(0, 300);
+    const body   = lines.slice(1).join('\n').trim();
+    return [{ label:`Post to r/${sub}`, cls:'rd', icon:'👾',
+      url:`https://www.reddit.com/r/${sub}/submit?type=self&title=${enc(title)}&text=${enc(body)}` }];
+  }
+
+  // HackerNews — submitlink or text post
+  if (post.platform === 'hn') {
+    const lines = txt.split('\n');
+    const title = lines[0].slice(0, 200);
+    return [{ label:'Submit to HackerNews', cls:'hn', icon:'Y',
+      url:`https://news.ycombinator.com/submitlink?t=${enc(title)}&u=https://btcpc.net` }];
+  }
+
+  // Substack — new post draft (opens editor; content must be pasted manually)
+  if (post.platform === 'substack') {
+    return [{ label:'Open Substack Editor', cls:'sub', icon:'◎',
+      url:`https://substack.com/new-post` },
+      { label:'Copy content', cls:'sub', icon:'📋', action:'copy', content: txt }];
+  }
+
+  return [];
+}
+
+function renderShareButtons(post) {
+  const urls = shareUrls(post);
+  if (!urls.length) return '';
+  const btns = urls.map(u => {
+    if (u.action === 'copy') {
+      return `<button class="share-btn ${u.cls}" onclick="copyToClipboard(${JSON.stringify(u.content)})">${u.icon} ${u.label}</button>`;
+    }
+    return `<a class="share-btn ${u.cls}" href="${u.url}" target="_blank" rel="noopener">${u.icon} ${u.label}</a>`;
+  }).join('');
+  return `<div class="share-section"><div class="share-label">Share</div><div class="share-buttons">${btns}</div></div>`;
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => alert('Content copied to clipboard.'));
+}
+
+/* ==========================================================
+   STATE + PERSISTENCE
+========================================================== */
+const API = 'http://localhost:7979/api';
+
+let S = {
+  posts:         [],
+  metrics:       {},
+  calStart:      startOfWeek(new Date()), // rolling window: Monday of current week
+  persona:       'all',
+  queueFilter:   'draft',
+  cPersona:      'shin',
+  cPlatform:     'twitter',
+};
+
+async function load() {
+  try {
+    const res = await fetch(`${API}/posts`);
+    if (!res.ok) throw new Error('server unreachable');
+    S.posts = await res.json();
+    const stored = JSON.parse(localStorage.getItem('btcpc_metrics') || '{}');
+    if (stored) S.metrics = stored;
+  } catch(e) {
+    // Fall back to localStorage if server not running
+    try {
+      const d = JSON.parse(localStorage.getItem('btcpc_mkt_v1') || '{}');
+      if (d.posts)   S.posts   = d.posts;
+      if (d.metrics) S.metrics = d.metrics;
+      console.warn('Dashboard server offline — using localStorage fallback');
+    } catch {}
+  }
+}
+
+// persist() now only saves metrics locally; posts go via API
+function persist() {
+  localStorage.setItem('btcpc_metrics', JSON.stringify(S.metrics));
+}
+
+async function apiPost(post) {
+  const res = await fetch(`${API}/posts`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(post),
+  });
+  return res.ok ? res.json() : null;
+}
+
+async function apiPatch(id, updates) {
+  const res = await fetch(`${API}/posts/${id}`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(updates),
+  });
+  return res.ok ? res.json() : null;
+}
+
+async function apiDelete(id) {
+  await fetch(`${API}/posts/${id}`, { method: 'DELETE' });
+}
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+/* ==========================================================
+   DATE HELPERS
+========================================================== */
+function startOfWeek(d) {
+  const r = new Date(d); r.setHours(0,0,0,0);
+  const day = r.getDay();
+  r.setDate(r.getDate() - day + (day === 0 ? -6 : 1));
+  return r;
+}
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function sameDay(a,b)  { return a.toDateString() === b.toDateString(); }
+function fmtDate(d, o={}) { return new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',...o}).format(d); }
+function fmtDT(iso)    { if (!iso) return '—'; return new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(iso)); }
+function toInput(d)    { const r = new Date(d); r.setMinutes(r.getMinutes()-r.getTimezoneOffset()); return r.toISOString().slice(0,16); }
+
+/* ==========================================================
+   HELPERS
+========================================================== */
+function persona(id) { return C.personas.find(p=>p.id===id); }
+function platform(id){ return C.platforms[id]; }
+function esc(s)      { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function pBadge(id) {
+  const p = persona(id); if (!p) return '';
+  return `<span class="persona-badge" style="background:${p.color}22;color:${p.color};border:1px solid ${p.color}44">${p.name}</span>`;
+}
+function plTag(id) {
+  const pl = platform(id); if (!pl) return '';
+  return `<span class="platform-tag" style="color:${pl.color}">${pl.icon} ${pl.name}</span>`;
+}
+function sBadge(status) {
+  const map   = { draft:'s-draft', approved:'s-approved', posted:'s-posted', failed:'s-draft' };
+  const label = { draft:'needs approval', approved:'approved', posted:'posted', failed:'⚠ failed' };
+  const extra = status === 'failed' ? 'style="border-color:var(--red);color:var(--red)"' : '';
+  return `<span class="status-badge ${map[status]||'s-draft'}" ${extra}>${label[status]||status}</span>`;
+}
+
+// Returns post content with disclosure appended for the given platform
+function withDisclosure(content, platformId) {
+  const disc = C.platforms[platformId]?.disclosure || '';
+  return disc ? content + disc : content;
+}
+
+// Update the pending-approval badge in the topbar
+function refreshPendingCount() {
+  const n = S.posts.filter(p => p.status === 'draft').length;
+  const el = document.getElementById('pending-num');
+  if (el) { el.textContent = n; el.style.display = n > 0 ? '' : 'none'; }
+  const wrap = document.getElementById('pending-count');
+  if (wrap) wrap.style.display = n > 0 ? '' : 'none';
+}
+
+function filterPersona(posts) {
+  return S.persona === 'all' ? posts : posts.filter(p=>p.persona===S.persona);
+}
+
+/* ==========================================================
+   NAVIGATION
+========================================================== */
+function switchView(id) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById(`view-${id}`)?.classList.add('active');
+  document.querySelector(`.nav-item[data-view="${id}"]`)?.classList.add('active');
+  renderView(id);
+}
+
+function renderView(id) {
+  if (id==='calendar') renderCalendar();
+  else if (id==='queue')   renderQueue();
+  else if (id==='compose') renderCompose();
+  else if (id==='metrics') renderMetrics();
+  else if (id==='pillars') renderPillars();
+}
+
+document.querySelectorAll('.nav-item[data-view]').forEach(el=>{
+  el.addEventListener('click', ()=> switchView(el.dataset.view));
+});
+
+document.querySelectorAll('.persona-tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.persona-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    S.persona = tab.dataset.persona;
+    const active = document.querySelector('.nav-item.active')?.dataset.view || 'calendar';
+    renderView(active);
+  });
+});
+
+/* ==========================================================
+   CALENDAR — rolling 5-week window from calStart
+========================================================== */
+function renderCalendar() {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const ws  = S.calStart;
+  const end = addDays(ws, 5*7 - 1);
+
+  // Label: show date range, mark if we're in "upcoming" view
+  const atPresent = sameDay(ws, startOfWeek(new Date()));
+  document.getElementById('cal-label').textContent =
+    `${fmtDate(ws)} — ${fmtDate(end)}` + (atPresent ? '  · upcoming' : '');
+
+  const grid = document.getElementById('month-grid');
+  grid.innerHTML = '';
+
+  for (let i = 0; i < 5 * 7; i++) {
+    const d      = addDays(ws, i);
+    const isT    = sameDay(d, today);
+    const isPast = d < today && !isT;
+    const dPosts = filterPersona(S.posts).filter(p => {
+      if (!p.scheduledAt) return false;
+      return sameDay(new Date(p.scheduledAt), d);
+    });
+
+    const col = document.createElement('div');
+    col.className = 'day-col' + (isT ? ' today' : '') + (isPast ? ' faded' : '');
+    const dateStr = toInput(d);
+
+    // Month label on the 1st of each month
+    const monthLabel = d.getDate() === 1
+      ? `<span style="font-size:9px;color:var(--shin);font-weight:700;letter-spacing:.05em">${new Intl.DateTimeFormat('en-US',{month:'short'}).format(d).toUpperCase()}</span>`
+      : '';
+
+    col.innerHTML = `
+      <div class="day-header">
+        <span class="day-num">${isT ? `<span>${d.getDate()}</span>` : d.getDate()}</span>
+        ${monthLabel}
+        <span class="add-day-btn" onclick="openComposeOn('${dateStr}')" title="Add post">+</span>
+      </div>
+      <div class="day-posts">
+        ${dPosts.map(p => chipHtml(p)).join('')}
+      </div>`;
+    grid.appendChild(col);
+  }
+}
+
+function chipHtml(p) {
+  const pl    = platform(p.platform);
+  const color = persona(p.persona)?.color || '#666';
+  const txt   = p.content.slice(0,28) + (p.content.length>28?'…':'');
+  return `<div class="post-chip ${p.status==='posted'?'posted':''}"
+    onclick="openModal('${p.id}')"
+    title="${esc(p.content)}">
+    <span class="chip-dot" style="background:${color}"></span>
+    <span style="color:${pl?.color||'#888'}">${pl?.icon||'?'}</span>
+    <span>${esc(txt)}</span>
+  </div>`;
+}
+
+// Navigate by one week at a time
+document.getElementById('prev-month').onclick = ()=>{ S.calStart=addDays(S.calStart,-7); renderCalendar(); };
+document.getElementById('next-month').onclick = ()=>{ S.calStart=addDays(S.calStart, 7); renderCalendar(); };
+document.getElementById('today-btn').onclick  = ()=>{ S.calStart=startOfWeek(new Date()); renderCalendar(); };
+
+/* ==========================================================
+   QUEUE
+========================================================== */
+function renderQueue() {
+  document.querySelectorAll('.filter-btn[data-filter]').forEach(b=>{
+    b.classList.toggle('active', b.dataset.filter===S.queueFilter);
+  });
+
+  let posts = filterPersona(S.posts);
+  if (S.queueFilter !== 'all') posts = posts.filter(p=>p.status===S.queueFilter);
+  posts = [...posts].sort((a,b)=>{
+    const da = a.scheduledAt ? new Date(a.scheduledAt) : new Date(a.createdAt);
+    const db = b.scheduledAt ? new Date(b.scheduledAt) : new Date(b.createdAt);
+    return da-db;
+  });
+
+  const list = document.getElementById('queue-list');
+  if (!posts.length) {
+    const msgs = {
+      draft:    'No posts awaiting approval. ZeroClaw will add drafts here.',
+      approved: 'No approved posts yet — approve some drafts first.',
+      posted:   'Nothing posted yet.',
+      all:      'No posts yet.'
+    };
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>${msgs[S.queueFilter]||'No posts.'}</p></div>`;
+    return;
+  }
+
+  list.innerHTML = posts.map(p => {
+    const isPosted   = p.status === 'posted';
+    const isApproved = p.status === 'approved';
+    const isDraft    = p.status === 'draft';
+    const disc = C.platforms[p.platform]?.disclosure;
+
+    return `
+      <div class="queue-card">
+        <div class="queue-card-header">
+          ${pBadge(p.persona)} ${plTag(p.platform)} ${sBadge(p.status)}
+        </div>
+        <div class="queue-content">${esc(p.content)}</div>
+        ${disc ? `<div style="font-size:10px;color:var(--text-muted);margin-top:5px;font-style:italic">Will append: ${esc(disc.trim())}</div>` : ''}
+        ${p.rejectionNote   ? `<div style="font-size:11px;color:var(--red);margin-top:6px;padding:5px 8px;border-left:2px solid var(--red);background:#1a0808">↩ Rejected: ${esc(p.rejectionNote)}</div>` : ''}
+        ${p.qualityWarning ? `<div style="font-size:11px;color:#F59E0B;margin-top:6px;padding:5px 8px;border-left:2px solid #F59E0B;background:#1a1000">⚠ Quality check: ${esc(p.qualityWarning)}</div>` : ''}
+        <div class="queue-footer">
+          <span class="queue-date">${p.scheduledAt ? '📅 '+fmtDT(p.scheduledAt) : '⏱ '+fmtDT(p.createdAt)}</span>
+          <div class="queue-actions">
+            ${isDraft    ? `<button class="btn-approve" onclick="approvePost('${p.id}')">✓ Approve</button>` : ''}
+            ${isApproved ? `<button class="btn-xs posted-action" onclick="markPosted('${p.id}')">✓ Mark Posted</button>` : ''}
+            ${!isPosted  ? `<button class="btn-xs danger" onclick="rejectPost('${p.id}')">↩ Reject</button>` : ''}
+            ${!isPosted  ? `<button class="btn-xs" onclick="editPost('${p.id}')">Edit</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+document.querySelectorAll('.filter-btn[data-filter]').forEach(b=>{
+  b.addEventListener('click', ()=>{ S.queueFilter=b.dataset.filter; renderQueue(); });
+});
+
+/* ==========================================================
+   COMPOSE
+========================================================== */
+function renderCompose() {
+  renderPersonaPicker();
+  renderPlatformPicker();
+  renderVoiceCard();
+  renderStarters();
+  updateCharCount();
+}
+
+function renderPersonaPicker() {
+  const el = document.getElementById('persona-picker');
+  el.innerHTML = C.personas.map(p=>`
+    <button class="persona-pill${p.id===S.cPersona?' sel':''}" data-id="${p.id}">${p.name}</button>
+  `).join('');
+  el.querySelectorAll('.persona-pill').forEach(b=>{
+    b.addEventListener('click', ()=>{ S.cPersona=b.dataset.id; renderPersonaPicker(); renderPlatformPicker(); renderVoiceCard(); renderStarters(); });
+  });
+}
+
+function renderPlatformPicker() {
+  const p = persona(S.cPersona);
+  const pls = p ? p.platforms : Object.keys(C.platforms);
+  if (!pls.includes(S.cPlatform)) S.cPlatform = pls[0];
+  const el = document.getElementById('platform-picker');
+  el.innerHTML = pls.map(pid=>{
+    const pl = platform(pid); if (!pl) return '';
+    const sel = pid===S.cPlatform;
+    return `<button class="platform-pill${sel?' sel':''}" data-pid="${pid}"
+      style="${sel?`color:${pl.color};border-color:${pl.color};background:${pl.color}18`:''}"
+      >${pl.icon} ${pl.name}</button>`;
+  }).join('');
+  el.querySelectorAll('.platform-pill').forEach(b=>{
+    b.addEventListener('click', ()=>{ S.cPlatform=b.dataset.pid; renderPlatformPicker(); updateCharCount(); });
+  });
+}
+
+function renderVoiceCard() {
+  const p = persona(S.cPersona); if (!p) return;
+  document.getElementById('voice-card').innerHTML = `
+    <div class="voice-card" style="border-color:${p.color}33">
+      <div class="voice-name" style="color:${p.color}">${p.name}</div>
+      <div class="voice-role">${p.role}</div>
+      <div class="voice-desc">${p.voice}</div>
+    </div>`;
+}
+
+function renderStarters() {
+  const p = persona(S.cPersona); if (!p) return;
+  document.getElementById('starters').innerHTML = p.starters.map(s=>`
+    <div class="starter-item" onclick="insertStarter(this)">${esc(s)}</div>`).join('');
+}
+
+function insertStarter(el) {
+  const ta = document.getElementById('c-content');
+  const cur = ta.value;
+  ta.value = cur ? cur+'\n\n'+el.textContent : el.textContent;
+  ta.focus(); updateCharCount();
+}
+
+function updateCharCount() {
+  const ta  = document.getElementById('c-content');
+  const len = ta.value.length;
+  const lim = platform(S.cPlatform)?.limit;
+  const el  = document.getElementById('char-info');
+  if (lim) {
+    el.textContent = `${len} / ${lim}`;
+    el.className = len > lim ? 'char-info over' : len > lim*.9 ? 'char-info warn' : 'char-info';
+  } else {
+    el.textContent = `${len} chars`;
+    el.className = 'char-info';
+  }
+}
+document.getElementById('c-content').addEventListener('input', updateCharCount);
+
+document.getElementById('save-btn').addEventListener('click', savePost);
+document.getElementById('clear-btn').addEventListener('click', clearCompose);
+
+async function savePost() {
+  const content = document.getElementById('c-content').value.trim();
+  if (!content) { alert('Content is required.'); return; }
+
+  const editId   = document.getElementById('c-edit-id').value;
+  const schedule = document.getElementById('c-schedule').value;
+  const status   = document.getElementById('c-status').value;
+  const pillar   = document.getElementById('c-pillar').value;
+  const notes    = document.getElementById('c-notes').value;
+
+  const payload = {
+    persona: S.cPersona, platform: S.cPlatform, content, status,
+    scheduledAt: schedule ? new Date(schedule).toISOString() : null,
+    pillar: pillar ? +pillar : null, notes,
+  };
+
+  if (editId) {
+    const updated = await apiPatch(editId, payload);
+    const idx = S.posts.findIndex(p=>p.id===editId);
+    if (idx !== -1 && updated) S.posts[idx] = updated;
+    document.getElementById('c-edit-id').value = '';
+  } else {
+    const created = await apiPost(payload);
+    if (created) S.posts.push(created);
+    else {
+      // server down — local fallback
+      S.posts.push({ id: uid(), ...payload, createdAt: new Date().toISOString(), postedAt: null });
+    }
+  }
+
+  document.getElementById('c-content').value  = '';
+  document.getElementById('c-schedule').value = '';
+  document.getElementById('c-status').value   = 'draft';
+  document.getElementById('c-pillar').value   = '';
+  document.getElementById('c-notes').value    = '';
+  document.getElementById('save-btn').textContent = 'Save Post';
+
+  const fb = document.getElementById('save-feedback');
+  fb.style.display = 'inline';
+  setTimeout(()=>{ fb.style.display='none'; }, 1800);
+  refreshPendingCount();
+  updateCharCount();
+}
+
+function clearCompose() {
+  document.getElementById('c-content').value   = '';
+  document.getElementById('c-schedule').value  = '';
+  document.getElementById('c-status').value    = 'draft';
+  document.getElementById('c-pillar').value    = '';
+  document.getElementById('c-notes').value     = '';
+  document.getElementById('c-edit-id').value   = '';
+  document.getElementById('save-btn').textContent = 'Save Post';
+  S.cPersona='shin'; S.cPlatform='twitter';
+  renderCompose();
+}
+
+function openComposeOn(dateStr) {
+  switchView('compose');
+  document.getElementById('c-schedule').value = dateStr;
+}
+
+function editPost(id) {
+  const p = S.posts.find(x=>x.id===id); if (!p) return;
+  switchView('compose');
+  S.cPersona=p.persona; S.cPlatform=p.platform;
+  renderCompose();
+  document.getElementById('c-content').value  = p.content;
+  document.getElementById('c-status').value   = p.status;
+  document.getElementById('c-schedule').value = p.scheduledAt ? toInput(new Date(p.scheduledAt)) : '';
+  document.getElementById('c-pillar').value   = p.pillar || '';
+  document.getElementById('c-notes').value    = p.notes  || '';
+  document.getElementById('c-edit-id').value  = id;
+  document.getElementById('save-btn').textContent = 'Update Post';
+  updateCharCount();
+  closeModal();
+}
+
+/* ==========================================================
+   METRICS
+========================================================== */
+function renderMetrics() {
+  document.getElementById('metrics-grid').innerHTML = C.metrics.map(m=>`
+    <div class="metric-card" style="${m.primary?`border-color:${m.color}44`:''}">
+      <div class="metric-label" style="${m.primary?`color:${m.color}`:''}">${m.label}</div>
+      <div class="metric-value" style="color:${m.color||'var(--text)'}">${(S.metrics[m.id]||0).toLocaleString()}</div>
+      <div class="metric-edit">
+        <input class="metric-input" type="number" min="0" value="${S.metrics[m.id]||0}"
+               id="mi-${m.id}" onchange="S.metrics['${m.id}']=parseInt(this.value)||0">
+        <button class="metric-save" onclick="saveMi('${m.id}',this)">Update</button>
+      </div>
+    </div>`).join('');
+}
+
+function saveMi(id, btn) {
+  S.metrics[id] = parseInt(document.getElementById(`mi-${id}`).value)||0;
+  persist(); // metrics stay in localStorage — not synced to server
+  btn.textContent = '✓';
+  setTimeout(()=>{ btn.textContent='Update'; renderMetrics(); }, 900);
+}
+
+/* ==========================================================
+   PILLARS
+========================================================== */
+function renderPillars() {
+  document.getElementById('pillars-grid').innerHTML = C.pillars.map(p=>`
+    <div class="pillar-card">
+      <div class="pillar-head">
+        <div class="pillar-num">${p.id}</div>
+        <div class="pillar-title">${p.title}</div>
+      </div>
+      <div class="pillar-personas">
+        ${p.personas.map(pid=>pBadge(pid)).join('')}
+      </div>
+      <div class="pillar-desc">${p.desc}</div>
+      <div class="pillar-examples">
+        ${p.examples.map(e=>`<div class="example-line">${esc(e)}</div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+/* ==========================================================
+   MODAL
+========================================================== */
+function openModal(id) {
+  const p = S.posts.find(x=>x.id===id); if (!p) return;
+
+  document.getElementById('modal-header').innerHTML = `
+    ${pBadge(p.persona)} ${plTag(p.platform)} ${sBadge(p.status)}
+    <button class="modal-close" onclick="closeModal()">×</button>`;
+
+  const pillarName = p.pillar ? C.pillars.find(x=>x.id===p.pillar)?.title : null;
+
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-content-text">${esc(p.content)}</div>
+    ${p.scheduledAt ? `<div class="modal-meta">📅 Scheduled: ${fmtDT(p.scheduledAt)}</div>` : ''}
+    ${p.postedAt    ? `<div class="modal-meta">✓ Posted: ${fmtDT(p.postedAt)}</div>` : ''}
+    ${p.notes       ? `<div class="modal-meta" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">Notes: ${esc(p.notes)}</div>` : ''}
+    ${pillarName    ? `<div class="modal-meta">Pillar ${p.pillar}: ${pillarName}</div>` : ''}
+    ${renderShareButtons(p)}`;
+
+  const disc = C.platforms[p.platform]?.disclosure;
+  if (disc) {
+    document.getElementById('modal-body').innerHTML +=
+      `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);font-style:italic">Disclosure appended on post: ${esc(disc.trim())}</div>`;
+  }
+
+  document.getElementById('modal-footer').innerHTML = `
+    ${p.status==='draft'    ? `<button class="btn-approve" style="padding:7px 18px;font-size:13px" onclick="approvePost('${p.id}');closeModal()">✓ Approve — ZeroClaw will post this</button>` : ''}
+    ${p.status!=='posted'   ? `<button class="btn btn-secondary" onclick="rejectPost('${p.id}');closeModal()">↩ Reject</button>` : ''}
+    ${p.status!=='posted'   ? `<button class="btn btn-ghost" onclick="editPost('${p.id}')">Edit</button>` : ''}
+    <button class="btn btn-primary" onclick="closeModal()">Close</button>`;
+
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+document.getElementById('modal').addEventListener('click', e=>{ if(e.target===document.getElementById('modal')) closeModal(); });
+
+/* ==========================================================
+   POST ACTIONS
+========================================================== */
+async function approvePost(id) {
+  const p = S.posts.find(x=>x.id===id); if (!p) return;
+  const updated = await apiPatch(id, { status: 'approved' });
+  if (updated) { Object.assign(p, updated); }
+  else { p.status='approved'; p.approvedAt=new Date().toISOString(); delete p.rejectionNote; }
+  refreshPendingCount();
+  const v = document.querySelector('.nav-item.active')?.dataset.view||'queue';
+  renderView(v);
+}
+
+async function rejectPost(id) {
+  const p = S.posts.find(x=>x.id===id); if (!p) return;
+  const note = prompt(`Why reject this ${p.persona} post?\n(This helps ZeroClaw learn the persona's voice — saved to voice memory)`);
+  if (note === null) return; // user cancelled
+  const payload = { status: 'draft', rejectionNote: note.trim() || undefined };
+  const updated = await apiPatch(id, payload);
+  if (updated) { Object.assign(p, updated); }
+  else { p.status='draft'; delete p.approvedAt; if (note.trim()) p.rejectionNote=note.trim(); }
+  refreshPendingCount();
+  const v = document.querySelector('.nav-item.active')?.dataset.view||'queue';
+  renderView(v);
+}
+
+async function markPosted(id) {
+  const p = S.posts.find(x=>x.id===id); if (!p) return;
+  const updated = await apiPatch(id, { status: 'posted' });
+  if (updated) { Object.assign(p, updated); }
+  else { p.status='posted'; p.postedAt=new Date().toISOString(); }
+  refreshPendingCount();
+  const v = document.querySelector('.nav-item.active')?.dataset.view||'queue';
+  renderView(v);
+}
+
+async function deletePost(id) {
+  if (!confirm('Delete this post?')) return;
+  await apiDelete(id);
+  S.posts = S.posts.filter(p=>p.id!==id);
+  refreshPendingCount();
+  const v = document.querySelector('.nav-item.active')?.dataset.view||'queue';
+  renderView(v);
+}
+
+/* ==========================================================
+   SETTINGS
+========================================================== */
+// ZeroClaw export — approved posts only, disclosure appended, ready to post
+document.getElementById('zeroclaw-export-btn').addEventListener('click', ()=>{
+  const approved = S.posts
+    .filter(p => p.status === 'approved')
+    .map(p => ({
+      id:         p.id,
+      persona:    p.persona,
+      platform:   p.platform,
+      content:    withDisclosure(p.content, p.platform),
+      scheduledAt:p.scheduledAt || null,
+      approvedAt: p.approvedAt || new Date().toISOString(),
+      pillar:     p.pillar || null,
+      notes:      p.notes  || '',
+    }));
+  if (!approved.length) { alert('No approved posts to export. Approve some drafts first.'); return; }
+  const payload = { version:'1', exportedAt:new Date().toISOString(), posts:approved };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:`zeroclaw-queue-${new Date().toISOString().slice(0,10)}.json`});
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('export-btn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify({posts:S.posts,metrics:S.metrics,exportedAt:new Date().toISOString()},null,2)], {type:'application/json'});
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:`btcpc-marketing-${new Date().toISOString().slice(0,10)}.json`});
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('import-btn').addEventListener('click', ()=> document.getElementById('import-file').click());
+document.getElementById('import-file').addEventListener('change', e=>{
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = async ev => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      if (d.posts) {
+        const res = await fetch(`${API}/import`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ posts: d.posts }),
+        });
+        if (res.ok) {
+          S.posts = d.posts;
+          if (d.metrics) { S.metrics = d.metrics; persist(); }
+          refreshPendingCount(); switchView('queue'); alert('Imported.');
+        } else { alert('Server rejected import.'); }
+      }
+    } catch { alert('Invalid JSON.'); }
+  };
+  r.readAsText(f);
+});
+
+document.getElementById('clear-all-btn').addEventListener('click', async ()=>{
+  if (!confirm('Delete ALL posts and metrics? This cannot be undone.')) return;
+  await fetch(`${API}/import`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ posts: [] }),
+  });
+  S.posts=[]; S.metrics={}; persist(); refreshPendingCount(); switchView('calendar');
+});
+
+/* ==========================================================
+   INIT
+========================================================== */
+async function init() {
+  await load();
+  refreshPendingCount();
+
+  // Seed 4 weeks of starter posts on first load (server queue is empty)
+  if (S.posts.length === 0) {
+  const now = new Date();
+  const mon = startOfWeek(now);
+  // w=week offset (0=this week), d=day (0=Mon…6=Sun), h=hour, m=minute
+  function at(w,d,h,m) {
+    const dt = addDays(mon, w*7+d); dt.setHours(h,m,0,0); return dt.toISOString();
+  }
+  function p(persona,platform,status,content,scheduledAt,pillar,notes) {
+    return {id:uid(),persona,platform,status,content,scheduledAt,pillar,notes,createdAt:now.toISOString(),postedAt:null};
+  }
+  S.posts = [
+    // ── WEEK 1 ──────────────────────────────────────────────
+    p('shin','twitter','draft',
+      'BTCPC epoch stats: [X] inference jobs completed today across [N] active miners.\n\nAll work is real — submitted by users, routed to Ollama miners, verified by the chain. No synthetic puzzles.',
+      at(0,0,10,0),1,'Replace [X] and [N] with live numbers from explorer'),
+    p('natoshi','twitter','draft',
+      'I was a Bitcoin maxi. Thought every new chain was noise.\n\nThen Shin asked me to install something. No pitch — just run it.\n\nMy i5 ran real AI inference. Someone needed that output. I got paid for it proportional to my model\'s parameter count.\n\nCouldn\'t argue with my own machine.',
+      at(0,0,15,0),2,'Natoshi origin story — short, personal'),
+    p('natoshi','reddit_gpumining','draft',
+      'CPU mining on BTCPC — first week numbers\n\nHardware: i5-13500T, 62GB RAM, no GPU\nModel: qwen3:4b via Ollama\nJobs completed: [X]\nBTCPC earned: [Y]\n\nNot staking. Not hashing. My machine ran AI inference requests submitted by actual users. Reward is proportional to verified parameter count, not hashrate.\n\nAnyone else running this on CPU?',
+      at(0,1,14,0),2,'Check miner dashboard for real numbers before posting'),
+    p('shin','reddit_localllama','draft',
+      'I built a blockchain where GPU miners run Ollama instead of SHA-256\n\nThe mining loop:\n1. User submits inference job via API\n2. Job broadcast to miners\n3. Miner runs it through any Ollama model (qwen, llama, mistral, deepseek — anything)\n4. Result returned to user\n5. Miner earns tokens proportional to verified parameter count\n\nNo PoW puzzle. The inference result IS the proof. CPU or GPU, any model size.\n\nHappy to answer questions about the routing, reward math, or consensus model.',
+      at(0,2,11,0),1,'r/LocalLLaMA loves the Ollama angle — lead with that'),
+    p('shin','twitter','draft',
+      'BTCPC has five reward pools. Any device earns from one:\n\n• GPU → AI inference (60%)\n• Any device → epoch clock (5%)\n• NAS or spare disk → storage (15%)\n• Raspberry Pi + LoRa → IoT sensor data (10%)\n• Cloud VM → app hosting (10%)\n\nPools with no participants recycle. Nothing is ever burned. 42M supply, forever.',
+      at(0,2,17,0),3,'Link to btcpc.net'),
+    p('natoshi','reddit_cryptocurrency','draft',
+      'A blockchain where the mining IS the product — not the security cost\n\nBitcoin\'s PoW produces hashes nobody uses. That\'s fine — it\'s the security model.\n\nBut what if the work that secures the chain also produced AI inference that users actually paid for?\n\nBTCPC does this. Miners run Ollama. Users submit jobs. Miners get paid per verified parameter. The chain is secured by real economic demand.\n\nNot another L2. Not another EVM fork. Sovereign chain with 5 work categories.',
+      at(0,3,13,0),1,'Be measured — r/CC is skeptical, lead with what makes it different from L2s'),
+    p('shin','twitter','draft',
+      'The design principle behind BTCPC:\n\nMining should produce output that someone wanted.\n\nNot hashes. Not validator votes. Something a user submitted and paid for.\n\nIf nobody submits an inference job today, the miner pool recycles to the next epoch. No fake work.',
+      at(0,3,10,0),4,'Core philosophy post — can repeat this one in different forms'),
+    p('natoshi','twitter','draft',
+      'Week [N] on BTCPC CPU mining:\n\n[X] inference jobs\n[Y] BTCPC earned\n[Z]% of total miner pool\n\nAll on an i5 with no GPU.\n\nI expected nothing. I got paid for real work my machine did.',
+      at(0,4,9,0),2,'Fill in the bracket numbers from miner dashboard'),
+    p('shin','substack','draft',
+      'Why Mining Should Produce Output That Someone Wanted\n\nBitcoin\'s proof-of-work is not wasteful. SHA-256 puzzles ARE the security model. The hash proves commitment. The energy cost is what makes attacks expensive. Satoshi understood this precisely.\n\nBut the computational output of every solved puzzle is discarded immediately. The hash goes nowhere. This was a deliberate design choice in 2009 — the goal was a credibly neutral settlement layer. The puzzles were intentionally useless so nobody could capture their output.\n\nThe world has changed. AI inference is a multi-hundred-billion-dollar industry controlled by four corporations. Millions of GPUs sit idle inside gaming rigs, mining rigs, and cloud servers that are underutilized for most of every day.\n\nBTCPC applies Bitcoin\'s core insight to a domain where the work has market value...',
+      at(0,4,12,0),1,'Expand from whitepaper section 1.1 — this is the flagship Substack piece'),
+
+    // ── WEEK 2 ──────────────────────────────────────────────
+    p('shin','twitter','draft',
+      'Lucid Pruning: the chain that dreams itself smaller.\n\nBTCPC doesn\'t store every block forever. The chain maintains a verified state snapshot + recent blocks. Older blocks are pruned once their state is absorbed.\n\nNew nodes sync from the latest snapshot, verify the Merkle root, and start participating in minutes.',
+      at(1,0,10,0),4,'Technical deep dive — good for the builder audience'),
+    p('natoshi','reddit_gpumining','draft',
+      'BTCPC month 1 CPU mining report\n\nSetup: i5-13500T, 62GB RAM, qwen3:4b\nTotal jobs: [X]\nTotal earned: [Y] BTCPC\nUptime: [Z]%\n\nBiggest thing I learned: reward scales with model parameter count, not hardware speed. A faster CPU running the same model doesn\'t earn more — it just finishes jobs faster and gets more of them.\n\nRunning a larger model on the same hardware earns more per job.',
+      at(1,0,15,0),2,'Monthly report format — credible, data-driven'),
+    p('shin','reddit_localllama','draft',
+      'BTCPC routing update: how inference jobs get matched to miners\n\nWhen a user submits a job, it broadcasts to all connected miners. Miners that have the requested model loaded respond with availability. The network routes to the fastest responder.\n\nRight now routing is first-come. Next phase: N=3 consensus (3 miners run the same job, result verified by majority). This matters for private inference — no single miner sees the full prompt.',
+      at(1,1,11,0),1,'Technical update — r/LocalLLaMA likes the MPC angle'),
+    p('natoshi','twitter','draft',
+      'Something I didn\'t expect from running a CPU miner:\n\nThe requests are real. Someone typed a prompt. My machine answered it. They got their output. I got paid.\n\nThat\'s it. No puzzle. No synthetic work. Just a transaction between a person who needed compute and a machine that had it.',
+      at(1,1,9,30),2,'Observation post — short, conversational'),
+    p('shin','twitter','draft',
+      'BTCPC clock nodes: any device can earn 5% of every block\'s emission just by keeping time.\n\nPhone, laptop, Raspberry Pi. No GPU, no minimum stake, no special software beyond the node binary.\n\nEpochs run every 30 seconds. Clock nodes sign timestamps. The network takes the median.',
+      at(1,2,10,0),3,'Entry-level mining angle — good for non-GPU audience'),
+    p('natoshi','reddit_cryptocurrency','draft',
+      'I\'ve been CPU mining BTCPC for a month. Here\'s what changed my mind about it.\n\nI was skeptical. Another chain, another whitepaper, another token.\n\nBut my friend built it so I ran it. And the thing that got me wasn\'t the tokenomics or the roadmap.\n\nIt was that my CPU answered a real AI question someone paid for. That\'s the whole chain. That\'s all it does. Every token exists because a machine did something useful.\n\nI can\'t find a counter-argument to that.',
+      at(1,2,14,0),2,'Skeptic-turned-believer arc — authentic Natoshi voice'),
+    p('shin','twitter','draft',
+      'The four-key hierarchy in BTCPC (borrowed from Hive):\n\n• Owner key — full control, cold storage\n• Active key — spend BTCPC, stake, unstake\n• Posting key — sign inference proofs, submit work\n• Memo key — encrypt P2P messages\n\nMiners never touch the active key during normal operation.',
+      at(1,3,10,0),4,'Security architecture post — good for the technical audience'),
+    p('natoshi','twitter','draft',
+      'Bitcoin maxi opinion: proof of work is not wasteful.\n\nSHA-256 hashes ARE the security. The energy cost is the point.\n\nBut Bitcoin also proved something else: costly, verifiable work can back a scarce asset.\n\nBTCPC applies that insight to AI compute — work that has market value outside the chain. Not a criticism of Bitcoin. A continuation of it.',
+      at(1,3,15,0),1,'Important framing — Natoshi as bridge between BTC maxis and BTCPC'),
+    p('shin','reddit_localllama','draft',
+      'How BTCPC verifies inference results\n\nRight now: single miner per job. Reward requires the result to be returned and acknowledged by the user\'s session.\n\nPhase 1 (multi-miner): N=3 consensus. Three miners run the same job. Majority result wins. Minority miners don\'t get paid for that epoch.\n\nPhase 2 (MPC): sharded inference across N miners. No single miner sees the full prompt. Premium pricing tier for private inference.\n\nInterested in the MPC implementation? Happy to share the design doc.',
+      at(1,4,11,0),4,'Technical roadmap post — generates discussion in r/LocalLLaMA'),
+    p('natoshi','reddit_gpumining','draft',
+      'Comparing GPU mining returns: traditional PoW vs BTCPC inference\n\n[Fill in actual comparison numbers]\n\nThe difference: BTCPC reward scales with model parameter count, not pure hashrate. A 27B parameter model earns ~6.75x more per job than a 4B model, holding hardware constant.\n\nBiggest lever isn\'t hardware — it\'s which model you load.',
+      at(1,4,14,0),2,'Fill in numbers — this is a strong comparison post for GPU miners'),
+
+    // ── WEEK 3 ──────────────────────────────────────────────
+    p('shin','twitter','draft',
+      'No slashing for going offline on BTCPC.\n\nStorage hosts, clock nodes, service hosts — if your internet goes down, your balance is untouched. You just stop earning until you\'re back.\n\nSlashing only applies to miners who submit invalid work proofs. Absence is never punished.',
+      at(2,0,10,0),4,'Key differentiator — important for home miners'),
+    p('natoshi','twitter','draft',
+      'My Raspberry Pi is a clock node now.\n\nCosts nothing to run. Earns 5% of every block\'s emission proportional to uptime.\n\nThis is the point of BTCPC: heterogeneous hardware. GPU, CPU, SBC — all participating. One architecture going down doesn\'t take out the network.',
+      at(2,0,9,0),3,'Clock node angle — accessible to non-GPU audience'),
+    p('shin','reddit_localllama','draft',
+      'Building on BTCPC: the inference API is OpenAI-compatible\n\nYou can point any OpenAI client at the BTCPC endpoint and route your inference through the decentralized miner network instead of a centralized API.\n\nMiners earn per job. You pay in BTCPC. The chain settles the transaction in the next epoch.\n\nCurrently in alpha. Would love feedback from anyone building apps that use local models.',
+      at(2,1,11,0),3,'Dev-facing post — r/LocalLLaMA has builders who will try this'),
+    p('natoshi','reddit_cryptocurrency','draft',
+      'BTCPC 2-month mining report — CPU only\n\n[Fill with actual stats]\n\nHonest take: the chain is early. Two miners right now (me and Shin). But the model works. I\'ve earned BTCPC for real inference jobs on a machine I already owned.\n\nThe question isn\'t whether the model works. The question is whether enough people run nodes to make the network valuable. That\'s the only real risk.',
+      at(2,1,14,0),2,'Honest, measured — this is credible because it acknowledges the early stage'),
+    p('shin','twitter','draft',
+      'BTCPC\'s bridge model: lock-and-recycle, not burn-and-mint.\n\nWhen you wrap BTCPC to wBTCPC on Base:\n• Native tokens are locked 1:1 in reserve\n• Pre-minted wBTCPC is released from the destination pool\n• Hard cap: 4.2M wBTCPC per chain (10% of supply)\n\nNo minting. No burning. Transfers between reserve pools.',
+      at(2,2,10,0),4,'Bridge architecture — good for the crypto-native audience'),
+    p('shin','twitter','draft',
+      'The Genesis Operator role on BTCPC:\n\n• Controls epoch finalization until governance activates\n• Holds a soulbound NFT — 0.25% perpetual protocol rev-share\n• Designed to be temporary\n• Transfers to the network automatically when 10+ miners stake enough BTCPC for independent consensus\n\nBuild it so well that you become unnecessary.',
+      at(2,2,16,0),5,'Handoff arc — Shin talking about his own exit'),
+    p('natoshi','reddit_gpumining','draft',
+      'What I wish I knew before running a BTCPC CPU miner\n\n1. Model size matters more than CPU speed. Bigger model = higher param count = higher reward per job.\n2. Job frequency depends on network demand. Low demand = fewer jobs, but pool still pays pro-rata.\n3. The clock role is worth running in parallel. 5% of every block for just keeping time.\n4. You don\'t need 24/7 uptime. No slashing for going offline.',
+      at(2,3,14,0),3,'FAQ-style post — high value for miners considering the switch'),
+    p('shin','substack','draft',
+      'The Second Miner Problem\n\nWhen BTCPC was a single machine talking to itself, it wasn\'t a blockchain. It was a server.\n\nThe moment a second independent node connected — separate machine, separate P2P connection, separate hardware — BTCPC became real. Two nodes reaching consensus. Two miners splitting rewards. Two clocks keeping time.\n\nThe second miner is just as important as the first. More important, maybe. The first miner proves the concept. The second miner proves the network...',
+      at(2,3,12,0),5,'Narrative deep dive — the Natoshi story told from Shin\'s perspective'),
+    p('natoshi','twitter','draft',
+      'Hot take: the most important thing about BTCPC isn\'t the AI compute angle.\n\nIt\'s that the founder designed his own exit into the protocol from day one.\n\nGenesis Operator NFT transfers to governance automatically. No vote needed. No permission asked.\n\nThat\'s either extremely confident or extremely principled. Maybe both.',
+      at(2,4,9,30),5,'Natoshi commenting on the handoff design — interesting outside perspective'),
+    p('shin','twitter','draft',
+      'BTCPC four-tier finality:\n\n• Native (every 30s) — working consensus\n• Base/Arbitrum (every ~50min) — cross-chain verification\n• Ethereum (every ~8hrs) — deep finality\n• Bitcoin (every ~3.5 days) — ultimate anchoring\n\nBTCPC doesn\'t depend on any of these external chains. They\'re anchoring points, not consensus dependencies.',
+      at(2,4,10,0),4,'Architecture post — Bitcoin anchoring is a strong credibility signal'),
+
+    // ── WEEK 4 ──────────────────────────────────────────────
+    p('shin','twitter','draft',
+      'Show HN post going up today. Thread here if you want to follow the discussion.',
+      at(3,0,9,0),1,'Link to the HN submission once live'),
+    p('shin','hn','draft',
+      'Show HN: I built a blockchain where GPU miners run Ollama instead of solving SHA-256\n\nBTCPC is a sovereign chain where block rewards are earned by machines doing real AI inference.\n\nThe mining loop: user submits job via API → broadcast to miners → miner runs through Ollama (any model) → result returned → miner earns proportional to verified parameter count.\n\nNo PoW puzzle. The inference result IS the proof. CPU or GPU, any model. If nobody submits a job today, the miner pool recycles — no make-work.\n\nFive reward pools: inference (60%), verifiers (10%), clock nodes (5%), storage (15%), services+IoT (10%).\n\n42M supply, 10 decimals, 30-second epochs. Whitepaper inscribed on block 0.\n\nHappy to answer questions about consensus, inference routing, or the reward math.',
+      at(3,0,11,0),1,'The big Show HN launch — time carefully, aim for 9-11am ET Monday'),
+    p('natoshi','twitter','draft',
+      'Shin posted on HN today. Go upvote and ask him hard questions.\n\nHe likes hard questions.',
+      at(3,0,12,0),1,'Natoshi amplifying the HN post — timing right after it goes live'),
+    p('natoshi','reddit_gpumining','draft',
+      'BTCPC is on HN right now if anyone wants to ask the builder questions directly.\n\n[Link]\n\nI\'ve been running a node since day 1. Happy to answer questions from the GPU miner side while Shin handles the technical ones.',
+      at(3,0,13,0),1,'Cross-post amplification — coordinate timing with HN launch'),
+    p('shin','twitter','draft',
+      'HN thread recap: [summary of top questions and answers]\n\nThe question that came up most: how do you prevent miners from faking inference results?\n\nAnswer:',
+      at(3,1,10,0),4,'Follow-up thread post-HN — synthesize the best discussion'),
+    p('natoshi','reddit_cryptocurrency','draft',
+      '3 months running BTCPC — where things stand\n\n[Full honest update with real numbers]\n\nWhat\'s working: the reward model is sound. CPU inference earns real tokens for real work.\n\nWhat needs to grow: more miners. Right now it\'s two nodes. The network gets stronger with each independent participant.\n\nIf you\'re curious, the builder is active on HN right now.',
+      at(3,2,14,0),2,'Honest 3-month update — links to HN for credibility'),
+    p('shin','reddit_localllama','draft',
+      'After the HN thread — answers to the top technical questions\n\n1. How do you verify inference results without running the model yourself?\n2. What stops a miner from returning garbage and claiming the reward?\n3. How does the reward scale with model size?\n4. What happens when two miners return different results for the same job?\n\n[Full answers]',
+      at(3,2,11,0),4,'Post-HN technical follow-up — this builds the deepest credibility'),
+    p('natoshi','twitter','draft',
+      'The thing that still surprises me about BTCPC after 3 months:\n\nI don\'t think about it. My machine runs. I check earnings once a week.\n\nThat\'s what good infrastructure feels like. You forget it\'s there.',
+      at(3,3,9,30),2,'Casual observation — authentic Natoshi voice, good for engagement'),
+    p('shin','twitter','draft',
+      'What comes after genesis:\n\n→ 3-miner consensus per model\n→ Work proof mempool\n→ Cross-chain signatures (ETH/SOL keys as BTCPC auth)\n→ Streaming inference\n→ MPC sharded inference\n→ wBTCPC on Base with LP pools\n→ Governance activation → Genesis Operator handoff\n\nBuilding in sequence. No timeline promises.',
+      at(3,3,10,0),5,'Roadmap post — "no timeline promises" is important credibility'),
+    p('shin','substack','draft',
+      'The Handoff Protocol\n\nFrom the beginning, BTCPC was designed to not need me.\n\nThe Genesis Operator NFT is soulbound. It gives me finalization authority and 0.25% of protocol revenue. When governance activates — when enough miners stake enough BTCPC that the chain can secure itself without my participation — the NFT transfers. Not to another person. To the network.\n\nAt that point, I\'m just another node. Two addresses in a sea of thousands. The chain doesn\'t know my name. It doesn\'t need to...',
+      at(3,4,12,0),5,'Shin\'s final Substack piece before the handoff — write this one carefully'),
+  ];
+    // Seed via API
+    await fetch(`${API}/import`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ posts: S.posts }),
+    });
+    refreshPendingCount();
+  }
+
+  switchView('calendar');
+}
+
+init();
+
+// Auto-refresh posts from server every 30 seconds
+// New drafts from ZeroClaw appear without manual reload
+setInterval(async () => {
+  try {
+    const res = await fetch(`${API}/posts`);
+    if (!res.ok) return;
+    const fresh = await res.json();
+    // Only re-render if something changed
+    if (JSON.stringify(fresh) !== JSON.stringify(S.posts)) {
+      S.posts = fresh;
+      refreshPendingCount();
+      const v = document.querySelector('.nav-item.active')?.dataset.view || 'queue';
+      renderView(v);
+    }
+  } catch {}
+}, 30000);
+</script>
+</body>
+</html>

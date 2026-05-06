@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BTCPC Start</title>
+    <meta
+      name="description"
+      content="Deterministic BTCPC start wizard for AI agents and humans. Install BTCPC, save the wallet export to disk, and start inference and node roles."
+    />
+    <meta property="og:title" content="BTCPC Start" />
+    <meta
+      property="og:description"
+      content="Deterministic install and startup path for BTCPC. Save the wallet export, start inference, and run node roles."
+    />
+    <meta property="og:url" content="https://btcpc.net/start" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      :root {
+        --bg: #0a0e17;
+        --card: #1a2235;
+        --border: #2a3550;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --orange: #f7931a;
+        --green: #22c55e;
+        --blue: #38bdf8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, system-ui, sans-serif;
+        line-height: 1.55;
+      }
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        padding: 10px 16px;
+        background: rgba(10, 14, 23, 0.96);
+        border-bottom: 1px solid rgba(247, 147, 26, 0.22);
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .nav a {
+        color: #c8ccd4;
+        text-decoration: none;
+        font-size: 13px;
+      }
+      .nav a.brand {
+        color: var(--orange);
+        font-weight: 800;
+      }
+      .page {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 40px 20px 80px;
+      }
+      .hero {
+        padding: 32px 0 24px;
+      }
+      .eyebrow {
+        color: var(--green);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 11px;
+        font-weight: 800;
+        margin-bottom: 12px;
+      }
+      h1 {
+        margin: 0 0 14px;
+        font-size: clamp(34px, 6vw, 58px);
+        line-height: 1.02;
+      }
+      h1 span {
+        color: var(--orange);
+      }
+      .hero p {
+        max-width: 820px;
+        color: var(--muted);
+        font-size: 16px;
+        margin: 0 0 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        margin-top: 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px;
+      }
+      .card h2,
+      .card h3 {
+        margin: 0 0 10px;
+      }
+      .card p,
+      .card li {
+        color: var(--muted);
+      }
+      .wizard-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 6px 8px 0 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(247, 147, 26, 0.1);
+        border: 1px solid rgba(247, 147, 26, 0.2);
+        color: #ffd8a8;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .card ul,
+      .card ol {
+        margin: 12px 0 0 20px;
+        padding: 0;
+      }
+      .step {
+        display: grid;
+        gap: 10px;
+        padding: 14px 0;
+        border-top: 1px solid rgba(148, 163, 184, 0.16);
+      }
+      .step:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(247, 147, 26, 0.15);
+        color: var(--orange);
+        font-weight: 800;
+        font-size: 13px;
+      }
+      .code {
+        background: #0b1020;
+        border: 1px solid rgba(247, 147, 26, 0.18);
+        border-radius: 10px;
+        padding: 14px;
+        overflow-x: auto;
+        color: #d9f99d;
+        font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+        font-size: 13px;
+        white-space: pre;
+      }
+      .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--orange);
+        margin-bottom: 8px;
+        font-weight: 800;
+      }
+      .success {
+        border-left: 3px solid var(--green);
+      }
+      .note {
+        border-left: 3px solid var(--blue);
+      }
+      .pill {
+        display: inline-block;
+        margin-right: 8px;
+        margin-top: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(247, 147, 26, 0.12);
+        color: var(--orange);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .checklist {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        background: #0b1020;
+        border: 1px solid rgba(247, 147, 26, 0.18);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      .wizard-shell {
+        margin-top: 22px;
+        border-color: rgba(34, 197, 94, 0.28);
+      }
+      .wizard-topline {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .wizard-rail {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        margin: 8px 0 16px;
+      }
+      .wizard-rail button {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(148, 163, 184, 0.06);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 10px 12px;
+        cursor: pointer;
+      }
+      .wizard-rail button strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+      .wizard-rail button span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .wizard-rail button.active {
+        border-color: rgba(34, 197, 94, 0.35);
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .wizard-rail button.done {
+        border-color: rgba(247, 147, 26, 0.3);
+        background: rgba(247, 147, 26, 0.08);
+      }
+      .wizard-title {
+        margin: 0;
+        font-size: 24px;
+      }
+      .wizard-progress {
+        display: flex;
+        gap: 8px;
+        margin: 14px 0 16px;
+      }
+      .wizard-progress span {
+        flex: 1;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+      }
+      .wizard-progress span.active {
+        background: var(--green);
+      }
+      .wizard-meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .wizard-action-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      .wizard-primary,
+      .wizard-secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-decoration: none;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-weight: 800;
+        font-size: 14px;
+      }
+      .wizard-primary {
+        color: #0a0e17;
+        background: var(--green);
+      }
+      .wizard-secondary {
+        color: var(--text);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(148, 163, 184, 0.08);
+      }
+      .wizard-points {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .wizard-detail {
+        margin-top: 10px;
+        color: var(--muted);
+      }
+      .wizard-detail strong {
+        color: var(--text);
+      }
+      .wizard-progress-label {
+        margin-top: 10px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .username-check {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid rgba(247, 147, 26, 0.2);
+        border-radius: 12px;
+        background: rgba(247, 147, 26, 0.05);
+        display: none;
+      }
+      .username-check.active {
+        display: block;
+      }
+      .username-check label {
+        display: block;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 8px;
+        color: var(--orange);
+      }
+      .username-check-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .username-check input {
+        flex: 1 1 220px;
+        min-width: 0;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: #0b1020;
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+      .username-check button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        background: var(--green);
+        color: #081018;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .username-check-status {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .username-check-status.ok {
+        color: #9ef0b4;
+      }
+      .username-check-status.warn {
+        color: #fcd34d;
+      }
+      .username-suggestions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .username-suggestions button {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(148, 163, 184, 0.06);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .wizard-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 8px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.12);
+        color: #9ef0b4;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .wizard-points ul {
+        margin-top: 8px;
+      }
+      a {
+        color: var(--orange);
+      }
+    </style>
+    <script type="module" src="/js/start-state.mjs"></script>
+  </head>
+  <body>
+    <div class="nav">
+      <a class="brand" href="/">BTCPC</a>
+      <a href="/start">Start</a>
+      <a href="/install">Install</a>
+      <a href="/setup">Setup</a>
+      <a href="/app">Inference</a>
+      <a href="/run-a-node">Run a Node</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/docs">Docs</a>
+    </div>
+    <main class="page">
+      <section class="hero">
+        <div class="eyebrow">Deterministic wizard</div>
+        <h1>BTCPC <span>Start</span></h1>
+        <p>
+          This page is the canonical path for a human or AI agent to install
+          BTCPC, create or import an account, save the wallet export to disk,
+          and start using inference plus node roles. Follow the steps in order.
+        </p>
+        <p>
+          Fastest path: keep the current agent in control, open this page, and
+          follow the wizard below. It shows one primary action at a time and
+          keeps the machine-readable manifest in sync for agents.
+        </p>
+        <p>
+          Success means the local machine has a BTCPC instance, a wallet export
+          saved on disk, and a clear path to run inference, clock, storage,
+          gateway, or sensor roles.
+        </p>
+        <p>
+          If the user has the tokens, BTCPC can be used as a token-gated
+          sub-agent runtime (subagent runtime). The primary agent can use BTCPC
+          directly if it prefers, or stay in control while BTCPC handles bounded
+          tasks, parallel checks, or a second opinion.
+        </p>
+        <span class="pill">Install</span>
+        <span class="pill">Save export</span>
+        <span class="pill">Open /app</span>
+        <span class="pill">Start roles</span>
+      </section>
+
+      <section class="card wizard-shell" id="wizard-shell">
+        <div class="label" style="color: #22c55e">Start Wizard</div>
+        <div class="wizard-topline">
+          <div>
+            <h2 class="wizard-title" id="wizard-step-title">Loading step…</h2>
+            <div class="wizard-meta" id="wizard-step-meta">
+              Loading manifest from /start.json
+            </div>
+          </div>
+          <div>
+            <span class="wizard-chip" id="wizard-audience-human">Human 90+</span>
+            <span class="wizard-chip" id="wizard-audience-agent">Agent 100</span>
+            <span class="wizard-chip" id="wizard-audience-tech">Technical 90+</span>
+          </div>
+        </div>
+        <div class="wizard-rail" id="wizard-rail"></div>
+        <div class="wizard-progress" id="wizard-progress"></div>
+        <div class="item">
+          <strong id="wizard-step-heading">—</strong>
+          <span class="wizard-state" id="wizard-step-state">loading</span>
+          <div class="wizard-detail" id="wizard-step-description">
+            The wizard will load the manifest and show the next action.
+          </div>
+          <div class="wizard-detail">
+            <strong>Why it matters:</strong>
+            <span id="wizard-step-why">Loading rationale from the manifest…</span>
+          </div>
+        </div>
+        <div class="wizard-points">
+          <div><strong>Done when:</strong></div>
+          <ul id="wizard-done-when"></ul>
+        </div>
+        <div class="wizard-points" id="wizard-fallbacks-wrap" style="display:none">
+          <div><strong>Fallbacks:</strong></div>
+          <ul id="wizard-fallbacks"></ul>
+        </div>
+        <div class="username-check" id="username-check">
+          <label for="username-input">BTCPC on-chain username</label>
+          <div class="username-check-row">
+            <input
+              id="username-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="20"
+              placeholder="choose a username"
+            />
+            <button type="button" id="username-check-btn">Check availability</button>
+          </div>
+          <div class="username-check-status" id="username-check-status">
+            The wizard will ask for a username first so the on-chain identity is
+            confirmed before account creation.
+          </div>
+          <div class="username-suggestions" id="username-suggestions"></div>
+        </div>
+        <div class="wizard-action-row">
+          <a href="/start.json" class="wizard-secondary">Open manifest</a>
+          <button type="button" class="wizard-secondary" id="wizard-complete-btn">
+            I completed this step
+          </button>
+          <button type="button" class="wizard-secondary" id="wizard-back-btn">Back</button>
+          <button type="button" class="wizard-primary" id="wizard-primary-btn">Next</button>
+          <button type="button" class="wizard-secondary" id="wizard-reset-btn">Reset</button>
+        </div>
+        <div class="wizard-meta" id="wizard-step-hint" style="margin-top: 12px"></div>
+      </section>
+
+      <details class="card" style="margin-top: 20px">
+        <summary style="cursor: pointer; font-weight: 800; color: var(--orange)">
+          Show detailed steps and technical notes
+        </summary>
+        <p style="margin: 12px 0 0; color: var(--muted)">
+          The wizard above is the primary path. Use this section as a reference
+          layer for technical details, fallbacks, and deeper context.
+        </p>
+        <div class="grid" style="margin-top: 16px">
+        <section class="card success">
+          <div class="label">What done looks like</div>
+          <p>
+            After completion, the machine should have a BTCPC account, a
+            downloaded wallet export file, and a working entrypoint for
+            inference and node operation.
+          </p>
+          <ul>
+            <li>BTCPC installed or reachable in the browser</li>
+            <li>Wallet export saved to disk</li>
+            <li><code>/app</code> opens inference</li>
+            <li>
+              <code>/install</code> or <code>/run-a-node</code> can start node
+              roles
+            </li>
+          </ul>
+        </section>
+
+        <section class="card note">
+          <div class="label">Install</div>
+          <div class="step">
+            <div class="step-num">1</div>
+            <div>
+              Open <a href="/install">/install</a> for the full install matrix.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div>
+              If you have a terminal, run the one-liner below. If not, use the
+              browser path and continue in <code>/setup</code> or
+              <code>/app</code>.
+            </div>
+            <div class="code">
+              curl -fsSL https://btcpc.net/install.sh | bash
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div>
+              If the system is on Android or a phone, open
+              <a href="/app">/app</a>
+              and use the browser wallet plus inference UI.
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="label">Account</div>
+          <p>
+            Create a new account or import an existing one. When a new wallet is
+            created, BTCPC shows the recovery phrase and wallet export. Save
+            both.
+          </p>
+          <ol>
+            <li>Use <a href="/setup">/setup</a> or the app signup flow.</li>
+            <li>Record the mnemonic offline.</li>
+            <li>Download the wallet export file to disk.</li>
+            <li>Do not continue until the export file exists locally.</li>
+          </ol>
+        </section>
+
+        <section class="card">
+          <div class="label">Inference</div>
+          <p>
+            Use the browser app as the deterministic inference surface. It works
+            on desktop and phone, and it speaks directly to the BTCPC inference
+            API.
+          </p>
+          <ol>
+            <li>Open <a href="/app">/app</a>.</li>
+            <li>Select the <strong>Inference</strong> tab.</li>
+            <li>Choose a model, then send a prompt.</li>
+            <li>Confirm that the response appears and is logged locally.</li>
+          </ol>
+        </section>
+
+        <details class="card" style="border-color: rgba(247, 147, 26, 0.22)">
+          <summary style="cursor: pointer; font-weight: 800; color: var(--orange)">
+            Advanced: secondary inference and controller mode
+          </summary>
+          <div style="margin-top: 12px">
+            <p>
+              BTCPC can also act as a second inference lane for an existing
+              agent. Use it for parallel checks, alternate answers, or
+              sub-task execution. If the user has the tokens, treat BTCPC as a
+              token-gated sub-agent runtime (subagent runtime). The primary
+              agent can use it directly or delegate to it.
+            </p>
+            <p>
+              For token-gated transfers, the website and desktop app can sign a
+              transfer challenge locally with the BTCPC active key. The wallet
+              export includes the active key, but the browser only submits the
+              signature.
+            </p>
+            <p>
+              If the user opts into controller mode, BTCPC can require the
+              spend approval to come from the BTCPC mnemonic-linked chain
+              wallet instead of the BTCPC active key.
+            </p>
+            <ol>
+              <li>Keep the primary agent on the host machine.</li>
+              <li>
+                Open <a href="/app">/app</a>, the desktop app, or any
+                Ollama-capable desktop client and send a second prompt.
+              </li>
+              <li>Use BTCPC output to verify, compare, or decompose the task.</li>
+              <li>
+                Keep the chain as a secondary source of inference, not the only
+                one.
+              </li>
+            </ol>
+          </div>
+        </details>
+
+        <section class="card">
+          <div class="label">Node roles</div>
+          <p>Use the install page or run-a-node page to enable roles:</p>
+          <ul>
+            <li><strong>Clock</strong> for epoch timing.</li>
+            <li><strong>Miner</strong> for inference.</li>
+            <li><strong>Storage</strong> for files and snapshots.</li>
+            <li><strong>Gateway</strong> for sensor relays.</li>
+            <li><strong>Sensor</strong> for device readings.</li>
+          </ul>
+          <p>
+            The browser path is the fastest onramp. The desktop/terminal path is
+            the highest-control path.
+          </p>
+        </section>
+
+        <section class="card">
+          <div class="label">Machine-readable checklist</div>
+          <div class="checklist" id="agent-checklist"></div>
+        </section>
+      </div>
+      </details>
+
+      <div style="margin-top: 18px; color: #94a3b8; font-size: 13px">
+        Version 2026-04-24-v7 ·
+        <a href="/start">Start</a> · <a href="/terms">Terms</a> ·
+        <a href="/privacy">Privacy</a>
+      </div>
+    </main>
+    <script>
+      (function () {
+        window.BTCPCStartState.fetchStartManifest()
+          .then(function (data) {
+            renderWizard(data);
+            document.getElementById("agent-checklist").textContent =
+              JSON.stringify(data, null, 2);
+          })
+          .catch(function () {
+            document.getElementById("wizard-step-title").textContent =
+              "Unable to load manifest";
+            document.getElementById("wizard-step-meta").textContent =
+              "Check /start.json manually.";
+            document.getElementById("agent-checklist").textContent =
+              "Unable to load /start.json";
+          });
+
+        function renderWizard(data) {
+          var steps = (data && data.ordered_steps) || [];
+          var state = loadState(steps);
+
+          function loadState(stepsList) {
+            var defaults = {
+              current: 0,
+              completed: stepsList.map(function () {
+                return false;
+              }),
+            };
+            try {
+              var parsed = JSON.parse(localStorage.getItem("btcpc-start-state") || "{}");
+              if (parsed && typeof parsed === "object") {
+                if (typeof parsed.current === "number" && isFinite(parsed.current)) {
+                  defaults.current = parsed.current;
+                }
+                if (Array.isArray(parsed.completed)) {
+                  defaults.completed = stepsList.map(function (_, idx) {
+                    return Boolean(parsed.completed[idx]);
+                  });
+                }
+              }
+            } catch (err) {}
+            if (
+              defaults.current === 0 &&
+              defaults.completed.every(function (value) {
+                return !value;
+              })
+            ) {
+              var legacyCurrent = parseInt(localStorage.getItem("btcpc-start-step"), 10);
+              if (!isNaN(legacyCurrent) && legacyCurrent >= 0 && legacyCurrent < stepsList.length) {
+                defaults.current = legacyCurrent;
+              }
+            }
+            if (!stepsList.length) {
+              defaults.current = 0;
+              defaults.completed = [];
+            }
+            if (defaults.current < 0 || defaults.current >= stepsList.length) {
+              defaults.current = firstIncomplete(defaults.completed);
+            }
+            if (defaults.completed[defaults.current]) {
+              defaults.current = firstIncomplete(defaults.completed);
+            }
+            return defaults;
+          }
+
+          function saveState() {
+            localStorage.setItem("btcpc-start-state", JSON.stringify(state));
+            localStorage.setItem("btcpc-start-step", String(state.current));
+          }
+
+          function firstIncomplete(completed) {
+            for (var i = 0; i < completed.length; i += 1) {
+              if (!completed[i]) return i;
+            }
+            return Math.max(0, completed.length - 1);
+          }
+
+          function getSavedUsername() {
+            try {
+              return String(localStorage.getItem("btcpc-start-username") || "").trim().toLowerCase();
+            } catch (err) {
+              return "";
+            }
+          }
+
+          function setSavedUsername(username) {
+            try {
+              localStorage.setItem("btcpc-start-username", String(username || "").trim().toLowerCase());
+            } catch (err) {}
+          }
+
+          function setUsernameStatus(message, kind) {
+            var status = document.getElementById("username-check-status");
+            if (!status) return;
+            status.className = "username-check-status" + (kind ? " " + kind : "");
+            status.textContent = message;
+          }
+
+          function setUsernameSuggestions(suggestions) {
+            var wrap = document.getElementById("username-suggestions");
+            if (!wrap) return;
+            wrap.innerHTML = "";
+            (suggestions || []).forEach(function (name) {
+              var button = document.createElement("button");
+              button.type = "button";
+              button.textContent = name;
+              button.onclick = function () {
+                var input = document.getElementById("username-input");
+                if (input) input.value = name;
+                setSavedUsername(name);
+                setUsernameStatus("Selected " + name + ". Check availability to continue.", "warn");
+              };
+              wrap.appendChild(button);
+            });
+          }
+
+          async function checkUsernameAvailability() {
+            var input = document.getElementById("username-input");
+            if (!input) return false;
+            var username = String(input.value || "").trim().toLowerCase();
+            if (!username) {
+              setUsernameStatus("Enter the BTCPC username you want to use on chain.", "warn");
+              return false;
+            }
+            setUsernameStatus("Checking availability for " + username + "…", "warn");
+            try {
+              var response = await fetch("/public/username-availability?username=" + encodeURIComponent(username), {
+                cache: "no-store",
+              });
+              var data = await response.json();
+              if (!response.ok || !data || data.available === false) {
+                var reason = (data && data.reason) ? " " + data.reason : " That name is not available.";
+                setUsernameStatus(username + " is not available." + reason, "warn");
+                setUsernameSuggestions((data && data.suggestions) || []);
+                return false;
+              }
+              setSavedUsername(username);
+              setUsernameSuggestions([]);
+              setUsernameStatus(username + " is available and saved locally. Continue to account setup.", "ok");
+              return true;
+            } catch (err) {
+              setUsernameStatus("Could not check availability right now. Try again or choose a different name.", "warn");
+              return false;
+            }
+          }
+
+          function advanceAfterUsernameCheck() {
+            checkUsernameAvailability().then(function (ok) {
+              if (!ok) return;
+              completeCurrentStep();
+            });
+          }
+
+          function normalizeAction(step, fallbackLabel) {
+            var action = step && step.primary_action;
+            if (typeof action === "string") {
+              if (action.charAt(0) === "/") {
+                return { label: fallbackLabel || action, href: action, kind: "route" };
+              }
+              return { label: fallbackLabel || action, kind: "complete" };
+            }
+            if (action && typeof action === "object") {
+              return {
+                label: action.label || fallbackLabel || "Continue",
+                href: action.href || "",
+                kind: action.kind || (action.href ? "route" : "complete"),
+              };
+            }
+            return {
+              label: fallbackLabel || "Continue",
+              href: "",
+              kind: "complete",
+            };
+          }
+
+          function renderRail() {
+            var rail = document.getElementById("wizard-rail");
+            rail.innerHTML = "";
+            steps.forEach(function (step, idx) {
+              var button = document.createElement("button");
+              button.type = "button";
+              button.className = idx === state.current ? "active" : "";
+              if (state.completed[idx]) button.className = (button.className + " done").trim();
+              var label = document.createElement("strong");
+              label.textContent = String(idx + 1) + ". " + (step.title || "Step");
+              var sub = document.createElement("span");
+              sub.textContent = state.completed[idx]
+                ? "Done"
+                : idx === state.current
+                  ? "Current step"
+                  : "Not started";
+              button.appendChild(label);
+              button.appendChild(sub);
+              button.onclick = function () {
+                state.current = idx;
+                saveState();
+                render();
+              };
+              rail.appendChild(button);
+            });
+          }
+
+          function renderProgress() {
+            var progress = document.getElementById("wizard-progress");
+            progress.innerHTML = steps
+              .map(function (_, idx) {
+                var classes = [];
+                if (state.completed[idx] || idx <= state.current) classes.push("active");
+                return '<span class="' + classes.join(" ") + '"></span>';
+              })
+              .join("");
+          }
+
+          function completeCurrentStep() {
+            if (!steps.length) return;
+            state.completed[state.current] = true;
+            if (state.current < steps.length - 1) {
+              state.current = firstIncomplete(state.completed);
+            }
+            saveState();
+            render();
+          }
+
+          function goBack() {
+            if (state.current === 0) return;
+            state.current -= 1;
+            saveState();
+            render();
+          }
+
+          function resetWizard() {
+            state = {
+              current: 0,
+              completed: steps.map(function () {
+                return false;
+              }),
+            };
+            saveState();
+            render();
+          }
+
+          function render() {
+            var step = steps[state.current] || steps[0] || null;
+            if (!step) return;
+            var stepNumber = state.current + 1;
+            var stepCount = steps.length;
+            var action = normalizeAction(step, "Continue");
+            var doneList = document.getElementById("wizard-done-when");
+            var fbWrap = document.getElementById("wizard-fallbacks-wrap");
+            var fbList = document.getElementById("wizard-fallbacks");
+            var stateLabel = document.getElementById("wizard-step-state");
+            var primary = document.getElementById("wizard-primary-btn");
+            var completeBtn = document.getElementById("wizard-complete-btn");
+            var back = document.getElementById("wizard-back-btn");
+            var reset = document.getElementById("wizard-reset-btn");
+
+            document.getElementById("wizard-step-title").textContent =
+              step.title || "Step " + stepNumber;
+            document.getElementById("wizard-step-meta").textContent =
+              "Step " + stepNumber + " of " + stepCount + " · " + (data.goal || "BTCPC start");
+            document.getElementById("wizard-step-heading").textContent =
+              step.title || "Step " + stepNumber;
+            document.getElementById("wizard-step-description").textContent =
+              step.instruction ||
+              "Follow this step and then continue. The manifest below is the machine-readable version.";
+            document.getElementById("wizard-step-why").textContent =
+              step.why || "This step is part of the deterministic BTCPC startup path.";
+
+            var usernameCheck = document.getElementById("username-check");
+            var usernameInput = document.getElementById("username-input");
+            var usernameBtn = document.getElementById("username-check-btn");
+            var savedUsername = getSavedUsername();
+            if (usernameInput && !usernameInput.value && savedUsername) {
+              usernameInput.value = savedUsername;
+            }
+            if (usernameCheck) {
+              usernameCheck.classList.toggle("active", step.id === "choose-username");
+            }
+            if (step.id === "choose-username") {
+              var chosen = getSavedUsername();
+              setUsernameSuggestions([]);
+              document.getElementById("wizard-step-description").textContent =
+                step.instruction ||
+                "Ask for the on-chain username first, check availability, and only then continue to account creation.";
+              if (usernameInput && !usernameInput.value && chosen) {
+                usernameInput.value = chosen;
+              }
+              if (chosen) {
+                setUsernameStatus(
+                  chosen + " is saved locally. Re-check it or continue if you already confirmed it.",
+                  "ok",
+                );
+              } else {
+                setUsernameStatus("Enter the BTCPC username you want to use on chain.", "warn");
+              }
+              primary.textContent = "Check username";
+              primary.onclick = advanceAfterUsernameCheck;
+              completeBtn.textContent = "Save and continue";
+              completeBtn.onclick = advanceAfterUsernameCheck;
+              if (usernameBtn) {
+                usernameBtn.onclick = advanceAfterUsernameCheck;
+              }
+              if (usernameInput) {
+                usernameInput.onkeydown = function (event) {
+                  if (event && event.key === "Enter") {
+                    event.preventDefault();
+                    advanceAfterUsernameCheck();
+                  }
+                };
+              }
+            } else if (usernameCheck) {
+              usernameCheck.classList.remove("active");
+              setUsernameSuggestions([]);
+            }
+
+            stateLabel.textContent = state.completed[state.current] ? "Done" : "Current";
+            stateLabel.style.background = state.completed[state.current]
+              ? "rgba(247, 147, 26, 0.12)"
+              : "rgba(34, 197, 94, 0.12)";
+            stateLabel.style.color = state.completed[state.current] ? "#ffd8a8" : "#9ef0b4";
+
+            doneList.innerHTML = "";
+            (step.done_when || []).forEach(function (text) {
+              var li = document.createElement("li");
+              li.textContent = text;
+              doneList.appendChild(li);
+            });
+
+            fbList.innerHTML = "";
+            if (step.fallbacks && step.fallbacks.length) {
+              fbWrap.style.display = "block";
+              step.fallbacks.forEach(function (fb) {
+                var li = document.createElement("li");
+                li.textContent = fb;
+                fbList.appendChild(li);
+              });
+            } else {
+              fbWrap.style.display = "none";
+            }
+
+            if (action.kind === "route" && action.href) {
+              primary.textContent = action.label || "Open";
+              primary.onclick = function () {
+                location.href = action.href;
+              };
+            } else if (action.kind === "complete") {
+              primary.textContent = action.label || "Continue";
+              primary.onclick = function () {
+                completeCurrentStep();
+              };
+            } else {
+              primary.textContent = action.label || "Continue";
+              primary.onclick = function () {
+                completeCurrentStep();
+              };
+            }
+
+            completeBtn.textContent =
+              (step.secondary_action && step.secondary_action.label) ||
+              "I completed this step";
+            completeBtn.onclick = function () {
+              if (step.secondary_action && step.secondary_action.kind === "route" && step.secondary_action.href) {
+                location.href = step.secondary_action.href;
+                return;
+              }
+              completeCurrentStep();
+            };
+
+            back.disabled = state.current === 0;
+            back.onclick = goBack;
+            reset.onclick = resetWizard;
+
+            document.getElementById("wizard-step-hint").textContent =
+              state.current < steps.length - 1
+                ? "When this step is done, mark it complete and continue."
+                : "This is the final step in the onboarding flow.";
+
+            renderRail();
+            renderProgress();
+            saveState();
+          }
+
+          renderRail();
+          renderProgress();
+          render();
+        }
+      })();
+    </script>
+    <script src="chat-widget.js"></script>
+  </body>
+</html>

@@ -170,9 +170,17 @@ pub fn router(state: AppState) -> Router {
         .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
         .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
         // ── LinkGit: git smart HTTP protocol ──────────────────────────────
+        // btcpc.net/git/owner/repo  (path-prefixed, also used via api.btcpc.net)
         .route("/git/:owner/:repo/info/refs", get(git_info_refs))
         .route("/git/:owner/:repo/git-upload-pack", post(git_upload_pack))
         .route("/git/:owner/:repo/git-receive-pack", post(git_receive_pack))
+        // git.btcpc.net/owner/repo  (short form — whole subdomain is the forge)
+        .route("/:owner/:repo/info/refs", get(git_info_refs))
+        .route("/:owner/:repo/git-upload-pack", post(git_upload_pack))
+        .route("/:owner/:repo/git-receive-pack", post(git_receive_pack))
+        // ── ENS identity ──────────────────────────────────────────────────
+        .route("/api/ens/resolve/:name", get(get_ens_resolve))
+        .route("/api/ens/repos/:name", get(get_ens_repos))
         // ── Verasens: Sensors / IoT ───────────────────────────────────────
         .route("/api/sensor/register", post(post_sensor_register))
         .route("/api/sensor/commit", post(post_sensor_commit))
@@ -5381,7 +5389,18 @@ fn git_auth(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.trim().to_owned())
 }
 
-/// GET /git/:owner/:repo/info/refs?service=git-upload-pack|git-receive-pack
+/// Resolve the BTCPC account for `owner`: if it looks like an ENS name (contains '.')
+/// resolve it via ENS → BTCPC; otherwise use it as-is.
+async fn resolve_owner(s: &AppState, owner: &str) -> String {
+    if crate::ens::is_ens_name(owner) {
+        crate::ens::btcpc_account_for_ens(&s.chain, owner).await
+            .unwrap_or_else(|| owner.to_owned())
+    } else {
+        owner.to_owned()
+    }
+}
+
+/// GET /git/:owner/:repo/info/refs   (also /:owner/:repo/info/refs for git.btcpc.net)
 async fn git_info_refs(
     State(s): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -5390,8 +5409,9 @@ async fn git_info_refs(
 ) -> axum::response::Response {
     let service = params.get("service").cloned().unwrap_or_default();
     let auth = git_auth(&headers);
+    let resolved = resolve_owner(&s, &owner).await;
     let resp = crate::linkgit_server::info_refs(
-        &s.chain.store, &owner, &repo, &service, auth.as_deref(),
+        &s.chain.store, &resolved, &repo, &service, auth.as_deref(),
     );
     git_response(resp)
 }
@@ -5404,8 +5424,9 @@ async fn git_upload_pack(
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     let auth = git_auth(&headers);
+    let resolved = resolve_owner(&s, &owner).await;
     let resp = crate::linkgit_server::upload_pack(
-        &s.chain.store, &owner, &repo, &body, auth.as_deref(),
+        &s.chain.store, &resolved, &repo, &body, auth.as_deref(),
     );
     git_response(resp)
 }
@@ -5421,8 +5442,9 @@ async fn git_receive_pack(
                                 receive_pack_response, GitResponse};
 
     let auth = git_auth(&headers);
+    let resolved = resolve_owner(&s, &owner).await;
 
-    let Some((repo_id, repo_json)) = find_repo(&s.chain.store, &owner, &repo) else {
+    let Some((repo_id, repo_json)) = find_repo(&s.chain.store, &resolved, &repo) else {
         return git_response(GitResponse { status: 404, content_type: "text/plain",
             body: b"repository not found".to_vec() });
     };
@@ -5474,6 +5496,55 @@ async fn git_receive_pack(
         content_type: "application/x-git-receive-pack-result",
         body: resp_bytes,
     })
+}
+
+// ── ENS identity handlers ─────────────────────────────────────────────────────
+
+/// GET /api/ens/resolve/:name
+/// Resolve an ENS name to its ETH address and linked BTCPC account.
+async fn get_ens_resolve(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Json<serde_json::Value> {
+    let (text_record, eth_addr, btcpc_account) = tokio::join!(
+        crate::ens::resolve_text(&name, "btcpc"),
+        crate::ens::resolve_addr(&name),
+        crate::ens::btcpc_account_for_ens(&s.chain, &name),
+    );
+    Json(serde_json::json!({
+        "ens_name": name,
+        "eth_address": eth_addr,
+        "btcpc_text_record": text_record,
+        "btcpc_account": btcpc_account,
+        "resolved": btcpc_account.is_some(),
+    }))
+}
+
+/// GET /api/ens/repos/:name
+/// List repos owned by an ENS identity.
+async fn get_ens_repos(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Json<serde_json::Value> {
+    let account = crate::ens::btcpc_account_for_ens(&s.chain, &name).await;
+    let Some(ref acct) = account else {
+        return Json(serde_json::json!({
+            "ens_name": name,
+            "btcpc_account": null,
+            "repos": [],
+            "error": "ENS name not linked to a BTCPC account",
+        }));
+    };
+    let repos: Vec<serde_json::Value> = s.chain.store.state_scan_prefix("linkgit:repo:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .filter(|r| r.get("owner").and_then(|o| o.as_str()) == Some(acct.as_str()))
+        .collect();
+    Json(serde_json::json!({
+        "ens_name": name,
+        "btcpc_account": account,
+        "repos": repos,
+    }))
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

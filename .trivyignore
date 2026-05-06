@@ -1,0 +1,28 @@
+# Trivy vulnerability suppressions
+# One CVE-ID per line. Trivy respects this file when run from the repo root.
+# Run: trivy fs --ignorefile .trivyignore .
+
+# ── Upstream-blocked (no fix available) ──────────────────────────────────────
+# yamux 0.12.1 — libp2p-yamux 0.47.0 (latest) pins ^0.12; no 0.12.x patch.
+# Risk: remote crash on authenticated P2P connections only (post-noise-handshake).
+# Track: remove when libp2p-yamux ships yamux ^0.13.
+CVE-2026-32314
+
+# ── Archived / non-production code ───────────────────────────────────────────
+# _archived/telegram-bot — deprecated Node.js bot, not deployed, not running.
+CVE-2025-7783
+CVE-2026-4800
+
+# btcpc/ web dashboard — not yet deployed; bump deps before deploy.
+# Suppressed here to keep signal clean; must be removed when btcpc/ goes live.
+CVE-2026-41242
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29045
+CVE-2026-29087
+CVE-2026-29786
+CVE-2026-31802
+CVE-2026-39363
+CVE-2026-39364

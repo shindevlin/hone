@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC — Profile</title>
+  <meta name="description" content="Your BTCPC account: balance, earnings, active roles, and transaction history.">
+  <meta name="theme-color" content="#f7931a">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0e17; --bg2: #111827; --card: #1a1f2e; --border: #2a3040;
+      --text: #e2e8f0; --muted: #64748b; --orange: #f7931a; --green: #22c55e;
+      --red: #ef4444; --blue: #60a5fa; --purple: #a78bfa; --yellow: #fbbf24;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; }
+    a { color: var(--orange); text-decoration: none; }
+
+    /* Nav */
+    #nav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px; padding: 10px 24px; background: rgba(10,14,23,0.95); border-bottom: 1px solid rgba(247,147,26,0.2); font-size: 12px; }
+    .nav-brand { font-size: 15px; font-weight: 700; color: var(--orange); letter-spacing: 1px; flex-shrink: 0; }
+    .nav-links { display: flex; gap: 16px; flex: 1; }
+    .nav-links a { color: #94a3b8; }
+    .nav-links a:hover, .nav-links a.active { color: var(--orange); }
+    #nav-account { color: var(--muted); font-size: 12px; }
+    #btn-logout { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: none; color: var(--muted); font-family: inherit; font-size: 11px; cursor: pointer; }
+    #btn-logout:hover { border-color: var(--red); color: var(--red); }
+
+    /* Login gate */
+    #login-gate { display: none; align-items: flex-start; justify-content: center; min-height: calc(100vh - 52px); padding: 40px 24px; }
+    #login-gate.visible { display: flex; }
+    .login-wrap { width: min(460px,100%); }
+    .login-box { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; margin-bottom: 16px; }
+    .login-box h2 { font-size: 20px; color: var(--orange); margin-bottom: 6px; }
+    .login-box .sub { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
+
+    /* Login fields */
+    .field label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .field input {
+      width: 100%; padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: inherit; font-size: 13px; outline: none;
+    }
+    .field input:focus { border-color: var(--orange); }
+    .field { margin-bottom: 12px; }
+
+    #login-error { color: var(--red); font-size: 12px; margin: 10px 0; display: none; }
+    .btn-primary { display: block; width: 100%; padding: 14px; border: none; border-radius: 10px; background: var(--orange); color: #000; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px; }
+    .btn-primary:hover { background: var(--yellow); }
+    .btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+    .how-it-works { background: rgba(247,147,26,0.04); border: 1px solid rgba(247,147,26,0.12); border-radius: 12px; padding: 16px 18px; font-size: 12px; }
+    .how-it-works h4 { color: var(--orange); margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .how-it-works li { color: var(--muted); margin-bottom: 4px; padding-left: 4px; }
+    .how-it-works li::before { content: '→ '; color: var(--orange); }
+    .how-it-works a { color: var(--orange); }
+
+    /* Profile */
+    #profile { display: none; max-width: 960px; margin: 0 auto; padding: 32px 24px 60px; }
+    #profile.visible { display: block; }
+
+    /* Epoch */
+    .epoch-bar { display: flex; align-items: center; gap: 16px; background: rgba(247,147,26,0.05); border: 1px solid rgba(247,147,26,0.15); border-radius: 10px; padding: 12px 16px; margin-bottom: 20px; font-size: 12px; }
+    .ep-num { font-size: 18px; font-weight: 700; color: var(--orange); }
+    .ep-label { color: var(--muted); font-size: 11px; }
+    .ep-progress { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+    .ep-fill { height: 100%; background: var(--orange); border-radius: 2px; transition: width 1s linear; }
+    .ep-remain { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+    /* Hero */
+    .hero { display: flex; align-items: center; gap: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px 28px; margin-bottom: 20px; flex-wrap: wrap; }
+    .hero-avatar { width: 64px; height: 64px; border-radius: 14px; background: linear-gradient(135deg,rgba(247,147,26,0.3),rgba(247,147,26,0.08)); border: 1px solid rgba(247,147,26,0.3); display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+    .hero-info { flex: 1; min-width: 0; }
+    .hero-name { font-size: 22px; font-weight: 700; }
+    .hero-address { font-size: 11px; color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+    .hero-roles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .role-badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+    .role-miner  { background: rgba(251,191,36,0.15); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+    .role-sensor { background: rgba(96,165,250,0.15); color: var(--blue);   border: 1px solid rgba(96,165,250,0.3); }
+    .role-clock  { background: rgba(167,139,250,0.15); color: var(--purple); border: 1px solid rgba(167,139,250,0.3); }
+    .role-storage{ background: rgba(34,197,94,0.15);  color: var(--green);  border: 1px solid rgba(34,197,94,0.3); }
+    .role-service{ background: rgba(247,147,26,0.15); color: var(--orange); border: 1px solid rgba(247,147,26,0.3); }
+    .hero-balance { text-align: right; flex-shrink: 0; }
+    .hero-balance .bal-num { font-size: 28px; font-weight: 700; color: var(--orange); }
+    .hero-balance .bal-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+    .hero-balance .bal-stake { font-size: 12px; color: var(--green); margin-top: 4px; }
+    #faucet-wrap { display: none; margin-top: 8px; }
+    #btn-faucet { padding: 8px 16px; border: 1px solid rgba(34,197,94,0.4); border-radius: 8px; background: rgba(34,197,94,0.08); color: var(--green); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+    #btn-faucet:hover { background: rgba(34,197,94,0.15); }
+    #faucet-status { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Grid */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } .hero-balance { text-align: left; } }
+
+    /* Card */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    .ct-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
+
+    /* Stat row */
+    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-key { font-size: 12px; color: var(--muted); }
+    .stat-val { font-size: 13px; font-weight: 600; }
+    .stat-val.green { color: var(--green); }
+    .stat-val.orange { color: var(--orange); }
+    .stat-val.muted { color: var(--muted); font-weight: 400; }
+
+    /* Pool bars */
+    .pool-row { margin-bottom: 12px; }
+    .pool-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 5px; }
+    .pool-name { font-weight: 600; }
+    .pool-bar-bg { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+    .pool-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+    /* Transactions */
+    .tx-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .tx-item:last-child { border-bottom: none; }
+    .tx-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .tx-icon.in  { background: rgba(34,197,94,0.12); }
+    .tx-icon.out { background: rgba(239,68,68,0.12); }
+    .tx-body { flex: 1; min-width: 0; }
+    .tx-peer { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tx-time { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .tx-amt { font-size: 13px; font-weight: 700; flex-shrink: 0; }
+    .tx-amt.in  { color: var(--green); }
+    .tx-amt.out { color: var(--red); }
+
+    /* Devices */
+    .device-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .device-item:last-child { border-bottom: none; }
+    .dev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dev-dot.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dev-dot.offline { background: var(--muted); }
+    .dev-name { flex: 1; font-size: 13px; font-weight: 600; }
+    .dev-role { font-size: 10px; color: var(--muted); }
+    .dev-last { font-size: 10px; color: var(--muted); }
+
+    /* Copy btn */
+    .copy-btn { font-size: 10px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: none; color: var(--muted); cursor: pointer; font-family: inherit; margin-left: 6px; }
+    .copy-btn:hover { border-color: var(--orange); color: var(--orange); }
+
+    .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 20px 0; }
+    .loading { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<nav id="nav">
+  <a href="/" class="nav-brand">BTCPC</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/app.html">App</a>
+    <a href="/dashboard.html">Explorer</a>
+    <a href="/profile.html" class="active">Profile</a>
+    <a href="/network-viz.html">Network</a>
+  </div>
+  <span id="nav-account"></span>
+  <button id="btn-logout" style="display:none">Sign out</button>
+</nav>
+
+<!-- Login gate -->
+<div id="login-gate">
+  <div class="login-wrap">
+    <div class="login-box">
+      <h2>Profile</h2>
+      <p class="sub">Enter your account name and memo key to view your dashboard.</p>
+
+      <div class="field">
+        <label>Account name</label>
+        <input type="text" id="input-user" placeholder="yourname" autocomplete="username" autocapitalize="none" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Memo key</label>
+        <input type="password" id="input-privkey" placeholder="64-char hex memo private key" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div id="login-error"></div>
+      <button class="btn-primary" id="btn-login">Sign in</button>
+    </div>
+
+    <div class="how-it-works">
+      <h4>How this works</h4>
+      <ul style="list-style:none;padding:0;">
+        <li>Your memo key signs a one-time challenge — nothing is sent to the server</li>
+        <li>The server checks the signature against your public key on-chain</li>
+        <li>No password is stored or transmitted</li>
+        <li>No account? Create one at <a href="/app.html">btcpc.net/app</a></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Profile -->
+<div id="profile">
+
+  <div class="epoch-bar">
+    <div>
+      <div class="ep-num" id="ep-num">—</div>
+      <div class="ep-label">current epoch</div>
+    </div>
+    <div class="ep-progress"><div class="ep-fill" id="ep-fill" style="width:0%"></div></div>
+    <div class="ep-remain" id="ep-remain">—s remaining</div>
+    <div style="color:var(--muted);font-size:11px;">30s epochs · 42M supply</div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-avatar" id="hero-avatar">⚡</div>
+    <div class="hero-info">
+      <div class="hero-name" id="hero-name">—</div>
+      <div class="hero-address">
+        <span id="hero-addr">—</span>
+        <button class="copy-btn" id="btn-copy-addr">copy</button>
+      </div>
+      <div class="hero-roles" id="hero-roles"></div>
+    </div>
+    <div class="hero-balance">
+      <div class="bal-num" id="hero-balance">—</div>
+      <div class="bal-lbl">BTCPC</div>
+      <div class="bal-stake" id="hero-stake" style="display:none"></div>
+      <div id="faucet-wrap">
+        <button id="btn-faucet">Claim faucet</button>
+        <div id="faucet-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span class="ct-dot"></span>Earnings by pool</div>
+      <div id="pool-list"><div class="loading">Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="ct-dot"></span>Network position</div>
+      <div id="net-stats"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span class="ct-dot"></span>Staking</div>
+      <div id="stake-info"><div class="loading">Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="ct-dot"></span>Active devices</div>
+      <div id="device-list"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="ct-dot"></span>Recent transactions</div>
+    <div id="tx-list"><div class="loading">Loading…</div></div>
+  </div>
+
+</div>
+
+<!-- @noble/curves/secp256k1 — bundles its own sha256, no config needed -->
+<script type="module">
+  import { secp256k1 } from 'https://esm.sh/@noble/curves/secp256k1';
+  window._secp256k1 = secp256k1;
+  window.dispatchEvent(new CustomEvent('secp256k1ready'));
+</script>
+<script>
+var _secpReady = null;
+function loadSecp() {
+  if (_secpReady) return _secpReady;
+  _secpReady = new Promise(function(resolve) {
+    if (window._secp256k1) { resolve(window._secp256k1); return; }
+    window.addEventListener('secp256k1ready', function() { resolve(window._secp256k1); }, { once: true });
+  });
+  return _secpReady;
+}
+
+async function sha256Bytes(bytes) {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return new Uint8Array(buf);
+}
+
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i*2, i*2+2), 16);
+  return arr;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+</script>
+
+<script>
+(function() {
+  var GENESIS_TS = 1776236400000;
+  var EPOCH_MS   = 30000;
+  var API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:3000'
+    : (location.protocol + '//' + location.hostname);
+
+  var jwt = null;
+  var account = null;
+
+  // ── Auth helpers ───────────────────────────────────────────────────────────
+  function signOut() {
+    localStorage.removeItem('btcpc-jwt');
+    localStorage.removeItem('btcpc-sensor-account');
+    jwt = null; account = null;
+    showGate();
+  }
+
+  function showGate() {
+    document.getElementById('login-gate').classList.add('visible');
+    document.getElementById('profile').classList.remove('visible');
+    document.getElementById('btn-logout').style.display = 'none';
+    document.getElementById('nav-account').textContent = '';
+  }
+
+  function showProfile(user) {
+    document.getElementById('login-gate').classList.remove('visible');
+    document.getElementById('profile').classList.add('visible');
+    document.getElementById('btn-logout').style.display = '';
+    document.getElementById('nav-account').textContent = user;
+    document.getElementById('hero-name').textContent = user;
+    document.getElementById('hero-avatar').textContent = user.charAt(0).toUpperCase();
+  }
+
+  document.getElementById('btn-logout').addEventListener('click', signOut);
+
+  // ── Sign and authenticate ──────────────────────────────────────────────────
+  var errEl = document.getElementById('login-error');
+  function setError(msg) { errEl.textContent = msg; errEl.style.display = msg ? 'block' : 'none'; }
+
+  document.getElementById('btn-login').addEventListener('click', async function() {
+    setError('');
+    var btn = document.getElementById('btn-login');
+
+    var user = document.getElementById('input-user').value.trim().toLowerCase();
+    var privKeyHex = document.getElementById('input-privkey').value.trim().replace(/^0x/, '');
+
+    if (!user) { setError('Enter your account name.'); return; }
+    if (!privKeyHex || privKeyHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(privKeyHex)) {
+      setError('Enter your 64-character hex memo key.');
+      return;
+    }
+
+    btn.textContent = 'Signing…';
+    btn.disabled = true;
+
+    try {
+      var cr = await fetch(API_BASE + '/public/auth-challenge?username=' + encodeURIComponent(user));
+      var cd = await cr.json();
+      if (!cd.nonce) throw new Error(cd.error || 'Could not get challenge');
+      var nonce = cd.nonce;
+
+      var secp;
+      try { secp = await loadSecp(); } catch(e) { throw new Error('Could not load crypto library. Check your connection.'); }
+
+      var msgBytes = new TextEncoder().encode('btcpc-auth:' + nonce);
+      var msgHash  = await sha256Bytes(msgBytes);
+      var privBytes = hexToBytes(privKeyHex);
+      var sig = secp.sign(msgHash, privBytes);
+      // toCompactRawBytes() is universal across @noble/secp256k1 v2+ and @noble/curves
+      var sigHex = bytesToHex(sig.toCompactRawBytes());
+
+      var ar = await fetch(API_BASE + '/public/auth-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, nonce: nonce, signature: sigHex })
+      });
+      var ad = await ar.json();
+
+      if (ad.success && ad.token) {
+        jwt = ad.token;
+        account = ad.username || user;
+        localStorage.setItem('btcpc-jwt', jwt);
+        localStorage.setItem('btcpc-sensor-account', account);
+        showProfile(account);
+        loadAll();
+      } else {
+        setError(ad.error || 'Authentication failed. Check your account name and memo key.');
+      }
+    } catch(e) {
+      setError('Error: ' + e.message);
+    }
+
+    btn.textContent = 'Sign in';
+    btn.disabled = false;
+  });
+
+  // ── Copy address ───────────────────────────────────────────────────────────
+  document.getElementById('btn-copy-addr').addEventListener('click', function() {
+    var addr = document.getElementById('hero-addr').textContent;
+    if (addr && addr !== '—') {
+      navigator.clipboard.writeText(addr).catch(function(){});
+      document.getElementById('btn-copy-addr').textContent = 'copied!';
+      setTimeout(function() { document.getElementById('btn-copy-addr').textContent = 'copy'; }, 1500);
+    }
+  });
+
+  // ── Faucet ─────────────────────────────────────────────────────────────────
+  document.getElementById('btn-faucet').addEventListener('click', async function() {
+    var btn = document.getElementById('btn-faucet');
+    var status = document.getElementById('faucet-status');
+    btn.disabled = true; btn.textContent = 'Claiming…'; status.textContent = '';
+    try {
+      var r = await fetch(API_BASE + '/api/faucet/claim', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + jwt, 'Content-Type': 'application/json' }
+      });
+      var d = await r.json();
+      if (d.success) {
+        status.style.color = 'var(--green)'; status.textContent = 'Claimed! Refreshing…';
+        setTimeout(loadBalance, 1500);
+      } else {
+        status.style.color = 'var(--red)'; status.textContent = d.error || 'Already claimed.';
+        btn.disabled = false; btn.textContent = 'Claim faucet';
+      }
+    } catch(e) { status.style.color='var(--red)'; status.textContent='Network error.'; btn.disabled=false; btn.textContent='Claim faucet'; }
+  });
+
+  // ── Epoch ticker ───────────────────────────────────────────────────────────
+  function tickEpoch() {
+    var now = Date.now(), elapsed = now - GENESIS_TS;
+    if (elapsed < 0) return;
+    var ep = Math.floor(elapsed / EPOCH_MS), inEp = elapsed % EPOCH_MS;
+    document.getElementById('ep-num').textContent = '#' + ep.toLocaleString();
+    document.getElementById('ep-fill').style.width = ((inEp / EPOCH_MS) * 100) + '%';
+    document.getElementById('ep-remain').textContent = Math.ceil((EPOCH_MS - inEp) / 1000) + 's remaining';
+  }
+  setInterval(tickEpoch, 1000); tickEpoch();
+
+  // ── Data helpers ───────────────────────────────────────────────────────────
+  function fmt(n) { var x = Number(n||0); return x.toFixed(x>=100?2:x>=1?4:6).replace(/\.?0+$/,'')||'0'; }
+  function relTime(ts) { var s=Math.floor((Date.now()-new Date(ts).getTime())/1000); if(s<60) return s+'s ago'; if(s<3600) return Math.floor(s/60)+'m ago'; if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
+
+  // ── Balance ────────────────────────────────────────────────────────────────
+  async function loadBalance() {
+    if (!jwt) return;
+    try {
+      var r = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
+      var d = await r.json();
+      if (d.success || d.balance !== undefined) {
+        var bal = d.balance && typeof d.balance === 'object' ? d.balance.BTCPC : d.balance;
+        bal = Number(bal || 0);
+        document.getElementById('hero-balance').textContent = fmt(bal);
+        if (d.address) document.getElementById('hero-addr').textContent = d.address;
+        document.getElementById('faucet-wrap').style.display = bal < 0.0001 ? 'block' : 'none';
+        var del = Number(d.delegated_balance || 0);
+        var stakeEl = document.getElementById('hero-stake');
+        if (del > 0) { stakeEl.textContent = fmt(del) + ' BTCPC staked'; stakeEl.style.display = 'block'; }
+      }
+    } catch(e) {}
+  }
+
+  // ── Transactions ───────────────────────────────────────────────────────────
+  async function loadTransactions() {
+    if (!jwt) return;
+    var el = document.getElementById('tx-list');
+    try {
+      var r = await fetch(API_BASE + '/api/wallet/transactions', { headers: { 'Authorization': 'Bearer ' + jwt } });
+      var d = await r.json();
+      var txs = (d && d.transactions) || [];
+      if (txs.length === 0) { el.innerHTML = '<div class="empty">No transactions yet.</div>'; return; }
+      el.innerHTML = txs.slice(0, 30).map(function(tx) {
+        var isIn = tx.type === 'receive' || (tx.to === account && tx.type !== 'send');
+        var peer = tx.counterpart || (isIn ? tx.from : tx.to) || 'network';
+        var ts = tx.timestamp || tx.created_at || tx.time;
+        return '<div class="tx-item"><div class="tx-icon '+(isIn?'in':'out')+'">'+(isIn?'↓':'↑')+'</div><div class="tx-body"><div class="tx-peer">'+(peer.length>24?peer.slice(0,20)+'…':peer)+'</div><div class="tx-time">'+(ts?relTime(ts):'—')+'</div></div><div class="tx-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+fmt(tx.amount)+' BTCPC</div></div>';
+      }).join('');
+    } catch(e) { el.innerHTML = '<div class="empty">Could not load transactions.</div>'; }
+  }
+
+  // ── Network + pool bars ────────────────────────────────────────────────────
+  var POOL_COLORS = { miner:'#fbbf24', sensor:'#60a5fa', clock:'#a78bfa', storage:'#22c55e', service:'#f7931a', tracker:'#60a5fa', other:'#94a3b8' };
+
+  function renderPoolBars(pools, labelSuffix) {
+    var entries = Object.entries(pools);
+    var maxVal = Math.max.apply(null, entries.map(function(e){ return Number(e[1])||0; })) || 1;
+    return entries.map(function(e) {
+      var name = e[0], val = Number(e[1])||0;
+      var col = POOL_COLORS[name.toLowerCase()] || '#f7931a';
+      var pct = Math.round((val/maxVal)*100);
+      return '<div class="pool-row"><div class="pool-header"><span class="pool-name" style="color:'+col+'">'+name+'</span><span style="color:var(--muted)">'+fmt(val)+(labelSuffix||' BTCPC')+'</span></div><div class="pool-bar-bg"><div class="pool-bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div></div>';
+    }).join('');
+  }
+
+  async function loadNetwork() {
+    try {
+      var r = await fetch(API_BASE + '/public/network');
+      var d = await r.json();
+      var netEl = document.getElementById('net-stats');
+      netEl.innerHTML = [
+        { key:'Peers',         val: d.peer_count || d.peers || '—' },
+        { key:'Miners online', val: d.miner_count || d.miners || '—' },
+        { key:'Clock nodes',   val: d.clock_count || d.clocks || '—' },
+        { key:'Storage nodes', val: d.storage_count || d.storage || '—' },
+        { key:'Epoch',         val: '#'+(d.epoch||'—'), cls:'orange' },
+        { key:'Chain height',  val: d.height || d.chain_height || '—' },
+      ].map(function(row) {
+        return '<div class="stat-row"><span class="stat-key">'+row.key+'</span><span class="stat-val '+(row.cls||'')+'">' +row.val+'</span></div>';
+      }).join('');
+
+      // Pool bars — try reward_pools from API, else build from role counts
+      var pools = d.reward_pools || d.pools;
+      if (pools) {
+        document.getElementById('pool-list').innerHTML = renderPoolBars(pools);
+      } else {
+        var fallback = { Miner: d.miner_count||0, Sensor: d.sensor_count||d.iot_count||0, Clock: d.clock_count||0, Storage: d.storage_count||0, Service: d.service_count||0 };
+        document.getElementById('pool-list').innerHTML = renderPoolBars(fallback, ' nodes');
+      }
+    } catch(e) {
+      document.getElementById('net-stats').innerHTML = '<div class="empty">Network unavailable.</div>';
+      document.getElementById('pool-list').innerHTML = '<div class="empty">Pool data unavailable.</div>';
+    }
+
+    // Overlay with personal earnings if logged in
+    if (jwt) loadMyEarnings();
+  }
+
+  async function loadMyEarnings() {
+    try {
+      var r = await fetch(API_BASE + '/api/wallet/transactions', { headers: { 'Authorization': 'Bearer ' + jwt } });
+      var d = await r.json();
+      var txs = (d && d.transactions) || [];
+      var byPool = {};
+      txs.forEach(function(tx) {
+        if (tx.type !== 'receive' && tx.to !== account) return;
+        var src = (tx.source || tx.pool || tx.from || '').toLowerCase();
+        var pool = src.includes('mine')||src.includes('infer')||src.includes('gpu') ? 'Miner'
+          : src.includes('sensor')||src.includes('iot') ? 'Sensor'
+          : src.includes('clock')||src.includes('time') ? 'Clock'
+          : src.includes('storage')||src.includes('store') ? 'Storage'
+          : src.includes('service')||src.includes('api') ? 'Service'
+          : src.includes('tracker')||src.includes('ble') ? 'Tracker'
+          : 'Other';
+        byPool[pool] = (byPool[pool] || 0) + Number(tx.amount || 0);
+      });
+      if (Object.keys(byPool).length > 0) {
+        document.getElementById('pool-list').innerHTML = renderPoolBars(byPool);
+      }
+    } catch(e) {}
+  }
+
+  // ── Staking ────────────────────────────────────────────────────────────────
+  async function loadStaking() {
+    var el = document.getElementById('stake-info');
+    var rows = [];
+    try {
+      var nr = await fetch(API_BASE + '/api/staking/network');
+      var nd = await nr.json();
+      if (nd.success && nd.network) {
+        rows.push({ key:'Total staked', val: fmt(nd.network.total_staked)+' BTCPC' });
+        rows.push({ key:'Stakers',      val: nd.network.staker_count || '0' });
+      }
+    } catch(e) {}
+    if (jwt) {
+      try {
+        var sr = await fetch(API_BASE + '/api/staking/info', { headers: { 'Authorization': 'Bearer ' + jwt } });
+        var sd = await sr.json();
+        if (sd.success && sd.staking) {
+          var s = sd.staking;
+          rows.push({ key:'My stake', val: fmt(s.staked_amount||0)+' BTCPC', cls: Number(s.staked_amount||0)>0?'green':'muted' });
+          rows.push({ key:'Status',   val: s.status||'active', cls: s.status==='unstaking'?'':'green' });
+          if (s.unlock_available_at) rows.push({ key:'Unlocks', val: new Date(s.unlock_available_at).toLocaleDateString(), cls:'muted' });
+        } else {
+          rows.push({ key:'My stake', val:'None', cls:'muted' });
+        }
+      } catch(e) {}
+    }
+    el.innerHTML = rows.length ? rows.map(function(r) {
+      return '<div class="stat-row"><span class="stat-key">'+r.key+'</span><span class="stat-val '+(r.cls||'')+'">' +r.val+'</span></div>';
+    }).join('') : '<div class="empty">Staking data unavailable.</div>';
+  }
+
+  // ── Devices ────────────────────────────────────────────────────────────────
+  async function loadDevices() {
+    var el = document.getElementById('device-list');
+    var rolesEl = document.getElementById('hero-roles');
+    if (!account) return;
+    try {
+      var r = await fetch(API_BASE + '/public/my-devices?account=' + encodeURIComponent(account));
+      var d = await r.json();
+      var devices = d.devices || d || [];
+      if (!Array.isArray(devices) || devices.length === 0) {
+        el.innerHTML = '<div class="empty">No devices yet. <a href="/app.html">Open the app</a> to register.</div>';
+        return;
+      }
+      var now = Date.now(), seenRoles = {};
+      el.innerHTML = devices.slice(0,10).map(function(dev) {
+        var ls = dev.last_seen || dev.updated_at || dev.timestamp;
+        var online = ls && (now - new Date(ls).getTime()) < 120000;
+        var role = dev.role || dev.type || 'node';
+        seenRoles[role] = true;
+        return '<div class="device-item"><div class="dev-dot '+(online?'online':'offline')+'"></div><div class="dev-name">'+(dev.name||dev.device_id||dev.id||'device')+'</div><div class="dev-role">'+role+'</div><div class="dev-last">'+(ls?relTime(ls):'—')+'</div></div>';
+      }).join('');
+      var roleColors = { miner:'role-miner', sensor:'role-sensor', clock:'role-clock', storage:'role-storage', service:'role-service' };
+      rolesEl.innerHTML = Object.keys(seenRoles).map(function(r) {
+        return '<span class="role-badge '+(roleColors[r.toLowerCase()]||'role-service')+'">'+r+'</span>';
+      }).join('');
+    } catch(e) { el.innerHTML = '<div class="empty">Could not load devices.</div>'; }
+  }
+
+  // ── Load all ───────────────────────────────────────────────────────────────
+  function loadAll() { loadBalance(); loadTransactions(); loadNetwork(); loadStaking(); loadDevices(); }
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  jwt = localStorage.getItem('btcpc-jwt');
+  account = localStorage.getItem('btcpc-sensor-account');
+
+  if (jwt && account) {
+    showProfile(account);
+    loadAll();
+    setInterval(loadBalance, 30000);
+  } else {
+    showGate();
+  }
+
+}());
+</script>
+</body>
+</html>

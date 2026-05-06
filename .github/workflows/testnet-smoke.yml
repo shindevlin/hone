@@ -1,0 +1,32 @@
+name: Testnet Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run testnet smoke
+        env:
+          TESTNET_BASE_URL: ${{ secrets.BTCPC_TESTNET_URL || 'https://btcpc.net' }}
+          API_BASE_URL: ${{ secrets.BTCPC_API_URL || 'https://btcpc.net' }}
+          BTCPC_SMOKE_API_KEY: ${{ secrets.BTCPC_SMOKE_API_KEY }}
+          BTCPC_MODEL: ${{ secrets.BTCPC_SMOKE_MODEL || 'qwen3:4b' }}
+        run: npm run smoke:testnet

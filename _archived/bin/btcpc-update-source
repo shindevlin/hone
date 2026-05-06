@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-update-source — Daily auto-update for source-based installations
+ * Shin Devlin
+ *
+ * Checks for new commits once per day (default 4:00 AM local time).
+ * Only restarts if the code actually changed. Rolls back if the node
+ * doesn't come back healthy within 60 seconds.
+ *
+ * Users never need to touch their machines. The software updates itself
+ * quietly, once a day, and self-heals if something goes wrong.
+ *
+ * Environment:
+ *   BTCPC_UPDATE_HOUR     — hour to check (0-23, default: 4 = 4 AM local)
+ *   BTCPC_UPDATE_INTERVAL — override: check every N ms (disables daily schedule)
+ *   BTCPC_UPDATE_DISABLED — set to "true" to disable auto-updates entirely
+ */
+
+var { execSync } = require("child_process");
+var fs = require("fs");
+var path = require("path");
+
+var REPO_DIR = process.env.BTCPC_REPO_DIR || path.resolve(__dirname, "..");
+var PENDING_FILE = path.join(REPO_DIR, ".btcpc-update-pending");
+var UPDATE_HOUR = parseInt(process.env.BTCPC_UPDATE_HOUR) || 4; // 4 AM local
+var HEALTH_URL = "http://localhost:" + (process.env.PORT || 3000) + "/health";
+var HEALTH_TIMEOUT_MS = 60000;
+
+function log(msg) { console.log("[auto-update] " + msg); }
+
+function run(cmd) {
+  return execSync(cmd, { cwd: REPO_DIR, timeout: 120000, encoding: "utf8" }).trim();
+}
+
+function checkHealth() {
+  try {
+    var http = require("http");
+    return new Promise(function (resolve) {
+      var req = http.get(HEALTH_URL, { timeout: 5000 }, function (res) {
+        resolve(res.statusCode === 200);
+      });
+      req.on("error", function () { resolve(false); });
+      req.on("timeout", function () { req.destroy(); resolve(false); });
+    });
+  } catch (_) {
+    return Promise.resolve(false);
+  }
+}
+
+async function waitForHealth() {
+  var start = Date.now();
+  while (Date.now() - start < HEALTH_TIMEOUT_MS) {
+    var healthy = await checkHealth();
+    if (healthy) return true;
+    await new Promise(function (r) { setTimeout(r, 5000); });
+  }
+  return false;
+}
+
+async function checkAndUpdate() {
+  if (process.env.BTCPC_UPDATE_DISABLED === "true") return;
+
+  try {
+    var localHead = run("git rev-parse HEAD");
+
+    // Fetch latest from origin
+    try {
+      run("git fetch origin main --quiet");
+    } catch (e) {
+      log("fetch failed (network?): " + e.message);
+      return;
+    }
+
+    var remoteHead = run("git rev-parse origin/main");
+
+    if (localHead === remoteHead) {
+      log("up to date (" + localHead.slice(0, 8) + ")");
+      return;
+    }
+
+    // Count commits behind. If hashes differ but HEAD is not behind origin/main,
+    // the checkout is divergent or locally ahead. Do not restart or hard-reset:
+    // source installs may have local operator edits, and a zero-commit "update"
+    // causes btcpc-all to restart forever without changing code.
+    var behindCount = run("git rev-list HEAD..origin/main --count");
+    if (parseInt(behindCount, 10) <= 0) {
+      log("remote differs but local is not behind (" + localHead.slice(0, 8) + " vs " + remoteHead.slice(0, 8) + ") — skipping auto-update");
+      return;
+    }
+    log("update available: " + localHead.slice(0, 8) + " → " + remoteHead.slice(0, 8) + " (" + behindCount + " commits)");
+
+    // Pull
+    try {
+      run("git pull origin main --ff-only");
+    } catch (e) {
+      log("fast-forward update failed: " + e.message);
+      return;
+    }
+
+    // Install dependencies only if package.json changed
+    try {
+      var diff = run("git diff " + localHead + " HEAD --name-only");
+      if (diff.indexOf("package.json") !== -1) {
+        log("package.json changed — running npm install");
+        run("npm install --omit=dev --no-audit --no-fund");
+      }
+    } catch (_) {}
+
+    // Signal btcpc-all supervisor to restart children
+    try {
+      fs.writeFileSync(PENDING_FILE, new Date().toISOString());
+      log("wrote restart signal — supervisor will restart children");
+    } catch (e) {
+      log("could not write restart signal: " + e.message);
+    }
+
+    // Wait for health check after restart
+    log("waiting for node to come back healthy...");
+    var healthy = await waitForHealth();
+
+    if (healthy) {
+      log("update complete — node healthy at " + run("git rev-parse HEAD").slice(0, 8));
+    } else {
+      // Rollback
+      log("WARNING: node not healthy after update — rolling back to " + localHead.slice(0, 8));
+      try {
+        run("git reset --hard " + localHead);
+        fs.writeFileSync(PENDING_FILE, "rollback-" + new Date().toISOString());
+        log("rolled back and signaled restart");
+      } catch (e) {
+        log("rollback failed: " + e.message);
+      }
+    }
+  } catch (e) {
+    log("error: " + e.message);
+  }
+}
+
+// ─── Scheduling ─────────────────────────────────────────────────────
+
+// Core team accounts get immediate updates (every 5 min).
+// Everyone else updates daily unless they opt-in via BTCPC_UPDATE_INTERVAL.
+var CORE_ACCOUNTS = ["natoshisakamoto", "shindevlin", "josh"];
+var minerAccount = process.env.BTCPC_MINER || "";
+var isCoreAccount = CORE_ACCOUNTS.indexOf(minerAccount) !== -1;
+var explicitInterval = parseInt(process.env.BTCPC_UPDATE_INTERVAL);
+
+if (isCoreAccount && !explicitInterval) {
+  explicitInterval = 5 * 60 * 1000; // 5 minutes for core team
+  log("Core account (" + minerAccount + ") — checking every 5 min");
+}
+
+if (explicitInterval > 0) {
+  log("BTCPC auto-updater started (every " + (explicitInterval / 60000) + " min)");
+  checkAndUpdate();
+  setInterval(checkAndUpdate, explicitInterval);
+} else {
+  // Daily schedule: check once at UPDATE_HOUR, then every 24h
+  log("BTCPC auto-updater started (daily at " + UPDATE_HOUR + ":00 local time)");
+
+  // Check on startup if we missed today's window
+  checkAndUpdate();
+
+  // Calculate ms until next UPDATE_HOUR
+  function msUntilNextCheck() {
+    var now = new Date();
+    var next = new Date(now);
+    next.setHours(UPDATE_HOUR, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    var delay = msUntilNextCheck();
+    log("next check in " + (delay / 3600000).toFixed(1) + " hours");
+    setTimeout(function () {
+      checkAndUpdate().then(scheduleNext);
+    }, delay);
+  }
+
+  scheduleNext();
+}

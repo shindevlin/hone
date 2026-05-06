@@ -1,0 +1,39 @@
+# ZeroClaw — BTCPC Marketing Poster
+# Routes inference through the BTCPC chain (POST /v1/chat/completions → miners)
+# api_key is injected at runtime from btcpc .env by post.sh
+
+workspace_dir       = "/home/ubuntclaw/repos/btcpc/marketing-dashboard/zeroclaw/poster/workspace"
+default_provider    = "openai"
+default_model       = "qwen3.5:9b"
+api_key             = "BTCPC_API_KEY_HERE"
+api_url             = "http://localhost:4242"
+default_temperature = 0.3
+provider_timeout_secs = 300
+
+[agent]
+max_tool_iterations  = 40
+max_history_messages = 40
+max_context_tokens   = 16000
+
+[memory]
+backend = "none"
+
+[tools.http_request]
+enabled           = true
+allowed_domains   = [
+  "localhost:7979",
+  "twitter.com",
+  "x.com",
+  "reddit.com",
+  "news.ycombinator.com",
+  "substack.com",
+]
+max_response_size = 524288
+timeout_secs      = 30
+
+[tools.browser]
+enabled       = true
+backend       = "rust_native"
+headless      = false
+webdriver_url = "http://localhost:4444"
+# Firefox profile is set via PERSONA env var in post.sh → geckodriver uses persona's profile dir

@@ -1,0 +1,37 @@
+# cargo-audit run 2026-05-05T18:52:55Z
+## ./rust/btcpc-android/Cargo.toml
+
+## ./rust/btcpc-cli/Cargo.toml
+
+## ./rust/btcpc-node/Cargo.toml
+
+## ./rust/btcpc-node/crates/btcpc-types/Cargo.toml
+
+## ./rust/btcpc-contract-sdk/sdk-macros/Cargo.toml
+
+## ./rust/btcpc-contract-sdk/sdk/Cargo.toml
+
+## ./rust/btcpc-contract-sdk/examples/ft/Cargo.toml
+
+## ./rust/btcpc-contract-sdk/examples/nft/Cargo.toml
+
+## ./rust/btcpc-contract-sdk/Cargo.toml
+
+## ./rust/btcpc-bot/Cargo.toml
+
+## ./rust/btcpc-sdk/Cargo.toml
+
+## ./rust/betchu-bot/Cargo.toml
+
+## ./rust/chain-core/Cargo.toml
+
+## ./rust/btcpc-contract-runtime/Cargo.toml
+
+## ./rust/linkgit/Cargo.toml
+
+## ./rust/btcpc-ble-tracker/Cargo.toml
+
+## ./android/rust/ort-patched/Cargo.toml
+
+## ./android/rust/btcpc-miner/Cargo.toml
+

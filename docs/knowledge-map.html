@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC Knowledge Map</title>
+  <style>
+    :root {
+      --bg0: #07090f;
+      --bg1: #0b1020;
+      --panel: rgba(15, 23, 42, 0.88);
+      --panel2: rgba(17, 24, 39, 0.92);
+      --stroke: rgba(148, 163, 184, 0.18);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #f7931a;
+      --cyan: #38bdf8;
+      --green: #22c55e;
+      --violet: #a855f7;
+      --rose: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(247,147,26,0.16), transparent 26%),
+        radial-gradient(circle at 85% 10%, rgba(56,189,248,0.10), transparent 22%),
+        radial-gradient(circle at 50% 100%, rgba(34,197,94,0.10), transparent 25%),
+        linear-gradient(180deg, var(--bg0), var(--bg1) 48%, var(--bg0));
+      overflow: hidden;
+    }
+    a { color: #fbbf24; text-decoration: none; }
+    .app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid rgba(148,163,184,0.12);
+      background: rgba(2, 6, 23, 0.46);
+      backdrop-filter: blur(14px);
+      flex-wrap: wrap;
+    }
+    .brand {
+      min-width: 320px;
+      max-width: 780px;
+    }
+    .eyebrow {
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    h1 {
+      margin: 4px 0 0;
+      font-size: clamp(28px, 4vw, 52px);
+      line-height: 1.02;
+    }
+    .sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 920px;
+    }
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .button, .pill, .control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(247,147,26,0.22);
+      background: rgba(247,147,26,0.08);
+      color: #fbbf24;
+      font-weight: 700;
+      padding: 10px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .button:hover, .control:hover { border-color: rgba(247,147,26,0.45); }
+    .button.secondary, .control.secondary {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(148,163,184,0.16);
+      color: var(--text);
+    }
+    .button.active, .control.active {
+      border-color: rgba(56,189,248,0.52);
+      background: rgba(56,189,248,0.12);
+      color: #a5f3fc;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 360px;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+    .panel {
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border-right: 1px solid rgba(148,163,184,0.10);
+    }
+    .panel.right { border-right: 0; border-left: 1px solid rgba(148,163,184,0.10); }
+    .panel-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.10);
+      background: rgba(2, 6, 23, 0.34);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .panel-header strong { font-size: 14px; }
+    .panel-header span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .search {
+      width: 100%;
+      border: 1px solid rgba(148,163,184,0.18);
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 14px;
+      outline: none;
+      font-size: 14px;
+    }
+    .search::placeholder { color: #64748b; }
+    .search:focus { border-color: rgba(247,147,26,0.45); box-shadow: 0 0 0 3px rgba(247,147,26,0.08); }
+    .group-list, .backlinks, .details-body {
+      padding: 10px 12px 16px;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    .group {
+      margin-bottom: 14px;
+    }
+    .group-title {
+      padding: 10px 10px 8px;
+      font-size: 11px;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 800;
+    }
+    .vault-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      margin: 4px 0;
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: rgba(255,255,255,0.02);
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    }
+    .vault-item:hover { background: rgba(255,255,255,0.04); transform: translateY(-1px); }
+    .vault-item.active { border-color: rgba(247,147,26,0.35); background: rgba(247,147,26,0.09); }
+    .vault-item .title { font-weight: 700; font-size: 14px; }
+    .vault-item .meta { font-size: 11px; color: var(--muted); }
+    .vault-item .summary { font-size: 12px; color: #cbd5e1; line-height: 1.45; }
+    .graph-shell {
+      position: relative;
+      background:
+        radial-gradient(circle at center, rgba(247,147,26,0.07), transparent 35%),
+        linear-gradient(180deg, rgba(2,6,23,0.15), rgba(2,6,23,0.55));
+      min-width: 0;
+      min-height: 0;
+    }
+    .graph-toolbar {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      z-index: 4;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      pointer-events: none;
+      flex-wrap: wrap;
+    }
+    .graph-toolbar .group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: auto;
+    }
+    .stats {
+      pointer-events: none;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .stats .pill {
+      pointer-events: auto;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    .graph-wrap {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+    svg.dragging { cursor: grabbing; }
+    .node circle {
+      stroke: rgba(148,163,184,0.34);
+      stroke-width: 1.5;
+      filter: drop-shadow(0 10px 22px rgba(0,0,0,0.32));
+      cursor: pointer;
+      transition: transform 0.12s ease, stroke 0.12s ease, fill 0.12s ease;
+    }
+    .node text {
+      font-size: 12px;
+      font-weight: 700;
+      fill: #f8fafc;
+      pointer-events: none;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.55);
+    }
+    .node .sub {
+      font-size: 10px;
+      fill: #94a3b8;
+      font-weight: 600;
+    }
+    .node.active circle {
+      stroke: rgba(247,147,26,0.98);
+      stroke-width: 2.5;
+      fill-opacity: 0.28;
+    }
+    .node.dimmed { opacity: 0.16; }
+    .link {
+      stroke: rgba(148,163,184,0.28);
+      stroke-width: 1.8;
+      fill: none;
+      transition: stroke 0.15s ease, stroke-width 0.15s ease;
+    }
+    .link.active {
+      stroke: rgba(247,147,26,0.95);
+      stroke-width: 2.8;
+    }
+    .link-label {
+      fill: rgba(203,213,225,0.70);
+      font-size: 10px;
+      font-weight: 700;
+      pointer-events: none;
+      letter-spacing: 0.3px;
+    }
+    .detail-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(148,163,184,0.10);
+      margin-bottom: 14px;
+    }
+    .detail-title h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      background: rgba(247,147,26,0.12);
+      color: #fbbf24;
+      border: 1px solid rgba(247,147,26,0.22);
+      white-space: nowrap;
+    }
+    .detail-card {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: var(--panel2);
+      border: 1px solid rgba(148,163,184,0.12);
+      margin-bottom: 12px;
+    }
+    .detail-card p {
+      margin: 0 0 10px;
+      color: #cbd5e1;
+      line-height: 1.65;
+      font-size: 14px;
+    }
+    .small-label {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .link-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .link-list a {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(148,163,184,0.10);
+      color: var(--text);
+    }
+    .link-list a:hover { border-color: rgba(247,147,26,0.36); }
+    .link-list small { color: var(--muted); }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chips span {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #dbeafe;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(148,163,184,0.12);
+    }
+    .footer {
+      padding: 10px 20px 14px;
+      border-top: 1px solid rgba(148,163,184,0.10);
+      color: var(--muted);
+      font-size: 12px;
+      background: rgba(2, 6, 23, 0.42);
+      backdrop-filter: blur(14px);
+    }
+    .mobile-note { display: none; }
+    @media (max-width: 1180px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100%; }
+      .workspace { grid-template-columns: 1fr; height: auto; }
+      .panel { border-right: 0; border-left: 0; border-top: 1px solid rgba(148,163,184,0.10); }
+      .graph-shell { height: 70vh; min-height: 620px; }
+      .mobile-note { display: block; margin-top: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="eyebrow">BTCPC Vault</div>
+        <h1>Obsidian-like knowledge map</h1>
+        <div class="sub">
+          Search the docs, drag nodes around, zoom the graph, and jump between BTCPC systems.
+          This is a visual vault for the chain, the code wiki, and the main docs.
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="button secondary" href="/docs/">Docs Home</a>
+        <a class="button secondary" href="/docs/code-wiki/README.md">Code Wiki</a>
+        <a class="button secondary" href="/">Website Home</a>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel">
+        <div class="panel-header">
+          <strong>Vault Explorer</strong>
+          <span>Search the docs and code wiki, then click a page to focus it.</span>
+          <input id="search" class="search" type="search" placeholder="Search BTCPC docs, code wiki, roles, or systems">
+          <div class="chips">
+            <span>Docs</span><span>Code Wiki</span><span>Graph</span><span>Backlinks</span>
+          </div>
+        </div>
+        <div class="group-list" id="explorer"></div>
+      </aside>
+
+      <section class="panel graph-shell">
+        <div class="graph-toolbar">
+          <div class="group">
+            <button class="control secondary" id="zoom-out">-</button>
+            <button class="control secondary" id="zoom-reset">Fit</button>
+            <button class="control secondary" id="zoom-in">+</button>
+            <button class="control secondary" id="toggle-labels">Hide Labels</button>
+          </div>
+          <div class="stats">
+            <span id="counts">0 docs</span>
+            <span class="pill" id="center-pill">BTCPC Core</span>
+          </div>
+        </div>
+        <div class="graph-wrap">
+          <svg id="graph" viewBox="0 0 1200 760" aria-label="BTCPC knowledge graph"></svg>
+        </div>
+      </section>
+
+      <aside class="panel right">
+        <div class="panel-header">
+          <strong>Inspector</strong>
+          <span>Selected page, connected pages, and backlinks.</span>
+        </div>
+        <div class="details-body">
+          <div class="detail-card">
+            <div class="detail-title">
+              <div>
+                <div class="badge" id="node-group">core</div>
+                <h2 id="node-title">BTCPC Core</h2>
+              </div>
+              <a id="open-page" class="button" href="/docs/INDEX.md">Open</a>
+            </div>
+            <p id="node-summary">BTCPC’s docs, graph, and core systems all connect here.</p>
+            <p id="node-note">Select a node to inspect how it fits into the vault.</p>
+          </div>
+
+          <div class="detail-card">
+            <div class="small-label">Neighbors</div>
+            <div class="link-list" id="neighbor-links"></div>
+          </div>
+
+          <div class="detail-card">
+            <div class="small-label">Backlinks</div>
+            <div class="link-list" id="backlinks"></div>
+          </div>
+
+          <div class="detail-card">
+            <div class="small-label">Tags</div>
+            <div class="chips" id="tag-chips"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      Drag the nodes, zoom the canvas, search the vault, and click through the connected pages.
+      Positions are saved locally so your graph keeps the shape you gave it.
+      <span class="mobile-note">On mobile the layout stacks vertically, but the graph and backlinks still work.</span>
+    </footer>
+  </div>
+
+  <script>
+    const docs = [
+      { id: "core", title: "BTCPC Core", href: "/docs/INDEX.md", group: "core", size: 1.8, summary: "The canonical docs index and architecture entry point.", note: "Start here when you want the whole network in one place.", tags: ["entry", "docs"], x: 590, y: 120 },
+      { id: "docs-home", title: "Docs Home", href: "/docs/README.md", group: "docs", size: 1.3, summary: "Human-facing documentation landing page.", note: "Where the site points people first.", tags: ["docs", "website"], x: 350, y: 240 },
+      { id: "code-wiki", title: "Code Wiki", href: "/docs/code-wiki/README.md", group: "docs", size: 1.35, summary: "Graph-generated docs with the most useful code communities.", note: "This is the generated repo map.", tags: ["graph", "generated"], x: 820, y: 240 },
+      { id: "visual-map", title: "Visual Map", href: "/docs/knowledge-map.html", group: "docs", size: 1.3, summary: "This interactive Obsidian-like vault map.", note: "A visual browser for BTCPC systems.", tags: ["graph", "visual"], x: 585, y: 250 },
+      { id: "role-matrix", title: "ROLE_MATRIX", href: "/docs/ROLE_MATRIX.md", group: "docs", size: 1.2, summary: "Which device classes can run which BTCPC roles.", note: "One process per role, one machine per instance.", tags: ["roles", "devices"], x: 125, y: 410 },
+      { id: "roadmap", title: "ROADMAP", href: "/docs/ROADMAP.md", group: "docs", size: 1.15, summary: "What BTCPC is building next and what’s already shipped.", note: "Useful if you want the product direction.", tags: ["plan", "product"], x: 305, y: 410 },
+      { id: "tokenomics", title: "TOKENOMICS", href: "/docs/TOKENOMICS.md", group: "docs", size: 1.15, summary: "42M supply, no burn, recycle economics.", note: "The money layer under the whole chain.", tags: ["economics", "supply"], x: 200, y: 570 },
+      { id: "governance", title: "Governance", href: "/docs/governance.md", group: "docs", size: 1.1, summary: "Founder-irrelevance and sovereignty design.", note: "How decisions are supposed to stay decentralized.", tags: ["policy", "sovereignty"], x: 400, y: 570 },
+      { id: "wallets", title: "Wallets", href: "/docs/wallets.md", group: "product", size: 1.35, summary: "Send, receive, stake, and delegate BTCPC.", note: "User money and permissions live here.", tags: ["wallet", "delegate"], x: 700, y: 570 },
+      { id: "bots", title: "Bots", href: "/docs/bots.md", group: "product", size: 1.1, summary: "Telegram bot onboarding and flows.", note: "A user entrypoint and automation layer.", tags: ["telegram", "ux"], x: 940, y: 570 },
+      { id: "clock-node", title: "Clock Node", href: "/docs/clock-node.md", group: "network", size: 1.25, summary: "Clock node behavior and timing rules.", note: "The timing side of the network.", tags: ["clock", "epoch"], x: 995, y: 235 },
+      { id: "android-clock", title: "Android Clock", href: "/docs/android-clock-node.md", group: "network", size: 1.12, summary: "Android-specific clock node behavior.", note: "How phones participate as clock nodes.", tags: ["android", "clock"], x: 1110, y: 410 },
+      { id: "p2p-server", title: "P2P server", href: "/docs/code-wiki/p2p-server.md", group: "network", size: 1.42, summary: "Peer socket lifecycle, relay bootstrap, reconnects.", note: "The network transport layer.", tags: ["p2p", "relay"], x: 130, y: 215 },
+      { id: "p2p-handle", title: "P2P messages", href: "/docs/code-wiki/p2p-handle.md", group: "network", size: 1.2, summary: "Peer announcements, gossip, and message routing.", note: "What moves over the wire.", tags: ["p2p", "gossip"], x: 290, y: 150 },
+      { id: "chain-epoch", title: "Clock / Epoch", href: "/docs/code-wiki/chain-epoch.md", group: "network", size: 1.35, summary: "Epoch timing, authority rotation, and chain-time.", note: "When the chain moves forward.", tags: ["consensus", "epoch"], x: 575, y: 405 },
+      { id: "chain-node", title: "Node registry", href: "/docs/code-wiki/chain-node.md", group: "network", size: 1.28, summary: "Registered miners, clocks, storage hosts, devices.", note: "Who is doing what on the network.", tags: ["registry", "roles"], x: 745, y: 405 },
+      { id: "mining-model", title: "Mining model", href: "/docs/code-wiki/mining-model.md", group: "roles", size: 1.28, summary: "AI inference work that earns miner rewards.", note: "The useful-work engine.", tags: ["miner", "inference"], x: 610, y: 600 },
+      { id: "mining-final", title: "Mining finalization", href: "/docs/code-wiki/mining-finalization.md", group: "roles", size: 1.2, summary: "Work proofs, rewards, and block finalization.", note: "How mining gets settled.", tags: ["mining", "rewards"], x: 825, y: 650 },
+      { id: "services-blob", title: "Blob services", href: "/docs/code-wiki/services-blob.md", group: "roles", size: 1.2, summary: "BTCPC-FS storage hosts content-addressed files.", note: "The durable storage layer.", tags: ["storage", "fs"], x: 1030, y: 655 },
+      { id: "services-stateful", title: "Stateful hosting", href: "/docs/code-wiki/services-stateful.md", group: "roles", size: 1.15, summary: "Host lifecycle for stateful services.", note: "Long-lived application hosting.", tags: ["services", "hosting"], x: 1120, y: 170 },
+      { id: "tests-heartbeat", title: "Heartbeat tests", href: "/docs/code-wiki/tests-heartbeat.md", group: "tests", size: 1.05, summary: "Clock liveness, witness checks, reward eligibility.", note: "Coverage for the clock path.", tags: ["tests", "clock"], x: 1060, y: 300 },
+      { id: "tests-stateful", title: "Stateful tests", href: "/docs/code-wiki/tests-stateful.md", group: "tests", size: 1.05, summary: "Storage and stateful service behavior.", note: "Coverage for durable service flows.", tags: ["tests", "storage"], x: 885, y: 300 },
+    ];
+
+    const links = [
+      ["core", "docs-home", "docs"],
+      ["core", "code-wiki", "generated"],
+      ["core", "visual-map", "visual"],
+      ["core", "role-matrix", "roles"],
+      ["core", "roadmap", "plan"],
+      ["core", "tokenomics", "economy"],
+      ["core", "governance", "policy"],
+      ["core", "wallets", "money"],
+      ["core", "bots", "telegram"],
+      ["core", "clock-node", "clock"],
+      ["core", "android-clock", "mobile"],
+      ["core", "p2p-server", "transport"],
+      ["core", "p2p-handle", "gossip"],
+      ["core", "chain-epoch", "consensus"],
+      ["core", "chain-node", "registry"],
+      ["core", "mining-model", "miner"],
+      ["core", "mining-final", "settlement"],
+      ["core", "services-blob", "storage"],
+      ["core", "services-stateful", "hosting"],
+      ["core", "tests-heartbeat", "tests"],
+      ["core", "tests-stateful", "tests"],
+      ["p2p-server", "p2p-handle", "wire"],
+      ["p2p-server", "chain-epoch", "feeds"],
+      ["p2p-handle", "chain-node", "announces"],
+      ["chain-epoch", "chain-node", "witnesses"],
+      ["chain-epoch", "clock-node", "seals"],
+      ["chain-node", "wallets", "roles"],
+      ["wallets", "bots", "onboards"],
+      ["wallets", "tokenomics", "economics"],
+      ["mining-model", "mining-final", "settles"],
+      ["mining-model", "tests-heartbeat", "covered-by"],
+      ["services-blob", "services-stateful", "hosts"],
+      ["services-stateful", "tests-stateful", "covered-by"],
+      ["tests-heartbeat", "clock-node", "covers"],
+      ["tests-stateful", "services-blob", "covers"],
+      ["docs-home", "code-wiki", "navigates"],
+      ["docs-home", "visual-map", "points-to"],
+      ["visual-map", "code-wiki", "explains"],
+      ["visual-map", "docs-home", "bridges"],
+    ];
+
+    const groupAnchors = {
+      core: { x: 600, y: 320 },
+      docs: { x: 600, y: 120 },
+      network: { x: 570, y: 330 },
+      product: { x: 430, y: 530 },
+      roles: { x: 760, y: 540 },
+      tests: { x: 930, y: 280 },
+    };
+
+    const colors = {
+      core: "#f7931a",
+      docs: "#a855f7",
+      network: "#38bdf8",
+      product: "#22c55e",
+      roles: "#22c55e",
+      tests: "#fb7185",
+    };
+
+    const state = {
+      search: "",
+      selectedId: "core",
+      showLabels: true,
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+      draggingGraph: false,
+      draggingNode: null,
+      dragStart: null,
+      nodePositions: new Map(),
+    };
+
+    const explorer = document.getElementById("explorer");
+    const svg = document.getElementById("graph");
+    const counts = document.getElementById("counts");
+    const centerPill = document.getElementById("center-pill");
+    const searchInput = document.getElementById("search");
+    const neighborLinks = document.getElementById("neighbor-links");
+    const backlinks = document.getElementById("backlinks");
+    const tagChips = document.getElementById("tag-chips");
+    const nodeTitle = document.getElementById("node-title");
+    const nodeSummary = document.getElementById("node-summary");
+    const nodeNote = document.getElementById("node-note");
+    const nodeGroup = document.getElementById("node-group");
+    const openPage = document.getElementById("open-page");
+    const zoomInBtn = document.getElementById("zoom-in");
+    const zoomOutBtn = document.getElementById("zoom-out");
+    const zoomResetBtn = document.getElementById("zoom-reset");
+    const toggleLabelsBtn = document.getElementById("toggle-labels");
+
+    const STORAGE_KEY = "btcpc-knowledge-map-state";
+    const POS_KEY = "btcpc-knowledge-map-positions";
+
+    function nodeById(id) { return docs.find(d => d.id === id); }
+    function neighborsOf(id) {
+      const out = [];
+      for (const [a, b, label] of links) {
+        if (a === id) out.push({ id: b, label, dir: "out" });
+        if (b === id) out.push({ id: a, label, dir: "in" });
+      }
+      return out;
+    }
+    function incomingOf(id) {
+      return links.filter(([a, b]) => b === id).map(([a, , label]) => ({ id: a, label, dir: "in" }));
+    }
+    function outgoingOf(id) {
+      return links.filter(([a, b]) => a === id).map(([, b, label]) => ({ id: b, label, dir: "out" }));
+    }
+
+    function savePositions() {
+      const obj = {};
+      docs.forEach(d => {
+        obj[d.id] = { x: d.x, y: d.y, fx: d.fx ?? null, fy: d.fy ?? null };
+      });
+      localStorage.setItem(POS_KEY, JSON.stringify(obj));
+    }
+
+    function loadPositions() {
+      try {
+        const raw = localStorage.getItem(POS_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        docs.forEach(d => {
+          if (saved[d.id]) {
+            d.x = saved[d.id].x;
+            d.y = saved[d.id].y;
+            d.fx = saved[d.id].fx;
+            d.fy = saved[d.id].fy;
+          }
+        });
+      } catch (_) {}
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (typeof saved.zoom === "number") state.zoom = saved.zoom;
+        if (typeof saved.panX === "number") state.panX = saved.panX;
+        if (typeof saved.panY === "number") state.panY = saved.panY;
+        if (typeof saved.showLabels === "boolean") state.showLabels = saved.showLabels;
+      } catch (_) {}
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        zoom: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        showLabels: state.showLabels,
+      }));
+    }
+
+    function makeEl(tag, attrs) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+      return el;
+    }
+
+    function hexToRgb(hex) {
+      return hex.replace("#", "").match(/.{1,2}/g).map(x => parseInt(x, 16));
+    }
+
+    function renderExplorer() {
+      const groups = ["docs", "network", "product", "roles", "tests"];
+      explorer.innerHTML = "";
+      const filtered = docs.filter(d => matchesSearch(d));
+      counts.textContent = `${filtered.length}/${docs.length} docs`;
+      groups.forEach(group => {
+        const items = filtered.filter(d => d.group === group);
+        if (!items.length) return;
+        const wrap = document.createElement("div");
+        wrap.className = "group";
+        const title = document.createElement("div");
+        title.className = "group-title";
+        title.textContent = group;
+        wrap.appendChild(title);
+        items.forEach(doc => {
+          const item = document.createElement("div");
+          item.className = "vault-item" + (doc.id === state.selectedId ? " active" : "");
+          item.innerHTML = `
+            <div class="title">${doc.title}</div>
+            <div class="meta">${doc.href}</div>
+            <div class="summary">${doc.summary}</div>
+          `;
+          item.addEventListener("click", () => selectNode(doc.id, true));
+          wrap.appendChild(item);
+        });
+        explorer.appendChild(wrap);
+      });
+    }
+
+    function matchesSearch(doc) {
+      const q = state.search.trim().toLowerCase();
+      if (!q) return true;
+      const hay = [
+        doc.title,
+        doc.summary,
+        doc.note,
+        doc.group,
+        doc.href,
+        ...(doc.tags || []),
+      ].join(" ").toLowerCase();
+      return hay.includes(q);
+    }
+
+    function renderInspector(doc) {
+      nodeTitle.textContent = doc.title;
+      nodeSummary.textContent = doc.summary;
+      nodeNote.textContent = doc.note;
+      nodeGroup.textContent = doc.group;
+      nodeGroup.style.background = `rgba(${hexToRgb(colors[doc.group]).join(",")}, 0.12)`;
+      nodeGroup.style.color = colors[doc.group];
+      openPage.href = doc.href;
+      centerPill.textContent = doc.title;
+
+      const neigh = neighborsOf(doc.id).filter(n => nodeById(n.id));
+      const inlinks = incomingOf(doc.id).filter(n => nodeById(n.id));
+      const outlinks = outgoingOf(doc.id).filter(n => nodeById(n.id));
+
+      neighborLinks.innerHTML = "";
+      neigh.slice(0, 8).forEach(n => {
+        const d = nodeById(n.id);
+        const a = document.createElement("a");
+        a.href = d.href;
+        a.innerHTML = `<span>${d.title}</span><small>${n.label}</small>`;
+        neighborLinks.appendChild(a);
+      });
+      if (!neighborLinks.children.length) {
+        neighborLinks.innerHTML = '<div style="color:#64748b;font-size:13px;">No neighbors found.</div>';
+      }
+
+      backlinks.innerHTML = "";
+      inlinks.slice(0, 8).forEach(n => {
+        const d = nodeById(n.id);
+        const a = document.createElement("a");
+        a.href = d.href;
+        a.innerHTML = `<span>${d.title}</span><small>${n.label}</small>`;
+        backlinks.appendChild(a);
+      });
+      if (!backlinks.children.length) {
+        backlinks.innerHTML = '<div style="color:#64748b;font-size:13px;">No backlinks yet.</div>';
+      }
+
+      tagChips.innerHTML = "";
+      (doc.tags || []).forEach(tag => {
+        const s = document.createElement("span");
+        s.textContent = tag;
+        tagChips.appendChild(s);
+      });
+      const g = document.createElement("span");
+      g.textContent = doc.group;
+      tagChips.appendChild(g);
+      const o = document.createElement("span");
+      o.textContent = `${inlinks.length} backlinks`;
+      tagChips.appendChild(o);
+      const oo = document.createElement("span");
+      oo.textContent = `${outlinks.length} links out`;
+      tagChips.appendChild(oo);
+    }
+
+    function selectNode(id, focus = false) {
+      const doc = nodeById(id);
+      if (!doc) return;
+      state.selectedId = id;
+      renderExplorer();
+      renderInspector(doc);
+      updateGraphHighlights();
+      if (focus) fitToSelection(doc);
+      saveState();
+    }
+
+    function updateGraphHighlights() {
+      const selected = state.selectedId;
+      const neighbors = new Set(neighborsOf(selected).map(n => n.id));
+      svg.querySelectorAll(".node").forEach(g => {
+        const id = g.getAttribute("data-id");
+        g.classList.toggle("active", id === selected);
+        const searchVisible = matchesSearch(nodeById(id));
+        g.classList.toggle("dimmed", !searchVisible || (state.search && !searchVisible));
+      });
+      svg.querySelectorAll(".link").forEach(path => {
+        const a = path.getAttribute("data-a");
+        const b = path.getAttribute("data-b");
+        const active = a === selected || b === selected || (neighbors.has(a) && neighbors.has(b));
+        path.classList.toggle("active", active);
+        const visible = matchesSearch(nodeById(a)) && matchesSearch(nodeById(b));
+        path.style.opacity = visible ? "1" : "0.08";
+      });
+      svg.querySelectorAll(".link-label").forEach(lbl => {
+        lbl.style.opacity = state.showLabels ? "1" : "0";
+      });
+    }
+
+    function buildGraph() {
+      svg.innerHTML = "";
+      const viewport = makeEl("g", { id: "viewport" });
+      svg.appendChild(viewport);
+
+      const edgesLayer = makeEl("g", { id: "edges" });
+      const nodesLayer = makeEl("g", { id: "nodes" });
+      viewport.appendChild(edgesLayer);
+      viewport.appendChild(nodesLayer);
+
+      links.forEach(([a, b, label]) => {
+        const path = makeEl("path", {
+          class: "link",
+          "data-a": a,
+          "data-b": b,
+          "data-label": label,
+        });
+        const text = makeEl("text", { class: "link-label", "text-anchor": "middle" });
+        text.textContent = label;
+        edgesLayer.appendChild(path);
+        edgesLayer.appendChild(text);
+      });
+
+      docs.forEach(doc => {
+        const g = makeEl("g", { class: "node", "data-id": doc.id });
+        const circle = makeEl("circle", { r: 18 + doc.size * 7 });
+        circle.setAttribute("fill", `rgba(${hexToRgb(colors[doc.group]).join(",")}, 0.18)`);
+        circle.setAttribute("stroke", colors[doc.group]);
+        const title = makeEl("text", { x: 0, y: 33, "text-anchor": "middle" });
+        title.textContent = doc.title;
+        const sub = makeEl("text", { x: 0, y: 48, class: "sub", "text-anchor": "middle" });
+        sub.textContent = doc.group;
+        g.appendChild(circle);
+        g.appendChild(title);
+        g.appendChild(sub);
+        g.addEventListener("click", (e) => {
+          e.stopPropagation();
+          selectNode(doc.id, false);
+        });
+        g.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          window.location.href = doc.href;
+        });
+        nodesLayer.appendChild(g);
+      });
+
+      svg.addEventListener("wheel", onWheel, { passive: false });
+      svg.addEventListener("mousedown", onMouseDown);
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+
+      requestAnimationFrame(() => {
+        layout();
+        updateGraph();
+        updateTransform();
+      });
+    }
+
+    function updateTransform() {
+      const viewport = svg.querySelector("#viewport");
+      if (!viewport) return;
+      viewport.setAttribute("transform", `translate(${state.panX},${state.panY}) scale(${state.zoom})`);
+      saveState();
+    }
+
+    function updateGraph() {
+      const viewport = svg.querySelector("#viewport");
+      if (!viewport) return;
+      links.forEach(([a, b, label], idx) => {
+        const na = nodeById(a);
+        const nb = nodeById(b);
+        const path = viewport.querySelectorAll(".link")[idx];
+        const text = viewport.querySelectorAll(".link-label")[idx];
+        const dx = nb.x - na.x;
+        const dy = nb.y - na.y;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const off = 24;
+        const sx = na.x + (dx / dist) * off;
+        const sy = na.y + (dy / dist) * off;
+        const tx = nb.x - (dx / dist) * off;
+        const ty = nb.y - (dy / dist) * off;
+        const cx = (na.x + nb.x) / 2 + dy * 0.12;
+        const cy = (na.y + nb.y) / 2 - dx * 0.12;
+        path.setAttribute("d", `M ${sx} ${sy} Q ${cx} ${cy} ${tx} ${ty}`);
+        text.setAttribute("x", cx);
+        text.setAttribute("y", cy - 6);
+      });
+
+      docs.forEach(doc => {
+        const g = viewport.querySelector(`.node[data-id="${doc.id}"]`);
+        if (!g) return;
+        g.setAttribute("transform", `translate(${doc.x},${doc.y})`);
+        const circle = g.querySelector("circle");
+        circle.setAttribute("fill", `rgba(${hexToRgb(colors[doc.group]).join(",")}, ${doc.id === state.selectedId ? 0.30 : 0.18})`);
+        g.style.opacity = matchesSearch(doc) ? "1" : "0.18";
+        circle.style.strokeWidth = doc.id === state.selectedId ? "2.8" : "1.5";
+      });
+      updateGraphHighlights();
+    }
+
+    function layout() {
+      // Stable layout: keep the graph fixed unless the user drags nodes.
+      // The "Obsidian" feel comes from pan/zoom, search, backlinks, and node selection,
+      // not from a continuously recomputing force simulation.
+      for (const doc of docs) {
+        if (doc.fx !== null && doc.fx !== undefined) {
+          doc.x = doc.fx;
+          doc.y = doc.fy;
+        }
+      }
+    }
+
+    function fitToSelection(doc) {
+      const width = 1200;
+      const height = 760;
+      const pad = 220;
+      const targetZoom = 1.1;
+      state.zoom = targetZoom;
+      state.panX = width / 2 - doc.x * targetZoom;
+      state.panY = height / 2 - doc.y * targetZoom;
+      updateTransform();
+    }
+
+    function fitAll() {
+      const xs = docs.map(d => d.x);
+      const ys = docs.map(d => d.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const scaleX = 1060 / (width + 180);
+      const scaleY = 650 / (height + 180);
+      state.zoom = Math.max(0.72, Math.min(1.18, Math.min(scaleX, scaleY)));
+      state.panX = 600 - ((minX + maxX) / 2) * state.zoom;
+      state.panY = 380 - ((minY + maxY) / 2) * state.zoom;
+      updateTransform();
+    }
+
+    function onWheel(e) {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const delta = e.deltaY > 0 ? 0.92 : 1.08;
+      const nextZoom = Math.max(0.45, Math.min(2.4, state.zoom * delta));
+      const graphX = (mx - state.panX) / state.zoom;
+      const graphY = (my - state.panY) / state.zoom;
+      state.zoom = nextZoom;
+      state.panX = mx - graphX * state.zoom;
+      state.panY = my - graphY * state.zoom;
+      updateTransform();
+    }
+
+    function svgPoint(evt) {
+      const rect = svg.getBoundingClientRect();
+      return {
+        x: (evt.clientX - rect.left - state.panX) / state.zoom,
+        y: (evt.clientY - rect.top - state.panY) / state.zoom,
+      };
+    }
+
+    function onMouseDown(e) {
+      const targetNode = e.target.closest ? e.target.closest(".node") : null;
+      if (targetNode) {
+        const id = targetNode.getAttribute("data-id");
+        const doc = nodeById(id);
+        const pt = svgPoint(e);
+        state.draggingNode = doc;
+        state.dragStart = { x: pt.x - doc.x, y: pt.y - doc.y };
+        svg.classList.add("dragging");
+        e.preventDefault();
+        return;
+      }
+      state.draggingGraph = true;
+      state.dragStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
+      svg.classList.add("dragging");
+    }
+
+    function onMouseMove(e) {
+      if (state.draggingNode) {
+        const pt = svgPoint(e);
+        state.draggingNode.fx = pt.x - state.dragStart.x;
+        state.draggingNode.fy = pt.y - state.dragStart.y;
+        state.draggingNode.x = state.draggingNode.fx;
+        state.draggingNode.y = state.draggingNode.fy;
+        updateGraph();
+        return;
+      }
+      if (state.draggingGraph) {
+        const dx = e.clientX - state.dragStart.x;
+        const dy = e.clientY - state.dragStart.y;
+        state.panX = state.dragStart.panX + dx;
+        state.panY = state.dragStart.panY + dy;
+        updateTransform();
+      }
+    }
+
+    function onMouseUp() {
+      if (state.draggingNode) {
+        savePositions();
+      }
+      state.draggingNode = null;
+      state.draggingGraph = false;
+      state.dragStart = null;
+      svg.classList.remove("dragging");
+    }
+
+    function clearSearch() {
+      state.search = "";
+      searchInput.value = "";
+      renderExplorer();
+      updateGraphHighlights();
+    }
+
+    searchInput.addEventListener("input", () => {
+      state.search = searchInput.value;
+      renderExplorer();
+      updateGraphHighlights();
+    });
+
+    zoomInBtn.addEventListener("click", () => {
+      state.zoom = Math.min(2.4, state.zoom * 1.12);
+      updateTransform();
+    });
+    zoomOutBtn.addEventListener("click", () => {
+      state.zoom = Math.max(0.45, state.zoom / 1.12);
+      updateTransform();
+    });
+    zoomResetBtn.addEventListener("click", () => fitAll());
+    toggleLabelsBtn.addEventListener("click", () => {
+      state.showLabels = !state.showLabels;
+      toggleLabelsBtn.textContent = state.showLabels ? "Hide Labels" : "Show Labels";
+      updateGraphHighlights();
+      saveState();
+    });
+
+    svg.addEventListener("click", (e) => {
+      if (e.target === svg) clearSearch();
+    });
+
+    docs.forEach(doc => {
+      if (typeof doc.fx !== "number") doc.fx = null;
+      if (typeof doc.fy !== "number") doc.fy = null;
+      if (typeof doc.vx !== "number") doc.vx = 0;
+      if (typeof doc.vy !== "number") doc.vy = 0;
+    });
+
+    loadPositions();
+    loadState();
+    toggleLabelsBtn.textContent = state.showLabels ? "Hide Labels" : "Show Labels";
+    buildGraph();
+    renderExplorer();
+    selectNode(state.selectedId, false);
+    updateGraphHighlights();
+    if (state.zoom !== 1 || state.panX !== 0 || state.panY !== 0) {
+      updateTransform();
+    } else {
+      fitAll();
+    }
+    layout();
+    updateGraph();
+  </script>
+</body>
+</html>

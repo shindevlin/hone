@@ -612,6 +612,9 @@ pub fn validate_and_apply(
             }
             require_key(chain, owner)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            if *bond < btcpc_types::RUNTIME_MIN_BOND {
+                bail!("bond {} is below minimum {} dreams", bond, btcpc_types::RUNTIME_MIN_BOND);
+            }
             let bal = chain.store.get_balance(owner, NATIVE_TOKEN);
             if bal < *bond {
                 bail!("insufficient balance for bond: have {} need {}", bal, bond);

@@ -1,0 +1,2921 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-05-05T18:19:14.451782477Z",
+  "ArtifactName": "/repo",
+  "ArtifactType": "filesystem",
+  "Metadata": {
+    "ImageConfig": {
+      "architecture": "",
+      "created": "0001-01-01T00:00:00Z",
+      "os": "",
+      "rootfs": {
+        "type": "",
+        "diff_ids": null
+      },
+      "config": {}
+    }
+  },
+  "Results": [
+    {
+      "Target": ".claude/worktrees/agent-a04c48fd/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-a04c48fd/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "ff07c34e8dad3d96"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "ebe1235db86fb734"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-a1cd0e3c/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-a1cd0e3c/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "71f7a22991e7a8b7"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "9c6d04d73af1a225"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-a4a2d52d/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-a4a2d52d/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "e3beb8cb0fb1b9dc"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "51bf0adf5b6ec00a"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-a6563fac/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-a6563fac/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "c165260da071aca8"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "215532fc8c36c6d2"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-a6a30291/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-a6a30291/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "cff0a2ecabf1c8fa"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "2520a7b168947dbc"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-aaa9cd57/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-aaa9cd57/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "c3525ad0eaff0fe8"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "b88c0a848d4cad3a"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-ab582b28/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-ab582b28/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "f7cb9d6292f0147"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "24da3975501be171"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-acc5f770/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-acc5f770/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "2a0e0ec46131e182"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "5440fe61bcb7a64"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-ad2f4c58/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-ad2f4c58/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "e31c8c5dd65dca07"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "7a87b93042af2d55"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-ae28081a/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-ae28081a/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "826ad8208a14212c"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "8c068488aaa23792"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-ae6b4315/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-ae6b4315/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "6c6dde7bedebf404"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "b4730da2b81ae8ba"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": ".claude/worktrees/agent-afeff9a7/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": ".claude/worktrees/agent-afeff9a7/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "b0002955b27b81b7"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "96fa30bd0be4aff5"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": "_archived/telegram-bot/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2025-7783",
+          "PkgID": "form-data@2.3.3",
+          "PkgName": "form-data",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/form-data@2.3.3",
+            "UID": "e0c0707b135ab039"
+          },
+          "InstalledVersion": "2.3.3",
+          "FixedVersion": "2.5.4, 3.0.4, 4.0.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2025-7783",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "form-data: Unsafe random function in form-data",
+          "Description": "Use of Insufficiently Random Values vulnerability in form-data allows HTTP Parameter Pollution (HPP). This vulnerability is associated with program files lib/form_data.Js.\n\nThis issue affects form-data: \u003c 2.5.4, 3.0.0 - 3.0.3, 4.0.0 - 4.0.3.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-330"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:H/SI:H/SA:N",
+              "V40Score": 9.4
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2025-7783",
+            "https://github.com/benweissmann/CVE-2025-7783-poc",
+            "https://github.com/form-data/form-data",
+            "https://github.com/form-data/form-data/commit/3d1723080e6577a66f17f163ecd345a21d8d0fd0",
+            "https://github.com/form-data/form-data/security/advisories/GHSA-fjxv-7rqg-78g4",
+            "https://lists.debian.org/debian-lts-announce/2025/07/msg00023.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2025-7783",
+            "https://ubuntu.com/security/notices/USN-7976-1",
+            "https://www.cve.org/CVERecord?id=CVE-2025-7783"
+          ],
+          "PublishedDate": "2025-07-18T17:15:44.747Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "PkgID": "lodash@4.17.23",
+          "PkgName": "lodash",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/lodash@4.17.23",
+            "UID": "ffb7c2fb626023f4"
+          },
+          "InstalledVersion": "4.17.23",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-4800",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Description": "Impact:\n\nThe fix for CVE-2021-23337 (https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the variable option in _.template but did not apply the same validation to options.imports key names. Both paths flow into the same Function() constructor sink.\n\nWhen an application passes untrusted input as options.imports key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.\n\nAdditionally, _.template uses assignInWith to merge imports, which enumerates inherited properties via for..in. If Object.prototype has been polluted by any other vector, the polluted keys are copied into the imports object and passed to Function().\n\nPatches:\n\nUsers should upgrade to version 4.18.0.\n\nWorkarounds:\n\nDo not pass untrusted input as key names in options.imports. Only use developer-controlled, static key names.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/errata/RHSA-2026:10710",
+            "https://access.redhat.com/security/cve/CVE-2026-4800",
+            "https://bugzilla.redhat.com/2453496",
+            "https://cna.openjsf.org/security-advisories.html",
+            "https://errata.almalinux.org/9/ALSA-2026-10710.html",
+            "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+            "https://github.com/lodash/lodash",
+            "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c",
+            "https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc",
+            "https://linux.oracle.com/cve/CVE-2026-4800.html",
+            "https://linux.oracle.com/errata/ELSA-2026-10713.html",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-4800",
+            "https://www.cve.org/CVERecord?id=CVE-2026-4800"
+          ],
+          "PublishedDate": "2026-03-31T20:16:29.66Z",
+          "LastModifiedDate": "2026-05-01T18:09:13.047Z"
+        }
+      ]
+    },
+    {
+      "Target": "android/rust/btcpc-miner/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "android/rust/ort-patched/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-41676",
+          "PkgID": "openssl@0.10.73",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/openssl@0.10.73",
+            "UID": "48375cf8c624598"
+          },
+          "InstalledVersion": "0.10.73",
+          "FixedVersion": "0.10.78",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-41676",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rust-openssl provides OpenSSL bindings for the Rust programming langua ...",
+          "Description": "rust-openssl provides OpenSSL bindings for the Rust programming language.  From 0.9.27 to before 0.10.78, Deriver::derive (and PkeyCtxRef::derive) sets len = buf.len() and passes it as the in/out length to EVP_PKEY_derive, relying on OpenSSL to honor it. On OpenSSL 1.1.x, X25519, X448, DH and HKDF-extract ignore the incoming *keylen, unconditionally writing the full shared secret (32/56/prime-size bytes). A caller passing a short slice gets a heap/stack overflow from safe code. OpenSSL 3.x providers do check, so this only impacts older OpenSSL. This vulnerability is fixed in 0.10.78.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-131",
+            "CWE-787"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 4,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:U",
+              "V40Score": 7.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            }
+          },
+          "References": [
+            "https://github.com/rust-openssl/rust-openssl",
+            "https://github.com/rust-openssl/rust-openssl/commit/09b425e5f59a2466d806e71a83a9a449c914c596",
+            "https://github.com/rust-openssl/rust-openssl/pull/2606",
+            "https://github.com/rust-openssl/rust-openssl/releases/tag/openssl-v0.10.78",
+            "https://github.com/rust-openssl/rust-openssl/security/advisories/GHSA-pqf5-4pqq-29f5",
+            "https://www.cve.org/CVERecord?id=CVE-2026-41676"
+          ],
+          "PublishedDate": "2026-04-24T18:16:29.12Z",
+          "LastModifiedDate": "2026-04-28T17:30:42.79Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-41678",
+          "PkgID": "openssl@0.10.73",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/openssl@0.10.73",
+            "UID": "48375cf8c624598"
+          },
+          "InstalledVersion": "0.10.73",
+          "FixedVersion": "0.10.78",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-41678",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rust-openssl provides OpenSSL bindings for the Rust programming langua ...",
+          "Description": "rust-openssl provides OpenSSL bindings for the Rust programming language.  From  to before 0.10.78, aes::unwrap_key() contains an incorrect assertion: it checks that out.len() + 8 \u003c= in_.len(), but this condition is reversed. The intended invariant is out.len() \u003e= in_.len() - 8, ensuring the output buffer is large enough. Because of the inverted check, the function only accepts buffers at or below the minimum required size and rejects larger ones. If a smaller buffer is provided the function will write past the end of out by in_.len() - 8 - out.len() bytes, causing an out-of-bounds write from a safe public function. This vulnerability is fixed in 0.10.78.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-787"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 4,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:U",
+              "V40Score": 7.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            }
+          },
+          "References": [
+            "https://github.com/rust-openssl/rust-openssl",
+            "https://github.com/rust-openssl/rust-openssl/commit/718d07ff8ff7be417d5b7a6a0047f1607520b3b6",
+            "https://github.com/rust-openssl/rust-openssl/pull/2604",
+            "https://github.com/rust-openssl/rust-openssl/releases/tag/openssl-v0.10.78",
+            "https://github.com/rust-openssl/rust-openssl/security/advisories/GHSA-8c75-8mhr-p7r9",
+            "https://www.cve.org/CVERecord?id=CVE-2026-41678"
+          ],
+          "PublishedDate": "2026-04-24T18:16:29.42Z",
+          "LastModifiedDate": "2026-04-28T17:41:42.68Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-41681",
+          "PkgID": "openssl@0.10.73",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/openssl@0.10.73",
+            "UID": "48375cf8c624598"
+          },
+          "InstalledVersion": "0.10.73",
+          "FixedVersion": "0.10.78",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-41681",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rust-openssl provides OpenSSL bindings for the Rust programming langua ...",
+          "Description": "rust-openssl provides OpenSSL bindings for the Rust programming language.  From 0.10.39 to before 0.10.78, EVP_DigestFinal() always writes EVP_MD_CTX_size(ctx) to the out buffer. If out is smaller than that, MdCtxRef::digest_final() writes past its end, usually corrupting the stack. This is reachable from safe Rust. This vulnerability is fixed in 0.10.78.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-121"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 4,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:U",
+              "V40Score": 8.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            }
+          },
+          "References": [
+            "https://github.com/rust-openssl/rust-openssl",
+            "https://github.com/rust-openssl/rust-openssl/commit/826c3888b77add418b394770e2b2e3a72d9f92fe",
+            "https://github.com/rust-openssl/rust-openssl/commit/826c3888b77add418b394770e2b2e3a72d9f92fe (openssl-v0.10.78)",
+            "https://github.com/rust-openssl/rust-openssl/pull/2608",
+            "https://github.com/rust-openssl/rust-openssl/releases/tag/openssl-v0.10.78",
+            "https://github.com/rust-openssl/rust-openssl/security/advisories/GHSA-ghm9-cr32-g9qj",
+            "https://www.cve.org/CVERecord?id=CVE-2026-41681"
+          ],
+          "PublishedDate": "2026-04-24T18:16:29.717Z",
+          "LastModifiedDate": "2026-04-28T17:44:16.67Z"
+        },
+        {
+          "VulnerabilityID": "GHSA-hppc-g8h3-xhp3",
+          "PkgID": "openssl@0.10.73",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/openssl@0.10.73",
+            "UID": "48375cf8c624598"
+          },
+          "InstalledVersion": "0.10.73",
+          "FixedVersion": "0.10.78",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://github.com/advisories/GHSA-hppc-g8h3-xhp3",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "rust-openssl: Unchecked callback length in PSK/cookie trampolines leaks adjacent memory to peer",
+          "Description": "The FFI trampolines behind `SslContextBuilder::set_psk_client_callback`, `set_psk_server_callback`, `set_cookie_generate_cb`,  and `set_stateless_cookie_generate_cb` forwarded the user closure's returned usize directly to OpenSSL without checking it against the `\u0026mut [u8]` that was handed to the closure. This can lead to buffer overflows and other unintended consequences.",
+          "Severity": "HIGH",
+          "VendorSeverity": {
+            "ghsa": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:L/SC:N/SI:N/SA:N",
+              "V40Score": 8.3
+            }
+          },
+          "References": [
+            "https://github.com/rust-openssl/rust-openssl",
+            "https://github.com/rust-openssl/rust-openssl/commit/1d109020d98fff2fb2e45c39a373af3dff99b24c",
+            "https://github.com/rust-openssl/rust-openssl/pull/2607",
+            "https://github.com/rust-openssl/rust-openssl/releases/tag/openssl-v0.10.78",
+            "https://github.com/rust-openssl/rust-openssl/security/advisories/GHSA-hppc-g8h3-xhp3"
+          ],
+          "PublishedDate": "2026-04-22T21:00:57Z",
+          "LastModifiedDate": "2026-04-22T21:00:57Z"
+        }
+      ]
+    },
+    {
+      "Target": "btcpc/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-29087",
+          "PkgID": "@hono/node-server@1.19.8",
+          "PkgName": "@hono/node-server",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/%40hono/node-server@1.19.8",
+            "UID": "e6cc01146fb649f7"
+          },
+          "InstalledVersion": "1.19.8",
+          "FixedVersion": "1.19.10",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-29087",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "@hono/node-server has authorization bypass for protected static paths via encoded slashes in Serve Static Middleware",
+          "Description": "@hono/node-server allows running the Hono application on Node.js. Prior to version 1.19.10, when using @hono/node-server's static file serving together with route-based middleware protections (e.g. protecting /admin/*), inconsistent URL decoding can allow protected static resources to be accessed without authorization. In particular, paths containing encoded slashes (%2F) may be evaluated differently by routing/middleware matching versus static file path resolution, enabling a bypass where middleware does not run but the static file is still served. This issue has been patched in version 1.19.10.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-863"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/honojs/node-server",
+            "https://github.com/honojs/node-server/commit/455015be1697dd89974a68b70350ea7b2d126d2e",
+            "https://github.com/honojs/node-server/security/advisories/GHSA-wc8c-qw6v-h7f6",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-29087"
+          ],
+          "PublishedDate": "2026-03-06T18:16:19.757Z",
+          "LastModifiedDate": "2026-04-14T17:36:58.93Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-29045",
+          "PkgID": "hono@4.11.4",
+          "PkgName": "hono",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/hono@4.11.4",
+            "UID": "1c5b5eea125c6d04"
+          },
+          "InstalledVersion": "4.11.4",
+          "FixedVersion": "4.12.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-29045",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "Hono vulnerable to arbitrary file access via serveStatic vulnerability ",
+          "Description": "Hono is a Web application framework that provides support for any JavaScript runtime. Prior to version 4.12.4, when using serveStatic together with route-based middleware protections (e.g. app.use('/admin/*', ...)), inconsistent URL decoding allowed protected static resources to be accessed without authorization. The router used decodeURI, while serveStatic used decodeURIComponent. This mismatch allowed paths containing encoded slashes (%2F) to bypass middleware protections while still resolving to the intended filesystem path. This issue has been patched in version 4.12.4.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-177"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 4
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            }
+          },
+          "References": [
+            "https://github.com/honojs/hono",
+            "https://github.com/honojs/hono/commit/6a0607a929d888893f0c91d92dce2fcfdb3662a3",
+            "https://github.com/honojs/hono/security/advisories/GHSA-q5qw-h33p-qvwr",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-29045"
+          ],
+          "PublishedDate": "2026-03-04T23:16:10.247Z",
+          "LastModifiedDate": "2026-03-06T18:06:45.65Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-41242",
+          "PkgID": "protobufjs@7.5.4",
+          "PkgName": "protobufjs",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/protobufjs@7.5.4",
+            "UID": "6ad19abda1b2399c"
+          },
+          "InstalledVersion": "7.5.4",
+          "FixedVersion": "8.0.1, 7.5.5",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-41242",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "protobufjs: protobufjs: Arbitrary code execution via injected protobuf definition type fields",
+          "Description": "protobufjs compiles protobuf definitions into JavaScript (JS) functions. In versions prior to 8.0.1 and 7.5.5, attackers can inject arbitrary code in the \"type\" fields of protobuf definitions, which will then execute during object decoding using that definition. Versions 8.0.1 and 7.5.5 patch the issue.",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-94"
+          ],
+          "VendorSeverity": {
+            "ghsa": 4,
+            "nvd": 4,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+              "V40Score": 9.4
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.8
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-41242",
+            "https://github.com/protobufjs/protobuf.js",
+            "https://github.com/protobufjs/protobuf.js/commit/535df444ac060243722ac5d672db205e5c531d75",
+            "https://github.com/protobufjs/protobuf.js/commit/ff7b2afef8754837cc6dc64c864cd111ab477956",
+            "https://github.com/protobufjs/protobuf.js/releases/tag/protobufjs-v7.5.5",
+            "https://github.com/protobufjs/protobuf.js/releases/tag/protobufjs-v8.0.1",
+            "https://github.com/protobufjs/protobuf.js/security/advisories/GHSA-xq3m-2v4x-88gg",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-41242",
+            "https://www.cve.org/CVERecord?id=CVE-2026-41242"
+          ],
+          "PublishedDate": "2026-04-18T17:16:13.983Z",
+          "LastModifiedDate": "2026-04-23T15:26:37.2Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-23745",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.3",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-23745",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "node-tar: tar: node-tar: Arbitrary file overwrite and symlink poisoning via unsanitized linkpaths in archives",
+          "Description": "node-tar is a Tar for Node.js. The node-tar library (\u003c= 7.5.2) fails to sanitize the linkpath of Link (hardlink) and SymbolicLink entries when preservePaths is false (the default secure behavior). This allows malicious archives to bypass the extraction root restriction, leading to Arbitrary File Overwrite via hardlinks and Symlink Poisoning via absolute symlink targets. This vulnerability is fixed in 7.5.3.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-22"
+          ],
+          "VendorSeverity": {
+            "amazon": 3,
+            "ghsa": 3,
+            "nvd": 2,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:A/VC:H/VI:L/VA:N/SC:H/SI:L/SA:N",
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
+              "V3Score": 6.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H",
+              "V3Score": 8.2
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-23745",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/340eb285b6d986e91969a1170d7fe9b0face405e",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-8qq5-rm4j-mr97",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-23745",
+            "https://www.cve.org/CVERecord?id=CVE-2026-23745"
+          ],
+          "PublishedDate": "2026-01-16T22:16:26.83Z",
+          "LastModifiedDate": "2026-02-18T16:20:07.823Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-23950",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-23950",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "node-tar: tar: node-tar: Arbitrary file overwrite via Unicode path collision race condition",
+          "Description": "node-tar,a Tar for Node.js, has a race condition vulnerability in versions up to and including 7.5.3. This is due to an incomplete handling of Unicode path collisions in the `path-reservations` system. On case-insensitive or normalization-insensitive filesystems (such as macOS APFS, In which it has been tested), the library fails to lock colliding paths (e.g., `ß` and `ss`), allowing them to be processed in parallel. This bypasses the library's internal concurrency safeguards and permits Symlink Poisoning attacks via race conditions. The library uses a `PathReservations` system to ensure that metadata checks and file operations for the same path are serialized. This prevents race conditions where one entry might clobber another concurrently. This is a Race Condition which enables Arbitrary File Overwrite. This vulnerability affects users and systems using node-tar on macOS (APFS/HFS+). Because of using `NFD` Unicode normalization (in which `ß` and `ss` are different), conflicting paths do not have their order properly preserved under filesystems that ignore Unicode normalization (e.g., APFS (in which `ß` causes an inode collision with `ss`)). This enables an attacker to circumvent internal parallelization locks (`PathReservations`) using conflicting filenames within a malicious tar archive. The patch in version 7.5.4 updates `path-reservations.js` to use a normalization form that matches the target filesystem's behavior (e.g., `NFKD`), followed by first `toLocaleLowerCase('en')` and then `toLocaleUpperCase('en')`. As a workaround, users who cannot upgrade promptly, and who are programmatically using `node-tar` to extract arbitrary tarball data should filter out all `SymbolicLink` entries (as npm does) to defend against arbitrary file writes via this file system entry name collision issue.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-176",
+            "CWE-352",
+            "CWE-367"
+          ],
+          "VendorSeverity": {
+            "amazon": 3,
+            "ghsa": 3,
+            "nvd": 2,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:H/A:L",
+              "V3Score": 8.8
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 5.9
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:H/A:L",
+              "V3Score": 8.8
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-23950",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/3b1abfae650056edfabcbe0a0df5954d390521e6",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-r6q2-hw4h-h46w",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-23950",
+            "https://www.cve.org/CVERecord?id=CVE-2026-23950"
+          ],
+          "PublishedDate": "2026-01-20T01:15:57.87Z",
+          "LastModifiedDate": "2026-02-18T15:50:29.91Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-24842",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.7",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-24842",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "node-tar: tar: node-tar: Arbitrary file creation via path traversal bypass in hardlink security check",
+          "Description": "node-tar,a Tar for Node.js, contains a vulnerability in versions prior to 7.5.7 where the security check for hardlink entries uses different path resolution semantics than the actual hardlink creation logic. This mismatch allows an attacker to craft a malicious TAR archive that bypasses path traversal protections and creates hardlinks to arbitrary files outside the extraction directory. Version 7.5.7 contains a fix for the issue.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-22",
+            "CWE-59"
+          ],
+          "VendorSeverity": {
+            "amazon": 3,
+            "ghsa": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+              "V3Score": 8.2
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+              "V3Score": 8.2
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-24842",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/f4a7aa9bc3d717c987fdf1480ff7a64e87ffdb46",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-34x7-hfp2-rc4v",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-24842",
+            "https://www.cve.org/CVERecord?id=CVE-2026-24842"
+          ],
+          "PublishedDate": "2026-01-28T01:16:14.947Z",
+          "LastModifiedDate": "2026-02-02T14:30:10.89Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-26960",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.8",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-26960",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "node-tar: node-tar: Arbitrary file read/write via malicious archive hardlink creation",
+          "Description": "node-tar is a full-featured Tar for Node.js. When using default options in versions 7.5.7 and below, an attacker-controlled archive can create a hardlink inside the extraction directory that points to a file outside the extraction root, enabling arbitrary file read and write as the extracting user. Severity is high because the primitive bypasses path protections and turns archive extraction into a direct filesystem access primitive. This issue has been fixed in version 7.5.8.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-22"
+          ],
+          "VendorSeverity": {
+            "amazon": 3,
+            "ghsa": 3,
+            "nvd": 3,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+              "V3Score": 7.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+              "V3Score": 7.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+              "V3Score": 7.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-26960",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/2cb1120bcefe28d7ecc719b41441ade59c52e384",
+            "https://github.com/isaacs/node-tar/commit/d18e4e1f846f4ddddc153b0f536a19c050e7499f",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-83g3-92jg-28cx",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-26960",
+            "https://www.cve.org/CVERecord?id=CVE-2026-26960"
+          ],
+          "PublishedDate": "2026-02-20T02:16:53.883Z",
+          "LastModifiedDate": "2026-02-20T19:24:16.537Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-29786",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.10",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-29786",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "node-tar: hardlink path traversal via drive-relative linkpath",
+          "Description": "node-tar is a full-featured Tar for Node.js. Prior to version 7.5.10, tar can be tricked into creating a hardlink that points outside the extraction directory by using a drive-relative link target such as C:../target.txt, which enables file overwrite outside cwd during normal tar.x() extraction. This issue has been patched in version 7.5.10.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-22",
+            "CWE-59"
+          ],
+          "VendorSeverity": {
+            "amazon": 2,
+            "ghsa": 3,
+            "nvd": 2,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:P/VC:N/VI:H/VA:L/SC:N/SI:H/SA:L",
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:N/I:H/A:N",
+              "V3Score": 6.3
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N",
+              "V3Score": 8.6
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-29786",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/7bc755dd85e623c0279e08eb3784909e6d7e4b9f",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-qffp-2rhf-9h96",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-29786",
+            "https://www.cve.org/CVERecord?id=CVE-2026-29786"
+          ],
+          "PublishedDate": "2026-03-07T16:15:55.587Z",
+          "LastModifiedDate": "2026-03-11T21:50:01.91Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-31802",
+          "PkgID": "tar@6.2.1",
+          "PkgName": "tar",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/tar@6.2.1",
+            "UID": "650df71714f4a87c"
+          },
+          "InstalledVersion": "6.2.1",
+          "FixedVersion": "7.5.11",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-31802",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "tar: tar: File overwrite via drive-relative symlink traversal",
+          "Description": "node-tar is a full-featured Tar for Node.js. Prior to version 7.5.11, tar (npm) can be tricked into creating a symlink that points outside the extraction directory by using a drive-relative symlink target such as C:../../../target.txt, which enables file overwrite outside cwd during normal tar.x() extraction. This vulnerability is fixed in 7.5.11.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-22"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 2,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:H/SA:N",
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 5.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 6.2
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-31802",
+            "https://github.com/isaacs/node-tar",
+            "https://github.com/isaacs/node-tar/commit/f48b5fa3b7985ddab96dc0f2125a4ffc9911b6ad",
+            "https://github.com/isaacs/node-tar/security/advisories/GHSA-9ppj-qmqm-q256",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-31802",
+            "https://www.cve.org/CVERecord?id=CVE-2026-31802"
+          ],
+          "PublishedDate": "2026-03-10T07:44:58.02Z",
+          "LastModifiedDate": "2026-03-18T18:13:34.703Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-39363",
+          "PkgID": "vite@7.3.1",
+          "PkgName": "vite",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/vite@7.3.1",
+            "UID": "d01baa6a06ce563b"
+          },
+          "InstalledVersion": "7.3.1",
+          "FixedVersion": "8.0.5, 7.3.2, 6.4.2",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-39363",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "Vite: Vite: Information disclosure via WebSocket connection bypasses access control",
+          "Description": "Vite is a frontend tooling framework for JavaScript. From 6.0.0 to before 6.4.2, 7.3.2, and 8.0.5, if it is possible to connect to the Vite dev server’s WebSocket without an Origin header, an attacker can invoke fetchModule via the custom WebSocket event vite:invoke and combine file://... with ?raw (or ?inline) to retrieve the contents of arbitrary files on the server as a JavaScript string (e.g., export default \"...\"). The access control enforced in the HTTP request path (such as server.fs.allow) is not applied to this WebSocket-based execution path. This vulnerability is fixed in 6.4.2, 7.3.2, and 8.0.5.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-200",
+            "CWE-306"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-39363",
+            "https://github.com/vitejs/vite",
+            "https://github.com/vitejs/vite/commit/f02d9fde0b195afe3ea2944414186962fbbe41e0",
+            "https://github.com/vitejs/vite/pull/22159",
+            "https://github.com/vitejs/vite/releases/tag/v6.4.2",
+            "https://github.com/vitejs/vite/releases/tag/v7.3.2",
+            "https://github.com/vitejs/vite/releases/tag/v8.0.5",
+            "https://github.com/vitejs/vite/security/advisories/GHSA-p9ff-h696-f583",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-39363",
+            "https://www.cve.org/CVERecord?id=CVE-2026-39363"
+          ],
+          "PublishedDate": "2026-04-07T20:16:30Z",
+          "LastModifiedDate": "2026-04-30T18:34:19.693Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-39364",
+          "PkgID": "vite@7.3.1",
+          "PkgName": "vite",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/vite@7.3.1",
+            "UID": "d01baa6a06ce563b"
+          },
+          "InstalledVersion": "7.3.1",
+          "FixedVersion": "8.0.5, 7.3.2",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-39364",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "vite: Vite: Information disclosure via query parameter manipulation on the development server",
+          "Description": "Vite is a frontend tooling framework for JavaScript. From 7.1.0 to before 7.3.2 and 8.0.5, on the Vite dev server, files that should be blocked by server.fs.deny (e.g., .env, *.crt) can be retrieved with HTTP 200 responses when query parameters such as ?raw, ?import\u0026raw, or ?import\u0026url\u0026inline are appended. This vulnerability is fixed in 7.3.2 and 8.0.5.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-180",
+            "CWE-284"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3,
+            "redhat": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-39364",
+            "https://github.com/vitejs/vite",
+            "https://github.com/vitejs/vite/commit/a9a3df299378d9cbc5f069e3536a369f8188c8ff",
+            "https://github.com/vitejs/vite/pull/22160",
+            "https://github.com/vitejs/vite/releases/tag/v7.3.2",
+            "https://github.com/vitejs/vite/releases/tag/v8.0.5",
+            "https://github.com/vitejs/vite/security/advisories/GHSA-v2wj-q39q-566r",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-39364",
+            "https://www.cve.org/CVERecord?id=CVE-2026-39364"
+          ],
+          "PublishedDate": "2026-04-07T20:16:30.17Z",
+          "LastModifiedDate": "2026-04-30T18:34:57.303Z"
+        }
+      ]
+    },
+    {
+      "Target": "camofox-browser/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm"
+    },
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-30253",
+          "PkgID": "@solana/web3.js@0.0.3",
+          "PkgName": "@solana/web3.js",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/%40solana/web3.js@0.0.3",
+            "UID": "61c1da2f5ac7880e"
+          },
+          "InstalledVersion": "0.0.3",
+          "FixedVersion": "1.91.3, 1.90.2, 1.89.2, 1.88.1, 1.87.7, 1.86.1, 1.85.1, 1.84.1, 1.83.1, 1.82.1, 1.81.1, 1.80.1, 1.79.1, 1.78.8, 1.77.4, 1.76.1, 1.75.1, 1.74.1, 1.73.5, 1.72.1, 1.71.1, 1.70.4, 1.69.1, 1.68.2, 1.67.3, 1.66.6, 1.65.1, 1.64.1, 1.63.2, 1.62.2, 1.61.2, 1.60.1, 1.59.2, 1.58.1, 1.57.1, 1.56.3, 1.55.1, 1.54.2, 1.53.1, 1.52.1, 1.51.1, 1.50.2, 1.49.1, 1.48.1, 1.47.5, 1.46.1, 1.45.1, 1.44.4, 1.43.7, 1.42.1, 1.41.11, 1.40.2, 1.39.2, 1.38.1, 1.37.3, 1.36.1, 1.35.2, 1.34.1, 1.33.1, 1.32.2, 1.31.1, 1.30.3, 1.29.4, 1.28.1, 1.27.1, 1.26.1, 1.25.1, 1.24.3, 1.23.1, 1.22.1, 1.21.1, 1.20.3, 1.19.1, 1.18.1, 1.17.1, 1.16.2, 1.15.1, 1.14.1, 1.13.1, 1.12.1, 1.11.1, 1.10.2, 1.9.2, 1.8.1, 1.7.2, 1.6.1, 1.5.1, 1.4.1, 1.3.1, 1.2.8, 1.1.2, 1.0.1",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2024-30253",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Title": "Handling untrusted input can result in a crash, leading to loss of availability / denial of service",
+          "Description": "@solana/web3.js is the Solana JavaScript SDK. Using particular inputs with `@solana/web3.js` will result in memory exhaustion (OOM). If you have a server, client, mobile, or desktop product that accepts untrusted input for use with `@solana/web3.js`, your application/service may crash, resulting in a loss of availability. This vulnerability is fixed in 1.0.1, 1.10.2, 1.11.1, 1.12.1, 1.1.2, 1.13.1, 1.14.1, 1.15.1, 1.16.2, 1.17.1, 1.18.1, 1.19.1, 1.20.3, 1.21.1, 1.22.1, 1.23.1, 1.24.3, 1.25.1, 1.26.1, 1.27.1, 1.28.1, 1.2.8, 1.29.4, 1.30.3, 1.31.1, 1.3.1, 1.32.3, 1.33.1, 1.34.1, 1.35.2, 1.36.1, 1.37.3, 1.38.1, 1.39.2, 1.40.2, 1.41.11, 1.4.1, 1.42.1, 1.43.7, 1.44.4, 1.45.1, 1.46.1, 1.47.5, 1.48.1, 1.49.1, 1.50.2, 1.51.1, 1.5.1, 1.52.1, 1.53.1, 1.54.2, 1.55.1, 1.56.3, 1.57.1, 1.58.1, 1.59.2, 1.60.1, 1.61.2, 1.6.1, 1.62.2, 1.63.2, 1.64.1, 1.65.1, 1.66.6, 1.67.3, 1.68.2, 1.69.1, 1.70.4, 1.71.1, 1.72.1, 1.7.2, 1.73.5, 1.74.1, 1.75.1, 1.76.1, 1.77.4, 1.78.8, 1.79.1, 1.80.1, 1.81.1, 1.8.1, 1.82.1, 1.83.1, 1.84.1, 1.85.1, 1.86.1, 1.87.7, 1.88.1, 1.89.2, 1.90.2, 1.9.2, and 1.91.3.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-119"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/solana-labs/solana-web3.js",
+            "https://github.com/solana-labs/solana-web3.js/commit/77d935221a4805107b20b60ae7c1148725e4e2d0",
+            "https://github.com/solana-labs/solana-web3.js/security/advisories/GHSA-8m45-2rjm-j347",
+            "https://nvd.nist.gov/vuln/detail/CVE-2024-30253"
+          ],
+          "PublishedDate": "2024-04-17T15:15:07.253Z",
+          "LastModifiedDate": "2026-04-15T00:35:42.02Z"
+        }
+      ]
+    },
+    {
+      "Target": "rust/betchu-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-android/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-33040",
+          "PkgID": "libp2p-gossipsub@0.48.0",
+          "PkgName": "libp2p-gossipsub",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/libp2p-gossipsub@0.48.0",
+            "UID": "b6599a0fd7686bf8"
+          },
+          "InstalledVersion": "0.48.0",
+          "FixedVersion": "0.49.3",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-33040",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "Gossipsub PRUNE.backoff Duration Overflow",
+          "Description": "libp2p-rust is the official rust language Implementation of the libp2p networking stack. In versions prior to 0.49.3, the Gossipsub implementation accepts attacker-controlled PRUNE backoff values and may perform unchecked time arithmetic when storing backoff state. A specially crafted PRUNE control message with an extremely large backoff (e.g. u64::MAX) can lead to Duration/Instant overflow during backoff update logic, triggering a panic in the networking state machine. This is remotely reachable over a normal libp2p connection and does not require authentication. Any application exposing a libp2p Gossipsub listener and using the affected backoff-handling path can be crashed by a network attacker that can reach the service port. The attack can be repeated by reconnecting and replaying the crafted control message. This issue has been fixed in version 0.49.3.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-190"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/libp2p/rust-libp2p",
+            "https://github.com/libp2p/rust-libp2p/security/advisories/GHSA-gc42-3jg7-rxr2",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-33040"
+          ],
+          "PublishedDate": "2026-03-20T06:16:12.33Z",
+          "LastModifiedDate": "2026-05-01T18:37:29.107Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-34219",
+          "PkgID": "libp2p-gossipsub@0.48.0",
+          "PkgName": "libp2p-gossipsub",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/libp2p-gossipsub@0.48.0",
+            "UID": "b6599a0fd7686bf8"
+          },
+          "InstalledVersion": "0.48.0",
+          "FixedVersion": "0.49.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-34219",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "libp2p-gossipsub: Remote crash via unchecked Instant overflow in heartbeat backoff expiry handling",
+          "Description": "libp2p-rust is the official rust language Implementation of the libp2p networking stack. Prior to version 0.49.4, the Rust libp2p Gossipsub implementation contains a remotely reachable panic in backoff expiry handling. After a peer sends a crafted PRUNE control message with an attacker-controlled, near-maximum backoff value, the value is accepted and stored as an Instant near the representable upper bound. On a later heartbeat, the implementation performs unchecked Instant + Duration arithmetic (backoff_time + slack), which can overflow and panic with: overflow when adding duration to instant. This issue is reachable from any Gossipsub peer over normal TCP + Noise + mplex/yamux connectivity and requires no further authentication beyond becoming a protocol peer. This issue has been patched in version 0.49.4.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-190",
+            "CWE-617"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V3Score": 5.9,
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          },
+          "References": [
+            "https://github.com/advisories/GHSA-gc42-3jg7-rxr2",
+            "https://github.com/libp2p/rust-libp2p",
+            "https://github.com/libp2p/rust-libp2p/security/advisories/GHSA-xqmp-fxgv-xvq5",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-34219"
+          ],
+          "PublishedDate": "2026-03-31T16:16:31.92Z",
+          "LastModifiedDate": "2026-05-01T18:37:33.773Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-32314",
+          "PkgID": "yamux@0.12.1",
+          "PkgName": "yamux",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/yamux@0.12.1",
+            "UID": "4cb38f9edc4cccee"
+          },
+          "InstalledVersion": "0.12.1",
+          "FixedVersion": "0.13.10",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-32314",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "Yamux is a stream multiplexer over reliable, ordered connections such  ...",
+          "Description": "Yamux is a stream multiplexer over reliable, ordered connections such as TCP/IP. Prior to 0.13.10, the Rust implementation of Yamux can panic when processing a crafted inbound Data frame that sets SYN and uses a body length greater than DEFAULT_CREDIT (e.g. 262145). On the first packet of a new inbound stream, stream state is created and a receiver is queued before oversized-body validation completes. When validation fails, the temporary stream is dropped and cleanup may call remove(...).expect(\"stream not found\"), triggering a panic in the connection state machine. This is remotely reachable over a normal Yamux session and does not require authentication. This vulnerability is fixed in 0.13.10.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-248"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/libp2p/rust-yamux",
+            "https://github.com/libp2p/rust-yamux/security/advisories/GHSA-vxx9-2994-q338",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-32314"
+          ],
+          "PublishedDate": "2026-03-16T14:19:34.03Z",
+          "LastModifiedDate": "2026-03-19T14:30:43.087Z"
+        }
+      ]
+    },
+    {
+      "Target": "rust/btcpc-ble-tracker/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-bot/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-cli/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-runtime/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-contract-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": "rust/btcpc-node/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-33040",
+          "PkgID": "libp2p-gossipsub@0.48.0",
+          "PkgName": "libp2p-gossipsub",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/libp2p-gossipsub@0.48.0",
+            "UID": "e7e6f3a421f3d62d"
+          },
+          "InstalledVersion": "0.48.0",
+          "FixedVersion": "0.49.3",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-33040",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "Gossipsub PRUNE.backoff Duration Overflow",
+          "Description": "libp2p-rust is the official rust language Implementation of the libp2p networking stack. In versions prior to 0.49.3, the Gossipsub implementation accepts attacker-controlled PRUNE backoff values and may perform unchecked time arithmetic when storing backoff state. A specially crafted PRUNE control message with an extremely large backoff (e.g. u64::MAX) can lead to Duration/Instant overflow during backoff update logic, triggering a panic in the networking state machine. This is remotely reachable over a normal libp2p connection and does not require authentication. Any application exposing a libp2p Gossipsub listener and using the affected backoff-handling path can be crashed by a network attacker that can reach the service port. The attack can be repeated by reconnecting and replaying the crafted control message. This issue has been fixed in version 0.49.3.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-190"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/libp2p/rust-libp2p",
+            "https://github.com/libp2p/rust-libp2p/security/advisories/GHSA-gc42-3jg7-rxr2",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-33040"
+          ],
+          "PublishedDate": "2026-03-20T06:16:12.33Z",
+          "LastModifiedDate": "2026-05-01T18:37:29.107Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-34219",
+          "PkgID": "libp2p-gossipsub@0.48.0",
+          "PkgName": "libp2p-gossipsub",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/libp2p-gossipsub@0.48.0",
+            "UID": "e7e6f3a421f3d62d"
+          },
+          "InstalledVersion": "0.48.0",
+          "FixedVersion": "0.49.4",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-34219",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "libp2p-gossipsub: Remote crash via unchecked Instant overflow in heartbeat backoff expiry handling",
+          "Description": "libp2p-rust is the official rust language Implementation of the libp2p networking stack. Prior to version 0.49.4, the Rust libp2p Gossipsub implementation contains a remotely reachable panic in backoff expiry handling. After a peer sends a crafted PRUNE control message with an attacker-controlled, near-maximum backoff value, the value is accepted and stored as an Instant near the representable upper bound. On a later heartbeat, the implementation performs unchecked Instant + Duration arithmetic (backoff_time + slack), which can overflow and panic with: overflow when adding duration to instant. This issue is reachable from any Gossipsub peer over normal TCP + Noise + mplex/yamux connectivity and requires no further authentication beyond becoming a protocol peer. This issue has been patched in version 0.49.4.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-190",
+            "CWE-617"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V3Score": 5.9,
+              "V40Score": 8.2
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          },
+          "References": [
+            "https://github.com/advisories/GHSA-gc42-3jg7-rxr2",
+            "https://github.com/libp2p/rust-libp2p",
+            "https://github.com/libp2p/rust-libp2p/security/advisories/GHSA-xqmp-fxgv-xvq5",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-34219"
+          ],
+          "PublishedDate": "2026-03-31T16:16:31.92Z",
+          "LastModifiedDate": "2026-05-01T18:37:33.773Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-32314",
+          "PkgID": "yamux@0.12.1",
+          "PkgName": "yamux",
+          "PkgIdentifier": {
+            "PURL": "pkg:cargo/yamux@0.12.1",
+            "UID": "6e509df1065a1c92"
+          },
+          "InstalledVersion": "0.12.1",
+          "FixedVersion": "0.13.10",
+          "Status": "fixed",
+          "Layer": {},
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-32314",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Rust",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Arust"
+          },
+          "Title": "Yamux is a stream multiplexer over reliable, ordered connections such  ...",
+          "Description": "Yamux is a stream multiplexer over reliable, ordered connections such as TCP/IP. Prior to 0.13.10, the Rust implementation of Yamux can panic when processing a crafted inbound Data frame that sets SYN and uses a body length greater than DEFAULT_CREDIT (e.g. 262145). On the first packet of a new inbound stream, stream state is created and a receiver is queued before oversized-body validation completes. When validation fails, the temporary stream is dropped and cleanup may call remove(...).expect(\"stream not found\"), triggering a panic in the connection state machine. This is remotely reachable over a normal Yamux session and does not require authentication. This vulnerability is fixed in 0.13.10.",
+          "Severity": "HIGH",
+          "CweIDs": [
+            "CWE-248"
+          ],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "References": [
+            "https://github.com/libp2p/rust-yamux",
+            "https://github.com/libp2p/rust-yamux/security/advisories/GHSA-vxx9-2994-q338",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-32314"
+          ],
+          "PublishedDate": "2026-03-16T14:19:34.03Z",
+          "LastModifiedDate": "2026-03-19T14:30:43.087Z"
+        }
+      ]
+    },
+    {
+      "Target": "rust/btcpc-sdk/Cargo.lock",
+      "Class": "lang-pkgs",
+      "Type": "cargo"
+    },
+    {
+      "Target": ".env",
+      "Class": "secret"
+    }
+  ]
+}

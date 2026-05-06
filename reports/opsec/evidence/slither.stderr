@@ -1,0 +1,61 @@
+Unable to find image 'trailofbits/slither:latest' locally
+latest: Pulling from trailofbits/slither
+a230b3efebd1: Pulling fs layer
+b4624b3efe06: Pulling fs layer
+987088a85b96: Pulling fs layer
+ebe3b9b979c2: Pulling fs layer
+d42beb8ded59: Pulling fs layer
+d6a33a62e824: Pulling fs layer
+6cf436f81810: Pulling fs layer
+0471f6728e08: Pulling fs layer
+b4624b3efe06: Download complete
+ebe3b9b979c2: Download complete
+d42beb8ded59: Download complete
+987088a85b96: Download complete
+a230b3efebd1: Download complete
+0471f6728e08: Download complete
+6cf436f81810: Download complete
+6cf436f81810: Pull complete
+b4624b3efe06: Pull complete
+d42beb8ded59: Pull complete
+987088a85b96: Pull complete
+d6a33a62e824: Download complete
+a230b3efebd1: Pull complete
+d6a33a62e824: Pull complete
+ebe3b9b979c2: Pull complete
+ebe3b9b979c2: Pull complete
+0471f6728e08: Pull complete
+Digest: sha256:ef584f1e53a3c118ae5d581bdf5be740f941dad0f40148be6e85bcae37f57133
+Status: Downloaded newer image for trailofbits/slither:latest
+INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPC.sol:
+[91m/src/contracts/wBTCPC.sol:72:24: Error: Expected ',' but got identifier[0m
+        bytes calldata signature
+                       ^-------^
+
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPC.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCSale.sol:
+[91m/src/contracts/wBTCPCSale.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+^------------------------------------------------------^
+[91m/src/contracts/wBTCPCSale.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
+import "@openzeppelin/contracts/access/Ownable.sol";
+^--------------------------------------------------^
+
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCSale.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCBondingCurve.sol:
+[91m/src/contracts/wBTCPCBondingCurve.sol:4:1: Error: Source "@openzeppelin/contracts/token/ERC20/IERC20.sol" not found: File not found.[0m
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+^------------------------------------------------------^
+[91m/src/contracts/wBTCPCBondingCurve.sol:5:1: Error: Source "@openzeppelin/contracts/access/Ownable.sol" not found: File not found.[0m
+import "@openzeppelin/contracts/access/Ownable.sol";
+^--------------------------------------------------^
+
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCBondingCurve.sol, check the correct compilation
+INFO:Slither:Compilation warnings/errors on /src/contracts/wBTCPCBridge.sol:
+[91m/src/contracts/wBTCPCBridge.sol:33:30: Error: Expected ';' but got identifier[0m
+    bytes32 public immutable DOMAIN_SEPARATOR;
+                             ^--------------^
+
+INFO:SlitherSolcParsing:No contract were found in /src/contracts/wBTCPCBridge.sol, check the correct compilation
+WARNING:Slither:[91mNo contract was analyzed[0m
+INFO:Slither:/src/contracts/wBTCPCBridge.sol analyzed (0 contracts), 0 result(s) found

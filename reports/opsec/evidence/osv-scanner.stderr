@@ -1,0 +1,28 @@
+Unable to find image 'ghcr.io/google/osv-scanner:latest' locally
+latest: Pulling from google/osv-scanner
+4db913b3f6fb: Pulling fs layer
+4c3aca1499f0: Pulling fs layer
+b55da06e3b41: Pulling fs layer
+973f1b4898e9: Pulling fs layer
+d8ce9337e84f: Pulling fs layer
+4f4fb700ef54: Pulling fs layer
+9965520de6ac: Pulling fs layer
+4f4fb700ef54: Already exists
+973f1b4898e9: Download complete
+9965520de6ac: Download complete
+4c3aca1499f0: Download complete
+4c3aca1499f0: Pull complete
+d8ce9337e84f: Download complete
+4db913b3f6fb: Download complete
+b55da06e3b41: Download complete
+b55da06e3b41: Pull complete
+4f4fb700ef54: Pull complete
+973f1b4898e9: Pull complete
+9965520de6ac: Pull complete
+d8ce9337e84f: Pull complete
+4db913b3f6fb: Pull complete
+Digest: sha256:2e07e642463100474fc5e214b66e6beccbd6bfa63dd3fbf047b3f755e78a6cfe
+Status: Downloaded newer image for ghcr.io/google/osv-scanner:latest
+Incorrect Usage: flag provided but not defined: -skip-git
+
+flag provided but not defined: -skip-git

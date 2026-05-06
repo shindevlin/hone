@@ -21,6 +21,7 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_POSTING_KEY         — hex-encoded 32-byte ed25519 seed; node_id is derived from
                                 the public key and all clock seals are signed with it
     BTCPC_STORAGE             — "true" to emit StorageHeartbeat each epoch (earns StorageReward)
+    BTCPC_ETH_RPC             — Ethereum JSON-RPC endpoint for ENS resolution (default: cloudflare-eth.com)
     BTCPC_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
     BTCPC_SENSOR              — "true" to emit SensorDataCommit each epoch (earns SensorReward)
 */
@@ -48,6 +49,7 @@ mod store;
 mod tx;
 mod utils;
 mod wallet;
+mod ens;
 mod linkgit_server;
 
 use std::sync::Arc;

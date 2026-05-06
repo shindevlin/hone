@@ -52,16 +52,16 @@ New accounts start with 0 BTCPC. There are three ways to get tokens:
 
 ## Link Telegram (Optional)
 
-Use [@btcpcbot](https://t.me/btcpcbot) to check balances, mining stats, and submit inference:
+Use [@btcpcbot](https://t.me/btcpcbot) to check balances, mining stats, and submit AI tasks:
 
 1. Message the bot: `/link yourname`
 2. Claim starter tokens: `/claim`
 3. Check balance: `/balance`
-4. Submit inference: just type any message
+4. Submit an AI task: just type any message
 
-## Use Inference
+## Run AI Tasks
 
-Once you have tokens, submit AI inference requests:
+Once you have tokens, submit AI tasks to the network:
 
 ```bash
 curl -X POST http://localhost:3000/v1/chat/completions \

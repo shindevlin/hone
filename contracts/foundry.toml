@@ -1,0 +1,11 @@
+[profile.default]
+src = "."
+test = "test"
+out = "out"
+libs = ["lib"]
+allow_paths = ["../node_modules"]
+remappings = [
+    "@openzeppelin/=../node_modules/@openzeppelin/",
+    "forge-std/=lib/forge-std/src/",
+]
+solc = "0.8.20"

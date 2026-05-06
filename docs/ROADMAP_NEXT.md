@@ -16,6 +16,7 @@ Base version: 3.1.11 (targeting 3.2.0)
 | 7 | MIN_WORK_THRESHOLD Default | S | None | Done (v3.1.11) |
 | 8 | Logo Integration | S | website/assets/logo.jpeg already present | Done (v3.1.11) |
 | 9 | P2P Noise Protocol Encryption | L | None | Not started |
+| 10 | LinkGit Public API (Repos/Issues/Hooks/Tokens) | M | Existing auth/token patterns + API routing | Planned |
 
 ---
 
@@ -226,6 +227,46 @@ a pre-shared VPN.
 No branch has Noise Protocol work. The ECDH and AES primitives in src/inference/session.js
 are pattern reference only — the Noise implementation requires a dedicated state machine.
 Review the @stablelib/noise package API before starting.
+
+---
+
+## 10. LinkGit Public API (Complexity: M)
+
+### What it is
+A first-class LinkGit API surface for repository lifecycle, issues/PR automation,
+webhooks, and scoped access tokens so teams can integrate LinkGit into CI/CD and
+developer tooling the same way they do with GitHub/Codeberg.
+
+### Why now
+LinkGit currently presents as a forge UI, but high-usage teams convert only when
+automation primitives are available. API completeness is required for migration,
+bot workflows, and ecosystem adoption.
+
+### Affected files
+- `src/inference/api.js` or dedicated `src/linkgit/api.js` (new) — REST handlers
+- `src/services/secretStore.js` — token generation/storage reuse pattern
+- `src/chain/stateStore.js` — API token scopes, webhook config state (if on-chain tracked)
+
+### Sub-phases
+
+**Phase alpha — Core repo + token APIs**
+- `POST /api/v1/repos`, `GET /api/v1/repos/:owner/:name`, `PATCH /api/v1/repos/:owner/:name`.
+- Scoped personal access tokens (read_repo, write_repo, admin_repo).
+- Token issue/revoke/list endpoints with hashed-at-rest storage.
+
+**Phase beta — Issues/PR + webhooks**
+- `GET/POST /api/v1/issues`, `GET/POST /api/v1/pulls` core endpoints.
+- Webhook registration + delivery signing (`X-LinkGit-Signature`).
+- Retry policy + dead-letter visibility for failed webhook deliveries.
+
+**Phase gamma — Org/service automation controls**
+- Organization service tokens with narrow scopes and expiry.
+- Rate-limit policy per token and per IP with admin override.
+- API analytics (anonymized cohorts only) for usage/adoption metrics.
+
+### Branch reuse notes
+Leverage existing API auth/session patterns and token secret handling already used
+in the codebase to avoid introducing a second credential lifecycle.
 
 ---
 

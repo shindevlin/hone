@@ -1,0 +1,15 @@
+{
+  "name": "btcpc-bot",
+  "version": "1.0.0",
+  "description": "BTCPC Telegram bot — check balances, mining stats, epoch info",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "mongoose": "^8.0.3",
+    "node-telegram-bot-api": "^0.66.0",
+    "ws": "^8.20.0"
+  }
+}

@@ -1,0 +1,27 @@
+# Gitleaks configuration — allowlists for known false positives
+title = "btcpc gitleaks config"
+
+[allowlist]
+description = "Project-wide allowlists"
+
+# Covers:
+#   data/model-registry.json  — SHA-256 file integrity hashes, not API keys
+#   contracts/deployments.json — public on-chain addresses and tx hashes
+#   docs/*, README.md, sdk/README.md — curl -H "Authorization: Bearer <example>" in docs
+#   tests/stablecoinVerifier.test.js — placeholder keys in test fixtures
+paths = [
+    "data/model-registry.json",
+    "README.md",
+    "sdk/README.md",
+    "docs/getting-started.md",
+    "docs/integration.md",
+    "docs/LINKGIT_PROTOCOL_WHITEPAPER.md",
+    "contracts/deployments.json",
+    "tests/stablecoinVerifier.test.js",
+]
+
+# Suppress exactly 64-char lowercase hex strings — these are SHA-256 hashes, not keys.
+# Anchored so a 128-char private key (two 64-char halves) is not also suppressed.
+regexes = [
+    '''^[0-9a-f]{64}$''',
+]

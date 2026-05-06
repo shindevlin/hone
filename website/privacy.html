@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BTCPC Privacy Policy</title>
+    <meta
+      name="description"
+      content="BTCPC privacy policy covering website, app, controller flow, and network participation."
+    />
+    <meta property="og:title" content="BTCPC Privacy Policy" />
+    <meta
+      property="og:description"
+      content="Privacy policy for BTCPC website, app, controller flow, and network participation."
+    />
+    <meta property="og:url" content="https://btcpc.net/privacy" />
+    <style>
+      :root {
+        --bg: #0a0e17;
+        --panel: #111827;
+        --line: rgba(148, 163, 184, 0.16);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #22d3ee;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, system-ui, sans-serif;
+        line-height: 1.65;
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      .top {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+      .top a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .top .brand {
+        color: var(--accent);
+        font-weight: 800;
+      }
+      .hero {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        margin-bottom: 18px;
+      }
+      h1 { margin: 0 0 10px; font-size: 40px; }
+      h2 { margin-top: 30px; color: var(--accent); }
+      p, li { color: var(--muted); }
+      ul { padding-left: 20px; }
+      .section {
+        background: rgba(17, 24, 39, 0.66);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+        margin-top: 18px;
+      }
+      .footer {
+        margin-top: 32px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .footer a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <a class="brand" href="/">BTCPC</a>
+        <a href="/start">Start</a>
+        <a href="/install">Install</a>
+        <a href="/controller.html">Controller</a>
+        <a href="/terms">Terms</a>
+      </div>
+
+      <div class="hero">
+        <div style="color:#f7931a;font-size:12px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;">Privacy Policy</div>
+        <h1>BTCPC Privacy Policy</h1>
+        <p>
+          This policy explains what BTCPC may collect when you use the website,
+          app, controller flow, or network, and how the data is used.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>1. Data we may collect</h2>
+        <ul>
+          <li>Account identifiers, usernames, and wallet addresses you choose to link.</li>
+          <li>Device and browser information needed to run the app and diagnose issues.</li>
+          <li>Network and usage logs such as page requests, node status, and inference usage.</li>
+          <li>Content you submit for inference, support, or transfer authorization.</li>
+          <li>Controller and policy metadata when you opt into spending controls.</li>
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2>2. Local wallet data</h2>
+        <p>
+          BTCPC may create or import a wallet export during setup. The export is
+          designed to be saved to your device. BTCPC does not want you to
+          expose your private keys; you are responsible for securing any export
+          file, mnemonic phrase, or controller credential you keep locally.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>3. Controller and external providers</h2>
+        <p>
+          The controller flow may use Privy or other supported wallet providers
+          to sign approvals. Those providers may process login, wallet, and
+          signing-related data under their own policies. If you use Telegram,
+          GitHub, RPC providers, or other third-party integrations, their
+          policies may also apply.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>4. How data is used</h2>
+        <ul>
+          <li>Run BTCPC services and authenticate you.</li>
+          <li>Process wallet actions, inference requests, and node participation.</li>
+          <li>Maintain chain state, logs, rewards, and policy enforcement.</li>
+          <li>Improve reliability, prevent abuse, and diagnose failures.</li>
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2>5. Data retention</h2>
+        <p>
+          BTCPC keeps data only as long as needed for network operation,
+          security, accounting, legal obligations, or user-requested features.
+          On-chain records may persist as part of the blockchain and cannot be
+          deleted retroactively.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>6. Your choices</h2>
+        <p>
+          You can choose which wallets to link, whether to use controller mode,
+          and whether to use browser, desktop, or terminal workflows. If a
+          feature depends on a third-party provider, you can stop using that
+          provider at any time.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>7. Changes</h2>
+        <p>
+          BTCPC may update this policy as the product evolves. Review the
+          current version periodically.
+        </p>
+      </div>
+
+      <div class="footer">
+        Version: 2026-04-24 · <a href="/start">Start</a> ·
+        <a href="/terms">Terms</a> · <a href="/install">Install</a>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,738 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * btcpc-clock — Lightweight Clock Node
+ * Shin Devlin
+ *
+ * Participates in BTCPC epoch consensus without mining.
+ * No MongoDB, no Ollama, no GPU required.
+ * Runs on any hardware: iPad, Pi, VPS, laptop.
+ *
+ * Usage:
+ *   BTCPC_CLOCK_ACCOUNT=josh P2P_PORT=6943 node bin/btcpc-clock
+ *
+ * What it does:
+ *   - Connects to P2P network (seed peers + relay)
+ *   - Receives and relays all messages
+ *   - Tracks chain state via block files
+ *   - Participates in epoch timing consensus
+ *   - When it's this node's turn: broadcasts EPOCH_START/END/FINALIZED
+ */
+
+var path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+
+var crypto = require("crypto");
+var WebSocket = require("ws");
+var Block = require("../src/chain/block");
+var blockStore = require("../src/chain/blockStore");
+var stateManager = require("../src/chain/stateManager");
+var nodeRegistry = require("../src/chain/nodeRegistry");
+var epochConsensus = require("../src/chain/authorityRotation");
+var mempool = require("../src/p2p/mempool");
+var { getBlockReward } = require("../src/services/emissionSchedule");
+var messageAuth = require("../src/p2p/messageAuth");
+var blockProposal = require("../src/chain/blockProposal");
+var finalizationConsensus = require("../src/chain/finalizationConsensus");
+var { applyFinalization } = require("../src/chain/epochFinalizer");
+// Protocol gossip tracking (recordMinerWork, getActiveVerifiers, etc.)
+// Importing protocol here populates the same in-memory gossip maps
+// that blockProposal.buildProposal() reads from.
+var protocolGossip = require("../src/p2p/protocol");
+
+// ─── Configuration ───────────────────────────────────────────────
+
+var CLOCK_ACCOUNT = process.env.BTCPC_CLOCK_ACCOUNT || process.env.BTCPC_MINER || "clock-" + crypto.randomBytes(4).toString("hex");
+var P2P_PORT = parseInt(process.env.BTCPC_CLOCK_P2P_PORT || process.env.P2P_PORT) || 6943;
+var NODE_ID = process.env.BTCPC_NODE_ID || crypto.randomBytes(16).toString("hex");
+var SEED_PEERS = (process.env.BTCPC_SEED_PEERS || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+var RELAY_URL = process.env.BTCPC_RELAY_URL || "wss://btcpc-relay.shindevlin.workers.dev/ws";
+// Multi-relay: BTCPC_RELAY_URLS overrides BTCPC_RELAY_URL when set
+var RELAY_URLS = (function () {
+  var multi = process.env.BTCPC_RELAY_URLS;
+  if (multi) return multi.split(",").map(function (u) { return u.trim(); }).filter(Boolean);
+  return RELAY_URL ? [RELAY_URL] : [];
+})();
+var EPOCH_DURATION_MS = 30 * 1000; // 30 seconds (v3.0)
+var POSTING_KEY = process.env.BTCPC_POSTING_KEY || null;
+var ACTIVE_KEY = process.env.BTCPC_ACTIVE_KEY || null;
+
+// ─── State ───────────────────────────────────────────────────────
+
+var currentEpoch = -1;
+// Genesis: 2026-04-14T16:27:00.000Z (derived from block timestamps)
+var genesisTimestamp = 1776184020000;
+var peers = new Map();
+var seenMessages = new Set();
+var running = false;
+var peerZeroSince = null;
+
+// ─── P2P Layer ───────────────────────────────────────────────────
+
+var wss = null;
+
+function startServer() {
+  wss = new WebSocket.Server({ port: P2P_PORT });
+  wss.on("connection", function (ws, req) {
+    var addr = "inbound:" + (req.socket.remoteAddress || "unknown") + ":" + req.socket.remotePort;
+    setupPeer(ws, addr);
+    sendHandshake(ws);
+  });
+  console.log("[CLOCK] P2P server listening on port " + P2P_PORT);
+}
+
+function connectToPeer(address) {
+  if (peers.has(address)) return;
+
+  try {
+    var ws = new WebSocket(address);
+    ws.on("open", function () {
+      setupPeer(ws, address);
+      sendHandshake(ws);
+      console.log("[CLOCK] Connected to " + address);
+    });
+    ws.on("error", function () {
+      // Retry with backoff
+      var attempt = (peers.get(address) || {}).reconnectAttempts || 0;
+      var delay = Math.min(2000 * Math.pow(2, attempt), 300000);
+      setTimeout(function () {
+        peers.delete(address);
+        connectToPeer(address);
+      }, delay);
+      if (peers.has(address)) {
+        var p = peers.get(address);
+        p.reconnectAttempts = attempt + 1;
+      } else {
+        peers.set(address, { ws: null, reconnectAttempts: attempt + 1 });
+      }
+    });
+  } catch (e) {
+    // Invalid URL, skip
+  }
+}
+
+function setupPeer(ws, address) {
+  peers.set(address, {
+    ws: ws,
+    nodeId: null,
+    chainHeight: -1,
+    reconnectAttempts: 0
+  });
+
+  ws.on("message", function (data) {
+    try {
+      var msg = JSON.parse(data.toString());
+      handleMessage(msg, address);
+    } catch (e) {}
+  });
+
+  ws.on("close", function () {
+    peers.delete(address);
+  });
+}
+
+function sendHandshake(ws) {
+  send(ws, {
+    type: "HANDSHAKE",
+    data: {
+      chainHeight: currentEpoch,
+      version: require("../package.json").version
+    },
+    nodeId: NODE_ID,
+    id: crypto.randomBytes(8).toString("hex"),
+    timestamp: Date.now()
+  });
+}
+
+function send(ws, msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function broadcast(msg, excludeAddress) {
+  var data = JSON.stringify(msg);
+  peers.forEach(function (peer, addr) {
+    if (addr === excludeAddress) return;
+    if (peer.ws && peer.ws.readyState === WebSocket.OPEN) {
+      peer.ws.send(data);
+    }
+  });
+}
+
+function createMessage(type, data) {
+  return {
+    type: type,
+    data: data,
+    nodeId: NODE_ID,
+    id: crypto.randomBytes(8).toString("hex"),
+    timestamp: Date.now()
+  };
+}
+
+// ─── Message Handling ────────────────────────────────────────────
+
+function handleMessage(msg, fromAddress) {
+  if (!msg || !msg.type) return;
+  if (msg.nodeId === NODE_ID) return;
+  if (msg.id && seenMessages.has(msg.id)) return;
+  if (msg.id) {
+    seenMessages.add(msg.id);
+    if (seenMessages.size > 5000) {
+      var iter = seenMessages.values();
+      for (var i = 0; i < 500; i++) seenMessages.delete(iter.next().value);
+    }
+  }
+
+  switch (msg.type) {
+    case "HANDSHAKE":
+      var peer = peers.get(fromAddress);
+      if (peer) {
+        peer.nodeId = msg.nodeId;
+        peer.chainHeight = (msg.data || {}).chainHeight || 0;
+      }
+      var ver = (msg.data || {}).version || "?";
+      console.log("[CLOCK] Peer " + (msg.nodeId || "?").slice(0, 12) + " (v" + ver + ", height " + ((msg.data || {}).chainHeight || 0) + ")");
+      break;
+
+    case "EPOCH_START":
+      var epoch = (msg.data || {}).epoch_number;
+      if (epoch > currentEpoch) {
+        currentEpoch = epoch;
+        console.log("[CLOCK] Epoch " + epoch + " START (from " + ((msg.data || {}).authority || "?") + ")");
+      }
+      broadcast(msg, fromAddress);
+      break;
+
+    case "EPOCH_END":
+      console.log("[CLOCK] Epoch " + ((msg.data || {}).epoch_number || "?") + " END");
+      broadcast(msg, fromAddress);
+      break;
+
+    case "EPOCH_FINALIZED":
+      handleEpochFinalized(msg);
+      broadcast(msg, fromAddress);
+      break;
+
+    case "BLOCK":
+      handleBlock(msg);
+      broadcast(msg, fromAddress);
+      break;
+
+    case "BLOCK_PROPOSAL":
+      // Clock receives proposals from peers — feed into consensus
+      handleBlockProposal(msg, fromAddress);
+      broadcast(msg, fromAddress);
+      break;
+
+    case "TRANSACTION":
+      mempool.addTransaction(msg.data || {});
+      broadcast(msg, fromAddress);
+      break;
+
+    case "RESPONSE_LEDGER":
+      handleLedgerResponse(msg);
+      break;
+
+    case "INFERENCE_REVEAL":
+    case "INFERENCE_RESULT": {
+      // Track gossiped miner work for reward calculation
+      var rd = msg.data || {};
+      if (rd.miner && rd.epoch_number != null && rd.work_value != null) {
+        var jobKey = rd.request_id || rd.result_hash || String(rd.epoch_number);
+        protocolGossip.recordMinerWork(rd.miner, jobKey, rd.work_value, rd.epoch_number);
+      }
+      broadcast(msg, fromAddress);
+      break;
+    }
+
+    case "VERIFY_RESPONSE": {
+      // Track verifier activity for reward calculation
+      var vd = msg.data || {};
+      if (vd.verifier && vd.epoch != null && vd.epoch > 0) {
+        try { protocolGossip.recordNodeActivity && protocolGossip.recordNodeActivity(vd.verifier, vd.epoch, "verifier"); } catch (_) {}
+      }
+      broadcast(msg, fromAddress);
+      break;
+    }
+
+    default:
+      // Relay everything else (inference, mining proofs, etc.)
+      broadcast(msg, fromAddress);
+      break;
+  }
+}
+
+function handleEpochFinalized(msg) {
+  var data = msg.data || {};
+  var epochNum = data.epoch_number;
+  if (!epochNum && epochNum !== 0) return;
+
+  console.log("[CLOCK] Block " + epochNum + " finalized | reward: " + ((data.block_reward || 0).toFixed(4)) + " BTCPC | " + ((data.rewards || []).length) + " miner(s)");
+
+  // Apply ledger entries to state manager
+  if (data.ledger && data.ledger.length > 0) {
+    stateManager.applyLedgerEntries(data.ledger);
+    nodeRegistry.processLedgerEntries(data.ledger);
+  }
+
+  // Write block to disk if header available
+  if (data.header_hex) {
+    try {
+      var headerBuf = Buffer.from(data.header_hex, "hex");
+      var block = Block.deserialize(headerBuf);
+      var payload = {
+        ledger_entries: data.ledger || [],
+        rewards: data.rewards || [],
+        compute_proofs: [],
+        mining_proofs: []
+      };
+      if (!blockStore.hasBlock(epochNum)) {
+        blockStore.writeBlock(block, payload);
+        console.log("[CLOCK] Block " + epochNum + " written to disk: " + block.computeHash().slice(0, 16) + "...");
+      }
+    } catch (e) {
+      console.error("[CLOCK] Block write error: " + e.message);
+    }
+  }
+
+  currentEpoch = Math.max(currentEpoch, epochNum);
+}
+
+function handleBlock(msg) {
+  var data = msg.data || {};
+  if (data.header_hex) {
+    try {
+      var headerBuf = Buffer.from(data.header_hex, "hex");
+      var block = Block.deserialize(headerBuf);
+      if (!blockStore.hasBlock(block.epoch_number)) {
+        var payload = {
+          ledger_entries: data.ledger_entries || [],
+          rewards: data.rewards || [],
+          compute_proofs: data.compute_proofs || [],
+          mining_proofs: data.mining_proofs || []
+        };
+        blockStore.writeBlock(block, payload);
+      }
+    } catch (e) {}
+  }
+}
+
+function handleLedgerResponse(msg) {
+  var entries = (msg.data || {}).entries || [];
+  if (entries.length > 0) {
+    stateManager.applyLedgerEntries(entries);
+    nodeRegistry.processLedgerEntries(entries);
+    console.log("[CLOCK] Synced " + entries.length + " ledger entries");
+  }
+}
+
+// ─── Block Proposal Handler ──────────────────────────────────────
+
+function handleBlockProposal(msg) {
+  var data = msg.data || {};
+  if (!data.epoch_number || !data.proposer || !data.consensus_hash) return;
+
+  // Feed into consensus tracker — same source-tag logic as protocol.js
+  var sourceTag = "peer:" + (data.proposer || "unknown");
+  finalizationConsensus.submitProposal(data.epoch_number, {
+    proposer: data.proposer,
+    rewards: (data.rewards || []).map(function (r) {
+      return { miner: r.to || r.miner, amount: r.amount, type: r.type };
+    }),
+    total_work: data.total_work || 0,
+    consensus_hash: data.consensus_hash,
+    settled_jobs: data.miners_active || 0,
+    block_reward: data.block_reward,
+    timestamp: data.timestamp
+  }, sourceTag);
+}
+
+// ─── Clock Finalization Callback ─────────────────────────────────
+// When consensus resolves, the clock applies rewards and broadcasts EPOCH_FINALIZED.
+// This is gated by BTCPC_CLOCK_PROPOSE=true so it only runs when the clock
+// is designated as the proposal authority (not the miner fallback).
+
+var CLOCK_PROPOSES = process.env.BTCPC_CLOCK_PROPOSE === "true";
+
+if (CLOCK_PROPOSES) {
+  finalizationConsensus.onResolved(function (epochNumber, winner) {
+    if (!finalizationConsensus.amIBroadcaster(epochNumber, CLOCK_ACCOUNT)) {
+      console.log("[CLOCK] Epoch " + epochNumber + " consensus — " + winner.proposer + " will broadcast");
+      return;
+    }
+
+    console.log("[CLOCK] Epoch " + epochNumber + " consensus reached — I am the broadcaster");
+
+    applyFinalization(epochNumber, winner, CLOCK_ACCOUNT).then(function (epoch) {
+      if (!epoch) return;
+      var bd = epoch._blockData || {};
+
+      var blockSignature = null;
+      var signKey = POSTING_KEY || ACTIVE_KEY;
+      if (signKey) {
+        try {
+          var blockHeaderData = {
+            epoch_number: epochNumber,
+            consensus_hash: winner.consensus_hash || "",
+            state_root: bd.state_root || "",
+            proposer: CLOCK_ACCOUNT,
+            timestamp: bd.timestamp || 0,
+          };
+          var sig = messageAuth.signMessage(blockHeaderData, signKey);
+          blockSignature = sig.signature;
+        } catch (_) {}
+      }
+
+      var finalizedMsg = createMessage("EPOCH_FINALIZED", {
+        epoch_number: epochNumber,
+        block_reward: winner.block_reward,
+        reward_number: winner.reward_number,
+        epochs_deferred: winner.epochs_deferred,
+        settled_jobs: winner.settled_jobs || 0,
+        rewards: (winner.rewards || []).map(function (r) { return { miner: r.miner, amount: r.amount }; }),
+        total_work: winner.total_work,
+        consensus_hash: winner.consensus_hash,
+        consensus_nodes: winner.consensus_nodes || 1,
+        consensus_proposals: winner.consensus_proposals || 1,
+        authority: CLOCK_ACCOUNT,
+        proposer: CLOCK_ACCOUNT,
+        block_signature: blockSignature,
+        ledger: bd.ledger || [],
+        header_hex: bd.header_hex || null,
+        block_hash: bd.block_hash || null,
+        state_root: bd.state_root || null,
+        is_finality: bd.is_finality || false
+      });
+      broadcast(finalizedMsg);
+      console.log("[CLOCK] Block " + epochNumber + " broadcast to network");
+    }).catch(function (err) {
+      console.error("[CLOCK] Finalization error for epoch " + epochNumber + ": " + err.message);
+    });
+  });
+}
+
+// ─── Epoch Clock Loop ────────────────────────────────────────────
+
+function startEpochClock() {
+  if (!genesisTimestamp) {
+    console.log("[CLOCK] Waiting for genesis timestamp from peers...");
+    return;
+  }
+
+  console.log("[CLOCK] Epoch clock started (" + CLOCK_ACCOUNT + ")" +
+    (CLOCK_PROPOSES ? " [PROPOSAL MODE]" : " [relay mode — set BTCPC_CLOCK_PROPOSE=true to enable proposals]"));
+
+  setInterval(function () {
+    if (!running) return;
+
+    var clockEpoch = epochConsensus.computeEpochNumber(genesisTimestamp, EPOCH_DURATION_MS);
+    if (clockEpoch <= currentEpoch) return;
+
+    // Check if we're eligible to participate in epoch consensus
+    var nodeInfo = nodeRegistry.getNode(CLOCK_ACCOUNT);
+    var eligible = epochConsensus.isEpochEligible(CLOCK_ACCOUNT, nodeInfo, nodeRegistry.PERMISSIONLESS_MIN_STAKE);
+
+    if (!eligible.eligible) {
+      // Not eligible — just update our local epoch tracker
+      currentEpoch = clockEpoch;
+      return;
+    }
+
+    // We're eligible — broadcast EPOCH_START
+    currentEpoch = clockEpoch;
+
+    // End previous epoch
+    if (currentEpoch > 1) {
+      var endData = {
+        epoch_number: currentEpoch - 1,
+        ended_at: Date.now(),
+        authority: CLOCK_ACCOUNT
+      };
+      if (POSTING_KEY) {
+        try {
+          var endSig = messageAuth.signMessage(endData, POSTING_KEY);
+          endData.signature = endSig.signature;
+        } catch (e) {
+          console.warn("[CLOCK] Failed to sign EPOCH_END: " + e.message);
+        }
+      }
+      var endMsg = createMessage("EPOCH_END", endData);
+      broadcast(endMsg);
+    }
+
+    // Start new epoch
+    var startData = {
+      epoch_number: currentEpoch,
+      started_at: Date.now(),
+      authority: CLOCK_ACCOUNT
+    };
+    // Sign EPOCH_START with posting key
+    if (POSTING_KEY) {
+      try {
+        var startSig = messageAuth.signMessage(startData, POSTING_KEY);
+        startData.signature = startSig.signature;
+      } catch (e) {
+        console.warn("[CLOCK] Failed to sign EPOCH_START: " + e.message);
+      }
+    } else {
+      console.warn("[CLOCK] No BTCPC_POSTING_KEY — EPOCH_START will be unsigned (rejected by strict nodes)");
+    }
+    var startMsg = createMessage("EPOCH_START", startData);
+    broadcast(startMsg);
+    console.log("[CLOCK] Epoch " + currentEpoch + " START (this node)");
+
+  }, 30000); // Check every 30 seconds
+
+  // ── Block proposal loop (only when BTCPC_CLOCK_PROPOSE=true) ──
+  // Runs every 5s, proposes a block for the next epoch when wall clock reaches it.
+  if (CLOCK_PROPOSES) {
+    var lastProposedEpoch = -1;
+    var highestFinalizedEpoch = currentEpoch - 1;
+
+    finalizationConsensus.onResolved(function (epochNumber) {
+      if (epochNumber > highestFinalizedEpoch) highestFinalizedEpoch = epochNumber;
+    });
+
+    setInterval(function () {
+      if (!running) return;
+      var wallEpoch = epochConsensus.computeEpochNumber(genesisTimestamp, EPOCH_DURATION_MS);
+      var targetEpoch = highestFinalizedEpoch + 1;
+      if (wallEpoch < targetEpoch) return;
+      if (targetEpoch <= lastProposedEpoch) return;
+
+      lastProposedEpoch = targetEpoch;
+
+      try {
+        var reward = getBlockReward(targetEpoch);
+        var proposal = blockProposal.buildProposal({
+          epochNumber: targetEpoch,
+          blockReward: reward,
+          proposerAccount: CLOCK_ACCOUNT,
+          protocol: protocolGossip,
+        });
+
+        var signKey = POSTING_KEY || ACTIVE_KEY;
+        if (signKey) {
+          try {
+            var proposalSignData = {
+              epoch_number: proposal.epoch_number,
+              proposer: proposal.proposer,
+              consensus_hash: proposal.consensus_hash,
+              total_work: proposal.total_work || 0,
+              timestamp: proposal.timestamp || 0,
+            };
+            var sig = messageAuth.signMessage(proposalSignData, signKey);
+            proposal.proposal_signature = sig.signature;
+          } catch (sigErr) {
+            console.warn("[CLOCK] Failed to sign block proposal: " + sigErr.message);
+          }
+        } else {
+          console.warn("[CLOCK] No signing key — proposal will be unsigned");
+        }
+
+        var propMsg = createMessage("BLOCK_PROPOSAL", proposal);
+        broadcast(propMsg);
+        console.log("[CLOCK] Block proposal epoch " + targetEpoch + ": " +
+          proposal.miners_active + " miner(s), " + proposal.clocks_active + " clock(s), work=" + proposal.total_work);
+
+        // Submit locally to consensus tracker
+        finalizationConsensus.submitProposal(targetEpoch, {
+          proposer: CLOCK_ACCOUNT,
+          rewards: proposal.rewards.map(function (r) {
+            return { miner: r.to, amount: r.amount, type: r.type };
+          }),
+          total_work: proposal.total_work,
+          consensus_hash: proposal.consensus_hash,
+          settled_jobs: proposal.miners_active,
+          block_reward: reward,
+          timestamp: proposal.timestamp,
+        }, "self");
+      } catch (err) {
+        console.error("[CLOCK] Block proposal error for epoch " + targetEpoch + ": " + err.message);
+      }
+    }, 5000);
+
+    console.log("[CLOCK] Block proposal loop active");
+  }
+}
+
+// ─── Startup ─────────────────────────────────────────────────────
+
+function start() {
+  console.log("");
+  console.log("  ============================================");
+  console.log("    btcpc-clock — Lightweight Clock Node");
+  console.log("    Bitcoin Proof of Compute");
+  console.log("    Account: " + CLOCK_ACCOUNT);
+  console.log("    Node ID: " + NODE_ID.slice(0, 12) + "...");
+  console.log("    P2P Port: " + P2P_PORT);
+  console.log("  ============================================");
+  console.log("");
+
+  // Initialize block storage
+  blockStore.ensureBlockDir();
+
+  // Load chain from disk
+  var latestBlock = blockStore.getLatestBlockNumber();
+  if (latestBlock >= 0) {
+    console.log("[CLOCK] Loading " + (latestBlock + 1) + " blocks from disk...");
+    blockStore.iterateBlocks(0, latestBlock, function (block, payload) {
+      if (payload && payload.ledger_entries) {
+        stateManager.applyLedgerEntries(payload.ledger_entries);
+        nodeRegistry.processLedgerEntries(payload.ledger_entries);
+      }
+      currentEpoch = Math.max(currentEpoch, block.epoch_number);
+    });
+    console.log("[CLOCK] Chain loaded: height " + currentEpoch + " | " + nodeRegistry.getNodeCount() + " nodes | state: " + stateManager.getStateRoot().slice(0, 16) + "...");
+
+    // Estimate genesis timestamp from epoch 0 block. If block-00000000.bin
+    // has been compacted into a finality snapshot, fall back to the earliest
+    // finality snapshot's timestamp or stateManager's genesis record.
+    var genesis = blockStore.readBlock(0);
+    if (genesis) {
+      genesisTimestamp = genesis.block.timestamp;
+      console.log("[CLOCK] Genesis timestamp: " + new Date(genesisTimestamp).toISOString());
+    } else {
+      // Derive genesis timestamp from ANY block's timestamp algebraically:
+      //   genesis = block.timestamp - (epochNumber * EPOCH_DURATION_MS)
+      // This is purely arithmetic and doesn't depend on file mtime.
+      try {
+        var _fs = require("fs");
+        var _path = require("path");
+        var bDir = _path.resolve(process.cwd(), "data", "blocks");
+        if (_fs.existsSync(bDir)) {
+          var blockFiles = _fs.readdirSync(bDir).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
+          for (var i = 0; i < blockFiles.length && !genesisTimestamp; i++) {
+            var epNum = parseInt(blockFiles[i].replace("block-", "").replace(".bin", ""), 10);
+            if (!Number.isFinite(epNum) || epNum <= 0) continue;
+            var blk = blockStore.readBlock(epNum);
+            if (blk && blk.block && blk.block.timestamp > 0) {
+              genesisTimestamp = blk.block.timestamp - (epNum * EPOCH_DURATION_MS);
+              console.log("[CLOCK] Genesis timestamp derived from block " + epNum + ": " + new Date(genesisTimestamp).toISOString());
+            }
+          }
+        }
+      } catch (_e) {
+        console.warn("[CLOCK] Genesis estimation failed: " + _e.message);
+      }
+    }
+  }
+
+  // Register this clock node — permissioned during genesis phase
+  // Clock nodes that are also known miners (from block replay) are already registered
+  if (!nodeRegistry.isRegistered(CLOCK_ACCOUNT)) {
+    nodeRegistry.registerNode(CLOCK_ACCOUNT, "clock", 0, RELAY_URL, currentEpoch, true);
+    console.log("[CLOCK] Registered as permissioned clock node");
+  } else {
+    // Ensure existing registration is permissioned
+    var existing = nodeRegistry.getNode(CLOCK_ACCOUNT);
+    if (existing && !existing.permissioned) {
+      existing.permissioned = true;
+    }
+    console.log("[CLOCK] Already registered: " + existing.type + " (permissioned: " + existing.permissioned + ")");
+  }
+
+  // Start P2P server
+  startServer();
+
+  // Connect to seed peers
+  SEED_PEERS.forEach(connectToPeer);
+  // Connect to all configured relays for redundancy
+  RELAY_URLS.forEach(connectToPeer);
+
+  running = true;
+
+  // Start the epoch clock after a delay (let peers connect first)
+  setTimeout(function () {
+    if (!genesisTimestamp) {
+      // If we still don't have genesis after the startup estimation, keep checking
+      var g = blockStore.readBlock(0);
+      if (g) {
+        genesisTimestamp = g.block.timestamp;
+      } else {
+        console.log("[CLOCK] No genesis block file — checking peers every 10s...");
+        var checkInterval = setInterval(function () {
+          var g2 = blockStore.readBlock(0);
+          if (g2) {
+            genesisTimestamp = g2.block.timestamp;
+            console.log("[CLOCK] Genesis found: " + new Date(genesisTimestamp).toISOString());
+            startEpochClock();
+            clearInterval(checkInterval);
+            return;
+          }
+          // Derive from ANY block's timestamp algebraically
+          try {
+            var _fs2 = require("fs");
+            var _path2 = require("path");
+            var bDir2 = _path2.resolve(process.cwd(), "data", "blocks");
+            var blkFiles = _fs2.readdirSync(bDir2).filter(function(f) { return f.startsWith("block-") && f.endsWith(".bin"); }).sort();
+            for (var j = 0; j < blkFiles.length; j++) {
+              var ep = parseInt(blkFiles[j].replace("block-", "").replace(".bin", ""), 10);
+              if (!Number.isFinite(ep) || ep <= 0) continue;
+              var b2 = blockStore.readBlock(ep);
+              if (b2 && b2.block && b2.block.timestamp > 0) {
+                genesisTimestamp = b2.block.timestamp - (ep * EPOCH_DURATION_MS);
+                console.log("[CLOCK] Genesis derived from block " + ep + ": " + new Date(genesisTimestamp).toISOString());
+                startEpochClock();
+                clearInterval(checkInterval);
+                break;
+              }
+            }
+          } catch (_) {}
+        }, 10000);
+        return;
+      }
+    }
+    startEpochClock();
+  }, 5000);
+
+  // Heartbeat — prove we're online for clock rewards
+  setInterval(function () {
+    if (!running || currentEpoch < 0) return;
+    var hbData = {
+      account: CLOCK_ACCOUNT,
+      epoch_number: currentEpoch,
+      timestamp: Date.now()
+    };
+    // Sign with posting key (heartbeats are social-tier operations)
+    if (POSTING_KEY) {
+      try {
+        var sig = messageAuth.signMessage(hbData, POSTING_KEY);
+        hbData.signature = sig.signature;
+      } catch (e) {
+        console.warn("[CLOCK] Failed to sign heartbeat: " + e.message);
+      }
+    } else {
+      console.warn("[CLOCK] No BTCPC_POSTING_KEY — heartbeat will be unsigned (rejected by strict nodes)");
+    }
+    var hb = createMessage("CLOCK_HEARTBEAT", hbData);
+    broadcast(hb);
+    console.log("[CLOCK] Heartbeat broadcast for epoch " + currentEpoch + " (" + CLOCK_ACCOUNT + ")");
+  }, 60000);
+
+  // Status logging
+  setInterval(function () {
+    var connectedPeers = 0;
+    peers.forEach(function (p) {
+      if (p.ws && p.ws.readyState === WebSocket.OPEN) connectedPeers++;
+    });
+    console.log("[CLOCK] Status: epoch " + currentEpoch + " | peers " + connectedPeers + " | nodes " + nodeRegistry.getNodeCount() + " | blocks " + (blockStore.getLatestBlockNumber() + 1));
+
+    // If no peers for 5+ minutes, force-reconnect to all relays and seeds
+    if (connectedPeers === 0) {
+      peerZeroSince = peerZeroSince || Date.now();
+      if (Date.now() - peerZeroSince > 300000) {
+        console.warn("[CLOCK] peers=0 for 5+ minutes — force-reconnecting to relays and seeds");
+        RELAY_URLS.forEach(connectToPeer);
+        SEED_PEERS.forEach(connectToPeer);
+        peerZeroSince = Date.now(); // reset so we don't spam reconnects every 60s
+      }
+    } else {
+      peerZeroSince = null;
+    }
+  }, 60000);
+}
+
+start();
