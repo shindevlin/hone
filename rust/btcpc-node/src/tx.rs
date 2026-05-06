@@ -94,6 +94,7 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
         | LedgerEntry::ServiceReward { .. }
         | LedgerEntry::MempoolReward { .. }
         | LedgerEntry::TrackerCoverageReward { .. }
+        | LedgerEntry::RuntimeReward { .. }
         | LedgerEntry::GenesisAlloc  { .. }
     )
 }
@@ -585,11 +586,11 @@ pub fn validate_and_apply(
         | LedgerEntry::GenesisAlloc { .. }
         | LedgerEntry::EpochFinalize { .. }
         | LedgerEntry::TestnetReward { .. }
-        | LedgerEntry::ClockReward { .. }
         | LedgerEntry::StorageReward { .. }
         | LedgerEntry::SensorReward { .. }
         | LedgerEntry::VerifierReward { .. }
         | LedgerEntry::ServiceReward { .. }
+        | LedgerEntry::RuntimeReward { .. }
         | LedgerEntry::EpochSeal { .. } => {
             bail!("entry type is not externally submittable");
         }
@@ -604,13 +605,17 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
-        // ── Decentralized runtime entries (phase 1) ─────────────────────────
-        LedgerEntry::RuntimeRegister { owner, signed_by, .. } => {
+        // ── Decentralized runtime entries ────────────────────────────────────
+        LedgerEntry::RuntimeRegister { owner, signed_by, bond, .. } => {
             if signed_by != owner {
                 bail!("signed_by must match owner");
             }
             require_key(chain, owner)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            let bal = chain.store.get_balance(owner, NATIVE_TOKEN);
+            if bal < *bond {
+                bail!("insufficient balance for bond: have {} need {}", bal, bond);
+            }
             chain.apply_entry(entry)?;
         }
         LedgerEntry::RuntimeDeploy { owner, signed_by, .. } => {
@@ -629,9 +634,13 @@ pub fn validate_and_apply(
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
-        LedgerEntry::RuntimeJobEnqueue { signed_by, .. } => {
+        LedgerEntry::RuntimeJobEnqueue { signed_by, fee, .. } => {
             require_key(chain, signed_by)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            let bal = chain.store.get_balance(signed_by, NATIVE_TOKEN);
+            if bal < *fee {
+                bail!("insufficient balance for job fee: have {} need {}", bal, fee);
+            }
             chain.apply_entry(entry)?;
         }
         LedgerEntry::RuntimeClaim { host_id, signed_by, .. } => {
@@ -659,6 +668,7 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
         LedgerEntry::RuntimeSlash { signed_by, .. } => {
+            // Clock nodes or governance accounts may submit slashes.
             require_key(chain, signed_by)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;

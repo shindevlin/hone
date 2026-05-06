@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use parking_lot::{Mutex, RwLock};
 use sha2::{Sha256, Digest as Sha256Digest};
 use tracing::{info, warn};
-use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS};
+use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS, RUNTIME_MIN_BOND, RUNTIME_FEE_HOST_BPS, RUNTIME_FEE_RECYCLE_BPS};
 
 use crate::inference;
 use crate::store::Store;
@@ -1139,21 +1139,28 @@ impl Chain {
                     })).unwrap_or_default());
             }
 
-            // Decentralized runtime (phase 1) — durable chain state records.
-            LedgerEntry::RuntimeRegister { runtime_id, owner, manifest_cid, runtime_class, nonce, epoch, .. } => {
+            // Decentralized runtime — state guards + full economics.
+            LedgerEntry::RuntimeRegister { runtime_id, owner, manifest_cid, runtime_class, nonce, bond, epoch, .. } => {
                 let key = format!("runtime:{}", runtime_id);
-                let prev = self.store.state_get(&key)
-                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                    .unwrap_or_else(|| serde_json::json!({}));
-                let created_epoch = prev["created_epoch"].as_u64().unwrap_or(*epoch);
+                anyhow::ensure!(
+                    self.store.state_get(&key).is_none(),
+                    "runtime '{}' already registered", runtime_id
+                );
+                anyhow::ensure!(*bond >= RUNTIME_MIN_BOND,
+                    "bond {} is below minimum {} dreams", bond, RUNTIME_MIN_BOND);
+                // Lock bond into per-runtime escrow account.
+                let escrow = format!("__runtime_bond_{}__", runtime_id);
+                self.store.debit(owner, NATIVE_TOKEN, *bond)?;
+                self.store.credit(&escrow, NATIVE_TOKEN, *bond)?;
                 let value = serde_json::json!({
                     "runtime_id": runtime_id,
                     "owner": owner,
                     "manifest_cid": manifest_cid,
                     "runtime_class": runtime_class,
                     "nonce": nonce,
+                    "bond": bond,
                     "status": "registered",
-                    "created_epoch": created_epoch,
+                    "created_epoch": epoch,
                     "updated_epoch": epoch,
                 });
                 self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
@@ -1162,8 +1169,16 @@ impl Chain {
                 let key = format!("runtime:{}", runtime_id);
                 let prev = self.store.state_get(&key)
                     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                    .unwrap_or_else(|| serde_json::json!({}));
-                let created_epoch = prev["created_epoch"].as_u64().unwrap_or(*epoch);
+                    .ok_or_else(|| anyhow::anyhow!("runtime '{}' not found", runtime_id))?;
+                anyhow::ensure!(
+                    prev["owner"].as_str() == Some(owner.as_str()),
+                    "only the runtime owner can deploy"
+                );
+                let status = prev["status"].as_str().unwrap_or("");
+                anyhow::ensure!(
+                    status == "registered" || status == "undeployed",
+                    "runtime '{}' must be registered or undeployed to deploy (status: {})", runtime_id, status
+                );
                 let manifest = manifest_cid
                     .clone()
                     .or_else(|| prev["manifest_cid"].as_str().map(ToString::to_string));
@@ -1173,9 +1188,10 @@ impl Chain {
                     "manifest_cid": manifest,
                     "runtime_class": prev.get("runtime_class").cloned().unwrap_or(serde_json::Value::Null),
                     "nonce": prev.get("nonce").cloned().unwrap_or(serde_json::Value::Null),
+                    "bond": prev.get("bond").cloned().unwrap_or(serde_json::Value::Null),
                     "deploy_host": host_id,
                     "status": "deployed",
-                    "created_epoch": created_epoch,
+                    "created_epoch": prev["created_epoch"].as_u64().unwrap_or(*epoch),
                     "deployed_epoch": epoch,
                     "updated_epoch": epoch,
                 });
@@ -1185,23 +1201,40 @@ impl Chain {
                 let host_value = serde_json::json!({
                     "host_id": host_id,
                     "status": "active",
-                    "last_claim_epoch": epoch,
+                    "last_deploy_epoch": epoch,
                     "updated_epoch": epoch,
                 });
                 self.store.state_set(&host_key, &serde_json::to_vec(&host_value)?)?;
             }
-            LedgerEntry::RuntimeUndeploy { runtime_id, epoch, .. } => {
+            LedgerEntry::RuntimeUndeploy { runtime_id, owner, epoch, .. } => {
                 let key = format!("runtime:{}", runtime_id);
-                if let Some(prev) = self.store.state_get(&key) {
-                    if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&prev) {
-                        value["status"] = serde_json::json!("undeployed");
-                        value["undeployed_epoch"] = serde_json::json!(epoch);
-                        value["updated_epoch"] = serde_json::json!(epoch);
-                        self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
-                    }
-                }
+                let prev = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("runtime '{}' not found", runtime_id))?;
+                anyhow::ensure!(
+                    prev["owner"].as_str() == Some(owner.as_str()),
+                    "only the runtime owner can undeploy"
+                );
+                let mut value = prev;
+                value["status"] = serde_json::json!("undeployed");
+                value["undeployed_epoch"] = serde_json::json!(epoch);
+                value["updated_epoch"] = serde_json::json!(epoch);
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
             }
-            LedgerEntry::RuntimeJobEnqueue { job_id, runtime_id, job_class, due_epoch, payload_cid, epoch, signed_by } => {
+            LedgerEntry::RuntimeJobEnqueue { job_id, runtime_id, job_class, due_epoch, payload_cid, fee, epoch, signed_by } => {
+                // Runtime must be deployed before jobs can be enqueued.
+                let rt_key = format!("runtime:{}", runtime_id);
+                let rt = self.store.state_get(&rt_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("runtime '{}' not found", runtime_id))?;
+                anyhow::ensure!(
+                    rt["status"].as_str() == Some("deployed"),
+                    "runtime '{}' is not deployed (status: {})", runtime_id, rt["status"]
+                );
+                // Escrow the job fee — debit from caller, hold in per-job escrow account.
+                let escrow = format!("__runtime_job_escrow_{}__", job_id);
+                self.store.debit(signed_by, NATIVE_TOKEN, *fee)?;
+                self.store.credit(&escrow, NATIVE_TOKEN, *fee)?;
                 let key = format!("runtime_job:{}", job_id);
                 let value = serde_json::json!({
                     "job_id": job_id,
@@ -1209,6 +1242,7 @@ impl Chain {
                     "job_class": job_class,
                     "due_epoch": due_epoch,
                     "payload_cid": payload_cid,
+                    "fee": fee,
                     "status": "queued",
                     "enqueued_by": signed_by,
                     "enqueued_epoch": epoch,
@@ -1217,6 +1251,20 @@ impl Chain {
                 self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
             }
             LedgerEntry::RuntimeClaim { lease_id, runtime_id, job_id, host_id, expires_epoch, epoch, .. } => {
+                // Job must exist and be in queued state (not already claimed).
+                let job_key = format!("runtime_job:{}", job_id);
+                let job = self.store.state_get(&job_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("job '{}' not found", job_id))?;
+                anyhow::ensure!(
+                    job["status"].as_str() == Some("queued"),
+                    "job '{}' is not queued (status: {})", job_id, job["status"]
+                );
+                anyhow::ensure!(
+                    job["runtime_id"].as_str() == Some(runtime_id.as_str()),
+                    "job '{}' belongs to a different runtime", job_id
+                );
+
                 let lease_key = format!("runtime_lease:{}", lease_id);
                 let lease_value = serde_json::json!({
                     "lease_id": lease_id,
@@ -1239,18 +1287,81 @@ impl Chain {
                 });
                 self.store.state_set(&host_key, &serde_json::to_vec(&host_value)?)?;
 
+                let mut job_upd = job;
+                job_upd["status"] = serde_json::json!("claimed");
+                job_upd["lease_id"] = serde_json::json!(lease_id);
+                job_upd["claimed_by"] = serde_json::json!(host_id);
+                job_upd["updated_epoch"] = serde_json::json!(epoch);
+                self.store.state_set(&job_key, &serde_json::to_vec(&job_upd)?)?;
+            }
+            LedgerEntry::RuntimeAttest { attestation_id, runtime_id, job_id, host_id, output_commitment, runtime_sha, epoch, .. } => {
+                // Lease must be active and match this host.
                 let job_key = format!("runtime_job:{}", job_id);
-                if let Some(prev) = self.store.state_get(&job_key) {
-                    if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&prev) {
-                        value["status"] = serde_json::json!("claimed");
-                        value["lease_id"] = serde_json::json!(lease_id);
-                        value["claimed_by"] = serde_json::json!(host_id);
-                        value["updated_epoch"] = serde_json::json!(epoch);
-                        self.store.state_set(&job_key, &serde_json::to_vec(&value)?)?;
+                let job = self.store.state_get(&job_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("job '{}' not found", job_id))?;
+                let lease_id = job["lease_id"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("job '{}' has no active lease", job_id))?
+                    .to_owned();
+                let lease_key = format!("runtime_lease:{}", lease_id);
+                let lease = self.store.state_get(&lease_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("lease '{}' not found", lease_id))?;
+                anyhow::ensure!(
+                    lease["host_id"].as_str() == Some(host_id.as_str()),
+                    "host '{}' did not claim job '{}'", host_id, job_id
+                );
+                anyhow::ensure!(
+                    lease["status"].as_str() == Some("active"),
+                    "lease '{}' is not active", lease_id
+                );
+                anyhow::ensure!(
+                    job["status"].as_str() == Some("claimed"),
+                    "job '{}' is not claimed (status: {})", job_id, job["status"]
+                );
+
+                // If runtime_sha supplied, verify it matches the manifest_cid.
+                if let Some(sha) = runtime_sha {
+                    let rt_key = format!("runtime:{}", runtime_id);
+                    if let Some(rt) = self.store.state_get(&rt_key)
+                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    {
+                        if let Some(manifest_cid) = rt["manifest_cid"].as_str() {
+                            anyhow::ensure!(
+                                sha == manifest_cid,
+                                "runtime_sha '{}' does not match manifest_cid '{}'", sha, manifest_cid
+                            );
+                        }
                     }
                 }
-            }
-            LedgerEntry::RuntimeAttest { attestation_id, runtime_id, job_id, host_id, output_commitment, epoch, .. } => {
+
+                // Release escrow: host gets HOST_BPS share, recycle gets the rest.
+                let fee = job["fee"].as_u64().unwrap_or(0);
+                if fee > 0 {
+                    let escrow = format!("__runtime_job_escrow_{}__", job_id);
+                    let host_share = fee * RUNTIME_FEE_HOST_BPS / 10_000;
+                    let recycle_share = fee * RUNTIME_FEE_RECYCLE_BPS / 10_000;
+                    self.store.debit(&escrow, NATIVE_TOKEN, fee)?;
+                    self.store.credit(host_id, NATIVE_TOKEN, host_share)?;
+                    if recycle_share > 0 {
+                        self.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_share)?;
+                    }
+                }
+
+                // Mark job completed.
+                let mut job_upd = job;
+                job_upd["status"] = serde_json::json!("completed");
+                job_upd["attested_by"] = serde_json::json!(host_id);
+                job_upd["attestation_id"] = serde_json::json!(attestation_id);
+                job_upd["updated_epoch"] = serde_json::json!(epoch);
+                self.store.state_set(&job_key, &serde_json::to_vec(&job_upd)?)?;
+
+                // Close lease.
+                let mut lease_upd = lease;
+                lease_upd["status"] = serde_json::json!("completed");
+                lease_upd["updated_epoch"] = serde_json::json!(epoch);
+                self.store.state_set(&lease_key, &serde_json::to_vec(&lease_upd)?)?;
+
                 let key = format!("runtime_attest:{}", attestation_id);
                 let value = serde_json::json!({
                     "attestation_id": attestation_id,
@@ -1263,6 +1374,12 @@ impl Chain {
                 self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
             }
             LedgerEntry::RuntimeChallenge { challenge_id, attestation_id, runtime_id, challenger, reason, evidence_cid, epoch, .. } => {
+                // Attestation must exist to challenge it.
+                let attest_key = format!("runtime_attest:{}", attestation_id);
+                anyhow::ensure!(
+                    self.store.state_get(&attest_key).is_some(),
+                    "attestation '{}' not found", attestation_id
+                );
                 let key = format!("runtime_challenge:{}", challenge_id);
                 let value = serde_json::json!({
                     "challenge_id": challenge_id,
@@ -1271,21 +1388,45 @@ impl Chain {
                     "challenger": challenger,
                     "reason": reason,
                     "evidence_cid": evidence_cid,
+                    "status": "open",
                     "epoch": epoch,
                 });
                 self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
             }
             LedgerEntry::RuntimeSlash { slash_id, runtime_id, host_id, amount, reason, epoch, .. } => {
+                // Debit from the runtime bond escrow, send to recycle fund.
+                let escrow = format!("__runtime_bond_{}__", runtime_id);
+                let available = self.store.get_balance(&escrow, NATIVE_TOKEN);
+                let slash_amount = (*amount).min(available);
+                if slash_amount > 0 {
+                    self.store.debit(&escrow, NATIVE_TOKEN, slash_amount)?;
+                    self.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, slash_amount)?;
+                }
                 let key = format!("runtime_slash:{}", slash_id);
                 let value = serde_json::json!({
                     "slash_id": slash_id,
                     "runtime_id": runtime_id,
                     "host_id": host_id,
-                    "amount": amount,
+                    "amount_requested": amount,
+                    "amount_slashed": slash_amount,
                     "reason": reason,
                     "epoch": epoch,
                 });
                 self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+                // Mark runtime as slashed in its state record.
+                let rt_key = format!("runtime:{}", runtime_id);
+                if let Some(prev) = self.store.state_get(&rt_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                {
+                    let mut rt = prev;
+                    rt["last_slash_epoch"] = serde_json::json!(epoch);
+                    rt["last_slash_amount"] = serde_json::json!(slash_amount);
+                    let _ = self.store.state_set(&rt_key, &serde_json::to_vec(&rt)?);
+                }
+            }
+            LedgerEntry::RuntimeReward { host_id, amount, epoch } => {
+                self.ensure_account(host_id, *epoch)?;
+                self.store.credit(host_id, NATIVE_TOKEN, *amount)?;
             }
 
             // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar

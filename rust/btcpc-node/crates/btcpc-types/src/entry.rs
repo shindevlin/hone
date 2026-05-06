@@ -846,12 +846,15 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
     /// Register a decentralized runtime definition anchored by a manifest CID.
+    /// `bond` is locked in escrow while the runtime is active; slashed on misbehaviour.
     RuntimeRegister {
         runtime_id: String,
         owner: AccountId,
         manifest_cid: String,
         runtime_class: String,
         nonce: String,
+        /// Bond in dreams locked from owner's balance into escrow.
+        bond: Dreams,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -872,12 +875,15 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
     /// Enqueue a durable runtime job for distributed scheduling.
+    /// `fee` is debited from the caller and held in escrow until the host attests.
     RuntimeJobEnqueue {
         job_id: String,
         runtime_id: String,
         job_class: String,
         due_epoch: Epoch,
         payload_cid: Option<String>,
+        /// Fee in dreams debited from caller and escrowed until job completion.
+        fee: Dreams,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -892,12 +898,15 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
     /// Publish signed execution attestation for runtime work.
+    /// `runtime_sha` must match the registered manifest_cid — proves host ran the correct code.
     RuntimeAttest {
         attestation_id: String,
         runtime_id: String,
         job_id: String,
         host_id: AccountId,
         output_commitment: String,
+        /// SHA-256 of the runtime binary the host actually executed. Must match manifest_cid.
+        runtime_sha: Option<String>,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -921,6 +930,12 @@ pub enum LedgerEntry {
         reason: String,
         epoch: Epoch,
         signed_by: AccountId,
+    },
+    /// System entry: credit a host for completed runtime work (emitted by the epoch seal handler).
+    RuntimeReward {
+        host_id: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
     },
     /// Buyer purchases a sensor data batch from a sensor owner.
     SensorDataPurchase {
@@ -1611,6 +1626,7 @@ impl LedgerEntry {
             Self::TaskClaim { epoch, .. } => *epoch,
             Self::TaskSubmit { epoch, .. } => *epoch,
             Self::TaskApprove { epoch, .. } => *epoch,
+            Self::RuntimeReward { epoch, .. } => *epoch,
         }
     }
 
@@ -1761,5 +1777,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         LedgerEntry::TaskClaim { .. }
         | LedgerEntry::TaskSubmit { .. }
         | LedgerEntry::TaskApprove { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── System (0) — free ────────────────────────────────────────────────
+        LedgerEntry::RuntimeReward { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }

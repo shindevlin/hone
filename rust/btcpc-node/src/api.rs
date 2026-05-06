@@ -245,6 +245,17 @@ pub fn router(state: AppState) -> Router {
         .route("/api/project/task/claim", post(post_task_claim))
         .route("/api/project/task/submit", post(post_task_submit))
         .route("/api/project/task/approve", post(post_task_approve))
+        // ── Decentralized runtime (BTCPC as AWS) ─────────────────────────
+        .route("/api/runtime/register", post(post_runtime_register))
+        .route("/api/runtime/deploy", post(post_runtime_deploy))
+        .route("/api/runtime/undeploy", post(post_runtime_undeploy))
+        .route("/api/runtime/job/enqueue", post(post_runtime_job_enqueue))
+        .route("/api/runtime/job/claim", post(post_runtime_job_claim))
+        .route("/api/runtime/job/attest", post(post_runtime_job_attest))
+        .route("/api/runtime/challenge", post(post_runtime_challenge))
+        .route("/api/runtime/:id", get(get_runtime))
+        .route("/api/runtime/:id/jobs", get(get_runtime_jobs))
+        .route("/api/runtime/host/:id", get(get_runtime_host))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
         .layer(CorsLayer::permissive())
@@ -5106,6 +5117,245 @@ async fn get_project_tasks(
         .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
         .collect();
     Json(serde_json::json!({ "tasks": tasks }))
+}
+
+// ── Decentralized runtime handlers ───────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct RuntimeRegisterBody {
+    runtime_id: String,
+    owner: String,
+    manifest_cid: String,
+    runtime_class: String,
+    nonce: String,
+    bond: u64,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_register(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeRegisterBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeRegister {
+        runtime_id:    body.runtime_id,
+        owner:         body.owner,
+        manifest_cid:  body.manifest_cid,
+        runtime_class: body.runtime_class,
+        nonce:         body.nonce,
+        bond:          body.bond,
+        epoch:         body.epoch,
+        signed_by:     body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeDeployBody {
+    runtime_id: String,
+    owner: String,
+    host_id: String,
+    manifest_cid: Option<String>,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_deploy(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeDeployBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeDeploy {
+        runtime_id:   body.runtime_id,
+        owner:        body.owner,
+        host_id:      body.host_id,
+        manifest_cid: body.manifest_cid,
+        epoch:        body.epoch,
+        signed_by:    body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeUndeployBody {
+    runtime_id: String,
+    owner: String,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_undeploy(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeUndeployBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeUndeploy {
+        runtime_id: body.runtime_id,
+        owner:      body.owner,
+        epoch:      body.epoch,
+        signed_by:  body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeJobEnqueueBody {
+    job_id: String,
+    runtime_id: String,
+    job_class: String,
+    due_epoch: u64,
+    payload_cid: Option<String>,
+    fee: u64,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_job_enqueue(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeJobEnqueueBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeJobEnqueue {
+        job_id:      body.job_id,
+        runtime_id:  body.runtime_id,
+        job_class:   body.job_class,
+        due_epoch:   body.due_epoch,
+        payload_cid: body.payload_cid,
+        fee:         body.fee,
+        epoch:       body.epoch,
+        signed_by:   body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeJobClaimBody {
+    lease_id: String,
+    runtime_id: String,
+    job_id: String,
+    host_id: String,
+    expires_epoch: u64,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_job_claim(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeJobClaimBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeClaim {
+        lease_id:      body.lease_id,
+        runtime_id:    body.runtime_id,
+        job_id:        body.job_id,
+        host_id:       body.host_id,
+        expires_epoch: body.expires_epoch,
+        epoch:         body.epoch,
+        signed_by:     body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeAttestBody {
+    attestation_id: String,
+    runtime_id: String,
+    job_id: String,
+    host_id: String,
+    output_commitment: String,
+    runtime_sha: Option<String>,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_job_attest(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeAttestBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeAttest {
+        attestation_id:    body.attestation_id,
+        runtime_id:        body.runtime_id,
+        job_id:            body.job_id,
+        host_id:           body.host_id,
+        output_commitment: body.output_commitment,
+        runtime_sha:       body.runtime_sha,
+        epoch:             body.epoch,
+        signed_by:         body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeChallengeBody {
+    challenge_id: String,
+    attestation_id: String,
+    runtime_id: String,
+    challenger: String,
+    reason: String,
+    evidence_cid: Option<String>,
+    epoch: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_runtime_challenge(
+    State(s): State<AppState>,
+    Json(body): Json<RuntimeChallengeBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::RuntimeChallenge {
+        challenge_id:   body.challenge_id,
+        attestation_id: body.attestation_id,
+        runtime_id:     body.runtime_id,
+        challenger:     body.challenger,
+        reason:         body.reason,
+        evidence_cid:   body.evidence_cid,
+        epoch:          body.epoch,
+        signed_by:      body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+async fn get_runtime(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = format!("runtime:{}", id);
+    match s.chain.store.state_get(&key).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+        Some(v) => {
+            let bond_escrow = format!("__runtime_bond_{}__", id);
+            let bond_balance = s.chain.store.get_balance(&bond_escrow, NATIVE_TOKEN);
+            let mut out = v;
+            out["bond_escrowed"] = serde_json::json!(bond_balance);
+            (StatusCode::OK, Json(serde_json::json!({ "ok": true, "runtime": out })))
+        }
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "not found" }))),
+    }
+}
+
+async fn get_runtime_jobs(
+    State(s): State<AppState>,
+    Path(runtime_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let all_jobs: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("runtime_job:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .filter(|j| j["runtime_id"].as_str() == Some(runtime_id.as_str()))
+        .collect();
+    Json(serde_json::json!({ "runtime_id": runtime_id, "jobs": all_jobs }))
+}
+
+async fn get_runtime_host(
+    State(s): State<AppState>,
+    Path(host_id): Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = format!("runtime_host:{}", host_id);
+    match s.chain.store.state_get(&key).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+        Some(v) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "host": v }))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "not found" }))),
+    }
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

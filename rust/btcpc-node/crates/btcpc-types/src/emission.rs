@@ -316,6 +316,22 @@ pub const CRITICAL_MASS_VERIFIER:  u64 = 5;
 pub const CRITICAL_MASS_SERVICE:   u64 = 3;
 pub const CRITICAL_MASS_MEMPOOL:   u64 = 3;
 pub const CRITICAL_MASS_TRACKER:   u64 = 5;
+pub const CRITICAL_MASS_RUNTIME:   u64 = 3;
+
+// ── Decentralized runtime ────────────────────────────────────────────────────
+
+/// Minimum bond a runtime owner must post on RuntimeRegister (5 BTCPC).
+/// Held in escrow while the runtime is active; partially or fully slashed on misbehaviour.
+pub const RUNTIME_MIN_BOND: u64 = 5 * 10_000_000_000; // 5 BTCPC in dreams
+
+/// Calibration target for the runtime pool — weighted completed jobs per epoch.
+/// ≈ 3 hosts × 1 job each = 3 completions per epoch at network bootstrap.
+pub const CALIBRATION_RUNTIME: u64 = 3;
+
+/// Runtime job fee split in basis points (10_000 = 100%).
+/// Host receives the majority; recycle fund takes a protocol cut.
+pub const RUNTIME_FEE_HOST_BPS:    u64 = 8_000; // 80% to executing host
+pub const RUNTIME_FEE_RECYCLE_BPS: u64 = 2_000; // 20% to recycle fund
 
 // ── BLE tracker calibration ───────────────────────────────────────────────────
 
