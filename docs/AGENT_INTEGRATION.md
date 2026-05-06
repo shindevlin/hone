@@ -27,13 +27,29 @@ system environment):
 
 ```bash
 BTCPC_API_URL=https://btcpc.net      # canonical — never localhost
-BTCPC_API_KEY=btcpc_...              # project key (from btcpc.net/keys)
+BTCPC_API_KEY=yourprojectname        # your BTCPC account name (optional, enables billing)
 BTCPC_ACCOUNT=yourprojectname        # account on chain
 BTCPC_MODEL=qwen3.5:27b              # default model (override per-call)
 ```
 
+`BTCPC_API_KEY` is your BTCPC account name. The API is usable without it
+(rate-limited to 60 req/min per IP), but setting it enables per-account
+usage tracking and higher limits in future releases.
+
 Never hardcode keys or URLs in source. The API URL fallback in code must
 always be `https://btcpc.net`, never `localhost`.
+
+### Verify the endpoint is working
+
+```bash
+# List available models
+curl https://btcpc.net/v1/models
+
+# Test a chat completion (no auth required)
+curl -X POST https://btcpc.net/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"ping"}]}'
+```
 
 ---
 

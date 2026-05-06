@@ -268,6 +268,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/runtime/:id", get(get_runtime))
         .route("/api/runtime/:id/jobs", get(get_runtime_jobs))
         .route("/api/runtime/host/:id", get(get_runtime_host))
+        // ── OpenAI-compatible inference gateway ───────────────────────────
+        .route("/v1/chat/completions", post(post_v1_chat_completions))
+        .route("/v1/models", get(get_v1_models))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
         .layer(CorsLayer::permissive())
@@ -5545,6 +5548,205 @@ async fn get_ens_repos(
         "btcpc_account": account,
         "repos": repos,
     }))
+}
+
+// ── POST /v1/chat/completions — OpenAI-compatible inference gateway ──────────
+//
+// External projects can point their OpenAI client at https://btcpc.net/v1
+// and use any Ollama model running on the network.
+//
+// Auth: `Authorization: Bearer <btcpc_account>` (optional for now — future billing)
+// Rate: 60 req/60s per IP (same rate bucket as agent-chat)
+
+#[derive(Deserialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChatReq {
+    model: Option<String>,
+    messages: Vec<OpenAiMessage>,
+    #[serde(default)]
+    stream: bool,
+    // Accept but ignore common OpenAI params so clients don't need changes.
+    #[allow(dead_code)]
+    temperature: Option<f64>,
+    #[allow(dead_code)]
+    max_tokens: Option<u64>,
+}
+
+async fn post_v1_chat_completions(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<OpenAiChatReq>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let ip = headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_owned())
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    {
+        let mut map = s.agent_rate.lock();
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60);
+        let timestamps = map.entry(format!("v1:{}", ip)).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < window);
+        if timestamps.len() >= 60 {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        timestamps.push(now);
+    }
+
+    if req.messages.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": { "message": "messages array is required", "type": "invalid_request_error" }
+        }))).into_response();
+    }
+
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let default_model = s.current_model.read().await.clone();
+    let model = req.model.filter(|m| !m.is_empty()).unwrap_or(default_model);
+    let model_clone = model.clone();
+
+    let created = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let chat_id = format!("chatcmpl-{created:x}");
+    let chat_id_clone = chat_id.clone();
+
+    let messages: Vec<serde_json::Value> = req.messages.iter().map(|m| {
+        serde_json::json!({ "role": m.role, "content": m.content })
+    }).collect();
+
+    if req.stream {
+        let body = serde_json::json!({ "model": model, "messages": messages, "stream": true });
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
+
+        tokio::spawn(async move {
+            use tokio_stream::StreamExt as _;
+
+            let client = reqwest::Client::new();
+            let resp = match client.post(format!("{}/api/chat", ollama_url)).json(&body).send().await {
+                Ok(r) => r,
+                Err(_) => {
+                    let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+                    return;
+                }
+            };
+
+            let mut stream = resp.bytes_stream();
+            let mut buf = String::new();
+
+            while let Some(chunk) = stream.next().await {
+                let Ok(bytes) = chunk else { break };
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+
+                while let Some(pos) = buf.find('\n') {
+                    let line = buf[..pos].trim().to_owned();
+                    buf = buf[pos + 1..].to_owned();
+                    if line.is_empty() { continue; }
+
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                        let token = v["message"]["content"].as_str().unwrap_or("");
+                        let done = v["done"].as_bool().unwrap_or(false);
+                        let finish_reason = if done { serde_json::json!("stop") } else { serde_json::Value::Null };
+                        let chunk_json = serde_json::json!({
+                            "id": chat_id_clone,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_clone,
+                            "choices": [{ "index": 0, "delta": { "content": token }, "finish_reason": finish_reason }]
+                        });
+                        if tx.send(Ok(Event::default().data(chunk_json.to_string()))).await.is_err() { return; }
+                        if done {
+                            let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+                            return;
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+        });
+
+        Sse::new(ReceiverStream::new(rx)).into_response()
+    } else {
+        let body = serde_json::json!({ "model": model, "messages": messages, "stream": false });
+        let client = reqwest::Client::new();
+        let resp = match client.post(format!("{}/api/chat", ollama_url)).json(&body).timeout(std::time::Duration::from_secs(120)).send().await {
+            Ok(r) => r,
+            Err(e) => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+                "error": { "message": format!("inference unavailable: {}", e), "type": "server_error" }
+            }))).into_response(),
+        };
+        match resp.json::<serde_json::Value>().await {
+            Ok(v) => {
+                let content = v["message"]["content"].as_str().unwrap_or("").to_owned();
+                let completion = serde_json::json!({
+                    "id": chat_id,
+                    "object": "chat.completion",
+                    "created": created,
+                    "model": model,
+                    "choices": [{ "index": 0, "message": { "role": "assistant", "content": content }, "finish_reason": "stop" }],
+                    "usage": {
+                        "prompt_tokens": v["prompt_eval_count"].as_u64().unwrap_or(0),
+                        "completion_tokens": v["eval_count"].as_u64().unwrap_or(0),
+                        "total_tokens": v["prompt_eval_count"].as_u64().unwrap_or(0) + v["eval_count"].as_u64().unwrap_or(0),
+                    }
+                });
+                Json(completion).into_response()
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": { "message": format!("inference error: {}", e), "type": "server_error" }
+            }))).into_response(),
+        }
+    }
+}
+
+// ── GET /v1/models — list models available on this node ──────────────────────
+
+async fn get_v1_models(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let client = reqwest::Client::new();
+    let tags = match client.get(format!("{}/api/tags", ollama_url))
+        .timeout(std::time::Duration::from_secs(3))
+        .send().await
+    {
+        Ok(r) => r.json::<serde_json::Value>().await.unwrap_or_default(),
+        Err(_) => serde_json::Value::default(),
+    };
+
+    let created = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let data: Vec<serde_json::Value> = tags["models"].as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let id = m["name"].as_str().unwrap_or("").to_owned();
+            serde_json::json!({ "id": id, "object": "model", "created": created, "owned_by": "btcpc" })
+        })
+        .collect();
+
+    // Always include the active model even if Ollama is unreachable.
+    let active = s.current_model.read().await.clone();
+    let mut data = data;
+    if !active.is_empty() && !data.iter().any(|m| m["id"].as_str() == Some(&active)) {
+        data.push(serde_json::json!({ "id": active, "object": "model", "created": created, "owned_by": "btcpc" }));
+    }
+
+    Json(serde_json::json!({ "object": "list", "data": data }))
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

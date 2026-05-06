@@ -46,19 +46,46 @@ Hide keys are registered on-chain via `AccountUpdateKey` with `role = "hide"`. T
 
 Both accounts are provisioned in `genesis.json` with no keys. Keys are registered at sidecar startup via `AccountUpdateKey`.
 
-## CLI
+## Working with repositories today
 
-Repositories are addressed by the URI scheme `linkgit://owner/repo`.
+LinkGit uses standard **HTTPS git smart HTTP** — no custom tooling required.
+Use `https://git.btcpc.net/git/owner/repo` (or `https://btcpc.net/git/owner/repo`).
 
 ```bash
-# Add a LinkGit remote
-git remote add origin linkgit://shindevlin/btcpc
+# Clone a public repo
+git clone https://git.btcpc.net/git/shindevlin/btcpc
 
-# Push (LinkGit git-remote helper required)
-git push origin main
+# Push (supply your BTCPC account via the Authorization header)
+git -c http.extraHeader="Authorization: account shindevlin" \
+    push https://git.btcpc.net/git/shindevlin/btcpc main
 
-# Clone
-git clone linkgit://shindevlin/btcpc
+# Add as a remote
+git remote add btcpc https://git.btcpc.net/git/shindevlin/btcpc
+
+# ENS names work too — resolves to BTCPC account automatically
+git clone https://git.btcpc.net/git/vitalik.eth/myrepo
 ```
 
-The `git-remote-linkgit` helper translates standard git remote operations into btcpc-fs object uploads and on-chain `LinkGitRefUpdate` entries.
+### Git config shortcut
+
+Add to `~/.gitconfig` to avoid repeating the header on every push:
+
+```ini
+[credential "https://git.btcpc.net"]
+    helper = ""
+
+[http "https://git.btcpc.net"]
+    extraHeader = Authorization: account yourname
+```
+
+### Planned: `linkgit://` custom scheme
+
+The `linkgit://owner/repo` URI scheme and a `git-remote-linkgit` binary
+are planned for a future release. This will provide:
+
+```bash
+git clone linkgit://shindevlin/btcpc   # planned — not yet available
+```
+
+Until then, use the HTTPS URL above. The wire protocol, chain entries, and
+storage model are the same regardless of the URL scheme.
