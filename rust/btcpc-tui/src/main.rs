@@ -510,6 +510,10 @@ fn submit_form(app: &mut app::App) {
                 app.mode = Mode::Result { msg: "Node account is required".into(), success: false };
                 return;
             }
+            let node = {
+                let t = state.node.trim();
+                if t == "self" { session.account.as_str() } else { t }
+            };
             let amount_dreams = match parse_btcpc_amount(&state.amount) {
                 Ok(a) => a,
                 Err(e) => { app.mode = Mode::Result { msg: e, success: false }; return; }
@@ -518,7 +522,7 @@ fn submit_form(app: &mut app::App) {
                 &base,
                 session.key_file.as_path(),
                 &session.account,
-                state.node.trim(),
+                node,
                 state.role(),
                 amount_dreams,
                 state.add,

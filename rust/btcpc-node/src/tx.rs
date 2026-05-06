@@ -826,26 +826,28 @@ pub fn validate_and_apply(
             require_key(chain, signed_by)?;
             check_nonce(chain, staker, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
-            // Verify node has opted in for this role.
-            let opt_key = format!("role_opt:{}:{}", role, node);
-            let opt_raw = chain.store.state_get(&opt_key)
-                .ok_or_else(|| anyhow::anyhow!(
-                    "node '{}' has not opted in to backer sharing for role '{}'", node, role
-                ))?;
-            let opt: serde_json::Value = serde_json::from_slice(&opt_raw)
-                .map_err(|_| anyhow::anyhow!("corrupt role opt config for '{}'", node))?;
-            let max_backers = opt["max_backers"].as_u64().unwrap_or(10) as usize;
-            let prefix = format!("role_stake:{}:{}:", role, node);
-            let current_count = chain.store.state_scan_prefix(&prefix).len();
-            // Existing backers topping up don't count toward the cap.
-            let is_existing = chain.store
-                .state_get(&format!("role_stake:{}:{}:{}", role, node, staker))
-                .is_some();
-            if !is_existing && current_count >= max_backers {
-                bail!(
-                    "node '{}' role '{}' is at backer capacity ({}/{})",
-                    node, role, current_count, max_backers
-                );
+            // Self-staking (operator staking their own role) bypasses opt-in and capacity checks.
+            if staker != node {
+                let opt_key = format!("role_opt:{}:{}", role, node);
+                let opt_raw = chain.store.state_get(&opt_key)
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "node '{}' has not opted in to backer sharing for role '{}' — \
+                         if staking your own node, use your own account name as the node", node, role
+                    ))?;
+                let opt: serde_json::Value = serde_json::from_slice(&opt_raw)
+                    .map_err(|_| anyhow::anyhow!("corrupt role opt config for '{}'", node))?;
+                let max_backers = opt["max_backers"].as_u64().unwrap_or(10) as usize;
+                let prefix = format!("role_stake:{}:{}:", role, node);
+                let current_count = chain.store.state_scan_prefix(&prefix).len();
+                let is_existing = chain.store
+                    .state_get(&format!("role_stake:{}:{}:{}", role, node, staker))
+                    .is_some();
+                if !is_existing && current_count >= max_backers {
+                    bail!(
+                        "node '{}' role '{}' is at backer capacity ({}/{})",
+                        node, role, current_count, max_backers
+                    );
+                }
             }
             let bal = chain.get_balance(staker, NATIVE_TOKEN);
             if bal < *amount {

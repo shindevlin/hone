@@ -511,16 +511,16 @@ fn render_role_stake_form(
     let title = if state.add { " Stake a Role " } else { " Unstake a Role " };
     let role_display = format!("{}  (← → to change)", state.role());
     let fields: &[(&str, &str)] = &[
-        ("Node account", state.node.as_str()),
-        ("Role",         &role_display),
-        ("Amount (BTCPC)", state.amount.as_str()),
+        ("Node (own name or 'self')", state.node.as_str()),
+        ("Role",                      &role_display),
+        ("Amount (BTCPC)",            state.amount.as_str()),
     ];
 
     // Build hint with minimum for selected role
     let min_str = req_min(req, state.role())
         .map(|d| format!("Min for {}: {} BTCPC   ", state.role(), btcpc(d)))
         .unwrap_or_default();
-    let hint = format!("{}Tab next field   Enter submit   Esc cancel", min_str);
+    let hint = format!("{}Tab next   Enter submit   Esc cancel", min_str);
 
     // For the role field, don't show the cursor
     let display_fields: Vec<(&str, String)> = fields.iter().enumerate().map(|(i, (lbl, val))| {

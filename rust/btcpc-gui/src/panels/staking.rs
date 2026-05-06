@@ -131,9 +131,13 @@ pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
                 .spacing([8.0, 6.0])
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("Node").color(DIM_TEXT).small());
-                    ui.add(egui::TextEdit::singleline(&mut data.forms.role_stake_node)
-                        .hint_text("account name")
-                        .desired_width(200.0));
+                    ui.vertical(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut data.forms.role_stake_node)
+                            .hint_text("account name or 'self'")
+                            .desired_width(200.0));
+                        ui.label(egui::RichText::new("Type your own account name (or 'self') to stake your node")
+                            .size(10.0).color(DIM_TEXT));
+                    });
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Role").color(DIM_TEXT).small());
@@ -219,7 +223,8 @@ pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
             ).clicked() {
                 let base     = data.node_url.clone();
                 let key_file = data.key_file.clone();
-                let node     = data.forms.role_stake_node.clone();
+                let raw_node = data.forms.role_stake_node.trim().to_string();
+                let node     = if raw_node == "self" { account.clone() } else { raw_node };
                 let role     = data.forms.role_stake_role.clone();
                 data.forms.role_stake_result = Some(
                     if node.is_empty() {
