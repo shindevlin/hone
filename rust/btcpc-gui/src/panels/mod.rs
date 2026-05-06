@@ -68,6 +68,12 @@ pub struct AppData {
     // Role staking data
     pub role_positions: Vec<serde_json::Value>,
     pub role_requirements: Option<serde_json::Value>,
+    // Cross-chain / bridge
+    pub eth_address: Option<String>,
+    pub btc_pubkey: Option<String>,
+    pub wbtcpc_balance: Option<u64>,
+    pub eth_rpc_url: String,
+    pub wbtcpc_contract: String,
 }
 
 impl Default for AppData {
@@ -87,6 +93,11 @@ impl Default for AppData {
             forms: FormState::default(),
             role_positions: Vec::new(),
             role_requirements: None,
+            eth_address: None,
+            btc_pubkey: None,
+            wbtcpc_balance: None,
+            eth_rpc_url: String::new(),
+            wbtcpc_contract: String::new(),
         }
     }
 }

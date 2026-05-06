@@ -243,6 +243,7 @@ fn submit_login(app: &mut app::App) {
     }
 
     let role_str = key_role.to_string();
+    app.eth_address = app::read_eth_address(&session.key_file);
     app.session = Some(session);
     app.mode = Mode::Normal;
     app.refresh();

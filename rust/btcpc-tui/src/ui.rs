@@ -177,7 +177,7 @@ fn render_wallet_tab(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // balance card
+            Constraint::Length(6), // balance card
             Constraint::Min(1),    // actions
         ])
         .split(area);
@@ -185,21 +185,6 @@ fn render_wallet_tab(f: &mut Frame, app: &App, area: Rect) {
     // ── Balance card ─────────────────────────────────────────────────────────
     let bal = app.wallet_balance.map(btcpc).unwrap_or_else(|| "—".into());
     let staked = app.wallet_staked.map(btcpc).unwrap_or_else(|| "—".into());
-
-    let balance_text = vec![
-        Line::from(vec![
-            Span::styled("  Account  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(&session.account, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::raw("   "),
-            Span::styled("Balance  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{} BTCPC", bal), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw("   "),
-            Span::styled("Staked  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{} BTCPC", staked), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("  Key role: ", Style::default().fg(Color::DarkGray)).into_left_aligned_line()),
-    ];
 
     // Build key role line
     let can_spend = session.can_spend_tokens();
@@ -215,6 +200,23 @@ fn render_wallet_tab(f: &mut Frame, app: &App, area: Rect) {
         ),
     ]);
 
+    let eth_line = {
+        let eth_str = match &app.eth_address {
+            Some(addr) => {
+                let short = if addr.len() > 14 {
+                    format!("{}…{}", &addr[..8], &addr[addr.len()-6..])
+                } else { addr.clone() };
+                short
+            }
+            None => "—".into(),
+        };
+        Line::from(vec![
+            Span::styled("  ETH  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(eth_str, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+            Span::styled("  (wBTCPC perma-tied wallet)", Style::default().fg(Color::DarkGray)),
+        ])
+    };
+
     let content = vec![
         Line::from(vec![
             Span::styled("  Account  ", Style::default().fg(Color::DarkGray)),
@@ -228,6 +230,8 @@ fn render_wallet_tab(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(""),
         role_line,
+        Line::from(""),
+        eth_line,
     ];
 
     f.render_widget(

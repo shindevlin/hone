@@ -235,6 +235,12 @@ pub enum Mode {
     Result { msg: String, success: bool },
 }
 
+pub fn read_eth_address(key_file: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(key_file).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    v.get("ethereum_address").and_then(|x| x.as_str()).map(|s| s.to_string())
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 pub struct App {
@@ -252,6 +258,7 @@ pub struct App {
     pub last_refresh: std::time::Instant,
     pub refresh_interval: std::time::Duration,
     pub status_msg: String,
+    pub eth_address: Option<String>,
 }
 
 impl App {
@@ -262,6 +269,9 @@ impl App {
         } else {
             Mode::Normal
         };
+        let eth_address = session.as_ref()
+            .and_then(|s| read_eth_address(&s.key_file));
+
         let mut app = App {
             tab: 0,
             session,
@@ -279,6 +289,7 @@ impl App {
                 .unwrap_or(std::time::Instant::now()),
             refresh_interval: std::time::Duration::from_secs(5),
             status_msg: String::new(),
+            eth_address,
         };
         app.refresh();
         app
