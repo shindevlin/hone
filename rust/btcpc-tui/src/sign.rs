@@ -62,6 +62,12 @@ pub fn get_chain_id(base: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("node/info missing chain_id"))
 }
 
+pub fn get_epoch(base: &str) -> u64 {
+    crate::api::get_json(base, "/api/node/info").ok()
+        .and_then(|v| v.get("epoch").and_then(|e| e.as_u64()))
+        .unwrap_or(0)
+}
+
 // ── Transfer ──────────────────────────────────────────────────────────────────
 
 pub fn submit_transfer(
@@ -173,9 +179,10 @@ pub fn submit_role_stake(
     amount_dreams: u64,
     add: bool,
 ) -> Result<String> {
-    let keypair = load_keypair(key_file, "active")?;
-    let nonce = get_nonce(base, staker)?;
+    let keypair  = load_keypair(key_file, "active")?;
+    let nonce    = get_nonce(base, staker)?;
     let chain_id = get_chain_id(base)?;
+    let epoch    = get_epoch(base);
     let (kind, path) = if add {
         ("NODE_ROLE_STAKE", "/api/node/role/stake")
     } else {
@@ -188,6 +195,7 @@ pub fn submit_role_stake(
         "role": role,
         "staker": staker,
         "amount": amount_dreams,
+        "epoch": epoch,
         "nonce": nonce,
     }))?;
     let sig = keypair.sign_entry_json(&msg);
@@ -196,6 +204,7 @@ pub fn submit_role_stake(
         "role": role,
         "staker": staker,
         "amount": amount_dreams,
+        "epoch": epoch,
         "signed_by": staker,
         "nonce": nonce,
         "signature": sig,

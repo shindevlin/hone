@@ -3,6 +3,7 @@ pub mod inference;
 pub mod node;
 pub mod settings;
 pub mod staking;
+pub mod tools;
 pub mod wallet;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
@@ -50,6 +51,9 @@ pub struct FormState {
     pub job_max_fee: String,
     pub job_deadline: String,
     pub job_result: Option<(bool, String)>,
+
+    // Tools panel sub-section: 0=AI, 1=Storage, 2=Sensors, 3=Freeport, 4=LinkGit
+    pub tools_section: usize,
 }
 
 pub struct AppData {
@@ -203,7 +207,7 @@ impl<'a> egui_tiles::Behavior<PaneKind> for BtcpcBehavior<'a> {
             PaneKind::NodeStatus => "Node".into(),
             PaneKind::Wallet     => "Wallet".into(),
             PaneKind::Explorer   => "Explorer".into(),
-            PaneKind::Inference  => "Inference".into(),
+            PaneKind::Inference  => "Tools".into(),
             PaneKind::Staking    => "Staking".into(),
             PaneKind::Settings   => "Settings".into(),
         }
@@ -223,7 +227,7 @@ impl<'a> egui_tiles::Behavior<PaneKind> for BtcpcBehavior<'a> {
                     PaneKind::NodeStatus => node::show(ui, self.data),
                     PaneKind::Wallet     => wallet::show(ui, self.data),
                     PaneKind::Explorer   => explorer::show(ui, self.data),
-                    PaneKind::Inference  => inference::show(ui, self.data),
+                    PaneKind::Inference  => tools::show(ui, self.data),
                     PaneKind::Staking    => staking::show(ui, self.data),
                     PaneKind::Settings   => settings::show(ui, self.data),
                 }

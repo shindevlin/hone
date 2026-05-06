@@ -4379,6 +4379,7 @@ struct NodeRoleStakeBody {
     role: String,
     staker: String,
     amount: u64,
+    #[serde(default)]
     epoch: u64,
     nonce: u64,
     signed_by: String,
