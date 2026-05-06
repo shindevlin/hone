@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTCPCScan — Chain Explorer</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: #111118;
+    --border: #1e1e2e;
+    --accent: #f7931a;
+    --accent2: #4ade80;
+    --text: #e2e2e8;
+    --muted: #6b7280;
+    --red: #f87171;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header { border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+  header span { color: var(--muted); font-size: 12px; }
+  .chain-badge { background: var(--border); padding: 3px 10px; border-radius: 4px; font-size: 11px; color: var(--accent2); }
+
+  .search-bar { padding: 14px 24px; display: flex; gap: 8px; border-bottom: 1px solid var(--border); }
+  .search-bar input { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none; }
+  .search-bar input:focus { border-color: var(--accent); }
+  .search-bar button { background: var(--accent); color: #000; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .stat-value { font-size: 20px; font-weight: bold; color: var(--text); }
+  .stat-value.green { color: var(--accent2); }
+  .stat-value.orange { color: var(--accent); }
+
+  .main { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+
+  .panel { border-right: 1px solid var(--border); }
+  .panel:last-child { border-right: none; }
+  .panel-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-header h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .panel-header a { font-size: 11px; color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 20px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 20px; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  .badge-transfer  { background: rgba(96,165,250,0.15); color: var(--blue); }
+  .badge-stake     { background: rgba(74,222,128,0.15); color: var(--accent2); }
+  .badge-unstake   { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-reward    { background: rgba(247,147,26,0.15); color: var(--accent); }
+  .badge-inference { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .badge-other     { background: rgba(107,114,128,0.15); color: var(--muted); }
+
+  .mono { font-family: inherit; }
+  .addr { color: var(--blue); cursor: pointer; }
+  .addr:hover { text-decoration: underline; }
+  .amount-pos { color: var(--accent2); }
+  .amount-neg { color: var(--red); }
+
+  /* Detail view */
+  #detail { display: none; padding: 20px 24px; border-top: 1px solid var(--border); }
+  #detail h3 { font-size: 14px; margin-bottom: 12px; color: var(--accent); }
+  #detail pre { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; overflow: auto; font-size: 12px; line-height: 1.6; max-height: 400px; }
+
+  .load-more { text-align: center; padding: 12px; cursor: pointer; color: var(--accent); border-top: 1px solid var(--border); font-size: 12px; }
+  .load-more:hover { background: rgba(247,147,26,0.05); }
+
+  .epoch-link { color: var(--accent2); cursor: pointer; }
+  .epoch-link:hover { text-decoration: underline; }
+
+  .full-txns { display: none; }
+  .full-txns.active { display: block; }
+  .full-blocks { display: none; }
+  .full-blocks.active { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⛓ BTCPCScan</h1>
+  <span id="chain-id-badge" class="chain-badge">btcpc-1</span>
+  <span id="sync-status" style="margin-left:auto; color: var(--accent2); font-size:11px;">● Live</span>
+</header>
+
+<div class="search-bar">
+  <input id="search-input" type="text" placeholder="Search by account name or epoch number…" />
+  <button onclick="doSearch()">Search</button>
+</div>
+
+<div class="stats-row" id="stats-row">
+  <div class="stat"><div class="stat-label">Chain Height</div><div class="stat-value orange" id="s-height">—</div></div>
+  <div class="stat"><div class="stat-label">Total Supply</div><div class="stat-value" id="s-supply">—</div></div>
+  <div class="stat"><div class="stat-label">Circulating</div><div class="stat-value green" id="s-circ">—</div></div>
+  <div class="stat"><div class="stat-label">Accounts</div><div class="stat-value" id="s-accounts">—</div></div>
+  <div class="stat"><div class="stat-label">Epoch (30s)</div><div class="stat-value" id="s-epoch">—</div></div>
+  <div class="stat"><div class="stat-label">Active Nodes</div><div class="stat-value green" id="s-nodes">—</div></div>
+</div>
+
+<div class="main">
+  <div class="panel" id="blocks-panel">
+    <div class="panel-header">
+      <h2>Latest Blocks</h2>
+      <a href="#" onclick="showAllBlocks(); return false;">View all</a>
+    </div>
+    <table>
+      <thead><tr><th>Epoch</th><th>Age</th><th>Txns</th><th>Miner</th></tr></thead>
+      <tbody id="blocks-body"></tbody>
+    </table>
+  </div>
+
+  <div class="panel" id="txns-panel">
+    <div class="panel-header">
+      <h2>Latest Transactions</h2>
+      <a href="#" onclick="showAllTxns(); return false;">View all</a>
+    </div>
+    <table>
+      <thead><tr><th>Type</th><th>From</th><th>To</th><th>Amount</th><th>Epoch</th></tr></thead>
+      <tbody id="txns-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="detail">
+  <h3 id="detail-title"></h3>
+  <pre id="detail-pre"></pre>
+  <a href="#" onclick="closeDetail(); return false;" style="font-size:12px; margin-top:8px; display:inline-block;">← Close</a>
+</div>
+
+<script>
+const API = '';  // same origin
+
+async function get(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function timeAgo(ms) {
+  if (!ms) return '—';
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+
+function dreams(n) {
+  if (n == null) return '—';
+  return (n / 10_000_000_000).toFixed(4) + ' ₿C';
+}
+
+function shortAddr(s) {
+  if (!s) return '—';
+  if (s.length <= 12) return s;
+  return s.slice(0, 8) + '…';
+}
+
+function txBadge(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('transfer')) return `<span class="badge badge-transfer">Transfer</span>`;
+  if (t.includes('stake') && !t.includes('unstake')) return `<span class="badge badge-stake">Stake</span>`;
+  if (t.includes('unstake')) return `<span class="badge badge-unstake">Unstake</span>`;
+  if (t.includes('reward') || t.includes('mine') || t.includes('clock')) return `<span class="badge badge-reward">Reward</span>`;
+  if (t.includes('inference') || t.includes('job')) return `<span class="badge badge-inference">Inference</span>`;
+  return `<span class="badge badge-other">${type || '?'}</span>`;
+}
+
+async function loadStats() {
+  try {
+    const [status, supply] = await Promise.all([
+      get('/api/explorer/status'),
+      get('/api/explorer/supply'),
+    ]);
+    document.getElementById('s-height').textContent = status.chain_height?.toLocaleString() ?? '—';
+    document.getElementById('s-epoch').textContent  = status.current_epoch?.toLocaleString() ?? '—';
+    document.getElementById('s-nodes').textContent  = status.active_nodes ?? status.clock_nodes ?? '—';
+    document.getElementById('s-accounts').textContent = supply.account_count ?? supply.accounts ?? '—';
+    document.getElementById('s-supply').textContent = supply.total_supply_btcpc?.toFixed(2) + ' ₿C' ?? '—';
+    document.getElementById('s-circ').textContent   = supply.circulating_btcpc?.toFixed(2) + ' ₿C' ?? '—';
+    const chainId = status.chain_id ?? 'btcpc-1';
+    document.getElementById('chain-id-badge').textContent = chainId;
+  } catch(e) {
+    console.warn('stats:', e);
+  }
+}
+
+async function loadBlocks() {
+  try {
+    const data = await get('/api/explorer/blocks?limit=15');
+    const tbody = document.getElementById('blocks-body');
+    const blocks = (data.blocks || []).filter(b => b.epoch > 0);
+    tbody.innerHTML = blocks.slice(0, 15).map(b => `
+      <tr>
+        <td><span class="epoch-link" onclick="showBlock(${b.epoch})">${b.epoch.toLocaleString()}</span></td>
+        <td style="color:var(--muted)">${timeAgo(b.timestamp_ms)}</td>
+        <td>${b.entry_count ?? 0}</td>
+        <td><span class="addr" onclick="showAccount('${b.miner}')">${b.miner ? shortAddr(b.miner) : '—'}</span></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.warn('blocks:', e);
+  }
+}
+
+async function loadTxns() {
+  try {
+    const data = await get('/api/explorer/transactions?limit=20');
+    renderTxns(data.transactions || [], 'txns-body');
+  } catch(e) {
+    // fallback to activity
+    try {
+      const data = await get('/api/explorer/activity?limit=20');
+      renderTxns(data.entries || [], 'txns-body');
+    } catch(e2) {
+      console.warn('txns:', e2);
+    }
+  }
+}
+
+function renderTxns(txns, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  tbody.innerHTML = txns.map(t => {
+    const e = t.entry || t;
+    const type = e.type || t.type || Object.keys(t)[0] || '?';
+    const inner = e[type] || e;
+    const from = inner.from || inner.account || inner.miner || inner.node_id || '';
+    const to   = inner.to   || '';
+    const amt  = inner.amount ?? inner.amount_dreams ?? null;
+    const epoch = t._epoch || t.epoch || inner.epoch || '';
+    return `<tr>
+      <td>${txBadge(type)}</td>
+      <td><span class="addr" onclick="showAccount('${from}')">${shortAddr(from)}</span></td>
+      <td><span class="addr" onclick="showAccount('${to}')">${shortAddr(to)}</span></td>
+      <td class="amount-pos">${amt != null ? dreams(amt) : '—'}</td>
+      <td><span class="epoch-link" onclick="showBlock(${epoch})">${epoch.toLocaleString ? epoch.toLocaleString() : epoch}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+async function showBlock(epoch) {
+  if (!epoch) return;
+  try {
+    const data = await get(`/api/block/${epoch}`);
+    const detail = document.getElementById('detail');
+    document.getElementById('detail-title').textContent = `Block / Epoch ${epoch}`;
+    document.getElementById('detail-pre').textContent = JSON.stringify(data, null, 2);
+    detail.style.display = 'block';
+    detail.scrollIntoView({ behavior: 'smooth' });
+  } catch(e) {
+    alert('Block not found: ' + epoch);
+  }
+}
+
+async function showAccount(account) {
+  if (!account) return;
+  try {
+    const [acct, hist] = await Promise.all([
+      get(`/api/account/${account}`),
+      get(`/api/account/${account}/history?limit=50`),
+    ]);
+    const bal = await get(`/api/balance/${account}`);
+    const combined = { account: acct, balance: bal, history: hist.entries };
+    const detail = document.getElementById('detail');
+    document.getElementById('detail-title').textContent = `Account: ${account}`;
+    document.getElementById('detail-pre').textContent = JSON.stringify(combined, null, 2);
+    detail.style.display = 'block';
+    detail.scrollIntoView({ behavior: 'smooth' });
+  } catch(e) {
+    alert('Account not found: ' + account);
+  }
+}
+
+function closeDetail() {
+  document.getElementById('detail').style.display = 'none';
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  if (/^\d+$/.test(q)) {
+    showBlock(parseInt(q));
+  } else {
+    showAccount(q);
+  }
+}
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+async function showAllTxns() {
+  try {
+    const data = await get('/api/explorer/transactions?limit=200');
+    const txns = data.transactions || [];
+    const detail = document.getElementById('detail');
+    document.getElementById('detail-title').textContent = `All Transactions (${txns.length})`;
+    // Build a readable HTML table instead of raw JSON
+    const rows = txns.map(t => {
+      const e = t.entry || t;
+      const type = e.type || t.type || Object.keys(t)[0] || '?';
+      const inner = e[type] || e;
+      const from = inner.from || inner.account || inner.miner || inner.node_id || '';
+      const to   = inner.to   || '';
+      const amt  = inner.amount ?? inner.amount_dreams ?? null;
+      const epoch = t._epoch || t.epoch || inner.epoch || '';
+      const memo = inner.memo ? ` "${inner.memo}"` : '';
+      return `  epoch ${String(epoch).padStart(6)} | ${(type||'').padEnd(12)} | ${(from||'').padEnd(16)} → ${(to||'').padEnd(16)} | ${amt != null ? (amt/1e10).toFixed(4)+' ₿C' : '—'}${memo}`;
+    }).join('\n');
+    document.getElementById('detail-pre').textContent = rows || '(no transactions yet)';
+    detail.style.display = 'block';
+    detail.scrollIntoView({ behavior: 'smooth' });
+  } catch(e) {
+    alert('Error loading transactions');
+  }
+}
+
+async function showAllBlocks() {
+  try {
+    const data = await get('/api/explorer/blocks?limit=200');
+    const blocks = (data.blocks || []).filter(b => b.epoch > 0);
+    const detail = document.getElementById('detail');
+    document.getElementById('detail-title').textContent = `All Blocks (${blocks.length})`;
+    const rows = blocks.map(b =>
+      `  epoch ${String(b.epoch).padStart(6)} | ${String(b.entry_count||0).padStart(3)} entries | miner: ${(b.miner||'—').padEnd(16)} | ${timeAgo(b.timestamp_ms)}`
+    ).join('\n');
+    document.getElementById('detail-pre').textContent = rows || '(no blocks yet)';
+    detail.style.display = 'block';
+    detail.scrollIntoView({ behavior: 'smooth' });
+  } catch(e) {
+    alert('Error loading blocks');
+  }
+}
+
+async function init() {
+  await Promise.all([loadStats(), loadBlocks(), loadTxns()]);
+  // Auto-refresh every 30 seconds (one epoch)
+  setInterval(async () => {
+    await Promise.all([loadStats(), loadBlocks(), loadTxns()]);
+  }, 30_000);
+}
+
+init();
+</script>
+</body>
+</html>

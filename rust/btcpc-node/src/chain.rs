@@ -165,6 +165,19 @@ fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyh
     }
 }
 
+/// Compare two semver strings — returns true if `a >= b`.
+/// Parses "MAJOR.MINOR.PATCH" numerically; falls back to string comparison.
+fn semver_gte(a: &str, b: &str) -> bool {
+    fn parse(s: &str) -> (u64, u64, u64) {
+        let mut it = s.trim().splitn(3, '.');
+        let ma = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        let mi = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        let pa = it.next().and_then(|x| x.split('-').next()).and_then(|x| x.parse().ok()).unwrap_or(0);
+        (ma, mi, pa)
+    }
+    parse(a) >= parse(b)
+}
+
 /// Returns true if `to` has pre-approved `token` from `from`.
 /// Checks four wildcard combinations in order (most-specific first).
 fn token_approved(store: &Store, to: &str, token: &str, from: &str) -> bool {
@@ -634,9 +647,88 @@ impl Chain {
                     })).unwrap_or_default());
             }
 
-            LedgerEntry::Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, output_hash, job_id } => {
+            LedgerEntry::Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, output_hash, job_id, node_version, software_hash, model_hash } => {
                 self.touch_alive(miner, *epoch);
                 self.ensure_account(miner, *epoch)?;
+                // Epoch freshness check: reject Mine entries more than 3 epochs stale.
+                // This allows slow models (26B+) that span 2-3 epochs to still submit.
+                // Far-past entries would never reach the reward scan so there's no benefit
+                // to accepting them, and they waste state space.
+                {
+                    const MINE_STALE_WINDOW: u64 = 3;
+                    let cur = *self.current_epoch.read();
+                    if cur > 0 && *epoch + MINE_STALE_WINDOW < cur {
+                        anyhow::bail!(
+                            "Mine epoch {} is too old (current epoch {}); submit for a more recent epoch",
+                            epoch, cur
+                        );
+                    }
+                }
+                // Model approval check: if an approved list is on-chain, the model must be in it.
+                // An empty list means any model is accepted (open era / governance not yet set).
+                if !model.is_empty() {
+                    let approved: Vec<String> = self.store
+                        .state_get("chain_param:approved_models")
+                        .and_then(|b| serde_json::from_slice(&b).ok())
+                        .unwrap_or_default();
+                    if !approved.is_empty() {
+                        let base = model.split(':').next().unwrap_or(model.as_str());
+                        let ok = approved.iter().any(|a| {
+                            let abase = a.split(':').next().unwrap_or(a.as_str());
+                            a == model || abase == base
+                        });
+                        if !ok {
+                            anyhow::bail!(
+                                "model '{}' is not on the approved list; run an approved model or wait for governance to add it",
+                                model
+                            );
+                        }
+                    }
+                }
+                // Software version check: if governance has set a minimum, reject older nodes.
+                if let Some(ver) = node_version {
+                    if let Some(min_ver) = self.store.state_get("chain_param:min_node_version")
+                        .and_then(|b| String::from_utf8(b).ok())
+                        .filter(|s| !s.trim().is_empty())
+                    {
+                        if !semver_gte(ver, &min_ver) {
+                            anyhow::bail!(
+                                "node version '{}' is below minimum required '{}' — upgrade btcpc-node",
+                                ver, min_ver.trim()
+                            );
+                        }
+                    }
+                }
+                // Software hash check: if governance has set approved binary hashes, enforce them.
+                if let Some(sw_hash) = software_hash {
+                    if !sw_hash.is_empty() {
+                        let approved_sw: Vec<String> = self.store
+                            .state_get("chain_param:approved_software")
+                            .and_then(|b| serde_json::from_slice(&b).ok())
+                            .unwrap_or_default();
+                        if !approved_sw.is_empty() && !approved_sw.iter().any(|h| h == sw_hash) {
+                            anyhow::bail!(
+                                "software hash '{}' is not on the approved list — upgrade to an official btcpc-node release",
+                                sw_hash
+                            );
+                        }
+                    }
+                }
+                // Model hash check: if governance has set approved model digests, enforce them.
+                if let Some(mh) = model_hash {
+                    if !mh.is_empty() {
+                        let approved_mh: Vec<String> = self.store
+                            .state_get("chain_param:approved_model_hashes")
+                            .and_then(|b| serde_json::from_slice(&b).ok())
+                            .unwrap_or_default();
+                        if !approved_mh.is_empty() && !approved_mh.iter().any(|h| h == mh) {
+                            anyhow::bail!(
+                                "model digest '{}' is not approved — pull an official model version",
+                                mh
+                            );
+                        }
+                    }
+                }
                 // If job_id is present, the miner must be the awarded worker for that job.
                 if let Some(jid) = job_id {
                     if !jid.is_empty() {
@@ -1136,14 +1228,37 @@ impl Chain {
                     node, role, bps, max);
             }
 
-            LedgerEntry::NodeRoleOptOut { node, role, .. } => {
-                self.store.state_delete(&format!("role_opt:{}:{}", role, node))?;
+            LedgerEntry::NodeRoleOptOut { node, role, epoch, .. } => {
+                // Mark as opted-out so the open-by-default logic can distinguish
+                // "never configured" (open) from "explicitly closed" (opted out).
+                self.store.state_set(
+                    &format!("role_opt:{}:{}", role, node),
+                    &serde_json::to_vec(&serde_json::json!({
+                        "node": node, "role": role,
+                        "opted_out": true,
+                        "since_epoch": epoch,
+                    })).unwrap_or_default(),
+                )?;
                 info!("[role_stake] node '{}' opted out of role '{}'", node, role);
             }
 
             LedgerEntry::NodeRoleStake { node, role, staker, amount, epoch, .. } => {
                 self.ensure_account(staker, *epoch)?;
                 self.store.debit(staker, NATIVE_TOKEN, *amount)?;
+                // Self-stake: auto-opt-in to backer sharing if not already configured.
+                // Enables bootstrapping — operators don't need a separate opt-in tx.
+                if staker == node {
+                    let opt_key = format!("role_opt:{}:{}", role, node);
+                    if self.store.state_get(&opt_key).is_none() {
+                        let _ = self.store.state_set(&opt_key, &serde_json::to_vec(&serde_json::json!({
+                            "node": node, "role": role,
+                            "backer_share_bps": 1000u64,
+                            "max_backers": 20u64,
+                            "since_epoch": epoch,
+                        })).unwrap_or_default());
+                        info!("[role_stake] auto-opted '{}' into backer sharing for role '{}'", node, role);
+                    }
+                }
                 let key = format!("role_stake:{}:{}:{}", role, node, staker);
                 let prev: u64 = self.store.state_get(&key)
                     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
@@ -1948,6 +2063,133 @@ impl Chain {
                     &seal_hash_a[..seal_hash_a.len().min(12)],
                     &seal_hash_b[..seal_hash_b.len().min(12)],
                 );
+            }
+
+            // ── Project Collaboration ─────────────────────────────────────────
+            LedgerEntry::ProjectCreate { project_id, name, description, repo, creator, epoch, .. } => {
+                let key = format!("project:{}", project_id);
+                anyhow::ensure!(
+                    self.store.state_get(&key).is_none(),
+                    "project '{}' already exists", project_id
+                );
+                self.store.state_set(&key, &serde_json::to_vec(&serde_json::json!({
+                    "project_id": project_id,
+                    "name": name,
+                    "description": description,
+                    "repo": repo,
+                    "creator": creator,
+                    "created_epoch": epoch,
+                    "collaborators": [],
+                }))?)?;
+            }
+
+            LedgerEntry::ProjectTask { project_id, task_id, title, description,
+                task_type, bounty, tags, deadline_epoch, creator, epoch, .. } => {
+                anyhow::ensure!(
+                    self.store.state_get(&format!("project:{}", project_id)).is_some(),
+                    "project '{}' does not exist", project_id
+                );
+                let key = format!("project_task:{}:{}", project_id, task_id);
+                anyhow::ensure!(
+                    self.store.state_get(&key).is_none(),
+                    "task '{}' already exists in project '{}'", task_id, project_id
+                );
+                self.store.state_set(&key, &serde_json::to_vec(&serde_json::json!({
+                    "project_id": project_id,
+                    "task_id": task_id,
+                    "title": title,
+                    "description": description,
+                    "task_type": task_type,
+                    "bounty": bounty,
+                    "tags": tags,
+                    "deadline_epoch": deadline_epoch,
+                    "creator": creator,
+                    "created_epoch": epoch,
+                    "status": "open",
+                    "claimant": null,
+                    "submission_link": null,
+                }))?)?;
+            }
+
+            LedgerEntry::TaskClaim { project_id, task_id, claimant, .. } => {
+                let key = format!("project_task:{}:{}", project_id, task_id);
+                let mut task: serde_json::Value = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("task '{}' not found in project '{}'", task_id, project_id))?;
+                anyhow::ensure!(
+                    task["status"].as_str() == Some("open"),
+                    "task '{}' is not open (status: {})", task_id, task["status"]
+                );
+                task["status"] = serde_json::json!("claimed");
+                task["claimant"] = serde_json::json!(claimant);
+                self.store.state_set(&key, &serde_json::to_vec(&task)?)?;
+            }
+
+            LedgerEntry::TaskSubmit { project_id, task_id, submitter, link, notes, epoch, .. } => {
+                let key = format!("project_task:{}:{}", project_id, task_id);
+                let mut task: serde_json::Value = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("task '{}' not found in project '{}'", task_id, project_id))?;
+                anyhow::ensure!(
+                    task["claimant"].as_str() == Some(submitter.as_str()),
+                    "only the task claimant can submit"
+                );
+                task["status"] = serde_json::json!("submitted");
+                task["submission_link"] = serde_json::json!(link);
+                task["submission_notes"] = serde_json::json!(notes);
+                task["submitted_epoch"] = serde_json::json!(epoch);
+                self.store.state_set(&key, &serde_json::to_vec(&task)?)?;
+            }
+
+            LedgerEntry::TaskApprove { project_id, task_id, approver, recipient, payout, epoch, .. } => {
+                // Verify approver is project creator or an existing collaborator
+                let proj_key = format!("project:{}", project_id);
+                let project: serde_json::Value = self.store.state_get(&proj_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("project '{}' not found", project_id))?;
+                let creator = project["creator"].as_str().unwrap_or("");
+                let collabs: Vec<String> = project["collaborators"].as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                    .unwrap_or_default();
+                anyhow::ensure!(
+                    approver == creator || collabs.contains(approver),
+                    "only the project lead or a collaborator can approve tasks"
+                );
+
+                let task_key = format!("project_task:{}:{}", project_id, task_id);
+                let mut task: serde_json::Value = self.store.state_get(&task_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .ok_or_else(|| anyhow::anyhow!("task '{}' not found", task_id))?;
+
+                let task_type = task["task_type"].as_str().unwrap_or("partial").to_owned();
+
+                // Pay bounty for partial tasks
+                if task_type == "partial" {
+                    let bounty = payout.unwrap_or_else(|| task["bounty"].as_u64().unwrap_or(0));
+                    if bounty > 0 {
+                        self.store.debit(approver, NATIVE_TOKEN, bounty)?;
+                        self.ensure_account(recipient, *epoch)?;
+                        self.store.credit(recipient, NATIVE_TOKEN, bounty)?;
+                    }
+                }
+
+                // For full tasks: add recipient to collaborators list
+                if task_type == "full" {
+                    let mut proj = project.clone();
+                    let mut collabs_arr: Vec<serde_json::Value> = proj["collaborators"]
+                        .as_array().cloned().unwrap_or_default();
+                    let already = collabs_arr.iter().any(|v| v.as_str() == Some(recipient.as_str()));
+                    if !already {
+                        collabs_arr.push(serde_json::json!(recipient));
+                        proj["collaborators"] = serde_json::json!(collabs_arr);
+                        self.store.state_set(&proj_key, &serde_json::to_vec(&proj)?)?;
+                    }
+                }
+
+                task["status"] = serde_json::json!("approved");
+                task["approved_epoch"] = serde_json::json!(epoch);
+                task["approved_by"] = serde_json::json!(approver);
+                self.store.state_set(&task_key, &serde_json::to_vec(&task)?)?;
             }
 
         }
@@ -2986,6 +3228,9 @@ mod tests {
             hw_tier: 1,
             output_hash: "abc123".to_string(),
             job_id: None,
+            node_version: None,
+            software_hash: None,
+            model_hash: None,
         }).expect("mine in grace period");
         seal_epoch(&chain, 1);
 
@@ -3035,6 +3280,9 @@ mod tests {
             hw_tier: 1,
             output_hash: "abc123".to_string(),
             job_id: Some(job_id.to_string()),
+            node_version: None,
+            software_hash: None,
+            model_hash: None,
         }).expect("linked mine applied");
 
         let record = chain.store.state_get(&format!("mine:{}:miner", epoch)).unwrap();
@@ -3052,6 +3300,9 @@ mod tests {
             hw_tier: 1,
             output_hash: "xyz".to_string(),
             job_id: Some(job_id.to_string()),
+            node_version: None,
+            software_hash: None,
+            model_hash: None,
         });
         assert!(err.is_err(), "non-winner cannot link Mine to job");
     }

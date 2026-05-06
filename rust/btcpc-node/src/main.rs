@@ -240,6 +240,7 @@ async fn main() -> Result<()> {
                             timestamp: ts,
                             seal_hash: seal_hash.clone(),
                             signature: None,
+                            node_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
                         };
                         if let Err(e) = chain_ref.apply_entry(&entry) {
                             warn!("clock seal apply failed (epoch {}): {}", sealed.epoch, e);
@@ -498,6 +499,19 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Compute binary SHA-256 once at startup for software attestation in Mine entries.
+    let software_hash = {
+        use sha2::{Sha256, Digest};
+        let self_path = std::env::current_exe().unwrap_or_default();
+        match std::fs::read(&self_path) {
+            Ok(bytes) => format!("sha256:{}", hex::encode(Sha256::digest(&bytes))),
+            Err(e) => {
+                tracing::warn!("software attestation: could not hash binary: {}", e);
+                String::new()
+            }
+        }
+    };
+
     // ── Mining (legacy direct-inference loop) ────────────────────────────────
     // NOTE: BTCPC_MINER submits Mine entries each epoch via a local Ollama call.
     // This bypasses the inference marketplace. New deployments should use
@@ -507,8 +521,9 @@ async fn main() -> Result<()> {
         let account = cfg.account.clone();
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         let cmd_for_miner = net_handle.cmd_tx.clone();
+        let sw_hash_for_miner = software_hash.clone();
         tokio::spawn(async move {
-            miner::run_miner(chain_ref, account, genesis_ts, cmd_for_miner).await;
+            miner::run_miner(chain_ref, account, genesis_ts, cmd_for_miner, sw_hash_for_miner).await;
         });
     }
 
@@ -741,7 +756,13 @@ async fn main() -> Result<()> {
     }
 
     // ── HTTP API ──────────────────────────────────────────────────────────────
-    let default_model = std::env::var("BTCPC_MODEL").unwrap_or_else(|_| "qwen3:4b".to_owned());
+    let ollama_url_for_model = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let default_model = crate::miner::detect_model(&ollama_url_for_model).await
+        .unwrap_or_default();
+
+    tracing::info!("software_hash: {}", &software_hash[..software_hash.len().min(24)]);
+
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
@@ -756,6 +777,7 @@ async fn main() -> Result<()> {
         hw_summary:       Arc::new(hw.summary),
         peer_count:       shared_peer_count,
         clock:            clock.clone(),
+        software_hash:    Arc::new(software_hash),
     };
     api::serve(app_state, cfg.api_port).await?;
 

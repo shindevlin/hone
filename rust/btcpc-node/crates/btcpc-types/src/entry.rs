@@ -284,6 +284,15 @@ pub enum LedgerEntry {
         /// Must match an InferenceJobComplete entry with an approved InferenceJobVerify.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         job_id: Option<String>,
+        /// Semver of the btcpc-node binary that produced this entry.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node_version: Option<String>,
+        /// SHA-256 of the btcpc-node binary. Governance can enforce approved hashes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        software_hash: Option<String>,
+        /// SHA-256 digest of the Ollama model blob (from /api/show). Governance enforces approved digests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_hash: Option<String>,
     },
     MineReward {
         miner: AccountId,
@@ -298,6 +307,9 @@ pub enum LedgerEntry {
         timestamp: u64,
         seal_hash: String,
         signature: Option<String>,
+        /// Semver of the node binary producing this seal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node_version: Option<String>,
     },
     EpochFinalize {
         epoch: Epoch,
@@ -920,6 +932,90 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── Project Collaboration ─────────────────────────────────────────────────
+    /// Create a project workspace. Creator is the primary owner.
+    /// A project can have full collaborators (ongoing role) and partial task workers (bounty).
+    ProjectCreate {
+        project_id: String,
+        name: String,
+        description: String,
+        /// Optional LinkGit "owner/repo" or external URL.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo: Option<String>,
+        creator: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Post a task within a project.
+    /// type_: "partial" (fixed bounty, closed on approval) | "full" (ongoing collaboration role).
+    ProjectTask {
+        project_id: String,
+        task_id: String,
+        title: String,
+        description: String,
+        /// "partial" | "full"
+        task_type: String,
+        /// Bounty in dreams for partial tasks; 0 for full collaboration.
+        bounty: Dreams,
+        /// Tags e.g. ["rust", "gui", "p2p"].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<String>,
+        /// Epoch after which task expires (0 = no deadline).
+        deadline_epoch: u64,
+        creator: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Claim a task — marks claimant as the active worker.
+    TaskClaim {
+        project_id: String,
+        task_id: String,
+        claimant: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Submit completed work for review.
+    TaskSubmit {
+        project_id: String,
+        task_id: String,
+        submitter: AccountId,
+        /// Link to completed work: PR URL, commit hash, IPFS CID, etc.
+        link: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        notes: Option<String>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Project lead approves a submission.
+    /// For "partial" tasks: pays bounty from project creator to recipient.
+    /// For "full" tasks: adds recipient as an ongoing collaborator.
+    TaskApprove {
+        project_id: String,
+        task_id: String,
+        approver: AccountId,
+        recipient: AccountId,
+        /// Override payout (≤ task bounty). None = pay full bounty.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payout: Option<Dreams>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
     // ── Testnet ───────────────────────────────────────────────────────────────
     /// Register a mainnet account as a testnet operator so clock nodes on mainnet
     /// can reward it from the testnet fund each epoch.
@@ -1425,6 +1521,11 @@ impl LedgerEntry {
             Self::HardwareClaim { epoch, .. } => *epoch,
             Self::ClockNodeRegister { epoch, .. } => *epoch,
             Self::ClockDoubleSignEvidence { epoch, .. } => *epoch,
+            Self::ProjectCreate { epoch, .. } => *epoch,
+            Self::ProjectTask { epoch, .. } => *epoch,
+            Self::TaskClaim { epoch, .. } => *epoch,
+            Self::TaskSubmit { epoch, .. } => *epoch,
+            Self::TaskApprove { epoch, .. } => *epoch,
         }
     }
 
@@ -1559,6 +1660,13 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::TestnetOperatorRegister { .. }
         | LedgerEntry::SpamGateSet { .. }
         | LedgerEntry::TokenApprove { .. }
-        | LedgerEntry::TokenRevoke { .. } => ENTRY_WEIGHT_REGISTRATION,
+        | LedgerEntry::TokenRevoke { .. }
+        | LedgerEntry::ProjectCreate { .. }
+        | LedgerEntry::ProjectTask { .. } => ENTRY_WEIGHT_REGISTRATION,
+
+        // ── Standard (1) ─────────────────────────────────────────────────────
+        LedgerEntry::TaskClaim { .. }
+        | LedgerEntry::TaskSubmit { .. }
+        | LedgerEntry::TaskApprove { .. } => ENTRY_WEIGHT_STANDARD,
     }
 }

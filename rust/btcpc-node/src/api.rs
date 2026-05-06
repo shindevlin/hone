@@ -59,6 +59,8 @@ pub struct AppState {
     pub peer_count: Arc<std::sync::atomic::AtomicUsize>,
     /// Clock consensus handle — used by public status endpoints.
     pub clock: Arc<crate::clock::ClockConsensus>,
+    /// SHA-256 of this node's own binary, computed once at startup.
+    pub software_hash: Arc<String>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -206,6 +208,7 @@ pub fn router(state: AppState) -> Router {
         // ── Public status (no auth, no rate-limit on GETs) ───────────────
         .route("/public/machine-status", get(get_public_machine_status))
         .route("/public/network", get(get_public_network))
+        .route("/public/leaderboard", get(get_public_leaderboard))
         // ── Node dashboard ────────────────────────────────────────────────
         .route("/api/node/list", get(get_node_list))
         .route("/api/node/info", get(get_node_info))
@@ -215,11 +218,33 @@ pub fn router(state: AppState) -> Router {
         .route("/app.html", get(get_app_dashboard))
         .route("/btcpcscan", get(get_btcpcscan))
         .route("/btcpcscan.html", get(get_btcpcscan))
+        .route("/network-viz", get(get_network_viz))
+        .route("/network-viz.html", get(get_network_viz))
         .route("/", get(get_app_dashboard))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
         .route("/agent/:account", get(get_agent_instructions))
         .route("/setup", get(get_setup_page))
+        // ── OTC liquidity desk ────────────────────────────────────────────
+        .route("/api/purchase/config", get(get_purchase_config).post(post_purchase_config))
+        .route("/api/purchase/quote", get(get_purchase_quote))
+        .route("/api/purchase/submit", post(post_purchase_submit))
+        .route("/api/purchase/list", get(get_purchase_list))
+        .route("/api/purchase/fulfill/:id", post(post_purchase_fulfill))
+        .route("/api/purchase/status/:id", get(get_purchase_status))
+        // ── Model + version governance ────────────────────────────────────
+        .route("/api/chain/approved_models", get(get_approved_models).post(post_approved_models))
+        .route("/api/chain/min_node_version", get(get_min_node_version).post(post_min_node_version))
+        .route("/api/chain/approved_software", get(get_approved_software).post(post_approved_software))
+        // ── Project collaboration ─────────────────────────────────────────
+        .route("/api/projects", get(get_projects))
+        .route("/api/projects/:id", get(get_project))
+        .route("/api/projects/:id/tasks", get(get_project_tasks))
+        .route("/api/project/create", post(post_project_create))
+        .route("/api/project/task", post(post_project_task))
+        .route("/api/project/task/claim", post(post_task_claim))
+        .route("/api/project/task/submit", post(post_task_submit))
+        .route("/api/project/task/approve", post(post_task_approve))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
         .layer(CorsLayer::permissive())
@@ -752,6 +777,49 @@ async fn get_public_network(State(s): State<AppState>) -> Json<serde_json::Value
         "clock_node_count":  registered.len(),
         "registered_clocks": registered,
     }))
+}
+
+// GET /public/leaderboard — top accounts by balance with role info for the network viz
+async fn get_public_leaderboard(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let clock_set: std::collections::HashSet<String> =
+        s.clock.registered_clocks().into_iter().collect();
+    let ids = s.chain.store.scan_account_ids();
+    let mut entries: Vec<serde_json::Value> = ids.iter()
+        .filter_map(|id| {
+            let bal = s.chain.get_balance(id, btcpc_types::NATIVE_TOKEN);
+            if bal == 0 { return None; }
+            let mut roles: Vec<&str> = vec![];
+            if clock_set.contains(id) { roles.push("clock"); }
+            // Check role stakes to detect miners/storage
+            for role in ["miner", "storage", "sensor", "service"] {
+                let prefix = format!("role_stake:{}:{}:", role, id);
+                if !s.chain.store.state_scan_prefix(&prefix).is_empty()
+                    || s.chain.store.state_get(&format!("role_stake:{}:{}:{}", role, id, id)).is_some()
+                {
+                    roles.push(role);
+                }
+            }
+            Some(serde_json::json!({
+                "account": id,
+                "balance": bal,
+                "roles":   roles,
+            }))
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b["balance"].as_u64().unwrap_or(0).cmp(&a["balance"].as_u64().unwrap_or(0))
+    });
+    entries.truncate(100);
+    let total = ids.len();
+    Json(serde_json::json!({
+        "leaderboard":    entries,
+        "total_accounts": total,
+    }))
+}
+
+// GET /network-viz.html — embedded network visualizer
+async fn get_network_viz() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../../../website/network-viz.html"))
 }
 
 // GET /api/node/list — registered accounts with publishable identities
@@ -4319,11 +4387,29 @@ async fn get_role_backers(
     let total_backed: u64 = backers.iter()
         .filter_map(|b| b["amount"].as_u64())
         .sum();
+    // Nodes without an explicit config are open-by-default (not opted-out).
+    let explicitly_opted_out = opt.as_ref()
+        .and_then(|c| c.get("opted_out"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let accepting = !explicitly_opted_out;
+    let backer_share_bps = opt.as_ref()
+        .and_then(|c| c.get("backer_share_bps"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1000);
+    let max_backers = opt.as_ref()
+        .and_then(|c| c.get("max_backers"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20);
     Json(serde_json::json!({
         "node": node,
         "role": role,
-        "opted_in": opt.is_some(),
+        "opted_in": accepting,
+        "explicitly_configured": opt.is_some() && !explicitly_opted_out,
         "config": opt,
+        "backer_share_bps": backer_share_bps,
+        "max_backers": max_backers,
+        "current_backers": backers.len(),
         "backers": backers,
         "total_backed_dreams": total_backed,
         "total_backed_btcpc": total_backed as f64 / 10_000_000_000.0,
@@ -4467,6 +4553,559 @@ async fn post_node_role_unstake(
         Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
     }
+}
+
+// ── OTC Liquidity Desk ────────────────────────────────────────────────────────
+//
+// The operator configures payment addresses and price via POST /api/purchase/config.
+// Buyers get quotes, submit orders, and send stablecoins to the operator's address.
+// The operator sees pending orders in the GUI and fulfills them with a Transfer.
+
+const PURCHASE_CONFIG_KEY: &str = "purchase:config";
+const PURCHASE_ORDER_PREFIX: &str = "purchase:order:";
+
+async fn get_purchase_config(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let cfg = s.chain.store.state_get(PURCHASE_CONFIG_KEY)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .unwrap_or_else(|| serde_json::json!({
+            "enabled": false,
+            "price_usd": 0.001,
+            "eth_address": "",
+            "operator": "",
+        }));
+    Json(cfg)
+}
+
+#[derive(serde::Deserialize)]
+struct PurchaseConfigBody {
+    enabled: Option<bool>,
+    price_usd: Option<f64>,
+    eth_address: Option<String>,
+    operator: Option<String>,
+}
+
+async fn post_purchase_config(
+    State(s): State<AppState>,
+    Json(b): Json<PurchaseConfigBody>,
+) -> Json<serde_json::Value> {
+    let existing = s.chain.store.state_get(PURCHASE_CONFIG_KEY)
+        .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut cfg = existing;
+    if let Some(v) = b.enabled    { cfg["enabled"]    = serde_json::json!(v); }
+    if let Some(v) = b.price_usd  { cfg["price_usd"]  = serde_json::json!(v); }
+    if let Some(v) = b.eth_address { cfg["eth_address"] = serde_json::json!(v); }
+    if let Some(v) = b.operator   { cfg["operator"]   = serde_json::json!(v); }
+    if let Ok(bytes) = serde_json::to_vec(&cfg) {
+        let _ = s.chain.store.state_set(PURCHASE_CONFIG_KEY, &bytes);
+    }
+    Json(serde_json::json!({ "ok": true, "config": cfg }))
+}
+
+async fn get_purchase_quote(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let cfg = s.chain.store.state_get(PURCHASE_CONFIG_KEY)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .unwrap_or_default();
+
+    let enabled = cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !enabled {
+        return Json(serde_json::json!({ "error": "OTC desk not configured" }));
+    }
+
+    let price_usd: f64 = cfg.get("price_usd").and_then(|v| v.as_f64()).unwrap_or(0.001);
+    let usd_amount: f64 = params.get("usd_amount")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100.0);
+
+    let btcpc_amount = (usd_amount / price_usd).floor() as u64;
+    let eth_address = cfg.get("eth_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    let chain = params.get("chain").map(|s| s.as_str()).unwrap_or("ethereum");
+    let token = params.get("token").map(|s| s.as_str()).unwrap_or("USDC");
+
+    let token_contract = match (chain, token) {
+        ("ethereum", "USDC") => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        ("ethereum", "USDT") => "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ("ethereum", "DAI")  => "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+        _ => "",
+    };
+
+    Json(serde_json::json!({
+        "btcpc_amount": btcpc_amount,
+        "price_per_btcpc_usd": price_usd,
+        "usd_amount": usd_amount,
+        "chain": chain,
+        "token": token,
+        "payment_address": eth_address,
+        "token_contract": token_contract,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct PurchaseSubmitBody {
+    btcpc_account: String,
+    btcpc_pubkeys: Option<serde_json::Value>,
+    usd_amount: f64,
+    chain: String,
+    token: String,
+    tx_hash: Option<String>,
+}
+
+async fn post_purchase_submit(
+    State(s): State<AppState>,
+    Json(b): Json<PurchaseSubmitBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let cfg = s.chain.store.state_get(PURCHASE_CONFIG_KEY)
+        .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .unwrap_or_default();
+    let enabled = cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !enabled {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "OTC desk not configured" })));
+    }
+    if b.btcpc_account.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "btcpc_account required" })));
+    }
+
+    let price_usd: f64 = cfg.get("price_usd").and_then(|v| v.as_f64()).unwrap_or(0.001);
+    let btcpc_amount = (b.usd_amount / price_usd).floor() as u64;
+    let eth_address = cfg.get("eth_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    let purchase_id = {
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(b.btcpc_account.as_bytes());
+        h.update(&b.usd_amount.to_le_bytes());
+        h.update(&std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_le_bytes());
+        hex::encode(&h.finalize()[..16])
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let order = serde_json::json!({
+        "purchase_id": purchase_id,
+        "btcpc_account": b.btcpc_account,
+        "btcpc_pubkeys": b.btcpc_pubkeys,
+        "usd_amount": b.usd_amount,
+        "btcpc_amount": btcpc_amount,
+        "chain": b.chain,
+        "token": b.token,
+        "payment_address": eth_address,
+        "tx_hash": b.tx_hash,
+        "status": "pending",
+        "created_at": now,
+        "expires_at": now + 86400,
+    });
+
+    let key = format!("{}{}", PURCHASE_ORDER_PREFIX, purchase_id);
+    if let Ok(bytes) = serde_json::to_vec(&order) {
+        let _ = s.chain.store.state_set(&key, &bytes);
+    }
+
+    let memo_required = b.chain != "ethereum";
+    (StatusCode::OK, Json(serde_json::json!({
+        "purchase_id": purchase_id,
+        "btcpc_amount": btcpc_amount,
+        "payment_address": eth_address,
+        "chain": b.chain,
+        "token": b.token,
+        "memo_required": memo_required,
+        "memo_value": if memo_required { serde_json::json!(purchase_id) } else { serde_json::Value::Null },
+        "expires_at": now + 86400,
+    })))
+}
+
+async fn get_purchase_status(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("{}{}", PURCHASE_ORDER_PREFIX, id);
+    match s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    {
+        Some(order) => Json(order),
+        None => Json(serde_json::json!({ "error": "order not found" })),
+    }
+}
+
+async fn get_purchase_list(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let orders: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(PURCHASE_ORDER_PREFIX)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "orders": orders }))
+}
+
+#[derive(serde::Deserialize)]
+struct FulfillBody {
+    fulfilled_by: String,
+    tx_hash: Option<String>,
+}
+
+async fn post_purchase_fulfill(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(b): Json<FulfillBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = format!("{}{}", PURCHASE_ORDER_PREFIX, id);
+    let mut order = match s.chain.store.state_get(&key)
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    {
+        Some(o) => o,
+        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "order not found" }))),
+    };
+
+    let status = order.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
+    if status == "fulfilled" {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "already fulfilled" })));
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    order["status"] = serde_json::json!("fulfilled");
+    order["fulfilled_by"] = serde_json::json!(b.fulfilled_by);
+    order["fulfilled_at"] = serde_json::json!(now);
+    if let Some(tx) = b.tx_hash { order["fulfillment_tx"] = serde_json::json!(tx); }
+
+    if let Ok(bytes) = serde_json::to_vec(&order) {
+        let _ = s.chain.store.state_set(&key, &bytes);
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "order": order })))
+}
+
+// ── Model governance ─────────────────────────────────────────────────────────
+
+async fn get_approved_models(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let models: Vec<String> = s.chain.store
+        .state_get("chain_param:approved_models")
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    Json(serde_json::json!({ "approved_models": models, "open": models.is_empty() }))
+}
+
+#[derive(serde::Deserialize)]
+struct ApprovedModelsBody {
+    models: Vec<String>,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_approved_models(
+    State(s): State<AppState>,
+    Json(body): Json<ApprovedModelsBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // Only governance keys can update the approved models list.
+    let gov_keys = crate::tx::governance_keys(&s.chain);
+    if !gov_keys.contains(&body.signed_by) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "ok": false,
+            "error": "only governance accounts can update approved_models"
+        })));
+    }
+    match s.chain.store.state_set(
+        "chain_param:approved_models",
+        &serde_json::to_vec(&body.models).unwrap_or_default(),
+    ) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "ok": true,
+            "approved_models": body.models
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "ok": false, "error": e.to_string()
+        }))),
+    }
+}
+
+async fn get_min_node_version(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let ver = s.chain.store.state_get("chain_param:min_node_version")
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default();
+    Json(serde_json::json!({ "min_node_version": ver, "enforced": !ver.trim().is_empty() }))
+}
+
+#[derive(serde::Deserialize)]
+struct MinVersionBody {
+    version: String,
+    signed_by: String,
+}
+
+async fn post_min_node_version(
+    State(s): State<AppState>,
+    Json(body): Json<MinVersionBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let gov_keys = crate::tx::governance_keys(&s.chain);
+    if !gov_keys.contains(&body.signed_by) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "ok": false, "error": "only governance accounts can set min_node_version"
+        })));
+    }
+    match s.chain.store.state_set(
+        "chain_param:min_node_version",
+        body.version.trim().as_bytes(),
+    ) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "ok": true, "min_node_version": body.version.trim()
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "ok": false, "error": e.to_string()
+        }))),
+    }
+}
+
+// ── Software hash governance ──────────────────────────────────────────────────
+
+async fn get_approved_software(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let hashes: Vec<String> = s.chain.store
+        .state_get("chain_param:approved_software")
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let node_hash = s.software_hash.as_str().to_owned();
+    Json(serde_json::json!({
+        "approved_software": hashes,
+        "open": hashes.is_empty(),
+        "this_node": node_hash,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct ApprovedSoftwareBody {
+    hashes: Vec<String>,
+    signed_by: String,
+}
+
+async fn post_approved_software(
+    State(s): State<AppState>,
+    Json(body): Json<ApprovedSoftwareBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let gov_keys = crate::tx::governance_keys(&s.chain);
+    if !gov_keys.contains(&body.signed_by) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "ok": false, "error": "only governance accounts can update approved_software"
+        })));
+    }
+    match s.chain.store.state_set(
+        "chain_param:approved_software",
+        &serde_json::to_vec(&body.hashes).unwrap_or_default(),
+    ) {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "ok": true, "approved_software": body.hashes
+        }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "ok": false, "error": e.to_string()
+        }))),
+    }
+}
+
+// ── Project collaboration request bodies ──────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ProjectCreateBody {
+    project_id: String,
+    name: String,
+    description: String,
+    repo: Option<String>,
+    nonce: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProjectTaskBody {
+    project_id: String,
+    task_id: String,
+    title: String,
+    description: String,
+    task_type: String,
+    bounty: Option<u64>,
+    tags: Option<Vec<String>>,
+    deadline_epoch: Option<u64>,
+    nonce: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TaskClaimBody {
+    project_id: String,
+    task_id: String,
+    nonce: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TaskSubmitBody {
+    project_id: String,
+    task_id: String,
+    link: String,
+    notes: Option<String>,
+    nonce: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TaskApproveBody {
+    project_id: String,
+    task_id: String,
+    recipient: String,
+    payout: Option<u64>,
+    nonce: u64,
+    signed_by: String,
+    signature: Option<String>,
+}
+
+async fn post_project_create(
+    State(s): State<AppState>,
+    Json(body): Json<ProjectCreateBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let sig_str = body.signature.clone().unwrap_or_default();
+    let entry = LedgerEntry::ProjectCreate {
+        project_id: body.project_id,
+        name: body.name,
+        description: body.description,
+        repo: body.repo,
+        creator: body.signed_by.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.signed_by,
+        signature: body.signature,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&sig_str))
+}
+
+async fn post_project_task(
+    State(s): State<AppState>,
+    Json(body): Json<ProjectTaskBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let sig_str = body.signature.clone().unwrap_or_default();
+    let entry = LedgerEntry::ProjectTask {
+        project_id: body.project_id,
+        task_id: body.task_id,
+        title: body.title,
+        description: body.description,
+        task_type: body.task_type,
+        bounty: body.bounty.unwrap_or(0),
+        tags: body.tags.unwrap_or_default(),
+        deadline_epoch: body.deadline_epoch.unwrap_or(0),
+        creator: body.signed_by.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.signed_by,
+        signature: body.signature,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&sig_str))
+}
+
+async fn post_task_claim(
+    State(s): State<AppState>,
+    Json(body): Json<TaskClaimBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let sig_str = body.signature.clone().unwrap_or_default();
+    let entry = LedgerEntry::TaskClaim {
+        project_id: body.project_id,
+        task_id: body.task_id,
+        claimant: body.signed_by.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.signed_by,
+        signature: body.signature,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&sig_str))
+}
+
+async fn post_task_submit(
+    State(s): State<AppState>,
+    Json(body): Json<TaskSubmitBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let sig_str = body.signature.clone().unwrap_or_default();
+    let entry = LedgerEntry::TaskSubmit {
+        project_id: body.project_id,
+        task_id: body.task_id,
+        submitter: body.signed_by.clone(),
+        link: body.link,
+        notes: body.notes,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.signed_by,
+        signature: body.signature,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&sig_str))
+}
+
+async fn post_task_approve(
+    State(s): State<AppState>,
+    Json(body): Json<TaskApproveBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let sig_str = body.signature.clone().unwrap_or_default();
+    let entry = LedgerEntry::TaskApprove {
+        project_id: body.project_id,
+        task_id: body.task_id,
+        approver: body.signed_by.clone(),
+        recipient: body.recipient,
+        payout: body.payout,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.signed_by,
+        signature: body.signature,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&sig_str))
+}
+
+// ── Project collaboration handlers ────────────────────────────────────────────
+
+async fn get_projects(State(s): State<AppState>) -> Json<serde_json::Value> {
+    // Keys are "project:{id}" — exactly one colon. Exclude "project_task:" prefix.
+    let projects: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("project:")
+        .into_iter()
+        .filter(|(k, _)| k.matches(':').count() == 1)
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "projects": projects }))
+}
+
+async fn get_project(
+    State(s): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let key = format!("project:{}", id);
+    match s.chain.store.state_get(&key).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+        Some(v) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "project": v }))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "not found" }))),
+    }
+}
+
+async fn get_project_tasks(
+    State(s): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let prefix = format!("project_task:{}:", id);
+    let tasks: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "tasks": tasks }))
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {
