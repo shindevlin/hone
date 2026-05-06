@@ -48,6 +48,7 @@ mod store;
 mod tx;
 mod utils;
 mod wallet;
+mod linkgit_server;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

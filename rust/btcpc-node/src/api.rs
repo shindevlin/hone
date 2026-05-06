@@ -169,6 +169,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/linkgit/repo/ref/update", post(post_linkgit_ref_update))
         .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
         .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
+        // ── LinkGit: git smart HTTP protocol ──────────────────────────────
+        .route("/git/:owner/:repo/info/refs", get(git_info_refs))
+        .route("/git/:owner/:repo/git-upload-pack", post(git_upload_pack))
+        .route("/git/:owner/:repo/git-receive-pack", post(git_receive_pack))
         // ── Verasens: Sensors / IoT ───────────────────────────────────────
         .route("/api/sensor/register", post(post_sensor_register))
         .route("/api/sensor/commit", post(post_sensor_commit))
@@ -5356,6 +5360,120 @@ async fn get_runtime_host(
         Some(v) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "host": v }))),
         None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "ok": false, "error": "not found" }))),
     }
+}
+
+// ── LinkGit: git smart HTTP handlers ─────────────────────────────────────────
+
+fn git_response(r: crate::linkgit_server::GitResponse) -> axum::response::Response {
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::from_u16(r.status)
+            .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR))
+        .header(axum::http::header::CONTENT_TYPE, r.content_type)
+        .header("Cache-Control", "no-cache")
+        .body(axum::body::Body::from(r.body))
+        .unwrap()
+}
+
+fn git_auth(headers: &HeaderMap) -> Option<String> {
+    headers.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("account "))
+        .map(|s| s.trim().to_owned())
+}
+
+/// GET /git/:owner/:repo/info/refs?service=git-upload-pack|git-receive-pack
+async fn git_info_refs(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let service = params.get("service").cloned().unwrap_or_default();
+    let auth = git_auth(&headers);
+    let resp = crate::linkgit_server::info_refs(
+        &s.chain.store, &owner, &repo, &service, auth.as_deref(),
+    );
+    git_response(resp)
+}
+
+/// POST /git/:owner/:repo/git-upload-pack
+async fn git_upload_pack(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    let auth = git_auth(&headers);
+    let resp = crate::linkgit_server::upload_pack(
+        &s.chain.store, &owner, &repo, &body, auth.as_deref(),
+    );
+    git_response(resp)
+}
+
+/// POST /git/:owner/:repo/git-receive-pack
+async fn git_receive_pack(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use crate::linkgit_server::{find_repo, can_write, parse_receive_pack, store_pack,
+                                receive_pack_response, GitResponse};
+
+    let auth = git_auth(&headers);
+
+    let Some((repo_id, repo_json)) = find_repo(&s.chain.store, &owner, &repo) else {
+        return git_response(GitResponse { status: 404, content_type: "text/plain",
+            body: b"repository not found".to_vec() });
+    };
+    if !can_write(&s.chain.store, &repo_json, &repo_id, auth.as_deref()) {
+        return git_response(GitResponse { status: 401, content_type: "text/plain",
+            body: b"authentication required".to_vec() });
+    }
+
+    let req = parse_receive_pack(&body);
+    let mut errors: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    if !req.pack.is_empty() {
+        if let Err(e) = store_pack(&s.chain.store, &repo_id, &req.pack) {
+            for (_, _, ref_name) in &req.updates {
+                errors.insert(ref_name.clone(), format!("pack error: {}", e));
+            }
+        }
+    }
+
+    let pusher = auth.unwrap_or_else(|| repo_json["owner"].as_str().unwrap_or("").to_owned());
+    let repo_owner = repo_json["owner"].as_str().unwrap_or("").to_owned();
+
+    for (old_sha, new_sha, ref_name) in &req.updates {
+        if errors.contains_key(ref_name) { continue; }
+        let epoch = s.chain.current_epoch();
+        let prev = if old_sha == "0000000000000000000000000000000000000000" {
+            None
+        } else {
+            Some(old_sha.clone())
+        };
+        let entry = LedgerEntry::LinkGitRefUpdate {
+            repo_id: repo_id.clone(),
+            owner: repo_owner.clone(),
+            ref_name: ref_name.clone(),
+            commit_hash: new_sha.clone(),
+            prev_hash: prev,
+            epoch,
+            signed_by: pusher.clone(),
+        };
+        match s.chain.apply_entry(&entry) {
+            Ok(()) => { let _ = s.tx_broadcast.send((entry, None)); }
+            Err(e) => { errors.insert(ref_name.clone(), e.to_string()); }
+        }
+    }
+
+    let resp_bytes = receive_pack_response(&req.updates, &errors);
+    git_response(GitResponse {
+        status: 200,
+        content_type: "application/x-git-receive-pack-result",
+        body: resp_bytes,
+    })
 }
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {

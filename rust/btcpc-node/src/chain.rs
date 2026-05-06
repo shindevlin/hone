@@ -1603,6 +1603,11 @@ impl Chain {
                     &format!("linkgit:repo:{}", repo_id),
                     repo.to_string().as_bytes(),
                 )?;
+                // Secondary index for git URL lookup: /git/{owner}/{name}
+                self.store.set_meta(
+                    &format!("linkgit:byname:{}:{}", owner, name),
+                    repo_id.as_bytes(),
+                )?;
             }
             LedgerEntry::LinkGitRefUpdate { repo_id, ref_name, commit_hash, .. } => {
                 let key = format!("linkgit:repo:{}", repo_id);
