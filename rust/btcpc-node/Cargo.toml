@@ -3,7 +3,7 @@ members = [".", "crates/btcpc-types"]
 resolver = "2"
 
 [workspace.package]
-version = "1.0.0"
+version = "0.8.0"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ name = "btcpc-node"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "BTCPC sovereign chain node — networking, consensus, state, API, and contract execution"
+description = "BTCPC sovereign chain node — networking, consensus, state, API"
 
 [[bin]]
 name = "btcpc-node"
@@ -22,7 +22,7 @@ path = "src/main.rs"
 [dependencies]
 btcpc-types = { path = "crates/btcpc-types" }
 btcpc-contract-runtime = { path = "../btcpc-contract-runtime" }
-
+wasmtime = { version = "23" }
 # Async
 tokio = { version = "1", features = ["full"] }
 
@@ -54,13 +54,10 @@ bech32 = "0.9"
 blake2 = "0.10"
 
 # Networking
-libp2p = { version = "0.55", features = [
+libp2p = { version = "0.56", features = [
     "tcp", "quic", "noise", "yamux", "websocket", "dns",
     "gossipsub", "kad", "identify", "ping", "macros", "tokio", "mdns",
 ] }
-
-# WASM contracts
-wasmtime = { version = "23" }
 
 # HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
 # Use rustls so cross-compilation (ARM64/Pi) works without system OpenSSL.
@@ -77,6 +74,10 @@ dirs-next = "2"
 toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
 
 [profile.release]
 opt-level = 3

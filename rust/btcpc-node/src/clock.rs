@@ -118,6 +118,9 @@ struct Inner {
     last_external_peer_epoch: u64,
     current_epoch: u64,
     observer_mode: bool,
+    /// Current registered clock node set — updated at each epoch seal via
+    /// `set_registered_clocks()`. Used as the quorum denominator.
+    registered_clocks: Vec<String>,
 }
 
 // ── ClockConsensus ────────────────────────────────────────────────────────────
@@ -141,6 +144,7 @@ impl ClockConsensus {
                 last_external_peer_epoch: 0,
                 current_epoch: 0,
                 observer_mode: false,
+                registered_clocks: Vec::new(),
             })),
             sealed_tx,
             finalized_tx,
@@ -162,6 +166,9 @@ impl ClockConsensus {
         let epoch = proposal.epoch;
         let finalized_event = {
             let mut inner = self.inner.lock().unwrap();
+            // Read registered_clocks before the mutable entry borrow to satisfy the borrow checker.
+            let reg = inner.registered_clocks.clone();
+
             let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
                 proposals: Vec::new(),
                 finalized: false,
@@ -175,12 +182,22 @@ impl ClockConsensus {
                 state.proposals.push(proposal);
             }
 
-            let total = state.proposals.len();
-            let quorum_needed = ((total as f64 * MIN_QUORUM_FRACTION).ceil() as usize).max(quorum());
+            // Filter proposals to registered nodes when the set is known.
+            // Unregistered nodes cannot influence reward finalization.
+            let valid_proposals: Vec<&RewardProposal> = if reg.is_empty() {
+                state.proposals.iter().collect()
+            } else {
+                state.proposals.iter().filter(|p| reg.contains(&p.node_id)).collect()
+            };
 
-            // Tally votes by hash.
+            // Denominator is the registered set size when known; else observed proposals.
+            let denominator = if reg.is_empty() { state.proposals.len() } else { reg.len() };
+            let quorum_needed = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
+                .max(quorum());
+
+            // Tally votes from valid (registered) proposals only.
             let mut hash_counts: HashMap<String, usize> = HashMap::new();
-            for p in &state.proposals {
+            for p in &valid_proposals {
                 *hash_counts.entry(p.rewards_hash.clone()).or_default() += 1;
             }
 
@@ -278,6 +295,17 @@ impl ClockConsensus {
         self.inner.lock().unwrap().current_epoch = epoch;
     }
 
+    /// Update the registered clock node set. Called at each epoch seal from main.rs.
+    /// When this list is non-empty it becomes the quorum denominator (>51% of registered nodes).
+    pub fn set_registered_clocks(&self, nodes: Vec<String>) {
+        self.inner.lock().unwrap().registered_clocks = nodes;
+    }
+
+    /// Return the current registered clock node list (for API/diagnostics).
+    pub fn registered_clocks(&self) -> Vec<String> {
+        self.inner.lock().unwrap().registered_clocks.clone()
+    }
+
     /// Update the number of external (non-loopback) peers seen by the net layer.
     pub fn update_peers(&self, count: usize) {
         let mut inner = self.inner.lock().unwrap();
@@ -287,10 +315,11 @@ impl ClockConsensus {
             inner.last_external_peer_epoch = inner.current_epoch;
         }
 
-        let isolated = inner
-            .current_epoch
-            .saturating_sub(inner.last_external_peer_epoch)
-            > ISOLATION_EPOCH_THRESHOLD;
+        let isolated = inner.external_peer_count == 0
+            && inner
+                .current_epoch
+                .saturating_sub(inner.last_external_peer_epoch)
+                > ISOLATION_EPOCH_THRESHOLD;
 
         if isolated != inner.observer_mode {
             inner.observer_mode = isolated;
@@ -349,6 +378,7 @@ impl ClockConsensus {
             // Read fields we need without holding a mutable borrow past their last use.
             // external_peer_count is a plain copy — read before the mut borrow on epoch_states.
             let external_peer_count = inner.external_peer_count;
+            let registered_clocks = inner.registered_clocks.clone();
 
             // Scope the mutable borrow of epoch_states so it is released before
             // we call inner.update_clock_score() which also needs &mut inner.
@@ -361,6 +391,22 @@ impl ClockConsensus {
                 // state (and its mutable borrow of inner) dropped here.
             };
 
+            // Bootstrap master: during explicit isolation flag OR when there are no peers
+            // and no registered clock nodes (true genesis bootstrap).
+            // With live peers present, fall through to the quorum path so multi-node
+            // networks seal properly even before ClockRegister transactions exist.
+            let bootstrap_isolation = std::env::var("BTCPC_BOOTSTRAP_ISOLATION")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false);
+            let bootstrap_master = "shindevlin";
+            let bootstrap_seal = if bootstrap_isolation
+                || (registered_clocks.is_empty() && external_peer_count == 0)
+            {
+                seals.iter().find(|s| s.node_id == bootstrap_master).cloned()
+            } else {
+                None
+            };
+
             // Helper: mark the epoch resolved once we've made a final decision.
             // Called just before returning Some(...).
             macro_rules! mark_resolved {
@@ -371,7 +417,20 @@ impl ClockConsensus {
                 };
             }
 
-            if seals.is_empty() {
+            if let Some(master_seal) = bootstrap_seal {
+                inner.update_clock_score(bootstrap_master, true);
+                mark_resolved!();
+                info!("[clock] epoch {}: bootstrap seal by '{}'", epoch, bootstrap_master);
+                Some(SealedEpoch {
+                    epoch,
+                    sealed: true,
+                    quorum: 1,
+                    total_clocks: seals.len(),
+                    outliers: 0,
+                    winner: Some(master_seal.clone()),
+                    signing_clocks: vec![master_seal.node_id],
+                })
+            } else if seals.is_empty() {
                 mark_resolved!();
                 info!("[clock] epoch {}: no seals — skipping", epoch);
                 Some(SealedEpoch {
@@ -429,39 +488,62 @@ impl ClockConsensus {
                         (s.timestamp as i64 - median as i64).unsigned_abs() / 1_000);
                 }
 
-                // Quorum is >51% of ALL seals received, not just inliers.
+                // When the registered set is known, only registered seals count toward quorum.
+                // Unregistered seals contributed to the timestamp median above but cannot vote.
+                let voting_inliers: Vec<EpochSeal> = if registered_clocks.is_empty() {
+                    inliers.clone()
+                } else {
+                    inliers.iter()
+                        .filter(|s| registered_clocks.contains(&s.node_id))
+                        .cloned()
+                        .collect()
+                };
+
+                let denominator = if registered_clocks.is_empty() {
+                    seals.len()
+                } else {
+                    registered_clocks.len()
+                };
                 let quorum_needed = std::cmp::max(
                     1,
-                    (seals.len() as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
+                    (denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize,
                 );
-                if inliers.len() < quorum_needed {
-                    warn!("[clock] epoch {}: insufficient quorum ({} inliers / {} total, need {})",
-                        epoch, inliers.len(), seals.len(), quorum_needed);
-                    // Leave resolved=false so more seals can arrive.
+                if voting_inliers.len() < quorum_needed {
+                    warn!(
+                        "[clock] epoch {}: insufficient quorum ({} registered inliers / {} registered, need {}; {} total seals received)",
+                        epoch, voting_inliers.len(), denominator, quorum_needed, seals.len()
+                    );
                     return;
                 }
 
+                // Among voting inliers, pick the winning seal_hash (most common).
                 let mut hash_count: HashMap<&str, usize> = HashMap::new();
-                for s in &inliers {
+                for s in &voting_inliers {
                     *hash_count.entry(s.seal_hash.as_str()).or_default() += 1;
                 }
                 let winner_hash = hash_count.iter().max_by_key(|(_, c)| *c)
                     .map(|(h, _)| *h).unwrap_or("");
 
-                let winner_seals: Vec<EpochSeal> = inliers.iter()
+                let winner_seals: Vec<EpochSeal> = voting_inliers.iter()
                     .filter(|s| s.seal_hash == winner_hash).cloned().collect();
 
                 for s in &winner_seals {
                     inner.update_clock_score(&s.node_id, true);
                 }
-                for s in inliers.iter().filter(|s| s.seal_hash != winner_hash) {
+                for s in voting_inliers.iter().filter(|s| s.seal_hash != winner_hash) {
+                    inner.update_clock_score(&s.node_id, false);
+                }
+                // Non-voting outliers (unregistered or timestamp outliers) get scored down.
+                for s in &outliers {
                     inner.update_clock_score(&s.node_id, false);
                 }
 
                 mark_resolved!();
                 let winner = winner_seals[0].clone();
-                info!("[clock] epoch {} sealed: quorum={}/{} outliers={}",
-                    epoch, winner_seals.len(), seals.len(), outliers.len());
+                info!(
+                    "[clock] epoch {} sealed: quorum={}/{} registered, {} total seals, {} outliers",
+                    epoch, winner_seals.len(), denominator, seals.len(), outliers.len()
+                );
 
                 Some(SealedEpoch {
                     epoch,
@@ -503,6 +585,7 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
         format!("mine:{}:", epoch),
         format!("storage_beat:{}:", epoch),
         format!("sensor_commit:{}:", epoch),
+        format!("tracker_sighting:{}:", epoch),
         format!("infer_verify:{}:", epoch),
         format!("service_beat:{}:", epoch),
         format!("mempool_beat:{}:", epoch),
@@ -518,6 +601,62 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
         }
     }
     format!("{:x}", hasher.finalize())
+}
+
+// ── Registered clock nodes ────────────────────────────────────────────────────
+
+/// Scan sled for all active (non-slashed) clock node registrations.
+/// Returns a sorted list of account IDs. Called at each epoch seal to refresh
+/// the registered set in `ClockConsensus`.
+pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
+    let mut nodes: Vec<String> = store
+        .state_scan_prefix("clock_reg:")
+        .into_iter()
+        .filter_map(|(key, val)| {
+            let j: serde_json::Value = serde_json::from_slice(&val).ok()?;
+            // Exclude slashed nodes (stake == 0 after slash).
+            if j["stake"].as_u64().unwrap_or(0) == 0 { return None; }
+            // Key format: "clock_reg:{node_id}"
+            let node_id = key.strip_prefix("clock_reg:")?.to_owned();
+            Some(node_id)
+        })
+        .collect();
+    nodes.sort();
+    nodes
+}
+
+// ── Epoch entropy ─────────────────────────────────────────────────────────────
+
+/// Compute epoch entropy = SHA-256 of the XOR of all winning seal hashes for the epoch.
+/// Stored in sled as `epoch_entropy:{epoch}` after each epoch seal.
+/// Used for randomness in future selection protocols.
+pub fn compute_epoch_entropy(seal_hashes: &[&str]) -> String {
+    // XOR all seal hashes as 32-byte arrays.
+    let mut xor_state = [0u8; 32];
+    for hash_hex in seal_hashes {
+        if let Ok(bytes) = hex::decode(hash_hex) {
+            let bytes: Vec<u8> = bytes.into_iter().take(32).collect();
+            for (i, b) in bytes.iter().enumerate() {
+                xor_state[i] ^= b;
+            }
+        }
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(&xor_state);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Derive the per-epoch Merkle range challenge for a storage node (T4-1, D10).
+///
+/// challenge = sha256("{seal_hash}:{node_id}:{epoch}")
+///
+/// Deterministic from public data — any peer can recompute and verify.
+/// Storage nodes include the matching `challenge_hash` in their `StorageHeartbeat`
+/// along with a Merkle proof over the byte range identified by the challenge.
+pub fn compute_storage_challenge(seal_hash: &str, node_id: &str, epoch: u64) -> String {
+    let mut h = Sha256::new();
+    h.update(format!("{}:{}:{}", seal_hash, node_id, epoch).as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 // ── Score helpers ─────────────────────────────────────────────────────────────
@@ -554,9 +693,18 @@ impl Inner {
 
 // ── Seal signature verification ───────────────────────────────────────────────
 
-fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> bool {
+/// Verify an ed25519 seal signature over the canonical message
+/// `"seal:{epoch}:{seal_hash}:{node_id}:{timestamp}"`.
+/// Used by both gossip ingestion and double-sign slash evidence verification.
+pub fn verify_clock_seal_sig(
+    epoch: u64,
+    seal_hash: &str,
+    node_id: &str,
+    timestamp: u64,
+    pubkey_hex: &str,
+    sig_hex: &str,
+) -> bool {
     use ed25519_dalek::{VerifyingKey, Verifier};
-
     let pk_bytes = match hex::decode(pubkey_hex) {
         Ok(b) => b,
         Err(_) => return false,
@@ -578,6 +726,13 @@ fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> b
         Err(_) => return false,
     };
     let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
-    let msg = format!("seal:{}:{}:{}:{}", seal.epoch_number, seal.seal_hash, seal.node_id, seal.timestamp);
+    let msg = format!("seal:{}:{}:{}:{}", epoch, seal_hash, node_id, timestamp);
     vk.verify(msg.as_bytes(), &sig).is_ok()
+}
+
+fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> bool {
+    verify_clock_seal_sig(
+        seal.epoch_number, &seal.seal_hash, &seal.node_id, seal.timestamp,
+        pubkey_hex, sig_hex,
+    )
 }

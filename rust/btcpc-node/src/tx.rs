@@ -17,10 +17,36 @@
 //! override.
 
 use anyhow::{bail, Result};
-use btcpc_types::{LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC};
+use btcpc_types::{LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, entry_weight, BASE_FEE_INITIAL_DREAMS, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT};
 use ed25519_dalek::{Signature, VerifyingKey};
 
 use crate::chain::Chain;
+
+/// Entries submitted more than this many epochs in the past are rejected.
+/// Prevents mempool spam from replaying old entries after long network partitions.
+const STALE_WINDOW: u64 = 5;
+
+/// Read the current base fee from sled. Falls back to BASE_FEE_INITIAL_DREAMS on cold start.
+fn read_base_fee(chain: &Chain) -> u64 {
+    chain.store.state_get("chain_param:base_fee")
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["fee"].as_u64())
+        .unwrap_or(BASE_FEE_INITIAL_DREAMS)
+}
+
+/// Return the account that should pay the entry fee.
+/// For Transfer the economic actor is `from`; for Stake/Unstake/Mine we use the primary actor.
+/// All other entries carry a `signed_by` field we extract from their JSON representation.
+fn entry_fee_payer(entry: &LedgerEntry) -> Option<String> {
+    match entry {
+        LedgerEntry::Transfer  { from,    .. } => Some(from.clone()),
+        LedgerEntry::Stake     { account, .. } => Some(account.clone()),
+        LedgerEntry::Unstake   { account, .. } => Some(account.clone()),
+        LedgerEntry::Mine      { miner,   .. } => Some(miner.clone()),
+        _ => serde_json::to_value(entry).ok()
+                .and_then(|v| v["signed_by"].as_str().map(str::to_owned)),
+    }
+}
 
 /// Returns true if `delegate` has been granted `capability` by `from`
 /// and the delegation has not expired at `current_epoch`.
@@ -87,6 +113,40 @@ pub fn validate_and_apply(
 ) -> Result<String> {
     let hash = entry.hash();
 
+    // Stale-entry guard: reject any user entry whose embedded epoch is more than
+    // STALE_WINDOW epochs behind the current tip. EpochSeal has its own tighter check.
+    if !is_system_entry(entry) {
+        if let Some(entry_epoch) = entry_epoch(entry) {
+            let current = chain.current_epoch();
+            if current > STALE_WINDOW && entry_epoch < current - STALE_WINDOW {
+                bail!(
+                    "entry epoch {} is too stale (current: {}, max stale: {})",
+                    entry_epoch, current, STALE_WINDOW
+                );
+            }
+        }
+    }
+
+    // Fee pre-flight: reject non-system entries whose payer cannot cover the fee (T3-1).
+    // AccountCreate is exempt here — it is subsidized from __testnet_fund__ (see end of fn).
+    let fee_weight = entry_weight(entry);
+    if fee_weight > 0 && !matches!(entry, LedgerEntry::AccountCreate { .. }) {
+        let base_fee = read_base_fee(chain);
+        let total_fee = base_fee.saturating_mul(fee_weight);
+        if total_fee > 0 {
+            if let Some(payer) = entry_fee_payer(entry) {
+                let bal = chain.get_balance(&payer, NATIVE_TOKEN);
+                if bal < total_fee {
+                    bail!(
+                        "insufficient balance for entry fee: {} dreams required (weight {}×{}), \
+                         '{}' has {} dreams",
+                        total_fee, fee_weight, base_fee, payer, bal
+                    );
+                }
+            }
+        }
+    }
+
     match entry {
         // ── Transfer ─────────────────────────────────────────────────────────
         LedgerEntry::Transfer { from, to, amount, token, nonce, signed_by, twofactor, .. } => {
@@ -117,7 +177,7 @@ pub fn validate_and_apply(
                 );
             }
             chain.apply_entry(entry)?;
-            bump_nonce(chain, from)?;
+            // Nonce bump is owned by apply_entry (Transfer arm) — not duplicated here.
         }
 
         // ── Stake ────────────────────────────────────────────────────────────
@@ -213,16 +273,45 @@ pub fn validate_and_apply(
         }
 
         // ── ChainParameterSet ────────────────────────────────────────────────
-        LedgerEntry::ChainParameterSet { key, signed_by, .. } => {
-            // Only authorized accounts. shindevlin is the bootstrap governor.
-            // TODO: replace with on-chain governance vote once consensus is live.
-            const AUTHORIZED: &[&str] = &["shindevlin"];
-            if !AUTHORIZED.contains(&signed_by.as_str()) {
-                bail!("only authorized accounts can set chain parameters; '{}' is not authorized", signed_by);
+        LedgerEntry::ChainParameterSet { key, value, signed_by, epoch, .. } => {
+            // Read governance council from on-chain key (seeded at genesis: D5).
+            // Falls back to bootstrap default if key not yet set.
+            let authorized = governance_keys(chain);
+            if !authorized.iter().any(|a| a == signed_by.as_str()) {
+                bail!("'{}' is not in the governance council", signed_by);
             }
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
-            chain.apply_entry(entry)?;
-            let _ = key;
+
+            // Rate-limit stake minimums: new value may not exceed current * (1 + cap_bps/10000).
+            // This bounds how fast the minimum can rise within a doubling.
+            if key.ends_with("_min_stake") {
+                let current: u64 = chain.store.state_get(&format!("chain_param:{}", key))
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or(100 * 10_000_000_000);
+                let proposed: u64 = value.trim().parse()
+                    .map_err(|_| anyhow::anyhow!("stake minimum param '{}' must be an integer", key))?;
+                let cap_bps: u64 = chain.store.state_get("chain_param:stake_increase_cap_bps")
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or(2500); // 25% of doubling gap per governance action
+                let max_allowed = current.saturating_add(current.saturating_mul(cap_bps) / 10_000);
+                if proposed > max_allowed {
+                    bail!(
+                        "proposed {} ({}) exceeds per-action rate limit of {} (cap_bps={}; set via chain param stake_increase_cap_bps)",
+                        key, proposed, max_allowed, cap_bps
+                    );
+                }
+            }
+
+            // 2-epoch timelock (T1-6): write pending record, apply at release_epoch.
+            let release_epoch = epoch + 2;
+            let pending_key = format!("pending_param:{}:{}", release_epoch, key);
+            let _ = chain.store.state_set(&pending_key,
+                &serde_json::to_vec(&serde_json::json!({
+                    "entry": serde_json::to_string(entry).unwrap_or_default(),
+                    "release_epoch": release_epoch,
+                    "submitted_by": signed_by,
+                })).unwrap_or_default());
+            // Do NOT apply immediately — epoch seal drains pending_param records.
         }
 
         // ── EpochSeal (signature embedded) ───────────────────────────────────
@@ -432,7 +521,17 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
-        // System verifiers submit verify results; must have a registered key.
+        // Verifier commits to a verdict (T4-2 commit-reveal phase 1).
+        LedgerEntry::InferenceJobCommit { verifier, signed_by, .. } => {
+            if signed_by != verifier {
+                bail!("signed_by must equal verifier");
+            }
+            require_key(chain, verifier)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // Verifier reveals committed verdict; must have a registered key.
         LedgerEntry::InferenceJobVerify { verifier, signed_by, .. } => {
             if signed_by != verifier {
                 bail!("signed_by must equal verifier");
@@ -501,6 +600,16 @@ pub fn validate_and_apply(
                 bail!("signed_by must match node_id");
             }
             require_key(chain, node_id)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── CoverageReport: cellular dead-spot / signal map submission ────────
+        LedgerEntry::CoverageReport { reporter, signed_by, .. } => {
+            if signed_by != reporter {
+                bail!("signed_by must match reporter");
+            }
+            require_key(chain, reporter)?;
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
@@ -673,6 +782,106 @@ pub fn validate_and_apply(
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             chain.apply_entry(entry)?;
             bump_nonce(chain, owner)?;
+        }
+
+        // ── Node Role Opt-In / Opt-Out ────────────────────────────────────────
+        LedgerEntry::NodeRoleOptIn { node, signed_by, nonce, backer_share_bps, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != node {
+                bail!("NodeRoleOptIn: signed_by must equal node");
+            }
+            if *backer_share_bps > 5000 {
+                bail!("backer_share_bps must be ≤ 5000 (50%)");
+            }
+            require_key(chain, node)?;
+            check_nonce(chain, node, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, node)?;
+        }
+        LedgerEntry::NodeRoleOptOut { node, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != node {
+                bail!("NodeRoleOptOut: signed_by must equal node");
+            }
+            require_key(chain, node)?;
+            check_nonce(chain, node, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, node)?;
+        }
+
+        // ── Node Role Stake / Unstake ─────────────────────────────────────────
+        LedgerEntry::NodeRoleStake { node, role, staker, signed_by, nonce, amount, .. } => {
+            let _guard = chain.write_lock.lock();
+            let current_epoch = chain.current_epoch();
+            if signed_by != staker
+                && !has_delegation(chain, staker, signed_by, "NodeRoleStake", current_epoch)
+            {
+                bail!("signed_by must be the staker or a NodeRoleStake delegate of '{}'", staker);
+            }
+            if *amount == 0 {
+                bail!("stake amount must be positive");
+            }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, staker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            // Verify node has opted in for this role.
+            let opt_key = format!("role_opt:{}:{}", role, node);
+            let opt_raw = chain.store.state_get(&opt_key)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "node '{}' has not opted in to backer sharing for role '{}'", node, role
+                ))?;
+            let opt: serde_json::Value = serde_json::from_slice(&opt_raw)
+                .map_err(|_| anyhow::anyhow!("corrupt role opt config for '{}'", node))?;
+            let max_backers = opt["max_backers"].as_u64().unwrap_or(10) as usize;
+            let prefix = format!("role_stake:{}:{}:", role, node);
+            let current_count = chain.store.state_scan_prefix(&prefix).len();
+            // Existing backers topping up don't count toward the cap.
+            let is_existing = chain.store
+                .state_get(&format!("role_stake:{}:{}:{}", role, node, staker))
+                .is_some();
+            if !is_existing && current_count >= max_backers {
+                bail!(
+                    "node '{}' role '{}' is at backer capacity ({}/{})",
+                    node, role, current_count, max_backers
+                );
+            }
+            let bal = chain.get_balance(staker, NATIVE_TOKEN);
+            if bal < *amount {
+                bail!("insufficient balance for role stake: {} has {} dreams", staker, bal);
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, staker)?;
+        }
+
+        LedgerEntry::NodeRoleUnstake { node, role, staker, signed_by, nonce, amount, .. } => {
+            let _guard = chain.write_lock.lock();
+            let current_epoch = chain.current_epoch();
+            if signed_by != staker
+                && !has_delegation(chain, staker, signed_by, "NodeRoleStake", current_epoch)
+            {
+                bail!("signed_by must be the staker or a NodeRoleStake delegate of '{}'", staker);
+            }
+            if *amount == 0 {
+                bail!("unstake amount must be positive");
+            }
+            require_key(chain, signed_by)?;
+            check_nonce(chain, staker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            let key = format!("role_stake:{}:{}:{}", role, node, staker);
+            let current: u64 = chain.store.state_get(&key)
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                .and_then(|j| j["amount"].as_u64())
+                .unwrap_or(0);
+            if current < *amount {
+                bail!(
+                    "cannot unstake {} dreams: only {} staked on '{}' role '{}'",
+                    amount, current, node, role
+                );
+            }
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, staker)?;
         }
 
         // ── Permissive Token Model ────────────────────────────────────────────
@@ -864,6 +1073,39 @@ pub fn validate_and_apply(
         LedgerEntry::HardwareClaim { .. } => {
             chain.apply_entry(entry)?;
         }
+
+        // ── Clock node registration ───────────────────────────────────────────
+        LedgerEntry::ClockNodeRegister { node_id, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, node_id)?;
+            check_signature(chain, node_id, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Clock double-sign evidence ────────────────────────────────────────
+        LedgerEntry::ClockDoubleSignEvidence { submitter, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, submitter)?;
+            check_signature(chain, submitter, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+    }
+
+    // Fee deduction: debit fee_weight × base_fee from the economic actor → recycle fund (T3-1).
+    // AccountCreate is subsidized: fee comes from __testnet_fund__ (no-cost onboarding).
+    // If deduction fails for any reason the entry is already committed — fee is best-effort
+    // for this edge case (e.g. Transfer that exhausts balance).
+    if fee_weight > 0 {
+        let total_fee = read_base_fee(chain).saturating_mul(fee_weight);
+        if total_fee > 0 {
+            if matches!(entry, LedgerEntry::AccountCreate { .. }) {
+                let _ = chain.store.debit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, total_fee)
+                    .and_then(|_| chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, total_fee));
+            } else if let Some(payer) = entry_fee_payer(entry) {
+                let _ = chain.store.debit(&payer, NATIVE_TOKEN, total_fee)
+                    .and_then(|_| chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, total_fee));
+            }
+        }
     }
 
     Ok(hash)
@@ -872,6 +1114,57 @@ pub fn validate_and_apply(
 /// Parse a raw `serde_json::Value` into a `LedgerEntry`.
 pub fn entry_from_json(raw: &serde_json::Value) -> Result<LedgerEntry> {
     Ok(serde_json::from_value(raw.clone())?)
+}
+
+/// Read governance council from on-chain state (D5).
+/// Falls back to bootstrap defaults if the key hasn't been seeded yet.
+pub fn governance_keys(chain: &Chain) -> Vec<String> {
+    chain.store.state_get("chain_param:governance_keys")
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .unwrap_or_else(|| vec![
+            "shindevlin".to_owned(),
+            "natoshisakamoto".to_owned(),
+            "josh".to_owned(),
+        ])
+}
+
+/// Extract the epoch field from an entry if one is present.
+/// Used for stale-entry rejection — entries without an epoch are not checked.
+fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
+    match entry {
+        LedgerEntry::Transfer      { epoch, .. }            => Some(*epoch),
+        LedgerEntry::Stake         { epoch, .. }            => Some(*epoch),
+        LedgerEntry::Unstake       { epoch, .. }            => Some(*epoch),
+        LedgerEntry::Mine          { epoch, .. }            => Some(*epoch),
+        LedgerEntry::InferenceJobPost    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobBid     { epoch, .. }      => Some(*epoch),
+        LedgerEntry::CoverageReport      { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobComplete{ epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobCommit  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobVerify  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobClaim   { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceJobCancel  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::InferenceReviewVote { epoch, .. }      => Some(*epoch),
+        LedgerEntry::StorageHeartbeat    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::SensorDataCommit    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::TrackerSightingCommit { epoch, .. }    => Some(*epoch),
+        LedgerEntry::ServiceHeartbeat    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::MempoolHeartbeat    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::DeviceClaimStake    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::DeviceClaimUnstake  { epoch, .. }      => Some(*epoch),
+        LedgerEntry::DeviceYieldStake    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::DelegationGrant     { epoch, .. }      => Some(*epoch),
+        LedgerEntry::DelegationRevoke    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::AccountTransfer     { epoch, .. }      => Some(*epoch),
+        LedgerEntry::LivenessProof          { epoch, .. }      => Some(*epoch),
+        LedgerEntry::ClockNodeRegister      { epoch, .. }      => Some(*epoch),
+        LedgerEntry::ClockDoubleSignEvidence{ epoch, .. }      => Some(*epoch),
+        LedgerEntry::NodeRoleOptIn   { epoch, .. }             => Some(*epoch),
+        LedgerEntry::NodeRoleOptOut  { epoch, .. }             => Some(*epoch),
+        LedgerEntry::NodeRoleStake   { epoch, .. }             => Some(*epoch),
+        LedgerEntry::NodeRoleUnstake { epoch, .. }             => Some(*epoch),
+        _ => None,
+    }
 }
 
 /// Make a deployer nonce check+bump publicly callable (used by ContractEngine).
@@ -948,7 +1241,7 @@ fn check_not_empty(s: &str, field: &str) -> Result<()> {
 
 /// Ensure the submitted nonce is exactly `stored_nonce + 1`.
 /// If the account doesn't exist yet the expected nonce is 1.
-fn check_nonce(chain: &Chain, account: &str, submitted: u64) -> Result<()> {
+pub fn check_nonce(chain: &Chain, account: &str, submitted: u64) -> Result<()> {
     let expected = match chain.store.get_account(account)? {
         Some(state) => {
             let current = state
@@ -1236,6 +1529,24 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "job_id": job_id,
                 "nonce": nonce,
             }),
+        LedgerEntry::CoverageReport { reporter, lat, lon, carrier_mcc_mnc, data_hash, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "COVERAGE_REPORT",
+                "reporter": reporter,
+                "lat": lat,
+                "lon": lon,
+                "carrier_mcc_mnc": carrier_mcc_mnc,
+                "data_hash": data_hash,
+            }),
+        LedgerEntry::InferenceJobCommit { verifier, job_id, commit_hash, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "INFERENCE_JOB_COMMIT",
+                "verifier": verifier,
+                "job_id": job_id,
+                "commit_hash": commit_hash,
+            }),
         LedgerEntry::InferenceJobVerify { verifier, job_id, verdict, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -1260,8 +1571,50 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "job_id": job_id,
                 "approved": approved,
             }),
-        // For other entry types that carry embedded signatures (EpochSeal), use the full JSON.
-        other => serde_json::Value::String(serde_json::to_string(other)?),
+        LedgerEntry::NodeRoleOptIn { node, role, backer_share_bps, max_backers, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "NODE_ROLE_OPT_IN",
+                "node": node,
+                "role": role,
+                "backer_share_bps": backer_share_bps,
+                "max_backers": max_backers,
+                "nonce": nonce,
+            }),
+        LedgerEntry::NodeRoleOptOut { node, role, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "NODE_ROLE_OPT_OUT",
+                "node": node,
+                "role": role,
+                "nonce": nonce,
+            }),
+        LedgerEntry::NodeRoleStake { node, role, staker, amount, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "NODE_ROLE_STAKE",
+                "node": node,
+                "role": role,
+                "staker": staker,
+                "amount": amount,
+                "nonce": nonce,
+            }),
+        LedgerEntry::NodeRoleUnstake { node, role, staker, amount, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "NODE_ROLE_UNSTAKE",
+                "node": node,
+                "role": role,
+                "staker": staker,
+                "amount": amount,
+                "nonce": nonce,
+            }),
+        // All other user-submitted entry types: include chain_id + full entry JSON so
+        // testnet signatures cannot replay on mainnet (D3 — clean cutover).
+        other => serde_json::json!({
+            "chain_id": chain_id,
+            "entry": serde_json::to_string(other)?,
+        }),
     };
     Ok(serde_json::to_string(&msg)?)
 }

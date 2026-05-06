@@ -30,7 +30,73 @@
 pub const DOUBLING_INTERVAL: u64 = 4_200_000;
 
 /// Initial epoch duration in milliseconds (era 0: 30 seconds).
+/// Era 1+ durations are NOT derived from this by doubling — they are recomputed at each
+/// era boundary by `calibrate_era_epoch_ms` so that supply exhaustion tracks Bitcoin's
+/// projected last-coin timestamp.  This constant is only authoritative for era 0.
 pub const INITIAL_EPOCH_MS: u64 = 30_000;
+
+// ── Bitcoin alignment — era calibration and oracle layer ─────────────────────
+//
+// BTCPC supply exhaustion is designed to end within minutes of Bitcoin's last
+// mined coin.  No governance action is ever required.  The mechanism has two
+// interlocking layers:
+//
+// LAYER 1 — Compile-time projection (active from genesis)
+//   BTC_PROJECTED_END_MS is derived from Bitcoin's genesis timestamp plus
+//   6,930,000 blocks × 10-minute average.  At each BTCPC era boundary the
+//   chain recomputes the next era's epoch duration so that the remaining supply
+//   epochs exhaust exactly at that timestamp.  This self-corrects at every
+//   era: eras 1-4 each recalibrate from the current wall-clock time, absorbing
+//   any drift that accumulated in the prior era.
+//
+// LAYER 2 — Oracle refinement (precision grows each decade)
+//   Any BTCPC node that also runs a Bitcoin full node may submit a
+//   `BtcHeightReport` entry containing the latest observed Bitcoin block height
+//   and the average block interval over the most recent 2016-block difficulty
+//   window.  The chain holds a 7-entry rolling median of recent reports and
+//   stores the derived projected end timestamp in chain_param:btc_end_ms.
+//   The era calibration reads this value in preference to BTC_PROJECTED_END_MS.
+//
+//   Submission rules (enforced in tx.rs):
+//     - Signed by an active clock-node posting key (already a trusted role).
+//     - Height must be monotonically increasing (no rewinding).
+//     - Implied block rate must be in [540_000, 660_000] ms (±10% of 10 min).
+//     - Reports older than 720 epochs (~6 hours at era 0) are ignored.
+//
+//   The oracle is purely additive — existing nodes that do not run a Bitcoin
+//   node continue to function normally and benefit from reports submitted by
+//   those that do.  No coordination, no voting, no governance.
+//
+// PRECISION TIMELINE
+//   Era 0 (2026-2030): layer 1 only.  Calibration uses pure math; the era 1
+//     epoch duration will be computed from the remaining time to BTC_PROJECTED_END_MS.
+//   Era 1-3 (2030-2076): oracle reports narrow the deviation as Bitcoin's
+//     actual block-time average becomes measurable over multi-decade windows.
+//   Era 4 (2076-2140): final new-supply era.  The calibration at the era 4
+//     boundary fires when Bitcoin has had 8 additional halvings and its
+//     schedule is known to within weeks.  Era 4 epoch durations (~8 minutes)
+//     allow end-time precision of ±1 epoch duration.
+
+/// Bitcoin genesis block (block 0) Unix timestamp in milliseconds.
+/// 2009-01-03 18:15:05 UTC.
+pub const BTC_GENESIS_MS: u64 = 1_231_006_505_000;
+
+/// Bitcoin block height at which the subsidy first rounds to 0 satoshis
+/// (after halving 33 at block 6,930,000).
+pub const BTC_LAST_BLOCK: u64 = 6_930_000;
+
+/// Average Bitcoin block interval in milliseconds (600 s = 10 minutes).
+pub const BTC_AVG_BLOCK_MS: u64 = 600_000;
+
+/// Compile-time projected Unix timestamp (ms) for Bitcoin's last mined coin.
+/// = BTC_GENESIS_MS + BTC_LAST_BLOCK × BTC_AVG_BLOCK_MS
+/// ≈ 2140-10-01.  Used as the target for era calibration.
+/// Nodes may supply a refined estimate via chain_param:btc_end_ms (updated
+/// automatically by the oracle path — no governance required).
+pub const BTC_PROJECTED_END_MS: u64 =
+    BTC_GENESIS_MS + BTC_LAST_BLOCK * BTC_AVG_BLOCK_MS;
+// = 1_231_006_505_000 + 6_930_000 × 600_000 = 5_389_006_505_000
+// ≈ Unix 5_389_006_505 s ≈ 2140-10-01 18:15 UTC
 
 /// Per-epoch block reward in dreams during the new-supply phase (eras 0-4).
 /// 2 BTCPC × 10^10 dreams/BTCPC = 20_000_000_000 dreams.
@@ -280,6 +346,209 @@ pub const DEVICE_CLAIM_OVERBID_DENOM: u128 = 2;
 /// If no yield stakers exist, the full premium goes to recycle.
 pub const OVERCLAIM_STAKER_SHARE_BPS: u64 = 5_000;
 
+// ── Phase 3: Useful-work proof linkage ───────────────────────────────────────
+
+/// 90-day grace period for unlinked Mine entries (D8).
+/// After this epoch count, unlinked Mine earns 0% of inference pool.
+/// At era-0 (30s epochs): 90 × 24 × 60 × 2 = 259_200 epochs.
+pub const MINE_GRACE_PERIOD_EPOCHS: u64 = 259_200;
+
+/// Reward fraction (in BPS) for unlinked Mine entries during the grace period.
+/// 2_000 / 10_000 = 20% of normal inference pool share.
+pub const MINE_GRACE_REWARD_BPS: u64 = 2_000;
+
+/// Number of protocol benchmark jobs emitted per epoch from `__testnet_fund__`
+/// during the grace period (D8, D16 — open model selection).
+pub const MINE_GRACE_BENCHMARK_JOBS_PER_EPOCH: u64 = 5;
+
+/// Verifier random assignment (D9).
+/// When enabled, a verifier is only eligible for a job if
+/// `sha256(epoch_entropy || job_id || verifier)[0] < VERIFIER_THRESHOLD_BYTE`.
+/// 51/256 ≈ 20% chance per verifier per job.
+/// Disabled by default until the network has enough active verifiers.
+pub const VERIFIER_ASSIGNMENT_ENABLED: bool = false;
+pub const VERIFIER_THRESHOLD_BYTE: u8 = 51; // ~20% of 256
+
+/// Commit-reveal for inference verifiers (T4-2).
+/// When enabled, verifiers must submit InferenceJobCommit before InferenceJobVerify.
+/// The commit hides the verdict until all board members have committed, preventing
+/// verdict copying and rubber-stamp collusion.
+/// Disabled by default until the network has enough active verifiers; enable via governance.
+pub const INFERENCE_COMMIT_REVEAL_ENABLED: bool = false;
+
+/// Epochs after the last commit before reveals are accepted (grace window for slow verifiers).
+/// After this window, the commit phase is considered closed.
+pub const COMMIT_REVEAL_WINDOW_EPOCHS: u64 = 3;
+
+/// Rolling window (in epochs) for verifier approval-rate tracking (leaky bucket).
+/// Verifiers whose approval rate over this window exceeds the rubber-stamp
+/// threshold have their weight halved; above the suspend threshold they are
+/// suspended for VERIFIER_SUSPEND_EPOCHS.
+pub const VERIFIER_APPROVAL_WINDOW_EPOCHS: u64 = 100;
+
+/// Network size thresholds for auto-scaling the verifier board per AI task.
+/// Below THRESH_3: 1 verifier (bootstrap). Above THRESH_5: 5 verifiers (mature network).
+pub const VERIFIER_ACTIVE_THRESH_3: u64 = 5;
+pub const VERIFIER_ACTIVE_THRESH_5: u64 = 15;
+
+/// Rolling window for counting unique active verifiers (used for auto-scaling).
+pub const VERIFIER_ACTIVITY_TRACK_EPOCHS: u64 = 10;
+
+/// Voting weights for verifier board quorum resolution.
+/// review_required carries +1 so it wins all three-way ties (1/1/1 → 101 > 100).
+pub const VERIFIER_VOTE_WEIGHT_NORMAL: u64 = 100; // approved / rejected
+pub const VERIFIER_VOTE_WEIGHT_REVIEW: u64 = 101; // review_required — tiebreak winner
+
+/// Approval rate (in BPS) above which a verifier's weight is halved (>95%).
+pub const VERIFIER_RUBBER_STAMP_BPS: u64 = 9_500;
+
+/// Approval rate (in BPS) above which a verifier is suspended (>99%).
+pub const VERIFIER_SUSPEND_BPS: u64 = 9_900;
+
+/// Number of epochs a rubber-stamp-suspended verifier cannot submit verdicts.
+pub const VERIFIER_SUSPEND_EPOCHS: u64 = 20;
+
+/// Inference proof prune window (D1): epochs after InferenceJobPay before
+/// payload fields (compute_proof, input_hash, result_hash) are pruneable.
+/// Reward and verdict records are kept forever.
+pub const INFERENCE_PRUNE_WINDOW_EPOCHS: u64 = 100;
+
+// ── Phase 5: Fee Market ───────────────────────────────────────────────────────
+
+/// Processing weight class for fee calculation (T3-1, T3-2).
+/// Fee per entry = base_fee_dreams × entry_weight.
+/// System entries (ENTRY_WEIGHT_SYSTEM = 0) are always free.
+pub const ENTRY_WEIGHT_SYSTEM:       u64 = 0;
+pub const ENTRY_WEIGHT_MICRO:        u64 = 1;  // Transfer, LivenessProof
+pub const ENTRY_WEIGHT_STANDARD:     u64 = 3;  // Mine, SensorDataCommit, GatewayHeartbeat
+pub const ENTRY_WEIGHT_HEAVY:        u64 = 5;  // InferenceJobPost, StorageHeartbeat
+pub const ENTRY_WEIGHT_BULK:         u64 = 10; // BlobStore, LinkGitRefUpdate
+pub const ENTRY_WEIGHT_REGISTRATION: u64 = 20; // AccountCreate, ClockNodeRegister
+
+/// Starting base fee per weight unit in dreams (0.001 BTCPC at era-0).
+/// Adjusts ±10% per epoch toward EPOCH_TARGET_WEIGHT_UNITS (EIP-1559-style).
+pub const BASE_FEE_INITIAL_DREAMS: u64 = 10_000_000; // 0.001 BTCPC per weight unit
+
+/// Target total entry weight per epoch (50% of comfortable epoch capacity).
+/// If actual_weight < target → fee falls; if actual_weight > target → fee rises.
+pub const EPOCH_TARGET_WEIGHT_UNITS: u64 = 1_000;
+
+/// Maximum base fee change per epoch in BPS: 10% cap (mirrors EIP-1559 12.5%).
+pub const BASE_FEE_MAX_CHANGE_BPS: u64 = 1_000;
+
+/// Absolute minimum base fee (0.0000001 BTCPC) — prevents fee dropping to zero.
+pub const BASE_FEE_MIN_DREAMS: u64 = 1_000;
+
+/// Absolute maximum base fee (100 BTCPC) — hard cap against runaway increases.
+pub const BASE_FEE_MAX_DREAMS: u64 = 100 * 10_000_000_000;
+
+/// Compute the base fee for the next epoch given epoch weight vs. target.
+///
+/// Formula: `new = old × (1 ± 0.1 × min(|ratio|, 1))` where `ratio = (actual-target)/target`.
+/// Integer-safe: uses BPS arithmetic throughout, no floats.
+pub fn compute_next_base_fee(current: u64, actual_weight: u64, target_weight: u64) -> u64 {
+    if target_weight == 0 { return current; }
+    let (over, under) = if actual_weight >= target_weight {
+        (actual_weight - target_weight, 0u64)
+    } else {
+        (0u64, target_weight - actual_weight)
+    };
+    // ratio_bps = |actual-target|/target × 10_000, clamped to 10_000 (= 100%)
+    let ratio_bps = if over > 0 {
+        (over as u128 * 10_000 / target_weight as u128).min(10_000) as u64
+    } else {
+        (under as u128 * 10_000 / target_weight as u128).min(10_000) as u64
+    };
+    // change = current × BASE_FEE_MAX_CHANGE_BPS/10_000 × ratio_bps/10_000
+    //        = current × ratio_bps / 100_000   (10% max × ratio)
+    let change = (current as u128 * ratio_bps as u128 / 100_000) as u64;
+    let new_fee = if actual_weight >= target_weight {
+        current.saturating_add(change)
+    } else {
+        current.saturating_sub(change)
+    };
+    new_fee.max(BASE_FEE_MIN_DREAMS).min(BASE_FEE_MAX_DREAMS)
+}
+
+// ── Phase 4: Storage and Sensor Proofs ────────────────────────────────���─────
+
+/// Reward fraction (in BPS) for StorageHeartbeat without a valid Merkle range proof (T4-1, D10).
+/// 2_000 / 10_000 = 20% of normal storage reward. Full reward requires challenge_response.
+pub const STORAGE_PROOF_NO_PROOF_BPS: u64 = 2_000;
+
+/// Chunk size in bytes for storage Merkle challenges (T4-1).
+/// Provers must produce a leaf hash + sibling path for a 1 MB chunk at the challenged index.
+pub const STORAGE_CHALLENGE_CHUNK_BYTES: u64 = 1_048_576;
+
+/// Score multiplier (in BPS) applied to sensor commits with a verified location proof (T4-3).
+/// 13_000 / 10_000 = 1.3× boost. Soft until SENSOR_LOCATION_REQUIRED_EPOCH.
+pub const SENSOR_LOCATION_BOOST_BPS: u64 = 13_000;
+
+/// First epoch at which a sensor commit lacking a location registration is rejected (T4-3).
+/// 0 = disabled (soft boost only). Governance sets this before mainnet month 3.
+pub const SENSOR_LOCATION_REQUIRED_EPOCH: u64 = 0;
+
+/// Maximum total BLE sightings (all tag types summed) a single observer may report per epoch
+/// (T4-3). Overridable at runtime via chain_param:max_sightings_per_observer.
+pub const MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH: u64 = 500;
+
+/// ── Coverage reporting (cellular dead-spot mapping) ──────────────────────────
+
+/// Grid resolution for coverage corroboration (degrees × 1000 → integer grid cell).
+/// 0.001° ≈ 111m at equator. Reports within the same grid cell contribute to corroboration.
+pub const COVERAGE_GRID_RESOLUTION: i64 = 1000;
+
+/// Base score for a signal-present coverage report (dBm known).
+pub const COVERAGE_SCORE_SIGNAL: u64 = 100;
+
+/// Base score for a dead-spot report (signal_dbm = None or < COVERAGE_DEAD_SPOT_DBM_THRESHOLD).
+/// Higher than signal-present because dead-spot data is rarer and more commercially valuable.
+pub const COVERAGE_SCORE_DEAD_SPOT: u64 = 300;
+
+/// Minimum signal strength (dBm) to be classified as "present". Below this → dead spot.
+pub const COVERAGE_DEAD_SPOT_DBM_THRESHOLD: i32 = -120;
+
+/// Minimum distinct reporters in the same grid cell + carrier + epoch for corroboration bonus.
+pub const COVERAGE_CORROBORATION_MIN_REPORTERS: u64 = 3;
+
+/// Bonus multiplier (BPS) applied to all reporters in a corroborated cell.
+/// 15_000 / 10_000 = 1.5× bonus for independently confirmed readings.
+pub const COVERAGE_CORROBORATION_BONUS_BPS: u64 = 15_000;
+
+/// Maximum coverage reports a single account may submit per epoch (anti-spam).
+pub const COVERAGE_MAX_REPORTS_PER_EPOCH: u64 = 200;
+
+/// Maximum distinct reporters whose votes count toward the corroboration threshold per cell.
+/// Reporters beyond this cap still earn base score but cannot trigger the corroboration bonus.
+/// Prevents a Sybil farm from inflating the bonus across a large controlled grid cell.
+pub const COVERAGE_MAX_CORROBORATING_REPORTERS: u64 = 10;
+
+/// Maximum plausible movement speed for a GNSS sensor between consecutive epochs (m/s).
+/// 300 m/s ≈ 1080 km/h — generous upper bound covering aircraft; clearly implausible above this.
+/// Applied to the Haversine distance between consecutive lat/lon readings (T4-3).
+pub const SENSOR_GNSS_MAX_SPEED_M_S: f64 = 300.0;
+
+/// Epoch duration in seconds, used for GNSS plausibility velocity calculation.
+/// Must stay in sync with EPOCH_MS / 1000.
+pub const EPOCH_DURATION_S: f64 = 30.0;
+
+/// Liveness rewards: disabled until website page and whitepaper section ship (D2).
+pub const LIVENESS_REWARDS_ENABLED: bool = false;
+
+/// Chain entropy decay: disabled until docs ship (D2, T6-4).
+pub const ENTROPY_DECAY_ENABLED: bool = false;
+
+// ── T3-4: EMA-based dynamic critical mass ────────────────────────────────────
+
+/// Rolling window for critical-mass EMA estimates.
+/// 7 days × 2880 epochs/day (era-0, 30 s) = 20_160 epochs.
+pub const EMA_WINDOW_EPOCHS: u64 = 20_160;
+
+/// EMA smoothing numerator: alpha = EMA_ALPHA_NUM / EMA_ALPHA_DENOM = 2 / 20161 ≈ 0.0001.
+pub const EMA_ALPHA_NUM: u64 = 2;
+/// EMA smoothing denominator: EMA_WINDOW_EPOCHS + 1.
+pub const EMA_ALPHA_DENOM: u64 = 20_161;
+
 /// Per-epoch distribution rate from the recycle fund.
 ///
 /// Each era-5 epoch, the miner receives this fraction of the current fund balance.
@@ -303,10 +572,36 @@ pub fn era(epoch: u64) -> u64 {
     epoch / DOUBLING_INTERVAL
 }
 
-/// Epoch duration in milliseconds at a given epoch.
+/// Compute the base epoch duration (ms) for `new_era` so that all remaining
+/// supply epochs exhaust at `target_end_ms`, given the current wall-clock
+/// time `now_ms`.
 ///
-/// Doubles every DOUBLING_INTERVAL epochs, capped at era 5 (16 minutes).
-/// Era 5+ runs forever at 16-minute intervals.
+/// Called automatically in the epoch-seal handler whenever the era number
+/// increments.  Stores the result per era so `epoch_duration_ms_dynamic`
+/// can read it.  No governance action ever required.
+///
+/// The formula: remaining eras have durations D, 2D, 4D, … (geometric),
+/// so total remaining time = DOUBLING_INTERVAL × D × (2^remaining_eras − 1).
+/// Solving for D gives the return value.
+pub fn calibrate_era_epoch_ms(new_era: u64, now_ms: u64, target_end_ms: u64) -> u64 {
+    if new_era >= RECYCLE_ERA {
+        // Recycle era runs forever — freeze at the era-5 ceiling.
+        return INITIAL_EPOCH_MS << RECYCLE_ERA;
+    }
+    let remaining_ms = target_end_ms.saturating_sub(now_ms);
+    let remaining_eras = RECYCLE_ERA - new_era; // ≥ 1
+    // Geometric sum for remaining_eras terms starting at 1: 2^n − 1
+    let series_sum = (1u64 << remaining_eras).saturating_sub(1).max(1);
+    let base = remaining_ms
+        / DOUBLING_INTERVAL.saturating_mul(series_sum).max(1);
+    base.max(1_000) // never shorter than 1 second
+}
+
+/// Epoch duration in milliseconds at a given epoch — pure / era-0 path.
+///
+/// This is only authoritative for era 0 (30-second epochs).  For era 1+
+/// use `Chain::epoch_duration_ms_dynamic`, which reads per-era calibrated
+/// values stored in chain state at each era boundary.
 #[inline]
 pub fn epoch_duration_ms(epoch: u64) -> u64 {
     let shift = era(epoch).min(RECYCLE_ERA);

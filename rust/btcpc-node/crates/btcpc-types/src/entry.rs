@@ -38,6 +38,32 @@ pub struct TwoFactor {
     pub signature: String,
 }
 
+/// Compact Merkle range proof used to respond to per-epoch storage challenges (T4-1, D10).
+///
+/// The chain verifies that `challenge_hash` matches what the clock derived from the previous
+/// epoch's seal. Full Merkle path verification is performed by independent storage auditors.
+#[derive(Debug, Clone, Serialize, Deserialize, borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq)]
+pub struct MerkleRangeProof {
+    /// sha256("{prev_seal_hash}:{node_id}:{epoch}") — ties the proof to one specific challenge.
+    pub challenge_hash: String,
+    /// Byte-offset of the first byte in the challenged chunk.
+    pub range_start: u64,
+    /// Byte-offset one past the last byte in the challenged chunk.
+    pub range_end: u64,
+    /// Total number of chunks in the stored file.
+    /// Used to compute effective_bytes = total_chunks × STORAGE_CHALLENGE_CHUNK_BYTES (T2-4).
+    pub total_chunks: u64,
+    /// sha256("chunk:" || range_start_be_8 || ":" || chunk_bytes) — hash of the challenged data.
+    /// The chain cannot verify the raw bytes, but it verifies this hash is consistent
+    /// with `proof_nodes` and `merkle_root`.
+    pub leaf_hash: String,
+    /// Merkle root of the storage node's full content tree at this epoch.
+    pub merkle_root: String,
+    /// Sibling hashes at each level from leaf to root (excluding root itself).
+    /// Left/right position is derived from chunk index parity: index even → current is left.
+    pub proof_nodes: Vec<String>,
+}
+
 /// Owner-level authority bundle for the 3-of-4 adaptive threshold.
 /// Required when an action needs owner-level approval (key rotation, 2FA changes).
 ///
@@ -187,6 +213,54 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── Node Role Staking ─────────────────────────────────────────────────────
+    /// Node operator enables backer yield sharing for a specific role.
+    /// Backers earn `backer_share_bps / 10000` of the node's role rewards, pro-rata by stake.
+    /// Node must be running the given role and must re-opt-in after any role changes.
+    NodeRoleOptIn {
+        node: AccountId,
+        /// "clock" | "miner" | "storage" | "sensor" | "service" | "verifier" | "mempool"
+        role: String,
+        /// Share of epoch rewards paid to backers (e.g. 2000 = 20%). Capped at 5000 (50%).
+        backer_share_bps: u16,
+        /// Maximum simultaneous backers allowed (1–50).
+        max_backers: u8,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Node operator disables backer yield sharing for a role.
+    /// Existing backers keep their stake positions but earn nothing until the node opts back in.
+    NodeRoleOptOut {
+        node: AccountId,
+        role: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Back a node's specific role — earn a proportional share of their epoch rewards.
+    /// The node must have opted in via NodeRoleOptIn. shindevlin can back natoshisakamoto's
+    /// clock role: `NodeRoleStake { node: "natoshisakamoto", role: "clock", staker: "shindevlin", ... }`.
+    NodeRoleStake {
+        node: AccountId,
+        role: String,
+        staker: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+    /// Unstake from a node role position, returning the staked amount.
+    NodeRoleUnstake {
+        node: AccountId,
+        role: String,
+        staker: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+
     // ── Mining ───────────────────────────────────────────────────────────────
     Mine {
         miner: AccountId,
@@ -201,8 +275,15 @@ pub enum LedgerEntry {
         tool_calls: u64,
         /// Hardware tier: 0=phone, 1=cpu, 2=gpu-sm, 3=gpu-pro, 4=gpu-server.
         hw_tier: u8,
-        /// SHA-256 hex of the inference output (determinism proof).
-        compute_proof: String,
+        /// SHA-256 hex of the inference output — a binding commitment to the result.
+        /// LLM outputs are non-deterministic; this is NOT a reproducibility proof.
+        /// Renamed from `compute_proof`; old field name accepted for backward compat.
+        #[serde(alias = "compute_proof")]
+        output_hash: String,
+        /// Job ID this mining session served. Required outside the grace period.
+        /// Must match an InferenceJobComplete entry with an approved InferenceJobVerify.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
     },
     MineReward {
         miner: AccountId,
@@ -226,6 +307,39 @@ pub enum LedgerEntry {
         sealed_by: Vec<AccountId>,
         state_root: String,
         timestamp: u64,
+    },
+
+    /// Register as a clock node. Requires staking >= current CLOCK_MIN_STAKE.
+    /// Stored in sled as `clock_reg:{account}`. Slashable via ClockDoubleSignEvidence.
+    ClockNodeRegister {
+        node_id: AccountId,
+        /// Stake to lock — must meet CLOCK_MIN_STAKE (read from chain_param:clock_min_stake).
+        stake: Dreams,
+        epoch: Epoch,
+        /// Ed25519 public key hex (64 chars). Required for double-sign slash verification.
+        #[serde(default)]
+        pubkey: Option<String>,
+        signature: Option<String>,
+    },
+    /// Evidence that a clock node signed two conflicting seals in the same epoch.
+    /// Submitter gets a bounty; offender is slashed per D7.
+    /// Both seal signatures are verified against the offender's registered pubkey
+    /// before any stake is touched — framing is cryptographically impossible.
+    ClockDoubleSignEvidence {
+        submitter: AccountId,
+        offender: AccountId,
+        epoch: Epoch,
+        /// First conflicting seal.
+        seal_hash_a: String,
+        timestamp_a: u64,
+        /// Offender's ed25519 signature (hex) over "seal:{epoch}:{seal_hash_a}:{offender}:{timestamp_a}".
+        sig_a: String,
+        /// Second conflicting seal.
+        seal_hash_b: String,
+        timestamp_b: u64,
+        /// Offender's ed25519 signature (hex) over "seal:{epoch}:{seal_hash_b}:{offender}:{timestamp_b}".
+        sig_b: String,
+        signature: Option<String>,
     },
 
     // ── Smart Contracts ───────────────────────────────────────────────────────
@@ -256,6 +370,29 @@ pub enum LedgerEntry {
         metadata: Option<serde_json::Value>,
     },
 
+    /// Crowdsourced cellular coverage measurement (dead-spot mapping vertical).
+    /// `signal_dbm = None` means no signal at all (dead spot).
+    /// Rewards are higher for dead-spot reports (rarer, more valuable to telcos).
+    /// Corroboration bonus: 3+ independent devices in the same 100m grid cell × carrier
+    /// in the same epoch earn COVERAGE_CORROBORATION_BONUS_BPS extra.
+    CoverageReport {
+        reporter: AccountId,
+        /// WGS-84 latitude in degrees.
+        lat: f64,
+        /// WGS-84 longitude in degrees.
+        lon: f64,
+        /// Received signal strength in dBm. None = no signal (dead spot).
+        signal_dbm: Option<i32>,
+        /// ITU-T E.212 carrier identifier: "{MCC}-{MNC}" e.g. "272-01" = Vodafone IE.
+        carrier_mcc_mnc: String,
+        /// Radio access technology: "5G" | "LTE" | "EDGE" | "HSPA" | "NR" | "none".
+        technology: String,
+        /// SHA-256 hex of the raw modem log for the measurement period.
+        data_hash: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
     // ── Inference Marketplace ─────────────────────────────────────────────────
     /// Requester posts a job; max_fee held in escrow until completion or cancel.
     InferenceJobPost {
@@ -277,6 +414,17 @@ pub enum LedgerEntry {
         epoch: Epoch,
         nonce: u64,
         signed_by: AccountId,
+        /// If true, pin input+result payload to btcpc-fs permanently after InferenceJobPay.
+        /// Payload is otherwise pruneable 100 epochs after payment (D1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        persist_on_fs: Option<bool>,
+        /// Fee in dreams for persistent storage on btcpc-fs. Ignored if persist_on_fs=false.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fs_fee: Option<u64>,
+        /// Minimum verifier board size. 0 or absent = auto-scale from network size.
+        /// Set higher for mission-critical work; requester pays proportionally more.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_verifiers: Option<u64>,
     },
     /// A node bids to perform work on a posted job.
     InferenceJobBid {
@@ -315,9 +463,21 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
-    /// Verifier submits verdict after decrypting and evaluating the work.
+    /// Verifier commits to a verdict before revealing it (T4-2 commit-reveal).
+    /// commit_hash = sha256(verdict || "|" || salt) where salt is a random hex string.
+    /// The reveal phase (InferenceJobVerify) is only accepted after the commit phase closes.
+    InferenceJobCommit {
+        job_id: String,
+        verifier: AccountId,
+        /// sha256(verdict || "|" || salt) — hides verdict until reveal phase.
+        commit_hash: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Verifier reveals their committed verdict (T4-2 commit-reveal).
     /// "approved" → payment flows; "rejected" → worker loses fee;
     /// "review_required" → enters human review window.
+    /// When commit-reveal is active, reveal_salt must match the prior InferenceJobCommit.
     InferenceJobVerify {
         job_id: String,
         verifier: AccountId,
@@ -327,6 +487,9 @@ pub enum LedgerEntry {
         /// Used for the verifier's Layer B pool weight and miner's epoch score.
         value_score: u64,
         reason: Option<String>,
+        /// Salt matching the InferenceJobCommit. Required when commit-reveal is active.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reveal_salt: Option<String>,
         epoch: Epoch,
         signed_by: AccountId,
     },
@@ -358,12 +521,16 @@ pub enum LedgerEntry {
         job_id: String,
         worker: AccountId,
         worker_amount: Dreams,
-        /// (account, amount) pairs for each verifier that participated.
+        /// (account, amount) pairs for consensus verifiers only.
         verifier_payments: Vec<(AccountId, Dreams)>,
         /// (account, amount) pairs for human reviewers (non-empty only on disputed path).
         reviewer_payments: Vec<(AccountId, Dreams)>,
         recycle_amount: Dreams,
         refund_amount: Dreams,
+        /// (account, stake_slash) for verifiers who dissented from board consensus.
+        /// Slashed from staked balance, credited to recycle fund.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        dissenter_slashes: Vec<(AccountId, Dreams)>,
         epoch: Epoch,
     },
     /// Job cancelled by requester or expired; escrow refunded.
@@ -643,13 +810,19 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
-    /// Storage node heartbeat proving availability.
+    /// Storage node heartbeat proving availability and optionally responding to the
+    /// per-epoch Merkle range challenge (T4-1, D10).
     StorageHeartbeat {
         node_id: AccountId,
         epoch: Epoch,
         bytes_proven: u64,
         /// Active data access queries served this epoch (used for query bonus up to 2×).
         query_count: u64,
+        /// Cryptographic response to the deterministic Merkle range challenge.
+        /// Challenge = sha256("{prev_seal_hash}:{node_id}:{epoch}").
+        /// Missing or mismatched proof earns STORAGE_PROOF_NO_PROOF_BPS (20%) of normal reward.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        challenge_response: Option<MerkleRangeProof>,
         signed_by: AccountId,
     },
     /// Service node heartbeat proving active container-hours (decentralized compute).
@@ -1155,6 +1328,10 @@ impl LedgerEntry {
             Self::Transfer { epoch, .. } => *epoch,
             Self::Stake { epoch, .. } => *epoch,
             Self::Unstake { epoch, .. } => *epoch,
+            Self::NodeRoleOptIn { epoch, .. } => *epoch,
+            Self::NodeRoleOptOut { epoch, .. } => *epoch,
+            Self::NodeRoleStake { epoch, .. } => *epoch,
+            Self::NodeRoleUnstake { epoch, .. } => *epoch,
             Self::Mine { epoch, .. } => *epoch,
             Self::MineReward { epoch, .. } => *epoch,
             Self::EpochSeal { epoch, .. } => *epoch,
@@ -1162,11 +1339,13 @@ impl LedgerEntry {
             Self::ContractDeploy { epoch, .. } => *epoch,
             Self::ContractCall { epoch, .. } => *epoch,
             Self::SensorReading { epoch, .. } => *epoch,
+            Self::CoverageReport { epoch, .. } => *epoch,
             Self::InferenceJobPost { epoch, .. } => *epoch,
             Self::InferenceJobBid { epoch, .. } => *epoch,
             Self::InferenceJobAward { epoch, .. } => *epoch,
             Self::InferenceJobComplete { epoch, .. } => *epoch,
             Self::InferenceVerifyClaim { epoch, .. } => *epoch,
+            Self::InferenceJobCommit { epoch, .. } => *epoch,
             Self::InferenceJobVerify { epoch, .. } => *epoch,
             Self::InferenceJobClaim { epoch, .. } => *epoch,
             Self::InferenceReviewVote { epoch, .. } => *epoch,
@@ -1244,6 +1423,8 @@ impl LedgerEntry {
             Self::LivenessProof { epoch, .. } => *epoch,
             Self::EntropyWitness { epoch, .. } => *epoch,
             Self::HardwareClaim { epoch, .. } => *epoch,
+            Self::ClockNodeRegister { epoch, .. } => *epoch,
+            Self::ClockDoubleSignEvidence { epoch, .. } => *epoch,
         }
     }
 
@@ -1253,5 +1434,131 @@ impl LedgerEntry {
         let mut h = sha2::Sha256::new();
         h.update(json.as_bytes());
         hex::encode(h.finalize())
+    }
+}
+
+/// Entry processing weight for the dynamic fee market (T3-1, Phase 5).
+///
+/// Fee = `base_fee_dreams × entry_weight(entry)`.
+/// System entries always return 0 — they are never fee-charged.
+pub fn entry_weight(entry: &LedgerEntry) -> u64 {
+    use crate::emission::{
+        ENTRY_WEIGHT_SYSTEM, ENTRY_WEIGHT_MICRO, ENTRY_WEIGHT_STANDARD,
+        ENTRY_WEIGHT_HEAVY, ENTRY_WEIGHT_BULK, ENTRY_WEIGHT_REGISTRATION,
+    };
+    match entry {
+        // ── System (0): generated by the protocol, never submitted by users ──
+        LedgerEntry::EpochSeal { .. }
+        | LedgerEntry::EpochFinalize { .. }
+        | LedgerEntry::MineReward { .. }
+        | LedgerEntry::ClockReward { .. }
+        | LedgerEntry::StorageReward { .. }
+        | LedgerEntry::SensorReward { .. }
+        | LedgerEntry::VerifierReward { .. }
+        | LedgerEntry::ServiceReward { .. }
+        | LedgerEntry::MempoolReward { .. }
+        | LedgerEntry::TrackerCoverageReward { .. }
+        | LedgerEntry::GenesisAlloc { .. }
+        | LedgerEntry::TestnetReward { .. } => ENTRY_WEIGHT_SYSTEM,
+
+        // ── Micro (1): lightweight single-field state transitions ─────────────
+        LedgerEntry::Transfer { .. }
+        | LedgerEntry::LivenessProof { .. }
+        | LedgerEntry::EntropyWitness { .. }
+        | LedgerEntry::WalletFamilyPublish { .. }
+        | LedgerEntry::WalletFamilyAdd { .. }
+        | LedgerEntry::VerifyChainLink { .. }
+        | LedgerEntry::SetKeyPolicy { .. }
+        | LedgerEntry::DelegationGrant { .. }
+        | LedgerEntry::DelegationRevoke { .. }
+        | LedgerEntry::ChainParameterSet { .. }
+        | LedgerEntry::AccountTransfer { .. } => ENTRY_WEIGHT_MICRO,
+
+        // ── Standard (3): useful-work submissions + moderate state ────────────
+        LedgerEntry::Stake { .. }
+        | LedgerEntry::Unstake { .. }
+        | LedgerEntry::NodeRoleStake { .. }
+        | LedgerEntry::NodeRoleUnstake { .. }
+        | LedgerEntry::Mine { .. }
+        | LedgerEntry::SensorDataCommit { .. }
+        | LedgerEntry::CoverageReport { .. }
+        | LedgerEntry::GatewayHeartbeat { .. }
+        | LedgerEntry::ServiceHeartbeat { .. }
+        | LedgerEntry::MempoolHeartbeat { .. }
+        | LedgerEntry::TrackerSightingCommit { .. }
+        | LedgerEntry::TrackerClaim { .. }
+        | LedgerEntry::TrackerClaimRelease { .. }
+        | LedgerEntry::TrackerHint { .. }
+        | LedgerEntry::TrackerFoundReport { .. }
+        | LedgerEntry::TrackerFoundConfirm { .. }
+        | LedgerEntry::DeviceClaimUnstake { .. }
+        | LedgerEntry::DeviceYieldUnstake { .. }
+        | LedgerEntry::DeviceYieldOptOut { .. }
+        | LedgerEntry::SpamGateClear { .. }
+        | LedgerEntry::TokenAccept { .. }
+        | LedgerEntry::TokenReject { .. }
+        | LedgerEntry::StoreUpdate { .. }
+        | LedgerEntry::ProductUpdate { .. }
+        | LedgerEntry::OrderFulfill { .. }
+        | LedgerEntry::OrderCancel { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Heavy (5): multi-party coordination + significant indexing ─────────
+        LedgerEntry::StorageHeartbeat { .. }
+        | LedgerEntry::InferenceJobPost { .. }
+        | LedgerEntry::InferenceJobBid { .. }
+        | LedgerEntry::InferenceJobAward { .. }
+        | LedgerEntry::InferenceJobComplete { .. }
+        | LedgerEntry::InferenceJobCommit { .. }
+        | LedgerEntry::InferenceJobVerify { .. }
+        | LedgerEntry::InferenceJobPay { .. }
+        | LedgerEntry::InferenceJobCancel { .. }
+        | LedgerEntry::InferenceJobClaim { .. }
+        | LedgerEntry::InferenceReviewVote { .. }
+        | LedgerEntry::InferenceVerifyClaim { .. }
+        | LedgerEntry::TrackerAcousticProof { .. }
+        | LedgerEntry::TrackerSubscription { .. }
+        | LedgerEntry::TrackerSightingData { .. }
+        | LedgerEntry::TrackerLostMode { .. }
+        | LedgerEntry::OrderPlace { .. }
+        | LedgerEntry::OrderDispute { .. }
+        | LedgerEntry::EscrowRelease { .. }
+        | LedgerEntry::SpamGatePayEvm { .. }
+        | LedgerEntry::SensorDataPurchase { .. } => ENTRY_WEIGHT_HEAVY,
+
+        // ── Bulk (10): large data operations ─────────────────────────────────
+        LedgerEntry::BlobStore { .. }
+        | LedgerEntry::LinkGitRefUpdate { .. }
+        | LedgerEntry::LinkGitRepoCreate { .. }
+        | LedgerEntry::LinkGitAccessGrant { .. }
+        | LedgerEntry::LinkGitAccessRevoke { .. }
+        | LedgerEntry::LinkGitPruneProof { .. }
+        | LedgerEntry::LinkGitStorageExtend { .. } => ENTRY_WEIGHT_BULK,
+
+        // ── Registration (20): one-time identity + capacity entries ───────────
+        LedgerEntry::AccountCreate { .. }
+        | LedgerEntry::AccountUpdateKey { .. }
+        | LedgerEntry::AccountSetPrimary { .. }
+        | LedgerEntry::ClockNodeRegister { .. }
+        | LedgerEntry::ClockDoubleSignEvidence { .. }
+        | LedgerEntry::SensorRegister { .. }
+        | LedgerEntry::SensorKeyRegister { .. }
+        | LedgerEntry::SensorVouch { .. }
+        | LedgerEntry::SensorReading { .. }
+        | LedgerEntry::DeviceKeyRegister { .. }
+        | LedgerEntry::DeviceClaimStake { .. }
+        | LedgerEntry::DeviceYieldStake { .. }
+        | LedgerEntry::DeviceYieldOptIn { .. }
+        | LedgerEntry::NodeRoleOptIn { .. }
+        | LedgerEntry::NodeRoleOptOut { .. }
+        | LedgerEntry::MempoolOperatorRegister { .. }
+        | LedgerEntry::HardwareClaim { .. }
+        | LedgerEntry::ContractDeploy { .. }
+        | LedgerEntry::ContractCall { .. }
+        | LedgerEntry::FlashSale { .. }
+        | LedgerEntry::ProductCreate { .. }
+        | LedgerEntry::TestnetOperatorRegister { .. }
+        | LedgerEntry::SpamGateSet { .. }
+        | LedgerEntry::TokenApprove { .. }
+        | LedgerEntry::TokenRevoke { .. } => ENTRY_WEIGHT_REGISTRATION,
     }
 }

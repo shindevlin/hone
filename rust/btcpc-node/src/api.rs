@@ -55,6 +55,10 @@ pub struct AppState {
     /// Faucet IP limiter: ip → (claims_in_window, window_start).
     /// Max 3 claims per 24-hour rolling window per IP.
     pub faucet_ip_claims: Arc<parking_lot::Mutex<HashMap<String, (u32, Instant)>>>,
+    /// Live peer count updated by the net event loop.
+    pub peer_count: Arc<std::sync::atomic::AtomicUsize>,
+    /// Clock consensus handle — used by public status endpoints.
+    pub clock: Arc<crate::clock::ClockConsensus>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -140,9 +144,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/explorer/blocks", get(get_explorer_blocks))
         .route("/api/explorer/miners", get(get_explorer_miners))
         .route("/api/explorer/activity", get(get_explorer_activity))
+        .route("/api/explorer/transactions", get(get_explorer_transactions))
         // ── Staking extras ────────────────────────────────────────────────
         .route("/api/staking/network", get(get_staking_network))
         .route("/api/staking/requirements", get(get_staking_requirements))
+        .route("/api/staking/node/:node/:role", get(get_role_backers))
+        .route("/api/staking/account/:account/positions", get(get_account_positions))
+        .route("/api/node/role/opt-in", post(post_node_role_opt_in))
+        .route("/api/node/role/opt-out", post(post_node_role_opt_out))
+        .route("/api/node/role/stake", post(post_node_role_stake))
+        .route("/api/node/role/unstake", post(post_node_role_unstake))
         // ── Node capability marketplace ───────────────────────────────────
         .route("/api/node/capability", post(post_node_capability))
         .route("/api/node/miners/all", get(get_node_miners_all))
@@ -192,12 +203,18 @@ pub fn router(state: AppState) -> Router {
         // ── Peer bootstrap registry ───────────────────────────────────────
         .route("/api/peers/bootstrap", get(get_bootstrap_peers))
         .route("/api/peers/bootstrap", post(post_bootstrap_peer))
+        // ── Public status (no auth, no rate-limit on GETs) ───────────────
+        .route("/public/machine-status", get(get_public_machine_status))
+        .route("/public/network", get(get_public_network))
         // ── Node dashboard ────────────────────────────────────────────────
+        .route("/api/node/list", get(get_node_list))
         .route("/api/node/info", get(get_node_info))
         .route("/api/node/models", get(get_node_models))
         .route("/api/node/config", axum::routing::patch(patch_node_config))
         .route("/app", get(get_app_dashboard))
         .route("/app.html", get(get_app_dashboard))
+        .route("/btcpcscan", get(get_btcpcscan))
+        .route("/btcpcscan.html", get(get_btcpcscan))
         .route("/", get(get_app_dashboard))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
@@ -696,6 +713,70 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
 }
 
+// GET /public/machine-status — truth-bearing and isolation status (smoke-test target)
+async fn get_public_machine_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let truth = s.clock.truth_status();
+    let peer_count = s.peer_count.load(std::sync::atomic::Ordering::Relaxed);
+    let genesis_ts: u64 = std::env::var("BTCPC_GENESIS_TIMESTAMP")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let epoch = if genesis_ts > 0 { now_ms.saturating_sub(genesis_ts) / EPOCH_MS } else { 0 };
+    let account = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
+    Json(serde_json::json!({
+        "account":       account,
+        "epoch":         epoch,
+        "peer_count":    peer_count,
+        "truth_bearing": truth["truth_bearing"],
+        "observer":      truth["observer"],
+        "version":       env!("CARGO_PKG_VERSION"),
+        "hw_summary":    s.hw_summary.as_ref().clone(),
+    }))
+}
+
+// GET /public/network — live network overview (smoke-test target)
+async fn get_public_network(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let truth = s.clock.truth_status();
+    let peer_count = s.peer_count.load(std::sync::atomic::Ordering::Relaxed);
+    let genesis_ts: u64 = std::env::var("BTCPC_GENESIS_TIMESTAMP")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let epoch = if genesis_ts > 0 { now_ms.saturating_sub(genesis_ts) / EPOCH_MS } else { 0 };
+    let registered = s.clock.registered_clocks();
+    Json(serde_json::json!({
+        "epoch":             epoch,
+        "peer_count":        peer_count,
+        "truth_bearing":     truth["truth_bearing"],
+        "observer":          truth["observer"],
+        "clock_node_count":  registered.len(),
+        "registered_clocks": registered,
+    }))
+}
+
+// GET /api/node/list — registered accounts with publishable identities
+async fn get_node_list(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let ids = s.chain.store.scan_account_ids();
+    let clock_set: std::collections::HashSet<String> =
+        s.clock.registered_clocks().into_iter().collect();
+    let nodes: Vec<serde_json::Value> = ids.iter()
+        .filter_map(|id| {
+            let data = s.chain.store.get_account(id).ok().flatten()?;
+            let active = data.get("keys")
+                .and_then(|k| k.get("active"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if active.is_empty() { return None; }
+            Some(serde_json::json!({
+                "account":    id,
+                "active_key": active,
+                "is_clock":   clock_set.contains(id),
+            }))
+        })
+        .collect();
+    Json(serde_json::json!({ "count": nodes.len(), "nodes": nodes }))
+}
+
 // GET /api/node/info — node identity and active roles
 async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let account  = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
@@ -703,7 +784,19 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let is_clock  = std::env::var("BTCPC_CLOCK").map(|v| v == "true" || v == "1").unwrap_or(false);
     let is_worker = std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false);
     let is_miner  = std::env::var("BTCPC_MINER").map(|v| v == "true" || v == "1").unwrap_or(false);
-    let epoch = s.chain.current_epoch();
+    // Wall-clock epoch is ground truth; DB epoch may lag after genesis resets.
+    let genesis_ts: u64 = std::env::var("BTCPC_GENESIS_TIMESTAMP")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let epoch = if genesis_ts > 0 {
+        now_ms.saturating_sub(genesis_ts) / EPOCH_MS
+    } else {
+        s.chain.current_epoch()
+    };
+    let peer_count = s.peer_count.load(std::sync::atomic::Ordering::Relaxed);
     let model = s.current_model.read().await.clone();
     let hw_fingerprint = s.hw_fingerprint.as_ref().clone();
     let hw_summary = s.hw_summary.as_ref().clone();
@@ -711,6 +804,7 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         "account":        account,
         "chain_id":       chain_id,
         "epoch":          epoch,
+        "peer_count":     peer_count,
         "is_clock":       is_clock,
         "is_worker":      is_worker,
         "is_miner":       is_miner,
@@ -1858,13 +1952,15 @@ fn scan_blocks_window(
             *by_type.entry(etype.clone()).or_insert(0) += 1;
 
             let role: Option<&'static str> = match etype.as_str() {
-                "MineReward"          => Some("miner"),
-                "ClockReward"         => Some("clock"),
-                "SensorReward"        => Some("sensor"),
-                "StorageHeartbeat"    => Some("storage"),
+                "MINE_REWARD"    | "MineReward"       => Some("miner"),
+                "CLOCK_REWARD"   | "ClockReward"      => Some("clock"),
+                "SENSOR_REWARD"  | "SensorReward"     => Some("sensor"),
+                "STORAGE_HEARTBEAT" | "StorageHeartbeat" => Some("storage"),
                 _ => None,
             };
-            let account = entry["account"].as_str()
+            let account = entry["node_id"].as_str()
+                .or_else(|| entry["miner"].as_str())
+                .or_else(|| entry["account"].as_str())
                 .or_else(|| entry["to"].as_str())
                 .or_else(|| entry["from"].as_str())
                 .map(str::to_owned);
@@ -1981,8 +2077,12 @@ async fn get_explorer_blocks(
                     .collect::<std::collections::HashSet<_>>()
                     .into_iter().collect();
                 let miner = ledger.iter()
-                    .find(|e| e["type"].as_str() == Some("MineReward"))
-                    .and_then(|e| e["account"].as_str().or_else(|| e["to"].as_str()))
+                    .find(|e| matches!(e["type"].as_str(), Some("MINE_REWARD") | Some("MineReward")))
+                    .and_then(|e| e["miner"].as_str().or_else(|| e["account"].as_str()).or_else(|| e["to"].as_str()))
+                    .map(str::to_owned);
+                let sealer = ledger.iter()
+                    .find(|e| matches!(e["type"].as_str(), Some("CLOCK_REWARD") | Some("ClockReward")))
+                    .and_then(|e| e["node_id"].as_str())
                     .map(str::to_owned);
                 serde_json::json!({
                     "epoch": epoch,
@@ -1990,7 +2090,7 @@ async fn get_explorer_blocks(
                     "timestamp_ms": epoch_timestamp_ms(epoch),
                     "entry_count": entry_count,
                     "entry_types": entry_types,
-                    "miner": miner,
+                    "miner": miner.or(sealer),
                     "status": s.chain.epoch_status(epoch),
                 })
             }
@@ -2059,6 +2159,42 @@ async fn get_explorer_activity(
     }))
 }
 
+/// GET /api/explorer/transactions?limit=50&before_epoch=N
+/// Global transaction list — reads the txglobal: index written by chain::index_tx_history.
+/// Returns most-recent first. Covers all entry types that touch balances.
+async fn get_explorer_transactions(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit: usize = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50).min(500);
+    let before_epoch: u64 = params.get("before_epoch").and_then(|v| v.parse().ok())
+        .unwrap_or(u64::MAX);
+
+    let mut txns: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("txglobal:")
+        .into_iter()
+        .filter_map(|(key, val)| {
+            // Key: txglobal:{epoch:016x}:{hash_prefix}
+            let epoch_hex = key.split(':').nth(1)?;
+            let epoch = u64::from_str_radix(epoch_hex, 16).ok()?;
+            if epoch >= before_epoch { return None; }
+            let mut rec: serde_json::Value = serde_json::from_slice(&val).ok()?;
+            rec["_epoch"] = serde_json::json!(epoch);
+            rec["_ts"]    = serde_json::json!(epoch_timestamp_ms(epoch));
+            Some(rec)
+        })
+        .collect();
+
+    txns.sort_by(|a, b| b["_epoch"].as_u64().unwrap_or(0).cmp(&a["_epoch"].as_u64().unwrap_or(0)));
+    txns.truncate(limit);
+
+    Json(serde_json::json!({
+        "transactions": txns,
+        "count": txns.len(),
+        "chain_height": s.chain.store.latest_epoch().unwrap_or(0),
+    }))
+}
+
 // ── Staking extras ────────────────────────────────────────────────────────────
 
 /// GET /api/staking/network — aggregate network staking stats.
@@ -2082,22 +2218,34 @@ async fn get_staking_network(State(s): State<AppState>) -> Json<serde_json::Valu
 
 /// GET /api/staking/requirements — per-role minimum stake requirements.
 async fn get_staking_requirements(State(s): State<AppState>) -> Json<serde_json::Value> {
-    // Read from governance params if set, else use compile-time defaults.
     let read_param = |key: &str, default: u64| -> u64 {
-        s.chain.store.state_get(&format!("param:{}", key))
-            .and_then(|b| String::from_utf8(b).ok())
-            .and_then(|s| s.parse::<u64>().ok())
+        s.chain.store.state_get(&format!("chain_param:{}", key))
+            .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
             .unwrap_or(default)
     };
-    let miner   = read_param("stake_min_miner",   100 * 10_000_000_000);
-    let clock   = read_param("stake_min_clock",   100 * 10_000_000_000);
-    let storage = read_param("stake_min_storage",  10 * 10_000_000_000);
-    let sensor  = read_param("stake_min_sensor",   10 * 10_000_000_000);
+    let miner   = read_param("miner_min_stake",   100 * 10_000_000_000);
+    let clock   = read_param("clock_min_stake",   100 * 10_000_000_000);
+    let storage = read_param("storage_min_stake",  10 * 10_000_000_000);
+    let sensor  = read_param("sensor_min_stake",   10 * 10_000_000_000);
+    // loyalty_slope_bps: fraction of a minimum-increase that existing operators must cover.
+    //   effective_min = min_at_reg + (current_min - min_at_reg) * slope / 10_000
+    // stake_increase_cap_bps: max a governance action may raise any *_min_stake,
+    //   expressed as a fraction of the doubling gap (= current value). 2500 = 25%.
+    let loyalty_slope_bps      = read_param("loyalty_slope_bps",      5000);
+    let stake_increase_cap_bps = read_param("stake_increase_cap_bps", 2500);
     Json(serde_json::json!({
+        "requirements": {
+            "miner":   miner,
+            "clock":   clock,
+            "storage": storage,
+            "sensor":  sensor,
+        },
         "miner":   { "dreams": miner,   "btcpc": miner   as f64 / 10_000_000_000.0 },
         "clock":   { "dreams": clock,   "btcpc": clock   as f64 / 10_000_000_000.0 },
         "storage": { "dreams": storage, "btcpc": storage as f64 / 10_000_000_000.0 },
         "sensor":  { "dreams": sensor,  "btcpc": sensor  as f64 / 10_000_000_000.0 },
+        "loyalty_slope_bps":      loyalty_slope_bps,
+        "stake_increase_cap_bps": stake_increase_cap_bps,
     }))
 }
 
@@ -3534,6 +3682,11 @@ LINKS
     )
 }
 
+/// GET /btcpcscan — block explorer UI
+async fn get_btcpcscan() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../../../website/btcpcscan.html"))
+}
+
 /// GET /setup — guided onboarding: wallet creation + account registration + install command
 async fn get_setup_page() -> axum::response::Html<&'static str> {
     axum::response::Html(SETUP_HTML)
@@ -4142,6 +4295,167 @@ async fn get_download_file(
             [(header::CONTENT_TYPE, "text/plain")],
             "not found",
         ).into_response(),
+    }
+}
+
+// ── Node Role Staking ─────────────────────────────────────────────────────────
+
+/// GET /api/staking/node/:node/:role — list all backers and opt-in config for a node+role.
+async fn get_role_backers(
+    State(s): State<AppState>,
+    axum::extract::Path((node, role)): axum::extract::Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let opt = s.chain.get_role_opt(&role, &node);
+    let backers = s.chain.get_role_backers(&role, &node);
+    let total_backed: u64 = backers.iter()
+        .filter_map(|b| b["amount"].as_u64())
+        .sum();
+    Json(serde_json::json!({
+        "node": node,
+        "role": role,
+        "opted_in": opt.is_some(),
+        "config": opt,
+        "backers": backers,
+        "total_backed_dreams": total_backed,
+        "total_backed_btcpc": total_backed as f64 / 10_000_000_000.0,
+    }))
+}
+
+/// GET /api/staking/account/:account/positions — all role staking positions for an account.
+async fn get_account_positions(
+    State(s): State<AppState>,
+    axum::extract::Path(account): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let positions = s.chain.get_role_stakes_for_account(&account);
+    let total_staked: u64 = positions.iter()
+        .filter_map(|p| p["amount"].as_u64())
+        .sum();
+    Json(serde_json::json!({
+        "account": account,
+        "positions": positions,
+        "total_role_staked_dreams": total_staked,
+        "total_role_staked_btcpc": total_staked as f64 / 10_000_000_000.0,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeRoleOptInBody {
+    node: String,
+    role: String,
+    backer_share_bps: u16,
+    #[serde(default = "default_max_backers")]
+    max_backers: u8,
+    epoch: u64,
+    nonce: u64,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+fn default_max_backers() -> u8 { 20 }
+
+#[derive(Debug, Deserialize)]
+struct NodeRoleOptOutBody {
+    node: String,
+    role: String,
+    epoch: u64,
+    nonce: u64,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeRoleStakeBody {
+    node: String,
+    role: String,
+    staker: String,
+    amount: u64,
+    epoch: u64,
+    nonce: u64,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/node/role/opt-in — node enables backer yield sharing for a role.
+async fn post_node_role_opt_in(
+    State(s): State<AppState>,
+    Json(b): Json<NodeRoleOptInBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::NodeRoleOptIn {
+        node: b.node,
+        role: b.role,
+        backer_share_bps: b.backer_share_bps,
+        max_backers: b.max_backers,
+        epoch: b.epoch,
+        nonce: b.nonce,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/node/role/opt-out — node disables backer yield sharing for a role.
+async fn post_node_role_opt_out(
+    State(s): State<AppState>,
+    Json(b): Json<NodeRoleOptOutBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::NodeRoleOptOut {
+        node: b.node,
+        role: b.role,
+        epoch: b.epoch,
+        nonce: b.nonce,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/node/role/stake — back a node's role and earn yield.
+async fn post_node_role_stake(
+    State(s): State<AppState>,
+    Json(b): Json<NodeRoleStakeBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::NodeRoleStake {
+        node: b.node,
+        role: b.role,
+        staker: b.staker,
+        amount: b.amount,
+        epoch: b.epoch,
+        nonce: b.nonce,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/node/role/unstake — withdraw from a node role backing position.
+async fn post_node_role_unstake(
+    State(s): State<AppState>,
+    Json(b): Json<NodeRoleStakeBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::NodeRoleUnstake {
+        node: b.node,
+        role: b.role,
+        staker: b.staker,
+        amount: b.amount,
+        epoch: b.epoch,
+        nonce: b.nonce,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }
 

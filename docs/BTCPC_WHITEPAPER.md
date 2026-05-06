@@ -94,6 +94,8 @@ with no exception. The smallest unit is one **dream**: 1 BTCPC = 10,000,000,000 
 (10^10, ten decimal places). All on-chain accounting is denominated in dreams; the
 BTCPC display unit is a human convenience.
 
+**Design intent:** BTCPC's new-supply emission is explicitly designed to end on the same day and at the same hour as Bitcoin's last mined satoshi. Both chains will exhaust their initial coin issuance simultaneously — two sovereign monetary networks converging at the same moment. This is not approximate; the chain's self-calibrating epoch schedule (described in §1.2.1) tracks Bitcoin's projected last-coin timestamp continuously and narrows to within minutes of precision by the time the final era arrives.
+
 Emission is structured in four layers that combine each epoch:
 
 **Layer D — Infrastructure base:** Minimal emission, always fires regardless of
@@ -132,6 +134,111 @@ never burned.
 No tokens exist at chain launch except those earned through the emission schedule.
 There is no pre-mine. There is no team allocation. The 17 founding accounts seeded
 at genesis carry preserved keys — not pre-allocated balances.
+
+### 1.2.1 Bitcoin Supply Alignment
+
+BTCPC's 42,000,000-coin supply is designed to be fully mined at the same moment Bitcoin's last satoshi is mined — the two sovereign monetary networks converging at the same hour, by design.
+
+**Era schedule and epoch scaling**
+
+The chain runs in five new-supply eras (0–4). Each era contains 4,200,000 epochs. The epoch duration doubles at every era boundary, keeping daily throughput and daily reward income constant regardless of how long epochs become:
+
+| Era | Epoch duration | Era wall-clock duration |
+|-----|---------------|------------------------|
+| 0   | ~30 seconds   | ~4 years               |
+| 1   | ~1 minute     | ~8 years               |
+| 2   | ~2 minutes    | ~16 years              |
+| 3   | ~4 minutes    | ~32 years              |
+| 4   | ~8 minutes    | ~64 years              |
+
+**"~"** because the epoch durations for eras 1–4 are not fixed — they are recomputed automatically at each era boundary to track Bitcoin's projected last-coin timestamp (see below). Era 0's 30-second duration is the only constant.
+
+**Self-calibrating end-date tracking**
+
+At each era boundary, the chain automatically recomputes the next era's epoch duration using the formula:
+
+```
+D_N = (target_end_ms − now_ms) / (4,200,000 × (2^remaining_eras − 1))
+```
+
+where `target_end_ms` is Bitcoin's projected last-coin timestamp and `now_ms` is the current epoch seal time. This is evaluated in code — no governance vote or human action is required. The calibration fires automatically.
+
+The base estimate for Bitcoin's last coin is:
+
+```
+BTC_GENESIS_MS + 6,930,000 blocks × 600,000 ms/block ≈ 2140-10-01 18:15 UTC
+```
+
+Each subsequent era recalibration absorbs any drift that accumulated in the previous era, progressively narrowing the deviation. By era 4 (~2076), Bitcoin will have completed 8 additional halvings and its remaining schedule will be known to within weeks. Era 4 epoch durations (~8 minutes) allow end-time precision of ±1 epoch.
+
+**Bitcoin block oracle (precision layer)**
+
+Any BTCPC node that also operates a Bitcoin full node may submit `BtcHeightReport` entries to the chain. These reports carry the current Bitcoin block height and the average block interval over the most recent 2016-block difficulty window. The chain maintains a 7-entry rolling median of recent reports and derives a continuously-refined `btc_end_ms` estimate from them:
+
+```
+btc_end_ms = report_timestamp + (6,930,000 − reported_height) × recent_avg_block_ms
+```
+
+This value supersedes the compile-time constant in era calibrations. The oracle is purely additive — nodes that do not run a Bitcoin node continue to function normally and benefit passively from reports submitted by those that do. No coordination, no voting, no governance.
+
+Report validity rules (enforced on-chain):
+- Must be signed by an active clock-node posting key.
+- Bitcoin block height must be strictly increasing (no rewinding).
+- Implied block rate must be within ±10% of 10 minutes (540–660 s).
+- Reports older than 720 epochs are ignored in the median calculation.
+
+**Result:** BTCPC's new supply ends within minutes of Bitcoin's last coin, automatically, converging tighter with each passing era as the oracle accumulates more data.
+
+### 1.2.2 Perpetual Tail Emission — The Recycle Era
+
+New supply is exhausted at era 5 (~2140, aligned with Bitcoin). At that
+point the per-epoch block reward from the protocol drops to zero — but the chain does
+not stop paying rewards. Instead, the `__recycle_fund__` system account becomes the
+**permanent, self-replenishing reward source** for all subsequent epochs.
+
+**What fills the recycle fund:**
+
+Every economic event on the chain contributes to the fund over its lifetime:
+
+- **Entry fees** — every transaction pays a base fee; 100% of fees flow to the recycle fund.
+- **Mandatory reserve** — 1.5% of every epoch's block reward is withheld and deposited to the fund (the other 0.5% goes to the testnet fund). This fires from epoch 1 and never stops.
+- **Surplus pool distributions** — any epoch reward that no participant earns (empty inference pool, no active storage nodes, etc.) flows directly to recycle rather than accumulating.
+- **Slash proceeds** — 80% of any clock node or verifier slash goes to the recycle fund; 10% to the submitter as a bounty; 10% to `__legal__`.
+- **Rounding remainders** — integer arithmetic on large reward pools always leaves indivisible dust. Every remainder accumulates in recycle.
+
+By the time new supply ends, the fund will have been accumulating for 124 years of fee
+income and surplus. It is structurally impossible for the fund to reach zero before the
+chain itself loses all activity.
+
+**How the fund pays rewards in era 5+:**
+
+Each era-5 epoch, the protocol draws `RECYCLE_REWARD_RATE / RECYCLE_REWARD_DENOM`
+(currently `10 / 1,000,000 = 0.001%`) of the fund balance and distributes it across
+the same work pools as the new-supply era: inference, storage, sensor, clock, tracker,
+verifier, service, and mempool. The same Layer A / B / C / D framework applies — unused
+pool shares flow back to the fund.
+
+**The equilibrium:**
+
+```
+fund_balance[n+1] = fund_balance[n]
+                  + fees_this_epoch
+                  + surplus_this_epoch
+                  - 0.001% × fund_balance[n]
+```
+
+At equilibrium (fund balance stable), fees and surplus exactly cover the draw.
+Because the draw is proportional to the balance (not a fixed amount), the fund
+self-corrects: a larger balance pays more rewards but also decays faster; a smaller
+balance decays slower and rebuilds from fees. The chain can sustain positive rewards
+at any activity level, including very low activity — the reward just scales down.
+There is no scenario in which the chain runs out of rewards while any transactions
+are occurring, because every transaction replenishes the same pool that rewards draw from.
+
+**This is not inflation.** The total supply ceiling of 42,000,000 BTCPC is never
+breached. The recycle fund holds tokens already in existence — earned, paid as fees,
+and returned to the protocol. Distributing them as era-5 rewards is a redistribution
+of existing supply, not the creation of new supply.
 
 ### 1.3 Account Model
 

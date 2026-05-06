@@ -50,6 +50,7 @@ mod utils;
 mod wallet;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
 use tracing::{info, warn};
 use btcpc_types::{
@@ -132,6 +133,8 @@ async fn main() -> Result<()> {
 
     // Wallet: restore / load / generate all chain keys (BTCPC, Bitcoin, Ethereum).
     let wallet_keys = wallet::init(&cfg.data_dir)?;
+    // Keep ~/.btcpc/{account}.wallet.key in sync so TUI/CLI can find keys without knowing data_dir.
+    wallet::backup_to_home(&cfg.account, &wallet_keys);
 
     // Open state database
     let db_path = cfg.data_dir.join("state");
@@ -144,6 +147,10 @@ async fn main() -> Result<()> {
 
     // Genesis
     genesis::init_genesis(&chain, cfg.genesis_file.as_deref(), cfg.genesis_timestamp)?;
+
+    // One-time backfill: populate txglobal: from existing txhist: entries so historical
+    // transactions appear in the explorer even before the txglobal index existed.
+    backfill_txglobal(&chain);
 
     // Register this account on-chain (no-op if already exists) — links all public keys.
     if let Err(e) = wallet::register_account(&chain, &cfg.account, &wallet_keys) {
@@ -231,7 +238,7 @@ async fn main() -> Result<()> {
                             node_id: node_id_c.clone(),
                             epoch: sealed.epoch,
                             timestamp: ts,
-                            seal_hash,
+                            seal_hash: seal_hash.clone(),
                             signature: None,
                         };
                         if let Err(e) = chain_ref.apply_entry(&entry) {
@@ -349,6 +356,9 @@ async fn main() -> Result<()> {
                         // scan was dead (those keys were never written anywhere).
                         let signing_clocks = sealed.signing_clocks.clone();
                         emit_epoch_rewards(sealed_epoch, &signing_clocks, &chain_ref, &cmd_tx_for_seal).await;
+
+                        // Persist the sealed block — written after rewards so all entries are indexed.
+                        chain_ref.write_sealed_block(sealed_epoch, seal_hash.as_str(), ts);
 
                         // Compute reward hash and broadcast consensus proposal.
                         let rewards_hash = clock::compute_rewards_hash(sealed_epoch, &chain_ref.store);
@@ -609,22 +619,27 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Shared peer count: updated by the net event loop, read by the API.
+    let shared_peer_count = Arc::new(AtomicUsize::new(0));
+
     // Apply incoming network events to chain state
     {
         let chain_ref = chain.clone();
         let clock_ref = clock.clone();
+        let peer_count_ref = shared_peer_count.clone();
         let mut events = net_events;
         tokio::spawn(async move {
-            let mut peer_count: usize = 0;
             loop {
                 match events.recv().await {
                     Ok(NetworkEvent::PeerConnected { .. }) => {
-                        peer_count = peer_count.saturating_add(1);
-                        clock_ref.update_peers(peer_count);
+                        let n = peer_count_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                        clock_ref.update_peers(n);
                     }
                     Ok(NetworkEvent::PeerDisconnected { .. }) => {
-                        peer_count = peer_count.saturating_sub(1);
-                        clock_ref.update_peers(peer_count);
+                        let prev = peer_count_ref.load(Ordering::Relaxed);
+                        let n = prev.saturating_sub(1);
+                        peer_count_ref.store(n, Ordering::Relaxed);
+                        clock_ref.update_peers(n);
                     }
                     Ok(NetworkEvent::Entry { entry }) => {
                         // Extract and store any plaintext attached to the gossip envelope
@@ -739,6 +754,8 @@ async fn main() -> Result<()> {
         current_model:    Arc::new(tokio::sync::RwLock::new(default_model)),
         hw_fingerprint:   Arc::new(hw.fingerprint),
         hw_summary:       Arc::new(hw.summary),
+        peer_count:       shared_peer_count,
+        clock:            clock.clone(),
     };
     api::serve(app_state, cfg.api_port).await?;
 
@@ -899,6 +916,32 @@ async fn run_inference_verifier(
 
             break; // one verdict per cycle
         }
+    }
+}
+
+// ── txglobal backfill ─────────────────────────────────────────────────────────
+
+/// Scan txhist: and write any missing txglobal: entries.
+/// Runs once at startup — safe to repeat, skips existing keys.
+fn backfill_txglobal(chain: &Chain) {
+    let all: Vec<(String, Vec<u8>)> = chain.store.state_scan_prefix("txhist:");
+    let mut written = 0usize;
+    for (key, val) in all {
+        // key: txhist:{account}:{epoch:016x}:{role}:{hash}
+        let parts: Vec<&str> = key.splitn(5, ':').collect();
+        if parts.len() < 5 { continue; }
+        let epoch_hex  = parts[2];
+        let hash_prefix = parts[4];
+        let global_key = format!("txglobal:{}:{}", epoch_hex, hash_prefix);
+        if chain.store.state_get(&global_key).is_some() { continue; }
+        if let Err(e) = chain.store.state_set(&global_key, &val) {
+            tracing::warn!("backfill_txglobal: {}", e);
+        } else {
+            written += 1;
+        }
+    }
+    if written > 0 {
+        tracing::info!("txglobal backfill: {} entries written", written);
     }
 }
 
