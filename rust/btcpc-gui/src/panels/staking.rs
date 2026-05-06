@@ -158,6 +158,20 @@ pub fn show(ui: &mut egui::Ui, data: &mut AppData) {
                             .hint_text("0.0")
                             .desired_width(140.0));
                         ui.label(egui::RichText::new("BTCPC").color(ORANGE).size(12.0));
+                        // Show minimum for selected role
+                        if !data.forms.role_stake_role.is_empty() {
+                            if let Some(ref req) = data.role_requirements {
+                                let min_d = req.get("requirements")
+                                    .and_then(|r| r.get(&data.forms.role_stake_role))
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0);
+                                if min_d > 0 {
+                                    ui.label(egui::RichText::new(
+                                        format!("(min {})", dreams_to_btcpc(min_d))
+                                    ).size(11.0).color(DIM_TEXT));
+                                }
+                            }
+                        }
                     });
                     ui.end_row();
                 });

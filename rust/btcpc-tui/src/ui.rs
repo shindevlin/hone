@@ -207,10 +207,25 @@ fn render_wallet_tab(f: &mut Frame, app: &App, area: Rect) {
         let staked_str = app.wallet_staked
             .map(dreams_to_btcpc)
             .unwrap_or_else(|| "—".to_string());
-        format!(
+        let mut s = format!(
             "Account:  {}\nBalance:  {} BTCPC\nStaked:   {} BTCPC",
             session.account, balance_str, staked_str
-        )
+        );
+        if let Some(ref req) = app.staking_requirements {
+            if let Some(map) = req.get("requirements").and_then(|r| r.as_object()) {
+                s.push_str("\n\nRole Minimums:");
+                for (role, min_val) in map {
+                    let min_d = min_val.as_u64().unwrap_or(0);
+                    s.push_str(&format!("\n  {:10} {} BTCPC", role, dreams_to_btcpc(min_d)));
+                }
+            }
+            if let Some(slope) = req.get("loyalty_slope_bps").and_then(|v| v.as_u64()) {
+                if slope > 0 {
+                    s.push_str(&format!("\n\nLoyalty slope: {}% of each minimum increase", slope / 100));
+                }
+            }
+        }
+        s
     } else {
         "Not logged in.\n\nRun: btcpc login --account <name>".to_string()
     };

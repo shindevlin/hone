@@ -164,7 +164,7 @@ impl LoginState {
         Self {
             field: 0,
             account: String::new(),
-            key_file: format!("{}/.btcpc/key.json", home),
+            key_file: String::new(),
             node_url: "http://localhost:4242".into(),
             error: None,
         }
@@ -207,6 +207,7 @@ pub struct App {
     pub blocks: Vec<serde_json::Value>,
     pub wallet_balance: Option<u64>,
     pub wallet_staked: Option<u64>,
+    pub staking_requirements: Option<serde_json::Value>,
     pub jobs: Vec<serde_json::Value>,
     pub last_refresh: std::time::Instant,
     pub refresh_interval: std::time::Duration,
@@ -230,6 +231,7 @@ impl App {
             blocks: Vec::new(),
             wallet_balance: None,
             wallet_staked: None,
+            staking_requirements: None,
             jobs: Vec::new(),
             last_refresh: std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(10))
@@ -278,6 +280,11 @@ impl App {
                 }
             }
             Err(e) => self.status_msg = format!("jobs: {}", e),
+        }
+
+        match api::get_json(&base, "/api/staking/requirements") {
+            Ok(v) => self.staking_requirements = Some(v),
+            Err(_) => {}
         }
 
         if let Some(ref session) = self.session.clone() {
