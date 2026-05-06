@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BTCPC — Live Network</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#050a10;overflow:hidden;font-family:'SF Mono','Fira Code','Cascadia Code',monospace}
+    canvas{position:fixed;inset:0;display:block}
+
+    #hud{
+      position:fixed;top:0;left:0;right:0;z-index:10;
+      display:flex;align-items:center;gap:24px;
+      padding:10px 22px;
+      background:rgba(5,10,16,0.88);
+      border-bottom:1px solid rgba(247,147,26,0.2);
+      backdrop-filter:blur(4px);
+      color:#e2e8f0;font-size:12px;
+    }
+    .hud-brand{font-size:16px;font-weight:700;color:#f7931a;letter-spacing:2px;flex-shrink:0}
+    .hud-sep{width:1px;height:28px;background:rgba(255,255,255,0.08);flex-shrink:0}
+    .hud-epoch{display:flex;align-items:center;gap:14px}
+    .hud-ep-num{font-size:20px;font-weight:700;color:#f7931a;min-width:80px}
+    .hud-ep-lbl{color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+    .ep-bar-wrap{width:110px;height:4px;background:rgba(255,255,255,0.07);border-radius:2px;overflow:hidden}
+    .ep-bar-fill{height:100%;background:linear-gradient(90deg,#f7931a,#fbbf24);border-radius:2px;transition:width 0.8s linear}
+    .ep-remain{font-size:10px;color:#64748b;margin-top:3px}
+    .hud-stats{display:flex;gap:22px;flex:1}
+    .hud-stat{display:flex;flex-direction:column;align-items:center}
+    .hud-stat-val{font-size:15px;font-weight:700}
+    .hud-stat-lbl{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+    #hud-status{display:flex;align-items:center;gap:6px;font-size:11px;color:#22c55e;margin-left:auto;flex-shrink:0}
+    .pulse-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;animation:blink 1.4s ease-in-out infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+    .hud-back{color:#64748b;text-decoration:none;font-size:11px;flex-shrink:0}
+    .hud-back:hover{color:#f7931a}
+
+    #activity{
+      position:fixed;bottom:20px;right:20px;z-index:10;
+      width:280px;
+      background:rgba(5,10,16,0.88);
+      border:1px solid rgba(247,147,26,0.14);
+      border-radius:10px;padding:13px 15px;
+      backdrop-filter:blur(4px);
+    }
+    .panel-title{color:#64748b;text-transform:uppercase;letter-spacing:1px;font-size:9px;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+    .panel-title::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.05)}
+    .act-line{color:#94a3b8;padding:3px 0;display:flex;gap:8px;align-items:center;font-size:11px;
+      animation:fadein 0.4s ease;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    .act-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+    @keyframes fadein{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+
+    #legend{
+      position:fixed;bottom:20px;left:20px;z-index:10;
+      background:rgba(5,10,16,0.88);
+      border:1px solid rgba(247,147,26,0.14);
+      border-radius:10px;padding:13px 16px;
+      backdrop-filter:blur(4px);
+    }
+    .leg-row{display:flex;align-items:center;gap:9px;padding:3px 0;color:#94a3b8;font-size:11px}
+    .leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+    .leg-count{margin-left:auto;color:#64748b;font-size:10px;min-width:20px;text-align:right}
+
+    #epoch-toast{
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;
+      background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.5);
+      border-radius:12px;padding:16px 32px;text-align:center;
+      color:#f7931a;font-size:18px;font-weight:700;letter-spacing:2px;
+      pointer-events:none;opacity:0;transition:opacity 0.4s;
+      backdrop-filter:blur(6px);
+    }
+    #epoch-toast.visible{opacity:1}
+    #loading{
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;
+      color:#64748b;font-size:13px;letter-spacing:1px;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading">Connecting to chain…</div>
+
+<div id="hud">
+  <div class="hud-brand">BTCPC</div>
+  <div class="hud-sep"></div>
+  <div class="hud-epoch">
+    <div>
+      <div class="hud-ep-lbl">Epoch</div>
+      <div class="hud-ep-num" id="ep-num">#—</div>
+    </div>
+    <div>
+      <div class="hud-ep-lbl">Next seal</div>
+      <div class="ep-bar-wrap"><div class="ep-bar-fill" id="ep-bar" style="width:0%"></div></div>
+      <div class="ep-remain" id="ep-remain">—s</div>
+    </div>
+  </div>
+  <div class="hud-sep"></div>
+  <div class="hud-stats">
+    <div class="hud-stat">
+      <div class="hud-stat-val" id="stat-accounts" style="color:#fbbf24">—</div>
+      <div class="hud-stat-lbl">Accounts</div>
+    </div>
+    <div class="hud-stat">
+      <div class="hud-stat-val" id="stat-miners" style="color:#f7931a">—</div>
+      <div class="hud-stat-lbl">Miners</div>
+    </div>
+    <div class="hud-stat">
+      <div class="hud-stat-val" id="stat-pkt" style="color:#60a5fa">—</div>
+      <div class="hud-stat-lbl">Pkt/s</div>
+    </div>
+    <div class="hud-stat">
+      <div class="hud-stat-val" id="stat-sealed" style="color:#a78bfa">—</div>
+      <div class="hud-stat-lbl">Sealed</div>
+    </div>
+  </div>
+  <div id="hud-status"><div class="pulse-dot"></div>LIVE</div>
+  <a href="/" class="hud-back">← back</a>
+</div>
+
+<div id="epoch-toast">EPOCH SEALED</div>
+
+<div id="activity">
+  <div class="panel-title">Live activity</div>
+  <div id="act-feed"></div>
+</div>
+
+<div id="legend">
+  <div class="panel-title">Node types</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#f7931a;box-shadow:0 0 6px #f7931a80"></div>Miner<span class="leg-count" id="lc-miner">—</span></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#a78bfa;box-shadow:0 0 6px #a78bfa80"></div>Clock<span class="leg-count" id="lc-clock">—</span></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#60a5fa;box-shadow:0 0 6px #60a5fa80"></div>Sensor<span class="leg-count" id="lc-sensor">—</span></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#22c55e;box-shadow:0 0 6px #22c55e80"></div>Storage<span class="leg-count" id="lc-storage">—</span></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#cbd5e1;box-shadow:0 0 4px #cbd5e180"></div>Account<span class="leg-count" id="lc-account">—</span></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+const GENESIS_TS = 1776236400000;
+const EPOCH_MS   = 30000;
+const API = (location.hostname==='localhost'||location.hostname==='127.0.0.1')
+  ? 'http://localhost:4242' : (location.protocol+'//'+location.hostname+(location.port?':'+location.port:''));
+
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+function resize(){ C.width=innerWidth; C.height=innerHeight; }
+addEventListener('resize', resize); resize();
+
+// ── Node type config ─────────────────────────────────────────────────────────
+const TYPE = {
+  miner:   { color:'#f7931a', size:18, lc:'#fbbf24' },
+  clock:   { color:'#a78bfa', size:13, lc:'#c4b5fd' },
+  sensor:  { color:'#60a5fa', size: 8, lc:'#93c5fd' },
+  storage: { color:'#22c55e', size:12, lc:'#86efac' },
+  service: { color:'#f472b6', size:11, lc:'#f9a8d4' },
+  account: { color:'#94a3b8', size: 9, lc:'#cbd5e1' },
+};
+
+// ── Static infrastructure nodes (sensor/storage/clock hardware) ──────────────
+const INFRA = [
+  { id:'clock-ie',  type:'clock',   label:'clock-ie'  },
+  { id:'clock-us',  type:'clock',   label:'clock-us'  },
+  { id:'clock-ap',  type:'clock',   label:'clock-ap'  },
+  { id:'nebra',     type:'clock',   label:'nebra-pi'  },
+  { id:'sen-1',     type:'sensor',  label:'GPS-001'   },
+  { id:'sen-2',     type:'sensor',  label:'GNSS-002'  },
+  { id:'sen-3',     type:'sensor',  label:'IMU-003'   },
+  { id:'sen-4',     type:'sensor',  label:'ENV-004'   },
+  { id:'sen-5',     type:'sensor',  label:'CAM-005'   },
+  { id:'sen-6',     type:'sensor',  label:'FLIP-006'  },
+  { id:'vault-1',   type:'storage', label:'vault-1'   },
+  { id:'vault-2',   type:'storage', label:'vault-2'   },
+  { id:'gw',        type:'service', label:'gateway'   },
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let nodes  = {};   // id → node object with .px .py .fx .fy .pulse
+let conns  = [];   // [ [srcId, dstId], ... ]
+let netStats = {};
+
+const packets = [];
+let pktCounter=0, pktRate=0, lastRateTs=Date.now();
+
+const rings = [];
+
+// ── Fetch and build graph ────────────────────────────────────────────────────
+async function fetchData() {
+  try {
+    const [lb, net] = await Promise.all([
+      fetch(API+'/public/leaderboard').then(r=>r.json()),
+      fetch(API+'/public/network').then(r=>r.json()),
+    ]);
+    netStats = net;
+    buildGraph(lb, net);
+    document.getElementById('loading').style.display = 'none';
+  } catch(e) {
+    document.getElementById('loading').textContent = 'Chain unreachable — showing demo';
+    buildGraph({ leaderboard:[], total_accounts:0 }, {});
+  }
+}
+
+function buildGraph(lb, net) {
+  const newNodes = {};
+
+  // Accounts from leaderboard
+  // Determine miners: leaderboard entry with 'miner' role, OR known genesis miner,
+  // OR fall back to account with highest balance if roles are all empty.
+  const lbList = (lb.leaderboard || []);
+  const activeClockSet  = new Set((net.active_clock_accounts  || []));
+  const activeMinerSet  = new Set((net.active_miner_accounts  || []));
+
+  // Collect roles from leaderboard
+  const rolesByAccount = {};
+  for (const e of lbList) rolesByAccount[e.account] = e.roles || [];
+
+  for (const e of lbList) {
+    const roles = rolesByAccount[e.account] || [];
+    let type = 'account';
+    if (activeMinerSet.has(e.account) || roles.includes('miner')) {
+      type = 'miner';
+    } else if (activeClockSet.has(e.account) || roles.includes('clock')) {
+      type = 'clock';
+    } else if (roles.includes('storage')) {
+      type = 'storage';
+    } else if (roles.includes('gateway') || roles.includes('service')) {
+      type = 'service';
+    }
+
+    const prev = nodes[e.account] || {};
+    newNodes[e.account] = {
+      id: e.account, type,
+      label: e.account,
+      balance: e.balance,
+      fx: prev.fx || 0.5, fy: prev.fy || 0.5,
+      px: prev.px || C.width/2, py: prev.py || C.height/2,
+      pulse: prev.pulse || 0,
+    };
+  }
+
+  // Infra nodes
+  for (const d of INFRA) {
+    const prev = nodes[d.id] || {};
+    newNodes[d.id] = {
+      id: d.id, type: d.type, label: d.label, balance: null,
+      fx: prev.fx || 0.5, fy: prev.fy || 0.5,
+      px: prev.px || C.width/2, py: prev.py || C.height/2,
+      pulse: prev.pulse || 0,
+    };
+  }
+
+  nodes = newNodes;
+  layoutNodes();
+  conns = buildConns();
+  updateLegend();
+  updateHUDCounts(lb.total_accounts || lbList.length, net);
+}
+
+// ── Layout ───────────────────────────────────────────────────────────────────
+function layoutNodes() {
+  const byType = {};
+  for (const n of Object.values(nodes)) {
+    (byType[n.type] = byType[n.type]||[]).push(n);
+  }
+  const cx=0.50, cy=0.50;
+
+  place(byType.miner,   cx, cy, 0,    0);
+  place(byType.storage, cx, cy, 0.16, Math.PI/5);
+  place(byType.clock,   cx, cy, 0.27, -Math.PI/2);
+  place(byType.account, cx, cy, 0.34, Math.PI/7);
+  place(byType.sensor,  cx, cy, 0.44, 0);
+
+  // Service: far edge
+  (byType.service||[]).forEach((n,i)=>{ n.fx=0.89; n.fy=0.40+i*0.14; });
+}
+
+function place(arr, cx, cy, r, offset) {
+  if (!arr || !arr.length) return;
+  if (arr.length === 1) { arr[0].fx=cx; arr[0].fy=cy; return; }
+  arr.forEach((n,i) => {
+    const a = (i/arr.length)*Math.PI*2 + offset;
+    n.fx = cx + Math.cos(a)*r;
+    n.fy = cy + Math.sin(a)*r*0.78; // slight vertical squeeze
+  });
+}
+
+// ── Connections ───────────────────────────────────────────────────────────────
+function buildConns() {
+  const byType = {};
+  for (const n of Object.values(nodes)) (byType[n.type]=byType[n.type]||[]).push(n);
+  const miners   = byType.miner   || [];
+  const clocks   = byType.clock   || [];
+  const sensors  = byType.sensor  || [];
+  const storage  = byType.storage || [];
+  const service  = byType.service || [];
+  const accounts = byType.account || [];
+  const c = [];
+
+  // Clocks → every miner
+  for (const cl of clocks) for (const m of miners) c.push([cl.id, m.id]);
+  // Storage → every miner
+  for (const s of storage) for (const m of miners) c.push([s.id, m.id]);
+  // Service → every miner
+  for (const s of service) for (const m of miners) c.push([s.id, m.id]);
+  // Miners ↔ miners
+  for (let i=0;i<miners.length;i++) for (let j=i+1;j<miners.length;j++) {
+    c.push([miners[i].id,miners[j].id]); c.push([miners[j].id,miners[i].id]);
+  }
+  // Accounts → nearest miner (or first)
+  for (const a of accounts) {
+    const m = miners[0]; if (m) c.push([a.id, m.id]);
+  }
+  // Sensors → nearest clock or miner
+  for (let i=0;i<sensors.length;i++) {
+    const cl = clocks[i%Math.max(clocks.length,1)];
+    const st = storage[i%Math.max(storage.length,1)];
+    if (cl) c.push([sensors[i].id, cl.id]);
+    if (st) c.push([sensors[i].id, st.id]);
+  }
+  return c;
+}
+
+// ── Legend + HUD counts ───────────────────────────────────────────────────────
+function updateLegend() {
+  const counts = {};
+  for (const n of Object.values(nodes)) counts[n.type]=(counts[n.type]||0)+1;
+  document.getElementById('lc-miner').textContent   = counts.miner   ||0;
+  document.getElementById('lc-clock').textContent   = counts.clock   ||0;
+  document.getElementById('lc-sensor').textContent  = counts.sensor  ||0;
+  document.getElementById('lc-storage').textContent = counts.storage ||0;
+  document.getElementById('lc-account').textContent = counts.account ||0;
+}
+function updateHUDCounts(total, net) {
+  document.getElementById('stat-accounts').textContent = total||0;
+  document.getElementById('stat-miners').textContent   = net.miners||1;
+}
+
+// ── Stars ─────────────────────────────────────────────────────────────────────
+const STARS = Array.from({length:200},()=>({
+  fx:Math.random(),fy:Math.random(),
+  r:Math.random()*1.4+0.2,
+  a:Math.random()*0.5+0.06,
+}));
+
+// ── Packets ───────────────────────────────────────────────────────────────────
+function spawnPacket() {
+  if (!conns.length) return;
+  const cd = conns[Math.floor(Math.random()*conns.length)];
+  const src = nodes[cd[0]];
+  if (!src) return;
+  packets.push({
+    src:cd[0], dst:cd[1], t:0,
+    speed: 0.003+Math.random()*0.0035,
+    color: TYPE[src.type]?.color||'#fff',
+    size: src.type==='miner'?4.5:3,
+  });
+  pktCounter++;
+}
+
+// ── Epoch seal rings ──────────────────────────────────────────────────────────
+function spawnSeal(ep) {
+  for (const n of Object.values(nodes)) {
+    if (n.type==='miner') { rings.push({x:n.px,y:n.py,r:0,alpha:1}); n.pulse=1; }
+  }
+  showToast('EPOCH #'+(ep||'').toLocaleString()+' SEALED');
+  pushActivity('miner','Epoch sealed — reward distributed');
+  document.getElementById('stat-sealed').textContent = ep;
+}
+let toastTimer=null;
+function showToast(msg) {
+  const t=document.getElementById('epoch-toast');
+  t.textContent=msg; t.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('visible'),2000);
+}
+
+// ── Activity log ──────────────────────────────────────────────────────────────
+const MSGS = {
+  miner:   ['Block proposed','Inference verified','Reward distributed','Epoch vote cast'],
+  clock:   ['Clock signal sent','Timestamp verified','Epoch sync OK','Drift corrected'],
+  sensor:  ['GPS fix reported','GNSS packet sent','IMU calibrated','Sensor data relayed'],
+  storage: ['Block archived','State snapshot saved','Proof verified','Chunk committed'],
+  service: ['Peer discovered','API request served','Route updated','Gateway relayed'],
+  account: ['Transaction sent','Balance updated','Staking reward','Delegation confirmed'],
+};
+const TYPE_COL = {miner:'#f7931a',clock:'#a78bfa',sensor:'#60a5fa',storage:'#22c55e',service:'#f472b6',account:'#94a3b8'};
+const activities=[];
+function pushActivity(type,msg){
+  activities.unshift({type,msg});
+  if(activities.length>7) activities.pop();
+  document.getElementById('act-feed').innerHTML=activities.map(a=>
+    `<div class="act-line"><div class="act-dot" style="background:${TYPE_COL[a.type]||'#555'}"></div>${a.msg}</div>`
+  ).join('');
+}
+function randomActivity(){
+  // Sometimes name a real account
+  const accs=Object.values(nodes).filter(n=>n.type!=='sensor'&&n.type!=='clock');
+  const n=accs[Math.floor(Math.random()*accs.length)];
+  if(!n) return;
+  const msgs=MSGS[n.type]||MSGS.account;
+  const msg=msgs[Math.floor(Math.random()*msgs.length)];
+  pushActivity(n.type, n.label+': '+msg.toLowerCase());
+}
+
+// ── HUD epoch update ──────────────────────────────────────────────────────────
+let lastEpoch=-1;
+function updateHUD() {
+  const now=Date.now(), el=now-GENESIS_TS;
+  if(el<0) return;
+  const ep=Math.floor(el/EPOCH_MS), inEp=el%EPOCH_MS;
+  document.getElementById('ep-num').textContent='#'+ep.toLocaleString();
+  document.getElementById('ep-bar').style.width=(inEp/EPOCH_MS*100)+'%';
+  document.getElementById('ep-remain').textContent=Math.ceil((EPOCH_MS-inEp)/1000)+'s';
+  if(ep!==lastEpoch&&inEp<600){ lastEpoch=ep; spawnSeal(ep); }
+  const n=Date.now();
+  if(n-lastRateTs>=1000){
+    pktRate=pktCounter; pktCounter=0; lastRateTs=n;
+    document.getElementById('stat-pkt').textContent=pktRate;
+  }
+}
+
+// ── Position sync ─────────────────────────────────────────────────────────────
+const PAD_TOP=64, PAD_BOT=90, PAD_H=44;
+function syncPositions(){
+  const W=C.width, H=C.height, aW=W-PAD_H*2, aH=H-PAD_TOP-PAD_BOT;
+  for(const n of Object.values(nodes)){
+    n.px=PAD_H+n.fx*aW;
+    n.py=PAD_TOP+n.fy*aH;
+  }
+}
+
+// ── Draw helpers ──────────────────────────────────────────────────────────────
+function glow(x,y,r,color,a){
+  const ha=Math.round(Math.min(a,1)*255).toString(16).padStart(2,'0');
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,color+ha); g.addColorStop(1,color+'00');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+}
+function hex2rgba(h,a){
+  const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function bezier(t,ax,ay,bx,by,cx,cy){
+  const mt=1-t;
+  return {x:mt*mt*ax+2*mt*t*bx+t*t*cx, y:mt*mt*ay+2*mt*t*by+t*t*cy};
+}
+function cpFor(ax,ay,bx,by){
+  return {cx:(ax+bx)/2+(by-ay)*0.06, cy:(ay+by)/2-(bx-ax)*0.06};
+}
+
+// ── Main draw loop ────────────────────────────────────────────────────────────
+let lastSpawn=0, lastActivity=0;
+
+function draw(){
+  requestAnimationFrame(draw);
+  syncPositions();
+  updateHUD();
+
+  const W=C.width, H=C.height, now=Date.now();
+
+  // Background
+  ctx.fillStyle='#050a10'; ctx.fillRect(0,0,W,H);
+
+  // Stars
+  for(const s of STARS){
+    ctx.beginPath(); ctx.arc(s.fx*W,s.fy*H,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${s.a})`; ctx.fill();
+  }
+
+  // Subtle grid
+  ctx.strokeStyle='rgba(247,147,26,0.022)'; ctx.lineWidth=1;
+  for(let x=0;x<W;x+=80){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=PAD_TOP;y<H;y+=80){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  // Connection lines
+  for(const [aid,bid] of conns){
+    const a=nodes[aid], b=nodes[bid]; if(!a||!b) continue;
+    const {cx,cy}=cpFor(a.px,a.py,b.px,b.py);
+    ctx.beginPath(); ctx.moveTo(a.px,a.py);
+    ctx.quadraticCurveTo(cx,cy,b.px,b.py);
+    ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; ctx.stroke();
+  }
+
+  // Epoch seal rings
+  for(let i=rings.length-1;i>=0;i--){
+    const rg=rings[i]; rg.r+=3.5;
+    rg.alpha=Math.max(0,1-rg.r/320);
+    if(rg.alpha<=0){rings.splice(i,1);continue;}
+    ctx.beginPath(); ctx.arc(rg.x,rg.y,rg.r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(247,147,26,${rg.alpha*0.65})`; ctx.lineWidth=2; ctx.stroke();
+  }
+
+  // Spawn packets
+  if(now-lastSpawn>220){ spawnPacket(); lastSpawn=now; }
+  if(now-lastActivity>1800){ randomActivity(); lastActivity=now; }
+
+  // Draw packets
+  for(let i=packets.length-1;i>=0;i--){
+    const p=packets[i]; p.t+=p.speed;
+    if(p.t>=1){
+      const dst=nodes[p.dst]; if(dst) dst.pulse=Math.min(1,(dst.pulse||0)+0.65);
+      packets.splice(i,1); continue;
+    }
+    const a=nodes[p.src], b=nodes[p.dst]; if(!a||!b) continue;
+    const {cx,cy}=cpFor(a.px,a.py,b.px,b.py);
+    const pos=bezier(p.t,a.px,a.py,cx,cy,b.px,b.py);
+    glow(pos.x,pos.y,10,p.color,0.3);
+    ctx.beginPath(); ctx.arc(pos.x,pos.y,p.size,0,Math.PI*2); ctx.fillStyle=p.color; ctx.fill();
+    ctx.beginPath(); ctx.arc(pos.x,pos.y,p.size*0.4,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+
+  // Draw nodes
+  for(const n of Object.values(nodes)){
+    const cfg=TYPE[n.type]; if(!cfg) continue;
+    if(n.pulse>0) n.pulse=Math.max(0,n.pulse-0.03);
+
+    if(n.pulse>0.01){ glow(n.px,n.py,cfg.size+n.pulse*28,cfg.color,n.pulse*0.5); }
+    glow(n.px,n.py,cfg.size*3.2,cfg.color,0.16);
+
+    ctx.beginPath(); ctx.arc(n.px,n.py,cfg.size,0,Math.PI*2);
+    ctx.fillStyle=hex2rgba(cfg.color,0.14); ctx.fill();
+    ctx.strokeStyle=cfg.color; ctx.lineWidth=2; ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(n.px,n.py,cfg.size*0.38,0,Math.PI*2);
+    ctx.fillStyle=cfg.color; ctx.fill();
+
+    // Label — show balance for account nodes
+    ctx.textAlign='center';
+    const isMiner=n.type==='miner';
+    ctx.font=(isMiner?'bold ':'')+'10px SF Mono,Fira Code,monospace';
+    ctx.fillStyle=cfg.lc;
+    let lbl=n.label;
+    if(n.type==='account'&&n.balance!=null&&n.balance>0){
+      lbl+=' · '+(n.balance>=100?Math.round(n.balance):n.balance.toFixed(2));
+    }
+    ctx.fillText(lbl, n.px, n.py+cfg.size+13);
+  }
+}
+
+// ── Kick off ──────────────────────────────────────────────────────────────────
+fetchData();
+// Refresh data every 60 s
+setInterval(fetchData, 60000);
+
+requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
