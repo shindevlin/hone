@@ -1139,6 +1139,155 @@ impl Chain {
                     })).unwrap_or_default());
             }
 
+            // Decentralized runtime (phase 1) — durable chain state records.
+            LedgerEntry::RuntimeRegister { runtime_id, owner, manifest_cid, runtime_class, nonce, epoch, .. } => {
+                let key = format!("runtime:{}", runtime_id);
+                let prev = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let created_epoch = prev["created_epoch"].as_u64().unwrap_or(*epoch);
+                let value = serde_json::json!({
+                    "runtime_id": runtime_id,
+                    "owner": owner,
+                    "manifest_cid": manifest_cid,
+                    "runtime_class": runtime_class,
+                    "nonce": nonce,
+                    "status": "registered",
+                    "created_epoch": created_epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+            }
+            LedgerEntry::RuntimeDeploy { runtime_id, owner, host_id, manifest_cid, epoch, .. } => {
+                let key = format!("runtime:{}", runtime_id);
+                let prev = self.store.state_get(&key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let created_epoch = prev["created_epoch"].as_u64().unwrap_or(*epoch);
+                let manifest = manifest_cid
+                    .clone()
+                    .or_else(|| prev["manifest_cid"].as_str().map(ToString::to_string));
+                let value = serde_json::json!({
+                    "runtime_id": runtime_id,
+                    "owner": owner,
+                    "manifest_cid": manifest,
+                    "runtime_class": prev.get("runtime_class").cloned().unwrap_or(serde_json::Value::Null),
+                    "nonce": prev.get("nonce").cloned().unwrap_or(serde_json::Value::Null),
+                    "deploy_host": host_id,
+                    "status": "deployed",
+                    "created_epoch": created_epoch,
+                    "deployed_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+
+                let host_key = format!("runtime_host:{}", host_id);
+                let host_value = serde_json::json!({
+                    "host_id": host_id,
+                    "status": "active",
+                    "last_claim_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&host_key, &serde_json::to_vec(&host_value)?)?;
+            }
+            LedgerEntry::RuntimeUndeploy { runtime_id, epoch, .. } => {
+                let key = format!("runtime:{}", runtime_id);
+                if let Some(prev) = self.store.state_get(&key) {
+                    if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&prev) {
+                        value["status"] = serde_json::json!("undeployed");
+                        value["undeployed_epoch"] = serde_json::json!(epoch);
+                        value["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+                    }
+                }
+            }
+            LedgerEntry::RuntimeJobEnqueue { job_id, runtime_id, job_class, due_epoch, payload_cid, epoch, signed_by } => {
+                let key = format!("runtime_job:{}", job_id);
+                let value = serde_json::json!({
+                    "job_id": job_id,
+                    "runtime_id": runtime_id,
+                    "job_class": job_class,
+                    "due_epoch": due_epoch,
+                    "payload_cid": payload_cid,
+                    "status": "queued",
+                    "enqueued_by": signed_by,
+                    "enqueued_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+            }
+            LedgerEntry::RuntimeClaim { lease_id, runtime_id, job_id, host_id, expires_epoch, epoch, .. } => {
+                let lease_key = format!("runtime_lease:{}", lease_id);
+                let lease_value = serde_json::json!({
+                    "lease_id": lease_id,
+                    "runtime_id": runtime_id,
+                    "job_id": job_id,
+                    "host_id": host_id,
+                    "status": "active",
+                    "claimed_epoch": epoch,
+                    "expires_epoch": expires_epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&lease_key, &serde_json::to_vec(&lease_value)?)?;
+
+                let host_key = format!("runtime_host:{}", host_id);
+                let host_value = serde_json::json!({
+                    "host_id": host_id,
+                    "status": "active",
+                    "last_claim_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.state_set(&host_key, &serde_json::to_vec(&host_value)?)?;
+
+                let job_key = format!("runtime_job:{}", job_id);
+                if let Some(prev) = self.store.state_get(&job_key) {
+                    if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&prev) {
+                        value["status"] = serde_json::json!("claimed");
+                        value["lease_id"] = serde_json::json!(lease_id);
+                        value["claimed_by"] = serde_json::json!(host_id);
+                        value["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.state_set(&job_key, &serde_json::to_vec(&value)?)?;
+                    }
+                }
+            }
+            LedgerEntry::RuntimeAttest { attestation_id, runtime_id, job_id, host_id, output_commitment, epoch, .. } => {
+                let key = format!("runtime_attest:{}", attestation_id);
+                let value = serde_json::json!({
+                    "attestation_id": attestation_id,
+                    "runtime_id": runtime_id,
+                    "job_id": job_id,
+                    "host_id": host_id,
+                    "output_commitment": output_commitment,
+                    "epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+            }
+            LedgerEntry::RuntimeChallenge { challenge_id, attestation_id, runtime_id, challenger, reason, evidence_cid, epoch, .. } => {
+                let key = format!("runtime_challenge:{}", challenge_id);
+                let value = serde_json::json!({
+                    "challenge_id": challenge_id,
+                    "attestation_id": attestation_id,
+                    "runtime_id": runtime_id,
+                    "challenger": challenger,
+                    "reason": reason,
+                    "evidence_cid": evidence_cid,
+                    "epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+            }
+            LedgerEntry::RuntimeSlash { slash_id, runtime_id, host_id, amount, reason, epoch, .. } => {
+                let key = format!("runtime_slash:{}", slash_id);
+                let value = serde_json::json!({
+                    "slash_id": slash_id,
+                    "runtime_id": runtime_id,
+                    "host_id": host_id,
+                    "amount": amount,
+                    "reason": reason,
+                    "epoch": epoch,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&value)?)?;
+            }
+
             // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
             LedgerEntry::StoreUpdate { .. }
             | LedgerEntry::ProductCreate { .. }
@@ -4665,5 +4814,105 @@ mod property_tests {
 
         // An epoch we've never touched is pending.
         assert_eq!(chain.epoch_status(999), "pending");
+    }
+
+    #[test]
+    fn runtime_phase1_register_claim_attest_persists_keys() {
+        let (chain, _dir) = prop_chain();
+
+        chain.apply_entry(&LedgerEntry::RuntimeRegister {
+            runtime_id: "rt-1".into(),
+            owner: "alice".into(),
+            manifest_cid: "cid-runtime-1".into(),
+            runtime_class: "stateful_session_service".into(),
+            nonce: "n-1".into(),
+            epoch: 10,
+            signed_by: "alice".into(),
+        }).expect("runtime register");
+
+        chain.apply_entry(&LedgerEntry::RuntimeJobEnqueue {
+            job_id: "job-1".into(),
+            runtime_id: "rt-1".into(),
+            job_class: "worker".into(),
+            due_epoch: 12,
+            payload_cid: Some("cid-job-1".into()),
+            epoch: 11,
+            signed_by: "alice".into(),
+        }).expect("job enqueue");
+
+        chain.apply_entry(&LedgerEntry::RuntimeClaim {
+            lease_id: "lease-1".into(),
+            runtime_id: "rt-1".into(),
+            job_id: "job-1".into(),
+            host_id: "host-a".into(),
+            expires_epoch: 16,
+            epoch: 12,
+            signed_by: "host-a".into(),
+        }).expect("runtime claim");
+
+        chain.apply_entry(&LedgerEntry::RuntimeAttest {
+            attestation_id: "att-1".into(),
+            runtime_id: "rt-1".into(),
+            job_id: "job-1".into(),
+            host_id: "host-a".into(),
+            output_commitment: "out-123".into(),
+            epoch: 13,
+            signed_by: "host-a".into(),
+        }).expect("runtime attest");
+
+        assert!(chain.store.state_get("runtime:rt-1").is_some());
+        assert!(chain.store.state_get("runtime_job:job-1").is_some());
+        assert!(chain.store.state_get("runtime_lease:lease-1").is_some());
+        assert!(chain.store.state_get("runtime_host:host-a").is_some());
+        assert!(chain.store.state_get("runtime_attest:att-1").is_some());
+    }
+
+    #[test]
+    fn runtime_phase1_challenge_slash_undeploy_persists_keys() {
+        let (chain, _dir) = prop_chain();
+
+        chain.apply_entry(&LedgerEntry::RuntimeRegister {
+            runtime_id: "rt-2".into(),
+            owner: "alice".into(),
+            manifest_cid: "cid-runtime-2".into(),
+            runtime_class: "http_service".into(),
+            nonce: "n-2".into(),
+            epoch: 20,
+            signed_by: "alice".into(),
+        }).expect("runtime register");
+
+        chain.apply_entry(&LedgerEntry::RuntimeChallenge {
+            challenge_id: "ch-1".into(),
+            attestation_id: "att-x".into(),
+            runtime_id: "rt-2".into(),
+            challenger: "bob".into(),
+            reason: "invalid_output".into(),
+            evidence_cid: Some("cid-ev-1".into()),
+            epoch: 21,
+            signed_by: "bob".into(),
+        }).expect("runtime challenge");
+
+        chain.apply_entry(&LedgerEntry::RuntimeSlash {
+            slash_id: "sl-1".into(),
+            runtime_id: "rt-2".into(),
+            host_id: "host-b".into(),
+            amount: 42,
+            reason: "invalid_attestation".into(),
+            epoch: 22,
+            signed_by: "arbiter".into(),
+        }).expect("runtime slash");
+
+        chain.apply_entry(&LedgerEntry::RuntimeUndeploy {
+            runtime_id: "rt-2".into(),
+            owner: "alice".into(),
+            epoch: 23,
+            signed_by: "alice".into(),
+        }).expect("runtime undeploy");
+
+        assert!(chain.store.state_get("runtime_challenge:ch-1").is_some());
+        assert!(chain.store.state_get("runtime_slash:sl-1").is_some());
+        let runtime = chain.store.state_get("runtime:rt-2").expect("runtime rt-2 persisted");
+        let runtime_json: serde_json::Value = serde_json::from_slice(&runtime).expect("runtime json");
+        assert_eq!(runtime_json["status"], "undeployed");
     }
 }

@@ -604,6 +604,66 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Decentralized runtime entries (phase 1) ─────────────────────────
+        LedgerEntry::RuntimeRegister { owner, signed_by, .. } => {
+            if signed_by != owner {
+                bail!("signed_by must match owner");
+            }
+            require_key(chain, owner)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeDeploy { owner, signed_by, .. } => {
+            if signed_by != owner {
+                bail!("signed_by must match owner");
+            }
+            require_key(chain, owner)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeUndeploy { owner, signed_by, .. } => {
+            if signed_by != owner {
+                bail!("signed_by must match owner");
+            }
+            require_key(chain, owner)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeJobEnqueue { signed_by, .. } => {
+            require_key(chain, signed_by)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeClaim { host_id, signed_by, .. } => {
+            if signed_by != host_id {
+                bail!("signed_by must match host_id");
+            }
+            require_key(chain, host_id)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeAttest { host_id, signed_by, .. } => {
+            if signed_by != host_id {
+                bail!("signed_by must match host_id");
+            }
+            require_key(chain, host_id)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeChallenge { challenger, signed_by, .. } => {
+            if signed_by != challenger {
+                bail!("signed_by must match challenger");
+            }
+            require_key(chain, challenger)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::RuntimeSlash { signed_by, .. } => {
+            require_key(chain, signed_by)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
         // ── CoverageReport: cellular dead-spot / signal map submission ────────
         LedgerEntry::CoverageReport { reporter, signed_by, .. } => {
             if signed_by != reporter {
@@ -826,17 +886,21 @@ pub fn validate_and_apply(
             require_key(chain, signed_by)?;
             check_nonce(chain, staker, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
-            // Self-staking (operator staking their own role) bypasses opt-in and capacity checks.
+            // Non-self staking: blocked only if node has explicitly opted out.
+            // Nodes that haven't configured opt-in are treated as open by default (20 backers, 10% share).
             if staker != node {
                 let opt_key = format!("role_opt:{}:{}", role, node);
-                let opt_raw = chain.store.state_get(&opt_key)
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "node '{}' has not opted in to backer sharing for role '{}' — \
-                         if staking your own node, use your own account name as the node", node, role
-                    ))?;
-                let opt: serde_json::Value = serde_json::from_slice(&opt_raw)
-                    .map_err(|_| anyhow::anyhow!("corrupt role opt config for '{}'", node))?;
-                let max_backers = opt["max_backers"].as_u64().unwrap_or(10) as usize;
+                let opt = chain.store.state_get(&opt_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+                // An explicit opt-out stores {"opted_out": true}; absence means open-by-default.
+                if let Some(ref cfg) = opt {
+                    if cfg.get("opted_out").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        bail!("node '{}' has opted out of backer sharing for role '{}'", node, role);
+                    }
+                }
+                let max_backers = opt.as_ref()
+                    .and_then(|c| c["max_backers"].as_u64())
+                    .unwrap_or(20) as usize;
                 let prefix = format!("role_stake:{}:{}:", role, node);
                 let current_count = chain.store.state_scan_prefix(&prefix).len();
                 let is_existing = chain.store
@@ -1089,6 +1153,43 @@ pub fn validate_and_apply(
             let _guard = chain.write_lock.lock();
             require_key(chain, submitter)?;
             check_signature(chain, submitter, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Project collaboration ─────────────────────────────────────────────
+        LedgerEntry::ProjectCreate { creator, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, creator, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::ProjectTask { creator, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, creator, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TaskClaim { claimant, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, claimant, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TaskSubmit { submitter, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, submitter, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TaskApprove { approver, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, approver, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
             chain.apply_entry(entry)?;
         }
     }

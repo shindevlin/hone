@@ -845,6 +845,83 @@ pub enum LedgerEntry {
         container_hours: u64,
         signed_by: AccountId,
     },
+    /// Register a decentralized runtime definition anchored by a manifest CID.
+    RuntimeRegister {
+        runtime_id: String,
+        owner: AccountId,
+        manifest_cid: String,
+        runtime_class: String,
+        nonce: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Deploy a previously-registered runtime to a host.
+    RuntimeDeploy {
+        runtime_id: String,
+        owner: AccountId,
+        host_id: AccountId,
+        manifest_cid: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Remove a runtime deployment from active service.
+    RuntimeUndeploy {
+        runtime_id: String,
+        owner: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Enqueue a durable runtime job for distributed scheduling.
+    RuntimeJobEnqueue {
+        job_id: String,
+        runtime_id: String,
+        job_class: String,
+        due_epoch: Epoch,
+        payload_cid: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Claim a runtime lease for job execution.
+    RuntimeClaim {
+        lease_id: String,
+        runtime_id: String,
+        job_id: String,
+        host_id: AccountId,
+        expires_epoch: Epoch,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Publish signed execution attestation for runtime work.
+    RuntimeAttest {
+        attestation_id: String,
+        runtime_id: String,
+        job_id: String,
+        host_id: AccountId,
+        output_commitment: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Challenge a runtime attestation with evidence.
+    RuntimeChallenge {
+        challenge_id: String,
+        attestation_id: String,
+        runtime_id: String,
+        challenger: AccountId,
+        reason: String,
+        evidence_cid: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+    /// Slash a runtime host after successful challenge/adjudication.
+    RuntimeSlash {
+        slash_id: String,
+        runtime_id: String,
+        host_id: AccountId,
+        amount: Dreams,
+        reason: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
     /// Buyer purchases a sensor data batch from a sensor owner.
     SensorDataPurchase {
         sensor_id: String,
@@ -1472,6 +1549,14 @@ impl LedgerEntry {
             Self::GatewayHeartbeat { epoch, .. } => *epoch,
             Self::StorageHeartbeat { epoch, .. } => *epoch,
             Self::ServiceHeartbeat { epoch, .. } => *epoch,
+            Self::RuntimeRegister { epoch, .. } => *epoch,
+            Self::RuntimeDeploy { epoch, .. } => *epoch,
+            Self::RuntimeUndeploy { epoch, .. } => *epoch,
+            Self::RuntimeJobEnqueue { epoch, .. } => *epoch,
+            Self::RuntimeClaim { epoch, .. } => *epoch,
+            Self::RuntimeAttest { epoch, .. } => *epoch,
+            Self::RuntimeChallenge { epoch, .. } => *epoch,
+            Self::RuntimeSlash { epoch, .. } => *epoch,
             Self::SensorDataPurchase { epoch, .. } => *epoch,
             Self::LinkGitRepoCreate { epoch, .. } => *epoch,
             Self::LinkGitRefUpdate { epoch, .. } => *epoch,
@@ -1595,6 +1680,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::DeviceClaimUnstake { .. }
         | LedgerEntry::DeviceYieldUnstake { .. }
         | LedgerEntry::DeviceYieldOptOut { .. }
+        | LedgerEntry::RuntimeUndeploy { .. }
         | LedgerEntry::SpamGateClear { .. }
         | LedgerEntry::TokenAccept { .. }
         | LedgerEntry::TokenReject { .. }
@@ -1616,6 +1702,11 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::InferenceJobClaim { .. }
         | LedgerEntry::InferenceReviewVote { .. }
         | LedgerEntry::InferenceVerifyClaim { .. }
+        | LedgerEntry::RuntimeJobEnqueue { .. }
+        | LedgerEntry::RuntimeClaim { .. }
+        | LedgerEntry::RuntimeAttest { .. }
+        | LedgerEntry::RuntimeChallenge { .. }
+        | LedgerEntry::RuntimeSlash { .. }
         | LedgerEntry::TrackerAcousticProof { .. }
         | LedgerEntry::TrackerSubscription { .. }
         | LedgerEntry::TrackerSightingData { .. }
@@ -1651,6 +1742,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::DeviceYieldOptIn { .. }
         | LedgerEntry::NodeRoleOptIn { .. }
         | LedgerEntry::NodeRoleOptOut { .. }
+        | LedgerEntry::RuntimeRegister { .. }
+        | LedgerEntry::RuntimeDeploy { .. }
         | LedgerEntry::MempoolOperatorRegister { .. }
         | LedgerEntry::HardwareClaim { .. }
         | LedgerEntry::ContractDeploy { .. }
