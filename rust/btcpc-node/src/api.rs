@@ -169,6 +169,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/linkgit/repo/ref/update", post(post_linkgit_ref_update))
         .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
         .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
+        .route("/api/linkgit/repo/:owner/:repo/wallet", post(post_linkgit_repo_wallet_init))
         // ── LinkGit: Issues (COBs) ────────────────────────────────────────
         .route("/api/linkgit/repo/:owner/:repo/issues", get(get_issues).post(post_issue_create))
         .route("/api/linkgit/repo/:owner/:repo/issues/:id", get(get_issue))
@@ -1257,12 +1258,14 @@ async fn post_account_create(
 ) -> Json<serde_json::Value> {
     let epoch = s.chain.current_epoch();
 
+    let fp = s.hw_fingerprint.as_ref();
     let entry = LedgerEntry::AccountCreate {
-        account:      body.account,
-        keys:         body.keys.unwrap_or_default().into_iter().collect(),
-        chain_proofs: vec![],
+        account:             body.account,
+        keys:                body.keys.unwrap_or_default().into_iter().collect(),
+        chain_proofs:        vec![],
         epoch,
-        funded_by:    body.funded_by.filter(|s| !s.is_empty()),
+        funded_by:           body.funded_by.filter(|s| !s.is_empty()),
+        machine_fingerprint: if fp.is_empty() { None } else { Some(fp.clone()) },
     };
 
     apply_and_broadcast(&s, entry, None)
@@ -1625,6 +1628,10 @@ async fn post_inference_job(
         persist_on_fs: None,
         fs_fee: None,
         min_verifiers: None,
+        node_fingerprint: {
+            let fp = s.hw_fingerprint.as_ref();
+            if fp.is_empty() { None } else { Some(fp.clone()) }
+        },
     };
     let sig = non_empty(&body.signature);
     match tx::validate_and_apply(&s.chain, &entry, sig) {
@@ -1648,6 +1655,29 @@ async fn post_inference_bid(
     Json(body): Json<InferenceBidBody>,
 ) -> Json<serde_json::Value> {
     let epoch = s.chain.current_epoch();
+
+    // Reject same-machine self-dealing: if the job was posted from this machine
+    // (its node_fingerprint matches ours) and the bidder's account was also created
+    // on this machine, the bid is fraudulent.
+    let local_fp = s.hw_fingerprint.as_ref();
+    if !local_fp.is_empty() {
+        if let Some(job) = crate::inference::get_job(&s.chain, &body.job_id) {
+            let job_fp = job.node_fingerprint.as_deref().unwrap_or("");
+            if job_fp == local_fp.as_str() {
+                let bidder_fp = s.chain.store.get_account(&body.bidder)
+                    .ok().flatten()
+                    .and_then(|a| a.get("machine_fingerprint").and_then(|v| v.as_str()).map(str::to_owned))
+                    .unwrap_or_default();
+                if bidder_fp == local_fp.as_str() {
+                    return Json(serde_json::json!({
+                        "accepted": false,
+                        "error": "self-dealing: job requester and bidder are on the same node"
+                    }));
+                }
+            }
+        }
+    }
+
     let entry = LedgerEntry::InferenceJobBid {
         job_id: body.job_id,
         bidder: body.bidder.clone(),
@@ -2690,6 +2720,53 @@ async fn post_linkgit_access_revoke(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/linkgit/repo/:owner/:repo/wallet
+/// Creates an on-chain account for the repo (account name "{owner}.{repo}") stamped
+/// with this node's machine fingerprint. Idempotent — safe to call again on an
+/// existing account.  Returns { account, public_key, machine_fingerprint }.
+async fn post_linkgit_repo_wallet_init(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let account_name = format!("{}.{}", owner, repo);
+    let epoch = s.chain.current_epoch();
+    let fp = s.hw_fingerprint.as_ref();
+
+    // Generate a fresh ed25519 keypair for the repo account.
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+    let privkey_hex = hex::encode(signing_key.to_bytes());
+
+    let keys: std::collections::BTreeMap<String, String> = [
+        ("posting".to_string(), pubkey_hex.clone()),
+        ("owner".to_string(),   pubkey_hex.clone()),
+    ].into_iter().collect();
+
+    let entry = LedgerEntry::AccountCreate {
+        account:             account_name.clone(),
+        keys,
+        chain_proofs:        vec![],
+        epoch,
+        funded_by:           None,
+        machine_fingerprint: if fp.is_empty() { None } else { Some(fp.clone()) },
+    };
+
+    match s.chain.apply_entry(&entry) {
+        Ok(()) => {
+            let _ = s.tx_broadcast.send((entry, None));
+            Json(serde_json::json!({
+                "account": account_name,
+                "public_key": pubkey_hex,
+                "machine_fingerprint": if fp.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(fp.clone()) },
+                "private_key_hex": privkey_hex,
+            }))
+        }
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+    }
 }
 
 // ── LinkGit COB handlers (Issues + Pull Requests) ────────────────────────────

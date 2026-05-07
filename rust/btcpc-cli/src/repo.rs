@@ -9,6 +9,22 @@ use crate::session;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+/// Save a repo keypair to ~/.btcpc/repos/{name}.key.json.
+fn save_repo_key(repo_name: &str, account: &str, private_key_hex: &str) -> Result<()> {
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let dir = PathBuf::from(home).join(".btcpc").join("repos");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.key.json", repo_name));
+    let json = serde_json::to_string_pretty(&json!({
+        "account": account,
+        "private_key_hex": private_key_hex,
+    }))?;
+    std::fs::write(&path, &json)
+        .with_context(|| format!("write {}", path.display()))?;
+    println!("{} {}", "Repo key saved:".bold(), path.display());
+    Ok(())
+}
+
 fn resolve_key_file(key_file: Option<&Path>) -> Result<PathBuf> {
     session::resolve_key_file(key_file, session::load().as_ref())
 }
@@ -95,10 +111,21 @@ pub fn cmd_repo_create(
 
     let _resp: Value = api.post("/api/linkgit/repo/create", &body)?;
 
+    // Create the repo's on-chain wallet (account "{owner}.{name}") stamped with
+    // the node's machine fingerprint so self-dealing bids are blocked.
+    let wallet_path = format!("/api/linkgit/repo/{}/{}/wallet", owner, name);
+    let wallet_resp: Value = api.post(&wallet_path, &json!({}))?;
+    let repo_account = wallet_resp.get("account").and_then(|v| v.as_str()).unwrap_or("");
+    let repo_privkey = wallet_resp.get("private_key_hex").and_then(|v| v.as_str()).unwrap_or("");
+    if !repo_account.is_empty() {
+        save_repo_key(name, repo_account, repo_privkey)?;
+    }
+
     let git_url = format!("{}/git/{}/{}", node_base_url(&api), owner, name);
     println!("{}", "Repository created.".green().bold());
     println!("{} {}/{}", "Repo:".bold(), owner, name);
     println!("{} {}", "Visibility:".bold(), visibility);
+    println!("{} {}", "Chain account:".bold(), if repo_account.is_empty() { "n/a" } else { repo_account });
     println!("{} {}", "Git URL:".bold(), git_url);
     println!();
     println!("To use this repo:");
@@ -134,6 +161,16 @@ pub fn cmd_repo_init(
         "signature": sig,
     });
     let _resp: Value = api.post("/api/linkgit/repo/create", &body)?;
+
+    // Create the repo's on-chain wallet stamped with the machine fingerprint.
+    let wallet_path = format!("/api/linkgit/repo/{}/{}/wallet", owner, name);
+    if let Ok(wallet_resp) = api.post::<Value>(&wallet_path, &json!({})) {
+        let repo_account = wallet_resp.get("account").and_then(|v| v.as_str()).unwrap_or("");
+        let repo_privkey = wallet_resp.get("private_key_hex").and_then(|v| v.as_str()).unwrap_or("");
+        if !repo_account.is_empty() {
+            let _ = save_repo_key(name, repo_account, repo_privkey);
+        }
+    }
 
     let git_url = format!("{}/git/{}/{}", node_base_url(&api), owner, name);
 

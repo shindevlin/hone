@@ -35,11 +35,12 @@ fn seed_accounts(chain: &Chain) {
             continue;
         }
         let _ = chain.apply_entry(&LedgerEntry::AccountCreate {
-            account:      account.to_string(),
-            keys:         Default::default(),
-            chain_proofs: vec![],
-            epoch:        0,
-            funded_by:    None,
+            account:             account.to_string(),
+            keys:                Default::default(),
+            chain_proofs:        vec![],
+            epoch:               0,
+            funded_by:           None,
+            machine_fingerprint: None,
         });
         let _ = chain.apply_entry(&LedgerEntry::GenesisAlloc {
             account: account.to_string(),
@@ -142,6 +143,10 @@ fn run_tick(chain: &Chain, tick: u64, epoch: u64) {
             epoch,
             nonce: 0,
             signed_by: requester.to_string(),
+            persist_on_fs: None,
+            fs_fee: None,
+            min_verifiers: None,
+            node_fingerprint: None,
         };
         if let Err(e) = chain.apply_entry(&job) {
             warn!("sim: inference post failed: {}", e);

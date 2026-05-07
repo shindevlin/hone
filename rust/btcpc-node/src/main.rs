@@ -1499,6 +1499,7 @@ async fn emit_epoch_rewards(
                 persist_on_fs: None,
                 fs_fee: None,
                 min_verifiers: None,
+                node_fingerprint: None,
             };
             if let Err(e) = chain.apply_entry(&entry) {
                 warn!("benchmark job {} failed: {}", job_id, e);

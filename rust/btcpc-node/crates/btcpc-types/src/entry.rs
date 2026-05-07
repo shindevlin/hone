@@ -97,6 +97,10 @@ pub enum LedgerEntry {
         epoch: Epoch,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         funded_by: Option<AccountId>,
+        /// SHA-256(gpu_serial | machine-id) set by the node that created this account.
+        /// Used to block same-machine self-dealing in the inference marketplace.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine_fingerprint: Option<String>,
     },
     AccountUpdateKey {
         account: AccountId,
@@ -437,6 +441,10 @@ pub enum LedgerEntry {
         /// Set higher for mission-critical work; requester pays proportionally more.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         min_verifiers: Option<u64>,
+        /// Machine fingerprint of the originating node (SHA-256 of gpu_serial|machine-id).
+        /// Set server-side at post time; prevents same-machine self-dealing on bids.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node_fingerprint: Option<String>,
     },
     /// A node bids to perform work on a posted job.
     InferenceJobBid {

@@ -528,7 +528,7 @@ impl Chain {
                 info!("genesis alloc: {} {} → {}", amount, token, account);
             }
 
-            LedgerEntry::AccountCreate { account, keys, chain_proofs, epoch, funded_by } => {
+            LedgerEntry::AccountCreate { account, keys, chain_proofs, epoch, funded_by, machine_fingerprint } => {
                 if self.store.get_account(account)?.is_some() {
                     return Ok(()); // idempotent
                 }
@@ -556,7 +556,7 @@ impl Chain {
                     }))
                 }).collect::<serde_json::Map<_, _>>().into();
 
-                let state = serde_json::json!({
+                let mut state = serde_json::json!({
                     "account_id": account,
                     "created_epoch": epoch,
                     "keys": keys,
@@ -565,6 +565,9 @@ impl Chain {
                     "stake": 0,
                     "name_stake_locked": btcpc_types::NAME_REGISTRATION_STAKE,
                 });
+                if let Some(fp) = machine_fingerprint.as_deref().filter(|s| !s.is_empty()) {
+                    state["machine_fingerprint"] = serde_json::Value::String(fp.to_owned());
+                }
                 self.store.set_account(account, &state)?;
                 // Seed liveness clock at creation epoch.
                 self.touch_alive(account, *epoch);
@@ -2848,6 +2851,7 @@ mod tests {
             chain_proofs: vec![],
             epoch: 0,
             funded_by: None,
+            machine_fingerprint: None,
         }).ok();
         chain.apply_entry(&LedgerEntry::GenesisAlloc {
             account: account.to_string(),
@@ -3906,6 +3910,7 @@ mod tests {
             chain_proofs: vec![],
             epoch: 1,
             funded_by: None,
+            machine_fingerprint: None,
         }, None).expect("AccountCreate");
 
         let testnet_after  = chain.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
@@ -4416,7 +4421,7 @@ mod tests {
         fund(chain, worker, 0);
         chain.apply_entry(&LedgerEntry::AccountCreate {
             account: "requester".to_string(), keys: Default::default(),
-            chain_proofs: vec![], epoch: 0, funded_by: None,
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
         }).ok();
         chain.apply_entry(&LedgerEntry::InferenceJobPost {
             job_id: job_id.to_string(), requester: "requester".to_string(),
@@ -4905,7 +4910,7 @@ mod property_tests {
     fn seed(chain: &Chain, account: &str, amount: u64) {
         chain.apply_entry(&LedgerEntry::AccountCreate {
             account: account.into(), keys: Default::default(),
-            chain_proofs: vec![], epoch: 0, funded_by: None,
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
         }).ok();
         chain.apply_entry(&LedgerEntry::GenesisAlloc {
             account: account.into(), amount, token: NATIVE_TOKEN.into(),

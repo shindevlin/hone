@@ -95,11 +95,12 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
                     };
 
                     entries.push(LedgerEntry::AccountCreate {
-                        account:      account.clone(),
+                        account:             account.clone(),
                         keys,
-                        chain_proofs: vec![],
-                        epoch:        0,
-                        funded_by:    None,
+                        chain_proofs:        vec![],
+                        epoch:               0,
+                        funded_by:           None,
+                        machine_fingerprint: None,
                     });
                     if dreams > 0 {
                         entries.push(LedgerEntry::GenesisAlloc {
@@ -125,11 +126,12 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
             continue;
         }
         entries.push(LedgerEntry::AccountCreate {
-            account:      name,
-            keys:         shindevlin_keys.clone(),
-            chain_proofs: vec![],
-            epoch:        0,
-            funded_by:    None,
+            account:             name,
+            keys:                shindevlin_keys.clone(),
+            chain_proofs:        vec![],
+            epoch:               0,
+            funded_by:           None,
+            machine_fingerprint: None,
         });
     }
 
@@ -149,7 +151,7 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
     let payload = serde_json::json!({
         "ledger_entries": entries,
         "rewards": [],
-        "compute_proofs": [],
+        "output_hashes": [],
         "chain_id": chain.chain_id,
         "launch": {
             "proclamation": "BTCPC launched at noon, Ireland, 2026-05-01 12:00:00 IST (UTC+1)",
@@ -164,6 +166,11 @@ pub fn init_genesis(chain: &Chain, genesis_file: Option<&Path>, genesis_timestam
     chain.store.set_meta("genesis_hash", block.header.hash_hex().as_bytes())?;
     chain.store.set_meta("chain_id", chain.chain_id.as_bytes())?;
     chain.store.set_meta("launch_proclamation", b"Launched at midnight, Ireland, 2026-05-01 00:00:00 IST")?;
+
+    // Seed governance council on-chain (D5). 2-of-3 required for parameter changes.
+    let gov_keys: Vec<&str> = vec!["shindevlin", "natoshisakamoto", "josh"];
+    let _ = chain.store.state_set("chain_param:governance_keys",
+        &serde_json::to_vec(&gov_keys).unwrap_or_default());
 
     info!("genesis created: {}", block.header.hash_hex());
     Ok(block)

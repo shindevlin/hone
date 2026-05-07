@@ -28,6 +28,12 @@ use btcpc_types::{
     INFERENCE_FEE_REVIEWER_BPS, INFERENCE_FEE_RECYCLE_DISPUTED_BPS,
     CLAIM_WINDOW_EPOCHS, MIN_REVIEW_VOTES,
     RECYCLE_FUND_ACCOUNT,
+    INFERENCE_PRUNE_WINDOW_EPOCHS,
+    VERIFIER_ASSIGNMENT_ENABLED, VERIFIER_THRESHOLD_BYTE,
+    VERIFIER_APPROVAL_WINDOW_EPOCHS, VERIFIER_RUBBER_STAMP_BPS, VERIFIER_SUSPEND_BPS, VERIFIER_SUSPEND_EPOCHS,
+    VERIFIER_ACTIVE_THRESH_3, VERIFIER_ACTIVE_THRESH_5, VERIFIER_ACTIVITY_TRACK_EPOCHS,
+    VERIFIER_VOTE_WEIGHT_NORMAL, VERIFIER_VOTE_WEIGHT_REVIEW,
+    INFERENCE_COMMIT_REVEAL_ENABLED,
 };
 
 use crate::chain::Chain;
@@ -51,6 +57,8 @@ pub enum JobStatus {
     Expired,
 }
 
+fn default_min_verifiers() -> u64 { 1 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobState {
     pub job_id: String,
@@ -73,6 +81,31 @@ pub struct JobState {
     pub disputed_epoch: Option<u64>,
     /// Epoch when a claim was filed.
     pub claimed_epoch: Option<u64>,
+    /// Epoch when the job was settled and payment was calculated.
+    #[serde(default)]
+    pub settled_epoch: Option<u64>,
+    /// Epoch when the worker submitted their result (for vote timeout tracking).
+    #[serde(default)]
+    pub completed_epoch: Option<u64>,
+    /// If true, proof payload is pinned to btcpc-fs permanently (paid opt-in, D1).
+    #[serde(default)]
+    pub persist_on_fs: bool,
+    /// Board verdicts accumulated before quorum: (verifier_account, verdict_string).
+    #[serde(default)]
+    pub verdicts: Vec<(String, String)>,
+    /// Commit-reveal phase 1: (verifier_account, commit_hash) pairs (T4-2).
+    /// When INFERENCE_COMMIT_REVEAL_ENABLED, reveals (InferenceJobVerify) are only
+    /// accepted after a matching commit exists and the commit phase is closed.
+    #[serde(default)]
+    pub commits: Vec<(String, String)>,
+    /// Required verifier board size before resolution. Set at post time.
+    /// Auto-scales with network size; requester may request more for critical work.
+    #[serde(default = "default_min_verifiers")]
+    pub min_verifiers: u64,
+    /// Machine fingerprint of the node that posted this job. Set server-side at post time.
+    /// Bids from the same machine are rejected to prevent self-dealing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +161,63 @@ impl NodeReputation {
         let latency_factor = (5000 / avg_latency_ms.max(50)).min(100);
         self.score = (completion * (50 + latency_factor)).min(10000);
     }
+}
+
+// ── Verifier board helpers ────────────────────────────────────────────────────
+
+/// Auto-scale required verifier count from active network size.
+/// Reads `active_verifier_count` written each epoch seal by main.rs.
+pub fn auto_scale_min_verifiers(chain: &Chain) -> u64 {
+    let active = chain.store.state_get("active_verifier_count")
+        .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+        .map(u64::from_le_bytes)
+        .unwrap_or(0);
+    if active >= VERIFIER_ACTIVE_THRESH_5 { 5 }
+    else if active >= VERIFIER_ACTIVE_THRESH_3 { 3 }
+    else { 1 }
+}
+
+/// Resolve board quorum from accumulated verdicts.
+/// Returns the winning verdict once `min_verifiers` have voted, or None if still waiting.
+/// review_required carries +1 weight so it wins all three-way ties.
+fn resolve_quorum_verdict(verdicts: &[(String, String)], min_verifiers: u64) -> Option<&'static str> {
+    let voted = verdicts.len() as u64;
+
+    let mut approved_w: u64 = 0;
+    let mut rejected_w: u64 = 0;
+    let mut review_w: u64 = 0;
+    for (_, v) in verdicts {
+        match v.as_str() {
+            "approved"         => approved_w += VERIFIER_VOTE_WEIGHT_NORMAL,
+            "rejected"         => rejected_w += VERIFIER_VOTE_WEIGHT_NORMAL,
+            "review_required"  => review_w   += VERIFIER_VOTE_WEIGHT_REVIEW,
+            _ => {}
+        }
+    }
+
+    // Early resolution: check if any verdict already has an unbeatable lead.
+    // Remaining votes can each contribute at most VERIFIER_VOTE_WEIGHT_REVIEW (the highest weight).
+    let remaining = min_verifiers.saturating_sub(voted);
+    let max_swing = remaining * VERIFIER_VOTE_WEIGHT_REVIEW;
+
+    if approved_w > rejected_w.saturating_add(max_swing) && approved_w > review_w.saturating_add(max_swing) {
+        return Some("approved");
+    }
+    if rejected_w > approved_w.saturating_add(max_swing) && rejected_w > review_w.saturating_add(max_swing) {
+        return Some("rejected");
+    }
+    if review_w > approved_w.saturating_add(max_swing) && review_w > rejected_w.saturating_add(max_swing) {
+        return Some("review_required");
+    }
+
+    // Not enough votes yet unless all min_verifiers have voted.
+    if voted < min_verifiers { return None; }
+
+    // All min_verifiers voted, no strict majority — highest weight wins.
+    // review_required's +1 ensures it beats any exact tie.
+    if review_w >= approved_w && review_w >= rejected_w { Some("review_required") }
+    else if approved_w >= rejected_w { Some("approved") }
+    else { Some("rejected") }
 }
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
@@ -221,15 +311,18 @@ pub fn jobs_past_deadline(chain: &Chain, current_epoch: u64) -> Vec<JobState> {
 pub fn apply_post(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     let LedgerEntry::InferenceJobPost {
         job_id, requester, model, mode, input_hash,
-        max_fee, min_reputation, bid_window_epochs, deadline_epoch, epoch, ..
+        max_fee, min_reputation, bid_window_epochs, deadline_epoch, epoch,
+        persist_on_fs, min_verifiers: requested_min_verifiers, node_fingerprint, ..
     } = entry else { bail!("wrong entry type") };
 
     if get_job(chain, job_id).is_some() {
         bail!("job '{}' already exists", job_id);
     }
     chain.store.debit(requester, NATIVE_TOKEN, *max_fee)?;
-    // Escrow sits in recycle fund account until job is resolved.
     chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, *max_fee)?;
+
+    let auto_min = auto_scale_min_verifiers(chain);
+    let min_verifiers = auto_min.max(requested_min_verifiers.unwrap_or(0));
 
     set_job(chain, &JobState {
         job_id: job_id.clone(),
@@ -250,8 +343,15 @@ pub fn apply_post(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         latency_ms: None,
         disputed_epoch: None,
         claimed_epoch: None,
+        settled_epoch: None,
+        completed_epoch: None,
+        persist_on_fs: persist_on_fs.unwrap_or(false),
+        verdicts: vec![],
+        commits: vec![],
+        min_verifiers,
+        node_fingerprint: node_fingerprint.clone(),
     })?;
-    info!("inference job posted: {} model={} max_fee={}", job_id, model, max_fee);
+    info!("inference job posted: {} model={} max_fee={} min_verifiers={}", job_id, model, max_fee, min_verifiers);
     Ok(())
 }
 
@@ -302,6 +402,9 @@ pub fn apply_award(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
             job.winner = Some(winner.clone());
             job.awarded_fee = Some(*fee);
             job.status = JobStatus::Awarded;
+            // Index so the miner loop can find awarded jobs without scanning all jobs.
+            let _ = chain.store.state_set(
+                &format!("mine_queue:{}:{}", winner, job_id), b"awarded");
         }
         "verifier" => {
             job.verifiers.push(winner.clone());
@@ -319,7 +422,7 @@ pub fn apply_award(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
 }
 
 pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
-    let LedgerEntry::InferenceJobComplete { job_id, worker, result_hash, latency_ms, .. } = entry
+    let LedgerEntry::InferenceJobComplete { job_id, worker, result_hash, latency_ms, epoch, .. } = entry
         else { bail!("wrong entry type") };
 
     let mut job = get_job(chain, job_id)
@@ -334,6 +437,7 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     job.result_hash = Some(result_hash.clone());
     job.latency_ms = Some(*latency_ms);
     job.status = JobStatus::Completed;
+    job.completed_epoch = Some(*epoch);
 
     let mut rep = get_reputation(chain, worker);
     rep.jobs_completed += 1;
@@ -341,11 +445,63 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     rep.recompute_score();
     set_reputation(chain, &rep)?;
     set_job(chain, &job)?;
+    // Mark queue entry so miner knows the job is ready for Mine submission.
+    let _ = chain.store.state_set(
+        &format!("mine_queue:{}:{}", worker, job_id), b"completed");
+    Ok(())
+}
+
+/// Commit phase of commit-reveal (T4-2). Verifier commits sha256(verdict|salt)
+/// before the reveal window opens. Prevents verdict copying among board members.
+pub fn apply_commit(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
+    use sha2::{Sha256, Digest};
+    let LedgerEntry::InferenceJobCommit { job_id, verifier, commit_hash, epoch, .. } = entry
+        else { bail!("wrong entry type") };
+
+    let mut job = get_job(chain, job_id)
+        .ok_or_else(|| anyhow::anyhow!("job '{}' not found", job_id))?;
+
+    if job.status != JobStatus::Completed {
+        bail!("job '{}' must be Completed to accept commits (status: {:?})", job_id, job.status);
+    }
+
+    // Validate commit_hash is a valid hex sha256 (64 chars).
+    if commit_hash.len() != 64 || !commit_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("commit_hash must be a 64-char hex SHA-256");
+    }
+
+    // Reject duplicate commits from the same verifier.
+    if job.commits.iter().any(|(v, _)| v == verifier) {
+        bail!("verifier '{}' already committed for job '{}'", verifier, job_id);
+    }
+
+    // Check pre-assigned verifier list if present.
+    if !job.verifiers.is_empty() && !job.verifiers.contains(verifier) {
+        bail!("'{}' is not an assigned verifier for job '{}'", verifier, job_id);
+    }
+
+    job.commits.push((verifier.clone(), commit_hash.clone()));
+    set_job(chain, &job)?;
+
+    // Per-epoch stats for tracking which verifiers are active.
+    let vkey = format!("infer_verify:{}:{}", epoch, verifier);
+    let prev = chain.store.state_get(&vkey)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    let prev_count: u64 = prev.as_ref().and_then(|j| j["count"].as_u64()).unwrap_or(0);
+    let prev_score: u64 = prev.as_ref().and_then(|j| j["value_score_total"].as_u64()).unwrap_or(0);
+    let _ = chain.store.state_set(&vkey, &serde_json::to_vec(&serde_json::json!({
+        "verifier": verifier, "epoch": epoch,
+        "count": prev_count + 1,
+        "value_score_total": prev_score,
+    })).unwrap_or_default());
+
+    info!("AI task {} commit from verifier {} ({}/{})", job_id, verifier, job.commits.len(), job.min_verifiers);
     Ok(())
 }
 
 pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
-    let LedgerEntry::InferenceJobVerify { job_id, verifier, verdict, epoch, .. } = entry
+    use sha2::{Sha256, Digest};
+    let LedgerEntry::InferenceJobVerify { job_id, verifier, verdict, value_score, epoch, reveal_salt, .. } = entry
         else { bail!("wrong entry type") };
 
     let mut job = get_job(chain, job_id)
@@ -353,52 +509,177 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     if job.status != JobStatus::Completed {
         bail!("job '{}' not in completed state for verification", job_id);
     }
-    // If verifiers were pre-assigned (via bid), only they may verify.
-    // If none were assigned, any node may verify (open verification).
+
+    // T4-2: Commit-reveal — verify must be preceded by a matching commit.
+    if INFERENCE_COMMIT_REVEAL_ENABLED {
+        let commit_hash = job.commits.iter()
+            .find(|(v, _)| v == verifier)
+            .map(|(_, h)| h.as_str());
+        match commit_hash {
+            None => bail!("verifier '{}' must submit InferenceJobCommit before revealing", verifier),
+            Some(stored_hash) => {
+                let salt = reveal_salt.as_deref().unwrap_or("");
+                let expected = {
+                    let mut h = Sha256::new();
+                    h.update(verdict.as_bytes());
+                    h.update(b"|");
+                    h.update(salt.as_bytes());
+                    hex::encode(h.finalize())
+                };
+                if expected != stored_hash {
+                    bail!("reveal does not match commit for verifier '{}' on job '{}'", verifier, job_id);
+                }
+            }
+        }
+    }
+
+    // Suspension check.
+    let rep_key = format!("verifier_rep:{}", verifier);
+    let vrep: serde_json::Value = chain.store.state_get(&rep_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    if vrep["suspended_until"].as_u64().unwrap_or(0) > *epoch {
+        bail!("verifier '{}' is suspended until epoch {}", verifier, vrep["suspended_until"]);
+    }
+
+    // D9 random assignment check.
+    if VERIFIER_ASSIGNMENT_ENABLED {
+        let entropy = chain.store.state_get(&format!("epoch_entropy:{}", epoch))
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_default();
+        let mut h = Sha256::new();
+        h.update(format!("{}:{}:{}", entropy, job_id, verifier).as_bytes());
+        let hash = h.finalize();
+        if hash[0] >= VERIFIER_THRESHOLD_BYTE {
+            bail!("verifier '{}' not assigned to job '{}' this epoch", verifier, job_id);
+        }
+    }
+
+    // Pre-assigned verifier check.
     if !job.verifiers.is_empty() && !job.verifiers.contains(verifier) {
         bail!("'{}' is not an assigned verifier for job '{}'", verifier, job_id);
     }
-    // Register this verifier if not already tracked.
-    if !job.verifiers.contains(verifier) {
-        job.verifiers.push(verifier.clone());
+
+    // Board: reject duplicate votes.
+    if job.verdicts.iter().any(|(v, _)| v == verifier) {
+        bail!("verifier '{}' already submitted a verdict for '{}'", verifier, job_id);
     }
 
-    match verdict.as_str() {
-        "approved" => {
-            // Work clearly done — payment flows in daemon next cycle.
-            job.status = JobStatus::Verified;
-        }
-        "rejected" => {
-            // Work clearly not done — immediate rejection, no claim window.
-            // Requester will be refunded; worker earns nothing.
-            job.status = JobStatus::Rejected;
-            if let Some(ref winner) = job.winner.clone() {
-                let mut rep = get_reputation(chain, winner);
-                rep.jobs_failed += 1;
-                rep.recompute_score();
-                set_reputation(chain, &rep)?;
-            }
-        }
-        "review_required" => {
-            // Quality unclear — opens claim window for requester or worker.
-            job.status = JobStatus::Disputed;
-            job.disputed_epoch = Some(*epoch);
-        }
-        other => bail!("unknown verdict '{}' (expected approved|rejected|review_required)", other),
+    // Validate verdict string.
+    if !["approved", "rejected", "review_required"].contains(&verdict.as_str()) {
+        bail!("unknown verdict '{}' (expected approved|rejected|review_required)", verdict);
     }
+
+    // Accumulate verdict into board.
+    job.verdicts.push((verifier.clone(), verdict.clone()));
+
+    // Check for board quorum — resolve only when enough verifiers have voted.
+    if let Some(consensus) = resolve_quorum_verdict(&job.verdicts, job.min_verifiers) {
+        match consensus {
+            "approved" => {
+                job.status = JobStatus::Verified;
+                info!("AI task {} board verdict: approved ({}/{} votes)", job_id, job.verdicts.len(), job.min_verifiers);
+            }
+            "rejected" => {
+                job.status = JobStatus::Rejected;
+                if let Some(ref winner) = job.winner.clone() {
+                    let mut rep = get_reputation(chain, winner);
+                    rep.jobs_failed += 1;
+                    rep.recompute_score();
+                    set_reputation(chain, &rep)?;
+                }
+                info!("AI task {} board verdict: rejected ({}/{} votes)", job_id, job.verdicts.len(), job.min_verifiers);
+            }
+            "review_required" => {
+                job.status = JobStatus::Disputed;
+                job.disputed_epoch = Some(*epoch);
+                info!("AI task {} board verdict: disputed ({}/{} votes)", job_id, job.verdicts.len(), job.min_verifiers);
+            }
+            _ => {}
+        }
+    }
+    // If no quorum yet: status stays Completed, waiting for more verifiers.
     set_job(chain, &job)?;
 
-    // Track per-epoch verification count so the clock can compute verifier rewards.
+    // Per-epoch stats for verifier reward calculation.
     let vkey = format!("infer_verify:{}:{}", epoch, verifier);
-    let prev_count: u64 = chain.store.state_get(&vkey)
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|j| j["count"].as_u64())
-        .unwrap_or(0);
+    let prev = chain.store.state_get(&vkey)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    let prev_count: u64 = prev.as_ref().and_then(|j| j["count"].as_u64()).unwrap_or(0);
+    let prev_score: u64 = prev.as_ref().and_then(|j| j["value_score_total"].as_u64()).unwrap_or(0);
     let _ = chain.store.state_set(&vkey,
         &serde_json::to_vec(&serde_json::json!({
-            "verifier": verifier, "epoch": epoch, "count": prev_count + 1,
+            "verifier": verifier, "epoch": epoch,
+            "count": prev_count + 1,
+            "value_score_total": prev_score + value_score,
         })).unwrap_or_default());
 
+    // Leaky-bucket approval-rate tracking (rubber-stamp detection).
+    update_verifier_approval_rate(chain, verifier, verdict == "approved")?;
+
+    Ok(())
+}
+
+/// Update the leaky-bucket approval-rate window for a verifier and apply weight/suspension.
+///
+/// Leaky bucket (same model as clock uptime): `total` grows until WINDOW, then holds steady.
+/// In steady state, a rejection decrements `approved_count`; an approval leaves it unchanged
+/// (evict one old approval, add one new approval = net zero). This approximates a rolling
+/// window without storing full history and cannot be gamed by pausing submissions.
+pub fn update_verifier_approval_rate_pub(chain: &Chain, verifier: &str, approved: bool) -> anyhow::Result<()> {
+    update_verifier_approval_rate(chain, verifier, approved)
+}
+fn update_verifier_approval_rate(chain: &Chain, verifier: &str, approved: bool) -> anyhow::Result<()> {
+    let rep_key = format!("verifier_rep:{}", verifier);
+    let mut vrep: serde_json::Value = chain.store.state_get(&rep_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| serde_json::json!({
+            "total": 0u64,
+            "approved_count": 0u64,
+            "weight_halved": false,
+            "suspended_until": 0u64,
+        }));
+
+    let prev_total = vrep["total"].as_u64().unwrap_or(0);
+    let prev_approved = vrep["approved_count"].as_u64().unwrap_or(0);
+
+    let (total, approved_count) = if prev_total < VERIFIER_APPROVAL_WINDOW_EPOCHS {
+        // Growing phase: accumulate.
+        (prev_total + 1, prev_approved + if approved { 1 } else { 0 })
+    } else {
+        // Steady state: evict one old verdict, add new one.
+        // Approved verdict: evict assumed-approved → net zero change on approved_count.
+        // Rejected verdict: evict assumed-approved → approved_count - 1.
+        let new_approved = if approved { prev_approved } else { prev_approved.saturating_sub(1) };
+        (prev_total, new_approved)
+    };
+
+    let approval_bps = if total > 0 { approved_count * 10_000 / total } else { 0 };
+    let prev_suspended_until = vrep["suspended_until"].as_u64().unwrap_or(0);
+
+    // Only fire checks after 10 verdicts to avoid early false positives.
+    let (weight_halved, suspended_until) = if total >= 10 {
+        if approval_bps >= VERIFIER_SUSPEND_BPS {
+            // Derive a synthetic epoch for the log message from the suspended_until delta.
+            tracing::warn!(
+                "[verifier] '{}' suspended (approval rate {}% over {} verdicts)",
+                verifier, approval_bps / 100, total
+            );
+            (true, prev_suspended_until.max(total + VERIFIER_SUSPEND_EPOCHS))
+        } else if approval_bps >= VERIFIER_RUBBER_STAMP_BPS {
+            (true, prev_suspended_until)
+        } else {
+            (false, prev_suspended_until)
+        }
+    } else {
+        (false, prev_suspended_until)
+    };
+
+    vrep["total"] = serde_json::json!(total);
+    vrep["approved_count"] = serde_json::json!(approved_count);
+    vrep["weight_halved"] = serde_json::json!(weight_halved);
+    vrep["suspended_until"] = serde_json::json!(suspended_until);
+    chain.store.state_set(&rep_key, &serde_json::to_vec(&vrep)?)?;
     Ok(())
 }
 
@@ -463,7 +744,7 @@ pub fn apply_review_vote(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
 pub fn apply_pay(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     let LedgerEntry::InferenceJobPay {
         job_id, worker, worker_amount, verifier_payments, reviewer_payments,
-        recycle_amount, refund_amount, ..
+        recycle_amount, refund_amount, dissenter_slashes, epoch, ..
     } = entry else { bail!("wrong entry type") };
 
     let mut job = get_job(chain, job_id)
@@ -497,8 +778,30 @@ pub fn apply_pay(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         chain.store.credit(&job.requester, NATIVE_TOKEN, *refund_amount)?;
     }
 
+    // Slash dissenters: debit from staked balance, credit to recycle fund.
+    // Best-effort — capped at their actual stake; never fails the whole pay entry.
+    for (dissenter, slash_amount) in dissenter_slashes {
+        let current_stake = chain.store.get_stake(dissenter);
+        let actual_slash = (*slash_amount).min(current_stake);
+        if actual_slash > 0 {
+            let _ = chain.store.set_stake(dissenter, current_stake - actual_slash);
+            let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, actual_slash);
+            info!("verifier dissent slash: {} -{} stake → recycle", dissenter, actual_slash);
+        }
+    }
+
+    job.settled_epoch = Some(*epoch);
     job.status = JobStatus::Paid;
     set_job(chain, &job)?;
+
+    // Schedule proof payload pruning (D1): mark for clearing after prune window.
+    // Verdict and reward records stay forever; only raw proof data is cleared.
+    if !job.persist_on_fs {
+        let prune_at = epoch + INFERENCE_PRUNE_WINDOW_EPOCHS;
+        let prune_key = format!("prune_ready:{}:{}", prune_at, job_id);
+        let _ = chain.store.state_set(&prune_key, job_id.as_bytes());
+    }
+
     info!("inference job paid: {} worker={} +{}", job_id, worker, worker_amount);
     Ok(())
 }
@@ -543,8 +846,61 @@ pub fn select_best_bid(bids: &[BidState], chain: &Chain, role: &str) -> Option<B
         .cloned()
 }
 
-/// Build InferenceJobPay for the happy path (Verified, no dispute).
-pub fn build_pay_entry_happy(job: &JobState, verifiers: &[String], epoch: u64) -> Option<LedgerEntry> {
+/// Split board verdicts into consensus verifiers and dissenters for a given consensus verdict.
+/// Returns (consensus_accounts, dissenter_accounts).
+fn split_board_by_consensus<'a>(job: &'a JobState, consensus: &str) -> (Vec<&'a str>, Vec<&'a str>) {
+    if job.verdicts.is_empty() {
+        // Legacy job or no board — treat all verifiers as consensus, no dissenters.
+        return (job.verifiers.iter().map(String::as_str).collect(), vec![]);
+    }
+    let consensus_vers = job.verdicts.iter()
+        .filter(|(_, v)| v.as_str() == consensus)
+        .map(|(acc, _)| acc.as_str())
+        .collect();
+    let dissenters = job.verdicts.iter()
+        .filter(|(_, v)| v.as_str() != consensus)
+        .map(|(acc, _)| acc.as_str())
+        .collect();
+    (consensus_vers, dissenters)
+}
+
+/// Read weight_halved flag for a verifier from their rep record.
+fn verifier_weight(chain: &Chain, verifier: &str) -> u64 {
+    let vrep: serde_json::Value = chain.store.state_get(&format!("verifier_rep:{}", verifier))
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    if vrep["weight_halved"].as_bool().unwrap_or(false) { 50 } else { 100 }
+}
+
+/// Compute weighted verifier payments and dissenter slashes for a pool.
+/// Consensus verifiers split the pool by weight; dissenters get 0 and are slashed
+/// their equal would-have-earned share from staked balance.
+fn compute_verifier_split(
+    chain: &Chain,
+    consensus_vers: &[&str],
+    dissenters: &[&str],
+    pool: u64,
+) -> (Vec<(String, u64)>, Vec<(String, u64)>) {
+    let total_ver_count = (consensus_vers.len() + dissenters.len()).max(1) as u64;
+    let per_head = pool / total_ver_count; // equal share each verifier would have earned
+
+    // Weighted split among consensus verifiers.
+    let weights: Vec<u64> = consensus_vers.iter().map(|v| verifier_weight(chain, v)).collect();
+    let total_weight = weights.iter().sum::<u64>().max(1);
+    let payments = consensus_vers.iter().zip(weights.iter())
+        .map(|(acc, w)| (acc.to_string(), pool * w / total_weight / 1)) // proportional to weight
+        .collect::<Vec<_>>();
+
+    // Dissenters: 0 pay; slashed for their equal share.
+    let slashes = dissenters.iter()
+        .map(|acc| (acc.to_string(), per_head))
+        .collect::<Vec<_>>();
+
+    (payments, slashes)
+}
+
+/// Build InferenceJobPay for the happy path (Verified, board consensus = approved).
+pub fn build_pay_entry_happy(chain: &Chain, job: &JobState, epoch: u64) -> Option<LedgerEntry> {
     let worker = job.winner.as_ref()?;
     let fee = job.awarded_fee?;
 
@@ -552,12 +908,13 @@ pub fn build_pay_entry_happy(job: &JobState, verifiers: &[String], epoch: u64) -
     let verifier_pool = fee * INFERENCE_FEE_VERIFIER_BPS / 10_000;
     let recycle_amount = fee * INFERENCE_FEE_RECYCLE_BPS / 10_000;
 
-    let n_ver = verifiers.len().max(1) as u64;
-    let verifier_payments = verifiers.iter()
-        .map(|v| (v.clone(), verifier_pool / n_ver))
-        .collect::<Vec<_>>();
+    let (consensus_vers, dissenters) = split_board_by_consensus(job, "approved");
+    let (verifier_payments, dissenter_slashes) =
+        compute_verifier_split(chain, &consensus_vers, &dissenters, verifier_pool);
 
-    let paid: u64 = worker_amount + verifier_payments.iter().map(|(_, a)| *a).sum::<u64>() + recycle_amount;
+    let paid: u64 = worker_amount
+        + verifier_payments.iter().map(|(_, a)| *a).sum::<u64>()
+        + recycle_amount;
     let refund_amount = job.max_fee.saturating_sub(paid);
 
     Some(LedgerEntry::InferenceJobPay {
@@ -568,14 +925,15 @@ pub fn build_pay_entry_happy(job: &JobState, verifiers: &[String], epoch: u64) -
         reviewer_payments: vec![],
         recycle_amount,
         refund_amount,
+        dissenter_slashes,
         epoch,
     })
 }
 
 /// Build InferenceJobPay for the disputed+reviewed path (worker wins review).
 pub fn build_pay_entry_disputed(
+    chain: &Chain,
     job: &JobState,
-    verifiers: &[String],
     reviewers: &[String],
     epoch: u64,
 ) -> Option<LedgerEntry> {
@@ -587,11 +945,13 @@ pub fn build_pay_entry_disputed(
     let reviewer_pool = fee * INFERENCE_FEE_REVIEWER_BPS / 10_000;
     let recycle_amount = fee * INFERENCE_FEE_RECYCLE_DISPUTED_BPS / 10_000;
 
-    let n_ver = verifiers.len().max(1) as u64;
+    // On the disputed path, board verdicts caused the dispute.
+    // Pay verifiers who voted review_required; slash those who voted approved/rejected.
+    let (consensus_vers, dissenters) = split_board_by_consensus(job, "review_required");
+    let (verifier_payments, dissenter_slashes) =
+        compute_verifier_split(chain, &consensus_vers, &dissenters, verifier_pool);
+
     let n_rev = reviewers.len().max(1) as u64;
-    let verifier_payments = verifiers.iter()
-        .map(|v| (v.clone(), verifier_pool / n_ver))
-        .collect::<Vec<_>>();
     let reviewer_payments = reviewers.iter()
         .map(|r| (r.clone(), reviewer_pool / n_rev))
         .collect::<Vec<_>>();
@@ -610,6 +970,7 @@ pub fn build_pay_entry_disputed(
         reviewer_payments,
         recycle_amount,
         refund_amount,
+        dissenter_slashes,
         epoch,
     })
 }
@@ -617,8 +978,8 @@ pub fn build_pay_entry_disputed(
 /// Build InferenceJobPay for the NoFee / Rejected path (worker gets nothing).
 /// Verifiers and reviewers still get paid; remainder refunded to requester.
 pub fn build_pay_entry_nofee(
+    chain: &Chain,
     job: &JobState,
-    verifiers: &[String],
     reviewers: &[String],
     epoch: u64,
 ) -> LedgerEntry {
@@ -627,11 +988,12 @@ pub fn build_pay_entry_nofee(
     let reviewer_pool = if reviewers.is_empty() { 0 } else { fee * INFERENCE_FEE_REVIEWER_BPS / 10_000 };
     let recycle_amount = fee * INFERENCE_FEE_RECYCLE_DISPUTED_BPS / 10_000;
 
-    let n_ver = verifiers.len().max(1) as u64;
+    // On rejected path, verifiers who voted rejected are consensus; others dissent.
+    let (consensus_vers, dissenters) = split_board_by_consensus(job, "rejected");
+    let (verifier_payments, dissenter_slashes) =
+        compute_verifier_split(chain, &consensus_vers, &dissenters, verifier_pool);
+
     let n_rev = reviewers.len().max(1) as u64;
-    let verifier_payments = verifiers.iter()
-        .map(|v| (v.clone(), verifier_pool / n_ver))
-        .collect::<Vec<_>>();
     let reviewer_payments = reviewers.iter()
         .map(|r| (r.clone(), reviewer_pool / n_rev))
         .collect::<Vec<_>>();
@@ -641,9 +1003,6 @@ pub fn build_pay_entry_nofee(
         + recycle_amount;
     let refund_amount = job.max_fee.saturating_sub(paid);
 
-    // On the NoFee path the worker gets 0 but we still record their account for
-    // the ledger trail. Use the winner field if present, otherwise an empty
-    // sentinel that signals "no worker was paid" in the audit log.
     let worker = job.winner.clone().unwrap_or_else(|| "__no_worker__".to_string());
 
     LedgerEntry::InferenceJobPay {
@@ -654,6 +1013,7 @@ pub fn build_pay_entry_nofee(
         reviewer_payments,
         recycle_amount,
         refund_amount,
+        dissenter_slashes,
         epoch,
     }
 }

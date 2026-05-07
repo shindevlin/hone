@@ -201,6 +201,137 @@ pub fn init(data_dir: &Path) -> Result<WalletKeys> {
     Ok(keys)
 }
 
+/// Copy the wallet to ~/.btcpc/{account}.wallet.key and ~/.btcpc/{account}.txt so
+/// TUI/CLI can find it without knowing the node's data directory.
+/// Called every startup — safe to repeat. User can encrypt the ~/.btcpc/ folder.
+pub fn backup_to_home(account: &str, keys: &WalletKeys) {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let dir = std::path::PathBuf::from(&home).join(".btcpc");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("wallet: could not create ~/.btcpc: {}", e);
+        return;
+    }
+
+    let json_dest = dir.join(format!("{}.wallet.key", account));
+    match save(&json_dest, keys) {
+        Ok(_)  => info!("wallet: backed up to {}", json_dest.display()),
+        Err(e) => warn!("wallet: could not back up to {}: {}", json_dest.display(), e),
+    }
+
+    let txt_dest = dir.join(format!("{}.txt", account));
+    let txt = format_txt_backup(account, keys);
+    match std::fs::write(&txt_dest, &txt) {
+        Ok(_)  => info!("wallet: human-readable backup at {}", txt_dest.display()),
+        Err(e) => warn!("wallet: could not write {}: {}", txt_dest.display(), e),
+    }
+}
+
+fn format_txt_backup(account: &str, k: &WalletKeys) -> String {
+    format!("\
+============================================================
+  {}
+============================================================
+
+  MNEMONIC (12 words — regenerates everything below)
+  {}
+
+  ── BTCPC ROLE KEYS (ed25519) ──────────────────────────
+
+  owner
+    public   {}
+    private  {}
+  active
+    public   {}
+    private  {}
+  posting
+    public   {}
+    private  {}
+  memo
+    public   {}
+    private  {}
+  hide
+    public   {}
+    private  {}
+  seek
+    public   {}
+    private  {}
+
+  ── EXTERNAL CHAIN KEYS ────────────────────────────────
+
+  ETHEREUM (+ Polygon, BSC, Arbitrum, Optimism, Base, Avalanche)
+    address  {}
+    private  {}
+
+  BITCOIN
+    pubkey   {}
+    WIF      {}
+
+  SOLANA
+    address  {}
+    private  {}
+
+  NEAR
+    address  {}
+    private  {}
+
+  SUI
+    address  {}
+    private  {}
+
+  APTOS
+    address  {}
+    private  {}
+
+  COSMOS / ATOM
+    address  {}
+    private  {}
+
+  XRP
+    address  {}
+    private  {}
+
+  TRON
+    address  {}
+    private  {}
+
+  TON
+    pubkey   {}
+    private  {}
+
+  STELLAR / XLM
+    address  {}
+    private  {}
+
+============================================================
+  Keep this file safe. Encrypt this folder.
+  Never share private keys or mnemonic with anyone.
+============================================================
+",
+        account.to_uppercase(),
+        k.mnemonic,
+        k.btcpc_owner_public_key,   k.btcpc_owner_private_key,
+        k.btcpc_active_public_key,  k.btcpc_active_private_key,
+        k.btcpc_public_key,         k.btcpc_private_key,
+        k.btcpc_memo_public_key,    k.btcpc_memo_private_key,
+        k.btcpc_hide_public_key,    k.btcpc_hide_private_key,
+        k.btcpc_seek_public_key,    k.btcpc_seek_private_key,
+        k.ethereum_address,   k.ethereum_private_key,
+        k.bitcoin_pubkey,     k.bitcoin_wif,
+        k.solana_address,     k.solana_private_key,
+        k.near_address,       k.near_private_key,
+        k.sui_address,        k.sui_private_key,
+        k.aptos_address,      k.aptos_private_key,
+        k.cosmos_address,     k.cosmos_private_key,
+        k.xrp_address,        k.xrp_private_key,
+        k.tron_address,       k.tron_private_key,
+        k.ton_public_key,     k.ton_private_key,
+        k.stellar_address,    k.stellar_private_key,
+    )
+}
+
 /// Submit AccountCreate to local chain with all public keys. No-op if account exists.
 /// If BTCPC_ACCOUNT_PUBKEY env var is set, uses that as the posting key (install-script path).
 pub fn register_account(
@@ -253,11 +384,12 @@ pub fn register_account(
     }).collect();
 
     chain.apply_entry(&LedgerEntry::AccountCreate {
-        account:      account.to_string(),
-        keys:         km,
+        account:             account.to_string(),
+        keys:                km,
         chain_proofs,
-        epoch:        0,
-        funded_by:    None,
+        epoch:               0,
+        funded_by:           None,
+        machine_fingerprint: None,
     })?;
 
     info!(
