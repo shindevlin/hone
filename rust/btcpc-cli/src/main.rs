@@ -3,6 +3,7 @@ mod chain;
 mod contract;
 mod inference;
 mod key;
+mod repo;
 mod session;
 mod tx;
 mod wallet;
@@ -131,6 +132,12 @@ enum Commands {
     Inference {
         #[command(subcommand)]
         action: InferenceCommands,
+    },
+
+    /// LinkGit repository management
+    Repo {
+        #[command(subcommand)]
+        action: RepoCommands,
     },
 
     /// Sign in with a key file — saves session to ~/.btcpc/session.json
@@ -338,6 +345,55 @@ enum InferenceCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum RepoCommands {
+    /// Register a new repository on-chain and print the git remote URL
+    Create {
+        /// Repository name
+        name: String,
+        /// Account (defaults to active session account)
+        #[arg(long)]
+        account: Option<String>,
+        /// Make the repository private
+        #[arg(long)]
+        private: bool,
+        /// Key file (defaults to session key)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
+    /// Register a repo on-chain AND wire up git remote in the current directory
+    Init {
+        /// Repository name
+        name: String,
+        /// Account (defaults to active session account)
+        #[arg(long)]
+        account: Option<String>,
+        /// Make the repository private
+        #[arg(long)]
+        private: bool,
+        /// Key file (defaults to session key)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+    },
+    /// List repositories for an account
+    List {
+        /// Account to list repos for (defaults to active session account)
+        owner: Option<String>,
+    },
+    /// Show details and refs for a repository
+    Info {
+        /// owner/repo  or  repo (uses session account as owner)
+        repo: String,
+    },
+    /// Clone a repository
+    Clone {
+        /// owner/repo
+        repo: String,
+        /// Target directory (defaults to repo name)
+        dir: Option<String>,
+    },
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -469,6 +525,26 @@ fn run() -> Result<()> {
             }
         },
 
+        Commands::Repo { action } => match action {
+            RepoCommands::Create { name, account, private, key_file } => {
+                repo::cmd_repo_create(&name, account.as_deref(), private, key_file.as_deref())?;
+            }
+            RepoCommands::Init { name, account, private, key_file } => {
+                repo::cmd_repo_init(&name, account.as_deref(), private, key_file.as_deref())?;
+            }
+            RepoCommands::List { owner } => {
+                repo::cmd_repo_list(owner.as_deref())?;
+            }
+            RepoCommands::Info { repo } => {
+                let (owner, name) = parse_repo_slug(&repo)?;
+                repo::cmd_repo_info(&owner, &name)?;
+            }
+            RepoCommands::Clone { repo, dir } => {
+                let (owner, name) = parse_repo_slug(&repo)?;
+                repo::cmd_repo_clone(&owner, &name, dir.as_deref())?;
+            }
+        },
+
         Commands::Login { account, key_file, node_url } => {
             cmd_login(&account, key_file.as_deref(), node_url.as_deref())?;
         }
@@ -481,6 +557,17 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse "owner/repo" slug; if no slash, uses the active session account as owner.
+fn parse_repo_slug(slug: &str) -> Result<(String, String)> {
+    if let Some((owner, name)) = slug.split_once('/') {
+        return Ok((owner.to_owned(), name.to_owned()));
+    }
+    let owner = session::load()
+        .map(|s| s.account)
+        .ok_or_else(|| anyhow::anyhow!("no owner in slug and no active session — use owner/repo or run `btcpc login`"))?;
+    Ok((owner, slug.to_owned()))
 }
 
 fn cmd_login(account: &str, key_file: Option<&std::path::Path>, node_url: Option<&str>) -> Result<()> {
