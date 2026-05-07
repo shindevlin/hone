@@ -1132,10 +1132,13 @@ async fn emit_epoch_rewards(
     // ── T3-4: Read EMA critical-mass targets from previous epoch ─────────────
     // EMA is updated AFTER reward distribution so it doesn't influence itself this epoch.
     // Static CRITICAL_MASS_* constants serve as cold-start seeds when no EMA exists yet.
+    // A stored value of 0 (EMA decayed to zero during a long gap with no participants)
+    // is treated identically to "not set" — the static default acts as a floor.
     let read_ema_cm = |pool: &str, default: u64| -> u64 {
         chain.store.state_get(&format!("ema_critical_mass:{}", pool))
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
             .and_then(|j| j["ema"].as_u64())
+            .filter(|&v| v > 0)
             .unwrap_or(default)
     };
     let cm_inference = read_ema_cm("inference", CRITICAL_MASS_INFERENCE);
@@ -1440,8 +1443,10 @@ async fn emit_epoch_rewards(
 
     // Scarcity divider: each pool pays at reduced rate if participant count < critical mass.
     // Remainder flows to recycle — prevents sparse networks from extracting full rewards.
+    // critical_mass = 0 means EMA hasn't warmed up yet; treat as no gate (full payout).
     let payout_factor = |count: usize, critical_mass: u64| -> u64 {
-        ((count as u64).min(critical_mass) * ACTIVITY_RATIO_DENOM / critical_mass.max(1))
+        if critical_mass == 0 { return ACTIVITY_RATIO_DENOM; }
+        ((count as u64).min(critical_mass) * ACTIVITY_RATIO_DENOM / critical_mass)
     };
     let apply_scarcity = |pool: u64, factor: u64| -> (u64, u64) {
         let effective = (pool as u128 * factor as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
