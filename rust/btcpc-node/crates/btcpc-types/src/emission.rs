@@ -118,8 +118,15 @@ pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
 /// ≈ 100 fetch events across all repos = healthy early network.
 pub const CALIBRATION_LINKGIT: u64 = 100;
 
-/// Minimum active repo count for linkgit pool to pay out at full rate.
+/// Minimum active repo count for linkgit serve pool to pay out at full rate.
 pub const CRITICAL_MASS_LINKGIT: u64 = 5;
+
+/// LinkGit build pool calibration — total ref-update pushes per epoch across all builders.
+/// ≈ 10 pushes/epoch = healthy active development on the network.
+pub const CALIBRATION_LINKGIT_BUILD: u64 = 10;
+
+/// Minimum active builder count for linkgit build pool to pay out at full rate.
+pub const CRITICAL_MASS_LINKGIT_BUILD: u64 = 3;
 
 /// Base clock reward per epoch at era 0 (30-second epochs).
 /// Doubles each era so clock nodes earn the same per-day income regardless of how

@@ -1049,13 +1049,23 @@ pub enum LedgerEntry {
     },
 
     /// System entry emitted at epoch seal for each repo that had ≥1 unique serve
-    /// event that epoch.  Drawn from the recycle fund.
+    /// event that epoch.  Amount drawn from the linkgit serve pool.
     LinkGitServeReward {
         repo_id: String,
         owner: AccountId,
         amount: Dreams,
         /// Number of unique fetchers this epoch (for explorer display).
         serve_count: u64,
+        epoch: Epoch,
+    },
+
+    /// System entry emitted at epoch seal for each account that pushed at least
+    /// one ref update this epoch.  Amount drawn from the linkgit build pool.
+    LinkGitBuildReward {
+        builder: AccountId,
+        amount: Dreams,
+        /// Number of ref-update pushes this epoch (for explorer display).
+        push_count: u64,
         epoch: Epoch,
     },
 
@@ -1707,6 +1717,7 @@ impl LedgerEntry {
             Self::LinkGitStorageExtend { epoch, .. } => *epoch,
             Self::LinkGitServeHeartbeat { epoch, .. } => *epoch,
             Self::LinkGitServeReward { epoch, .. } => *epoch,
+            Self::LinkGitBuildReward { epoch, .. } => *epoch,
             Self::LinkGitIssueCreate { epoch, .. } => *epoch,
             Self::LinkGitIssueComment { epoch, .. } => *epoch,
             Self::LinkGitIssueClose { epoch, .. } => *epoch,
@@ -1888,7 +1899,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::LinkGitPrComment { .. }
         | LedgerEntry::LinkGitPrMerge { .. }
         | LedgerEntry::LinkGitPrClose { .. }
-        | LedgerEntry::LinkGitServeReward { .. } => ENTRY_WEIGHT_STANDARD,
+        | LedgerEntry::LinkGitServeReward { .. }
+        | LedgerEntry::LinkGitBuildReward { .. } => ENTRY_WEIGHT_STANDARD,
 
         // ── Micro (1): high-frequency serve heartbeats ────────────────────────
         LedgerEntry::LinkGitServeHeartbeat { .. } => ENTRY_WEIGHT_MICRO,

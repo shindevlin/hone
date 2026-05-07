@@ -1610,13 +1610,28 @@ impl Chain {
                     repo_id.as_bytes(),
                 )?;
             }
-            LedgerEntry::LinkGitRefUpdate { repo_id, ref_name, commit_hash, .. } => {
+            LedgerEntry::LinkGitRefUpdate { repo_id, ref_name, commit_hash, epoch, signed_by, .. } => {
                 let key = format!("linkgit:repo:{}", repo_id);
                 if let Some(bytes) = self.store.get_meta(&key) {
                     if let Ok(mut repo) = serde_json::from_slice::<serde_json::Value>(&bytes) {
                         repo["refs"][ref_name] = serde_json::json!(commit_hash);
                         self.store.set_meta(&key, repo.to_string().as_bytes())?;
                     }
+                }
+                // Track build activity for epoch reward distribution.
+                let build_key = format!("linkgit:build:{}:{}", epoch, signed_by);
+                let prev = self.store.state_get(&build_key)
+                    .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+                    .map(u64::from_le_bytes)
+                    .unwrap_or(0);
+                self.store.state_set(&build_key, &(prev + 1).to_le_bytes())?;
+                let idx_key = format!("linkgit:builders:{}", epoch);
+                let mut builders: Vec<String> = self.store.state_get(&idx_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or_default();
+                if !builders.contains(signed_by) {
+                    builders.push(signed_by.clone());
+                    self.store.state_set(&idx_key, &serde_json::to_vec(&builders).unwrap_or_default())?;
                 }
             }
             LedgerEntry::LinkGitAccessGrant { repo_id, grantee, encrypted_key, .. } => {
@@ -1661,6 +1676,11 @@ impl Chain {
             LedgerEntry::LinkGitServeReward { repo_id, owner, amount, serve_count, epoch } => {
                 self.store.credit(owner, btcpc_types::NATIVE_TOKEN, *amount)?;
                 info!("linkgit serve reward: repo={} owner={} fetchers={} amount={} epoch={}", repo_id, owner, serve_count, amount, epoch);
+            }
+
+            LedgerEntry::LinkGitBuildReward { builder, amount, push_count, epoch } => {
+                self.store.credit(builder, btcpc_types::NATIVE_TOKEN, *amount)?;
+                info!("linkgit build reward: builder={} pushes={} amount={} epoch={}", builder, push_count, amount, epoch);
             }
 
             // ── LinkGit COBs ──────────────────────────────────────────────────

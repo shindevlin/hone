@@ -61,6 +61,9 @@ pub struct AppState {
     pub clock: Arc<crate::clock::ClockConsensus>,
     /// SHA-256 of this node's own binary, computed once at startup.
     pub software_hash: Arc<String>,
+    /// Count of git fetch/clone packs served to non-loopback clients this epoch.
+    /// Incremented by git_upload_pack; consumed + reset by storage.rs each StorageHeartbeat.
+    pub git_serve_queries: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -5802,6 +5805,7 @@ async fn git_upload_pack(
         let peer_ip = peer_addr.ip();
         // Skip loopback — local fetches don't count as "popularity"
         if !peer_ip.is_loopback() {
+            s.git_serve_queries.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let epoch = s.chain.current_epoch();
             // Requester hash: SHA-256(ip_bytes || epoch_le_bytes) — per-IP-per-epoch dedup.
             let hash = {

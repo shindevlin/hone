@@ -65,10 +65,10 @@ use btcpc_types::{
     ACTIVITY_RATIO_DENOM, MIN_ACTIVITY_RATIO_NUM,
     CALIBRATION_INFERENCE, CALIBRATION_STORAGE, CALIBRATION_SENSOR,
     CALIBRATION_VERIFIER, CALIBRATION_SERVICE, CALIBRATION_MEMPOOL,
-    CALIBRATION_TRACKER, CALIBRATION_LINKGIT,
+    CALIBRATION_TRACKER, CALIBRATION_LINKGIT, CALIBRATION_LINKGIT_BUILD,
     CRITICAL_MASS_INFERENCE, CRITICAL_MASS_STORAGE, CRITICAL_MASS_SENSOR,
     CRITICAL_MASS_VERIFIER, CRITICAL_MASS_SERVICE, CRITICAL_MASS_MEMPOOL,
-    CRITICAL_MASS_TRACKER, CRITICAL_MASS_LINKGIT,
+    CRITICAL_MASS_TRACKER, CRITICAL_MASS_LINKGIT, CRITICAL_MASS_LINKGIT_BUILD,
     MINE_GRACE_PERIOD_EPOCHS, MINE_GRACE_REWARD_BPS, MINE_GRACE_BENCHMARK_JOBS_PER_EPOCH,
     INFERENCE_PRUNE_WINDOW_EPOCHS,
     STORAGE_PROOF_NO_PROOF_BPS,
@@ -531,6 +531,10 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Shared counter: git packs served to remote clients this epoch.
+    // Incremented by git_upload_pack in api.rs; consumed by storage.rs each heartbeat.
+    let git_serve_queries = Arc::new(AtomicUsize::new(0));
+
     // ── Storage node (StorageHeartbeat each epoch) ───────────────────────────
     // BTCPC_STORAGE=true: proves bytes on disk each epoch, earns StorageReward.
     if std::env::var("BTCPC_STORAGE").map(|v| v == "true" || v == "1").unwrap_or(false) {
@@ -539,8 +543,9 @@ async fn main() -> Result<()> {
         let data_dir    = cfg.data_dir.clone();
         let genesis_ts  = cfg.genesis_timestamp.unwrap_or(0);
         let cmd_storage = net_handle.cmd_tx.clone();
+        let git_queries = git_serve_queries.clone();
         tokio::spawn(async move {
-            storage::run_storage_node(chain_ref, account, data_dir, genesis_ts, cmd_storage).await;
+            storage::run_storage_node(chain_ref, account, data_dir, genesis_ts, cmd_storage, git_queries).await;
         });
     }
 
@@ -783,17 +788,18 @@ async fn main() -> Result<()> {
         chain: chain.clone(),
         contracts,
         tx_broadcast,
-        faucet_claims:    Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        faucet_ip_claims: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        agent_rate:       Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        post_rate:        Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        chain_challenges: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-        current_model:    Arc::new(tokio::sync::RwLock::new(default_model)),
-        hw_fingerprint:   Arc::new(hw.fingerprint),
-        hw_summary:       Arc::new(hw.summary),
-        peer_count:       shared_peer_count,
-        clock:            clock.clone(),
-        software_hash:    Arc::new(software_hash),
+        faucet_claims:     Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        faucet_ip_claims:  Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        agent_rate:        Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        post_rate:         Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        chain_challenges:  Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+        current_model:     Arc::new(tokio::sync::RwLock::new(default_model)),
+        hw_fingerprint:    Arc::new(hw.fingerprint),
+        hw_summary:        Arc::new(hw.summary),
+        peer_count:        shared_peer_count,
+        clock:             clock.clone(),
+        software_hash:     Arc::new(software_hash),
+        git_serve_queries: git_serve_queries.clone(),
     };
     api::serve(app_state, cfg.api_port).await?;
 
@@ -1139,7 +1145,8 @@ async fn emit_epoch_rewards(
     let cm_service   = read_ema_cm("service",    CRITICAL_MASS_SERVICE);
     let cm_mempool   = read_ema_cm("mempool",    CRITICAL_MASS_MEMPOOL);
     let cm_tracker   = read_ema_cm("tracker",    CRITICAL_MASS_TRACKER);
-    let cm_linkgit   = read_ema_cm("linkgit",    CRITICAL_MASS_LINKGIT);
+    let cm_linkgit   = read_ema_cm("linkgit",       CRITICAL_MASS_LINKGIT);
+    let cm_build     = read_ema_cm("linkgit_build", CRITICAL_MASS_LINKGIT_BUILD);
 
     // ── Layer B: collect work contributors ────────────────────────────────────
 
@@ -1330,6 +1337,23 @@ async fn emit_epoch_rewards(
         by_observer.into_iter().collect()
     };
 
+    // LinkGit builders: accounts that pushed at least one ref update this epoch.
+    let linkgit_builders: Vec<(String, u64)> = {
+        let idx_key = format!("linkgit:builders:{}", epoch);
+        let builders: Vec<String> = chain.store.state_get(&idx_key)
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        builders.into_iter().filter_map(|builder| {
+            let build_key = format!("linkgit:build:{}:{}", epoch, builder);
+            let push_count = chain.store.state_get(&build_key)
+                .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+                .map(u64::from_le_bytes)
+                .unwrap_or(0);
+            if push_count == 0 { return None; }
+            Some((builder, push_count))
+        }).collect()
+    };
+
     // LinkGit: repos that were fetched by remote IPs this epoch.
     // Each entry is (repo_id, owner, serve_count).
     let linkgit_repos: Vec<(String, String, u64)> = {
@@ -1360,7 +1384,8 @@ async fn emit_epoch_rewards(
     let service_total:   u64 = service_nodes.iter().map(|(_, s)| s).sum();
     let mempool_total:   u64 = mempool_ops.iter().map(|(_, s)| s).sum();
     let tracker_total:   u64 = tracker_nodes.iter().map(|(_, s)| s).sum();
-    let linkgit_total:   u64 = linkgit_repos.iter().map(|(_, _, s)| s).sum();
+    let linkgit_total:       u64 = linkgit_repos.iter().map(|(_, _, s)| s).sum();
+    let linkgit_build_total: u64 = linkgit_builders.iter().map(|(_, s)| s).sum();
 
     // Normalize each pool's raw score by its calibration target → [0, 1.0]
     let norm = |work: u64, target: u64| -> u64 {
@@ -1375,15 +1400,16 @@ async fn emit_epoch_rewards(
     let util_service   = norm(service_total,    CALIBRATION_SERVICE);
     let util_mempool   = norm(mempool_total,    CALIBRATION_MEMPOOL);
     let util_tracker   = norm(tracker_total,    CALIBRATION_TRACKER);
-    let util_linkgit   = norm(linkgit_total,    CALIBRATION_LINKGIT);
+    let util_linkgit   = norm(linkgit_total,       CALIBRATION_LINKGIT);
+    let util_build     = norm(linkgit_build_total, CALIBRATION_LINKGIT_BUILD);
     let total_util     = util_inference + util_storage + util_sensor
                        + util_verify + util_service + util_mempool + util_tracker
-                       + util_linkgit;
+                       + util_linkgit + util_build;
 
     // Activity ratio = average utilization across active pools
     let active_pool_count = [util_inference, util_storage, util_sensor,
                              util_verify, util_service, util_mempool, util_tracker,
-                             util_linkgit]
+                             util_linkgit, util_build]
         .iter().filter(|&&u| u > 0).count() as u64;
     let activity_ratio_num = if total_util == 0 {
         0
@@ -1410,6 +1436,7 @@ async fn emit_epoch_rewards(
     let mempool_pool_raw   = alloc_pool(util_mempool);
     let tracker_pool_raw   = alloc_pool(util_tracker);
     let linkgit_pool_raw   = alloc_pool(util_linkgit);
+    let build_pool_raw     = alloc_pool(util_build);
 
     // Scarcity divider: each pool pays at reduced rate if participant count < critical mass.
     // Remainder flows to recycle — prevents sparse networks from extracting full rewards.
@@ -1428,11 +1455,12 @@ async fn emit_epoch_rewards(
     let (service_pool,   scatter_svc)   = apply_scarcity(service_pool_raw,    payout_factor(service_nodes.len(), cm_service));
     let (mempool_pool,   scatter_mem)   = apply_scarcity(mempool_pool_raw,    payout_factor(mempool_ops.len(),   cm_mempool));
     let (tracker_pool,   scatter_track) = apply_scarcity(tracker_pool_raw,    payout_factor(tracker_nodes.len(), cm_tracker));
-    let (linkgit_pool,   scatter_git)   = apply_scarcity(linkgit_pool_raw,    payout_factor(linkgit_repos.len(), cm_linkgit));
+    let (linkgit_pool,   scatter_git)   = apply_scarcity(linkgit_pool_raw,    payout_factor(linkgit_repos.len(),    cm_linkgit));
+    let (build_pool,     scatter_build) = apply_scarcity(build_pool_raw,      payout_factor(linkgit_builders.len(), cm_build));
 
     let scarcity_recycle = scatter_infer + scatter_store + scatter_sensor
                          + scatter_verify + scatter_svc + scatter_mem + scatter_track
-                         + scatter_git;
+                         + scatter_git + scatter_build;
     if scarcity_recycle > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
     }
@@ -1478,6 +1506,15 @@ async fn emit_epoch_rewards(
         }
     }
 
+    // LinkGit build rewards: split build_pool proportionally by push count across builders.
+    distribute_rewards_desktop(epoch, &linkgit_builders, build_pool, chain, cmd_tx, |builder, amount, ep| {
+        let push_count = linkgit_builders.iter()
+            .find(|(b, _)| b == &builder)
+            .map(|(_, c)| *c)
+            .unwrap_or(0);
+        LedgerEntry::LinkGitBuildReward { builder, amount, push_count, epoch: ep }
+    }).await;
+
     // ── T3-4: Update EMA critical-mass targets for next epoch ────────────────
     // alpha = EMA_ALPHA_NUM / EMA_ALPHA_DENOM ≈ 2/20161 ≈ 7-day smoothing window.
     let update_ema_cm = |pool: &str, current: u64, prev: u64| {
@@ -1494,14 +1531,15 @@ async fn emit_epoch_rewards(
     update_ema_cm("service",   service_nodes.len() as u64, cm_service);
     update_ema_cm("mempool",   mempool_ops.len()   as u64, cm_mempool);
     update_ema_cm("tracker",   tracker_nodes.len() as u64, cm_tracker);
-    update_ema_cm("linkgit",   linkgit_repos.len() as u64, cm_linkgit);
+    update_ema_cm("linkgit",       linkgit_repos.len()    as u64, cm_linkgit);
+    update_ema_cm("linkgit_build", linkgit_builders.len() as u64, cm_build);
 
     // ── Subscription fee release ───────────────────────────────────────────────
     sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
 
     let distributed  = inference_pool + storage_pool + sensor_pool
                      + verify_pool + service_pool + mempool_pool + tracker_pool
-                     + linkgit_pool;
+                     + linkgit_pool + build_pool;
     let remainder    = gated_pool.saturating_sub(distributed).saturating_sub(scarcity_recycle);
     if remainder > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, remainder);
@@ -1509,7 +1547,7 @@ async fn emit_epoch_rewards(
 
     info!(
         "clock: epoch {} raw={} reserve={} gated={}({:.0}%) scarcity_recycle={} \
-         [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{} tracker={}/{} git={}/{}]",
+         [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{} tracker={}/{} git={}/{} build={}/{}]",
         epoch, raw_pool, reserve_total, gated_pool,
         activity_ratio_num as f64 / ACTIVITY_RATIO_DENOM as f64 * 100.0,
         scarcity_recycle + idle_recycle,
@@ -1521,6 +1559,7 @@ async fn emit_epoch_rewards(
         mempool_pool, mempool_ops.len(),
         tracker_pool, tracker_nodes.len(),
         linkgit_pool, linkgit_repos.len(),
+        build_pool, linkgit_builders.len(),
     );
 
     // ── Protocol benchmark jobs (D8 grace period) ─────────────────────────────

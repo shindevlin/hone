@@ -95,6 +95,8 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
         | LedgerEntry::MempoolReward { .. }
         | LedgerEntry::TrackerCoverageReward { .. }
         | LedgerEntry::RuntimeReward { .. }
+        | LedgerEntry::LinkGitServeReward { .. }
+        | LedgerEntry::LinkGitBuildReward { .. }
         | LedgerEntry::GenesisAlloc  { .. }
     )
 }
@@ -474,9 +476,10 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
         | LedgerEntry::LinkGitStorageExtend { .. }
-        // LinkGit serve rewards — heartbeats are server-generated, reward is system-generated
+        // LinkGit serve/build rewards — heartbeats are server-generated, rewards are system-generated
         | LedgerEntry::LinkGitServeHeartbeat { .. }
         | LedgerEntry::LinkGitServeReward { .. }
+        | LedgerEntry::LinkGitBuildReward { .. }
         // LinkGit COBs — issues and pull requests
         | LedgerEntry::LinkGitIssueCreate { .. }
         | LedgerEntry::LinkGitIssueComment { .. }

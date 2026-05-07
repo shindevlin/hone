@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::path::Path;
 use tracing::{info, warn};
@@ -9,11 +10,12 @@ use crate::net::NetCmd;
 use crate::utils::now_ms;
 
 pub async fn run_storage_node(
-    chain:      Arc<Chain>,
-    account:    String,
-    data_dir:   std::path::PathBuf,
-    genesis_ts: u64,
-    cmd_tx:     tokio::sync::mpsc::Sender<NetCmd>,
+    chain:             Arc<Chain>,
+    account:           String,
+    data_dir:          std::path::PathBuf,
+    genesis_ts:        u64,
+    cmd_tx:            tokio::sync::mpsc::Sender<NetCmd>,
+    git_serve_queries: Arc<std::sync::atomic::AtomicUsize>,
 ) {
     info!("storage node started: account={}", account);
 
@@ -29,12 +31,14 @@ pub async fn run_storage_node(
         last_epoch = epoch;
 
         let bytes_proven = dir_size_bytes(&data_dir);
+        // Consume git serve query count for this epoch.
+        let git_queries = git_serve_queries.swap(0, Ordering::Relaxed) as u64;
 
         let entry = LedgerEntry::StorageHeartbeat {
             node_id:            account.clone(),
             epoch,
             bytes_proven,
-            query_count:        0,
+            query_count:        git_queries,
             challenge_response: None,
             signed_by:          account.clone(),
         };
@@ -52,7 +56,7 @@ pub async fn run_storage_node(
             }).await;
         }
 
-        info!("storage: heartbeat epoch {} bytes={}", epoch, bytes_proven);
+        info!("storage: heartbeat epoch {} bytes={} git_queries={}", epoch, bytes_proven, git_queries);
     }
 }
 
