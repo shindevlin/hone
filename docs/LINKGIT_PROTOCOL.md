@@ -48,44 +48,93 @@ Both accounts are provisioned in `genesis.json` with no keys. Keys are registere
 
 ## Working with repositories today
 
-LinkGit uses standard **HTTPS git smart HTTP** — no custom tooling required.
-Use `https://git.btcpc.net/git/owner/repo` (or `https://btcpc.net/git/owner/repo`).
+### Using the `btcpc` CLI (recommended)
+
+The `btcpc` CLI handles on-chain registration, key management, and git remote wiring in one command.
+
+**Prerequisites**: install `btcpc`, create an account, and log in.
+
+```bash
+btcpc login           # saves session to ~/.btcpc/session.json
+```
+
+**Publish an existing local project**
+
+```bash
+cd my-project
+btcpc repo init my-project      # registers on-chain + sets git remote origin
+git add .
+git commit -m "initial commit"
+git push -u origin main
+```
+
+That's the complete flow. `btcpc repo init` does three things atomically:
+1. Registers the repository on-chain (owner account + visibility)
+2. Creates a per-repo on-chain wallet for earning serve rewards
+3. Runs `git init` if needed and wires `origin` to `http://<node>/git/<owner>/<name>`
+
+**Create a repo without wiring a local directory**
+
+```bash
+btcpc repo create my-project
+# prints the git URL — add it as a remote manually
+```
+
+**List your repos**
+
+```bash
+btcpc repo list
+btcpc repo list alice          # list someone else's repos
+```
+
+**Browse a repo**
+
+```bash
+btcpc repo info alice/notes
+# shows visibility, ref list, and the clone URL
+```
+
+**Clone a repo**
+
+```bash
+btcpc repo clone alice/notes
+btcpc repo clone alice/notes my-local-dir
+```
+
+**Private repos**
+
+```bash
+btcpc repo init secret-project --private
+```
+
+Private repos are encrypted to your hide key before storage. Use `btcpc account update-key` to register a hide key.
+
+### Raw HTTPS (without the CLI)
+
+LinkGit uses standard HTTPS git smart HTTP — no custom tooling required.
 
 ```bash
 # Clone a public repo
-git clone https://git.btcpc.net/git/shindevlin/btcpc
+git clone http://localhost:4242/git/shindevlin/btcpc
 
-# Push (supply your BTCPC account via the Authorization header)
+# Push with your account in the Authorization header
 git -c http.extraHeader="Authorization: account shindevlin" \
-    push https://git.btcpc.net/git/shindevlin/btcpc main
-
-# Add as a remote
-git remote add btcpc https://git.btcpc.net/git/shindevlin/btcpc
-
-# ENS names work too — resolves to BTCPC account automatically
-git clone https://git.btcpc.net/git/vitalik.eth/myrepo
+    push http://localhost:4242/git/shindevlin/btcpc main
 ```
 
-### Git config shortcut
-
-Add to `~/.gitconfig` to avoid repeating the header on every push:
+Add to `~/.gitconfig` to avoid repeating the header:
 
 ```ini
-[credential "https://git.btcpc.net"]
-    helper = ""
-
-[http "https://git.btcpc.net"]
+[http "http://localhost:4242"]
     extraHeader = Authorization: account yourname
 ```
+
+### Earn serve rewards
+
+Every time a remote IP fetches (clones or pulls) one of your repos, the node records a unique-fetcher tally for that epoch. At epoch seal, the linkgit reward pool is split proportionally across active repos based on their fetcher counts. No configuration required — rewards land in your repo's on-chain wallet automatically and are visible via `btcpc balance <owner>.<repo>`.
 
 ### Planned: `linkgit://` custom scheme
 
 The `linkgit://owner/repo` URI scheme and a `git-remote-linkgit` binary
-are planned for a future release. This will provide:
-
-```bash
-git clone linkgit://shindevlin/btcpc   # planned — not yet available
-```
-
-Until then, use the HTTPS URL above. The wire protocol, chain entries, and
-storage model are the same regardless of the URL scheme.
+are planned for a future release. Until then, use the HTTPS URL above.
+The wire protocol, chain entries, and storage model are the same.

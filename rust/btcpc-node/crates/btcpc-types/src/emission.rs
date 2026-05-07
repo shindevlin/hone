@@ -114,10 +114,12 @@ pub const RECYCLE_ERA: u64 = 5;
 /// Drained by: era-5 block rewards (recycle_reward_at).
 pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
 
-/// Reward paid to a repo owner per unique remote fetcher per epoch.
-/// Drawn from the recycle fund.  0.0001 BTCPC per unique fetch.
-/// A repo with 100 unique cloners/day earns roughly 0.01 BTCPC/day at era 0.
-pub const LINKGIT_SERVE_REWARD_PER_FETCH: u64 = 1_000_000; // 0.0001 BTCPC
+/// LinkGit serve pool calibration — total serve-events (unique remote fetchers) per epoch.
+/// ≈ 100 fetch events across all repos = healthy early network.
+pub const CALIBRATION_LINKGIT: u64 = 100;
+
+/// Minimum active repo count for linkgit pool to pay out at full rate.
+pub const CRITICAL_MASS_LINKGIT: u64 = 5;
 
 /// Base clock reward per epoch at era 0 (30-second epochs).
 /// Doubles each era so clock nodes earn the same per-day income regardless of how

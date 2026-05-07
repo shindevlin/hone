@@ -1659,11 +1659,6 @@ impl Chain {
             }
 
             LedgerEntry::LinkGitServeReward { repo_id, owner, amount, serve_count, epoch } => {
-                let recycle_balance = self.store.get_balance(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN);
-                if recycle_balance < *amount {
-                    return Err(anyhow::anyhow!("recycle fund insufficient for serve reward"));
-                }
-                self.store.debit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, *amount)?;
                 self.store.credit(owner, btcpc_types::NATIVE_TOKEN, *amount)?;
                 info!("linkgit serve reward: repo={} owner={} fetchers={} amount={} epoch={}", repo_id, owner, serve_count, amount, epoch);
             }
