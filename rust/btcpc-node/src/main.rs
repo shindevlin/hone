@@ -51,6 +51,7 @@ mod utils;
 mod wallet;
 mod ens;
 mod linkgit_server;
+mod storage_sync;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -640,6 +641,13 @@ async fn main() -> Result<()> {
     // Shared peer count: updated by the net event loop, read by the API.
     let shared_peer_count = Arc::new(AtomicUsize::new(0));
 
+    // ── Storage sync (LinkGit object replication) ─────────────────────────────
+    let (sync_tx, sync_rx) = tokio::sync::mpsc::channel::<storage_sync::RefAvailable>(256);
+    {
+        let store_for_sync = Arc::new(chain.store.clone());
+        tokio::spawn(storage_sync::run(store_for_sync, sync_rx));
+    }
+
     // Apply incoming network events to chain state
     {
         let chain_ref = chain.clone();
@@ -725,6 +733,11 @@ async fn main() -> Result<()> {
                     Ok(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }) => {
                         clock_ref.receive_reward_proposal(clock::RewardProposal {
                             epoch, rewards_hash, node_id,
+                        });
+                    }
+                    Ok(NetworkEvent::GitRefAvailable { repo_id, owner, repo_name, commit_hash, peer_http }) => {
+                        let _ = sync_tx.try_send(storage_sync::RefAvailable {
+                            repo_id, owner, repo_name, commit_hash, peer_http,
                         });
                     }
                     Ok(_) => {}

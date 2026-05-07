@@ -169,6 +169,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/linkgit/repo/ref/update", post(post_linkgit_ref_update))
         .route("/api/linkgit/repo/access/grant", post(post_linkgit_access_grant))
         .route("/api/linkgit/repo/access/revoke", post(post_linkgit_access_revoke))
+        // ── LinkGit: Issues (COBs) ────────────────────────────────────────
+        .route("/api/linkgit/repo/:owner/:repo/issues", get(get_issues).post(post_issue_create))
+        .route("/api/linkgit/repo/:owner/:repo/issues/:id", get(get_issue))
+        .route("/api/linkgit/repo/:owner/:repo/issues/:id/comment", post(post_issue_comment))
+        .route("/api/linkgit/repo/:owner/:repo/issues/:id/close", post(post_issue_close))
+        .route("/api/linkgit/repo/:owner/:repo/issues/:id/reopen", post(post_issue_reopen))
+        // ── LinkGit: Pull Requests (COBs) ─────────────────────────────────
+        .route("/api/linkgit/repo/:owner/:repo/pulls", get(get_pulls).post(post_pr_create))
+        .route("/api/linkgit/repo/:owner/:repo/pulls/:id", get(get_pull))
+        .route("/api/linkgit/repo/:owner/:repo/pulls/:id/comment", post(post_pr_comment))
+        .route("/api/linkgit/repo/:owner/:repo/pulls/:id/merge", post(post_pr_merge))
+        .route("/api/linkgit/repo/:owner/:repo/pulls/:id/close", post(post_pr_close))
         // ── LinkGit: git smart HTTP protocol ──────────────────────────────
         // btcpc.net/git/owner/repo  (path-prefixed, also used via api.btcpc.net)
         .route("/git/:owner/:repo/info/refs", get(git_info_refs))
@@ -2678,6 +2690,280 @@ async fn post_linkgit_access_revoke(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+// ── LinkGit COB handlers (Issues + Pull Requests) ────────────────────────────
+
+fn cob_short_id() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", ts & 0xffffffffffff)
+}
+
+fn resolve_repo_id(s: &AppState, owner: &str, repo: &str) -> Option<String> {
+    let idx_key = format!("linkgit:byname:{}:{}", owner, repo);
+    s.chain.store.get_meta(&idx_key)
+        .and_then(|b| String::from_utf8(b).ok())
+}
+
+// Issues ──────────────────────────────────────────────────────────────────────
+
+async fn get_issues(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found", "issues": []}));
+    };
+    let ids: Vec<String> = s.chain.store.get_meta(&format!("linkgit:issues:{}", repo_id))
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let issues: Vec<serde_json::Value> = ids.iter()
+        .filter_map(|id| {
+            s.chain.store.get_meta(&format!("linkgit:issue:{}:{}", repo_id, id))
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        })
+        .collect();
+    Json(serde_json::json!({ "issues": issues, "count": issues.len() }))
+}
+
+async fn get_issue(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+) -> impl axum::response::IntoResponse {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repo not found"}))).into_response();
+    };
+    match s.chain.store.get_meta(&format!("linkgit:issue:{}:{}", repo_id, id)) {
+        Some(b) => Json(serde_json::from_slice::<serde_json::Value>(&b).unwrap_or_default()).into_response(),
+        None    => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "issue not found"}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct IssueCreateBody {
+    title: String,
+    body: String,
+    #[serde(default)]
+    labels: Vec<String>,
+    author: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_issue_create(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(req): Json<IssueCreateBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let issue_id = cob_short_id();
+    let epoch    = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitIssueCreate {
+        repo_id, issue_id: issue_id.clone(),
+        title: req.title, body: req.body, labels: req.labels,
+        author: req.author.clone(), epoch, signed_by: req.author,
+    };
+    let sig = non_empty(&req.signature);
+    let mut r = apply_and_broadcast(&s, entry, sig).0;
+    r["issue_id"] = serde_json::json!(issue_id);
+    Json(r)
+}
+
+#[derive(Deserialize)]
+struct CobCommentBody {
+    body: String,
+    author: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_issue_comment(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<CobCommentBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitIssueComment {
+        repo_id, issue_id: id, comment_id: cob_short_id(),
+        body: req.body, author: req.author.clone(),
+        epoch: s.chain.current_epoch(), signed_by: req.author,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
+}
+
+#[derive(Deserialize)]
+struct IssueCloseBody {
+    actor: String,
+    resolution: Option<String>,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_issue_close(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<IssueCloseBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitIssueClose {
+        repo_id, issue_id: id, actor: req.actor.clone(),
+        resolution: req.resolution,
+        epoch: s.chain.current_epoch(), signed_by: req.actor,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
+}
+
+#[derive(Deserialize)]
+struct ActorBody {
+    actor: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_issue_reopen(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<ActorBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitIssueReopen {
+        repo_id, issue_id: id, actor: req.actor.clone(),
+        epoch: s.chain.current_epoch(), signed_by: req.actor,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
+}
+
+// Pull Requests ───────────────────────────────────────────────────────────────
+
+async fn get_pulls(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found", "pulls": []}));
+    };
+    let ids: Vec<String> = s.chain.store.get_meta(&format!("linkgit:prs:{}", repo_id))
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let pulls: Vec<serde_json::Value> = ids.iter()
+        .filter_map(|id| {
+            s.chain.store.get_meta(&format!("linkgit:pr:{}:{}", repo_id, id))
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        })
+        .collect();
+    Json(serde_json::json!({ "pulls": pulls, "count": pulls.len() }))
+}
+
+async fn get_pull(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+) -> impl axum::response::IntoResponse {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repo not found"}))).into_response();
+    };
+    match s.chain.store.get_meta(&format!("linkgit:pr:{}:{}", repo_id, id)) {
+        Some(b) => Json(serde_json::from_slice::<serde_json::Value>(&b).unwrap_or_default()).into_response(),
+        None    => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "PR not found"}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PrCreateBody {
+    title: String,
+    body: String,
+    source_branch: String,
+    target_branch: String,
+    head_commit: String,
+    author: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_pr_create(
+    State(s): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(req): Json<PrCreateBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let pr_id = cob_short_id();
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::LinkGitPrCreate {
+        repo_id, pr_id: pr_id.clone(),
+        title: req.title, body: req.body,
+        source_branch: req.source_branch, target_branch: req.target_branch,
+        head_commit: req.head_commit, author: req.author.clone(),
+        epoch, signed_by: req.author,
+    };
+    let mut r = apply_and_broadcast(&s, entry, non_empty(&req.signature)).0;
+    r["pr_id"] = serde_json::json!(pr_id);
+    Json(r)
+}
+
+async fn post_pr_comment(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<CobCommentBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitPrComment {
+        repo_id, pr_id: id, comment_id: cob_short_id(),
+        body: req.body, author: req.author.clone(),
+        epoch: s.chain.current_epoch(), signed_by: req.author,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
+}
+
+#[derive(Deserialize)]
+struct PrMergeBody {
+    merge_commit: String,
+    actor: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_pr_merge(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<PrMergeBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitPrMerge {
+        repo_id, pr_id: id, merge_commit: req.merge_commit,
+        actor: req.actor.clone(), epoch: s.chain.current_epoch(), signed_by: req.actor,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
+}
+
+async fn post_pr_close(
+    State(s): State<AppState>,
+    Path((owner, repo, id)): Path<(String, String, String)>,
+    Json(req): Json<ActorBody>,
+) -> Json<serde_json::Value> {
+    let Some(repo_id) = resolve_repo_id(&s, &owner, &repo) else {
+        return Json(serde_json::json!({"error": "repo not found"}));
+    };
+    let entry = LedgerEntry::LinkGitPrClose {
+        repo_id, pr_id: id, actor: req.actor.clone(),
+        epoch: s.chain.current_epoch(), signed_by: req.actor,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&req.signature))
 }
 
 // ── POST /public/agent-chat ───────────────────────────────────────────────────

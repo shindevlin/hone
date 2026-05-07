@@ -1628,6 +1628,149 @@ impl Chain {
             LedgerEntry::LinkGitPruneProof { .. }
             | LedgerEntry::LinkGitStorageExtend { .. } => {}
 
+            // ── LinkGit COBs ──────────────────────────────────────────────────
+            LedgerEntry::LinkGitIssueCreate { repo_id, issue_id, title, body, labels, author, epoch, .. } => {
+                let issue = serde_json::json!({
+                    "issue_id": issue_id,
+                    "repo_id": repo_id,
+                    "title": title,
+                    "body": body,
+                    "labels": labels,
+                    "author": author,
+                    "status": "open",
+                    "comments": [],
+                    "created_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.set_meta(
+                    &format!("linkgit:issue:{}:{}", repo_id, issue_id),
+                    issue.to_string().as_bytes(),
+                )?;
+                // Append to the repo's issue index
+                let idx_key = format!("linkgit:issues:{}", repo_id);
+                let mut ids: Vec<String> = self.store.get_meta(&idx_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or_default();
+                if !ids.contains(issue_id) { ids.push(issue_id.clone()); }
+                self.store.set_meta(&idx_key, serde_json::to_string(&ids)?.as_bytes())?;
+            }
+
+            LedgerEntry::LinkGitIssueComment { repo_id, issue_id, comment_id, body, author, epoch, .. } => {
+                let key = format!("linkgit:issue:{}:{}", repo_id, issue_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut issue) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        let comment = serde_json::json!({
+                            "comment_id": comment_id,
+                            "body": body,
+                            "author": author,
+                            "epoch": epoch,
+                        });
+                        issue["comments"].as_array_mut()
+                            .map(|arr| arr.push(comment));
+                        issue["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, issue.to_string().as_bytes())?;
+                    }
+                }
+            }
+
+            LedgerEntry::LinkGitIssueClose { repo_id, issue_id, actor: _, resolution, epoch, .. } => {
+                let key = format!("linkgit:issue:{}:{}", repo_id, issue_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut issue) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        issue["status"] = serde_json::json!("closed");
+                        if let Some(res) = resolution {
+                            issue["resolution"] = serde_json::json!(res);
+                        }
+                        issue["closed_epoch"] = serde_json::json!(epoch);
+                        issue["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, issue.to_string().as_bytes())?;
+                    }
+                }
+            }
+
+            LedgerEntry::LinkGitIssueReopen { repo_id, issue_id, epoch, .. } => {
+                let key = format!("linkgit:issue:{}:{}", repo_id, issue_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut issue) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        issue["status"] = serde_json::json!("open");
+                        issue["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, issue.to_string().as_bytes())?;
+                    }
+                }
+            }
+
+            LedgerEntry::LinkGitPrCreate {
+                repo_id, pr_id, title, body, source_branch, target_branch, head_commit, author, epoch, ..
+            } => {
+                let pr = serde_json::json!({
+                    "pr_id": pr_id,
+                    "repo_id": repo_id,
+                    "title": title,
+                    "body": body,
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "head_commit": head_commit,
+                    "author": author,
+                    "status": "open",
+                    "comments": [],
+                    "created_epoch": epoch,
+                    "updated_epoch": epoch,
+                });
+                self.store.set_meta(
+                    &format!("linkgit:pr:{}:{}", repo_id, pr_id),
+                    pr.to_string().as_bytes(),
+                )?;
+                let idx_key = format!("linkgit:prs:{}", repo_id);
+                let mut ids: Vec<String> = self.store.get_meta(&idx_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or_default();
+                if !ids.contains(pr_id) { ids.push(pr_id.clone()); }
+                self.store.set_meta(&idx_key, serde_json::to_string(&ids)?.as_bytes())?;
+            }
+
+            LedgerEntry::LinkGitPrComment { repo_id, pr_id, comment_id, body, author, epoch, .. } => {
+                let key = format!("linkgit:pr:{}:{}", repo_id, pr_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut pr) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        let comment = serde_json::json!({
+                            "comment_id": comment_id,
+                            "body": body,
+                            "author": author,
+                            "epoch": epoch,
+                        });
+                        pr["comments"].as_array_mut()
+                            .map(|arr| arr.push(comment));
+                        pr["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, pr.to_string().as_bytes())?;
+                    }
+                }
+            }
+
+            LedgerEntry::LinkGitPrMerge { repo_id, pr_id, merge_commit, epoch, .. } => {
+                let key = format!("linkgit:pr:{}:{}", repo_id, pr_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut pr) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        pr["status"] = serde_json::json!("merged");
+                        pr["merge_commit"] = serde_json::json!(merge_commit);
+                        pr["merged_epoch"] = serde_json::json!(epoch);
+                        pr["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, pr.to_string().as_bytes())?;
+                    }
+                }
+            }
+
+            LedgerEntry::LinkGitPrClose { repo_id, pr_id, epoch, .. } => {
+                let key = format!("linkgit:pr:{}:{}", repo_id, pr_id);
+                if let Some(bytes) = self.store.get_meta(&key) {
+                    if let Ok(mut pr) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        pr["status"] = serde_json::json!("closed");
+                        pr["closed_epoch"] = serde_json::json!(epoch);
+                        pr["updated_epoch"] = serde_json::json!(epoch);
+                        self.store.set_meta(&key, pr.to_string().as_bytes())?;
+                    }
+                }
+            }
+
             // ── Inference marketplace ─────────────────────────────────────────
             LedgerEntry::InferenceJobPost { .. } => {
                 inference::apply_post(self, entry)?;

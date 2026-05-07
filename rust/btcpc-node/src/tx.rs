@@ -474,6 +474,15 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
         | LedgerEntry::LinkGitStorageExtend { .. }
+        // LinkGit COBs — issues and pull requests
+        | LedgerEntry::LinkGitIssueCreate { .. }
+        | LedgerEntry::LinkGitIssueComment { .. }
+        | LedgerEntry::LinkGitIssueClose { .. }
+        | LedgerEntry::LinkGitIssueReopen { .. }
+        | LedgerEntry::LinkGitPrCreate { .. }
+        | LedgerEntry::LinkGitPrComment { .. }
+        | LedgerEntry::LinkGitPrMerge { .. }
+        | LedgerEntry::LinkGitPrClose { .. }
         // BLE Tracker — recorded on-chain, state in chain.rs
         | LedgerEntry::TrackerSightingCommit { .. }
         | LedgerEntry::TrackerClaim { .. }

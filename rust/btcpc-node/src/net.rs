@@ -1,4 +1,4 @@
-//! btcpc-node P2P networking — libp2p 0.55
+//! btcpc-node P2P networking — libp2p 0.56
 #![allow(dead_code)]
 //!
 //! Gossipsub topics:
@@ -30,6 +30,7 @@ use libp2p::{
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
@@ -53,6 +54,16 @@ pub enum NetworkEvent {
     PeerConnected { peer_id: String },
     /// An existing peer connection was closed.
     PeerDisconnected { peer_id: String },
+    /// A `LinkGitRefUpdate` arrived over gossip — storage sync signal.
+    /// Other nodes should fetch missing objects from `peer_http` if set.
+    GitRefAvailable {
+        repo_id: String,
+        owner: String,
+        repo_name: String,
+        commit_hash: String,
+        /// HTTP base URL of the peer that gossiped the update, e.g. "http://1.2.3.4:4242".
+        peer_http: Option<String>,
+    },
 }
 
 /// Commands that other tasks can send to the network layer.
@@ -100,6 +111,9 @@ pub struct Network {
     store:    Store,
     cmd_rx:   mpsc::Receiver<NetCmd>,
     event_tx: broadcast::Sender<NetworkEvent>,
+    /// Maps PeerId string → derived HTTP base URL ("http://{ip}:4242").
+    /// Populated from libp2p Identify responses; used for storage sync.
+    peer_http_cache: Arc<parking_lot::Mutex<HashMap<String, String>>>,
 }
 
 impl Network {
@@ -110,19 +124,68 @@ impl Network {
         let (cmd_tx, cmd_rx) = mpsc::channel(256);
         let (event_tx, event_rx) = broadcast::channel(1024);
 
-        let network = Self { config, store, cmd_rx, event_tx };
+        let peer_http_cache = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let network = Self { config, store, cmd_rx, event_tx, peer_http_cache };
         let handle  = NetworkHandle { cmd_tx };
         (network, handle, event_rx)
     }
 
-    /// Drive the P2P swarm until the process exits.  Call from a dedicated
-    /// `tokio::spawn` or directly from `main`.
+    /// Drive the P2P swarm until the process exits, restarting on panic.
+    ///
+    /// Each restart gets a fresh swarm but the same keypair so our PeerId is
+    /// stable. Commands flow from the real `cmd_rx` through a per-restart
+    /// relay channel so external senders never block or need to know about
+    /// restarts. A yamux-exploit crash therefore only kills the inner task;
+    /// the outer loop absorbs it and brings the swarm back up after 3 s.
     pub async fn run(mut self) -> Result<()> {
-        // ------------------------------------------------------------------
-        // 1. Keypair
-        // ------------------------------------------------------------------
         let keypair = load_or_create_keypair(&self.config.data_dir)?;
+        let mut restart_count = 0u32;
+        loop {
+            // Per-restart relay: outer loop owns cmd_rx, inner task owns relay_rx.
+            let (relay_tx, relay_rx) = mpsc::channel::<NetCmd>(256);
+            let inner = Network {
+                config:          self.config.clone(),
+                store:           self.store.clone(),
+                cmd_rx:          relay_rx,
+                event_tx:        self.event_tx.clone(),
+                peer_http_cache: self.peer_http_cache.clone(),
+            };
+            let kp = keypair.clone();
+            let mut handle = tokio::spawn(async move { inner.run_inner(kp).await });
 
+            // Forward real commands to the inner task; stop when inner exits.
+            let join_result = loop {
+                tokio::select! {
+                    msg = self.cmd_rx.recv() => match msg {
+                        Some(cmd) => { let _ = relay_tx.send(cmd).await; }
+                        None => return Ok(()), // all cmd_tx senders dropped
+                    },
+                    result = &mut handle => break result,
+                }
+            };
+            drop(relay_tx); // signal inner task the relay is gone
+
+            match join_result {
+                Ok(Ok(_))  => return Ok(()), // clean shutdown
+                Ok(Err(e)) => {
+                    warn!("P2P swarm error [restart #{}]: {}; retrying in 3s", restart_count, e);
+                }
+                Err(ref e) if e.is_panic() => {
+                    warn!(
+                        "P2P swarm panicked [restart #{}] — possible yamux exploit; \
+                         restarting in 3s",
+                        restart_count
+                    );
+                }
+                Err(_) => return Ok(()), // task cancelled
+            }
+            restart_count += 1;
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+    }
+
+    /// Inner swarm task — runs until clean exit or panic.  Called by `run()`.
+    async fn run_inner(mut self, keypair: libp2p::identity::Keypair) -> Result<()> {
         // ------------------------------------------------------------------
         // 2. Build swarm
         // ------------------------------------------------------------------
@@ -364,18 +427,24 @@ impl Network {
                 self.handle_gossip_message(&message, propagation_source.to_string());
             }
 
-            // Identify — feed addresses into Kademlia and persist to peer store.
+            // Identify — feed addresses into Kademlia, persist, and derive HTTP URL.
             SwarmEvent::Behaviour(BtcpcBehaviourEvent::Identify(
                 identify::Event::Received { peer_id, info, .. }
             )) => {
                 let cache_entry = peer_cache
                     .entry(peer_id.to_string())
                     .or_default();
-                for addr in info.listen_addrs {
+                for addr in &info.listen_addrs {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                    if !cache_entry.contains(&addr) {
-                        cache_entry.push(addr);
+                    if !cache_entry.contains(addr) {
+                        cache_entry.push(addr.clone());
                     }
+                }
+                // Derive HTTP base URL from the first routable IP4 address.
+                if let Some(http_url) = info.listen_addrs.iter()
+                    .find_map(|a| multiaddr_to_http(a))
+                {
+                    self.peer_http_cache.lock().insert(peer_id.to_string(), http_url);
                 }
             }
 
@@ -489,6 +558,27 @@ impl Network {
 
             TOPIC_ENTRIES => {
                 debug!("Received entry from {}", source);
+
+                // If this is a LinkGitRefUpdate, also emit a GitRefAvailable so
+                // the storage sync loop can fetch any missing objects.
+                if let Some(entry_obj) = json.get("entry").or(Some(&json)) {
+                    if entry_obj.get("LinkGitRefUpdate").is_some()
+                        || entry_obj.get("type").and_then(|t| t.as_str()) == Some("LinkGitRefUpdate")
+                    {
+                        let v = entry_obj.get("LinkGitRefUpdate").unwrap_or(entry_obj);
+                        let repo_id     = v["repo_id"].as_str().unwrap_or("").to_owned();
+                        let owner       = v["owner"].as_str().unwrap_or("").to_owned();
+                        let repo_name   = v["repo_name"].as_str().unwrap_or("").to_owned();
+                        let commit_hash = v["commit_hash"].as_str().unwrap_or("").to_owned();
+                        if !repo_id.is_empty() && !commit_hash.is_empty() {
+                            let peer_http = self.peer_http_cache.lock().get(&source).cloned();
+                            self.emit(NetworkEvent::GitRefAvailable {
+                                repo_id, owner, repo_name, commit_hash, peer_http,
+                            });
+                        }
+                    }
+                }
+
                 self.emit(NetworkEvent::Entry { entry: json });
             }
 
@@ -731,4 +821,23 @@ fn load_or_create_keypair(data_dir: &std::path::Path) -> Result<libp2p::identity
     let keypair = Keypair::ed25519_from_bytes(private_bytes)
         .with_context(|| "Failed to restore generated keypair")?;
     Ok(keypair)
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+/// Extract the HTTP base URL for a peer from one of their listen Multiaddrs.
+///
+/// Maps `/ip4/{ip}/tcp/{any_port}` → `"http://{ip}:4242"`.
+/// Returns None for loopback, link-local, IPv6-only, or unrecognised formats.
+fn multiaddr_to_http(addr: &Multiaddr) -> Option<String> {
+    // Walk the multiaddr protocol components as text.
+    let s = addr.to_string();
+    // Expect /ip4/{ip}/tcp/{port}[/...]
+    let parts: Vec<&str> = s.splitn(5, '/').collect();
+    // parts[0] = "", parts[1] = "ip4", parts[2] = "{ip}", parts[3] = "tcp", parts[4] = ...
+    if parts.get(1)? != &"ip4" { return None; }
+    let ip = parts.get(2)?;
+    // Skip loopback and private link-local (169.254.x.x)
+    if *ip == "127.0.0.1" || ip.starts_with("169.254.") { return None; }
+    Some(format!("http://{}:4242", ip))
 }

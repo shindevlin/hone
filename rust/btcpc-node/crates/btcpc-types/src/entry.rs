@@ -1024,6 +1024,97 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── LinkGit COBs (Collaborative Objects — Issues + Pull Requests) ────────
+
+    /// Open a new issue in a LinkGit repository.
+    LinkGitIssueCreate {
+        repo_id: String,
+        issue_id: String,
+        title: String,
+        body: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        labels: Vec<String>,
+        author: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Add a comment to an issue.
+    LinkGitIssueComment {
+        repo_id: String,
+        issue_id: String,
+        comment_id: String,
+        body: String,
+        author: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Close an issue (author or repo owner).
+    LinkGitIssueClose {
+        repo_id: String,
+        issue_id: String,
+        actor: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resolution: Option<String>, // "fixed" | "wontfix" | "duplicate" | "invalid"
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Reopen a closed issue.
+    LinkGitIssueReopen {
+        repo_id: String,
+        issue_id: String,
+        actor: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Open a pull request.
+    LinkGitPrCreate {
+        repo_id: String,
+        pr_id: String,
+        title: String,
+        body: String,
+        source_branch: String,
+        target_branch: String,
+        head_commit: String,
+        author: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Add a comment to a pull request.
+    LinkGitPrComment {
+        repo_id: String,
+        pr_id: String,
+        comment_id: String,
+        body: String,
+        author: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Merge a pull request (repo owner or granted collaborator).
+    LinkGitPrMerge {
+        repo_id: String,
+        pr_id: String,
+        /// SHA of the merge commit pushed to the target branch.
+        merge_commit: String,
+        actor: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    /// Close a pull request without merging.
+    LinkGitPrClose {
+        repo_id: String,
+        pr_id: String,
+        actor: AccountId,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
     // ── Project Collaboration ─────────────────────────────────────────────────
     /// Create a project workspace. Creator is the primary owner.
     /// A project can have full collaborators (ongoing role) and partial task workers (bounty).
@@ -1579,6 +1670,14 @@ impl LedgerEntry {
             Self::LinkGitAccessRevoke { epoch, .. } => *epoch,
             Self::LinkGitPruneProof { epoch, .. } => *epoch,
             Self::LinkGitStorageExtend { epoch, .. } => *epoch,
+            Self::LinkGitIssueCreate { epoch, .. } => *epoch,
+            Self::LinkGitIssueComment { epoch, .. } => *epoch,
+            Self::LinkGitIssueClose { epoch, .. } => *epoch,
+            Self::LinkGitIssueReopen { epoch, .. } => *epoch,
+            Self::LinkGitPrCreate { epoch, .. } => *epoch,
+            Self::LinkGitPrComment { epoch, .. } => *epoch,
+            Self::LinkGitPrMerge { epoch, .. } => *epoch,
+            Self::LinkGitPrClose { epoch, .. } => *epoch,
             Self::TestnetOperatorRegister { epoch, .. } => *epoch,
             Self::TestnetReward { epoch, .. } => *epoch,
             Self::MempoolReward { epoch, .. } => *epoch,
@@ -1740,7 +1839,18 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::LinkGitAccessGrant { .. }
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
-        | LedgerEntry::LinkGitStorageExtend { .. } => ENTRY_WEIGHT_BULK,
+        | LedgerEntry::LinkGitStorageExtend { .. }
+        // COBs: issues and PRs carry body text — bulk weight
+        | LedgerEntry::LinkGitIssueCreate { .. }
+        | LedgerEntry::LinkGitPrCreate { .. } => ENTRY_WEIGHT_BULK,
+
+        // ── Standard (3): COB comments/state transitions ─────────────────────
+        LedgerEntry::LinkGitIssueComment { .. }
+        | LedgerEntry::LinkGitIssueClose { .. }
+        | LedgerEntry::LinkGitIssueReopen { .. }
+        | LedgerEntry::LinkGitPrComment { .. }
+        | LedgerEntry::LinkGitPrMerge { .. }
+        | LedgerEntry::LinkGitPrClose { .. } => ENTRY_WEIGHT_STANDARD,
 
         // ── Registration (20): one-time identity + capacity entries ───────────
         LedgerEntry::AccountCreate { .. }
