@@ -1091,7 +1091,44 @@ async fn emit_epoch_rewards(
         broadcast_entry_desktop(&entry, cmd_tx).await;
     }
 
-    // ── Layer D: testnet operator rewards (from testnet fund) ─────────────────
+    // ── Layer D: LinkGit serve rewards (from recycle fund) ───────────────────
+    {
+        let index_key = format!("linkgit:served_repos:{}", epoch);
+        let served_repos: Vec<String> = chain.store.state_get(&index_key)
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        for repo_id in served_repos {
+            let count_key = format!("linkgit:serve_count:{}:{}", epoch, repo_id);
+            let serve_count = chain.store.state_get(&count_key)
+                .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+                .map(u64::from_le_bytes)
+                .unwrap_or(0);
+            if serve_count == 0 { continue; }
+            let amount = serve_count.saturating_mul(btcpc_types::LINKGIT_SERVE_REWARD_PER_FETCH);
+            if amount == 0 { continue; }
+            // Look up repo owner.
+            let repo_json: Option<serde_json::Value> = chain.store
+                .state_get(&format!("linkgit:repo:{}", repo_id))
+                .and_then(|b| serde_json::from_slice(&b).ok());
+            let Some(owner) = repo_json.and_then(|v| v["owner"].as_str().map(str::to_owned)) else { continue };
+            let entry = LedgerEntry::LinkGitServeReward {
+                repo_id: repo_id.clone(),
+                owner: owner.clone(),
+                amount,
+                serve_count,
+                epoch,
+            };
+            match chain.apply_entry(&entry) {
+                Ok(()) => {
+                    broadcast_entry_desktop(&entry, cmd_tx).await;
+                    info!("linkgit serve reward: repo={} owner={} fetchers={} amount={}", repo_id, owner, serve_count, amount);
+                }
+                Err(e) => warn!("linkgit serve reward failed for {}: {}", repo_id, e),
+            }
+        }
+    }
+
+    // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
     let testnet_ops: Vec<(String, String)> = chain.store.state_scan_prefix("testnet_op:")
         .into_iter()
         .filter_map(|(_, v)| {

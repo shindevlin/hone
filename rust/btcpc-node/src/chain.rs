@@ -1631,6 +1631,43 @@ impl Chain {
             LedgerEntry::LinkGitPruneProof { .. }
             | LedgerEntry::LinkGitStorageExtend { .. } => {}
 
+            // ── LinkGit serve rewards ─────────────────────────────────────────
+            LedgerEntry::LinkGitServeHeartbeat { repo_id, owner, requester_hash, epoch } => {
+                // Per-epoch dedup: same requester_hash in same epoch = no-op.
+                let dedup_key = format!("linkgit:serve_dedup:{}:{}:{}", epoch, repo_id, requester_hash);
+                if self.store.state_get(&dedup_key).is_some() {
+                    return Ok(());
+                }
+                self.store.state_set(&dedup_key, b"1")?;
+                // Increment unique fetch count for this repo this epoch.
+                let count_key = format!("linkgit:serve_count:{}:{}", epoch, repo_id);
+                let count = self.store.state_get(&count_key)
+                    .and_then(|b| <[u8; 8]>::try_from(b.as_slice()).ok())
+                    .map(u64::from_le_bytes)
+                    .unwrap_or(0);
+                self.store.state_set(&count_key, &(count + 1).to_le_bytes())?;
+                // Track which repos had serves this epoch (for epoch seal lookup).
+                let index_key = format!("linkgit:served_repos:{}", epoch);
+                let mut repos: Vec<String> = self.store.state_get(&index_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or_default();
+                if !repos.contains(repo_id) {
+                    repos.push(repo_id.clone());
+                    self.store.state_set(&index_key, &serde_json::to_vec(&repos).unwrap_or_default())?;
+                }
+                info!("linkgit serve: repo={} epoch={} unique_fetchers={}", repo_id, epoch, count + 1);
+            }
+
+            LedgerEntry::LinkGitServeReward { repo_id, owner, amount, serve_count, epoch } => {
+                let recycle_balance = self.store.get_balance(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN);
+                if recycle_balance < *amount {
+                    return Err(anyhow::anyhow!("recycle fund insufficient for serve reward"));
+                }
+                self.store.debit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, *amount)?;
+                self.store.credit(owner, btcpc_types::NATIVE_TOKEN, *amount)?;
+                info!("linkgit serve reward: repo={} owner={} fetchers={} amount={} epoch={}", repo_id, owner, serve_count, amount, epoch);
+            }
+
             // ── LinkGit COBs ──────────────────────────────────────────────────
             LedgerEntry::LinkGitIssueCreate { repo_id, issue_id, title, body, labels, author, epoch, .. } => {
                 let issue = serde_json::json!({

@@ -1032,6 +1032,33 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── LinkGit serve rewards ─────────────────────────────────────────────────
+
+    /// Submitted by the serving node when it successfully delivers a git PACK
+    /// to a remote client.  One heartbeat per unique (requester_hash, epoch) pair
+    /// is counted; duplicates are silently ignored.  The requester_hash is
+    /// SHA-256(client_ip_bytes ++ epoch.to_le_bytes()) — coarse-grained dedup
+    /// that prevents a single client from farming unlimited rewards.
+    LinkGitServeHeartbeat {
+        repo_id: String,
+        /// Repo owner account that will receive the serve reward at epoch seal.
+        owner: AccountId,
+        /// SHA-256(client_ip || epoch_le_bytes) — privacy-preserving per-epoch dedup token.
+        requester_hash: String,
+        epoch: Epoch,
+    },
+
+    /// System entry emitted at epoch seal for each repo that had ≥1 unique serve
+    /// event that epoch.  Drawn from the recycle fund.
+    LinkGitServeReward {
+        repo_id: String,
+        owner: AccountId,
+        amount: Dreams,
+        /// Number of unique fetchers this epoch (for explorer display).
+        serve_count: u64,
+        epoch: Epoch,
+    },
+
     // ── LinkGit COBs (Collaborative Objects — Issues + Pull Requests) ────────
 
     /// Open a new issue in a LinkGit repository.
@@ -1678,6 +1705,8 @@ impl LedgerEntry {
             Self::LinkGitAccessRevoke { epoch, .. } => *epoch,
             Self::LinkGitPruneProof { epoch, .. } => *epoch,
             Self::LinkGitStorageExtend { epoch, .. } => *epoch,
+            Self::LinkGitServeHeartbeat { epoch, .. } => *epoch,
+            Self::LinkGitServeReward { epoch, .. } => *epoch,
             Self::LinkGitIssueCreate { epoch, .. } => *epoch,
             Self::LinkGitIssueComment { epoch, .. } => *epoch,
             Self::LinkGitIssueClose { epoch, .. } => *epoch,
@@ -1852,13 +1881,17 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::LinkGitIssueCreate { .. }
         | LedgerEntry::LinkGitPrCreate { .. } => ENTRY_WEIGHT_BULK,
 
-        // ── Standard (3): COB comments/state transitions ─────────────────────
+        // ── Standard (3): COB comments/state transitions + serve rewards ────────
         LedgerEntry::LinkGitIssueComment { .. }
         | LedgerEntry::LinkGitIssueClose { .. }
         | LedgerEntry::LinkGitIssueReopen { .. }
         | LedgerEntry::LinkGitPrComment { .. }
         | LedgerEntry::LinkGitPrMerge { .. }
-        | LedgerEntry::LinkGitPrClose { .. } => ENTRY_WEIGHT_STANDARD,
+        | LedgerEntry::LinkGitPrClose { .. }
+        | LedgerEntry::LinkGitServeReward { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Micro (1): high-frequency serve heartbeats ────────────────────────
+        LedgerEntry::LinkGitServeHeartbeat { .. } => ENTRY_WEIGHT_MICRO,
 
         // ── Registration (20): one-time identity + capacity entries ───────────
         LedgerEntry::AccountCreate { .. }

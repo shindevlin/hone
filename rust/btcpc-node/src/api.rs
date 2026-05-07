@@ -5785,6 +5785,7 @@ async fn git_info_refs(
 /// POST /git/:owner/:repo/git-upload-pack
 async fn git_upload_pack(
     State(s): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<std::net::SocketAddr>,
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
     body: axum::body::Bytes,
@@ -5794,6 +5795,48 @@ async fn git_upload_pack(
     let resp = crate::linkgit_server::upload_pack(
         &s.chain.store, &resolved, &repo, &body, auth.as_deref(),
     );
+
+    // If we actually served a PACK (non-empty 200), emit a serve heartbeat
+    // so the repo owner earns a reward at epoch seal.
+    if resp.status == 200 && resp.body.windows(4).any(|w| w == b"PACK") {
+        let peer_ip = peer_addr.ip();
+        // Skip loopback — local fetches don't count as "popularity"
+        if !peer_ip.is_loopback() {
+            let epoch = s.chain.current_epoch();
+            // Requester hash: SHA-256(ip_bytes || epoch_le_bytes) — per-IP-per-epoch dedup.
+            let hash = {
+                use sha2::Digest;
+                let mut h = sha2::Sha256::new();
+                match peer_ip {
+                    std::net::IpAddr::V4(v4) => h.update(v4.octets()),
+                    std::net::IpAddr::V6(v6) => h.update(v6.octets()),
+                }
+                h.update(epoch.to_le_bytes());
+                hex::encode(h.finalize())
+            };
+            // Look up repo owner from chain state.
+            let repo_key = format!("linkgit:byname:{}:{}", resolved, repo);
+            if let Some(repo_id_bytes) = s.chain.store.state_get(&repo_key) {
+                if let Ok(repo_id) = String::from_utf8(repo_id_bytes) {
+                    let repo_json: Option<serde_json::Value> = s.chain.store
+                        .state_get(&format!("linkgit:repo:{}", repo_id))
+                        .and_then(|b| serde_json::from_slice(&b).ok());
+                    if let Some(owner_acct) = repo_json.and_then(|v| v["owner"].as_str().map(str::to_owned)) {
+                        let entry = LedgerEntry::LinkGitServeHeartbeat {
+                            repo_id: repo_id.clone(),
+                            owner: owner_acct,
+                            requester_hash: hash,
+                            epoch,
+                        };
+                        if let Ok(()) = s.chain.apply_entry(&entry) {
+                            let _ = s.tx_broadcast.send((entry, None));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     git_response(resp)
 }
 

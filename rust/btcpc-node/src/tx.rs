@@ -474,6 +474,9 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
         | LedgerEntry::LinkGitStorageExtend { .. }
+        // LinkGit serve rewards — heartbeats are server-generated, reward is system-generated
+        | LedgerEntry::LinkGitServeHeartbeat { .. }
+        | LedgerEntry::LinkGitServeReward { .. }
         // LinkGit COBs — issues and pull requests
         | LedgerEntry::LinkGitIssueCreate { .. }
         | LedgerEntry::LinkGitIssueComment { .. }

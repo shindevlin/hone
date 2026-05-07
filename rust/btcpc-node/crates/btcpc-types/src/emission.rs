@@ -114,6 +114,11 @@ pub const RECYCLE_ERA: u64 = 5;
 /// Drained by: era-5 block rewards (recycle_reward_at).
 pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
 
+/// Reward paid to a repo owner per unique remote fetcher per epoch.
+/// Drawn from the recycle fund.  0.0001 BTCPC per unique fetch.
+/// A repo with 100 unique cloners/day earns roughly 0.01 BTCPC/day at era 0.
+pub const LINKGIT_SERVE_REWARD_PER_FETCH: u64 = 1_000_000; // 0.0001 BTCPC
+
 /// Base clock reward per epoch at era 0 (30-second epochs).
 /// Doubles each era so clock nodes earn the same per-day income regardless of how
 /// long epochs get.  Use clock_reward_at(epoch) rather than this constant directly.
