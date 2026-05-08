@@ -95,7 +95,7 @@ pub fn cmd_post(
         "signature": sig,
     });
 
-    let resp: Value = api.post("/api/inference/post", &body)?;
+    let resp: Value = api.post("/api/task/post", &body)?;
     if resp.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false) {
         println!("{}", "Inference job posted.".green().bold());
         if let Some(job_id) = resp.get("job_id").and_then(|v| v.as_str()) {
@@ -115,7 +115,7 @@ pub fn cmd_post(
 
 pub fn cmd_jobs(status: Option<&str>, model: Option<&str>) -> Result<()> {
     let api = ApiClient::new();
-    let mut path = "/api/inference/jobs".to_owned();
+    let mut path = "/api/task/jobs".to_owned();
     let mut params = vec![];
     if let Some(s) = status { params.push(format!("status={}", s)); }
     if let Some(m) = model { params.push(format!("model={}", m)); }
@@ -146,7 +146,7 @@ pub fn cmd_jobs(status: Option<&str>, model: Option<&str>) -> Result<()> {
 
 pub fn cmd_job(id: &str) -> Result<()> {
     let api = ApiClient::new();
-    let resp: Value = api.get(&format!("/api/inference/job/{}", id))?;
+    let resp: Value = api.get(&format!("/api/task/job/{}", id))?;
     println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
     Ok(())
 }
@@ -186,7 +186,7 @@ pub fn cmd_bid(
         "signature": sig,
     });
 
-    let resp: Value = api.post("/api/inference/bid", &body)?;
+    let resp: Value = api.post("/api/task/bid", &body)?;
     check_accepted(&resp, "Bid submitted.")?;
     Ok(())
 }
@@ -222,7 +222,7 @@ pub fn cmd_complete(
         "signature": sig,
     });
 
-    let resp: Value = api.post("/api/inference/complete", &body)?;
+    let resp: Value = api.post("/api/task/complete", &body)?;
     check_accepted(&resp, "Job completion submitted.")?;
     Ok(())
 }
@@ -257,7 +257,7 @@ pub fn cmd_cancel(
         "signature": sig,
     });
 
-    let resp: Value = api.post("/api/inference/cancel", &body)?;
+    let resp: Value = api.post("/api/task/cancel", &body)?;
     check_accepted(&resp, "Job cancelled. Escrow refunded.")?;
     Ok(())
 }
@@ -271,7 +271,7 @@ pub fn cmd_reputation(node: Option<&str>) -> Result<()> {
         .ok_or_else(|| anyhow!("specify a node account or set BTCPC_ACCOUNT"))?;
 
     let api = ApiClient::new();
-    let resp: Value = api.get(&format!("/api/inference/reputation/{}", account))?;
+    let resp: Value = api.get(&format!("/api/task/reputation/{}", account))?;
     let score = resp.get("score").and_then(|v| v.as_u64()).unwrap_or(0);
     let completed = resp.get("jobs_completed").and_then(|v| v.as_u64()).unwrap_or(0);
     let accepted = resp.get("jobs_accepted").and_then(|v| v.as_u64()).unwrap_or(0);

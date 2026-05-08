@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Integrate with BTCPC — Agent &amp; Project Setup</title>
+  <meta name="description" content="Connect any project or AI agent to the BTCPC chain. Inference, git hosting, storage, and a token balance in under 10 minutes.">
+  <meta property="og:title" content="Integrate with BTCPC">
+  <meta property="og:description" content="Connect any project or AI agent to the BTCPC chain. Paid inference, git hosting, storage, and tokens from one sovereign account.">
+  <meta property="og:url" content="https://btcpc.net/integrate">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --card: #1a2235;
+      --border: #2a3550;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --dim: #4a5568;
+      --orange: #f7931a;
+      --green: #22c55e;
+      --code-bg: #0b1020;
+      --code-text: #d9f99d;
+      --code-border: rgba(247,147,26,0.18);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, system-ui, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    a { color: var(--orange); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: 'SFMono-Regular', ui-monospace, Menlo, monospace;
+      font-size: 12px;
+      background: rgba(247,147,26,0.08);
+      color: #fcd34d;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; gap: 20px;
+      padding: 8px 20px;
+      background: rgba(10,14,23,0.97);
+      border-bottom: 1px solid rgba(247,147,26,0.2);
+      font-size: 13px;
+      overflow-x: auto; white-space: nowrap;
+    }
+    .nav a { color: #c8ccd4; text-decoration: none; }
+    .nav .brand { color: var(--orange); font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .nav .brand img { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; }
+    .nav .cta {
+      margin-left: auto;
+      background: var(--orange); color: #000;
+      padding: 5px 14px; border-radius: 6px;
+      font-weight: 700; font-size: 12px;
+    }
+    .nav .cta:hover { text-decoration: none; opacity: 0.9; }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 0 20px 80px;
+      gap: 0 48px;
+      align-items: start;
+    }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+
+    /* ── Sidebar TOC ── */
+    .sidebar {
+      position: sticky; top: 52px;
+      padding: 40px 0 40px;
+    }
+    .toc-label {
+      font-size: 10px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 1.5px;
+      color: var(--dim); margin-bottom: 12px;
+    }
+    .toc a {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 5px 0 5px 12px;
+      border-left: 2px solid var(--border);
+      text-decoration: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .toc a:hover, .toc a.active {
+      color: var(--orange);
+      border-left-color: var(--orange);
+    }
+
+    /* ── Main ── */
+    .main { padding: 40px 0 40px; }
+
+    .eyebrow {
+      font-size: 11px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 2px;
+      color: var(--green); margin-bottom: 12px;
+    }
+    h1 {
+      font-size: clamp(30px, 5vw, 46px);
+      font-weight: 800; line-height: 1.1;
+      margin-bottom: 16px;
+    }
+    h1 span { color: var(--orange); }
+    .hero-sub {
+      color: var(--muted); font-size: 16px;
+      max-width: 640px; line-height: 1.7;
+      margin-bottom: 24px;
+    }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 40px; }
+    .pill {
+      font-size: 12px; font-weight: 700;
+      padding: 4px 12px; border-radius: 999px;
+      background: rgba(247,147,26,0.1);
+      border: 1px solid rgba(247,147,26,0.2);
+      color: #ffd8a8;
+    }
+
+    /* ── Section ── */
+    .section { margin-bottom: 56px; scroll-margin-top: 64px; }
+    .section-title {
+      font-size: 13px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 1.5px;
+      color: var(--orange); margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Step ── */
+    .step {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 0 16px;
+      padding: 18px 0;
+      border-top: 1px solid rgba(148,163,184,0.1);
+    }
+    .step:first-child { border-top: none; padding-top: 0; }
+    .step-num {
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 2px;
+    }
+    .step-num span {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: rgba(247,147,26,0.15);
+      color: var(--orange);
+      font-size: 11px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .step-body h3 {
+      font-size: 15px; font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .step-body p {
+      color: var(--muted); font-size: 14px;
+      line-height: 1.65; margin-bottom: 10px;
+    }
+    .step-body p:last-child { margin-bottom: 0; }
+
+    /* ── Warning box ── */
+    .warn {
+      background: rgba(234,179,8,0.07);
+      border: 1px solid rgba(234,179,8,0.3);
+      border-left: 3px solid #eab308;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin: 10px 0;
+      font-size: 13px; color: #fde68a;
+      line-height: 1.6;
+    }
+    .warn strong { color: #fcd34d; }
+
+    /* ── Code block ── */
+    .code-wrap { position: relative; margin: 10px 0; }
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      padding: 14px 44px 14px 16px;
+      font-family: 'SFMono-Regular', ui-monospace, Menlo, monospace;
+      font-size: 12.5px;
+      color: var(--code-text);
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.7;
+    }
+    .code-block .cm { color: var(--dim); }
+    .copy {
+      position: absolute; top: 8px; right: 8px;
+      background: #1a2235;
+      border: 1px solid #2a3550;
+      border-radius: 5px;
+      color: #94a3b8;
+      font-size: 11px; font-family: inherit;
+      padding: 3px 9px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .copy:hover { background: #2a3550; }
+    .copy.ok { background: rgba(34,197,94,0.15); color: #22c55e; border-color: rgba(34,197,94,0.3); }
+
+    /* ── Two-column step (desc + code side by side) ── */
+    .step-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 600px) { .step-cols { grid-template-columns: 1fr; } }
+
+    /* ── Service grid ── */
+    .svc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin: 12px 0;
+    }
+    .svc {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .svc-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+    .svc-desc { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+    .svc-cost { font-size: 11px; font-weight: 700; color: var(--orange); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── Checklist ── */
+    .checklist {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      padding: 16px;
+      font-family: 'SFMono-Regular', ui-monospace, Menlo, monospace;
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 2;
+    }
+    .checklist .done { color: var(--green); }
+
+    /* ── CTA ── */
+    .cta-block {
+      text-align: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 36px 28px;
+    }
+    .cta-block h2 { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
+    .cta-block p { color: var(--muted); font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
+    .cta-btn {
+      display: inline-block;
+      background: var(--orange); color: #000;
+      padding: 12px 28px; border-radius: 8px;
+      font-weight: 800; font-size: 14px;
+      text-decoration: none;
+    }
+    .cta-btn:hover { opacity: 0.9; text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="brand"><img src="/btcpc-logo.jpeg" alt="">BTCPC</a>
+  <a href="/#pick-your-role">Get Started</a>
+  <a href="/install">Install</a>
+  <a href="/buy">Buy BTCPC</a>
+  <a href="/dashboard">Explorer</a>
+  <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
+  <a href="/app" class="cta">Create Wallet →</a>
+</nav>
+
+<div class="layout">
+
+  <!-- Sidebar TOC -->
+  <aside class="sidebar">
+    <div class="toc-label">On this page</div>
+    <nav class="toc" id="toc">
+      <a href="#setup">Setup</a>
+      <a href="#inference">Inference</a>
+      <a href="#git">Git Hosting</a>
+      <a href="#storage">Storage</a>
+      <a href="#marketplace">Marketplace</a>
+      <a href="#checklist">Checklist</a>
+    </nav>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- Hero -->
+    <div class="eyebrow">Developer Guide</div>
+    <h1>Integrate with <span>BTCPC</span></h1>
+    <p class="hero-sub">Connect any project or AI agent to the chain. Get paid inference, on-chain git hosting, decentralized storage, and a token balance — all from one sovereign account.</p>
+    <div class="pills">
+      <span class="pill">OpenAI-Compatible API</span>
+      <span class="pill">AI Inference</span>
+      <span class="pill">Git Hosting</span>
+      <span class="pill">Storage</span>
+      <span class="pill">Token Balance</span>
+    </div>
+
+    <!-- Setup -->
+    <div class="section" id="setup">
+      <div class="section-title">One-time setup</div>
+
+      <div class="step">
+        <div class="step-num"><span>1</span></div>
+        <div class="step-body">
+          <h3>Install the CLI</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>curl -fsSL https://btcpc.net/install | bash
+btcpc --version</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>2</span></div>
+        <div class="step-body">
+          <h3>Check for an existing wallet first</h3>
+          <p>Do not create a new wallet if you already have one — you will lose access to your existing account and any tokens in it.</p>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button><span class="cm"># Any of these means you already have a wallet — skip to step 5:</span>
+ls ~/.btcpc/wallet.json 2>/dev/null && echo EXISTS
+ls .btcpc/wallet.env   2>/dev/null && echo EXISTS
+echo $BTCPC_ACCOUNT</div>
+          </div>
+          <div class="warn"><strong>Already set up?</strong> If <code>BTCPC_ACCOUNT</code> is set or either file exists, skip to step 5 to check your balance.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>3</span></div>
+        <div class="step-body">
+          <h3>Create your account <span style="font-weight:400;color:var(--muted);">— only if none exists</span></h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc wallet create --account &lt;choose-a-name&gt;
+<span class="cm"># Prints a 12-word mnemonic. Save it — shown once, never stored.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>4</span></div>
+        <div class="step-body">
+          <h3>Register your signing key <span style="font-weight:400;color:var(--muted);">— only if new account</span></h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc key generate
+btcpc key register --account &lt;your-account&gt; --role posting</div>
+          </div>
+          <p>Generates <code>~/.btcpc/key.json</code> and registers your public key on-chain.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>5</span></div>
+        <div class="step-body">
+          <h3>Verify balance &amp; claim tokens</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>curl https://btcpc.net/api/balance/$BTCPC_ACCOUNT
+<span class="cm"># {"balance":10.0,"dreams":100000000000}
+# 1 BTCPC = 10,000,000,000 dreams</span></div>
+          </div>
+          <p>If balance is 0, claim the testnet faucet (10 BTCPC — covers ~100,000 average inference calls):</p>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc faucet claim $BTCPC_ACCOUNT</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>6</span></div>
+        <div class="step-body">
+          <h3>Generate an API key</h3>
+          <p>Check if you already have one first:</p>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>grep BTCPC_API_KEY .btcpc/wallet.env 2>/dev/null</div>
+          </div>
+          <p>If <code>BTCPC_API_KEY</code> is missing or empty:</p>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc wallet api-key-gen --mnemonic "your twelve words here"
+echo '.btcpc/wallet.env' >> .gitignore</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span>7</span></div>
+        <div class="step-body">
+          <h3>Set environment variables</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>BTCPC_ACCOUNT=&lt;your-account&gt;
+BTCPC_API_KEY=&lt;64-char hex from api-key-gen&gt;
+BTCPC_API_URL=https://btcpc.net  <span class="cm"># override for local node</span>
+
+<span class="cm"># Load from file:</span>
+export $(grep -v '^#' .btcpc/wallet.env | xargs)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inference -->
+    <div class="section" id="inference">
+      <div class="section-title">AI Inference</div>
+
+      <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">OpenAI-compatible endpoint. Any model Ollama supports. Fee: <strong style="color:var(--text);">100 dreams / token</strong> (min 1,000 dreams). Auth required.</p>
+
+      <div class="step">
+        <div class="step-num"><span style="background:rgba(247,147,26,0.1);">→</span></div>
+        <div class="step-body">
+          <h3>curl</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>curl -X POST https://btcpc.net/v1/chat/completions \
+  -H "Authorization: Bearer $BTCPC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role":"user","content":"What is 2+2?"}],
+    "model": "dolphin-llama3"
+  }'
+<span class="cm"># Response includes usage.fee_dreams showing exact cost.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span style="background:rgba(247,147,26,0.1);">→</span></div>
+        <div class="step-body">
+          <h3>JavaScript / any OpenAI client</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>const res = await fetch(`${process.env.BTCPC_API_URL}/v1/chat/completions`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.BTCPC_API_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    messages: [{ role: 'user', content: prompt }],
+    model: 'dolphin-llama3',
+  }),
+});
+const { choices } = await res.json();
+const text = choices[0].message.content;</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span style="background:rgba(247,147,26,0.1);">→</span></div>
+        <div class="step-body">
+          <h3>Rust (btcpc-sdk)</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>let client = BtcpcClient::from_env(); <span class="cm">// reads BTCPC_API_URL/KEY/ACCOUNT</span>
+let resp = client.chat_completions(
+    vec![json!({"role":"user","content":"Summarise this PR."})],
+    None, <span class="cm">// None = node's default model</span>
+).await?;
+let text = resp["choices"][0]["message"]["content"].as_str().unwrap_or("");</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num"><span style="background:rgba(34,197,94,0.15);">!</span></div>
+        <div class="step-body">
+          <h3>On 402 — claim faucet and retry once</h3>
+          <div class="code-wrap">
+            <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc faucet claim $BTCPC_ACCOUNT</div>
+          </div>
+          <p>List available models: <code>curl https://btcpc.net/api/node/models</code></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Git -->
+    <div class="section" id="git">
+      <div class="section-title">Git Hosting — LinkGit</div>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Push and clone repos directly on the BTCPC chain. Standard git remote — no special tooling needed to clone.</p>
+      <div class="code-wrap">
+        <div class="code-block"><button class="copy" onclick="cp(this)">copy</button>btcpc repo init $BTCPC_ACCOUNT
+git remote add btcpc https://git.btcpc.net/$BTCPC_ACCOUNT/&lt;repo&gt;
+git push btcpc main
+
+<span class="cm"># Anyone can clone with standard git:</span>
+git clone https://git.btcpc.net/$BTCPC_ACCOUNT/&lt;repo&gt;</div>
+      </div>
+    </div>
+
+    <!-- Storage -->
+    <div class="section" id="storage">
+      <div class="section-title">Storage Rewards</div>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Nodes that store and serve data earn from the storage pool by submitting a heartbeat each epoch.</p>
+      <div class="code-wrap">
+        <div class="code-block"><button class="copy" onclick="cp(this)">copy</button><span class="cm"># Get current epoch:</span>
+EPOCH=$(curl -s https://btcpc.net/api/latest | jq .epoch)
+
+curl -X POST https://btcpc.net/api/entry \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"type\": \"STORAGE_HEARTBEAT\",
+    \"node_id\": \"$BTCPC_ACCOUNT\",
+    \"bytes_stored\": 1073741824,
+    \"bytes_proven\": 1073741824,
+    \"proof_valid\": true,
+    \"epoch\": $EPOCH
+  }"</div>
+      </div>
+    </div>
+
+    <!-- Marketplace -->
+    <div class="section" id="marketplace">
+      <div class="section-title">Inference Marketplace</div>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">For long-running jobs (&gt;30s). Post a job, workers bid, winner runs inference, verifiers confirm. Dynamic pricing via competitive bids.</p>
+      <div class="code-wrap">
+        <div class="code-block"><button class="copy" onclick="cp(this)">copy</button><span class="cm"># Post a job:</span>
+btcpc inference post \
+  --account $BTCPC_ACCOUNT \
+  --model llama3:70b \
+  --input "Analyse this codebase..." \
+  --max-fee 100000
+
+<span class="cm"># Check status:</span>
+btcpc inference jobs
+btcpc inference job &lt;job_id&gt;
+
+<span class="cm"># Lifecycle: Posted → Awarded → Completed → Verified → Paid</span></div>
+      </div>
+
+      <div style="margin-top:20px;">
+        <div class="svc-grid">
+          <div class="svc">
+            <div class="svc-name">Inference</div>
+            <div class="svc-desc">OpenAI-compatible. Any Ollama model. Streaming + async marketplace.</div>
+            <div class="svc-cost">100 dreams / token</div>
+          </div>
+          <div class="svc">
+            <div class="svc-name">Git Hosting</div>
+            <div class="svc-desc">Push and clone on-chain. Standard git remote, no special client.</div>
+            <div class="svc-cost">Free</div>
+          </div>
+          <div class="svc">
+            <div class="svc-name">Storage</div>
+            <div class="svc-desc">Store and serve data. Earn from storage pool each epoch.</div>
+            <div class="svc-cost">Earns rewards</div>
+          </div>
+          <div class="svc">
+            <div class="svc-name">Marketplace</div>
+            <div class="svc-desc">Long-running inference jobs. Bid as worker, earn on verified completion.</div>
+            <div class="svc-cost">Dynamic fee</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Checklist -->
+    <div class="section" id="checklist">
+      <div class="section-title">Setup checklist</div>
+      <div class="checklist"><span class="cm">□</span> Check for existing wallet before creating a new one
+<span class="cm">□</span> btcpc wallet create --account &lt;name&gt;
+<span class="cm">□</span> btcpc key generate
+<span class="cm">□</span> btcpc key register --account &lt;name&gt; --role posting
+<span class="cm">□</span> btcpc faucet claim &lt;name&gt;
+<span class="cm">□</span> btcpc wallet api-key-gen --mnemonic "..."
+<span class="cm">□</span> echo '.btcpc/wallet.env' >> .gitignore
+<span class="cm">□</span> Set BTCPC_ACCOUNT, BTCPC_API_KEY, BTCPC_API_URL in env
+<span class="cm">□</span> Handle 402 by claiming faucet and retrying once
+<span class="cm">□</span> Never hardcode BTCPC_API_URL — always read from env</div>
+
+      <div class="cta-block" style="margin-top:32px;">
+        <h2>Tell the operator your account name</h2>
+        <p>Once your account is set up, share your account name with the BTCPC operator so they can delegate tokens beyond the faucet limit.</p>
+        <a href="https://t.me/btcpcbot" target="_blank" class="cta-btn">Message @btcpcbot →</a>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function cp(btn) {
+  const block = btn.nextSibling;
+  let text = '';
+  block.childNodes.forEach(n => {
+    if (n.nodeType === 3) text += n.textContent;
+    else if (n.tagName === 'SPAN' && n.classList.contains('cm')) { /* skip comments */ }
+    else text += n.textContent;
+  });
+  text = text.trim();
+  navigator.clipboard?.writeText(text).then(() => {
+    btn.textContent = 'copied!';
+    btn.classList.add('ok');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('ok'); }, 1600);
+  });
+}
+
+// Highlight active TOC link on scroll
+const sections = document.querySelectorAll('.section[id]');
+const tocLinks = document.querySelectorAll('.toc a');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+    }
+  });
+}, { rootMargin: '-20% 0px -60% 0px' });
+sections.forEach(s => obs.observe(s));
+</script>
+
+</body>
+</html>

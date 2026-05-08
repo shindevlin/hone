@@ -6,6 +6,14 @@ use std::path::{Path, PathBuf};
 
 use crate::api::ApiClient;
 
+fn node_chain_id(api: &ApiClient) -> anyhow::Result<String> {
+    let info: serde_json::Value = api.get("/api/node/info")?;
+    info.get("chain_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("node info missing chain_id"))
+}
+
 pub fn cmd_key_generate(output: Option<&Path>) -> Result<()> {
     let path = resolve_key_path(output)?;
     let keypair = KeyPair::generate();
@@ -26,26 +34,29 @@ pub fn cmd_key_show(key_file: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn cmd_key_register(account: &str, key_file: Option<&Path>) -> Result<()> {
+pub fn cmd_key_register(account: &str, role: Option<&str>, key_file: Option<&Path>) -> Result<()> {
     let path = resolve_key_path(key_file)?;
     let keypair = KeyPair::from_file(&path)?;
     let pubkey = keypair.public_key_hex();
+    let role = role.unwrap_or("posting");
 
     let api = ApiClient::new();
+    let chain_id = node_chain_id(&api)?;
 
-    // Sign the canonical AccountUpdateKey message.
-    // If this is a first-time registration (no key on chain), the node accepts
-    // the entry without a signature.  If there is already a key, this signature
-    // proves ownership of the existing key before rotation.
+    // Canonical message — field order is alphabetical (serde_json BTreeMap).
+    // Must match tx.rs::canonical_signing_message for AccountUpdateKey.
     let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
         "type": "ACCOUNT_UPDATE_KEY",
         "account": account,
+        "role": role,
         "new_public_key": pubkey,
     }))?;
     let sig = keypair.sign_entry_json(&msg);
 
     let body = json!({
         "account": account,
+        "role": role,
         "new_public_key": pubkey,
         "signed_by": account,
         "signature": sig,

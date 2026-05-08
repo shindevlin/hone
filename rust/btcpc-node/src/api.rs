@@ -5972,8 +5972,11 @@ async fn get_ens_repos(
 //       Fee of V1_INFERENCE_FEE_DREAMS is debited per request and credited to this node.
 // Rate: 60 req/60s per IP
 
-/// Dreams charged per /v1/chat/completions request (0.0001 BTCPC).
-const V1_INFERENCE_FEE_DREAMS: u64 = 10_000;
+/// Dreams charged per token (input + output) for /v1/chat/completions.
+/// 100 dreams/token means a 100-token exchange costs 10,000 dreams (0.0001 BTCPC).
+const DREAMS_PER_TOKEN: u64 = 100;
+/// Minimum fee per request regardless of token count.
+const MIN_INFERENCE_FEE_DREAMS: u64 = 1_000;
 
 #[derive(Deserialize)]
 struct OpenAiMessage {
@@ -6067,31 +6070,22 @@ async fn post_v1_chat_completions(
             }
         };
         {
-            let account_ref = &account;
-            // Account must have sufficient balance.
-            let balance = s.chain.store.get_balance(account_ref, btcpc_types::NATIVE_TOKEN);
-            if balance < V1_INFERENCE_FEE_DREAMS {
+            let balance = s.chain.store.get_balance(&account, btcpc_types::NATIVE_TOKEN);
+            if balance < MIN_INFERENCE_FEE_DREAMS {
                 return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
                     "error": {
                         "message": format!(
-                            "Insufficient balance. Need {} dreams, have {}. Get tokens via @btcpcbot or POST /api/faucet/claim.",
-                            V1_INFERENCE_FEE_DREAMS, balance
+                            "Insufficient balance. Need at least {} dreams, have {}. Get tokens via @btcpcbot or POST /api/faucet/claim.",
+                            MIN_INFERENCE_FEE_DREAMS, balance
                         ),
                         "type": "insufficient_quota"
                     }
                 }))).into_response();
             }
-            // Debit fee — credit goes to this node's account.
-            if let Err(e) = s.chain.store.debit(account_ref, btcpc_types::NATIVE_TOKEN, V1_INFERENCE_FEE_DREAMS) {
-                return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
-                    "error": { "message": format!("Payment failed: {}", e), "type": "insufficient_quota" }
-                }))).into_response();
-            }
-            let _ = s.chain.store.credit(s.node_account.as_str(), btcpc_types::NATIVE_TOKEN, V1_INFERENCE_FEE_DREAMS);
         }
         account
     };
-    let _ = caller; // available for future per-account logging
+    // Fee is debited after inference completes — amount depends on actual token count.
 
     if req.messages.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
@@ -6119,6 +6113,8 @@ async fn post_v1_chat_completions(
     if req.stream {
         let body = serde_json::json!({ "model": model, "messages": messages, "stream": true });
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
+        let s_stream = s.clone();
+        let caller_stream = caller.clone();
 
         tokio::spawn(async move {
             use tokio_stream::StreamExt as _;
@@ -6157,6 +6153,17 @@ async fn post_v1_chat_completions(
                         });
                         if tx.send(Ok(Event::default().data(chunk_json.to_string()))).await.is_err() { return; }
                         if done {
+                            // Apply per-token fee now that we know actual usage.
+                            let prompt_tokens = v["prompt_eval_count"].as_u64().unwrap_or(0);
+                            let completion_tokens = v["eval_count"].as_u64().unwrap_or(0);
+                            let total_tokens = prompt_tokens + completion_tokens;
+                            let fee = (total_tokens * DREAMS_PER_TOKEN).max(MIN_INFERENCE_FEE_DREAMS);
+                            let balance = s_stream.chain.store.get_balance(&caller_stream, btcpc_types::NATIVE_TOKEN);
+                            let actual_fee = fee.min(balance);
+                            if actual_fee > 0 {
+                                let _ = s_stream.chain.store.debit(&caller_stream, btcpc_types::NATIVE_TOKEN, actual_fee);
+                                let _ = s_stream.chain.store.credit(s_stream.node_account.as_str(), btcpc_types::NATIVE_TOKEN, actual_fee);
+                            }
                             let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
                             return;
                         }
@@ -6179,6 +6186,16 @@ async fn post_v1_chat_completions(
         match resp.json::<serde_json::Value>().await {
             Ok(v) => {
                 let content = v["message"]["content"].as_str().unwrap_or("").to_owned();
+                let prompt_tokens = v["prompt_eval_count"].as_u64().unwrap_or(0);
+                let completion_tokens = v["eval_count"].as_u64().unwrap_or(0);
+                let total_tokens = prompt_tokens + completion_tokens;
+                let fee = (total_tokens * DREAMS_PER_TOKEN).max(MIN_INFERENCE_FEE_DREAMS);
+                let balance = s.chain.store.get_balance(&caller, btcpc_types::NATIVE_TOKEN);
+                let actual_fee = fee.min(balance);
+                if actual_fee > 0 {
+                    let _ = s.chain.store.debit(&caller, btcpc_types::NATIVE_TOKEN, actual_fee);
+                    let _ = s.chain.store.credit(s.node_account.as_str(), btcpc_types::NATIVE_TOKEN, actual_fee);
+                }
                 let completion = serde_json::json!({
                     "id": chat_id,
                     "object": "chat.completion",
@@ -6186,9 +6203,10 @@ async fn post_v1_chat_completions(
                     "model": model,
                     "choices": [{ "index": 0, "message": { "role": "assistant", "content": content }, "finish_reason": "stop" }],
                     "usage": {
-                        "prompt_tokens": v["prompt_eval_count"].as_u64().unwrap_or(0),
-                        "completion_tokens": v["eval_count"].as_u64().unwrap_or(0),
-                        "total_tokens": v["prompt_eval_count"].as_u64().unwrap_or(0) + v["eval_count"].as_u64().unwrap_or(0),
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                        "fee_dreams": actual_fee,
                     }
                 });
                 Json(completion).into_response()

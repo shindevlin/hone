@@ -118,7 +118,8 @@ pub fn cmd_account_create(account: &str, pubkey: Option<&str>) -> Result<()> {
     });
 
     if let Some(pk) = pubkey {
-        body["public_key"] = json!(pk);
+        // API expects a role-keyed map: {"posting": "<hex pubkey>"}
+        body["keys"] = json!({ "posting": pk });
     }
 
     let resp: Value = api.post("/api/account/create", &body)?;

@@ -222,6 +222,9 @@ enum KeyCommands {
     Register {
         #[arg(long)]
         account: String,
+        /// Key role to register (default: posting). Options: posting, owner, memo, active.
+        #[arg(long, default_value = "posting")]
+        role: String,
         /// Key file path (default: ~/.btcpc/key.json)
         #[arg(long)]
         key_file: Option<PathBuf>,
@@ -533,8 +536,8 @@ fn run() -> Result<()> {
             KeyCommands::Show { key_file } => {
                 key::cmd_key_show(key_file.as_deref())?;
             }
-            KeyCommands::Register { account, key_file } => {
-                key::cmd_key_register(&account, key_file.as_deref())?;
+            KeyCommands::Register { account, role, key_file } => {
+                key::cmd_key_register(&account, Some(&role), key_file.as_deref())?;
             }
         },
         Commands::Wallet { action } => match action {
