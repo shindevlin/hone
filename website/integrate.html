@@ -111,6 +111,90 @@
       <span class="badge">Git hosting</span>
       <span class="badge">Storage</span>
       <span class="badge">Rust SDK</span>
+      <span class="badge" style="background:rgba(34,197,94,0.1);color:#22c55e;border-color:rgba(34,197,94,0.25);">Agent-readable · Follow in order</span>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- Agent instructions -->
+  <section>
+    <div class="eyebrow" style="color:#22c55e;">For AI agents</div>
+    <h2>Read this before <span>running anything</span></h2>
+    <p class="lead">If you are an AI agent integrating a project with BTCPC, follow this section exactly. It gives you the decision logic, expected outputs, and failure branches for every step. The detailed commands are in the sections below — come back here first.</p>
+
+    <div class="card" style="border-color:rgba(34,197,94,0.2);">
+      <div class="card-label" style="color:#22c55e;">Decision tree — run once per project</div>
+
+      <div class="code" style="border-color:rgba(34,197,94,0.2);color:#86efac;">## STEP A — Check for existing wallet (ALWAYS do this first)
+ls ~/.btcpc/wallet.json 2>/dev/null &amp;&amp; echo WALLET_EXISTS
+ls .btcpc/wallet.env   2>/dev/null &amp;&amp; echo WALLET_EXISTS
+echo $BTCPC_ACCOUNT
+
+# IF any of the above prints a value → wallet exists. Jump to STEP E.
+# IF nothing prints → no wallet. Continue to STEP B.</div>
+
+      <div class="code" style="border-color:rgba(34,197,94,0.2);color:#86efac;" id="agent-decision-tree">## STEP B — Install CLI (skip if `btcpc --version` already works)
+curl -fsSL https://btcpc.net/install | bash
+btcpc --version
+# Expected: btcpc X.Y.Z
+
+## STEP C — Create account (only if STEP A found nothing)
+btcpc wallet create --account &lt;choose-a-username&gt;
+# Expected: mnemonic printed once. Write it down. It is never stored.
+# Save the output — you cannot recover it later.
+
+## STEP D — Register signing key (only after STEP C)
+btcpc key generate
+btcpc key register --account &lt;username&gt; --role posting
+# Expected: {"status":"ok"} or similar. Key saved to ~/.btcpc/key.json.
+
+## STEP E — Check balance
+curl https://btcpc.net/api/balance/&lt;username&gt;
+# Expected: {"balance":10.0,"dreams":1000000000,...}
+# IF balance is 0 → run STEP F. Otherwise skip to STEP G.
+
+## STEP F — Claim faucet (only if balance is 0)
+btcpc faucet claim &lt;username&gt;
+# Expected: {"status":"ok","amount":10,...}
+# Gives 10 BTCPC = 1,000,000,000 dreams ≈ 100,000 inference calls.
+
+## STEP G — Generate API key (skip if BTCPC_API_KEY already set)
+grep BTCPC_API_KEY .btcpc/wallet.env 2>/dev/null
+# IF printed a value → already done. Skip to STEP H.
+btcpc wallet api-key-gen --mnemonic "word1 word2 ... word12"
+echo '.btcpc/wallet.env' &gt;&gt; .gitignore
+# Expected: .btcpc/wallet.env written with BTCPC_ACCOUNT and BTCPC_API_KEY.
+
+## STEP H — Export env vars
+export $(grep -v '^#' .btcpc/wallet.env | xargs)
+# Required before making any API call. Verify:
+echo $BTCPC_ACCOUNT $BTCPC_API_KEY
+# Expected: &lt;username&gt; &lt;64-char hex&gt;
+
+## STEP I — Verify with a test inference call
+curl -X POST https://btcpc.net/v1/chat/completions \
+  -H "Authorization: Bearer $BTCPC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"ping"}],"model":"dolphin-llama3"}'
+# Expected: {"choices":[{"message":{"content":"..."}}],"usage":{"fee_dreams":...}}
+# 401 → API key wrong. Re-run STEP G.
+# 402 → Balance too low. Re-run STEP F then retry.
+# 503 → No miner online. Try model "llama3" or "mistral".</div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-label">Rules for agents</div>
+      <table class="tbl">
+        <thead><tr><th>Rule</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td style="color:#fed7aa;">Never create a wallet without checking first</td><td>Creating a second wallet overwrites access to the first — tokens are unrecoverable</td></tr>
+          <tr><td style="color:#fed7aa;">Never hardcode BTCPC_API_URL</td><td>Always read from env — the URL changes between testnet and mainnet</td></tr>
+          <tr><td style="color:#fed7aa;">On 402, claim faucet once then retry</td><td>Do not retry more than once — multiple faucet claims in rapid succession are rate-limited</td></tr>
+          <tr><td style="color:#fed7aa;">Never commit .btcpc/wallet.env</td><td>Contains live signing keys — add to .gitignore immediately after creation</td></tr>
+          <tr><td style="color:#a3e635;">BTCPC_API_URL defaults to https://btcpc.net</td><td>Override to http://localhost:4242 to use a local node instead</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
