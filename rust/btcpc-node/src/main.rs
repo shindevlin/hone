@@ -821,6 +821,7 @@ async fn main() -> Result<()> {
         clock:             clock.clone(),
         software_hash:     Arc::new(software_hash),
         git_serve_queries: git_serve_queries.clone(),
+        node_account:      Arc::new(cfg.account.clone()),
     };
     api::serve(app_state, cfg.api_port).await?;
 

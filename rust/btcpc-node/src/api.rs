@@ -64,6 +64,8 @@ pub struct AppState {
     /// Count of git fetch/clone packs served to non-loopback clients this epoch.
     /// Incremented by git_upload_pack; consumed + reset by storage.rs each StorageHeartbeat.
     pub git_serve_queries: Arc<std::sync::atomic::AtomicUsize>,
+    /// This node's account name — receives direct inference fees from /v1/chat/completions.
+    pub node_account: Arc<String>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -5965,8 +5967,13 @@ async fn get_ens_repos(
 // External projects can point their OpenAI client at https://btcpc.net/v1
 // and use any Ollama model running on the network.
 //
-// Auth: `Authorization: Bearer <btcpc_account>` (optional for now — future billing)
-// Rate: 60 req/60s per IP (same rate bucket as agent-chat)
+// Auth: `Authorization: Bearer <btcpc_account>` — REQUIRED.
+//       Account must exist on-chain with sufficient balance.
+//       Fee of V1_INFERENCE_FEE_DREAMS is debited per request and credited to this node.
+// Rate: 60 req/60s per IP
+
+/// Dreams charged per /v1/chat/completions request (0.0001 BTCPC).
+const V1_INFERENCE_FEE_DREAMS: u64 = 10_000;
 
 #[derive(Deserialize)]
 struct OpenAiMessage {
@@ -6012,6 +6019,75 @@ async fn post_v1_chat_completions(
         }
         timestamps.push(now);
     }
+
+    // ── Auth + payment gate ───────────────────────────────────────────────────
+    // Caller must present a funded BTCPC account. Fee is debited before inference runs.
+    let caller = {
+        let auth = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(|s| s.trim().to_owned());
+
+        let account = match auth {
+            None => {
+                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                    "error": {
+                        "message": "Authorization required. Set Authorization: Bearer <btcpc_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
+                        "type": "authentication_error"
+                    }
+                }))).into_response();
+            }
+            Some(a) if a.is_empty() => {
+                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                    "error": {
+                        "message": "Authorization required. Set Authorization: Bearer <btcpc_account>. Get an account via @btcpcbot on Telegram or POST /api/faucet/claim.",
+                        "type": "authentication_error"
+                    }
+                }))).into_response();
+            }
+            Some(a) => a,
+        };
+        {
+            let account = account.clone();
+            match s.chain.store.get_account(&account) {
+                Ok(Some(_)) => {}
+                _ => {
+                    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                        "error": {
+                            "message": format!("Account '{}' not found on chain. Create one via @btcpcbot or POST /api/account/create.", account),
+                            "type": "authentication_error"
+                        }
+                    }))).into_response();
+                }
+            }
+        }
+        {
+            let account_ref = &account;
+            // Account must have sufficient balance.
+            let balance = s.chain.store.get_balance(account_ref, btcpc_types::NATIVE_TOKEN);
+            if balance < V1_INFERENCE_FEE_DREAMS {
+                return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
+                    "error": {
+                        "message": format!(
+                            "Insufficient balance. Need {} dreams, have {}. Get tokens via @btcpcbot or POST /api/faucet/claim.",
+                            V1_INFERENCE_FEE_DREAMS, balance
+                        ),
+                        "type": "insufficient_quota"
+                    }
+                }))).into_response();
+            }
+            // Debit fee — credit goes to this node's account.
+            if let Err(e) = s.chain.store.debit(account_ref, btcpc_types::NATIVE_TOKEN, V1_INFERENCE_FEE_DREAMS) {
+                return (StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({
+                    "error": { "message": format!("Payment failed: {}", e), "type": "insufficient_quota" }
+                }))).into_response();
+            }
+            let _ = s.chain.store.credit(s.node_account.as_str(), btcpc_types::NATIVE_TOKEN, V1_INFERENCE_FEE_DREAMS);
+        }
+        account
+    };
+    let _ = caller; // available for future per-account logging
 
     if req.messages.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
