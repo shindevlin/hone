@@ -250,6 +250,8 @@ pub fn router(state: AppState) -> Router {
         .route("/btcpcscan.html", get(get_btcpcscan))
         .route("/network-viz", get(get_network_viz))
         .route("/network-viz.html", get(get_network_viz))
+        .route("/integrate", get(get_integrate))
+        .route("/integrate.html", get(get_integrate))
         .route("/", get(get_app_dashboard))
         // ── Node install (personalized one-liner) ─────────────────────────
         .route("/install/:account", get(get_install_script))
@@ -864,6 +866,11 @@ async fn get_public_leaderboard(State(s): State<AppState>) -> Json<serde_json::V
 // GET /network-viz.html — embedded network visualizer
 async fn get_network_viz() -> axum::response::Html<&'static str> {
     axum::response::Html(include_str!("../../../website/network-viz.html"))
+}
+
+// GET /integrate — agent and project onboarding guide
+async fn get_integrate() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../../../website/integrate.html"))
 }
 
 // GET /api/node/list — registered accounts with publishable identities
