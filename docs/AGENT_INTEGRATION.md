@@ -1,419 +1,291 @@
 # BTCPC Agent Integration Guide
 
-How any agent — Claude, an autonomous loop, a bot, a cron worker — requests
-inference and agentic work from the BTCPC network deterministically and
-seamlessly.
+How any agent, autonomous loop, bot, or cron worker integrates with BTCPC:
+AI inference, git hosting, storage, sensor data, and token balance — all from
+one sovereign chain.
 
 ---
 
-## Core Principle
+## One-time setup (human does this)
 
-BTCPC is a **sovereign AI inference network**. Agents never call Ollama or
-OpenAI directly. All inference goes through BTCPC. The network:
-
-- Routes jobs to miners running the appropriate model
-- Pays miners from the requester's BTCPC balance
-- Returns cryptographically-verified results
-- Scales across every node on the network
-
----
-
-## Setup (all languages)
-
-### Environment variables
-
-Every satellite project must have these set (via `.envbtcpc`, `.env`, or
-system environment):
+### 1. Install the CLI
 
 ```bash
-BTCPC_API_URL=https://btcpc.net      # canonical — never localhost
-BTCPC_API_KEY=yourprojectname        # your BTCPC account name (optional, enables billing)
-BTCPC_ACCOUNT=yourprojectname        # account on chain
-BTCPC_MODEL=qwen3.5:27b              # default model (override per-call)
+curl -fsSL https://btcpc.net/install | bash
 ```
 
-`BTCPC_API_KEY` is your BTCPC account name. The API is usable without it
-(rate-limited to 60 req/min per IP), but setting it enables per-account
-usage tracking and higher limits in future releases.
-
-Never hardcode keys or URLs in source. The API URL fallback in code must
-always be `https://btcpc.net`, never `localhost`.
-
-### Verify the endpoint is working
+### 2. Create an account
 
 ```bash
-# List available models
-curl https://btcpc.net/v1/models
+btcpc wallet create --account myproject
+# Prints a 12-word mnemonic. Write it down. It is shown once and not stored.
+```
 
-# Test a chat completion (no auth required)
-curl -X POST https://btcpc.net/v1/chat/completions \
+### 3. Get tokens
+
+```bash
+btcpc faucet claim myproject
+# Or: message @btcpcbot on Telegram with /faucet
+# Or via API:
+curl -X POST https://btcpc.net/api/faucet/claim \
   -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"ping"}]}'
+  -d '{"account": "myproject"}'
+```
+
+Check balance:
+```bash
+curl https://btcpc.net/api/balance/myproject
+# {"account":"myproject","balance":10.0,"dreams":100000000000,"token":"BTCPC"}
+```
+
+### 4. Generate an API key
+
+```bash
+btcpc wallet api-key-gen --mnemonic "your twelve words here"
+# Registers a random 256-bit key on-chain.
+# Writes BTCPC_ACCOUNT and BTCPC_API_KEY to .btcpc/wallet.env
+```
+
+Add to `.gitignore`:
+```bash
+echo '.btcpc/wallet.env' >> .gitignore
+```
+
+### 5. Set environment variables
+
+Your project needs these three:
+
+```bash
+BTCPC_ACCOUNT=myproject
+BTCPC_API_KEY=<64-char hex from api-key-gen>   # not the account name
+BTCPC_API_URL=https://btcpc.net                 # default; override for local node
+```
+
+Load from `.btcpc/wallet.env`:
+```bash
+export $(grep -v '^#' .btcpc/wallet.env | xargs)
 ```
 
 ---
 
-## Node.js / JavaScript
+## Inference — `/v1/chat/completions`
 
-### Option A — SDK (recommended)
+**Auth is required. Every call costs 10,000 dreams (0.0001 BTCPC).**
 
-```js
-const BTCPC = require('../btcpc/sdk');  // or: require('@btcpc/sdk')
+### curl
 
-const btcpc = new BTCPC({
-  apiKey: process.env.BTCPC_API_KEY,
-  account: process.env.BTCPC_ACCOUNT,
-});
-
-// Single question
-const answer = await btcpc.ask({ prompt: 'Summarise this article: ...' });
-
-// Chat with system prompt
-const response = await btcpc.chat({
-  system: 'You are a financial analyst. Be concise.',
-  messages: [{ role: 'user', content: 'What is the risk in this portfolio?' }],
-  model: 'qwen3.5:27b',     // optional override
-  maxTokens: 512,
-});
-const text = response.choices[0].message.content;
+```bash
+curl -X POST https://btcpc.net/v1/chat/completions \
+  -H "Authorization: Bearer $BTCPC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "What is 2+2?"}],
+    "model": "dolphin-llama3"
+  }'
 ```
 
-### Option B — OpenAI-compatible (drop-in replacement)
+### Rust (btcpc-sdk)
 
-```js
-const axios = require('axios');
-
-const BTCPC_API = process.env.BTCPC_API_URL || 'https://btcpc.net';
-
-const res = await axios.post(`${BTCPC_API}/v1/chat/completions`, {
-  model: process.env.BTCPC_MODEL || 'qwen3.5:27b',
-  messages: [
-    { role: 'system', content: 'You are a helpful assistant.' },
-    { role: 'user', content: prompt }
-  ],
-  max_tokens: 1024,
-}, { headers: { Authorization: `Bearer ${process.env.BTCPC_API_KEY}` } });
-
-const text = res.data.choices[0].message.content;
-```
-
-### Option C — Async submit/poll (long jobs, background workers)
-
-Use this when the job may take more than a few seconds (large model,
-long context, batch processing).
-
-```js
-const axios = require('axios');
-
-const BTCPC_API = process.env.BTCPC_API_URL || 'https://btcpc.net';
-const AUTH = { headers: { Authorization: `Bearer ${process.env.BTCPC_API_KEY}` } };
-
-async function btcpcInference(messages, opts = {}) {
-  // 1. Submit
-  const { data: sub } = await axios.post(`${BTCPC_API}/v1/inference/submit`, {
-    model: opts.model || process.env.BTCPC_MODEL || 'qwen3.5:27b',
-    messages,
-    max_tokens: opts.maxTokens || 1024,
-    temperature: opts.temperature || 0.7,
-  }, AUTH);
-
-  const jobId = sub.job_id;
-
-  // 2. Poll (exponential backoff, max 10 min)
-  let delay = 2000;
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await new Promise(r => setTimeout(r, delay));
-    delay = Math.min(delay * 1.5, 15000);
-
-    const { data: job } = await axios.get(`${BTCPC_API}/v1/inference/${jobId}`, AUTH);
-
-    if (job.status === 'completed') {
-      return job.result?.choices?.[0]?.message?.content || job.result;
-    }
-    if (job.status === 'failed') {
-      throw new Error(`BTCPC job ${jobId} failed: ${job.error || 'unknown'}`);
-    }
-    // status: 'pending' | 'running' — keep polling
-  }
-  throw new Error(`BTCPC job ${jobId} timed out`);
-}
-```
-
----
-
-## Rust
-
-Add to `Cargo.toml`:
 ```toml
 [dependencies]
-reqwest   = { version = "0.12", features = ["json"] }
-serde_json = "1"
-tokio     = { version = "1", features = ["time"] }
+btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/btcpc-sdk" }
 ```
-
-Copy `btcpc_client.rs` from any satellite repo (e.g. `BusWingSpread/btcpc_client.rs`)
-or paste inline:
 
 ```rust
-use reqwest::Client;
-use serde_json::{json, Value};
-use std::time::Duration;
-use tokio::time::sleep;
+use btcpc_sdk::BtcpcClient;
+use serde_json::json;
 
-fn api_url() -> String {
-    std::env::var("BTCPC_API_URL").unwrap_or_else(|_| "https://btcpc.net".to_string())
-}
+let client = BtcpcClient::from_env(); // reads BTCPC_API_URL, BTCPC_API_KEY, BTCPC_ACCOUNT
 
-/// Single-shot chat — fast path for interactive use.
-pub async fn btcpc_ask(
-    prompt: &str,
-    system: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let base = api_url();
-    let key  = std::env::var("BTCPC_API_KEY").unwrap_or_default();
-    let model = std::env::var("BTCPC_MODEL").unwrap_or_else(|_| "qwen3.5:27b".to_string());
+let resp = client.chat_completions(
+    vec![json!({"role": "user", "content": "Summarise this PR in one sentence."})],
+    None, // None = use node's default model
+).await?;
 
-    let mut messages = vec![];
-    if let Some(s) = system {
-        messages.push(json!({"role": "system", "content": s}));
-    }
-    messages.push(json!({"role": "user", "content": prompt}));
-
-    let res: Value = Client::new()
-        .post(format!("{}/v1/chat/completions", base.trim_end_matches('/')))
-        .bearer_auth(&key)
-        .json(&json!({ "model": model, "messages": messages, "max_tokens": 1024 }))
-        .send().await?.json().await?;
-
-    Ok(res["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
-}
-
-/// Async submit + poll — for long jobs or background workers.
-pub async fn btcpc_infer(
-    messages: Vec<Value>,
-    model: Option<&str>,
-    timeout_secs: u64,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let base  = api_url();
-    let key   = std::env::var("BTCPC_API_KEY").unwrap_or_default();
-    let model = model.unwrap_or("qwen3.5:27b");
-    let client = Client::new();
-
-    let sub: Value = client
-        .post(format!("{}/v1/inference/submit", base.trim_end_matches('/')))
-        .bearer_auth(&key)
-        .json(&json!({ "model": model, "messages": messages, "max_tokens": 1024 }))
-        .send().await?.json().await?;
-
-    let job_id = sub["job_id"].as_str().ok_or("missing job_id")?.to_string();
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let mut delay = Duration::from_millis(2000);
-
-    while std::time::Instant::now() < deadline {
-        sleep(delay).await;
-        delay = (delay.mul_f32(1.5)).min(Duration::from_secs(15));
-
-        let poll: Value = client
-            .get(format!("{}/v1/inference/{}", base.trim_end_matches('/'), job_id))
-            .bearer_auth(&key)
-            .send().await?.json().await?;
-
-        match poll["status"].as_str() {
-            Some("completed") => return Ok(
-                poll["result"]["choices"][0]["message"]["content"]
-                    .as_str().unwrap_or("").to_string()
-            ),
-            Some("failed") => return Err(
-                format!("job {} failed: {}", job_id, poll["error"]).into()
-            ),
-            _ => {}
-        }
-    }
-
-    Err(format!("job {} timed out after {}s", job_id, timeout_secs).into())
-}
+let text = resp["choices"][0]["message"]["content"].as_str().unwrap_or("");
 ```
 
----
-
-## Agentic work — multi-step tasks
-
-For tasks that require multiple inference steps, tool calls, or decisions,
-structure them as a loop that builds context across BTCPC calls. The agent
-maintains state; BTCPC executes each inference step.
+### JavaScript / any OpenAI-compatible client
 
 ```js
-// Agentic loop pattern
-async function agentRun(goal, tools = [], maxSteps = 10) {
-  const messages = [
-    { role: 'system', content: AGENT_SYSTEM_PROMPT },
-    { role: 'user', content: goal }
-  ];
-
-  for (let step = 0; step < maxSteps; step++) {
-    const response = await btcpc.chat({ messages, model: 'qwen3.5:27b' });
-    const assistantMsg = response.choices[0].message;
-    messages.push(assistantMsg);
-
-    // If the model signals completion, return
-    if (assistantMsg.content.includes('TASK_COMPLETE')) {
-      return extractResult(assistantMsg.content);
-    }
-
-    // If it wants to call a tool, execute it and feed results back
-    const toolCall = parseToolCall(assistantMsg.content);
-    if (toolCall) {
-      const result = await executeTool(toolCall, tools);
-      messages.push({ role: 'user', content: `Tool result: ${JSON.stringify(result)}` });
-    }
-  }
-
-  throw new Error('Agent exceeded max steps without completing');
-}
-```
-
-### System prompt for agentic mode
-
-```
-You are an autonomous agent running on the BTCPC network.
-Complete the given task step by step.
-When you need information, use the available tools by responding with:
-  TOOL: <tool_name> ARGS: <json_args>
-When the task is complete, respond with:
-  TASK_COMPLETE
-  RESULT: <final result>
-Be concise. Think before acting. Verify results before marking complete.
-```
-
----
-
-## Model selection guide
-
-| Task | Recommended model | Why |
-|------|-------------------|-----|
-| Short Q&A, classification | `qwen3.5:9b` | Fast, cheap, sufficient |
-| General reasoning, summarisation | `qwen3.5:27b` | Good balance |
-| Code generation | `deepseek-coder:33b` | Trained on code |
-| Long context / large docs | `llama3.1:70b` | Larger context window |
-| Math / logic | `qwen3.5:72b` | Best reasoning |
-| Real-time / latency-sensitive | Any `:7b` or `:9b` | Smallest available |
-
-Work value on BTCPC scales with verified parameter count — larger models
-cost more per token but produce higher-value results for miners.
-
-To see live model availability and pricing:
-```js
-const models = await btcpc.models();
-const pricing = await btcpc.pricing('qwen3.5:27b');
-```
-
----
-
-## Error handling
-
-```js
-try {
-  const result = await btcpc.ask({ prompt });
-} catch (err) {
-  if (err.status === 402) {
-    // Insufficient balance — claim faucet and retry once
-    await btcpc.faucetClaim();
-    const result = await btcpc.ask({ prompt });
-  } else if (err.status === 503 || err.message.includes('not reachable')) {
-    // Network unavailable — queue for retry
-    await queueForRetry(task);
-  } else {
-    throw err;
-  }
-}
-```
-
-Common status codes:
-- `402` — insufficient BTCPC balance (faucet or top up)
-- `429` — rate limited (back off)
-- `503` — no miner available for this model (try a different model or retry)
-- `504` — job timeout (break into smaller chunks)
-
----
-
-## Seamless UX — what users see
-
-Users should never see inference loading states longer than necessary.
-Follow this pattern for user-facing features:
-
-1. **Submit immediately** — fire the job on user action, return a job ID
-2. **Optimistic UI** — show a spinner or progress indicator
-3. **Stream if possible** — use `/v1/chat/completions` with `stream: true`
-   for token-by-token output (same as OpenAI streaming)
-4. **Poll in background** — for async jobs, poll and update the UI when ready
-5. **Only surface errors users can act on** — "network busy, retrying..."
-   rather than raw status codes
-
-```js
-// Streaming example
-const res = await fetch(`${BTCPC_API}/v1/chat/completions`, {
+const res = await fetch(`${process.env.BTCPC_API_URL}/v1/chat/completions`, {
   method: 'POST',
-  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ model, messages, stream: true }),
+  headers: {
+    'Authorization': `Bearer ${process.env.BTCPC_API_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    messages: [{ role: 'user', content: prompt }],
+    model: 'dolphin-llama3',
+  }),
 });
+const data = await res.json();
+const text = data.choices[0].message.content;
+```
 
-const reader = res.body.getReader();
-const decoder = new TextDecoder();
-let buffer = '';
+### Error responses
 
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
-  const lines = buffer.split('\n');
-  buffer = lines.pop();
-  for (const line of lines) {
-    if (!line.startsWith('data: ')) continue;
-    const data = line.slice(6);
-    if (data === '[DONE]') break;
-    const chunk = JSON.parse(data);
-    const token = chunk.choices?.[0]?.delta?.content || '';
-    if (token) appendToUI(token);  // render each token as it arrives
+| Status | Meaning | Fix |
+|--------|---------|-----|
+| `401` | Missing or invalid API key | Run `btcpc wallet api-key-gen` |
+| `402` | Insufficient balance (< 10,000 dreams) | Claim faucet — see below |
+| `429` | Rate limited (60 req/60s per IP) | Back off |
+| `503` | No miner available for this model | Try a different model |
+
+### On 402: auto-claim faucet (agent pattern)
+
+```rust
+// Rust
+match client.chat_completions(messages, None).await {
+    Err(e) if e.to_string().contains("402") => {
+        client.faucet_claim(&account).await?;
+        // retry once
+        client.chat_completions(messages, None).await?
+    }
+    r => r?,
+}
+```
+
+```js
+// JavaScript
+async function inferWithFaucet(messages) {
+  const res = await fetch(`${BTCPC_API}/v1/chat/completions`, { ... });
+  if (res.status === 402) {
+    await fetch(`${BTCPC_API}/api/faucet/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ account: process.env.BTCPC_ACCOUNT }),
+    });
+    return fetch(`${BTCPC_API}/v1/chat/completions`, { ... }); // retry
   }
+  return res;
 }
 ```
 
 ---
 
-## Balance and project tracking
+## Balance
 
-```js
-// Check balance (no auth needed for public accounts)
-const bal = await btcpc.balance('myproject');
-console.log(bal.balance.BTCPC, 'BTCPC available');
+```bash
+# Check balance
+curl https://btcpc.net/api/balance/myproject
 
-// Get project spend and revenue
-const project = await btcpc.project();
-console.log(project);
+# Check all token balances
+curl https://btcpc.net/api/balances/myproject
+```
 
-// Set revenue split (e.g. 70% to you, 30% reinvested)
-await btcpc.setRevenueSplit('myproject', [
-  { account: 'shindevlin', percent: 70 },
-  { account: 'myproject', percent: 30 },
-]);
+```rust
+let bal = client.balance("myproject").await?;
+println!("{} BTCPC ({} dreams)", bal.balance, bal.dreams);
 ```
 
 ---
 
-## Quick-start checklist for a new satellite project
+## Git hosting — LinkGit
 
-**Rust:**
-- [ ] Copy `BusWingSpread/btcpc_client.rs` into `src/btcpc.rs` (or inline the functions)
-- [ ] Add `reqwest`, `serde_json`, `tokio` to `Cargo.toml`
-- [ ] Create `.envbtcpc` with `BTCPC_API_URL=https://btcpc.net` + `BTCPC_API_KEY`
-- [ ] Add `.envbtcpc` to `.gitignore`
-- [ ] Default fallback in code: `unwrap_or_else(|_| "https://btcpc.net".to_string())` — never localhost
-- [ ] Run `scripts/wire-satellites.sh` from the btcpc repo to verify wiring
+Push and clone repos directly on the BTCPC chain.
 
-**Node.js (bots/scripts):**
-- [ ] Copy `sdk/btcpc-client.js` into the repo (or `require('../btcpc/sdk')`)
-- [ ] Create `.envbtcpc` (or add to `.env`) with `BTCPC_API_URL=https://btcpc.net` + `BTCPC_API_KEY`
-- [ ] Add env file to `.gitignore`
-- [ ] Fallback in code: `process.env.BTCPC_API_URL || 'https://btcpc.net'` — never localhost
-- [ ] Run `scripts/wire-satellites.sh` from the btcpc repo to verify wiring
+```bash
+# Register a repo
+btcpc repo init myproject
+
+# Push via standard git
+git remote add btcpc https://git.btcpc.net/myproject/myrepo
+git push btcpc main
+```
+
+Via API:
+
+```bash
+# Create a repo
+curl -X POST https://btcpc.net/api/linkgit/repo/create \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "myproject", "name": "myrepo", "private": false}'
+
+# List repos for an account
+curl https://btcpc.net/api/linkgit/repos/myproject
+
+# Get repo info
+curl https://btcpc.net/api/linkgit/repo/myproject/myrepo
+```
+
+Clone with standard git (no special tooling needed):
+```bash
+git clone https://git.btcpc.net/myproject/myrepo
+```
+
+---
+
+## Storage heartbeat
+
+Nodes that store and serve data can earn from the storage pool by submitting
+a `StorageHeartbeat` each epoch. Agents running storage services should call:
+
+```bash
+POST /api/entry
+{
+  "type": "STORAGE_HEARTBEAT",
+  "node_id": "myproject",
+  "bytes_stored": 1073741824,
+  "bytes_proven": 1073741824,
+  "proof_valid": true,
+  "epoch": <current_epoch>
+}
+```
+
+Get the current epoch:
+```bash
+curl https://btcpc.net/api/latest
+# {"epoch": 12950, "current_epoch": 12950, ...}
+```
+
+---
+
+## Available models
+
+```bash
+curl https://btcpc.net/api/node/models
+```
+
+The network accepts any model Ollama supports. Miners self-report what they
+can run. Common models on testnet: `dolphin-llama3`, `llama3`, `mistral`,
+`qwen2.5`, `gemma2`.
+
+---
+
+## Inference marketplace (async, for long jobs)
+
+For jobs over ~30 seconds, use the task marketplace instead of `/v1/chat/completions`.
+The marketplace distributes work across miners and pays on verified completion.
+
+```bash
+# Post a job
+curl -X POST https://btcpc.net/api/task/post \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account": "myproject",
+    "model": "llama3:70b",
+    "input": "Analyse the following 50k-word document...",
+    "max_fee": 100000,
+    "deadline_epochs": 10
+  }'
+# Returns {"job_id": "myproject:12950:0"}
+
+# Poll for result
+curl https://btcpc.net/api/task/job/myproject:12950:0
+# {"status": "Completed", "output": "...", ...}
+```
+
+Job lifecycle: `Posted → Awarded → Completed → Verified → Paid`
+
+---
+
+## Checklist for a new agent project
+
+- [ ] `btcpc wallet create --account myproject` — creates account + mnemonic
+- [ ] `btcpc faucet claim myproject` — get testnet tokens
+- [ ] `btcpc wallet env` — scaffold `.btcpc/wallet.env`
+- [ ] `btcpc wallet api-key-gen --mnemonic "..."` — register secure API key
+- [ ] `echo '.btcpc/wallet.env' >> .gitignore`
+- [ ] Load env in code: `BtcpcClient::from_env()` or `dotenv`
+- [ ] Handle `402` by claiming faucet and retrying once
+- [ ] Never hardcode `BTCPC_API_URL` — always read from env, default `https://btcpc.net`
