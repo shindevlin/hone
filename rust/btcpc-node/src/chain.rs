@@ -1114,6 +1114,7 @@ impl Chain {
             // T2-4: when proof is valid, effective_bytes = total_chunks × chunk_size, not
             // self-declared bytes_proven. This prevents inflated reward claims.
             LedgerEntry::StorageHeartbeat { node_id, epoch, bytes_proven, query_count, challenge_response, .. } => {
+                self.ensure_account(node_id, *epoch)?;
                 let (proof_valid, proven_chunks) = challenge_response.as_ref()
                     .map(|p| (verify_storage_proof(&self.store, p, node_id, *epoch, *bytes_proven), p.total_chunks))
                     .unwrap_or((false, 0));
@@ -1134,6 +1135,30 @@ impl Chain {
             // Track sensor commits per sensor_id (not per owner) so reward scoring
             // can apply type-aware sensor_score() per individual sensor.
             LedgerEntry::SensorDataCommit { sensor_id, owner, epoch, reading_count, sensor_type, .. } => {
+                self.ensure_account(owner, *epoch)?;
+                // Cap: no sensor type scores meaningfully past 10_000 readings per epoch.
+                // Prevents unbounded state values from being stored.
+                const MAX_READINGS_PER_EPOCH: u64 = 10_000;
+                if *reading_count > MAX_READINGS_PER_EPOCH {
+                    anyhow::bail!(
+                        "reading_count {} exceeds maximum {} per epoch",
+                        reading_count, MAX_READINGS_PER_EPOCH
+                    );
+                }
+                // VEC-3: if the sensor is registered on-chain, verify ownership.
+                let reg_key = format!("sensor:{}", sensor_id);
+                if let Some(reg_bytes) = self.store.get_meta(&reg_key) {
+                    if let Ok(reg) = serde_json::from_slice::<serde_json::Value>(&reg_bytes) {
+                        if reg["owner"].as_str() != Some(owner.as_str()) {
+                            anyhow::bail!(
+                                "sensor '{}' is registered to '{}', not '{}'",
+                                sensor_id,
+                                reg["owner"].as_str().unwrap_or("unknown"),
+                                owner
+                            );
+                        }
+                    }
+                }
                 let key = format!("sensor_commit:{}:{}", epoch, sensor_id);
                 let _ = self.store.state_set(&key,
                     &serde_json::to_vec(&serde_json::json!({
@@ -1902,6 +1927,7 @@ impl Chain {
 
             // ── Service heartbeat ─────────────────────────────────────────────
             LedgerEntry::ServiceHeartbeat { node_id, epoch, container_hours, .. } => {
+                self.ensure_account(node_id, *epoch)?;
                 let key = format!("service_beat:{}:{}", epoch, node_id);
                 let _ = self.store.state_set(&key,
                     &serde_json::to_vec(&serde_json::json!({
@@ -1957,6 +1983,7 @@ impl Chain {
 
             // ── Mempool heartbeat ─────────────────────────────────────────────
             LedgerEntry::MempoolHeartbeat { operator, epoch, propagation_latency_ms, entries_relayed, .. } => {
+                self.ensure_account(operator, *epoch)?;
                 let key = format!("mempool_beat:{}:{}", epoch, operator);
                 let _ = self.store.state_set(&key,
                     &serde_json::to_vec(&serde_json::json!({

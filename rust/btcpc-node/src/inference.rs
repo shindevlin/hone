@@ -364,6 +364,16 @@ pub fn apply_bid(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     if job.status != JobStatus::Posted {
         bail!("job '{}' not open for bids (status: {:?})", job_id, job.status);
     }
+    // Chain policy: bid window is closed once posted_epoch + bid_window_epochs has passed.
+    // Use the chain's authoritative current epoch, not the epoch field the bidder supplied.
+    let current_epoch = chain.current_epoch();
+    if current_epoch >= job.posted_epoch + job.bid_window_epochs {
+        bail!("bid window for job '{}' closed at epoch {}", job_id, job.posted_epoch + job.bid_window_epochs);
+    }
+    // Chain policy: requester cannot bid on their own job.
+    if bidder == &job.requester {
+        bail!("requester '{}' cannot bid on their own job '{}'", bidder, job_id);
+    }
     if *fee > job.max_fee {
         bail!("bid fee {} exceeds job max_fee {}", fee, job.max_fee);
     }
@@ -407,6 +417,13 @@ pub fn apply_award(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
                 &format!("mine_queue:{}:{}", winner, job_id), b"awarded");
         }
         "verifier" => {
+            // Chain policy: cap verifiers per job at 3 (matches daemon selection).
+            if job.verifiers.len() >= 3 {
+                bail!("job '{}' already has the maximum 3 verifiers", job_id);
+            }
+            if job.verifiers.contains(winner) {
+                bail!("'{}' is already a verifier for job '{}'", winner, job_id);
+            }
             job.verifiers.push(winner.clone());
         }
         _ => bail!("unknown award role '{}'", role),
@@ -432,6 +449,17 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     }
     if job.winner.as_deref() != Some(worker.as_str()) {
         bail!("'{}' is not the awarded worker for job '{}'", worker, job_id);
+    }
+    // Staleness gate: reject completions submitted more than 3 epochs past deadline.
+    // The deadline daemon cancels jobs at deadline+0, but a node with a stale view
+    // might still try to complete a long-expired job.
+    const COMPLETE_STALE_WINDOW: u64 = 3;
+    let cur = chain.current_epoch();
+    if cur > job.deadline_epoch + COMPLETE_STALE_WINDOW {
+        bail!(
+            "job '{}' completion is too late — deadline was epoch {}, current epoch {}",
+            job_id, job.deadline_epoch, cur
+        );
     }
 
     job.result_hash = Some(result_hash.clone());
@@ -508,6 +536,10 @@ pub fn apply_verify(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("job '{}' not found", job_id))?;
     if job.status != JobStatus::Completed {
         bail!("job '{}' not in completed state for verification", job_id);
+    }
+    // Chain policy: a node cannot verify its own work.
+    if job.winner.as_deref() == Some(verifier.as_str()) {
+        bail!("verifier '{}' cannot verify their own job '{}'", verifier, job_id);
     }
 
     // T4-2: Commit-reveal — verify must be preceded by a matching commit.
@@ -815,8 +847,16 @@ pub fn apply_cancel(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     if !matches!(job.status, JobStatus::Posted | JobStatus::Awarded) {
         bail!("job '{}' cannot be cancelled (status: {:?})", job_id, job.status);
     }
-    if cancelled_by != &job.requester && cancelled_by.as_str() != "system" {
-        bail!("only the requester can cancel job '{}'", job_id);
+    match cancelled_by.as_str() {
+        "system" => {} // system always allowed (deadline expiry)
+        cb if cb == job.requester => {
+            // Chain policy: requester can only cancel before a worker is assigned.
+            // Once Awarded, only the system can cancel (after deadline).
+            if job.status == JobStatus::Awarded {
+                bail!("requester cannot cancel job '{}' after it has been awarded — wait for deadline", job_id);
+            }
+        }
+        _ => bail!("only the requester or system can cancel job '{}'", job_id),
     }
 
     chain.store.debit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, job.max_fee)?;

@@ -52,10 +52,28 @@ Both accounts are provisioned in `genesis.json` with no keys. Keys are registere
 
 The `btcpc` CLI handles on-chain registration, key management, and git remote wiring in one command.
 
-**Prerequisites**: install `btcpc`, create an account, and log in.
+**Install on Linux/macOS (one line)**
 
 ```bash
-btcpc login           # saves session to ~/.btcpc/session.json
+curl -fsSL https://btcpc.net/install.sh | sudo bash
+```
+
+This installs both `btcpc-node` and the `btcpc` CLI to `/usr/local/bin`.
+
+**Or build from source**
+
+```bash
+git clone https://github.com/shindevlin/btcpc
+cd btcpc/rust/btcpc-cli
+cargo build --release
+sudo cp target/release/btcpc /usr/local/bin/
+```
+
+**Create an account and log in**
+
+```bash
+btcpc account-create yourname   # generates keys, registers on-chain
+btcpc login                     # saves session to ~/.btcpc/session.json
 ```
 
 **Publish an existing local project**

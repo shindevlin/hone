@@ -24,6 +24,7 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_ETH_RPC             — Ethereum JSON-RPC endpoint for ENS resolution (default: cloudflare-eth.com)
     BTCPC_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
     BTCPC_SENSOR              — "true" to emit SensorDataCommit each epoch (earns SensorReward)
+    BTCPC_MEMPOOL             — "true" to emit MempoolHeartbeat each epoch (earns MempoolReward)
 */
 
 mod api;
@@ -646,6 +647,10 @@ async fn main() -> Result<()> {
     // Shared peer count: updated by the net event loop, read by the API.
     let shared_peer_count = Arc::new(AtomicUsize::new(0));
 
+    // Shared relay counter: incremented each time a gossip entry is accepted into
+    // the pending pool.  Consumed by the mempool heartbeat daemon each epoch.
+    let mempool_relay_counter = Arc::new(AtomicUsize::new(0));
+
     // ── Storage sync (LinkGit object replication) ─────────────────────────────
     let (sync_tx, sync_rx) = tokio::sync::mpsc::channel::<storage_sync::RefAvailable>(256);
     {
@@ -658,6 +663,7 @@ async fn main() -> Result<()> {
         let chain_ref = chain.clone();
         let clock_ref = clock.clone();
         let peer_count_ref = shared_peer_count.clone();
+        let relay_counter_ref = mempool_relay_counter.clone();
         let mut events = net_events;
         tokio::spawn(async move {
             loop {
@@ -724,6 +730,7 @@ async fn main() -> Result<()> {
                                     // User entries go into the pending pool and are applied
                                     // at epoch seal in deterministic hash order across all nodes.
                                     chain_ref.push_pending(e, sig);
+                                    relay_counter_ref.fetch_add(1, Ordering::Relaxed);
                                 }
                             }
                             Err(e) => tracing::debug!("net entry parse error: {}", e),
@@ -773,6 +780,20 @@ async fn main() -> Result<()> {
         let cmd_tx    = net_handle.cmd_tx.clone();
         tokio::spawn(async move {
             run_inference_verifier(chain_ref, account, cmd_tx).await;
+        });
+    }
+
+    // ── Mempool heartbeat node ────────────────────────────────────────────────
+    // BTCPC_MEMPOOL=true: reports entries relayed per epoch, earns MempoolReward.
+    // Any running node already relays gossip — this just makes that work auditable.
+    if std::env::var("BTCPC_MEMPOOL").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref    = chain.clone();
+        let account      = cfg.account.clone();
+        let genesis_ts   = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_mempool  = net_handle.cmd_tx.clone();
+        let relay_ctr    = mempool_relay_counter.clone();
+        tokio::spawn(async move {
+            run_mempool_node(chain_ref, account, genesis_ts, cmd_mempool, relay_ctr).await;
         });
     }
 
@@ -1769,4 +1790,65 @@ fn load_signing_key(hex_seed: &str) -> Option<ed25519_dalek::SigningKey> {
     let bytes = hex::decode(hex_seed.trim()).ok()?;
     let arr: [u8; 32] = bytes.try_into().ok()?;
     Some(ed25519_dalek::SigningKey::from_bytes(&arr))
+}
+
+// ── Mempool heartbeat daemon ──────────────────────────────────────────────────
+
+async fn run_mempool_node(
+    chain:          Arc<Chain>,
+    account:        String,
+    genesis_ts:     u64,
+    cmd_tx:         tokio::sync::mpsc::Sender<NetCmd>,
+    relay_counter:  Arc<AtomicUsize>,
+) {
+    use btcpc_types::EPOCH_MS;
+    info!("mempool node started: account={}", account);
+
+    let elapsed = utils::now_ms().saturating_sub(genesis_ts);
+    let mut last_epoch = elapsed / EPOCH_MS;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let elapsed = utils::now_ms().saturating_sub(genesis_ts);
+        let epoch = elapsed / EPOCH_MS;
+        if epoch <= last_epoch { continue; }
+        last_epoch = epoch;
+
+        // Consume the relay counter atomically — no double-counting across epochs.
+        let entries_relayed = relay_counter.swap(0, Ordering::Relaxed) as u64;
+        if entries_relayed == 0 {
+            // No entries relayed this epoch — skip heartbeat; idle nodes don't earn.
+            continue;
+        }
+
+        // P99 latency estimate: 200 ms represents a well-connected broadband relay node.
+        // Measured propagation timing would require per-message timestamping; this is a
+        // conservative honest estimate for a direct gossipsub participant.
+        let propagation_latency_ms: u64 = 200;
+
+        let entry = LedgerEntry::MempoolHeartbeat {
+            operator:               account.clone(),
+            epoch,
+            propagation_latency_ms,
+            entries_relayed,
+            signed_by:              account.clone(),
+        };
+
+        if let Err(e) = chain.apply_entry(&entry) {
+            warn!("mempool: heartbeat failed epoch {}: {}", epoch, e);
+            continue;
+        }
+
+        let envelope = serde_json::json!({"entry": entry});
+        if let Ok(data) = serde_json::to_vec(&envelope) {
+            let _ = cmd_tx.send(NetCmd::Broadcast {
+                topic: "btcpc/entries",
+                data,
+            }).await;
+        }
+
+        info!("mempool: heartbeat epoch {} relayed={} latency={}ms",
+            epoch, entries_relayed, propagation_latency_ms);
+    }
 }

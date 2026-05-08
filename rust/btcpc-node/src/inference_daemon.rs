@@ -93,8 +93,7 @@ fn award_pending_jobs(chain: &Chain, current_epoch: u64) {
 /// Transition Disputed jobs to NoFee when claim window expires with no claim.
 fn expire_stale_claims(chain: &Chain, current_epoch: u64) {
     for job in inference::jobs_claim_expired(chain, current_epoch) {
-        let verifiers = job.verifiers.clone();
-        let pay = inference::build_pay_entry_nofee(&job, &verifiers, &[], current_epoch);
+        let pay = inference::build_pay_entry_nofee(chain, &job, &[], current_epoch);
         if let Err(e) = chain.apply_entry(&pay) {
             warn!("nofee pay failed for job {}: {}", job.job_id, e);
         } else {
@@ -129,8 +128,7 @@ fn pay_verified_jobs(chain: &Chain, current_epoch: u64) {
         .collect();
 
     for job in verified_jobs {
-        let verifiers = job.verifiers.clone();
-        if let Some(pay) = inference::build_pay_entry_happy(&job, &verifiers, current_epoch) {
+        if let Some(pay) = inference::build_pay_entry_happy(chain, &job, current_epoch) {
             if let Err(e) = chain.apply_entry(&pay) {
                 warn!("happy-path pay failed for job {}: {}", job.job_id, e);
             } else {
@@ -149,15 +147,14 @@ fn pay_resolved_disputes(chain: &Chain, current_epoch: u64) {
         .collect();
 
     for job in resolved_jobs {
-        let verifiers = job.verifiers.clone();
         let votes = inference::get_votes(chain, &job.job_id);
         let reviewers: Vec<String> = votes.iter().map(|v| v.reviewer.clone()).collect();
 
         let pay = if job.status == JobStatus::Reviewed {
-            inference::build_pay_entry_disputed(&job, &verifiers, &reviewers, current_epoch)
+            inference::build_pay_entry_disputed(chain, &job, &reviewers, current_epoch)
         } else {
             // Rejected — worker gets nothing.
-            Some(inference::build_pay_entry_nofee(&job, &verifiers, &reviewers, current_epoch))
+            Some(inference::build_pay_entry_nofee(chain, &job, &reviewers, current_epoch))
         };
 
         if let Some(pay_entry) = pay {
@@ -188,8 +185,7 @@ fn auto_settle_unverified(chain: &Chain, current_epoch: u64) {
         if current_epoch < job.deadline_epoch + VERIFICATION_GRACE_EPOCHS {
             continue;
         }
-        let verifiers = job.verifiers.clone();
-        if let Some(pay) = inference::build_pay_entry_happy(&job, &verifiers, current_epoch) {
+        if let Some(pay) = inference::build_pay_entry_happy(chain, &job, current_epoch) {
             if let Err(e) = chain.apply_entry(&pay) {
                 warn!("auto-settle pay failed for job {}: {}", job.job_id, e);
             } else {
