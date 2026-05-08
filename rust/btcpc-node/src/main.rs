@@ -435,6 +435,53 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Auto-register as a clock node on startup if not already registered.
+    if cfg.is_clock {
+        let reg_key = format!("clock_reg:{}", cfg.node_id);
+        let already_registered = chain.store.state_get(&reg_key).is_some();
+        if !already_registered {
+            let min_stake: u64 = chain.store.state_get("chain_param:clock_min_stake")
+                .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+                .unwrap_or(5 * 10_000_000_000);
+            let balance = chain.store.get_balance(&cfg.node_id, btcpc_types::NATIVE_TOKEN);
+            if balance >= min_stake {
+                let epoch = chain.current_epoch();
+                let pubkey = signing_pubkey_hex.as_deref().map(|s| s.to_owned());
+                let entry = btcpc_types::LedgerEntry::ClockNodeRegister {
+                    node_id: cfg.node_id.clone(),
+                    stake: min_stake,
+                    epoch,
+                    pubkey,
+                    signature: None,
+                };
+                // Sign with posting key (accepted alongside active key for self-registration).
+                let sig_hex: Option<String> = signing_key.as_ref().as_ref().and_then(|sk| {
+                    crate::tx::canonical_signing_message(&entry, &chain.chain_id).ok().map(|msg| {
+                        use ed25519_dalek::Signer;
+                        hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+                    })
+                });
+                let sig_ref = sig_hex.as_deref();
+                match crate::tx::validate_and_apply(&chain, &entry, sig_ref) {
+                    Ok(hash) => {
+                        info!("[clock] auto-registered '{}' as clock node (hash {})", cfg.node_id, hash);
+                        broadcast_entry_desktop(&entry, &net_handle.cmd_tx).await;
+                    },
+                    Err(e)   => warn!(
+                        "[clock] auto-register failed for '{}': {} — \
+                        check BTCPC_POSTING_KEY is the private key seed (not the public key) \
+                        matching the posting key registered on-chain for this account, \
+                        or call POST /api/clock/register manually with a signed payload",
+                        cfg.node_id, e
+                    ),
+                }
+            } else {
+                warn!("[clock] '{}' has {} dreams, needs {} to register as clock node",
+                    cfg.node_id, balance, min_stake);
+            }
+        }
+    }
+
     // Emit seals when this node is running as a clock peer
     if cfg.is_clock {
         let clock_ref = clock.clone();

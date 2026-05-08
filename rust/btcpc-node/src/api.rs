@@ -225,6 +225,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/proof/balance/:account/:token", get(get_balance_proof))
         .route("/api/chain/state_root", get(get_state_root))
         // ── Clock node reputation (Phase 8) ───────────────────────────────
+        .route("/api/clock/register", post(post_clock_register))
         .route("/api/clock/:node_id/uptime", get(get_clock_uptime))
         // ── Consensus / fork choice (T1-7, T1-8) ─────────────────────────
         .route("/api/chain/validators/:epoch", get(get_epoch_validators))
@@ -4681,6 +4682,43 @@ async fn get_clock_uptime(
         "uptime_pct": if epochs == 0 { 100u64 } else { seals * 100 / epochs },
         "reward_multiplier": multiplier_millipct as f64 / 1000.0,
     }))
+}
+
+// ── Clock node registration ───────────────────────────────────────────────────
+
+/// POST /api/clock/register — submit a ClockNodeRegister transaction.
+/// Body: { node_id, stake, epoch, pubkey?, signed_by, signature? }
+#[derive(Debug, Deserialize)]
+struct ClockRegisterBody {
+    node_id: String,
+    stake: u64,
+    epoch: u64,
+    #[serde(default)]
+    pubkey: Option<String>,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_clock_register(
+    State(s): State<AppState>,
+    Json(body): Json<ClockRegisterBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::ClockNodeRegister {
+        node_id: body.node_id,
+        stake: body.stake,
+        epoch: body.epoch,
+        pubkey: body.pubkey,
+        signature: None, // signature is verified via sig_hex, not embedded in entry
+    };
+    let sig = non_empty(&body.signature);
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => {
+            let _ = s.tx_broadcast.send((entry, sig.map(|s| s.to_owned())));
+            (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash })))
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
 }
 
 // ── Governance: chain parameters ─────────────────────────────────────────────

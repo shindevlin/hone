@@ -23,35 +23,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-  <!-- Navigation -->
-  <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:20px;flex-wrap:wrap;">
-    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;margin-right:4px;">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC
-    </a>
-    <a href="#pick-your-role" style="color:#c8ccd4;text-decoration:none;">Get Started</a>
-    <a href="#protocols" style="color:#c8ccd4;text-decoration:none;">Markets</a>
-    <a href="/install" style="color:#c8ccd4;text-decoration:none;">Install</a>
-    <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy BTCPC</a>
-    <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Explorer</a>
-    <a href="/network-viz.html" style="color:#c8ccd4;text-decoration:none;">Network</a>
-    <a href="/profile.html" style="color:#c8ccd4;text-decoration:none;">Profile</a>
-    <a href="/schedule" style="color:#c8ccd4;text-decoration:none;">Schedule</a>
-    <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
-    <div style="flex:1;"></div>
-    <a href="/node" id="nav-mynode" style="color:#f7931a;text-decoration:none;font-weight:600;font-size:12px;white-space:nowrap;padding:6px 12px;border:1px solid rgba(247,147,26,0.3);border-radius:6px;">My Node</a>
-    <a href="#pick-your-role" style="background:#f7931a;color:#000;padding:6px 16px;border-radius:6px;font-weight:700;text-decoration:none;font-size:12px;white-space:nowrap;">Start Earning &rarr;</a>
-  </div>
-
-  <!-- Network Live Banner -->
-  <div style="text-align:center;padding:10px 20px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.2);font-size:12px;color:#22c55e;letter-spacing:1px;margin-top:42px;">
-    &#9679; BTCPC IS LIVE &nbsp;&mdash;&nbsp; <span id="live-epoch">Epoch loading...</span> &nbsp;&mdash;&nbsp; Chain is running. Machines are already working.
-  </div>
-  <script>
-    fetch('https://btcpc.net/public/network').then(r=>r.json()).then(d=>{
-      if(d.epoch) document.getElementById('live-epoch').textContent = 'Epoch ' + d.epoch;
-    }).catch(()=>{ document.getElementById('live-epoch').textContent = 'Network active'; });
-  </script>
+<script src="/nav.js?v=2"></script>
 
   <!-- Hero -->
   <section class="hero" id="hero">
@@ -71,7 +43,6 @@
       <a href="https://github.com/shindevlin/btcpc" style="color:#c8ccd4;text-decoration:none;font-size:13px;" target="_blank">GitHub</a>
     </div>
     <script>
-    // Silently check if local node is running and upgrade the "My Node" links
     (function(){
       function tryPort(p, cb) {
         fetch('http://localhost:'+p+'/api/node/info',{mode:'cors',cache:'no-store',signal:AbortSignal.timeout(1500)})
@@ -80,13 +51,12 @@
       }
       tryPort(4242, function(port, info) {
         var acct = info.account ? ' ('+info.account+')' : '';
-        var url = 'http://localhost:'+port+'/app.html';
         var h = document.getElementById('hero-mynode');
-        var n = document.getElementById('nav-mynode');
-        if(h){ h.href=url; h.textContent='Open My Dashboard'+acct+' →';
-               h.style.background='rgba(34,197,94,0.12)'; h.style.borderColor='rgba(34,197,94,0.4)'; h.style.color='#22c55e'; }
-        if(n){ n.href=url; n.textContent='● Dashboard'+acct;
-               n.style.color='#22c55e'; n.style.borderColor='rgba(34,197,94,0.4)'; }
+        if(h){ h.href='http://localhost:'+port+'/app.html';
+               h.textContent='Open My Dashboard'+acct+' →';
+               h.style.background='rgba(34,197,94,0.12)';
+               h.style.borderColor='rgba(34,197,94,0.4)';
+               h.style.color='#22c55e'; }
       });
     })();
     </script>
@@ -119,19 +89,17 @@
       </div>
     </div>
     <script>
-      fetch('https://btcpc.net/public/network').then(r=>r.json()).then(d=>{
-        if(d.epoch)   document.getElementById('stat-epoch').textContent   = d.epoch;
-        if(d.peers)   document.getElementById('stat-peers').textContent   = d.peers;
-        if(d.clocks)  document.getElementById('stat-clocks').textContent  = d.clocks;
-        if(d.sensors) document.getElementById('stat-sensors').textContent = d.sensors;
-        if(d.status){
-          var el=document.getElementById('stat-status');
-          el.textContent=d.status;
-          el.style.color=d.status==='alive'?'#22c55e':'#f7931a';
-        }
+      fetch('/public/network').then(r=>r.json()).then(d=>{
+        if(d.epoch)       document.getElementById('stat-epoch').textContent   = d.epoch.toLocaleString();
+        if(d.peer_count)  document.getElementById('stat-peers').textContent   = d.peer_count;
+        if(d.clock_node_count != null) document.getElementById('stat-clocks').textContent = d.clock_node_count;
+        if(d.sensor_count != null)     document.getElementById('stat-sensors').textContent = d.sensor_count;
+        var el = document.getElementById('stat-status');
+        el.textContent = d.truth_bearing ? 'alive' : 'syncing';
+        el.style.color = d.truth_bearing ? '#22c55e' : '#f7931a';
       }).catch(()=>{
-        document.getElementById('stat-status').textContent='live';
-        document.getElementById('stat-status').style.color='#22c55e';
+        var el = document.getElementById('stat-status');
+        el.textContent = 'live'; el.style.color = '#22c55e';
       });
     </script>
   </section>

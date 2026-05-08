@@ -1,6 +1,6 @@
 // BTCPC Sensor — Service Worker
-const CACHE_NAME = 'btcpc-node-v13';
-const ASSETS = ['/app', '/app.html', '/inference-crypto.js', '/inference-engine.js', '/miner.js'];
+const CACHE_NAME = 'btcpc-node-v15';
+const ASSETS = ['/app', '/app.html', '/inference-crypto.js', '/inference-engine.js', '/miner.js', '/nav.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(

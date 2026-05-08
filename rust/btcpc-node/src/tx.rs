@@ -1189,7 +1189,10 @@ pub fn validate_and_apply(
         LedgerEntry::ClockNodeRegister { node_id, .. } => {
             let _guard = chain.write_lock.lock();
             require_key(chain, node_id)?;
-            check_signature(chain, node_id, entry, sig_hex, "active")?;
+            // Accept active or posting key — this is a self-registration (the node
+            // is staking itself), and nodes commonly only hold their posting key.
+            check_signature(chain, node_id, entry, sig_hex, "active")
+                .or_else(|_| check_signature(chain, node_id, entry, sig_hex, "posting"))?;
             chain.apply_entry(entry)?;
         }
 

@@ -2489,10 +2489,20 @@ impl Chain {
                     self.store.get_account(node_id)?.is_some(),
                     "account '{}' does not exist", node_id
                 );
-                // Read dynamic minimum from governance; fall back to 100 BTCPC.
+                // Idempotent: if already registered at the same stake, succeed silently.
+                let reg_key_check = format!("clock_reg:{}", node_id);
+                if let Some(existing) = self.store.state_get(&reg_key_check) {
+                    if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&existing) {
+                        if j["stake"].as_u64().unwrap_or(0) >= *stake {
+                            info!("[clock] node '{}' already registered — idempotent re-register", node_id);
+                            return Ok(());
+                        }
+                    }
+                }
+                // Read dynamic minimum from governance; fall back to 5 BTCPC.
                 let min_stake: u64 = self.store.state_get("chain_param:clock_min_stake")
                     .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
-                    .unwrap_or(100 * 10_000_000_000);
+                    .unwrap_or(5 * 10_000_000_000);
                 anyhow::ensure!(
                     *stake >= min_stake,
                     "clock node stake {} dreams is below minimum {} dreams", stake, min_stake
@@ -4515,6 +4525,7 @@ mod tests {
             deadline_epoch: epoch + 10, epoch, nonce: 1,
             signed_by: "requester".to_string(),
             persist_on_fs: None, fs_fee: None, min_verifiers: Some(1),
+            node_fingerprint: None,
         }).expect("post");
         // Manually set job to Awarded+Completed state via direct store injection.
         let mut job = crate::inference::get_job(chain, job_id).unwrap();
@@ -4937,6 +4948,7 @@ mod tests {
             persist_on_fs: None,
             fs_fee: None,
             min_verifiers: None,
+            node_fingerprint: None,
         }).expect("post");
 
         // Award to worker-a.
