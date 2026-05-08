@@ -93,6 +93,9 @@ struct AllBalancesResponse {
 pub struct BtcpcClient {
     base_url: String,
     account: Option<String>,
+    /// Bearer token sent in `Authorization: Bearer <api_key>` for paid endpoints.
+    /// Currently equals your account name; rotate-able tokens land in a future release.
+    api_key: Option<String>,
     http: reqwest::Client,
 }
 
@@ -102,6 +105,7 @@ impl BtcpcClient {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_owned(),
             account: None,
+            api_key: None,
             http: reqwest::Client::new(),
         }
     }
@@ -113,16 +117,29 @@ impl BtcpcClient {
         self
     }
 
+    /// Attach an API key (Bearer token for paid endpoints such as `/v1/chat/completions`).
+    /// Currently the API key is your account name. Set via `BTCPC_API_KEY` in env.
+    pub fn with_api_key(mut self, key: impl Into<String>) -> Self {
+        self.api_key = Some(key.into());
+        self
+    }
+
     /// Build a client from environment variables:
-    /// - `BTCPC_API_URL`  — defaults to [`DEFAULT_API_URL`]
-    /// - `BTCPC_ACCOUNT`  — optional default account
+    /// - `BTCPC_API_URL`   — defaults to [`DEFAULT_API_URL`]
+    /// - `BTCPC_ACCOUNT`   — optional default account name
+    /// - `BTCPC_API_KEY`   — API key for paid endpoints (currently equals account name)
     pub fn from_env() -> Self {
         let base_url = std::env::var("BTCPC_API_URL")
             .unwrap_or_else(|_| DEFAULT_API_URL.to_owned());
         let account = std::env::var("BTCPC_ACCOUNT").ok();
+        // BTCPC_API_KEY is the Bearer token for paid calls. Falls back to BTCPC_ACCOUNT
+        // so callers that only set one variable still work.
+        let api_key = std::env::var("BTCPC_API_KEY").ok()
+            .or_else(|| account.clone());
         Self {
             base_url: base_url.trim_end_matches('/').to_owned(),
             account,
+            api_key,
             http: reqwest::Client::new(),
         }
     }
@@ -199,6 +216,57 @@ impl BtcpcClient {
             .json::<serde_json::Value>()
             .await?;
         Ok(resp.get("status").and_then(|v| v.as_str()) == Some("ok"))
+    }
+
+    // ── Inference ─────────────────────────────────────────────────────────────
+
+    /// Send an OpenAI-compatible chat completion request to the BTCPC inference
+    /// gateway at `/v1/chat/completions`.
+    ///
+    /// Requires `BTCPC_API_KEY` (or `BTCPC_ACCOUNT`) to be set — the fee of
+    /// 10 000 dreams (0.0001 BTCPC) is debited per call.
+    ///
+    /// `model` defaults to the node's active model when `None`.
+    pub async fn chat_completions(
+        &self,
+        messages: Vec<serde_json::Value>,
+        model: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let key = self.api_key.as_deref()
+            .ok_or_else(|| anyhow!("BTCPC_API_KEY not set — cannot call paid inference endpoint"))?;
+
+        let mut body = serde_json::json!({ "messages": messages });
+        if let Some(m) = model {
+            body["model"] = serde_json::Value::String(m.to_owned());
+        }
+
+        let resp = self
+            .http
+            .post(self.url("/v1/chat/completions"))
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    // ── Faucet ────────────────────────────────────────────────────────────────
+
+    /// Claim testnet tokens from the faucet for `account`.
+    /// Returns the raw JSON response (accepted / error).
+    pub async fn faucet_claim(&self, account: &str) -> Result<serde_json::Value> {
+        let resp = self
+            .http
+            .post(self.url("/api/faucet/claim"))
+            .json(&serde_json::json!({ "account": account }))
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
     }
 
     /// Fetch all token balances of `account` as dreams (u64).

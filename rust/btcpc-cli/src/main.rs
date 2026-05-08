@@ -256,6 +256,16 @@ enum WalletCommands {
         #[arg(long)]
         mnemonic: String,
     },
+    /// Write .btcpc/wallet.env in the current directory from your saved wallet.
+    /// Run this inside a project repo to wire up BTCPC_ACCOUNT and BTCPC_API_KEY.
+    Env {
+        /// Wallet file to read account name from (default: ~/.btcpc/wallet.json).
+        #[arg(long)]
+        wallet_file: Option<PathBuf>,
+        /// Override output path (default: .btcpc/wallet.env in CWD).
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -522,6 +532,9 @@ fn run() -> Result<()> {
             }
             WalletCommands::Publish { wallet_file, mnemonic } => {
                 wallet::cmd_wallet_publish(wallet_file.as_deref(), &mnemonic)?;
+            }
+            WalletCommands::Env { wallet_file, output } => {
+                wallet::cmd_wallet_env(wallet_file.as_deref(), output.as_deref())?;
             }
         },
 
