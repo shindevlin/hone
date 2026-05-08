@@ -10,7 +10,7 @@ name = "btcpc"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -22,3 +22,4 @@ base64 = "0.22"
 btcpc-sdk = { path = "../btcpc-sdk" }
 sha2 = "0.10"
 hex = "0.4"
+rand = "0.8"

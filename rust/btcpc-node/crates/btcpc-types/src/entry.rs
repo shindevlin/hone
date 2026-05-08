@@ -1567,6 +1567,22 @@ pub enum LedgerEntry {
         signed_by: AccountId,
     },
 
+    // ── API key management ────────────────────────────────────────────────────
+
+    /// Set or rotate the Bearer token used for paid API endpoints (e.g. /v1/chat/completions).
+    ///
+    /// `api_key` must be a 64-char hex string (32 random bytes). The key is indexed
+    /// on-chain so any node can reverse-map Bearer → account without revealing the
+    /// account name to the caller (fixes VEC-8: impersonation via public account names).
+    AccountApiKeySet {
+        account: AccountId,
+        /// 64-char hex (32 random bytes). Replaces the previous key atomically.
+        api_key: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+    },
+
     // ── Chain Entropy Protocol ────────────────────────────────────────────────
 
     /// Prove liveness using a BTCPC key — the cheapest possible "I'm here" signal.
@@ -1757,6 +1773,7 @@ impl LedgerEntry {
             Self::TokenReject { epoch, .. } => *epoch,
             Self::WalletFamilyPublish { epoch, .. } => *epoch,
             Self::WalletFamilyAdd { epoch, .. } => *epoch,
+            Self::AccountApiKeySet { epoch, .. } => *epoch,
             Self::AccountSetPrimary { epoch, .. } => *epoch,
             Self::AccountTransfer { epoch, .. } => *epoch,
             Self::ChainParameterSet { epoch, .. } => *epoch,
@@ -1816,6 +1833,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::EntropyWitness { .. }
         | LedgerEntry::WalletFamilyPublish { .. }
         | LedgerEntry::WalletFamilyAdd { .. }
+        | LedgerEntry::AccountApiKeySet { .. }
         | LedgerEntry::VerifyChainLink { .. }
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }

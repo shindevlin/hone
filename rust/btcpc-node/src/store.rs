@@ -230,6 +230,29 @@ impl Store {
         Ok(())
     }
 
+    // ── API key index ─────────────────────────────────────────────────────────
+
+    /// Look up which account registered `token` as their API key.
+    /// Returns `Some(account_name)` or `None` if the token is not registered.
+    pub fn get_account_by_api_key(&self, token: &str) -> Option<String> {
+        let bytes = self.state_get(&format!("api_key:{}", token))?;
+        String::from_utf8(bytes).ok()
+    }
+
+    /// Register or rotate `key` as the API key for `account`.
+    /// Atomically removes the old key index (if any) and installs the new one.
+    pub fn set_api_key(&self, account: &str, key: &str) -> Result<()> {
+        // Remove old forward index if a previous key exists.
+        if let Some(old_bytes) = self.state_get(&format!("account_api_key:{}", account)) {
+            if let Ok(old_key) = String::from_utf8(old_bytes) {
+                let _ = self.state_delete(&format!("api_key:{}", old_key));
+            }
+        }
+        self.state_set(&format!("api_key:{}", key), account.as_bytes())?;
+        self.state_set(&format!("account_api_key:{}", account), key.as_bytes())?;
+        Ok(())
+    }
+
     // ── Chain Entropy Protocol — alive-epoch tracking ─────────────────────────
 
     pub fn get_alive_epoch(&self, account: &str) -> u64 {

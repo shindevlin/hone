@@ -6048,20 +6048,24 @@ async fn post_v1_chat_completions(
             }
             Some(a) => a,
         };
-        {
-            let account = account.clone();
+        // Resolve Bearer token → account name.
+        // Primary path: token is registered via AccountApiKeySet (secure, random 256-bit secret).
+        // Fallback: treat Bearer as a direct account name (backwards compat; less secure).
+        let account = if let Some(acct) = s.chain.store.get_account_by_api_key(&account) {
+            acct
+        } else {
             match s.chain.store.get_account(&account) {
-                Ok(Some(_)) => {}
+                Ok(Some(_)) => account,
                 _ => {
                     return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
                         "error": {
-                            "message": format!("Account '{}' not found on chain. Create one via @btcpcbot or POST /api/account/create.", account),
+                            "message": "Invalid API key. Generate one with `btcpc wallet api-key-gen` or create an account via @btcpcbot.",
                             "type": "authentication_error"
                         }
                     }))).into_response();
                 }
             }
-        }
+        };
         {
             let account_ref = &account;
             // Account must have sufficient balance.

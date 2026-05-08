@@ -2221,6 +2221,11 @@ impl Chain {
             }
 
             // ── Wallet Family ─────────────────────────────────────────────────
+            LedgerEntry::AccountApiKeySet { account, api_key, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.store.set_api_key(account, api_key)?;
+            }
+
             LedgerEntry::WalletFamilyPublish { account, chains, epoch, .. }
             | LedgerEntry::WalletFamilyAdd { account, chains, epoch, .. } => {
                 self.touch_alive(account, *epoch);

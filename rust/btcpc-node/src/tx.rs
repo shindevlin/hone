@@ -1067,6 +1067,23 @@ pub fn validate_and_apply(
             bump_nonce(chain, account)?;
         }
 
+        // ── AccountApiKeySet ──────────────────────────────────────────────────
+        LedgerEntry::AccountApiKeySet { account, api_key, signed_by, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            if signed_by != account {
+                bail!("signed_by '{}' must equal account '{}' for AccountApiKeySet", signed_by, account);
+            }
+            // api_key must be exactly 64 hex chars (32 bytes).
+            if api_key.len() != 64 || !api_key.chars().all(|c| c.is_ascii_hexdigit()) {
+                bail!("api_key must be a 64-char hex string (32 random bytes)");
+            }
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
         // ── SetKeyPolicy: configure 2FA for a key slot ────────────────────────
         LedgerEntry::SetKeyPolicy { account, role, signed_by, owner_auth, signature, .. } => {
             if signed_by != account {

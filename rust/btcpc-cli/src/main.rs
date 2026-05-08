@@ -266,6 +266,20 @@ enum WalletCommands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Generate a random API key, register it on-chain, and write it to .btcpc/wallet.env.
+    /// Requires your mnemonic to sign the on-chain AccountApiKeySet entry.
+    #[command(name = "api-key-gen")]
+    ApiKeyGen {
+        /// BIP39 mnemonic phrase (or set BTCPC_MNEMONIC env var).
+        #[arg(long, env = "BTCPC_MNEMONIC")]
+        mnemonic: String,
+        /// Wallet file (default: ~/.btcpc/wallet.json).
+        #[arg(long)]
+        wallet_file: Option<PathBuf>,
+        /// Output path (default: .btcpc/wallet.env in CWD).
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -535,6 +549,9 @@ fn run() -> Result<()> {
             }
             WalletCommands::Env { wallet_file, output } => {
                 wallet::cmd_wallet_env(wallet_file.as_deref(), output.as_deref())?;
+            }
+            WalletCommands::ApiKeyGen { mnemonic, wallet_file, output } => {
+                wallet::cmd_wallet_api_key_gen(wallet_file.as_deref(), &mnemonic, output.as_deref())?;
             }
         },
 
