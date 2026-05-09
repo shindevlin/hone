@@ -60,7 +60,7 @@ use anyhow::Result;
 use tracing::{info, warn};
 use btcpc_types::{
     LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
-    RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT,
+    RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT, TREASURY_ACCOUNT,
     inference_score, clock_reward_at, testnet_reward_at,
     sensor_score, stake_weight, mempool_relay_score,
     ACTIVITY_RATIO_DENOM, MIN_ACTIVITY_RATIO_NUM,
@@ -293,9 +293,11 @@ async fn main() -> Result<()> {
                             .map(|(e, _)| entry_weight(e))
                             .sum();
 
-                        // Release matured unbonding tokens and apply timelocked param changes.
+                        // Release matured unbonding tokens, apply timelocked param changes,
+                        // and finalize any governance proposals whose voting window closed.
                         chain_ref.drain_unbonding(sealed_epoch);
                         chain_ref.drain_pending_params(sealed_epoch);
+                        chain_ref.drain_governance_proposals(sealed_epoch);
 
                         // Dynamic base fee update (EIP-1559-style ±10%/epoch toward 50% target).
                         let current_base_fee: u64 = chain_ref.store.state_get("chain_param:base_fee")
@@ -869,6 +871,7 @@ async fn main() -> Result<()> {
         software_hash:     Arc::new(software_hash),
         git_serve_queries: git_serve_queries.clone(),
         node_account:      Arc::new(cfg.account.clone()),
+        signing_key:       signing_key.clone(),
     };
     api::serve(app_state, cfg.api_port).await?;
 
@@ -1083,10 +1086,13 @@ async fn emit_epoch_rewards(
     if raw_pool == 0 { return; }
 
     // ── Mandatory 2% reserve split (Layer D, always fires) ───────────────────
-    // 1.5% → recycle fund  |  0.5% → testnet fund (perpetual top-up)
+    // 1.5% → recycle fund  |  0.4% → testnet fund  |  0.1% → treasury (DAO)
     let reserve_total  = (raw_pool as u128 * 2 / 100) as u64;
-    let testnet_top_up = (raw_pool as u128 / 200) as u64;           // 0.5%
-    let recycle_split  = reserve_total.saturating_sub(testnet_top_up); // 1.5%
+    let testnet_top_up = (raw_pool as u128 * 4 / 1000) as u64;          // 0.4%
+    let treasury_split = (raw_pool as u128 / 1000) as u64;              // 0.1%
+    let recycle_split  = reserve_total
+        .saturating_sub(testnet_top_up)
+        .saturating_sub(treasury_split);                                  // 1.5%
     let activity_pool  = raw_pool.saturating_sub(reserve_total);
 
     if recycle_split > 0 {
@@ -1094,6 +1100,9 @@ async fn emit_epoch_rewards(
     }
     if testnet_top_up > 0 {
         chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
+    }
+    if treasury_split > 0 {
+        let _ = chain.store.credit(TREASURY_ACCOUNT, NATIVE_TOKEN, treasury_split);
     }
 
     // ── Layer D: era-scaled clock reward (infrastructure base) ──────────────

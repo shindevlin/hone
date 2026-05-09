@@ -1257,6 +1257,13 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+    /// Deregister a mainnet account from testnet operator rewards.
+    TestnetOperatorDeregister {
+        mainnet_account: AccountId,
+        testnet_chain_id: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
     /// Periodic mainnet reward to a registered testnet operator.
     /// Emitted by mainnet clock nodes each epoch from the testnet fund.
     TestnetReward {
@@ -1645,6 +1652,63 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+
+    // ── Governance ────────────────────────────────────────────────────────────
+
+    /// Submit a governance proposal. Only governance council members may propose.
+    ///
+    /// `action` is one of:
+    ///   - `"param_set"` — set a chain parameter (action_key + action_value required)
+    ///   - `"council_add"` — add account to governance council (action_key = account)
+    ///   - `"council_remove"` — remove account from governance council (action_key = account)
+    ///   - `"text"` — on-chain signal with no automatic execution
+    GovernancePropose {
+        proposal_id: String,
+        proposer: AccountId,
+        title: String,
+        description: String,
+        /// One of: "param_set" | "council_add" | "council_remove" | "text"
+        action: String,
+        /// For param_set: parameter key. For council_*: account name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_key: Option<String>,
+        /// For param_set: new parameter value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_value: Option<String>,
+        /// Epoch after which voting closes.
+        voting_ends_epoch: Epoch,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Cast a vote on an open governance proposal.
+    /// Any account with stake > 0 may vote. One vote per account per proposal.
+    GovernanceVote {
+        proposal_id: String,
+        voter: AccountId,
+        /// true = yes/approve, false = no/reject
+        approve: bool,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Finalize a governance proposal after voting has closed.
+    /// Submitted automatically by the epoch seal handler when voting_ends_epoch passes.
+    /// Executes the action if the proposal passed (yes > no, quorum ≥ 2 votes).
+    GovernanceFinalize {
+        proposal_id: String,
+        /// "passed" | "rejected" | "no_quorum"
+        outcome: String,
+        yes_votes: u64,
+        no_votes: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -1743,6 +1807,7 @@ impl LedgerEntry {
             Self::LinkGitPrMerge { epoch, .. } => *epoch,
             Self::LinkGitPrClose { epoch, .. } => *epoch,
             Self::TestnetOperatorRegister { epoch, .. } => *epoch,
+            Self::TestnetOperatorDeregister { epoch, .. } => *epoch,
             Self::TestnetReward { epoch, .. } => *epoch,
             Self::MempoolReward { epoch, .. } => *epoch,
             Self::MempoolOperatorRegister { epoch, .. } => *epoch,
@@ -1783,6 +1848,9 @@ impl LedgerEntry {
             Self::LivenessProof { epoch, .. } => *epoch,
             Self::EntropyWitness { epoch, .. } => *epoch,
             Self::HardwareClaim { epoch, .. } => *epoch,
+            Self::GovernancePropose { epoch, .. } => *epoch,
+            Self::GovernanceVote { epoch, .. } => *epoch,
+            Self::GovernanceFinalize { epoch, .. } => *epoch,
             Self::ClockNodeRegister { epoch, .. } => *epoch,
             Self::ClockDoubleSignEvidence { epoch, .. } => *epoch,
             Self::ProjectCreate { epoch, .. } => *epoch,
@@ -1943,11 +2011,14 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::RuntimeDeploy { .. }
         | LedgerEntry::MempoolOperatorRegister { .. }
         | LedgerEntry::HardwareClaim { .. }
+        | LedgerEntry::GovernancePropose { .. }
+        | LedgerEntry::GovernanceVote { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
         | LedgerEntry::FlashSale { .. }
         | LedgerEntry::ProductCreate { .. }
         | LedgerEntry::TestnetOperatorRegister { .. }
+        | LedgerEntry::TestnetOperatorDeregister { .. }
         | LedgerEntry::SpamGateSet { .. }
         | LedgerEntry::TokenApprove { .. }
         | LedgerEntry::TokenRevoke { .. }
@@ -1960,6 +2031,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::TaskApprove { .. } => ENTRY_WEIGHT_STANDARD,
 
         // ── System (0) — free ────────────────────────────────────────────────
-        LedgerEntry::RuntimeReward { .. } => ENTRY_WEIGHT_SYSTEM,
+        LedgerEntry::RuntimeReward { .. }
+        | LedgerEntry::GovernanceFinalize { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }

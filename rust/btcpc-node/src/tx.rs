@@ -1206,6 +1206,25 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Governance ────────────────────────────────────────────────────────
+        LedgerEntry::GovernancePropose { proposer, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, proposer)?;
+            check_signature(chain, proposer, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::GovernanceVote { voter, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, voter)?;
+            check_nonce(chain, voter, *nonce)?;
+            check_signature(chain, voter, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, voter)?;
+        }
+        LedgerEntry::GovernanceFinalize { .. } => {
+            bail!("GovernanceFinalize is system-only — emitted automatically at epoch seal");
+        }
+
         // ── Clock node registration ───────────────────────────────────────────
         LedgerEntry::ClockNodeRegister { node_id, .. } => {
             let _guard = chain.write_lock.lock();

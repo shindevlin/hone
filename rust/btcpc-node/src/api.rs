@@ -19,7 +19,7 @@ use serde::{Deserialize, Deserializer};
 use tower_http::cors::CorsLayer;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::ReceiverStream;
-use btcpc_types::{Block, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID, EPOCH_MS};
+use btcpc_types::{Block, ChainAddress, ChainProof, LedgerEntry, NATIVE_TOKEN, DREAMS_PER_BTCPC, TESTNET_CHAIN_ID, EPOCH_MS};
 
 /// Gossip envelope: entry JSON + out-of-band signature so peers can re-verify.
 pub type GossipEntry = (LedgerEntry, Option<String>);
@@ -66,6 +66,8 @@ pub struct AppState {
     pub git_serve_queries: Arc<std::sync::atomic::AtomicUsize>,
     /// This node's account name — receives direct inference fees from /v1/chat/completions.
     pub node_account: Arc<String>,
+    /// This node's ed25519 signing key — used to self-sign entries like testnet opt-in.
+    pub signing_key: Arc<Option<ed25519_dalek::SigningKey>>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -118,6 +120,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/account/update-key", post(post_account_update_key))
         .route("/api/account/set-primary", post(post_account_set_primary))
         .route("/api/account/transfer", post(post_account_transfer))
+        .route("/api/account/api-key", post(post_account_api_key_set))
+        .route("/api/wallet/family/publish", post(post_wallet_family_publish))
+        .route("/api/wallet/family/add", post(post_wallet_family_add))
         // Hard-mode chain linking — prove an external wallet without revealing the address
         .route("/api/account/:account/chain-link-challenge", get(get_chain_link_challenge))
         .route("/api/account/verify-chain", post(post_verify_chain))
@@ -159,6 +164,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/staking/account/:account/positions", get(get_account_positions))
         .route("/api/node/role/opt-in", post(post_node_role_opt_in))
         .route("/api/node/role/opt-out", post(post_node_role_opt_out))
+        .route("/api/node/testnet/register", post(post_testnet_register))
+        .route("/api/node/testnet/deregister", post(post_testnet_deregister))
+        .route("/api/node/testnet/status/:account", get(get_testnet_status))
+        .route("/api/node/testnet/toggle", post(post_testnet_toggle))
         .route("/api/node/role/stake", post(post_node_role_stake))
         .route("/api/node/role/unstake", post(post_node_role_unstake))
         // ── Node capability marketplace ───────────────────────────────────
@@ -233,6 +242,10 @@ pub fn router(state: AppState) -> Router {
         // ── Governance: chain parameters ──────────────────────────────────
         .route("/api/chain/param/:key", get(get_chain_param))
         .route("/api/chain/set-param", post(post_chain_set_param))
+        // ── Governance: proposals and voting ─────────────────────────────
+        .route("/api/governance/proposals", get(get_governance_proposals).post(post_governance_propose))
+        .route("/api/governance/proposals/:id", get(get_governance_proposal))
+        .route("/api/governance/vote", post(post_governance_vote))
         // ── Peer bootstrap registry ───────────────────────────────────────
         .route("/api/peers/bootstrap", get(get_bootstrap_peers))
         .route("/api/peers/bootstrap", post(post_bootstrap_peer))
@@ -1194,9 +1207,39 @@ struct AccountCreateBody {
     /// Role-keyed map of hex-encoded public keys.
     #[serde(default)]
     keys: Option<std::collections::HashMap<String, String>>,
+    /// External-chain commitments to register at account creation.
+    #[serde(default)]
+    chain_proofs: Vec<ChainProof>,
     /// Account that pays the NAME_REGISTRATION_STAKE (10 BTCPC). Required unless account is exempt.
     #[serde(default)]
     funded_by: Option<String>,
+    /// Owner-key signature over the AccountCreate canonical signing message.
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WalletFamilyBody {
+    account: String,
+    chains: Vec<ChainAddress>,
+    epoch: Option<u64>,
+    nonce: u64,
+    #[serde(default)]
+    signed_by: Option<String>,
+    #[serde(default)]
+    signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountApiKeyBody {
+    account: String,
+    api_key: String,
+    epoch: Option<u64>,
+    nonce: u64,
+    #[serde(default)]
+    signed_by: Option<String>,
+    #[serde(default)]
+    signature: String,
 }
 
 fn default_token() -> String {
@@ -1275,13 +1318,13 @@ async fn post_account_create(
     let entry = LedgerEntry::AccountCreate {
         account:             body.account,
         keys:                body.keys.unwrap_or_default().into_iter().collect(),
-        chain_proofs:        vec![],
+        chain_proofs:        body.chain_proofs,
         epoch,
         funded_by:           body.funded_by.filter(|s| !s.is_empty()),
         machine_fingerprint: if fp.is_empty() { None } else { Some(fp.clone()) },
     };
 
-    apply_and_broadcast(&s, entry, None)
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
 }
 
 /// POST /api/account/update-key
@@ -1369,6 +1412,54 @@ async fn post_account_transfer(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+async fn post_wallet_family_publish(
+    State(s): State<AppState>,
+    Json(body): Json<WalletFamilyBody>,
+) -> Json<serde_json::Value> {
+    let account = body.account;
+    let signed_by = body.signed_by.unwrap_or_else(|| account.clone());
+    let entry = LedgerEntry::WalletFamilyPublish {
+        account,
+        chains: body.chains,
+        epoch: body.epoch.unwrap_or_else(|| s.chain.current_epoch()),
+        nonce: body.nonce,
+        signed_by,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+async fn post_wallet_family_add(
+    State(s): State<AppState>,
+    Json(body): Json<WalletFamilyBody>,
+) -> Json<serde_json::Value> {
+    let account = body.account;
+    let signed_by = body.signed_by.unwrap_or_else(|| account.clone());
+    let entry = LedgerEntry::WalletFamilyAdd {
+        account,
+        chains: body.chains,
+        epoch: body.epoch.unwrap_or_else(|| s.chain.current_epoch()),
+        nonce: body.nonce,
+        signed_by,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
+}
+
+async fn post_account_api_key_set(
+    State(s): State<AppState>,
+    Json(body): Json<AccountApiKeyBody>,
+) -> Json<serde_json::Value> {
+    let account = body.account;
+    let signed_by = body.signed_by.unwrap_or_else(|| account.clone());
+    let entry = LedgerEntry::AccountApiKeySet {
+        account,
+        api_key: body.api_key,
+        epoch: body.epoch.unwrap_or_else(|| s.chain.current_epoch()),
+        nonce: body.nonce,
+        signed_by,
+    };
+    apply_and_broadcast(&s, entry, non_empty(&body.signature))
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -4763,6 +4854,103 @@ async fn post_chain_set_param(
     apply_and_broadcast(&s, entry, sig)
 }
 
+// ── Governance: proposal + voting routes ─────────────────────────────────────
+
+/// GET /api/governance/proposals — list all proposals (open and closed).
+async fn get_governance_proposals(
+    State(s): State<AppState>,
+) -> Json<serde_json::Value> {
+    let prefix = "governance:proposal:";
+    let proposals: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(prefix)
+        .into_iter()
+        .filter_map(|(_k, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "proposals": proposals }))
+}
+
+/// GET /api/governance/proposals/:id — get a single proposal.
+async fn get_governance_proposal(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("governance:proposal:{}", id);
+    match s.chain.store.state_get(&key) {
+        Some(raw) => Json(serde_json::from_slice(&raw).unwrap_or(serde_json::json!({}))),
+        None => Json(serde_json::json!({ "error": "proposal not found" })),
+    }
+}
+
+/// POST /api/governance/proposals — submit a new governance proposal.
+/// Body: { proposal_id, proposer, title, description, action, action_key?, action_value?, voting_ends_epoch, signature }
+#[derive(Debug, Deserialize)]
+struct GovernanceProposeBody {
+    proposal_id: String,
+    proposer: String,
+    title: String,
+    description: String,
+    action: String,
+    #[serde(default)]
+    action_key: Option<String>,
+    #[serde(default)]
+    action_value: Option<String>,
+    voting_ends_epoch: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_governance_propose(
+    State(s): State<AppState>,
+    Json(body): Json<GovernanceProposeBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::GovernancePropose {
+        proposal_id: body.proposal_id,
+        proposer: body.proposer,
+        title: body.title,
+        description: body.description,
+        action: body.action,
+        action_key: body.action_key,
+        action_value: body.action_value,
+        voting_ends_epoch: body.voting_ends_epoch,
+        epoch,
+        signed_by: "".to_string(), // extracted from proposer field above
+        signature: non_empty(&body.signature).map(str::to_owned),
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
+/// POST /api/governance/vote — cast a vote on an open proposal.
+/// Body: { proposal_id, voter, approve, nonce, signature }
+#[derive(Debug, Deserialize)]
+struct GovernanceVoteBody {
+    proposal_id: String,
+    voter: String,
+    approve: bool,
+    nonce: u64,
+    #[serde(default)]
+    signature: String,
+}
+
+async fn post_governance_vote(
+    State(s): State<AppState>,
+    Json(body): Json<GovernanceVoteBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::GovernanceVote {
+        proposal_id: body.proposal_id,
+        voter: body.voter.clone(),
+        approve: body.approve,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.voter,
+        signature: non_empty(&body.signature).map(str::to_owned),
+    };
+    let sig = non_empty(&body.signature);
+    apply_and_broadcast(&s, entry, sig)
+}
+
 /// GET /download/:filename — serve binary files from $BTCPC_DATA_DIR/downloads/
 async fn get_download_file(
     Path(filename): Path<String>,
@@ -4948,6 +5136,135 @@ async fn post_node_role_opt_out(
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
     match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
         Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+// ── Testnet operator opt-in / opt-out ─────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct TestnetRegisterBody {
+    mainnet_account: String,
+    testnet_node_id: String,
+    #[serde(default = "default_testnet_chain_id")]
+    testnet_chain_id: String,
+    epoch: u64,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+fn default_testnet_chain_id() -> String { "btcpc-satoshi".to_string() }
+
+#[derive(serde::Deserialize)]
+struct TestnetDeregisterBody {
+    mainnet_account: String,
+    #[serde(default = "default_testnet_chain_id")]
+    testnet_chain_id: String,
+    epoch: u64,
+    signed_by: String,
+    #[serde(default)]
+    signature: String,
+}
+
+/// POST /api/node/testnet/register — opt this account into testnet operator rewards.
+async fn post_testnet_register(
+    State(s): State<AppState>,
+    Json(b): Json<TestnetRegisterBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::TestnetOperatorRegister {
+        mainnet_account: b.mainnet_account,
+        testnet_node_id: b.testnet_node_id,
+        testnet_chain_id: b.testnet_chain_id,
+        epoch: b.epoch,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/node/testnet/deregister — opt this account out of testnet operator rewards.
+async fn post_testnet_deregister(
+    State(s): State<AppState>,
+    Json(b): Json<TestnetDeregisterBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let entry = btcpc_types::LedgerEntry::TestnetOperatorDeregister {
+        mainnet_account: b.mainnet_account,
+        testnet_chain_id: b.testnet_chain_id,
+        epoch: b.epoch,
+        signed_by: b.signed_by,
+    };
+    let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
+    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/node/testnet/status/:account — check if account is a registered testnet operator.
+async fn get_testnet_status(
+    State(s): State<AppState>,
+    axum::extract::Path(account): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("testnet_op:{}:btcpc-satoshi", account);
+    let registered = s.chain.store.state_get(&key).is_some();
+    Json(serde_json::json!({ "account": account, "registered": registered }))
+}
+
+/// POST /api/node/testnet/toggle — self-sign opt-in/opt-out using the node's own posting key.
+/// Body: { "enabled": true/false }
+/// The node signs the entry itself — caller does not need to provide a signature.
+/// Intended for the web dashboard and Android app on the local node.
+async fn post_testnet_toggle(
+    State(s): State<AppState>,
+    Json(b): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let enabled = b.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let account = s.node_account.as_ref().clone();
+    let epoch   = s.chain.current_epoch();
+
+    let sk = match s.signing_key.as_ref().as_ref() {
+        Some(k) => k,
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "node has no signing key configured (BTCPC_POSTING_KEY not set)"
+        }))),
+    };
+
+    let chain_id = s.chain.chain_id.clone();
+
+    let entry = if enabled {
+        btcpc_types::LedgerEntry::TestnetOperatorRegister {
+            mainnet_account: account.clone(),
+            testnet_node_id: account.clone(),
+            testnet_chain_id: "btcpc-satoshi".to_string(),
+            epoch,
+            signed_by: account.clone(),
+        }
+    } else {
+        btcpc_types::LedgerEntry::TestnetOperatorDeregister {
+            mainnet_account: account.clone(),
+            testnet_chain_id: "btcpc-satoshi".to_string(),
+            epoch,
+            signed_by: account.clone(),
+        }
+    };
+
+    let sig_hex = match crate::tx::canonical_signing_message(&entry, &chain_id) {
+        Ok(msg) => {
+            use ed25519_dalek::Signer;
+            hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+        }
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("signing message error: {}", e)
+        }))),
+    };
+
+    match crate::tx::validate_and_apply(&s.chain, &entry, Some(sig_hex.as_str())) {
+        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({
+            "ok": true, "hash": hash, "enabled": enabled, "account": account
+        }))),
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }

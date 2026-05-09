@@ -1900,6 +1900,10 @@ impl Chain {
                         "registered_epoch": epoch,
                     })).unwrap_or_default());
             }
+            LedgerEntry::TestnetOperatorDeregister { mainnet_account, testnet_chain_id, .. } => {
+                let key = format!("testnet_op:{}:{}", mainnet_account, testnet_chain_id);
+                let _ = self.store.state_delete(&key);
+            }
             LedgerEntry::TestnetReward { mainnet_account, amount, epoch, .. } => {
                 self.ensure_account(mainnet_account, *epoch)?;
                 // Drain from testnet fund — fund was seeded at genesis.
@@ -2483,6 +2487,135 @@ impl Chain {
                 self.touch_alive(account, *epoch);
             }
 
+            // ── Governance ────────────────────────────────────────────────────
+            LedgerEntry::GovernancePropose {
+                proposal_id, proposer, title, description,
+                action, action_key, action_value, voting_ends_epoch, epoch, ..
+            } => {
+                let council = crate::tx::governance_keys(self);
+                anyhow::ensure!(
+                    council.iter().any(|a| a == proposer),
+                    "account '{}' is not in the governance council", proposer
+                );
+                anyhow::ensure!(!proposal_id.is_empty(), "proposal_id cannot be empty");
+                let key = format!("governance:proposal:{}", proposal_id);
+                anyhow::ensure!(
+                    self.store.state_get(&key).is_none(),
+                    "proposal '{}' already exists", proposal_id
+                );
+                let record = serde_json::json!({
+                    "proposal_id": proposal_id,
+                    "proposer": proposer,
+                    "title": title,
+                    "description": description,
+                    "action": action,
+                    "action_key": action_key,
+                    "action_value": action_value,
+                    "voting_ends_epoch": voting_ends_epoch,
+                    "submitted_epoch": epoch,
+                    "yes_votes": 0u64,
+                    "no_votes": 0u64,
+                    "status": "open",
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&record)?)?;
+                info!("[governance] proposal '{}' submitted by '{}': {}", proposal_id, proposer, title);
+            }
+
+            LedgerEntry::GovernanceVote { proposal_id, voter, approve, epoch, .. } => {
+                let prop_key = format!("governance:proposal:{}", proposal_id);
+                let raw = self.store.state_get(&prop_key)
+                    .ok_or_else(|| anyhow::anyhow!("proposal '{}' not found", proposal_id))?;
+                let mut proposal: serde_json::Value = serde_json::from_slice(&raw)?;
+                anyhow::ensure!(
+                    proposal["status"].as_str() == Some("open"),
+                    "proposal '{}' is not open for voting", proposal_id
+                );
+                let ends = proposal["voting_ends_epoch"].as_u64().unwrap_or(0);
+                anyhow::ensure!(
+                    *epoch <= ends,
+                    "voting on proposal '{}' closed at epoch {}", proposal_id, ends
+                );
+                let stake = self.get_stake(voter);
+                anyhow::ensure!(
+                    stake > 0,
+                    "account '{}' has no stake — stake BTCPC to vote", voter
+                );
+                // Idempotency: reject double-votes.
+                let vote_key = format!("governance:vote:{}:{}", proposal_id, voter);
+                anyhow::ensure!(
+                    self.store.state_get(&vote_key).is_none(),
+                    "account '{}' has already voted on proposal '{}'", voter, proposal_id
+                );
+                self.store.state_set(&vote_key, serde_json::json!({ "approve": approve, "epoch": epoch }).to_string().as_bytes())?;
+                if *approve {
+                    let yes = proposal["yes_votes"].as_u64().unwrap_or(0) + 1;
+                    proposal["yes_votes"] = serde_json::json!(yes);
+                } else {
+                    let no = proposal["no_votes"].as_u64().unwrap_or(0) + 1;
+                    proposal["no_votes"] = serde_json::json!(no);
+                }
+                self.store.state_set(&prop_key, &serde_json::to_vec(&proposal)?)?;
+                info!("[governance] '{}' voted {} on proposal '{}'",
+                    voter, if *approve { "yes" } else { "no" }, proposal_id);
+            }
+
+            LedgerEntry::GovernanceFinalize { proposal_id, outcome, yes_votes, no_votes, epoch, .. } => {
+                let prop_key = format!("governance:proposal:{}", proposal_id);
+                let raw = self.store.state_get(&prop_key)
+                    .ok_or_else(|| anyhow::anyhow!("proposal '{}' not found for finalization", proposal_id))?;
+                let mut proposal: serde_json::Value = serde_json::from_slice(&raw)?;
+                anyhow::ensure!(
+                    proposal["status"].as_str() == Some("open"),
+                    "proposal '{}' already finalized", proposal_id
+                );
+                proposal["status"] = serde_json::json!(outcome);
+                proposal["yes_votes"] = serde_json::json!(yes_votes);
+                proposal["no_votes"] = serde_json::json!(no_votes);
+                proposal["finalized_epoch"] = serde_json::json!(epoch);
+                // Execute on-chain action for passed proposals.
+                if outcome == "passed" {
+                    let action = proposal["action"].as_str().unwrap_or("").to_owned();
+                    let akey  = proposal["action_key"].as_str().unwrap_or("").to_owned();
+                    let aval  = proposal["action_value"].as_str().unwrap_or("").to_owned();
+                    match action.as_str() {
+                        "param_set" if !akey.is_empty() => {
+                            self.store.state_set(
+                                &format!("chain_param:{}", akey),
+                                aval.as_bytes(),
+                            )?;
+                            info!("[governance] proposal '{}' passed — set chain_param:{} = {}",
+                                proposal_id, akey, aval);
+                        }
+                        "council_add" if !akey.is_empty() => {
+                            let mut council = crate::tx::governance_keys(self);
+                            if !council.contains(&akey) {
+                                council.push(akey.clone());
+                                self.store.state_set(
+                                    "chain_param:governance_keys",
+                                    &serde_json::to_vec(&council)?,
+                                )?;
+                                info!("[governance] proposal '{}' passed — added '{}' to council",
+                                    proposal_id, akey);
+                            }
+                        }
+                        "council_remove" if !akey.is_empty() => {
+                            let council: Vec<String> = crate::tx::governance_keys(self)
+                                .into_iter().filter(|a| a != &akey).collect();
+                            self.store.state_set(
+                                "chain_param:governance_keys",
+                                &serde_json::to_vec(&council)?,
+                            )?;
+                            info!("[governance] proposal '{}' passed — removed '{}' from council",
+                                proposal_id, akey);
+                        }
+                        _ => {} // "text" or unknown — signal only
+                    }
+                }
+                self.store.state_set(&prop_key, &serde_json::to_vec(&proposal)?)?;
+                info!("[governance] proposal '{}' finalized: {} ({} yes / {} no)",
+                    proposal_id, outcome, yes_votes, no_votes);
+            }
+
             // ── Clock Node Registration ───────────────────────────────────────
             LedgerEntry::ClockNodeRegister { node_id, stake, epoch, pubkey, .. } => {
                 anyhow::ensure!(
@@ -2868,6 +3001,43 @@ impl Chain {
                 } else {
                     let _ = self.store.state_delete(&key);
                 }
+            }
+        }
+    }
+
+    /// Finalize any governance proposals whose voting window has closed.
+    /// Called once per epoch seal. Passes if yes > no and total votes ≥ 2 (quorum).
+    pub fn drain_governance_proposals(&self, current_epoch: u64) {
+        let records = self.store.state_scan_prefix("governance:proposal:");
+        for (_key, val) in records {
+            let Ok(proposal) = serde_json::from_slice::<serde_json::Value>(&val) else { continue };
+            if proposal["status"].as_str() != Some("open") { continue; }
+            let ends = proposal["voting_ends_epoch"].as_u64().unwrap_or(u64::MAX);
+            if current_epoch <= ends { continue; }
+            let proposal_id = match proposal["proposal_id"].as_str() {
+                Some(id) => id.to_owned(),
+                None => continue,
+            };
+            let yes = proposal["yes_votes"].as_u64().unwrap_or(0);
+            let no  = proposal["no_votes"].as_u64().unwrap_or(0);
+            let total = yes + no;
+            let outcome = if total < 2 {
+                "no_quorum"
+            } else if yes > no {
+                "passed"
+            } else {
+                "rejected"
+            };
+            let entry = LedgerEntry::GovernanceFinalize {
+                proposal_id: proposal_id.clone(),
+                outcome: outcome.to_owned(),
+                yes_votes: yes,
+                no_votes: no,
+                epoch: current_epoch,
+                signed_by: self.node_id.clone(),
+            };
+            if let Err(e) = self.apply_entry(&entry) {
+                warn!("[governance] finalize '{}' failed: {}", proposal_id, e);
             }
         }
     }
@@ -3482,7 +3652,7 @@ mod tests {
     #[test]
     fn test_clock_node_register() {
         let (chain, _dir) = make_chain("clock-reg");
-        let min_stake = 100u64 * 10_000_000_000; // 100 BTCPC default (matches chain.rs fallback)
+        let min_stake = 5u64 * 10_000_000_000; // 5 BTCPC default (matches chain.rs fallback)
         fund(&chain, "clock1", min_stake + 50 * 10_000_000_000);
         seal_epoch(&chain, 0);
 
@@ -3988,6 +4158,8 @@ mod tests {
     fn test_account_create_subsidized_from_testnet_fund() {
         use crate::tx;
         use btcpc_types::{BASE_FEE_INITIAL_DREAMS, ENTRY_WEIGHT_REGISTRATION, TESTNET_FUND_ACCOUNT, RECYCLE_FUND_ACCOUNT};
+        use ed25519_dalek::{Signer, SigningKey};
+        use rand::rngs::OsRng;
 
         let (chain, _dir) = make_chain("fee-subsidy");
         // Seed testnet fund (normally done at genesis).
@@ -3998,14 +4170,24 @@ mod tests {
         let testnet_before = chain.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
         let recycle_before  = chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
 
-        tx::validate_and_apply(&chain, &LedgerEntry::AccountCreate {
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pubkey = hex::encode(signing_key.verifying_key().to_bytes());
+        let mut keys = std::collections::BTreeMap::new();
+        keys.insert("owner".to_string(), pubkey.clone());
+        keys.insert("active".to_string(), pubkey.clone());
+        keys.insert("posting".to_string(), pubkey);
+        let entry = LedgerEntry::AccountCreate {
             account: "newuser".to_string(),
-            keys: Default::default(),
+            keys,
             chain_proofs: vec![],
             epoch: 1,
             funded_by: None,
             machine_fingerprint: None,
-        }, None).expect("AccountCreate");
+        };
+        let msg = tx::canonical_signing_message(&entry, &chain.chain_id)
+            .expect("account create signing message");
+        let sig = hex::encode(signing_key.sign(msg.as_bytes()).to_bytes());
+        tx::validate_and_apply(&chain, &entry, Some(&sig)).expect("AccountCreate");
 
         let testnet_after  = chain.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
         let recycle_after   = chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
