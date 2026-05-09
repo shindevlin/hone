@@ -1,0 +1,31 @@
+{
+  "genesis_timestamp": 1777633200000,
+  "chain_id": "btcpc-satoshi",
+  "accounts": {
+    "shindevlin": {
+      "balance": 100000000000000,
+      "keys": {
+        "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
+        "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
+        "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
+        "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
+        "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
+        "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+      }
+    },
+    "natoshisakamoto": {
+      "balance": 100000000000000,
+      "keys": {
+        "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
+        "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
+        "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
+        "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
+        "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
+        "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
+      }
+    },
+    "__recycle_fund__": {},
+    "__testnet_fund__": {},
+    "__treasury__": {}
+  }
+}
