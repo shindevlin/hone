@@ -106,7 +106,7 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
 /// `sig_hex`: optional hex-encoded ed25519 signature over the canonical JSON of
 /// `entry`.  Required for Transfer / Stake / Unstake when the account has a
 /// registered public key.  Pass `None` for entries that either embed the
-/// signature (EpochSeal) or need no signature (AccountCreate, GenesisAlloc).
+/// signature (EpochSeal) or are protocol-only system entries (GenesisAlloc).
 ///
 /// Returns `Ok(entry_hash)` — the SHA-256 hex of the entry JSON — on success.
 pub fn validate_and_apply(
@@ -238,12 +238,23 @@ pub fn validate_and_apply(
         }
 
         // ── AccountCreate ────────────────────────────────────────────────────
-        LedgerEntry::AccountCreate { account, funded_by, .. } => {
+        LedgerEntry::AccountCreate { account, funded_by, keys, .. } => {
             check_not_empty(account, "account")?;
             // Block 3-digit all-numeric names (000-999) — reserved for future numeric namespace.
             if account.len() == 3 && account.chars().all(|c| c.is_ascii_digit()) {
                 bail!("3-digit numeric names (000-999) are reserved and cannot be registered yet");
             }
+            let owner_key = keys.get("owner")
+                .filter(|k| !k.trim().is_empty())
+                .ok_or_else(|| anyhow::anyhow!("account creation requires an owner public key"))?;
+            for (role, key) in keys {
+                anyhow::ensure!(
+                    key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit()),
+                    "account creation key '{}' must be a 64-char ed25519 public key hex string",
+                    role
+                );
+            }
+            check_account_create_signature(&chain.chain_id, entry, sig_hex, owner_key)?;
             let exempt = btcpc_types::STAKE_EXEMPT_ACCOUNTS.contains(&account.as_str());
             if !exempt {
                 // Check if name stake is enabled via on-chain governance param.
@@ -730,6 +741,16 @@ pub fn validate_and_apply(
 
         // TestnetOperatorRegister is user-submittable (registers mainnet account).
         LedgerEntry::TestnetOperatorRegister { mainnet_account, signed_by, epoch, .. } => {
+            if signed_by != mainnet_account {
+                bail!("signed_by must match mainnet_account");
+            }
+            require_key(chain, mainnet_account)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            let _ = epoch;
+        }
+
+        LedgerEntry::TestnetOperatorDeregister { mainnet_account, signed_by, epoch, .. } => {
             if signed_by != mainnet_account {
                 bail!("signed_by must match mainnet_account");
             }
@@ -1494,6 +1515,39 @@ fn check_slot_2fa(
     Ok(())
 }
 
+fn check_account_create_signature(
+    chain_id: &str,
+    entry: &LedgerEntry,
+    sig_hex: Option<&str>,
+    owner_pubkey_hex: &str,
+) -> Result<()> {
+    let sig_str = sig_hex
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("signature required for account creation"))?;
+
+    let pk_bytes = hex::decode(owner_pubkey_hex)
+        .map_err(|_| anyhow::anyhow!("owner key is not valid hex"))?;
+    let pk_array: [u8; 32] = pk_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("owner key must be 32 bytes"))?;
+    let verifying_key = VerifyingKey::from_bytes(&pk_array)
+        .map_err(|e| anyhow::anyhow!("invalid owner ed25519 public key: {}", e))?;
+
+    let sig_bytes = hex::decode(sig_str)
+        .map_err(|_| anyhow::anyhow!("signature is not valid hex"))?;
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
+    let signature = Signature::from_bytes(&sig_array);
+
+    let message = canonical_signing_message(entry, chain_id)?;
+    verifying_key
+        .verify_strict(message.as_bytes(), &signature)
+        .map_err(|e| anyhow::anyhow!("account creation signature verification failed: {}", e))?;
+
+    Ok(())
+}
+
 /// Verify an ed25519 signature over the **canonical signing message** for `entry`.
 ///
 /// The signing message is a deterministic JSON subset containing only the
@@ -1587,6 +1641,70 @@ fn check_signature(
 /// the client SDK's signing implementation.
 pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<String> {
     let msg = match entry {
+        LedgerEntry::AccountCreate { account, keys, chain_proofs, funded_by, .. } => {
+            let sorted_keys: std::collections::BTreeMap<_, _> = keys.iter().collect();
+            let mut proofs: Vec<_> = chain_proofs.iter().map(|p| {
+                serde_json::json!({
+                    "chain": p.chain.as_str(),
+                    "commitment": p.commitment.as_str(),
+                    "mode": p.mode.as_str(),
+                })
+            }).collect();
+            proofs.sort_by(|a, b| {
+                a.get("chain").and_then(|v| v.as_str()).unwrap_or("")
+                    .cmp(b.get("chain").and_then(|v| v.as_str()).unwrap_or(""))
+            });
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "ACCOUNT_CREATE",
+                "account": account,
+                "keys": sorted_keys,
+                "chain_proofs": proofs,
+                "funded_by": funded_by,
+            })
+        }
+        LedgerEntry::WalletFamilyPublish { account, chains, nonce, .. } => {
+            let canonical_chains: Vec<_> = chains.iter().map(|ca| {
+                serde_json::json!({
+                    "address": ca.address.as_str(),
+                    "chain": ca.chain.as_str(),
+                    "derivation_path": ca.derivation_path.as_deref(),
+                    "signature": ca.signature.as_deref(),
+                })
+            }).collect();
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "WALLET_FAMILY_PUBLISH",
+                "account": account,
+                "chains": canonical_chains,
+                "nonce": nonce,
+            })
+        }
+        LedgerEntry::WalletFamilyAdd { account, chains, nonce, .. } => {
+            let canonical_chains: Vec<_> = chains.iter().map(|ca| {
+                serde_json::json!({
+                    "address": ca.address.as_str(),
+                    "chain": ca.chain.as_str(),
+                    "derivation_path": ca.derivation_path.as_deref(),
+                    "signature": ca.signature.as_deref(),
+                })
+            }).collect();
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "WALLET_FAMILY_ADD",
+                "account": account,
+                "chains": canonical_chains,
+                "nonce": nonce,
+            })
+        }
+        LedgerEntry::AccountApiKeySet { account, api_key, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "ACCOUNT_API_KEY_SET",
+                "account": account,
+                "api_key": api_key,
+                "nonce": nonce,
+            }),
         LedgerEntry::Transfer { from, to, amount, token, nonce, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -1768,4 +1886,313 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
         }),
     };
     Ok(serde_json::to_string(&msg)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::{LedgerEntry, NATIVE_TOKEN};
+    use ed25519_dalek::{SigningKey, Signer};
+    use tempfile::TempDir;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::Builder::new().prefix("btcpc_tx_test_").tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, "test-node".into(), "btcpc-satoshi".into());
+        (chain, dir)
+    }
+
+    /// Create account + fund it. Registers a deterministic posting key so
+    /// require_key() passes. Uses seed = first byte of account name.
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.into(), keys: Default::default(),
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).ok();
+        // Register a posting key so require_key() passes in validate_and_apply.
+        let seed = account.bytes().next().unwrap_or(1);
+        let sk = SigningKey::from_bytes(&[seed; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        chain.apply_entry(&LedgerEntry::AccountUpdateKey {
+            account: account.into(), role: "posting".into(),
+            new_public_key: pk_hex, epoch: 0, signed_by: account.into(),
+        }).unwrap();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.into(), amount, token: NATIVE_TOKEN.into(),
+        }).unwrap();
+    }
+
+    /// Register an ed25519 public key for `account` under `role`, using seed byte.
+    /// Returns the SigningKey so callers can sign entries.
+    fn register_key(chain: &Chain, account: &str, role: &str, seed: u8) -> SigningKey {
+        let sk = SigningKey::from_bytes(&[seed; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        chain.apply_entry(&LedgerEntry::AccountUpdateKey {
+            account: account.into(),
+            role: role.into(),
+            new_public_key: pk_hex,
+            epoch: 1,
+            signed_by: account.into(),
+        }).unwrap();
+        sk
+    }
+
+    /// Sign the canonical message for `entry` with `sk`, returning hex signature.
+    fn sign(sk: &SigningKey, entry: &LedgerEntry) -> String {
+        let msg = canonical_signing_message(entry, "btcpc-satoshi").unwrap();
+        let sig = sk.sign(msg.as_bytes());
+        hex::encode(sig.to_bytes())
+    }
+
+    // ── is_system_entry ───────────────────────────────────────────────────────
+
+    #[test]
+    fn system_entries_identified_correctly() {
+        assert!(is_system_entry(&LedgerEntry::EpochSeal {
+            node_id: "n".into(), epoch: 1, timestamp: 0,
+            seal_hash: "h".into(), signature: None, node_version: None,
+        }));
+        assert!(is_system_entry(&LedgerEntry::MineReward {
+            miner: "m".into(), amount: 1, epoch: 1,
+        }));
+        assert!(is_system_entry(&LedgerEntry::ClockReward {
+            node_id: "a".into(), amount: 1, epoch: 1,
+        }));
+        assert!(is_system_entry(&LedgerEntry::GenesisAlloc {
+            account: "a".into(), amount: 1, token: NATIVE_TOKEN.into(),
+        }));
+        // User entries must NOT be treated as system entries.
+        assert!(!is_system_entry(&LedgerEntry::Transfer {
+            from: "a".into(), to: "b".into(), amount: 1,
+            token: NATIVE_TOKEN.into(), memo: None, nonce: 1, epoch: 1,
+            signed_by: "a".into(), twofactor: None,
+        }));
+        assert!(!is_system_entry(&LedgerEntry::Stake {
+            account: "a".into(), amount: 1, nonce: 1, epoch: 1, signed_by: "a".into(),
+        }));
+    }
+
+    // ── Transfer — no registered key ─────────────────────────────────────────
+
+    #[test]
+    fn transfer_without_key_succeeds() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        validate_and_apply(&chain, &entry, None).unwrap();
+
+        assert_eq!(chain.get_balance("bob", NATIVE_TOKEN), 100_000_000_000);
+    }
+
+    #[test]
+    fn transfer_zero_amount_rejected() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(), amount: 0,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        assert!(validate_and_apply(&chain, &entry, None).is_err());
+    }
+
+    #[test]
+    fn transfer_insufficient_balance_rejected() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 50_000_000_000);
+        fund(&chain, "bob", 0);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        assert!(validate_and_apply(&chain, &entry, None).is_err());
+    }
+
+    // ── Transfer — with registered key ────────────────────────────────────────
+
+    #[test]
+    fn transfer_with_valid_signature_succeeds() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+        let sk = register_key(&chain, "alice", "active", 42);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        let sig = sign(&sk, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig)).unwrap();
+
+        assert_eq!(chain.get_balance("bob", NATIVE_TOKEN), 100_000_000_000);
+    }
+
+    #[test]
+    fn transfer_missing_signature_rejected_when_key_registered() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+        register_key(&chain, "alice", "active", 42);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        assert!(validate_and_apply(&chain, &entry, None).is_err());
+    }
+
+    #[test]
+    fn transfer_wrong_signature_rejected() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+        register_key(&chain, "alice", "active", 42);
+        let wrong_sk = SigningKey::from_bytes(&[99; 32]);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 0, signed_by: "alice".into(), twofactor: None,
+        };
+        let bad_sig = sign(&wrong_sk, &entry);
+        assert!(validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err());
+    }
+
+    // ── Stale entry guard ─────────────────────────────────────────────────────
+
+    #[test]
+    fn stale_entry_rejected() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        fund(&chain, "bob", 0);
+
+        // Advance chain to epoch 20 by applying epoch seals.
+        for e in 1u64..=20 {
+            chain.apply_entry(&LedgerEntry::EpochSeal {
+                node_id: "test-node".into(), epoch: e,
+                timestamp: e * 30_000, seal_hash: format!("h{}", e),
+                signature: None, node_version: None,
+            }).unwrap();
+        }
+
+        // Entry with epoch 1 should be rejected (current=20, stale window=5).
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 100_000_000_000,
+            token: NATIVE_TOKEN.into(), memo: None,
+            nonce: 1, epoch: 1, signed_by: "alice".into(), twofactor: None,
+        };
+        let err = validate_and_apply(&chain, &entry, None).unwrap_err();
+        assert!(err.to_string().contains("stale"), "expected stale error, got: {}", err);
+    }
+
+    // ── Stake / Unstake ───────────────────────────────────────────────────────
+
+    #[test]
+    fn stake_and_unstake_basic_flow() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+
+        let stake_entry = LedgerEntry::Stake {
+            account: "alice".into(), amount: 500_000_000_000,
+            nonce: 1, epoch: 0, signed_by: "alice".into(),
+        };
+        validate_and_apply(&chain, &stake_entry, None).unwrap();
+        assert_eq!(chain.get_stake("alice"), 500_000_000_000);
+
+        let unstake_entry = LedgerEntry::Unstake {
+            account: "alice".into(), amount: 200_000_000_000,
+            nonce: 2, epoch: 0, signed_by: "alice".into(),
+        };
+        validate_and_apply(&chain, &unstake_entry, None).unwrap();
+        assert_eq!(chain.get_stake("alice"), 300_000_000_000);
+    }
+
+    #[test]
+    fn unstake_more_than_staked_rejected() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+
+        validate_and_apply(&chain, &LedgerEntry::Stake {
+            account: "alice".into(), amount: 100_000_000_000,
+            nonce: 1, epoch: 0, signed_by: "alice".into(),
+        }, None).unwrap();
+
+        let entry = LedgerEntry::Unstake {
+            account: "alice".into(), amount: 999_000_000_000,
+            nonce: 2, epoch: 0, signed_by: "alice".into(),
+        };
+        assert!(validate_and_apply(&chain, &entry, None).is_err());
+    }
+
+    // ── AccountCreate signature ───────────────────────────────────────────────
+
+    #[test]
+    fn account_create_requires_owner_key() {
+        let (chain, _dir) = make_chain();
+
+        let entry = LedgerEntry::AccountCreate {
+            account: "newuser".into(),
+            keys: Default::default(), // no owner key
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        };
+        assert!(validate_and_apply(&chain, &entry, None).is_err());
+    }
+
+    #[test]
+    fn account_create_with_valid_signature_succeeds() {
+        let (chain, _dir) = make_chain();
+        let sk = SigningKey::from_bytes(&[7; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        let mut keys = std::collections::BTreeMap::new();
+        keys.insert("owner".to_string(), pk_hex.clone());
+        keys.insert("active".to_string(), pk_hex.clone());
+
+        let entry = LedgerEntry::AccountCreate {
+            account: "newuser".into(),
+            keys,
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        };
+        let sig = sign(&sk, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig)).unwrap();
+
+        assert!(chain.store.get_account("newuser").unwrap().is_some());
+    }
+
+    #[test]
+    fn account_create_with_wrong_signature_rejected() {
+        let (chain, _dir) = make_chain();
+        let sk = SigningKey::from_bytes(&[7; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        let mut keys = std::collections::BTreeMap::new();
+        keys.insert("owner".to_string(), pk_hex);
+
+        let entry = LedgerEntry::AccountCreate {
+            account: "newuser".into(),
+            keys,
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        };
+        let wrong_sk = SigningKey::from_bytes(&[99; 32]);
+        let bad_sig = sign(&wrong_sk, &entry);
+        assert!(validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err());
+    }
 }
