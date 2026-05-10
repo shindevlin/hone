@@ -1,6 +1,7 @@
 //! Blob serve proof submission and reward path.
 //! P5-E: ~225 LOC
 
+#![allow(dead_code)]
 use anyhow::Result;
 use sha2::{Sha256, Digest};
 

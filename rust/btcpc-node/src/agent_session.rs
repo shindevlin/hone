@@ -20,6 +20,7 @@ use crate::chain::Chain;
 const MAX_HISTORY_TURNS: usize = 50;
 const SESSION_FEE_PER_TURN_DREAMS: u64 = 500;
 const SESSION_EXPIRY_EPOCHS: u64 = 2_880; // ~24h
+#[allow(dead_code)]
 const TOOL_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +131,7 @@ pub async fn execute_turn(
     chain: &Chain,
     session_id: &str,
     user_message: &str,
-    tools: &[serde_json::Value],
+    _tools: &[serde_json::Value],
 ) -> Result<String> {
     let raw = chain.store.state_get(&session_key(session_id))
         .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;

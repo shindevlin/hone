@@ -8,7 +8,9 @@
 //! Ref state: embedded in the repo JSON at "linkgit:repo:{repo_id}" under .refs.
 //! Auth: public repos are freely readable; write and private read require
 //!   Authorization: account {account_id}  (account checked against owner/grants).
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use anyhow::Result;

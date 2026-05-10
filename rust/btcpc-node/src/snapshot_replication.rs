@@ -1,6 +1,7 @@
 //! Snapshot replication — slug-based chain snapshot save/load via BTCPC-FS.
 //! P5-J: ~215 LOC
 
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::chain::Chain;

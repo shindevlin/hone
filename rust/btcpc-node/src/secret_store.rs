@@ -4,7 +4,9 @@
 //! `BTCPC_SECRETS_PASSPHRASE` env var). RocksDB CF_META prefix `secret:` is a runtime
 //! index populated at boot and kept in sync on every write. Deleting the file wipes all
 //! secrets cleanly.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Result};

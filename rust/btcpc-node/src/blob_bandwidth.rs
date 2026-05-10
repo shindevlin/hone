@@ -1,6 +1,7 @@
 //! Blob bandwidth metering — in-memory per-CID byte counter, periodically flushed.
 //! P5-F: ~53 LOC
 
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex;

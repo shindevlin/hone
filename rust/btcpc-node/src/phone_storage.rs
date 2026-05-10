@@ -1,6 +1,7 @@
 //! Phone storage proof submission — mobile devices earn storage rewards.
 //! P5-K: ~195 LOC
 
+#![allow(dead_code)]
 use anyhow::Result;
 use sha2::{Sha256, Digest};
 

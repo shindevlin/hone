@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use parking_lot::{Mutex, RwLock};
 use sha2::{Sha256, Digest as Sha256Digest};
 use tracing::{info, warn};
-use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS, RUNTIME_MIN_BOND, RUNTIME_FEE_HOST_BPS, RUNTIME_FEE_RECYCLE_BPS};
+use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS, RUNTIME_FEE_HOST_BPS, RUNTIME_FEE_RECYCLE_BPS};
 
 use crate::inference;
 use crate::store::Store;
@@ -86,7 +86,6 @@ fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyh
                 .map_err(|_| anyhow::anyhow!("sol_sign: signature must be 64 bytes"))?;
             let sig = ed25519_dalek::Signature::from_bytes(&sig_array);
 
-            use ed25519_dalek::Verifier;
             vk.verify_strict(message.as_bytes(), &sig)
                 .map_err(|e| anyhow::anyhow!("sol_sign: verification failed: {}", e))?;
 
@@ -99,7 +98,9 @@ fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyh
             // Hash: SHA256d( "\x18Bitcoin Signed Message:\n" || compactsize(len) || message )
             // Signature: 65 bytes (v || r || s), base64-encoded.
             // v encodes key compression: 27–30 = uncompressed P2PKH, 31–34 = compressed P2PKH.
+            #[allow(unused_imports)]
             use sha2::Digest as Sha2Digest;
+            #[allow(unused_imports)]
             use ripemd::Digest as RipemdDigest;
             use secp256k1::{Message as SecpMsg, ecdsa::RecoverableSignature, ecdsa::RecoveryId};
 
@@ -361,6 +362,7 @@ impl Chain {
     ///
     /// Use this everywhere except in pure emission-math contexts that can't hold a
     /// Chain reference (e.g. the types crate).
+    #[allow(dead_code)]
     pub fn epoch_duration_ms_dynamic(&self, epoch: u64) -> u64 {
         let e = btcpc_types::era(epoch);
         let key = format!("chain_param:era_epoch_ms:{}", e);
@@ -371,6 +373,7 @@ impl Chain {
 
     /// Wall-clock offset in milliseconds from genesis for the start of `epoch`,
     /// using per-era calibrated durations where available.
+    #[allow(dead_code)]
     pub fn epoch_start_ms_dynamic(&self, epoch: u64, genesis_ms: u64) -> u64 {
         if epoch == 0 { return genesis_ms; }
         let e = btcpc_types::era(epoch);
@@ -404,7 +407,6 @@ impl Chain {
     /// Persist a tx-history record for every account touched by a balance-affecting entry.
     /// Key: `txhist:{account}:{epoch:016x}:{type_tag}:{hash[:8]}` — lexicographic order = chronological.
     fn index_tx_history(&self, entry: &LedgerEntry) {
-        use std::collections::BTreeMap;
         let epoch = entry.epoch();
         let entry_hash = entry.hash();
         let key_prefix = &entry_hash[..8.min(entry_hash.len())];
@@ -484,7 +486,6 @@ impl Chain {
             .map(|e| e.hash())
             .collect();
         let tx_root_bytes = {
-            use sha2::{Sha256, Digest};
             let root_hex = merkle_root(&entry_hashes);
             let bytes = hex::decode(&root_hex).unwrap_or_else(|_| vec![0u8; 32]);
             let mut arr = [0u8; 32];
@@ -801,7 +802,7 @@ impl Chain {
                 // At each era boundary, recompute the epoch duration for all
                 // remaining new-supply eras so supply exhaustion tracks Bitcoin's
                 // last-coin timestamp.  No governance required — fires automatically.
-                use btcpc_types::{era, RECYCLE_ERA, DOUBLING_INTERVAL, calibrate_era_epoch_ms, BTC_PROJECTED_END_MS};
+                use btcpc_types::{era, RECYCLE_ERA, calibrate_era_epoch_ms, BTC_PROJECTED_END_MS};
                 let new_era = era(ep);
                 let prev_era = if ep > 0 { era(ep - 1) } else { 0 };
                 if new_era > prev_era && new_era < RECYCLE_ERA {
@@ -1676,7 +1677,7 @@ impl Chain {
             | LedgerEntry::LinkGitStorageExtend { .. } => {}
 
             // ── LinkGit serve rewards ─────────────────────────────────────────
-            LedgerEntry::LinkGitServeHeartbeat { repo_id, owner, requester_hash, epoch } => {
+            LedgerEntry::LinkGitServeHeartbeat { repo_id, owner: _, requester_hash, epoch } => {
                 // Per-epoch dedup: same requester_hash in same epoch = no-op.
                 let dedup_key = format!("linkgit:serve_dedup:{}:{}:{}", epoch, repo_id, requester_hash);
                 if self.store.state_get(&dedup_key).is_some() {
@@ -2942,6 +2943,39 @@ impl Chain {
                 crate::bridge::apply_unlock(self, entry)?;
             }
 
+            // ── TON wallet activation ─────────────────────────────────────────
+            LedgerEntry::TonActivationIntent { btcpc_account, ton_address, source_chain, source_address, epoch, .. } => {
+                self.touch_alive(btcpc_account, *epoch);
+                self.ensure_account(btcpc_account, *epoch)?;
+                let key = format!("ton_activation_intent:{}:{}", btcpc_account, source_address);
+                let val = serde_json::json!({
+                    "ton_address": ton_address,
+                    "source_chain": source_chain,
+                    "source_address": source_address,
+                    "epoch": epoch,
+                    "status": "pending",
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&val).unwrap())?;
+            }
+
+            LedgerEntry::TonWalletActivated { btcpc_account, ton_address, source_address, tx_hash, ton_sent, fee_usdt, usdt_received, epoch, relay, .. } => {
+                // Update the pending intent to completed — key must match the intent's write key
+                // which uses source_address (the chain where USDT was sent from), not ton_address.
+                let key = format!("ton_activation_intent:{}:{}", btcpc_account, source_address);
+                let val = serde_json::json!({
+                    "ton_address": ton_address,
+                    "status": "activated",
+                    "tx_hash": tx_hash,
+                    "ton_sent": ton_sent,
+                    "fee_usdt": fee_usdt,
+                    "usdt_received": usdt_received,
+                    "epoch": epoch,
+                    "relay": relay,
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&val).unwrap())?;
+                info!("TON wallet activated: {} via relay {}", ton_address, relay);
+            }
+
             LedgerEntry::PhoneMineSubmit { account, work_hash, epoch, .. } => {
                 self.touch_alive(account, *epoch);
                 self.ensure_account(account, *epoch)?;
@@ -3083,6 +3117,7 @@ impl Chain {
     }
 
     /// Apply a batch of entries from a block payload.
+    #[allow(dead_code)]
     pub fn apply_block_entries(&self, entries: &[LedgerEntry]) -> usize {
         let mut applied = 0;
         for entry in entries {
@@ -3145,7 +3180,7 @@ impl Chain {
         // We can't do suffix scans, so we scan all role_stake: keys and filter
         self.store.state_scan_prefix("role_stake:")
             .into_iter()
-            .filter_map(|(k, v)| {
+            .filter_map(|(_k, v)| {
                 let js = serde_json::from_slice::<serde_json::Value>(&v).ok()?;
                 let staker = js["staker"].as_str()?;
                 if staker == account { Some(js) } else { None }

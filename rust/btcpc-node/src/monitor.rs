@@ -2,7 +2,9 @@
 //!
 //! Detects epoch stalls, peer drops, and RocksDB errors. Fires webhook alerts
 //! (BTCPC_ALERT_WEBHOOK) and surfaces a rolling alert window via /api/node/health/detailed.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;

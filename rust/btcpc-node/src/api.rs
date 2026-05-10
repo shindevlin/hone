@@ -440,6 +440,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/rag/:account/index", post(post_rag_index))
         .route("/api/rag/:account/query", post(post_rag_query))
         .route("/api/rag/:account/doc/:doc_id", axum::routing::delete(delete_rag_doc))
+        // ── TON wallet activation ─────────────────────────────────────────────
+        .route("/api/ton/activate", post(post_ton_activate))
+        .route("/api/ton/activation/:account", get(get_ton_activation_status))
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state)
@@ -4914,6 +4917,7 @@ async fn get_clock_uptime(
 /// POST /api/clock/register — submit a ClockNodeRegister transaction.
 /// Body: { node_id, stake, epoch, pubkey?, signed_by, signature? }
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ClockRegisterBody {
     node_id: String,
     stake: u64,
@@ -5830,6 +5834,7 @@ async fn get_approved_models(State(s): State<AppState>) -> Json<serde_json::Valu
     Json(serde_json::json!({ "approved_models": models, "open": models.is_empty() }))
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize)]
 struct ApprovedModelsBody {
     models: Vec<String>,
@@ -7164,7 +7169,7 @@ async fn post_phone_mine_submit(
     };
 
     s.chain.push_pending(entry.clone(), None);
-    if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
+    if serde_json::to_vec(&serde_json::json!({"entry": entry})).is_ok() {
         let _ = s.tx_broadcast.send((entry, None));
     }
     let _ = s.chain.store.state_delete(&work_key);
@@ -8753,6 +8758,76 @@ async fn get_vrf_round(
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(serde_json::Value::Null);
     Json(serde_json::json!({ "epoch": epoch, "commits": commits, "reveals": reveals, "beacon": beacon }))
+}
+
+// ── TON wallet activation ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct TonActivateBody {
+    /// The user's BTCPC account name — must exist on-chain and sign this entry.
+    btcpc_account:  String,
+    ton_address:    String,
+    source_chain:   String,  // "tron" | "ethereum"
+    source_address: String,
+    nonce:          u64,
+    #[serde(default)]
+    signature:      Option<String>,
+}
+
+async fn post_ton_activate(
+    State(s): State<AppState>,
+    Json(body): Json<TonActivateBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+
+    let relay_tron = std::env::var("BTCPC_TRON_RELAY_ADDRESS").unwrap_or_default();
+    let relay_eth  = std::env::var("BTCPC_ETH_RELAY_ADDRESS").unwrap_or_default();
+
+    let deposit_to = match body.source_chain.as_str() {
+        "tron"     => relay_tron.clone(),
+        "ethereum" => relay_eth.clone(),
+        _          => String::new(),
+    };
+
+    let entry = btcpc_types::LedgerEntry::TonActivationIntent {
+        btcpc_account:  body.btcpc_account.clone(),
+        ton_address:    body.ton_address.clone(),
+        source_chain:   body.source_chain.clone(),
+        source_address: body.source_address.clone(),
+        usdt_amount:    2_000_000, // 2 USDT
+        epoch,
+        nonce:          body.nonce,
+        signed_by:      body.btcpc_account.clone(),
+    };
+
+    let sig_ref = body.signature.as_deref();
+    let result = apply_and_broadcast(&s, entry, sig_ref);
+
+    // Augment the standard response with deposit instructions.
+    let mut resp = result.0;
+    if resp["accepted"].as_bool().unwrap_or(false) {
+        resp["deposit_to"]   = serde_json::json!(deposit_to);
+        resp["amount_usdt"]  = serde_json::json!(2.0);
+        resp["source_chain"] = serde_json::json!(body.source_chain);
+        resp["ton_address"]  = serde_json::json!(body.ton_address);
+        resp["note"]         = serde_json::json!(
+            "Send exactly 2 USDT to deposit_to from your source_address. \
+             Your TON wallet will be activated within 2 minutes."
+        );
+    }
+    Json(resp)
+}
+
+async fn get_ton_activation_status(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let prefix = format!("ton_activation_intent:{}:", account);
+    let intents = s.chain.store.state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .collect::<Vec<_>>();
+    Json(serde_json::json!({ "account": account, "activations": intents }))
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

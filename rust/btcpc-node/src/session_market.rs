@@ -3,7 +3,9 @@
 //! Sellers list an on-chain session context (rolling conversation summary + metadata).
 //! Buyers purchase it, gaining access to the session key to continue the conversation.
 //! Sessions include a rolling summary that stays within the context window (≤ 6k tokens).
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use tracing::info;

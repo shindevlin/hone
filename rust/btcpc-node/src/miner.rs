@@ -10,7 +10,9 @@
 //! job. If one is found, it runs inference on the job prompt, submits
 //! InferenceJobComplete, then submits Mine { job_id } for full reward. Without a
 //! real job the Mine is unlinked and earns only the grace-period rate (20%).
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::sync::Arc;
 use std::time::Duration;
 use sha2::{Sha256, Digest};

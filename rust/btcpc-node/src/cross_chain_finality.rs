@@ -10,7 +10,9 @@
 //!
 //! An announcement is also inscribed on-chain as a `CrossChainFinalityAnnounce`
 //! entry so the record is globally visible and verifiable.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::path::PathBuf;
 use std::sync::Arc;
 

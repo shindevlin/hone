@@ -1,5 +1,6 @@
 //! On-chain key-value memory store: CF_META `memory:{account}:{key}`.
 
+#![allow(dead_code)]
 use anyhow::Result;
 use crate::chain::Chain;
 

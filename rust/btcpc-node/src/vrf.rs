@@ -8,7 +8,9 @@
 //! Commit window: first half of the epoch (≤ COMMIT_WINDOW_EPOCHS before deadline).
 //! Reveal window: second half (COMMIT_WINDOW_EPOCHS after deadline + reveal window).
 //! Non-revealing committers lose their commit stake deposit.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

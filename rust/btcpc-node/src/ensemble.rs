@@ -3,7 +3,9 @@
 //! Fans out a single job to N workers. Workers submit EnsembleVote entries with their
 //! output hash. After the voting window, the majority-vote winner is paid and the
 //! requester's escrow is released minus fees.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use tracing::info;

@@ -27,14 +27,14 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use bech32::{ToBase32, Variant as Bech32Variant};
 use bip39::{Language, Mnemonic};
-use blake2::{Blake2b512, Digest as Blake2Digest};
+use blake2::Digest as Blake2Digest;
 use ed25519_dalek::SigningKey as Ed25519SigningKey;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use ripemd::Ripemd160;
 use secp256k1::{PublicKey as SecpPubKey, Secp256k1, SecretKey as SecpSecretKey, Scalar};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Sha256, Sha512};
 use sha3::{Keccak256, Sha3_256};
 use tracing::{info, warn};
 use btcpc_types::ChainProof;
@@ -110,6 +110,8 @@ pub struct WalletKeys {
     // TON — ed25519 SLIP-10 m/44'/607'/0'
     pub ton_public_key:  String,
     pub ton_private_key: String,
+    #[serde(default)]
+    pub ton_address:     String,  // wallet_v4r2 EQ... address derived from public key
 
     // Stellar/XLM — ed25519 SLIP-10 m/44'/148'/0'/0'
     pub stellar_address:     String,
@@ -132,6 +134,53 @@ pub struct WalletKeys {
     /// Keep wallet.key backed up — you need these nonces for selective disclosure.
     #[serde(default)]
     pub chain_nonces: std::collections::HashMap<String, String>,
+}
+
+// ── TON address derivation ────────────────────────────────────────────────────
+
+/// Derives the wallet_v4r2 EQ... address for a TON public key via tonapi.io.
+/// Falls back to empty string on network error (address can be re-derived later).
+pub async fn derive_ton_address(pubkey_hex: &str) -> String {
+    let url = format!("https://tonapi.io/v2/pubkeys/{}/wallets", pubkey_hex);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+    let Ok(resp) = client.get(&url).send().await else { return String::new() };
+    let Ok(json) = resp.json::<serde_json::Value>().await else { return String::new() };
+    // tonapi returns {"wallets": [{"address": "...", "interfaces": ["wallet_v4r2"], ...}]}
+    json["wallets"]
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find(|w| {
+                w["interfaces"].as_array()
+                    .map(|ifaces| ifaces.iter().any(|i| i.as_str().unwrap_or("").contains("v4r2")))
+                    .unwrap_or(false)
+            })
+        })
+        .and_then(|w| w["address"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Backfill ton_address if missing. Saves the updated keys file in-place.
+/// Called once per startup in the async context; no-op if already set.
+pub async fn ensure_ton_address(data_dir: &Path, keys: &mut WalletKeys) {
+    if !keys.ton_address.is_empty() {
+        return;
+    }
+    let addr = derive_ton_address(&keys.ton_public_key).await;
+    if addr.is_empty() {
+        warn!("wallet: could not derive TON address from tonapi.io (offline?) — will retry next startup");
+        return;
+    }
+    keys.ton_address = addr;
+    let key_path = data_dir.join("wallet.key");
+    if let Err(e) = save(&key_path, keys) {
+        warn!("wallet: could not save ton_address backfill: {}", e);
+    } else {
+        info!("wallet: ton_address backfilled → {}", keys.ton_address);
+    }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -300,6 +349,7 @@ fn format_txt_backup(account: &str, k: &WalletKeys) -> String {
   TON
     pubkey   {}
     private  {}
+    address  {}
 
   STELLAR / XLM
     address  {}
@@ -327,7 +377,7 @@ fn format_txt_backup(account: &str, k: &WalletKeys) -> String {
         k.cosmos_address,     k.cosmos_private_key,
         k.xrp_address,        k.xrp_private_key,
         k.tron_address,       k.tron_private_key,
-        k.ton_public_key,     k.ton_private_key,
+        k.ton_public_key,     k.ton_private_key,    k.ton_address,
         k.stellar_address,    k.stellar_private_key,
     )
 }
@@ -530,6 +580,7 @@ fn derive_all(mnemonic: Mnemonic) -> Result<WalletKeys> {
 
         ton_public_key:  ton_pub_s.clone(),
         ton_private_key: hex::encode(&ton_priv),
+        ton_address:     String::new(), // backfilled async via ensure_ton_address()
 
         stellar_address:     xlm_addr_s.clone(),
         stellar_private_key: hex::encode(&xlm_priv),
@@ -794,6 +845,7 @@ fn print_new_wallet(k: &WalletKeys) {
 ║  TON  (SLIP-10 m/44'/607'/0')                                                   ║\n\
 ║    Public key  : {:<64}║\n\
 ║    Private key : {:<64}║\n\
+║    Address     : {:<64}║\n\
 ╠══════════════════════════════════════════════════════════════════════════════════╣\n\
 ║  STELLAR/XLM  (SLIP-10 m/44'/148'/0'/0')                                        ║\n\
 ║    Address     : {:<64}║\n\
@@ -827,7 +879,7 @@ fn print_new_wallet(k: &WalletKeys) {
         k.cosmos_address,     k.cosmos_private_key,
         k.tron_address,       k.tron_private_key,
         k.solana_address,     k.solana_private_key,
-        k.ton_public_key,     k.ton_private_key,
+        k.ton_public_key,     k.ton_private_key,    k.ton_address,
         k.stellar_address,    k.stellar_private_key,
         k.near_address,       k.near_private_key,
         k.sui_address,        k.sui_private_key,

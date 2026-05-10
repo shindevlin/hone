@@ -1,6 +1,7 @@
 //! Peer commerce — CF_META scan for P2P storefront discovery.
 //! P5-G: ~120 LOC
 
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::chain::Chain;

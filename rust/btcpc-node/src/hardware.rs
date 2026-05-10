@@ -3,6 +3,7 @@
 
 use sha2::{Digest, Sha256};
 
+#[allow(dead_code)]
 pub struct HardwareInfo {
     /// e.g. "nvidia:ABC123" or "amd:XYZ456"
     pub gpu_serial: Option<String>,

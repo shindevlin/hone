@@ -1,6 +1,7 @@
 //! RAG service — Ollama-based embedding, cosine ranking, 6k context injection.
 //! P5-A: ~550 LOC
 
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};

@@ -70,6 +70,7 @@ mod ensemble;
 mod slashing;
 mod bridge;
 mod oracle;
+mod ton_relay;
 mod session_market;
 mod agent_session;
 mod vrf;
@@ -119,7 +120,7 @@ use store::Store;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut cfg = Config::from_env();
+    let cfg = Config::from_env();
 
     // Prevent multiple instances on the same machine.
     // Port pre-check works everywhere including WSL↔Windows cross-instance conflicts,
@@ -170,7 +171,9 @@ async fn main() -> Result<()> {
     info!("btcpc-node starting — account={} chain={} data={:?}", cfg.account, cfg.chain_id, cfg.data_dir);
 
     // Wallet: restore / load / generate all chain keys (BTCPC, Bitcoin, Ethereum).
-    let wallet_keys = wallet::init(&cfg.data_dir)?;
+    let mut wallet_keys = wallet::init(&cfg.data_dir)?;
+    // Backfill ton_address if missing (async call to tonapi.io).
+    wallet::ensure_ton_address(&cfg.data_dir, &mut wallet_keys).await;
     // Keep ~/.btcpc/{account}.wallet.key in sync so TUI/CLI can find keys without knowing data_dir.
     wallet::backup_to_home(&cfg.account, &wallet_keys);
 
@@ -699,6 +702,18 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── TON wallet activation relay ───────────────────────────────────────────
+    {
+        let ton_cfg = crate::ton_relay::TonRelayConfig::from_env(&wallet_keys);
+        if ton_cfg.enabled {
+            let chain_c  = chain.clone();
+            let cmd_tx_c = net_handle.cmd_tx.clone();
+            tokio::spawn(async move {
+                crate::ton_relay::run_ton_relay(chain_c, ton_cfg, cmd_tx_c).await;
+            });
+        }
+    }
+
     // ── Broadcast channel (entries → net gossip) ──────────────────────────────
     let (tx_broadcast, _) = tokio::sync::broadcast::channel::<api::GossipEntry>(256);
 
@@ -1013,7 +1028,6 @@ async fn run_inference_verifier(
     cmd_tx:  tokio::sync::mpsc::Sender<NetCmd>,
 ) {
     use std::time::Duration;
-    use sha2::{Digest, Sha256};
 
     let ollama_url = std::env::var("OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_owned());
@@ -1217,10 +1231,10 @@ async fn emit_epoch_rewards(
     let activity_pool  = raw_pool.saturating_sub(reserve_total);
 
     if recycle_split > 0 {
-        chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_split);
     }
     if testnet_top_up > 0 {
-        chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
+        let _ = chain.store.credit(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN, testnet_top_up);
     }
     if treasury_split > 0 {
         let _ = chain.store.credit(TREASURY_ACCOUNT, NATIVE_TOKEN, treasury_split);
@@ -1661,7 +1675,7 @@ async fn emit_epoch_rewards(
     // critical_mass = 0 means EMA hasn't warmed up yet; treat as no gate (full payout).
     let payout_factor = |count: usize, critical_mass: u64| -> u64 {
         if critical_mass == 0 { return ACTIVITY_RATIO_DENOM; }
-        ((count as u64).min(critical_mass) * ACTIVITY_RATIO_DENOM / critical_mass)
+        (count as u64).min(critical_mass) * ACTIVITY_RATIO_DENOM / critical_mass
     };
     let apply_scarcity = |pool: u64, factor: u64| -> (u64, u64) {
         let effective = (pool as u128 * factor as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
@@ -1958,14 +1972,14 @@ async fn sweep_tracker_subscription_fees(
             }
         } else {
             // No observers pushed data — treat observer cut as recycle too.
-            chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, observer_cut);
+            let _ = chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, observer_cut);
         }
 
         if treasury_cut > 0 {
-            chain.store.credit("treasury", btcpc_types::NATIVE_TOKEN, treasury_cut);
+            let _ = chain.store.credit("treasury", btcpc_types::NATIVE_TOKEN, treasury_cut);
         }
         if recycle_cut > 0 {
-            chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, recycle_cut);
+            let _ = chain.store.credit(btcpc_types::RECYCLE_FUND_ACCOUNT, btcpc_types::NATIVE_TOKEN, recycle_cut);
         }
 
         // Update escrow paid_out.

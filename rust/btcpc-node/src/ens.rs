@@ -9,7 +9,9 @@
 //!
 //! Set `BTCPC_ETH_RPC` to point at a custom Ethereum JSON-RPC endpoint.
 //! Default: https://cloudflare-eth.com  (no API key required).
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use anyhow::Result;
 use sha3::{Keccak256, Digest};
 use serde_json::json;

@@ -16,7 +16,9 @@
 //!   "infer_bid:{job_id}:{bidder}" → BidState JSON
 //!   "node_rep:{node_id}"          → NodeReputation JSON
 //!   "infer_votes:{job_id}"        → Vec<ReviewVote> JSON
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -31,7 +33,7 @@ use btcpc_types::{
     INFERENCE_PRUNE_WINDOW_EPOCHS,
     VERIFIER_ASSIGNMENT_ENABLED, VERIFIER_THRESHOLD_BYTE,
     VERIFIER_APPROVAL_WINDOW_EPOCHS, VERIFIER_RUBBER_STAMP_BPS, VERIFIER_SUSPEND_BPS, VERIFIER_SUSPEND_EPOCHS,
-    VERIFIER_ACTIVE_THRESH_3, VERIFIER_ACTIVE_THRESH_5, VERIFIER_ACTIVITY_TRACK_EPOCHS,
+    VERIFIER_ACTIVE_THRESH_3, VERIFIER_ACTIVE_THRESH_5,
     VERIFIER_VOTE_WEIGHT_NORMAL, VERIFIER_VOTE_WEIGHT_REVIEW,
     INFERENCE_COMMIT_REVEAL_ENABLED,
 };
@@ -482,7 +484,6 @@ pub fn apply_complete(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
 /// Commit phase of commit-reveal (T4-2). Verifier commits sha256(verdict|salt)
 /// before the reveal window opens. Prevents verdict copying among board members.
 pub fn apply_commit(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
-    use sha2::{Sha256, Digest};
     let LedgerEntry::InferenceJobCommit { job_id, verifier, commit_hash, epoch, .. } = entry
         else { bail!("wrong entry type") };
 

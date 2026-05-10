@@ -2,7 +2,9 @@
 //!
 //! TOTP = HOTP(K, floor(unix_time / 30)), 6-digit, HMAC-SHA1.
 //! Uses existing hmac + sha1 crates — no new dependency needed.
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 

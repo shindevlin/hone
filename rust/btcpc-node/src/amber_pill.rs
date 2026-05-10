@@ -1,6 +1,7 @@
 //! AmberPill soulbound NFT — minted once per hardware fingerprint.
 //! Holders receive a 1.5× entry weight multiplier.
 
+#![allow(dead_code)]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use crate::chain::Chain;

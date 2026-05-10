@@ -10,7 +10,9 @@
 //!   - Nodes earn a 25% bonus for processing open-science jobs
 //!   - Results > 50 KB are stored in BTCPC-FS; the on-chain entry holds the CID
 //!   - Latency map tracks inter-peer round-trips to optimize shard routing
+#![allow(dead_code)]
 
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
