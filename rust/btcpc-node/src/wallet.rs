@@ -847,3 +847,4 @@ fn save(path: &Path, keys: &WalletKeys) -> Result<()> {
     }
     Ok(())
 }
+
