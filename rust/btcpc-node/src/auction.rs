@@ -196,3 +196,137 @@ pub fn apply_cancel(
     chain.store.state_set(&auction_key(auction_id), &serde_json::to_vec(&state)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    #[test]
+    fn name_auction_open_stores_auction() {
+        let (chain, _dir) = make_chain();
+        apply_name_open(&chain, "auc1", "hello", "alice", 0, 10, 1).unwrap();
+
+        let raw = chain.store.state_get(&auction_key("auc1")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(state.auction_id, "auc1");
+        assert!(!state.settled);
+        assert!(!state.cancelled);
+        assert_eq!(state.top_bidder, None);
+    }
+
+    #[test]
+    fn name_auction_bid_updates_high_bid() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "bidder", 5_000_000_000_000);
+
+        apply_name_open(&chain, "auc2", "helloworld", "alice", 0, 10, 1).unwrap();
+        apply_bid(&chain, "auc2", "bidder", 1_000, 2).unwrap();
+
+        let raw = chain.store.state_get(&auction_key("auc2")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(state.top_bidder, Some("bidder".to_string()));
+        assert_eq!(state.top_bid, 1_000);
+    }
+
+    #[test]
+    fn name_auction_bid_below_min_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "bidder", 5_000_000_000_000);
+
+        // "helloworld" (10+ chars) has name_min_bid=0, but we set min_bid=5_000
+        apply_name_open(&chain, "auc3", "helloworld", "alice", 5_000, 10, 1).unwrap();
+        // Bid 1_000 < min_bid 5_000 — should fail
+        let res = apply_bid(&chain, "auc3", "bidder", 1_000, 2);
+        assert!(res.is_err(), "bid below min_bid should fail");
+    }
+
+    #[test]
+    fn name_auction_settle_awards_winner() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "bidder", 50_000_000);
+        fund(&chain, "opener", 0);
+
+        apply_name_open(&chain, "auc4", "helloworld", "opener", 0, 5, 1).unwrap();
+        apply_bid(&chain, "auc4", "bidder", 10_000_000, 2).unwrap();
+        apply_settle(&chain, "auc4", 6).unwrap();
+
+        let raw = chain.store.state_get(&auction_key("auc4")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert!(state.settled);
+
+        // Winner should own the name
+        let owner = chain.store.state_get("name_owner:helloworld").unwrap();
+        assert_eq!(owner, b"bidder");
+    }
+
+    #[test]
+    fn name_auction_cancel_closes_auction() {
+        let (chain, _dir) = make_chain();
+        apply_name_open(&chain, "auc5", "helloworld", "opener", 0, 10, 1).unwrap();
+        apply_cancel(&chain, "auc5", "opener").unwrap();
+
+        let raw = chain.store.state_get(&auction_key("auc5")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert!(state.cancelled);
+    }
+
+    #[test]
+    fn freeport_open_stores_auction() {
+        let (chain, _dir) = make_chain();
+        apply_freeport_open(&chain, "fp1", "nft", "item42", "seller", 0, 10, 1).unwrap();
+
+        let raw = chain.store.state_get(&auction_key("fp1")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(state.auction_id, "fp1");
+        assert!(!state.settled);
+        assert!(!state.cancelled);
+        match &state.kind {
+            AuctionKind::Freeport { item_type, item_id } => {
+                assert_eq!(item_type, "nft");
+                assert_eq!(item_id, "item42");
+            }
+            _ => panic!("wrong auction kind"),
+        }
+    }
+
+    #[test]
+    fn freeport_bid_updates_high_bid() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "buyer", 5_000_000_000_000);
+
+        apply_freeport_open(&chain, "fp2", "nft", "item43", "seller", 0, 10, 1).unwrap();
+        apply_bid(&chain, "fp2", "buyer", 2_000_000, 2).unwrap();
+
+        let raw = chain.store.state_get(&auction_key("fp2")).unwrap();
+        let state: AuctionState = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(state.top_bidder, Some("buyer".to_string()));
+        assert_eq!(state.top_bid, 2_000_000);
+    }
+}

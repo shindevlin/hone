@@ -297,6 +297,12 @@ impl Store {
         out
     }
 
+    /// Return all keys in CF_META that start with `prefix`.
+    pub fn state_keys_with_prefix(&self, prefix: &str) -> Option<Vec<String>> {
+        let pairs = self.state_scan_prefix(prefix);
+        Some(pairs.into_iter().map(|(k, _)| k).collect())
+    }
+
         pub fn batch_write<F>(&self, f: F) -> Result<()>
     where F: FnOnce(&mut WriteBatch, &DB) -> Result<()>
     {

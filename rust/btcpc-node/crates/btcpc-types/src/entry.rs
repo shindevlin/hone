@@ -1776,6 +1776,35 @@ pub enum LedgerEntry {
         signature: Option<String>,
     },
 
+    // ── TON wallet activation relay ───────────────────────────────────────────
+
+    /// User requests TON wallet activation by paying USDT on another chain.
+    TonActivationIntent {
+        btcpc_account:  String,
+        ton_address:    String,   // EQ... address to activate
+        source_chain:   String,   // "tron" | "ethereum" | "solana"
+        source_address: String,   // user's address on source chain (must be VerifyChainLinked)
+        usdt_amount:    u64,      // amount in micro-USDT (6 decimals)
+        epoch:          u64,
+        nonce:          u64,
+        signed_by:      String,
+    },
+
+    /// Emitted by the relay node when a TON wallet has been activated.
+    /// System-only entry — not submittable by users.
+    TonWalletActivated {
+        btcpc_account:  String,
+        ton_address:    String,
+        source_chain:   String,
+        source_address: String,
+        usdt_received:  u64,    // micro-USDT actually received
+        ton_sent:       u64,    // nanoTON sent (e.g. 100_000_000 = 0.1 TON)
+        fee_usdt:       u64,    // relay fee in micro-USDT
+        tx_hash:        String, // TON tx hash
+        epoch:          u64,
+        relay:          String, // relay node account
+    },
+
     // ── wBTCPC bridge ────────────────────────────────────────────────────────
 
     /// Custodian deposits funds into the bridge, minting wBTCPC up to the 4.2M cap.
@@ -2500,6 +2529,8 @@ impl LedgerEntry {
             Self::TaskSubmit { epoch, .. } => *epoch,
             Self::TaskApprove { epoch, .. } => *epoch,
             Self::RuntimeReward { epoch, .. } => *epoch,
+            Self::TonActivationIntent { epoch, .. } => *epoch,
+            Self::TonWalletActivated { epoch, .. } => *epoch,
         }
     }
 
@@ -2722,10 +2753,14 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::FreeportAuctionSettle { .. }
         | LedgerEntry::PrivateAuthApprove { .. } => ENTRY_WEIGHT_STANDARD,
 
+        // ── TON activation ────────────────────────────────────────────────────
+        LedgerEntry::TonActivationIntent { .. } => ENTRY_WEIGHT_STANDARD,
+
         // ── System (0) — free ────────────────────────────────────────────────
         LedgerEntry::RuntimeReward { .. }
         | LedgerEntry::GovernanceFinalize { .. }
         | LedgerEntry::CrossChainFinalityAnnounce { .. }
-        | LedgerEntry::GatewayRewardSplit { .. } => ENTRY_WEIGHT_SYSTEM,
+        | LedgerEntry::GatewayRewardSplit { .. }
+        | LedgerEntry::TonWalletActivated { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }

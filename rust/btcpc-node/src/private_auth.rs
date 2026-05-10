@@ -102,6 +102,105 @@ pub fn apply_approve(
     Ok(threshold_met)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    #[test]
+    fn enroll_stores_member() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+
+        apply_enroll(&chain, "group1", "alice", "pubkey_alice", 3, 2).unwrap();
+
+        let raw = chain.store.state_get(&group_key("group1")).unwrap();
+        let group: AuthGroup = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(group.group_id, "group1");
+        assert_eq!(group.members.len(), 1);
+        assert_eq!(group.members[0].account, "alice");
+        assert_eq!(group.threshold_m, 2);
+        assert_eq!(group.threshold_n, 3);
+    }
+
+    #[test]
+    fn approve_records_vote() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        fund(&chain, "bob", 0);
+
+        apply_enroll(&chain, "group2", "alice", "pk_alice", 3, 2).unwrap();
+        apply_enroll(&chain, "group2", "bob", "pk_bob", 3, 2).unwrap();
+
+        apply_approve(&chain, "group2", "tx_hash_1", "alice").unwrap();
+
+        let status = approval_status(&chain, "tx_hash_1");
+        let approvals = status["approvals"].as_array().unwrap();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0].as_str().unwrap(), "alice");
+        assert_eq!(status["finalized"].as_bool().unwrap(), false);
+    }
+
+    #[test]
+    fn approve_reaches_threshold() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        fund(&chain, "bob", 0);
+        fund(&chain, "carol", 0);
+
+        // 3 members, threshold_m = 2
+        apply_enroll(&chain, "group3", "alice", "pk_a", 3, 2).unwrap();
+        apply_enroll(&chain, "group3", "bob", "pk_b", 3, 2).unwrap();
+        apply_enroll(&chain, "group3", "carol", "pk_c", 3, 2).unwrap();
+
+        apply_approve(&chain, "group3", "tx_hash_2", "alice").unwrap();
+        // First approval: not yet finalized
+        let s = approval_status(&chain, "tx_hash_2");
+        assert_eq!(s["finalized"].as_bool().unwrap(), false);
+
+        let reached = apply_approve(&chain, "group3", "tx_hash_2", "bob").unwrap();
+        // Second approval: threshold_m=2 reached
+        assert!(reached, "threshold should be reached with 2 approvals");
+
+        let s = approval_status(&chain, "tx_hash_2");
+        assert_eq!(s["finalized"].as_bool().unwrap(), true);
+    }
+
+    #[test]
+    fn approve_unknown_group_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        let res = apply_approve(&chain, "nonexistent_group", "tx_hash_3", "alice");
+        assert!(res.is_err(), "approving on non-existent group should fail");
+    }
+}
+
 pub fn approval_status(chain: &Chain, tx_hash: &str) -> serde_json::Value {
     let record: Option<ApprovalRecord> = chain.store.state_get(&approval_key(tx_hash))
         .and_then(|b| serde_json::from_slice(&b).ok());

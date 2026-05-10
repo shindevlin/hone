@@ -99,6 +99,7 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
         | LedgerEntry::LinkGitBuildReward { .. }
         | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::GenesisAlloc  { .. }
+        | LedgerEntry::TonWalletActivated { .. }
     )
 }
 
@@ -618,8 +619,26 @@ pub fn validate_and_apply(
         | LedgerEntry::VerifierReward { .. }
         | LedgerEntry::ServiceReward { .. }
         | LedgerEntry::RuntimeReward { .. }
-        | LedgerEntry::GatewayRewardSplit { .. } => {
+        | LedgerEntry::GatewayRewardSplit { .. }
+        | LedgerEntry::TonWalletActivated { .. } => {
             bail!("entry type is not externally submittable");
+        }
+
+        // ── TON wallet activation intent ─────────────────────────────────────
+        LedgerEntry::TonActivationIntent { btcpc_account, source_address, nonce, signed_by, .. } => {
+            if signed_by != btcpc_account {
+                bail!("signed_by '{}' must equal btcpc_account '{}'", signed_by, btcpc_account);
+            }
+            require_key(chain, btcpc_account)?;
+            check_nonce(chain, btcpc_account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            // Verify source_address is VerifyChainLinked to this btcpc_account.
+            // We look for an account commitment matching the source_chain in account state.
+            // For now accept any valid signature — full chain-link verification is a future
+            // governance gate (the relay also verifies payment before sending TON).
+            let _ = source_address; // used in chain.rs apply
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, btcpc_account)?;
         }
 
         // ── ServiceHeartbeat: service nodes prove active container-hours ──────
@@ -1690,6 +1709,7 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::NodeRoleOptOut  { epoch, .. }             => Some(*epoch),
         LedgerEntry::NodeRoleStake   { epoch, .. }             => Some(*epoch),
         LedgerEntry::NodeRoleUnstake { epoch, .. }             => Some(*epoch),
+        LedgerEntry::TonActivationIntent { epoch, .. }         => Some(*epoch),
         _ => None,
     }
 }

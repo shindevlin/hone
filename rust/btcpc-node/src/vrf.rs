@@ -162,6 +162,198 @@ pub fn sweep_epoch(chain: &Chain, epoch: u64) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    /// Register `account` as a clock node by writing the clock_node key directly.
+    fn register_clock(chain: &Chain, account: &str) {
+        chain.store.state_set(
+            &format!("clock_node:{}", account),
+            b"registered",
+        ).unwrap();
+    }
+
+    /// Compute commit_hash = sha256(secret_bytes || epoch_be8)
+    fn vrf_commit_hash(secret_hex: &str, epoch: u64) -> String {
+        let secret_bytes = hex::decode(secret_hex).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&secret_bytes);
+        hasher.update(epoch.to_be_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    #[test]
+    fn commit_stores_commitment() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", COMMIT_DEPOSIT_DREAMS * 10);
+        register_clock(&chain, "alice");
+
+        let secret_hex = hex::encode([0xab; 32]);
+        let epoch: u64 = 5;
+        let commit_hash = vrf_commit_hash(&secret_hex, epoch);
+
+        let entry = LedgerEntry::VrfCommit {
+            committer: "alice".to_string(),
+            commit_hash: commit_hash.clone(),
+            epoch,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_commit(&chain, &entry).unwrap();
+
+        let raw = chain.store.state_get(&round_key(epoch)).unwrap();
+        let round: VrfRound = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(round.commits.len(), 1);
+        assert_eq!(round.commits[0].commit_hash, commit_hash);
+        assert_eq!(round.commits[0].committer, "alice");
+    }
+
+    #[test]
+    fn reveal_with_correct_preimage_succeeds() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", COMMIT_DEPOSIT_DREAMS * 10);
+        register_clock(&chain, "alice");
+
+        let secret_hex = hex::encode([0xcd; 32]);
+        let epoch: u64 = 7;
+        let commit_hash = vrf_commit_hash(&secret_hex, epoch);
+
+        apply_commit(&chain, &LedgerEntry::VrfCommit {
+            committer: "alice".to_string(),
+            commit_hash,
+            epoch,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        }).unwrap();
+
+        let result = apply_reveal(&chain, &LedgerEntry::VrfReveal {
+            committer: "alice".to_string(),
+            secret_hex: secret_hex.clone(),
+            epoch,
+            nonce: 2,
+            signed_by: "alice".to_string(),
+            signature: None,
+        });
+        assert!(result.is_ok(), "correct reveal should succeed: {:?}", result);
+
+        let raw = chain.store.state_get(&round_key(epoch)).unwrap();
+        let round: VrfRound = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(round.commits[0].revealed_secret, Some(secret_hex));
+    }
+
+    #[test]
+    fn reveal_with_wrong_preimage_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", COMMIT_DEPOSIT_DREAMS * 10);
+        register_clock(&chain, "alice");
+
+        let epoch: u64 = 8;
+        let correct_secret = hex::encode([0xef; 32]);
+        let wrong_secret = hex::encode([0x00; 32]);
+        let commit_hash = vrf_commit_hash(&correct_secret, epoch);
+
+        apply_commit(&chain, &LedgerEntry::VrfCommit {
+            committer: "alice".to_string(),
+            commit_hash,
+            epoch,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        }).unwrap();
+
+        let result = apply_reveal(&chain, &LedgerEntry::VrfReveal {
+            committer: "alice".to_string(),
+            secret_hex: wrong_secret,
+            epoch,
+            nonce: 2,
+            signed_by: "alice".to_string(),
+            signature: None,
+        });
+        assert!(result.is_err(), "wrong preimage should fail");
+    }
+
+    #[test]
+    fn double_commit_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", COMMIT_DEPOSIT_DREAMS * 10);
+        register_clock(&chain, "alice");
+
+        let epoch: u64 = 9;
+        let secret_hex = hex::encode([0x11; 32]);
+        let commit_hash = vrf_commit_hash(&secret_hex, epoch);
+
+        let entry = LedgerEntry::VrfCommit {
+            committer: "alice".to_string(),
+            commit_hash: commit_hash.clone(),
+            epoch,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_commit(&chain, &entry).unwrap();
+
+        // Second commit from same committer same epoch
+        let entry2 = LedgerEntry::VrfCommit {
+            committer: "alice".to_string(),
+            commit_hash,
+            epoch,
+            nonce: 2,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        assert!(apply_commit(&chain, &entry2).is_err(), "double commit should fail");
+    }
+
+    #[test]
+    fn reveal_before_commit_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", COMMIT_DEPOSIT_DREAMS * 10);
+        register_clock(&chain, "alice");
+
+        let epoch: u64 = 10;
+        // No commit for this epoch at all
+        let result = apply_reveal(&chain, &LedgerEntry::VrfReveal {
+            committer: "alice".to_string(),
+            secret_hex: hex::encode([0x22; 32]),
+            epoch,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        });
+        assert!(result.is_err(), "reveal without prior commit should fail");
+    }
+}
+
 /// Derive a deterministic value from the latest beacon (for validator selection etc.).
 pub fn derive_from_beacon(chain: &Chain, domain: &str) -> Option<[u8; 32]> {
     let raw = chain.store.state_get("vrf:latest_beacon")?;

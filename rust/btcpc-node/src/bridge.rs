@@ -182,6 +182,135 @@ pub fn apply_unlock(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    fn fund_entry(bridge_id: &str, custodian: &str, amount: u64, ext_tx: &str) -> LedgerEntry {
+        LedgerEntry::BridgeFund {
+            bridge_id: bridge_id.to_string(),
+            custodian: custodian.to_string(),
+            amount_dreams: amount,
+            external_tx_hash: ext_tx.to_string(),
+            chain: "ethereum".to_string(),
+            epoch: 1,
+            nonce: 1,
+            signed_by: custodian.to_string(),
+            signature: None,
+        }
+    }
+
+    #[test]
+    fn fund_stores_custody_record() {
+        let (chain, _dir) = make_chain();
+
+        apply_fund(&chain, &fund_entry("bridge1", "custodian1", 1_000_000, "0xabc123")).unwrap();
+
+        // wBTCPC should be credited to custodian
+        let balance = chain.get_balance("custodian1", WBTCPC_TOKEN);
+        assert_eq!(balance, 1_000_000, "custodian should receive wBTCPC");
+
+        // Fund record should be stored
+        let rec = chain.store.state_get(&format!("bridge_fund:1:0xabc123")).unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&rec).unwrap();
+        assert_eq!(j["amount_dreams"], 1_000_000);
+    }
+
+    #[test]
+    fn wrap_mints_bridged_token() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "user", 10_000_000);
+
+        let wrap = LedgerEntry::BridgeWrap {
+            account: "user".to_string(),
+            amount_dreams: 5_000_000,
+            external_address: "0xdeadbeef".to_string(),
+            chain: "ethereum".to_string(),
+            epoch: 1,
+            nonce: 1,
+            signed_by: "user".to_string(),
+            signature: None,
+        };
+        apply_wrap(&chain, &wrap).unwrap();
+
+        // BTCPC burned, wBTCPC credited
+        assert_eq!(chain.get_balance("user", NATIVE_TOKEN), 5_000_000);
+        assert_eq!(chain.get_balance("user", WBTCPC_TOKEN), 5_000_000);
+    }
+
+    #[test]
+    fn fund_unknown_custodian_succeeds() {
+        // apply_fund does NOT validate custodian existence; it simply credits wBTCPC
+        let (chain, _dir) = make_chain();
+        let result = apply_fund(&chain, &fund_entry("bridge2", "unknown_custodian", 500_000, "0xfeed01"));
+        assert!(result.is_ok(), "fund should succeed for unknown custodian");
+        assert_eq!(chain.get_balance("unknown_custodian", WBTCPC_TOKEN), 500_000);
+    }
+
+    #[test]
+    fn bridge_status_reflects_state() {
+        let (chain, _dir) = make_chain();
+
+        // Initial state: zero supply, no pending
+        let s = status(&chain);
+        assert_eq!(s["wbtcpc_supply_dreams"], 0);
+        assert_eq!(s["pending_unlock_count"], 0);
+
+        // Fund some wBTCPC
+        apply_fund(&chain, &fund_entry("bridge3", "custodian3", 2_000_000, "0xdeadcafe")).unwrap();
+
+        // Unwrap to queue a pending unlock
+        fund(&chain, "holder", 0);
+        // Give holder wBTCPC by funding then wrapping (or just fund directly then unwrap)
+        chain.store.credit("holder", WBTCPC_TOKEN, 2_000_000).unwrap();
+        // Adjust supply to reflect this
+        chain.store.state_set(BRIDGE_SUPPLY_KEY, &serde_json::to_vec(&4_000_000u64).unwrap()).unwrap();
+
+        let unwrap = LedgerEntry::BridgeUnwrap {
+            account: "holder".to_string(),
+            amount_dreams: 1_000_000,
+            recipient_external: "0xrecipient".to_string(),
+            chain: "ethereum".to_string(),
+            epoch: 2,
+            nonce: 1,
+            signed_by: "holder".to_string(),
+            signature: None,
+        };
+        apply_unwrap(&chain, &unwrap).unwrap();
+
+        let s = status(&chain);
+        assert_eq!(s["pending_unlock_count"], 1);
+        assert!(s["wbtcpc_supply_dreams"].as_u64().unwrap() > 0);
+    }
+}
+
 /// Get current wBTCPC supply and pending unlock queue.
 pub fn status(chain: &Chain) -> serde_json::Value {
     let supply_dreams = supply()(chain);

@@ -151,3 +151,125 @@ pub fn apply_appeal(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     chain.store.state_set(&slash_key(slash_id), &serde_json::to_vec(&record)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    /// Give `reporter` a clock_stake record (JSON u64 > 0) so apply_slash accepts it.
+    fn set_clock_stake(chain: &Chain, reporter: &str, amount: u64) {
+        chain.store.state_set(
+            &format!("clock_stake:{}", reporter),
+            &serde_json::to_vec(&amount).unwrap(),
+        ).unwrap();
+    }
+
+    /// Set `account`'s stake in the CF_STAKES column so get_stake returns it.
+    fn set_stake(chain: &Chain, account: &str, amount: u64) {
+        chain.store.set_stake(account, amount).unwrap();
+    }
+
+    fn slash_entry(slash_id: &str, reporter: &str, accused: &str, epoch: u64) -> LedgerEntry {
+        LedgerEntry::SlashValidator {
+            slash_id: slash_id.to_string(),
+            reporter: reporter.to_string(),
+            accused: accused.to_string(),
+            violation: "double_sign".to_string(),
+            evidence: "evidence_hash_00".to_string(),
+            epoch,
+            nonce: 1,
+            signed_by: reporter.to_string(),
+            signature: None,
+        }
+    }
+
+    #[test]
+    fn slash_reduces_stake() {
+        let (chain, _dir) = make_chain();
+        // Fund accused's NATIVE_TOKEN balance (slash debits from balance, not CF_STAKES)
+        fund(&chain, "accused", MIN_SLASH_STAKE * 10);
+        // Set accused's CF_STAKES so get_stake() returns > MIN_SLASH_STAKE
+        set_stake(&chain, "accused", MIN_SLASH_STAKE * 2);
+        set_clock_stake(&chain, "reporter", 1_000_000);
+
+        let balance_before = chain.get_balance("accused", btcpc_types::NATIVE_TOKEN);
+        apply_slash(&chain, &slash_entry("slash1", "reporter", "accused", 5)).unwrap();
+        let balance_after = chain.get_balance("accused", btcpc_types::NATIVE_TOKEN);
+
+        // apply_slash debits accused's NATIVE_TOKEN balance by accused_stake / 10
+        assert!(balance_after < balance_before,
+            "accused BTCPC balance should be reduced after slash: before={} after={}",
+            balance_before, balance_after);
+    }
+
+    #[test]
+    fn slash_unknown_account_fails() {
+        let (chain, _dir) = make_chain();
+        set_clock_stake(&chain, "reporter", 1_000_000);
+        // "unknown_accused" has no stake at all — get_stake returns 0 < MIN_SLASH_STAKE
+        let res = apply_slash(&chain, &slash_entry("slash2", "reporter", "unknown_accused", 5));
+        assert!(res.is_err(), "slashing account with no stake should fail");
+    }
+
+    #[test]
+    fn slash_stores_slash_record() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "accused", MIN_SLASH_STAKE * 10);
+        set_stake(&chain, "accused", MIN_SLASH_STAKE * 2);
+        set_clock_stake(&chain, "reporter", 1_000_000);
+
+        apply_slash(&chain, &slash_entry("slash3", "reporter", "accused", 5)).unwrap();
+
+        let raw = chain.store.state_get(&slash_key("slash3")).unwrap();
+        let record: SlashRecord = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(record.slash_id, "slash3");
+        assert_eq!(record.accused, "accused");
+        assert_eq!(record.status, SlashStatus::Active);
+    }
+
+    #[test]
+    fn double_slash_same_epoch_is_idempotent() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "accused", MIN_SLASH_STAKE * 10);
+        set_stake(&chain, "accused", MIN_SLASH_STAKE * 2);
+        set_clock_stake(&chain, "reporter", 1_000_000);
+
+        apply_slash(&chain, &slash_entry("slash4", "reporter", "accused", 5)).unwrap();
+        let stake_after_first = chain.get_stake("accused");
+
+        // Second slash with same slash_id should be rejected
+        let res = apply_slash(&chain, &slash_entry("slash4", "reporter", "accused", 5));
+        assert!(res.is_err(), "duplicate slash_id should fail");
+
+        // Stake should remain unchanged from the first slash
+        assert_eq!(chain.get_stake("accused"), stake_after_first,
+            "second slash should not reduce stake again");
+    }
+}

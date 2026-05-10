@@ -203,3 +203,203 @@ pub fn apply_finalize(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
     info!("[oracle] feed '{}' finalized — median={} ({})", feed_id, median, feed.asset_pair);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use btcpc_types::LedgerEntry;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (crate::chain::Chain, TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = crate::chain::Chain::new(
+            store, "test".to_string(), "btcpc-test".to_string(),
+        );
+        (chain, dir)
+    }
+
+    fn fund(chain: &crate::chain::Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.to_string(),
+            keys: Default::default(),
+            chain_proofs: vec![],
+            epoch: 0,
+            funded_by: None,
+            machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    fn make_commit_hash(value: u64, nonce: &str, reporter: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut data = value.to_le_bytes().to_vec();
+        data.extend_from_slice(nonce.as_bytes());
+        data.extend_from_slice(reporter.as_bytes());
+        hex::encode(Sha256::digest(&data))
+    }
+
+    #[test]
+    fn create_stores_feed() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", FEED_CREATION_FEE_DREAMS * 10);
+
+        let entry = LedgerEntry::OracleFeedCreate {
+            feed_id: "feed1".to_string(),
+            creator: "alice".to_string(),
+            asset_pair: "BTCPC/USD".to_string(),
+            update_interval_epochs: 5,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_create(&chain, &entry).unwrap();
+
+        let raw = chain.store.state_get(&feed_key("feed1")).unwrap();
+        let feed: OracleFeed = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(feed.feed_id, "feed1");
+        assert_eq!(feed.asset_pair, "BTCPC/USD");
+        assert!(feed.active);
+        assert_eq!(feed.reports.len(), 0);
+    }
+
+    #[test]
+    fn report_stores_reading() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", FEED_CREATION_FEE_DREAMS * 10);
+
+        let create = LedgerEntry::OracleFeedCreate {
+            feed_id: "feed2".to_string(),
+            creator: "alice".to_string(),
+            asset_pair: "BTCPC/USD".to_string(),
+            update_interval_epochs: 10,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_create(&chain, &create).unwrap();
+
+        let report = LedgerEntry::OracleReport {
+            feed_id: "feed2".to_string(),
+            reporter: "bob".to_string(),
+            commit_hash: make_commit_hash(100_000, "nonce1", "bob"),
+            epoch: 2,
+            nonce: 1,
+            signed_by: "bob".to_string(),
+            signature: None,
+        };
+        apply_report(&chain, &report).unwrap();
+
+        let raw = chain.store.state_get(&feed_key("feed2")).unwrap();
+        let feed: OracleFeed = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(feed.reports.len(), 1);
+        assert_eq!(feed.reports[0].reporter, "bob");
+    }
+
+    #[test]
+    fn finalize_updates_price() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", FEED_CREATION_FEE_DREAMS * 10);
+        // Also fund reporters for rewards
+        fund(&chain, "r1", 0);
+        fund(&chain, "r2", 0);
+        fund(&chain, "r3", 0);
+
+        // create feed: interval=5, deadline = epoch 1 + 5 = 6
+        let create = LedgerEntry::OracleFeedCreate {
+            feed_id: "feed3".to_string(),
+            creator: "alice".to_string(),
+            asset_pair: "BTCPC/USD".to_string(),
+            update_interval_epochs: 5,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_create(&chain, &create).unwrap();
+
+        // Submit 3 reports (deadline = 6, report epoch ≤ 6)
+        let reporters = [("r1", 100_000u64, "n1"), ("r2", 101_000u64, "n2"), ("r3", 99_000u64, "n3")];
+        for (reporter, value, nonce) in &reporters {
+            let r = LedgerEntry::OracleReport {
+                feed_id: "feed3".to_string(),
+                reporter: reporter.to_string(),
+                commit_hash: make_commit_hash(*value, nonce, reporter),
+                epoch: 5,
+                nonce: 1,
+                signed_by: reporter.to_string(),
+                signature: None,
+            };
+            apply_report(&chain, &r).unwrap();
+        }
+
+        // Finalize at epoch ≥ deadline (6)
+        let reveals: Vec<btcpc_types::OracleReveal> = reporters.iter()
+            .map(|(reporter, value, nonce)| btcpc_types::OracleReveal {
+                reporter: reporter.to_string(),
+                value: *value,
+                nonce: nonce.to_string(),
+            })
+            .collect();
+
+        let finalize = LedgerEntry::OracleFeedFinalize {
+            feed_id: "feed3".to_string(),
+            finalizer: "alice".to_string(),
+            reveals,
+            epoch: 6,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_finalize(&chain, &finalize).unwrap();
+
+        let raw = chain.store.state_get(&feed_key("feed3")).unwrap();
+        let feed: OracleFeed = serde_json::from_slice(&raw).unwrap();
+        assert!(feed.last_price.is_some(), "price should be set after finalize");
+        assert_eq!(feed.last_updated_epoch, Some(6));
+        assert!(feed.active, "feed should still be active after finalize");
+    }
+
+    #[test]
+    fn report_after_deadline_fails() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", FEED_CREATION_FEE_DREAMS * 10);
+
+        // interval=3, deadline = epoch 1 + 3 = 4
+        let create = LedgerEntry::OracleFeedCreate {
+            feed_id: "feed4".to_string(),
+            creator: "alice".to_string(),
+            asset_pair: "BTCPC/USD".to_string(),
+            update_interval_epochs: 3,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "alice".to_string(),
+            signature: None,
+        };
+        apply_create(&chain, &create).unwrap();
+
+        // Report at epoch > deadline (5 > 4)
+        let report = LedgerEntry::OracleReport {
+            feed_id: "feed4".to_string(),
+            reporter: "bob".to_string(),
+            commit_hash: make_commit_hash(100_000, "n1", "bob"),
+            epoch: 5,
+            nonce: 1,
+            signed_by: "bob".to_string(),
+            signature: None,
+        };
+        assert!(apply_report(&chain, &report).is_err(), "report after deadline should fail");
+    }
+
+    #[test]
+    fn get_feed_returns_none_for_unknown() {
+        let (chain, _dir) = make_chain();
+        assert!(chain.store.state_get(&feed_key("unknown_feed")).is_none());
+    }
+}
