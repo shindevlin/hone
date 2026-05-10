@@ -110,22 +110,54 @@ pub fn cmd_stake_remove(account: &str, amount: u64, key_file: Option<&Path>) -> 
 
 // ── Account Create ────────────────────────────────────────────────────────────
 
-pub fn cmd_account_create(account: &str, pubkey: Option<&str>) -> Result<()> {
+pub fn cmd_account_create(account: &str, pubkey: Option<&str>, key_file: Option<&Path>) -> Result<()> {
     let api = ApiClient::new();
-
-    let mut body = json!({
-        "account": account,
-    });
-
-    if let Some(pk) = pubkey {
-        // API expects a role-keyed map: {"posting": "<hex pubkey>"}
-        body["keys"] = json!({ "posting": pk });
+    let key_path = resolve_key_file(key_file)?;
+    let keypair = KeyPair::from_file(&key_path)?;
+    let local_pubkey = keypair.public_key_hex();
+    let public_key = pubkey.unwrap_or(local_pubkey.as_str());
+    if public_key != local_pubkey {
+        return Err(anyhow!(
+            "cannot create a signed account for pubkey {} with local key {}; omit --pubkey or use the matching key file",
+            public_key,
+            local_pubkey
+        ));
     }
+    let chain_id = node_chain_id(&api)?;
+    let keys = serde_json::json!({
+        "owner": public_key,
+        "active": public_key,
+        "posting": public_key,
+    });
+    let sig = sign_account_create(&keypair, &chain_id, account, public_key)?;
+
+    let body = json!({
+        "account": account,
+        "keys": keys,
+        "signature": sig,
+    });
 
     let resp: Value = api.post("/api/account/create", &body)?;
     println!("{}", "Account created.".green().bold());
     print_result(&resp);
     Ok(())
+}
+
+fn sign_account_create(keypair: &KeyPair, chain_id: &str, account: &str, pubkey: &str) -> Result<String> {
+    let keys = serde_json::json!({
+        "active": pubkey,
+        "owner": pubkey,
+        "posting": pubkey,
+    });
+    let msg = serde_json::to_string(&serde_json::json!({
+        "chain_id": chain_id,
+        "type": "ACCOUNT_CREATE",
+        "account": account,
+        "keys": keys,
+        "chain_proofs": [],
+        "funded_by": null,
+    }))?;
+    Ok(keypair.sign_entry_json(&msg))
 }
 
 fn resolve_key_file(key_file: Option<&Path>) -> Result<PathBuf> {

@@ -1,9 +1,14 @@
 mod api;
+mod auction;
 mod chain;
 mod contract;
+mod finetune;
+mod helpers;
 mod inference;
 mod key;
+mod memory;
 mod repo;
+mod science;
 mod session;
 mod tx;
 mod wallet;
@@ -108,6 +113,9 @@ enum Commands {
         /// Hex-encoded public key
         #[arg(long)]
         pubkey: Option<String>,
+        /// Key file used to sign the account claim (default: session key or ~/.btcpc/key.json)
+        #[arg(long)]
+        key_file: Option<PathBuf>,
     },
 
     /// Contract subcommands
@@ -132,6 +140,82 @@ enum Commands {
     Inference {
         #[command(subcommand)]
         action: InferenceCommands,
+    },
+
+    /// Scientific compute marketplace
+    Science {
+        #[command(subcommand)]
+        action: ScienceCommands,
+    },
+
+    /// On-chain key-value memory store for agents
+    Memory {
+        #[command(subcommand)]
+        action: MemoryCommands,
+    },
+
+    /// RAG document index (embed + cosine search via Ollama)
+    Rag {
+        #[command(subcommand)]
+        action: RagCommands,
+    },
+
+    /// Name auctions (bid on a short account name)
+    Auction {
+        #[command(subcommand)]
+        action: AuctionCommands,
+    },
+
+    /// Freeport item auctions
+    Freeport {
+        #[command(subcommand)]
+        action: FreeportCommands,
+    },
+
+    /// LoRA fine-tune job marketplace
+    Finetune {
+        #[command(subcommand)]
+        action: FinetuneCommands,
+    },
+
+    /// Computer-use automation job marketplace
+    #[command(name = "computer-use")]
+    ComputerUse {
+        #[command(subcommand)]
+        action: ComputerUseCommands,
+    },
+
+    /// Snapshot save/load (BTCPC-FS backed)
+    Snap {
+        #[command(subcommand)]
+        action: SnapCommands,
+    },
+
+    /// Amber Pill soulbound NFT (1.5× mining weight)
+    #[command(name = "amber-pill")]
+    AmberPill {
+        #[command(subcommand)]
+        action: AmberPillCommands,
+    },
+
+    /// Fee and mempool status
+    Fee {
+        #[command(subcommand)]
+        action: FeeCommands,
+    },
+
+    /// P2P storefront registry
+    #[command(name = "peer-commerce")]
+    PeerCommerce {
+        #[command(subcommand)]
+        action: PeerCommerceCommands,
+    },
+
+    /// Gateway shortcode resolver
+    #[command(name = "gateway")]
+    Gateway {
+        /// Shortcode to resolve
+        shortcode: String,
     },
 
     /// LinkGit repository management
@@ -373,6 +457,275 @@ enum InferenceCommands {
 }
 
 #[derive(Subcommand)]
+enum ScienceCommands {
+    /// Submit a new scientific compute job
+    Create {
+        #[arg(long)]
+        account: String,
+        /// Short job title
+        #[arg(long)]
+        title: String,
+        /// Job type: genomics, climate, protein-folding, drug-discovery, general, …
+        #[arg(long, default_value = "general")]
+        job_type: String,
+        /// Input data or @path/to/file
+        #[arg(long)]
+        input: String,
+        /// Maximum fee in dreams
+        #[arg(long)]
+        max_fee: u64,
+        /// Mark as open-source (40% fee discount; results inscribed on-chain)
+        #[arg(long, default_value = "false")]
+        open_source: bool,
+        /// Optional model hint
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// List science jobs (optionally filter by type)
+    Jobs {
+        /// Filter by job type
+        #[arg(long)]
+        job_type: Option<String>,
+    },
+    /// Show details for a single science job
+    Job {
+        /// Job ID
+        id: String,
+    },
+    /// Mark a queued job as running
+    Start {
+        /// Job ID
+        job_id: String,
+        /// Optional shard-group ID
+        #[arg(long)]
+        shard_group: Option<String>,
+    },
+    /// Submit results for a running job
+    Complete {
+        /// Job ID
+        job_id: String,
+        /// SHA-256 result hash (hex)
+        #[arg(long)]
+        result_hash: String,
+        /// Result bytes or @path/to/file
+        #[arg(long)]
+        result: String,
+        /// Contributing node account names (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        nodes: Vec<String>,
+        /// Epoch at which the result was produced
+        #[arg(long)]
+        epoch: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCommands {
+    /// Set a key-value pair in on-chain memory
+    Set {
+        #[arg(long)] account: String,
+        #[arg(long)] key: String,
+        #[arg(long)] value: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Get a value from on-chain memory
+    Get {
+        #[arg(long)] account: String,
+        #[arg(long)] key: String,
+    },
+    /// Delete a key from on-chain memory
+    Del {
+        #[arg(long)] account: String,
+        #[arg(long)] key: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Scan all keys for an account (optional prefix filter)
+    Scan {
+        #[arg(long)] account: String,
+        #[arg(long, default_value = "")] prefix: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RagCommands {
+    /// Index a document (embeds via Ollama nomic-embed-text)
+    Index {
+        #[arg(long)] account: String,
+        #[arg(long)] doc_id: String,
+        /// Document text content
+        #[arg(long)] content: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Query the RAG index (returns top-K docs + 6k context)
+    Query {
+        #[arg(long)] account: String,
+        /// Query text
+        #[arg(long)] q: String,
+    },
+    /// Delete a document from the index
+    Delete {
+        #[arg(long)] account: String,
+        #[arg(long)] doc_id: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuctionCommands {
+    /// Open a name auction
+    Open {
+        #[arg(long)] account: String,
+        /// Account name to auction
+        #[arg(long)] name: String,
+        /// Auction duration in epochs
+        #[arg(long, default_value = "20")] duration: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Place a bid on an auction
+    Bid {
+        #[arg(long)] account: String,
+        #[arg(long)] auction_id: String,
+        /// Bid amount in dreams
+        #[arg(long)] amount: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Settle an ended auction
+    Settle {
+        #[arg(long)] account: String,
+        #[arg(long)] auction_id: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Cancel an auction you opened
+    Cancel {
+        #[arg(long)] account: String,
+        #[arg(long)] auction_id: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Show auction details
+    Get { auction_id: String },
+}
+
+#[derive(Subcommand)]
+enum FreeportCommands {
+    /// Open a freeport item auction
+    Open {
+        #[arg(long)] account: String,
+        #[arg(long)] item_id: String,
+        #[arg(long, default_value = "digital")] item_type: String,
+        #[arg(long, default_value = "20")] duration: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Bid on a freeport auction
+    Bid {
+        #[arg(long)] account: String,
+        #[arg(long)] auction_id: String,
+        #[arg(long)] amount: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Settle a freeport auction
+    Settle {
+        #[arg(long)] account: String,
+        #[arg(long)] auction_id: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Show freeport auction details
+    Get { auction_id: String },
+}
+
+#[derive(Subcommand)]
+enum FinetuneCommands {
+    /// Post a LoRA fine-tune job
+    Post {
+        #[arg(long)] account: String,
+        #[arg(long)] base_model: String,
+        #[arg(long)] dataset_cid: String,
+        #[arg(long, default_value = "8")] lora_rank: u32,
+        #[arg(long)] max_fee: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Mark a fine-tune job complete (node operators)
+    Complete {
+        #[arg(long)] worker: String,
+        #[arg(long)] job_id: String,
+        #[arg(long)] adapter_cid: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Show a fine-tune job
+    Get { job_id: String },
+    /// List open fine-tune jobs
+    Jobs,
+}
+
+#[derive(Subcommand)]
+enum ComputerUseCommands {
+    /// Post a computer-use automation job
+    Post {
+        #[arg(long)] account: String,
+        /// JSON task spec (e.g. '{"url":"...","goal":"..."}')
+        #[arg(long)] task: String,
+        #[arg(long)] max_fee: u64,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Show a computer-use job
+    Get { job_id: String },
+    /// List open computer-use jobs
+    Jobs,
+}
+
+#[derive(Subcommand)]
+enum SnapCommands {
+    /// Save a snapshot (CID pointer with a human slug)
+    Save {
+        #[arg(long)] account: String,
+        #[arg(long)] slug: String,
+        #[arg(long)] cid: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Fetch a snapshot by account + slug
+    Get {
+        #[arg(long)] account: String,
+        #[arg(long)] slug: String,
+    },
+    /// List all snapshots for an account
+    List { account: String },
+}
+
+#[derive(Subcommand)]
+enum AmberPillCommands {
+    /// Mint your Amber Pill (one per hardware fingerprint; grants 1.5× mining weight)
+    Mint {
+        #[arg(long)] account: String,
+        /// Hardware fingerprint hex (from btcpc-node /api/node/hardware or btcpc-node logs)
+        #[arg(long)] fingerprint: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// Check if an account holds an Amber Pill
+    Get { account: String },
+}
+
+#[derive(Subcommand)]
+enum FeeCommands {
+    /// Show current base fee and suggested priority fee
+    Estimate,
+    /// Show mempool depth and congestion
+    Mempool,
+}
+
+#[derive(Subcommand)]
+enum PeerCommerceCommands {
+    /// Register a product listing on-chain
+    Register {
+        #[arg(long)] account: String,
+        #[arg(long)] product_cid: String,
+        #[arg(long)] price: u64,
+        #[arg(long, default_value = "")] description: String,
+        #[arg(long)] key_file: Option<std::path::PathBuf>,
+    },
+    /// List all peer commerce listings
+    List,
+}
+
+#[derive(Subcommand)]
 enum RepoCommands {
     /// Register a new repository on-chain and print the git remote URL
     Create {
@@ -466,8 +819,8 @@ fn run() -> Result<()> {
         } => {
             tx::cmd_stake_remove(&account, amount, key_file.as_deref())?;
         }
-        Commands::AccountCreate { account, pubkey } => {
-            tx::cmd_account_create(&account, pubkey.as_deref())?;
+        Commands::AccountCreate { account, pubkey, key_file } => {
+            tx::cmd_account_create(&account, pubkey.as_deref(), key_file.as_deref())?;
         }
         Commands::Contract { action } => match action {
             ContractCommands::Deploy {
@@ -557,6 +910,153 @@ fn run() -> Result<()> {
                 wallet::cmd_wallet_api_key_gen(wallet_file.as_deref(), &mnemonic, output.as_deref())?;
             }
         },
+
+        Commands::Science { action } => match action {
+            ScienceCommands::Create { account, title, job_type, input, max_fee, open_source, model } => {
+                science::cmd_science_create(
+                    &account, &title, &job_type, &input, max_fee, open_source,
+                    model.as_deref(),
+                )?;
+            }
+            ScienceCommands::Jobs { job_type } => {
+                science::cmd_science_jobs(job_type.as_deref())?;
+            }
+            ScienceCommands::Job { id } => {
+                science::cmd_science_job(&id)?;
+            }
+            ScienceCommands::Start { job_id, shard_group } => {
+                science::cmd_science_start(&job_id, shard_group.as_deref())?;
+            }
+            ScienceCommands::Complete { job_id, result_hash, result, nodes, epoch } => {
+                science::cmd_science_complete(&job_id, &result_hash, &result, &nodes, epoch)?;
+            }
+        },
+
+        Commands::Memory { action } => match action {
+            MemoryCommands::Set { account, key, value, key_file } => {
+                memory::cmd_memory_set(&account, &key, &value, key_file.as_deref())?;
+            }
+            MemoryCommands::Get { account, key } => {
+                memory::cmd_memory_get(&account, &key)?;
+            }
+            MemoryCommands::Del { account, key, key_file } => {
+                memory::cmd_memory_delete(&account, &key, key_file.as_deref())?;
+            }
+            MemoryCommands::Scan { account, prefix } => {
+                memory::cmd_memory_scan(&account, &prefix)?;
+            }
+        },
+
+        Commands::Rag { action } => match action {
+            RagCommands::Index { account, doc_id, content, key_file } => {
+                memory::cmd_rag_index(&account, &doc_id, &content, key_file.as_deref())?;
+            }
+            RagCommands::Query { account, q } => {
+                memory::cmd_rag_query(&account, &q)?;
+            }
+            RagCommands::Delete { account, doc_id, key_file } => {
+                memory::cmd_rag_delete(&account, &doc_id, key_file.as_deref())?;
+            }
+        },
+
+        Commands::Auction { action } => match action {
+            AuctionCommands::Open { account, name, duration, key_file } => {
+                auction::cmd_name_open(&account, &name, duration, key_file.as_deref())?;
+            }
+            AuctionCommands::Bid { account, auction_id, amount, key_file } => {
+                auction::cmd_name_bid(&account, &auction_id, amount, key_file.as_deref())?;
+            }
+            AuctionCommands::Settle { account, auction_id, key_file } => {
+                auction::cmd_name_settle(&account, &auction_id, key_file.as_deref())?;
+            }
+            AuctionCommands::Cancel { account, auction_id, key_file } => {
+                auction::cmd_name_cancel(&account, &auction_id, key_file.as_deref())?;
+            }
+            AuctionCommands::Get { auction_id } => {
+                auction::cmd_auction_get(&auction_id)?;
+            }
+        },
+
+        Commands::Freeport { action } => match action {
+            FreeportCommands::Open { account, item_id, item_type, duration, key_file } => {
+                auction::cmd_freeport_open(&account, &item_id, &item_type, duration, key_file.as_deref())?;
+            }
+            FreeportCommands::Bid { account, auction_id, amount, key_file } => {
+                auction::cmd_freeport_bid(&account, &auction_id, amount, key_file.as_deref())?;
+            }
+            FreeportCommands::Settle { account, auction_id, key_file } => {
+                auction::cmd_freeport_settle(&account, &auction_id, key_file.as_deref())?;
+            }
+            FreeportCommands::Get { auction_id } => {
+                auction::cmd_freeport_get(&auction_id)?;
+            }
+        },
+
+        Commands::Finetune { action } => match action {
+            FinetuneCommands::Post { account, base_model, dataset_cid, lora_rank, max_fee, key_file } => {
+                finetune::cmd_finetune_post(&account, &base_model, &dataset_cid, lora_rank, max_fee, key_file.as_deref())?;
+            }
+            FinetuneCommands::Complete { worker, job_id, adapter_cid, key_file } => {
+                finetune::cmd_finetune_complete(&worker, &job_id, &adapter_cid, key_file.as_deref())?;
+            }
+            FinetuneCommands::Get { job_id } => {
+                finetune::cmd_finetune_get(&job_id)?;
+            }
+            FinetuneCommands::Jobs => {
+                finetune::cmd_finetune_jobs()?;
+            }
+        },
+
+        Commands::ComputerUse { action } => match action {
+            ComputerUseCommands::Post { account, task, max_fee, key_file } => {
+                finetune::cmd_cu_post(&account, &task, max_fee, key_file.as_deref())?;
+            }
+            ComputerUseCommands::Get { job_id } => {
+                finetune::cmd_cu_get(&job_id)?;
+            }
+            ComputerUseCommands::Jobs => {
+                finetune::cmd_cu_jobs()?;
+            }
+        },
+
+        Commands::Snap { action } => match action {
+            SnapCommands::Save { account, slug, cid, key_file } => {
+                finetune::cmd_snap_save(&account, &slug, &cid, key_file.as_deref())?;
+            }
+            SnapCommands::Get { account, slug } => {
+                finetune::cmd_snap_get(&account, &slug)?;
+            }
+            SnapCommands::List { account } => {
+                finetune::cmd_snap_list(&account)?;
+            }
+        },
+
+        Commands::AmberPill { action } => match action {
+            AmberPillCommands::Mint { account, fingerprint, key_file } => {
+                finetune::cmd_amber_pill_mint(&account, &fingerprint, key_file.as_deref())?;
+            }
+            AmberPillCommands::Get { account } => {
+                finetune::cmd_amber_pill_get(&account)?;
+            }
+        },
+
+        Commands::Fee { action } => match action {
+            FeeCommands::Estimate => finetune::cmd_fee_estimate()?,
+            FeeCommands::Mempool => finetune::cmd_mempool_status()?,
+        },
+
+        Commands::PeerCommerce { action } => match action {
+            PeerCommerceCommands::Register { account, product_cid, price, description, key_file } => {
+                finetune::cmd_peer_register(&account, &product_cid, price, &description, key_file.as_deref())?;
+            }
+            PeerCommerceCommands::List => {
+                finetune::cmd_peer_list()?;
+            }
+        },
+
+        Commands::Gateway { shortcode } => {
+            finetune::cmd_gateway_resolve(&shortcode)?;
+        }
 
         Commands::Repo { action } => match action {
             RepoCommands::Create { name, account, private, key_file } => {
