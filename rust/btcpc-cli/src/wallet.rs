@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use btcpc_sdk::{Wallet, WalletFile};
+use btcpc_sdk::{KeyPair, Wallet, WalletFile};
 use colored::Colorize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -18,8 +18,10 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
 
     // Generate ephemeral wallet from a fresh 12-word mnemonic.
     let wallet = Wallet::generate(account)?;
-    let kp = wallet.btcpc_keypair()?;
-    let pubkey = kp.public_key_hex();
+    let owner_kp = wallet.btcpc_role_keypair("owner")?;
+    let posting_kp = wallet.btcpc_role_keypair("posting")?;
+    let pubkey = posting_kp.public_key_hex();
+    let role_keys = wallet.btcpc_role_public_keys()?;
     let addresses = wallet.chain_addresses();
 
     // ── Show mnemonic ONCE ────────────────────────────────────────────────────
@@ -31,7 +33,13 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
     println!("{}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".yellow().bold());
     println!();
     println!("{} {}", "Account:".bold(), account);
-    println!("{} {}", "BTCPC pubkey:".bold(), pubkey);
+    println!("{} {}", "BTCPC posting pubkey:".bold(), pubkey);
+    println!("{}", "BTCPC role keys:".bold());
+    for role in ["owner", "active", "posting", "memo", "hide", "seek"] {
+        if let Some(pk) = role_keys.get(role) {
+            println!("  {:8} {}", role, pk);
+        }
+    }
     println!();
     println!("{}", "Derived addresses (published on-chain):".bold());
     for (chain, addr, path) in &addresses {
@@ -46,15 +54,12 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
 
     // ── Submit AccountCreate ──────────────────────────────────────────────────
     let api = ApiClient::new();
-    let create_resp: Value = api.post("/api/entry", &json!({
-        "type": "ACCOUNT_CREATE",
+    let chain_id = node_chain_id(&api)?;
+    let create_sig = sign_account_create(&owner_kp, &chain_id, account, &role_keys)?;
+    let create_resp: Value = api.post("/api/account/create", &json!({
         "account": account,
-        "keys": {
-            "owner":   pubkey,
-            "active":  pubkey,
-            "posting": pubkey,
-        },
-        "epoch": 0,
+        "keys": role_keys,
+        "signature": create_sig,
     }))?;
 
     if !create_resp.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -66,6 +71,7 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
     // ── Submit WalletFamilyPublish ────────────────────────────────────────────
     let latest: Value = api.get("/api/latest")?;
     let epoch = latest["current_epoch"].as_u64().unwrap_or(0);
+    let nonce = next_nonce(&api, account)?;
 
     let chain_entries: Vec<Value> = addresses
         .iter()
@@ -75,7 +81,7 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
                 "chain": chain,
                 "address": addr,
                 "derivation_path": dpath,
-                "signature": kp.sign_entry_json(&msg),
+                "signature": owner_kp.sign_entry_json(&msg),
             })
         })
         .collect();
@@ -85,13 +91,24 @@ pub fn cmd_wallet_create(account: &str, output: Option<&Path>) -> Result<()> {
         "account": account,
         "chains": chain_entries,
         "epoch": epoch,
-        "nonce": 0,
+        "nonce": nonce,
         "signed_by": account,
     });
-    let sig = kp.sign_entry_json(&serde_json::to_string(&publish_entry)?);
+    let sig = sign_wallet_family(
+        &owner_kp,
+        &chain_id,
+        "WALLET_FAMILY_PUBLISH",
+        account,
+        &publish_entry["chains"],
+        nonce,
+    )?;
 
-    let publish_resp: Value = api.post("/api/entry", &json!({
-        "entry": publish_entry,
+    let publish_resp: Value = api.post("/api/wallet/family/publish", &json!({
+        "account": account,
+        "chains": publish_entry["chains"].clone(),
+        "epoch": epoch,
+        "nonce": nonce,
+        "signed_by": account,
         "signature": sig,
     }))?;
 
@@ -115,8 +132,17 @@ pub fn cmd_wallet_show(wallet_file: Option<&Path>) -> Result<()> {
     let wf: WalletFile = serde_json::from_str(&raw)?;
 
     println!("{} {}", "Account:".bold(), wf.account);
-    println!("{} {}", "BTCPC pubkey:".bold(), wf.btcpc_public_key_hex);
+    println!("{} {}", "BTCPC posting pubkey:".bold(), wf.btcpc_public_key_hex);
     println!("{} {}", "File:".bold(), path.display());
+    if !wf.btcpc_role_public_keys.is_empty() {
+        println!();
+        println!("{}", "BTCPC role keys:".bold());
+        let mut roles: Vec<_> = wf.btcpc_role_public_keys.iter().collect();
+        roles.sort_by_key(|(role, _)| role.as_str());
+        for (role, pk) in roles {
+            println!("  {:8} {}", role, pk);
+        }
+    }
     println!();
     println!("{}", "Linked chain addresses (public):".bold());
     let mut addrs: Vec<_> = wf.chain_addresses.iter().collect();
@@ -137,15 +163,7 @@ pub fn cmd_wallet_publish(wallet_file: Option<&Path>, mnemonic: &str) -> Result<
 
     // Derive signing key from mnemonic (private key never stored).
     let wallet = Wallet::from_phrase(mnemonic, account)?;
-    let kp = wallet.btcpc_keypair()?;
-
-    // Verify pubkey matches identity file.
-    if kp.public_key_hex() != wf.btcpc_public_key_hex {
-        return Err(anyhow!(
-            "mnemonic doesn't match this wallet — derived pubkey {} but file has {}",
-            kp.public_key_hex(), wf.btcpc_public_key_hex
-        ));
-    }
+    let owner_kp = role_or_legacy_signer(&wallet, &wf, "owner")?;
 
     // Build addresses from stored public data (no private keys needed for addresses).
     let mut addresses: Vec<(String, String, String)> = wf.chain_addresses
@@ -155,21 +173,20 @@ pub fn cmd_wallet_publish(wallet_file: Option<&Path>, mnemonic: &str) -> Result<
                 "evm"     => "m/44'/60'/0'/0/0",
                 "solana"  => "m/44'/501'/0'/0'",
                 "bitcoin" => "m/44'/0'/0'/0/0",
-                _         => "m/44'/2301'/0'/0'/0'",
+                "btcpc"   => btcpc_sdk::paths::BTCPC_POSTING_STR,
+                _         => btcpc_sdk::paths::BTCPC_POSTING_STR,
             };
             (chain.clone(), addr.clone(), dpath.to_string())
         })
         .collect();
     // Also include the BTCPC pubkey itself.
-    addresses.push(("btcpc".into(), wf.btcpc_public_key_hex.clone(), "m/44'/2301'/0'/0'/0'".into()));
+    addresses.push(("btcpc".into(), wf.btcpc_public_key_hex.clone(), btcpc_sdk::paths::BTCPC_POSTING_STR.into()));
 
     let api = ApiClient::new();
+    let chain_id = node_chain_id(&api)?;
     let latest: Value = api.get("/api/latest")?;
     let epoch = latest["current_epoch"].as_u64().unwrap_or(0);
-    let nonce: u64 = api.get::<Value>(&format!("/api/account/{}", account))
-        .ok()
-        .and_then(|v| v["nonce"].as_u64())
-        .unwrap_or(0);
+    let nonce = next_nonce(&api, account)?;
 
     let chain_entries: Vec<Value> = addresses
         .iter()
@@ -179,7 +196,7 @@ pub fn cmd_wallet_publish(wallet_file: Option<&Path>, mnemonic: &str) -> Result<
                 "chain": chain,
                 "address": addr,
                 "derivation_path": dpath,
-                "signature": kp.sign_entry_json(&msg),
+                "signature": owner_kp.sign_entry_json(&msg),
             })
         })
         .collect();
@@ -192,10 +209,21 @@ pub fn cmd_wallet_publish(wallet_file: Option<&Path>, mnemonic: &str) -> Result<
         "nonce": nonce,
         "signed_by": account,
     });
-    let sig = kp.sign_entry_json(&serde_json::to_string(&publish_entry)?);
+    let sig = sign_wallet_family(
+        &owner_kp,
+        &chain_id,
+        "WALLET_FAMILY_ADD",
+        account,
+        &publish_entry["chains"],
+        nonce,
+    )?;
 
-    let resp: Value = api.post("/api/entry", &json!({
-        "entry": publish_entry,
+    let resp: Value = api.post("/api/wallet/family/add", &json!({
+        "account": account,
+        "chains": publish_entry["chains"].clone(),
+        "epoch": epoch,
+        "nonce": nonce,
+        "signed_by": account,
         "signature": sig,
     }))?;
 
@@ -232,13 +260,7 @@ pub fn cmd_wallet_api_key_gen(
 
     // Derive signing key from mnemonic.
     let wallet = btcpc_sdk::Wallet::from_phrase(mnemonic, account)?;
-    let kp = wallet.btcpc_keypair()?;
-    if kp.public_key_hex() != wf.btcpc_public_key_hex {
-        return Err(anyhow!(
-            "mnemonic doesn't match this wallet — derived pubkey {} but file has {}",
-            kp.public_key_hex(), wf.btcpc_public_key_hex
-        ));
-    }
+    let active_kp = role_or_legacy_signer(&wallet, &wf, "active")?;
 
     // Generate 32 random bytes → 64-char hex API key.
     let mut raw_key = [0u8; 32];
@@ -246,25 +268,19 @@ pub fn cmd_wallet_api_key_gen(
     let api_key = hex::encode(raw_key);
 
     let api = ApiClient::new();
+    let chain_id = node_chain_id(&api)?;
     let latest: Value = api.get("/api/latest")?;
     let epoch = latest["current_epoch"].as_u64().unwrap_or(0);
-    let nonce: u64 = api.get::<Value>(&format!("/api/account/{}", account))
-        .ok()
-        .and_then(|v| v["nonce"].as_u64())
-        .unwrap_or(0);
+    let nonce = next_nonce(&api, account)?;
 
-    let entry = json!({
-        "type": "ACCOUNT_API_KEY_SET",
+    let sig = sign_account_api_key_set(&active_kp, &chain_id, account, &api_key, nonce)?;
+
+    let resp: Value = api.post("/api/account/api-key", &json!({
         "account": account,
         "api_key": api_key,
         "epoch": epoch,
         "nonce": nonce,
         "signed_by": account,
-    });
-    let sig = kp.sign_entry_json(&serde_json::to_string(&entry)?);
-
-    let resp: Value = api.post("/api/entry", &json!({
-        "entry": entry,
         "signature": sig,
     }))?;
 
@@ -362,4 +378,107 @@ fn resolve_wallet_path(input: Option<&Path>) -> Result<PathBuf> {
     let home = std::env::var("HOME")
         .map_err(|_| anyhow!("HOME not set; pass --output / --wallet-file explicitly"))?;
     Ok(PathBuf::from(home).join(".btcpc").join("wallet.json"))
+}
+
+fn node_chain_id(api: &ApiClient) -> Result<String> {
+    let info: Value = api.get("/api/node/info")?;
+    info.get("chain_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("node info missing chain_id"))
+}
+
+fn next_nonce(api: &ApiClient, account: &str) -> Result<u64> {
+    let account_data: Value = api.get(&format!("/api/account/{}", account))?;
+    let current = account_data
+        .get("nonce")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| anyhow!("account '{}' has no nonce field", account))?;
+    current
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("nonce overflow for account '{}'", account))
+}
+
+fn sign_account_create(
+    owner_kp: &KeyPair,
+    chain_id: &str,
+    account: &str,
+    keys: &std::collections::HashMap<String, String>,
+) -> Result<String> {
+    let sorted_keys: std::collections::BTreeMap<_, _> = keys.iter().collect();
+    let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
+        "type": "ACCOUNT_CREATE",
+        "account": account,
+        "keys": sorted_keys,
+        "chain_proofs": [],
+        "funded_by": null,
+    }))?;
+    Ok(owner_kp.sign_entry_json(&msg))
+}
+
+fn sign_wallet_family(
+    keypair: &KeyPair,
+    chain_id: &str,
+    entry_type: &str,
+    account: &str,
+    chains: &Value,
+    nonce: u64,
+) -> Result<String> {
+    let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
+        "type": entry_type,
+        "account": account,
+        "chains": chains,
+        "nonce": nonce,
+    }))?;
+    Ok(keypair.sign_entry_json(&msg))
+}
+
+fn sign_account_api_key_set(
+    keypair: &KeyPair,
+    chain_id: &str,
+    account: &str,
+    api_key: &str,
+    nonce: u64,
+) -> Result<String> {
+    let msg = serde_json::to_string(&json!({
+        "chain_id": chain_id,
+        "type": "ACCOUNT_API_KEY_SET",
+        "account": account,
+        "api_key": api_key,
+        "nonce": nonce,
+    }))?;
+    Ok(keypair.sign_entry_json(&msg))
+}
+
+fn role_or_legacy_signer(wallet: &Wallet, wf: &WalletFile, role: &str) -> Result<KeyPair> {
+    if let Some(expected) = wf.btcpc_role_public_keys.get(role) {
+        let kp = wallet.btcpc_role_keypair(role)?;
+        if kp.public_key_hex() == *expected {
+            return Ok(kp);
+        }
+        return Err(anyhow!(
+            "mnemonic doesn't match this wallet — derived {} pubkey {} but file has {}",
+            role,
+            kp.public_key_hex(),
+            expected
+        ));
+    }
+
+    let canonical = wallet.btcpc_role_keypair(role)?;
+    if canonical.public_key_hex() == wf.btcpc_public_key_hex {
+        return Ok(canonical);
+    }
+
+    let legacy = wallet.legacy_btcpc_keypair()?;
+    if legacy.public_key_hex() == wf.btcpc_public_key_hex {
+        return Ok(legacy);
+    }
+
+    Err(anyhow!(
+        "mnemonic doesn't match this wallet — neither canonical {} key nor legacy key matches {}",
+        role,
+        wf.btcpc_public_key_hex
+    ))
 }

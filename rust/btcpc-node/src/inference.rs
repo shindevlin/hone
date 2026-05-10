@@ -1015,6 +1015,12 @@ pub fn build_pay_entry_disputed(
     })
 }
 
+/// Return the quorum verdict for a board, exposed for tests.
+#[cfg(test)]
+pub fn quorum_verdict_for_test(verdicts: &[(String, String)], min: u64) -> Option<&'static str> {
+    resolve_quorum_verdict(verdicts, min)
+}
+
 /// Build InferenceJobPay for the NoFee / Rejected path (worker gets nothing).
 /// Verifiers and reviewers still get paid; remainder refunded to requester.
 pub fn build_pay_entry_nofee(
@@ -1055,5 +1061,861 @@ pub fn build_pay_entry_nofee(
         refund_amount,
         dissenter_slashes,
         epoch,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use btcpc_types::{LedgerEntry, RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN,
+        INFERENCE_FEE_WORKER_BPS, INFERENCE_FEE_VERIFIER_BPS, INFERENCE_FEE_RECYCLE_BPS};
+
+    // ── Test helpers ─────────────────────────────────────────────────────────
+
+    fn make_chain(label: &str) -> (Arc<Chain>, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_infer_{}_", label))
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store");
+        let chain = Arc::new(Chain::new(
+            store,
+            format!("infer-{}", label),
+            "btcpc-satoshi".to_string(),
+        ));
+        (chain, dir)
+    }
+
+    /// Seal epoch 0 so chain.current_epoch() == 0.
+    fn seal(chain: &Chain, epoch: u64) {
+        chain.apply_entry(&LedgerEntry::EpochSeal {
+            node_id: "test".into(),
+            epoch,
+            timestamp: epoch * 30_000,
+            seal_hash: format!("{:064x}", epoch),
+            signature: None,
+            node_version: None,
+        }).unwrap();
+    }
+
+    /// Fund an account directly through the store.
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.store.credit(account, NATIVE_TOKEN, amount).unwrap();
+    }
+
+    fn post_entry(job_id: &str, requester: &str, max_fee: u64, epoch: u64) -> LedgerEntry {
+        LedgerEntry::InferenceJobPost {
+            job_id: job_id.to_string(),
+            requester: requester.to_string(),
+            model: "llama3".to_string(),
+            mode: "solo".to_string(),
+            input_hash: "abc123".to_string(),
+            max_fee,
+            min_reputation: 0,
+            bid_window_epochs: 2,
+            deadline_epoch: epoch + 10,
+            epoch,
+            nonce: 1,
+            signed_by: requester.to_string(),
+            persist_on_fs: None,
+            fs_fee: None,
+            min_verifiers: None,
+            node_fingerprint: None,
+        }
+    }
+
+    fn bid_entry(job_id: &str, bidder: &str, fee: u64, role: &str, epoch: u64) -> LedgerEntry {
+        LedgerEntry::InferenceJobBid {
+            job_id: job_id.to_string(),
+            bidder: bidder.to_string(),
+            fee,
+            role: role.to_string(),
+            epoch,
+            nonce: 1,
+            signed_by: bidder.to_string(),
+        }
+    }
+
+    fn award_entry(job_id: &str, winner: &str, fee: u64, role: &str) -> LedgerEntry {
+        LedgerEntry::InferenceJobAward {
+            job_id: job_id.to_string(),
+            winner: winner.to_string(),
+            role: role.to_string(),
+            fee,
+            epoch: 0,
+        }
+    }
+
+    fn complete_entry(job_id: &str, worker: &str, epoch: u64) -> LedgerEntry {
+        LedgerEntry::InferenceJobComplete {
+            job_id: job_id.to_string(),
+            worker: worker.to_string(),
+            result_hash: "deadbeef".to_string(),
+            latency_ms: 250,
+            epoch,
+            signed_by: worker.to_string(),
+        }
+    }
+
+    fn verify_entry(job_id: &str, verifier: &str, verdict: &str, epoch: u64) -> LedgerEntry {
+        LedgerEntry::InferenceJobVerify {
+            job_id: job_id.to_string(),
+            verifier: verifier.to_string(),
+            verdict: verdict.to_string(),
+            value_score: 100,
+            reason: None,
+            reveal_salt: None,
+            epoch,
+            signed_by: verifier.to_string(),
+        }
+    }
+
+    // ── NodeReputation ────────────────────────────────────────────────────────
+
+    #[test]
+    fn reputation_new_starts_at_5000() {
+        let rep = NodeReputation::new("alice");
+        assert_eq!(rep.score, 5000);
+    }
+
+    #[test]
+    fn reputation_perfect_completion_high_score() {
+        let mut rep = NodeReputation::new("alice");
+        rep.jobs_accepted = 10;
+        rep.jobs_completed = 10;
+        rep.total_latency_ms = 500; // avg 50ms → latency_factor = min(5000/50, 100) = 100
+        rep.recompute_score();
+        // completion=100, latency_factor=100 → score = min(100*(50+100), 10000) = 10000
+        assert_eq!(rep.score, 10000);
+    }
+
+    #[test]
+    fn reputation_zero_accepted_resets_to_5000() {
+        let mut rep = NodeReputation::new("alice");
+        rep.jobs_accepted = 0;
+        rep.jobs_completed = 5;
+        rep.recompute_score();
+        assert_eq!(rep.score, 5000);
+    }
+
+    #[test]
+    fn reputation_poor_completion_low_score() {
+        let mut rep = NodeReputation::new("node");
+        rep.jobs_accepted = 10;
+        rep.jobs_completed = 2;
+        rep.total_latency_ms = 50_000; // avg 25000ms → latency_factor = 5000/25000 = 0 (min 1)
+        rep.recompute_score();
+        // completion = 20, latency_factor ≈ 0 → score = 20 * 50 = 1000
+        assert!(rep.score < 2000, "poor completion should give low score");
+    }
+
+    // ── Quorum verdict ────────────────────────────────────────────────────────
+
+    #[test]
+    fn quorum_approved_with_one_vote_min_one() {
+        let verdicts = vec![("v1".into(), "approved".into())];
+        assert_eq!(quorum_verdict_for_test(&verdicts, 1), Some("approved"));
+    }
+
+    #[test]
+    fn quorum_not_reached_with_one_of_three_needed() {
+        let verdicts = vec![("v1".into(), "approved".into())];
+        // 1 vote, 2 remaining; approved can still be beaten → no decision
+        assert_eq!(quorum_verdict_for_test(&verdicts, 3), None);
+    }
+
+    #[test]
+    fn quorum_review_required_wins_ties() {
+        // Three votes: one each — review_required has +1 weight so it should win.
+        let verdicts = vec![
+            ("v1".into(), "approved".into()),
+            ("v2".into(), "rejected".into()),
+            ("v3".into(), "review_required".into()),
+        ];
+        assert_eq!(quorum_verdict_for_test(&verdicts, 3), Some("review_required"));
+    }
+
+    #[test]
+    fn quorum_majority_approved() {
+        let verdicts = vec![
+            ("v1".into(), "approved".into()),
+            ("v2".into(), "approved".into()),
+            ("v3".into(), "rejected".into()),
+        ];
+        assert_eq!(quorum_verdict_for_test(&verdicts, 3), Some("approved"));
+    }
+
+    // ── apply_post ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn post_creates_job_and_debits_fee() {
+        let (chain, _dir) = make_chain("post");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+
+        let entry = post_entry("j1", "alice", 1_000, 0);
+        apply_post(&chain, &entry).expect("post");
+
+        let job = get_job(&chain, "j1").expect("job created");
+        assert_eq!(job.status, JobStatus::Posted);
+        assert_eq!(job.max_fee, 1_000);
+        assert_eq!(job.requester, "alice");
+
+        // Fee debited from alice, held in recycle fund as escrow.
+        assert_eq!(chain.store.get_balance("alice", NATIVE_TOKEN), 9_000);
+        assert_eq!(chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN), 1_000);
+    }
+
+    #[test]
+    fn post_duplicate_job_id_fails() {
+        let (chain, _dir) = make_chain("post_dup");
+        seal(&chain, 0);
+        fund(&chain, "alice", 20_000);
+
+        let entry = post_entry("j-dup", "alice", 1_000, 0);
+        apply_post(&chain, &entry).expect("first post");
+        assert!(apply_post(&chain, &entry).is_err(), "duplicate job_id must fail");
+    }
+
+    #[test]
+    fn post_insufficient_balance_fails() {
+        let (chain, _dir) = make_chain("post_insufficient");
+        seal(&chain, 0);
+        // alice has 0 balance
+
+        let entry = post_entry("j-broke", "alice", 500, 0);
+        assert!(apply_post(&chain, &entry).is_err());
+    }
+
+    // ── apply_bid ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn bid_accepted_within_window() {
+        let (chain, _dir) = make_chain("bid_ok");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        apply_bid(&chain, &bid_entry("j1", "bob", 800, "worker", 0)).expect("bid ok");
+        let bids = get_bids(&chain, "j1");
+        assert_eq!(bids.len(), 1);
+        assert_eq!(bids[0].bidder, "bob");
+    }
+
+    #[test]
+    fn bid_requester_cannot_self_bid() {
+        let (chain, _dir) = make_chain("bid_self");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        assert!(apply_bid(&chain, &bid_entry("j1", "alice", 800, "worker", 0)).is_err());
+    }
+
+    #[test]
+    fn bid_fee_above_max_rejected() {
+        let (chain, _dir) = make_chain("bid_highfee");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        assert!(apply_bid(&chain, &bid_entry("j1", "bob", 1_500, "worker", 0)).is_err());
+    }
+
+    #[test]
+    fn bid_duplicate_rejected() {
+        let (chain, _dir) = make_chain("bid_dup");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        apply_bid(&chain, &bid_entry("j1", "bob", 800, "worker", 0)).unwrap();
+        assert!(apply_bid(&chain, &bid_entry("j1", "bob", 800, "worker", 0)).is_err());
+    }
+
+    #[test]
+    fn bid_invalid_role_rejected() {
+        let (chain, _dir) = make_chain("bid_role");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        assert!(apply_bid(&chain, &bid_entry("j1", "bob", 800, "reviewer", 0)).is_err());
+    }
+
+    #[test]
+    fn bid_reputation_gate() {
+        let (chain, _dir) = make_chain("bid_rep");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+
+        // Post with min_reputation = 7000
+        let post = LedgerEntry::InferenceJobPost {
+            job_id: "j-rep".into(),
+            requester: "alice".into(),
+            model: "llama3".into(),
+            mode: "solo".into(),
+            input_hash: "x".into(),
+            max_fee: 1_000,
+            min_reputation: 7_000,
+            bid_window_epochs: 2,
+            deadline_epoch: 10,
+            epoch: 0,
+            nonce: 1,
+            signed_by: "alice".into(),
+            persist_on_fs: None,
+            fs_fee: None,
+            min_verifiers: None,
+            node_fingerprint: None,
+        };
+        apply_post(&chain, &post).unwrap();
+
+        // Bob starts with 5000 reputation (default) — below 7000 → bid rejected.
+        assert!(apply_bid(&chain, &bid_entry("j-rep", "bob", 800, "worker", 0)).is_err());
+    }
+
+    // ── apply_award ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn award_worker_transitions_to_awarded() {
+        let (chain, _dir) = make_chain("award");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_bid(&chain, &bid_entry("j1", "bob", 800, "worker", 0)).unwrap();
+
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).expect("award");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Awarded);
+        assert_eq!(job.winner.as_deref(), Some("bob"));
+        assert_eq!(job.awarded_fee, Some(800));
+    }
+
+    #[test]
+    fn award_verifier_adds_to_list() {
+        let (chain, _dir) = make_chain("award_ver");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_bid(&chain, &bid_entry("j1", "carol", 500, "verifier", 0)).unwrap();
+
+        apply_award(&chain, &award_entry("j1", "carol", 500, "verifier")).expect("verifier award");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Posted, "verifier award does not change status");
+        assert!(job.verifiers.contains(&"carol".to_string()));
+    }
+
+    #[test]
+    fn award_double_worker_fails() {
+        let (chain, _dir) = make_chain("award_double");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        // Second award on an already-Awarded job must fail.
+        assert!(apply_award(&chain, &award_entry("j1", "carol", 700, "worker")).is_err());
+    }
+
+    #[test]
+    fn award_bumps_reputation() {
+        let (chain, _dir) = make_chain("award_rep");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_bid(&chain, &bid_entry("j1", "bob", 800, "worker", 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+
+        let rep = get_reputation(&chain, "bob");
+        assert_eq!(rep.jobs_accepted, 1);
+    }
+
+    // ── apply_complete ────────────────────────────────────────────────────────
+
+    #[test]
+    fn complete_transitions_to_completed() {
+        let (chain, _dir) = make_chain("complete");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).expect("complete");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Completed);
+        assert_eq!(job.result_hash.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn complete_wrong_worker_fails() {
+        let (chain, _dir) = make_chain("complete_wrong");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+
+        assert!(apply_complete(&chain, &complete_entry("j1", "carol", 0)).is_err());
+    }
+
+    #[test]
+    fn complete_updates_worker_reputation() {
+        let (chain, _dir) = make_chain("complete_rep");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+
+        let rep = get_reputation(&chain, "bob");
+        assert_eq!(rep.jobs_completed, 1);
+        assert!(rep.total_latency_ms > 0);
+    }
+
+    // ── apply_verify (happy path) ─────────────────────────────────────────────
+
+    #[test]
+    fn verify_approved_transitions_to_verified() {
+        let (chain, _dir) = make_chain("verify_ok");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+
+        // min_verifiers = 1 (auto-scaled from empty network)
+        apply_verify(&chain, &verify_entry("j1", "verifier1", "approved", 0)).expect("verify");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Verified);
+    }
+
+    #[test]
+    fn verify_rejected_transitions_to_rejected() {
+        let (chain, _dir) = make_chain("verify_reject");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+
+        apply_verify(&chain, &verify_entry("j1", "verifier1", "rejected", 0)).unwrap();
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Rejected);
+
+        // Rejection increments worker's jobs_failed.
+        let rep = get_reputation(&chain, "bob");
+        assert_eq!(rep.jobs_failed, 1);
+    }
+
+    #[test]
+    fn verify_review_required_transitions_to_disputed() {
+        let (chain, _dir) = make_chain("verify_dispute");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+
+        apply_verify(&chain, &verify_entry("j1", "verifier1", "review_required", 0)).unwrap();
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Disputed);
+        assert!(job.disputed_epoch.is_some());
+    }
+
+    #[test]
+    fn verify_worker_cannot_self_verify() {
+        let (chain, _dir) = make_chain("verify_self");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+
+        assert!(apply_verify(&chain, &verify_entry("j1", "bob", "approved", 0)).is_err());
+    }
+
+    #[test]
+    fn verify_duplicate_rejected() {
+        let (chain, _dir) = make_chain("verify_dup");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+
+        // Post with min_verifiers=2 so first vote doesn't resolve.
+        let post = LedgerEntry::InferenceJobPost {
+            job_id: "j-v2".into(),
+            requester: "alice".into(),
+            model: "llama3".into(),
+            mode: "solo".into(),
+            input_hash: "x".into(),
+            max_fee: 1_000,
+            min_reputation: 0,
+            bid_window_epochs: 2,
+            deadline_epoch: 10,
+            epoch: 0,
+            nonce: 1,
+            signed_by: "alice".into(),
+            persist_on_fs: None,
+            fs_fee: None,
+            min_verifiers: Some(2),
+            node_fingerprint: None,
+        };
+        apply_post(&chain, &post).unwrap();
+        apply_award(&chain, &award_entry("j-v2", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j-v2", "bob", 0)).unwrap();
+
+        apply_verify(&chain, &verify_entry("j-v2", "v1", "approved", 0)).unwrap();
+        assert!(apply_verify(&chain, &verify_entry("j-v2", "v1", "approved", 0)).is_err());
+    }
+
+    // ── apply_claim ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn claim_by_worker_accepted() {
+        let (chain, _dir) = make_chain("claim");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+
+        let claim = LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(),
+            claimant: "bob".into(),
+            evidence_hash: None,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "bob".into(),
+        };
+        apply_claim(&chain, &claim).expect("claim ok");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Claimed);
+    }
+
+    #[test]
+    fn claim_expired_window_fails() {
+        let (chain, _dir) = make_chain("claim_expired");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+
+        // Dispute at epoch 0; CLAIM_WINDOW_EPOCHS = 20; claim at epoch 21 → expired.
+        let claim = LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(),
+            claimant: "bob".into(),
+            evidence_hash: None,
+            epoch: 21,
+            nonce: 1,
+            signed_by: "bob".into(),
+        };
+        assert!(apply_claim(&chain, &claim).is_err());
+    }
+
+    #[test]
+    fn claim_third_party_fails() {
+        let (chain, _dir) = make_chain("claim_stranger");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+
+        let claim = LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(),
+            claimant: "stranger".into(), // neither worker nor requester
+            evidence_hash: None,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "stranger".into(),
+        };
+        assert!(apply_claim(&chain, &claim).is_err());
+    }
+
+    // ── apply_review_vote ─────────────────────────────────────────────────────
+
+    #[test]
+    fn review_votes_resolve_majority() {
+        let (chain, _dir) = make_chain("review");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+        let claim = LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(), claimant: "bob".into(), evidence_hash: None,
+            epoch: 1, nonce: 1, signed_by: "bob".into(),
+        };
+        apply_claim(&chain, &claim).unwrap();
+
+        // Cast MIN_REVIEW_VOTES=3 approvals → Reviewed.
+        for i in 0..3u64 {
+            let vote = LedgerEntry::InferenceReviewVote {
+                job_id: "j1".into(),
+                reviewer: format!("reviewer{}", i),
+                approved: true,
+                epoch: 2,
+                signed_by: format!("reviewer{}", i),
+            };
+            apply_review_vote(&chain, &vote).unwrap();
+        }
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Reviewed);
+    }
+
+    #[test]
+    fn review_majority_rejection_moves_to_rejected() {
+        let (chain, _dir) = make_chain("review_reject");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+        let claim = LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(), claimant: "bob".into(), evidence_hash: None,
+            epoch: 1, nonce: 1, signed_by: "bob".into(),
+        };
+        apply_claim(&chain, &claim).unwrap();
+
+        // 2 rejections + 1 approval → majority reject.
+        for (i, approved) in [(0u64, false), (1, false), (2, true)] {
+            let vote = LedgerEntry::InferenceReviewVote {
+                job_id: "j1".into(),
+                reviewer: format!("r{}", i),
+                approved,
+                epoch: 2,
+                signed_by: format!("r{}", i),
+            };
+            apply_review_vote(&chain, &vote).unwrap();
+        }
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Rejected);
+    }
+
+    #[test]
+    fn review_duplicate_vote_fails() {
+        let (chain, _dir) = make_chain("review_dup");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "review_required", 0)).unwrap();
+        apply_claim(&chain, &LedgerEntry::InferenceJobClaim {
+            job_id: "j1".into(), claimant: "bob".into(), evidence_hash: None,
+            epoch: 1, nonce: 1, signed_by: "bob".into(),
+        }).unwrap();
+
+        let vote = LedgerEntry::InferenceReviewVote {
+            job_id: "j1".into(), reviewer: "r1".into(), approved: true,
+            epoch: 2, signed_by: "r1".into(),
+        };
+        apply_review_vote(&chain, &vote.clone()).unwrap();
+        assert!(apply_review_vote(&chain, &vote).is_err());
+    }
+
+    // ── apply_pay (happy path) ────────────────────────────────────────────────
+
+    #[test]
+    fn pay_happy_path_distributes_correctly() {
+        let (chain, _dir) = make_chain("pay_happy");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 1_000, "worker")).unwrap();
+        apply_complete(&chain, &complete_entry("j1", "bob", 0)).unwrap();
+        apply_verify(&chain, &verify_entry("j1", "v1", "approved", 0)).unwrap();
+
+        let job = get_job(&chain, "j1").unwrap();
+        let pay = build_pay_entry_happy(&chain, &job, 1).expect("build pay");
+        apply_pay(&chain, &pay).expect("pay");
+
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Paid);
+
+        // Worker gets 80% of fee.
+        let worker_balance = chain.store.get_balance("bob", NATIVE_TOKEN);
+        let expected_worker = 1_000 * INFERENCE_FEE_WORKER_BPS / 10_000;
+        assert_eq!(worker_balance, expected_worker, "worker gets 80%");
+    }
+
+    #[test]
+    fn pay_fee_splits_sum_to_max_fee() {
+        // Verify no tokens are created or destroyed.
+        let fee = 10_000u64;
+        let worker_amount = fee * INFERENCE_FEE_WORKER_BPS / 10_000;
+        let verifier_pool = fee * INFERENCE_FEE_VERIFIER_BPS / 10_000;
+        let recycle_amount = fee * INFERENCE_FEE_RECYCLE_BPS / 10_000;
+        // Any remainder goes to refund.
+        let paid = worker_amount + verifier_pool + recycle_amount;
+        assert!(paid <= fee, "splits must not exceed fee");
+        // At standard bps 8000+1500+500=10000, paid == fee exactly.
+        assert_eq!(paid, fee);
+    }
+
+    // ── apply_cancel ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn cancel_posted_job_refunds_requester() {
+        let (chain, _dir) = make_chain("cancel");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+
+        let cancel = LedgerEntry::InferenceJobCancel {
+            job_id: "j1".into(),
+            cancelled_by: "alice".into(),
+            reason: "changed mind".into(),
+            epoch: 0,
+            nonce: 2,
+            signed_by: "alice".into(),
+        };
+        apply_cancel(&chain, &cancel).expect("cancel");
+
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Cancelled);
+        // Refund: alice should have her 10_000 back.
+        assert_eq!(chain.store.get_balance("alice", NATIVE_TOKEN), 10_000);
+    }
+
+    #[test]
+    fn cancel_awarded_job_by_requester_fails() {
+        let (chain, _dir) = make_chain("cancel_awarded");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+
+        let cancel = LedgerEntry::InferenceJobCancel {
+            job_id: "j1".into(),
+            cancelled_by: "alice".into(),
+            reason: "oops".into(),
+            epoch: 0,
+            nonce: 2,
+            signed_by: "alice".into(),
+        };
+        assert!(apply_cancel(&chain, &cancel).is_err(), "requester cannot cancel awarded job");
+    }
+
+    #[test]
+    fn cancel_awarded_by_system_succeeds() {
+        let (chain, _dir) = make_chain("cancel_sys");
+        seal(&chain, 0);
+        fund(&chain, "alice", 10_000);
+        apply_post(&chain, &post_entry("j1", "alice", 1_000, 0)).unwrap();
+        apply_award(&chain, &award_entry("j1", "bob", 800, "worker")).unwrap();
+
+        let cancel = LedgerEntry::InferenceJobCancel {
+            job_id: "j1".into(),
+            cancelled_by: "system".into(),
+            reason: "deadline".into(),
+            epoch: 0,
+            nonce: 0,
+            signed_by: "system".into(),
+        };
+        apply_cancel(&chain, &cancel).expect("system cancel");
+        let job = get_job(&chain, "j1").unwrap();
+        assert_eq!(job.status, JobStatus::Cancelled);
+    }
+
+    // ── build_pay_entry helpers ───────────────────────────────────────────────
+
+    #[test]
+    fn build_pay_happy_worker_gets_80_percent() {
+        let (chain, _dir) = make_chain("build_pay");
+        seal(&chain, 0);
+        let fee = 10_000u64;
+        let job = JobState {
+            job_id: "j".into(),
+            requester: "alice".into(),
+            model: "m".into(),
+            mode: "solo".into(),
+            input_hash: "h".into(),
+            max_fee: fee,
+            min_reputation: 0,
+            bid_window_epochs: 2,
+            deadline_epoch: 10,
+            posted_epoch: 0,
+            status: JobStatus::Verified,
+            winner: Some("bob".into()),
+            awarded_fee: Some(fee),
+            verifiers: vec!["v1".into()],
+            result_hash: None,
+            latency_ms: None,
+            disputed_epoch: None,
+            claimed_epoch: None,
+            settled_epoch: None,
+            completed_epoch: None,
+            persist_on_fs: false,
+            verdicts: vec![("v1".into(), "approved".into())],
+            commits: vec![],
+            min_verifiers: 1,
+            node_fingerprint: None,
+        };
+
+        let pay = build_pay_entry_happy(&chain, &job, 1).unwrap();
+        if let LedgerEntry::InferenceJobPay { worker_amount, verifier_payments, recycle_amount, .. } = pay {
+            assert_eq!(worker_amount, 8_000);
+            let ver_total: u64 = verifier_payments.iter().map(|(_, a)| a).sum();
+            assert_eq!(ver_total, 1_500);
+            assert_eq!(recycle_amount, 500);
+        } else {
+            panic!("expected InferenceJobPay");
+        }
+    }
+
+    // ── select_best_bid ───────────────────────────────────────────────────────
+
+    #[test]
+    fn select_best_bid_picks_highest_rep_per_cost() {
+        let (chain, _dir) = make_chain("select_bid");
+        seal(&chain, 0);
+
+        // Give bob higher rep.
+        let mut rep = NodeReputation::new("bob");
+        rep.score = 8_000;
+        set_reputation(&chain, &rep).unwrap();
+
+        let bids = vec![
+            BidState { job_id: "j".into(), bidder: "alice".into(), fee: 500, role: "worker".into(), epoch: 0 },
+            BidState { job_id: "j".into(), bidder: "bob".into(), fee: 500, role: "worker".into(), epoch: 0 },
+        ];
+        let best = select_best_bid(&bids, &chain, "worker").unwrap();
+        assert_eq!(best.bidder, "bob", "higher rep wins at same fee");
+    }
+
+    #[test]
+    fn select_best_bid_no_worker_bids_returns_none() {
+        let (chain, _dir) = make_chain("select_none");
+        seal(&chain, 0);
+        let bids = vec![
+            BidState { job_id: "j".into(), bidder: "v1".into(), fee: 100, role: "verifier".into(), epoch: 0 },
+        ];
+        assert!(select_best_bid(&bids, &chain, "worker").is_none());
+    }
+
+    // ── verifier approval rate ────────────────────────────────────────────────
+
+    #[test]
+    fn approval_rate_below_threshold_no_suspension() {
+        let (chain, _dir) = make_chain("appr_ok");
+        seal(&chain, 0);
+        // 5 approvals + 5 rejections = 50% approval rate — below RUBBER_STAMP threshold.
+        for _ in 0..5 {
+            update_verifier_approval_rate_pub(&chain, "v1", true).unwrap();
+        }
+        for _ in 0..5 {
+            update_verifier_approval_rate_pub(&chain, "v1", false).unwrap();
+        }
+        let vrep: serde_json::Value = chain.store
+            .state_get("verifier_rep:v1")
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        assert!(!vrep["weight_halved"].as_bool().unwrap_or(false), "50% should not be penalised");
     }
 }

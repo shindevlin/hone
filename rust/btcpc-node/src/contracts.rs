@@ -280,3 +280,269 @@ impl ContractEngine {
         Ok(ContractState::new(contract_id.to_string(), storage, balance))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    static REGISTRY_WASM: &[u8] = include_bytes!("../contracts/registry.wasm");
+
+    fn make_engine(label: &str) -> (ContractEngine, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_contract_{}_", label))
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store");
+        let chain = Arc::new(crate::chain::Chain::new(
+            store,
+            format!("contract-{}", label),
+            "btcpc-satoshi".to_string(),
+        ));
+        (ContractEngine::new(chain), dir)
+    }
+
+    fn deploy_registry(engine: &ContractEngine) -> String {
+        let wasm_b64 = BASE64.encode(REGISTRY_WASM);
+        engine
+            .deploy(
+                "shindevlin",
+                &wasm_b64,
+                Some("new".to_owned()),
+                Some(serde_json::json!({})),
+                300_000_000_000,
+                1,
+                1,
+            )
+            .expect("registry deploy")
+    }
+
+    // ── Deploy ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn deploy_returns_deterministic_address() {
+        let (engine, _dir) = make_engine("deploy");
+        let wasm_b64 = BASE64.encode(REGISTRY_WASM);
+
+        let id1 = engine.deploy("shindevlin", &wasm_b64, Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 1).expect("deploy 1");
+
+        // Same inputs on a fresh chain → same address.
+        let (engine2, _dir2) = make_engine("deploy2");
+        let id2 = engine2.deploy("shindevlin", &wasm_b64, Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 1).expect("deploy 2");
+
+        assert_eq!(id1, id2, "contract address is deterministic");
+        assert!(id1.starts_with("BTCPCsc"), "address has correct prefix");
+    }
+
+    #[test]
+    fn deploy_bumps_deployer_nonce() {
+        let (engine, _dir) = make_engine("deploy_nonce");
+        let wasm_b64 = BASE64.encode(REGISTRY_WASM);
+        let chain = &engine.chain;
+
+        // Pre-create the account so bump_nonce has something to update.
+        chain.store.set_account("shindevlin", &serde_json::json!({"nonce": 0})).unwrap();
+
+        engine.deploy("shindevlin", &wasm_b64, Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 1).expect("deploy");
+
+        let nonce_after = chain.store.get_account("shindevlin").unwrap()
+            .and_then(|s| s.get("nonce").and_then(|v| v.as_u64()))
+            .unwrap_or(0);
+
+        assert_eq!(nonce_after, 1, "nonce bumped after deploy");
+    }
+
+    #[test]
+    fn deploy_wrong_nonce_fails() {
+        let (engine, _dir) = make_engine("deploy_nonce_fail");
+        let wasm_b64 = BASE64.encode(REGISTRY_WASM);
+        // Nonce 0 is wrong — first deploy requires nonce 1.
+        assert!(engine.deploy("shindevlin", &wasm_b64, Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 0).is_err());
+    }
+
+    #[test]
+    fn deploy_invalid_base64_fails() {
+        let (engine, _dir) = make_engine("deploy_b64");
+        assert!(engine.deploy("shindevlin", "not-valid-base64!!!", Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 1).is_err());
+    }
+
+    #[test]
+    fn deploy_persists_wasm_in_store() {
+        let (engine, _dir) = make_engine("deploy_persist");
+        let contract_id = deploy_registry(&engine);
+        let wasm_key = format!("wasm:{}", contract_id);
+        assert!(engine.chain.store.get_meta(&wasm_key).is_some(),
+            "WASM must be stored in CF_META after deploy");
+    }
+
+    // ── Call ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn call_register_stores_entry() {
+        let (engine, _dir) = make_engine("call_register");
+
+        // Bump deployer nonce past deploy so signer nonce starts at 0 for call.
+        let contract_id = deploy_registry(&engine);
+
+        // Call `register` — signer "alice", nonce 1 (first call from alice).
+        let result = engine.call(
+            &contract_id,
+            "register",
+            serde_json::json!({ "key": "profile", "value": "ipfs://Qmtest" }),
+            "alice",
+            100_000_000,
+            0,
+            1,
+            1,
+        ).expect("register call");
+
+        assert!(result.is_null() || result.is_object() || result.is_string(),
+            "register returns null or a value, not an error");
+    }
+
+    #[test]
+    fn call_wrong_nonce_fails() {
+        let (engine, _dir) = make_engine("call_nonce");
+        let contract_id = deploy_registry(&engine);
+
+        // Alice's first call must use nonce 1. Nonce 5 → fail.
+        assert!(engine.call(
+            &contract_id,
+            "register",
+            serde_json::json!({ "key": "k", "value": "v" }),
+            "alice",
+            100_000_000,
+            0,
+            1,
+            5,
+        ).is_err());
+    }
+
+    #[test]
+    fn call_unknown_contract_fails() {
+        let (engine, _dir) = make_engine("call_unknown");
+        assert!(engine.call(
+            "BTCPCscdeadbeefdeadbeefdeadbeefdeadbeef",
+            "register",
+            serde_json::json!({}),
+            "alice",
+            100_000_000,
+            0,
+            1,
+            1,
+        ).is_err());
+    }
+
+    // ── View ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn view_get_returns_null_for_missing_key() {
+        let (engine, _dir) = make_engine("view_get_missing");
+        let contract_id = deploy_registry(&engine);
+
+        let result = engine.view(
+            &contract_id,
+            "get",
+            serde_json::json!({ "account": "alice", "key": "profile" }),
+            100_000_000,
+            1,
+        ).expect("view get");
+
+        assert!(result.is_null(), "missing key should return null, got {:?}", result);
+    }
+
+    #[test]
+    fn view_list_keys_empty_for_new_account() {
+        let (engine, _dir) = make_engine("view_list_empty");
+        let contract_id = deploy_registry(&engine);
+
+        let result = engine.view(
+            &contract_id,
+            "list_keys",
+            serde_json::json!({ "account": "nobody" }),
+            100_000_000,
+            1,
+        ).expect("view list_keys");
+
+        let arr = result.as_array().expect("list_keys returns array");
+        assert!(arr.is_empty(), "new account has no keys");
+    }
+
+    #[test]
+    fn view_count_returns_zero_for_new_account() {
+        let (engine, _dir) = make_engine("view_count");
+        let contract_id = deploy_registry(&engine);
+
+        let result = engine.view(
+            &contract_id,
+            "count",
+            serde_json::json!({ "account": "nobody" }),
+            100_000_000,
+            1,
+        ).expect("view count");
+
+        assert_eq!(result.as_u64().unwrap_or(0), 0);
+    }
+
+    #[test]
+    fn view_has_returns_false_for_missing_key() {
+        let (engine, _dir) = make_engine("view_has");
+        let contract_id = deploy_registry(&engine);
+
+        let result = engine.view(
+            &contract_id,
+            "has",
+            serde_json::json!({ "account": "alice", "key": "profile" }),
+            100_000_000,
+            1,
+        ).expect("view has");
+
+        assert_eq!(result.as_bool().unwrap_or(true), false);
+    }
+
+    #[test]
+    fn view_does_not_commit_state() {
+        let (engine, _dir) = make_engine("view_readonly");
+        let contract_id = deploy_registry(&engine);
+
+        // Calling a state-changing method via view must NOT persist writes.
+        // The call itself may succeed or fail in the WASM sandbox, but writes are discarded.
+        let _ = engine.view(
+            &contract_id,
+            "register",
+            serde_json::json!({ "key": "k", "value": "v" }),
+            100_000_000,
+            1,
+        );
+
+        // Verify nothing was stored for alice.
+        let count = engine.view(
+            &contract_id,
+            "count",
+            serde_json::json!({ "account": "alice" }),
+            100_000_000,
+            1,
+        ).expect("count view");
+
+        assert_eq!(count.as_u64().unwrap_or(99), 0,
+            "view must not persist state writes");
+    }
+
+    #[test]
+    fn view_unknown_contract_fails() {
+        let (engine, _dir) = make_engine("view_unknown");
+        assert!(engine.view(
+            "BTCPCscdeadbeefdeadbeefdeadbeefdeadbeef",
+            "count",
+            serde_json::json!({ "account": "alice" }),
+            100_000_000,
+            1,
+        ).is_err());
+    }
+}

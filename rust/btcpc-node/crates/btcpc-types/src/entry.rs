@@ -64,6 +64,16 @@ pub struct MerkleRangeProof {
     pub proof_nodes: Vec<String>,
 }
 
+/// Oracle reveal record — supplied in OracleFeedFinalize to prove committed values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OracleReveal {
+    pub reporter: String,
+    /// Raw value (micro-USD with 6 decimals, or asset-specific integer).
+    pub value: u64,
+    /// Nonce used in the commit hash: sha256(value_u64_le | nonce | reporter).
+    pub nonce: String,
+}
+
 /// Owner-level authority bundle for the 3-of-4 adaptive threshold.
 /// Required when an action needs owner-level approval (key rotation, 2FA changes).
 ///
@@ -794,6 +804,19 @@ pub enum LedgerEntry {
         sensor_type: String,
         epoch: Epoch,
         signed_by: AccountId,
+        /// Optional gateway that relayed this sensor's data (earns 40% of reward).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gateway_account: Option<String>,
+    },
+
+    /// System entry: split a sensor reward between the sensor node (60%) and
+    /// the IoT gateway that relayed its data (40%).
+    GatewayRewardSplit {
+        sensor_account: AccountId,
+        gateway_account: AccountId,
+        sensor_amount: Dreams,
+        gateway_amount: Dreams,
+        epoch: Epoch,
     },
     /// Register a hardware IoT device key. Signed by owner's posting key.
     DeviceKeyRegister {
@@ -843,6 +866,10 @@ pub enum LedgerEntry {
         /// Missing or mismatched proof earns STORAGE_PROOF_NO_PROOF_BPS (20%) of normal reward.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         challenge_response: Option<MerkleRangeProof>,
+        /// Blob capacity tier: 1 = base (1×), 2 = mid (2×), 3 = full (5×).
+        /// Tier is self-reported and verified against bytes_proven at reward time.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tier: Option<u8>,
         signed_by: AccountId,
     },
     /// Service node heartbeat proving active container-hours (decentralized compute).
@@ -1257,6 +1284,13 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+    /// Deregister a mainnet account from testnet operator rewards.
+    TestnetOperatorDeregister {
+        mainnet_account: AccountId,
+        testnet_chain_id: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
     /// Periodic mainnet reward to a registered testnet operator.
     /// Emitted by mainnet clock nodes each epoch from the testnet fund.
     TestnetReward {
@@ -1645,6 +1679,636 @@ pub enum LedgerEntry {
         epoch: Epoch,
         signed_by: AccountId,
     },
+
+    // ── Scientific Compute ────────────────────────────────────────────────────
+
+    /// On-chain record of a completed open-source scientific compute job.
+    /// Only emitted for jobs with open_source = true.
+    ScientificResult {
+        job_id: String,
+        requester: AccountId,
+        job_type: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        input_hash: String,
+        result_hash: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result_blob_cid: Option<String>,
+        fee_paid: Dreams,
+        contributing_nodes: Vec<AccountId>,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    // ── Cross-Chain Finality ──────────────────────────────────────────────────
+
+    /// Recorded by the node each epoch when finality is announced to bridge chains.
+    CrossChainFinalityAnnounce {
+        target_chain: String,
+        finality_epoch: Epoch,
+        cutoff_epoch: Epoch,
+        state_root: String,
+        finality_hash: String,
+        inference_finality_hash: String,
+        announcement_hash: String,
+        finalized_job_count: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    // ── Ensemble inference ───────────────────────────────────────────────────
+
+    /// Post an ensemble inference job — fans out to N workers, majority-vote wins.
+    EnsembleJobPost {
+        job_id: String,
+        requester: AccountId,
+        model: String,
+        input_hash: String,
+        max_fee: Dreams,
+        n_workers: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Worker submits their output hash for an ensemble job (commit-reveal style).
+    EnsembleVote {
+        job_id: String,
+        worker: AccountId,
+        output_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Slashing framework ───────────────────────────────────────────────────
+
+    /// Clock node reports validator misbehaviour (double-sign, downtime, etc.).
+    SlashValidator {
+        slash_id: String,
+        reporter: AccountId,
+        accused: AccountId,
+        /// Type of violation: "double_sign" | "downtime" | "invalid_seal" | "other"
+        violation: String,
+        /// Hash of supporting evidence (stored off-chain or in CF_META).
+        evidence: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Appeal vote by a panel member on a slash decision.
+    SlashAppeal {
+        slash_id: String,
+        panelist: AccountId,
+        overturn: bool,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── wBTCPC bridge ────────────────────────────────────────────────────────
+
+    /// Custodian deposits funds into the bridge, minting wBTCPC up to the 4.2M cap.
+    BridgeFund {
+        bridge_id: String,
+        custodian: AccountId,
+        amount_dreams: Dreams,
+        external_tx_hash: String,
+        chain: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Wrap native BTCPC into wBTCPC for use on external chains.
+    BridgeWrap {
+        account: AccountId,
+        amount_dreams: Dreams,
+        external_address: String,
+        chain: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Burn wBTCPC and queue an unlock on the external chain (FIFO).
+    BridgeUnwrap {
+        account: AccountId,
+        amount_dreams: Dreams,
+        recipient_external: String,
+        chain: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Custodian confirms an unlock request has been processed on the external chain.
+    BridgeUnlock {
+        request_id: String,
+        custodian: AccountId,
+        external_tx_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Oracle price feeds ───────────────────────────────────────────────────
+
+    /// Create a new oracle price feed (e.g. "BTCPC/USD").
+    OracleFeedCreate {
+        feed_id: String,
+        creator: AccountId,
+        asset_pair: String,
+        update_interval_epochs: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Reporter submits a commit hash (commit-reveal price report).
+    OracleReport {
+        feed_id: String,
+        reporter: AccountId,
+        /// sha256(value_u64_le | nonce | reporter)
+        commit_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Finalise a round: supply all reveals, compute median, score reporters.
+    OracleFeedFinalize {
+        feed_id: String,
+        finalizer: AccountId,
+        /// All (reporter, value, nonce) tuples for this round.
+        reveals: Vec<OracleReveal>,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Session marketplace ──────────────────────────────────────────────────
+
+    /// List an AI session context for sale.
+    SessionListingCreate {
+        listing_id: String,
+        seller: AccountId,
+        price_dreams: Dreams,
+        model: String,
+        summary_hash: String,
+        turn_count: u32,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Buy an active session listing.
+    SessionListingBuy {
+        listing_id: String,
+        buyer: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Cancel an active session listing (seller only).
+    SessionListingCancel {
+        listing_id: String,
+        seller: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Agent sessions ───────────────────────────────────────────────────────
+
+    /// Open a new persistent agent session with fee escrow.
+    AgentSessionOpen {
+        session_id: String,
+        client: AccountId,
+        client_pubkey: String,
+        model: String,
+        fee_escrow: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Close a session, paying out fees and refunding unused escrow.
+    AgentSessionClose {
+        session_id: String,
+        client: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── VRF beacon ───────────────────────────────────────────────────────────
+
+    /// Clock node commits a hash for the VRF beacon (with deposit).
+    VrfCommit {
+        committer: AccountId,
+        commit_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Clock node reveals the pre-image to contribute to the beacon.
+    VrfReveal {
+        committer: AccountId,
+        secret_hex: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Phone mining ──────────────────────────────────────────────────────────
+
+    /// Proof-of-useful-work submission from a mobile phone miner.
+    ///
+    /// `work_hash` = SHA-256(job_id | output | account). The chain verifies
+    /// the hash matches the assigned work unit and rewards the submitter.
+    PhoneMineSubmit {
+        account: AccountId,
+        nonce: u64,
+        device_id: String,
+        /// SHA-256(job_id | output | account) — proves the phone did the work.
+        work_hash: String,
+        /// SHA-256 of the prompt that was assigned (ties proof to the work unit).
+        prompt_hash: String,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Governance ────────────────────────────────────────────────────────────
+
+    /// Submit a governance proposal. Only governance council members may propose.
+    ///
+    /// `action` is one of:
+    ///   - `"param_set"` — set a chain parameter (action_key + action_value required)
+    ///   - `"council_add"` — add account to governance council (action_key = account)
+    ///   - `"council_remove"` — remove account from governance council (action_key = account)
+    ///   - `"text"` — on-chain signal with no automatic execution
+    GovernancePropose {
+        proposal_id: String,
+        proposer: AccountId,
+        title: String,
+        description: String,
+        /// One of: "param_set" | "council_add" | "council_remove" | "text"
+        action: String,
+        /// For param_set: parameter key. For council_*: account name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_key: Option<String>,
+        /// For param_set: new parameter value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action_value: Option<String>,
+        /// Epoch after which voting closes.
+        voting_ends_epoch: Epoch,
+        epoch: Epoch,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Cast a vote on an open governance proposal.
+    /// Any account with stake > 0 may vote. One vote per account per proposal.
+    GovernanceVote {
+        proposal_id: String,
+        voter: AccountId,
+        /// true = yes/approve, false = no/reject
+        approve: bool,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Finalize a governance proposal after voting has closed.
+    /// Submitted automatically by the epoch seal handler when voting_ends_epoch passes.
+    /// Executes the action if the proposal passed (yes > no, quorum ≥ 2 votes).
+    GovernanceFinalize {
+        proposal_id: String,
+        /// "passed" | "rejected" | "no_quorum"
+        outcome: String,
+        yes_votes: u64,
+        no_votes: u64,
+        epoch: Epoch,
+        signed_by: AccountId,
+    },
+
+    // ── Name auctions ─────────────────────────────────────────────────────────
+
+    /// Open a new name auction. Tier gating: len 1 = ultra, 2 = premium,
+    /// 3-4 = standard, 5-9 = basic, 10+ = free.
+    NameAuctionOpen {
+        auction_id: String,
+        name: String,
+        opener: AccountId,
+        /// Minimum bid in dreams.
+        min_bid: Dreams,
+        /// Epoch at which bidding closes.
+        end_epoch: Epoch,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Submit a bid in a name auction.
+    NameAuctionBid {
+        auction_id: String,
+        bidder: AccountId,
+        /// Bid amount in dreams (must exceed current high bid).
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Settle a concluded auction — assigns the name to the winner.
+    NameAuctionSettle {
+        auction_id: String,
+        settler: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Cancel an auction that received no bids (opener only).
+    NameAuctionCancel {
+        auction_id: String,
+        opener: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Freeport auctions ─────────────────────────────────────────────────────
+
+    /// Open an auction for a Freeport item (reuses name-auction engine).
+    FreeportAuctionOpen {
+        auction_id: String,
+        item_type: String,
+        item_id: String,
+        seller: AccountId,
+        min_bid: Dreams,
+        end_epoch: Epoch,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Bid on a Freeport auction.
+    FreeportAuctionBid {
+        auction_id: String,
+        bidder: AccountId,
+        amount: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Settle a concluded Freeport auction.
+    FreeportAuctionSettle {
+        auction_id: String,
+        settler: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Private authorization ─────────────────────────────────────────────────
+
+    /// Enroll a signing key into a private authorization group (M-of-N).
+    PrivateAuthEnroll {
+        group_id: String,
+        member: AccountId,
+        member_pubkey: String,
+        /// Total signers required for threshold (N).
+        threshold_n: u32,
+        /// Required signatures to approve (M).
+        threshold_m: u32,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Approve a pending high-value transfer using M-of-N threshold signing.
+    PrivateAuthApprove {
+        group_id: String,
+        tx_hash: String,
+        approver: AccountId,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Memory service ────────────────────────────────────────────────────────
+
+    /// Write a key→value pair to the on-chain memory store for an account.
+    MemorySet {
+        account: AccountId,
+        key: String,
+        value: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Delete a key from the on-chain memory store.
+    MemoryDelete {
+        account: AccountId,
+        key: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Amber Pill (soulbound NFT) ────────────────────────────────────────────
+
+    /// Mint an AmberPill soulbound NFT for an account.
+    /// Non-transferable; grants 1.5× entry_weight multiplier.
+    AmberPillMint {
+        account: AccountId,
+        /// Unique pill serial — derived from hardware fingerprint.
+        pill_id: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Phone storage proof ───────────────────────────────────────────────────
+
+    /// Mobile device submits a storage proof to earn storage rewards.
+    PhoneStorageProof {
+        account: AccountId,
+        device_id: String,
+        /// SHA-256 of the stored blob or chunk.
+        proof_hash: String,
+        /// Size of the proven data in bytes.
+        bytes_proven: u64,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Fine-tune job ─────────────────────────────────────────────────────────
+
+    /// Submit a LoRA fine-tuning job request.
+    FineTuneJobPost {
+        job_id: String,
+        requester: AccountId,
+        base_model: String,
+        dataset_cid: String,
+        /// Maximum fee in dreams the requester will pay.
+        max_fee: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Fine-tune job completed by a worker node.
+    FineTuneJobComplete {
+        job_id: String,
+        worker: AccountId,
+        /// CID of the LoRA adapter artifact.
+        adapter_cid: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Computer-use job ──────────────────────────────────────────────────────
+
+    /// Submit a Playwright computer-use automation job.
+    ComputerUseJobPost {
+        job_id: String,
+        requester: AccountId,
+        /// JSON-serialized task description.
+        task_json: String,
+        max_fee: Dreams,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// Computer-use job result submitted by a worker.
+    ComputerUseJobComplete {
+        job_id: String,
+        worker: AccountId,
+        /// CID of the screenshot/result artifact.
+        result_cid: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Blob serve proof ──────────────────────────────────────────────────────
+
+    /// Node proves it served a blob and claims a bandwidth reward.
+    BlobServeProof {
+        node_id: AccountId,
+        cid: String,
+        bytes_served: u64,
+        /// SHA-256(cid | bytes_served | node_id | epoch)
+        proof_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    // ── Snapshot replication ──────────────────────────────────────────────────
+
+    /// Save a named chain snapshot (slug → BTCPC-FS CID).
+    SnapshotSave {
+        account: AccountId,
+        slug: String,
+        cid: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// A single chain address within a wallet family.
@@ -1743,6 +2407,7 @@ impl LedgerEntry {
             Self::LinkGitPrMerge { epoch, .. } => *epoch,
             Self::LinkGitPrClose { epoch, .. } => *epoch,
             Self::TestnetOperatorRegister { epoch, .. } => *epoch,
+            Self::TestnetOperatorDeregister { epoch, .. } => *epoch,
             Self::TestnetReward { epoch, .. } => *epoch,
             Self::MempoolReward { epoch, .. } => *epoch,
             Self::MempoolOperatorRegister { epoch, .. } => *epoch,
@@ -1783,6 +2448,50 @@ impl LedgerEntry {
             Self::LivenessProof { epoch, .. } => *epoch,
             Self::EntropyWitness { epoch, .. } => *epoch,
             Self::HardwareClaim { epoch, .. } => *epoch,
+            Self::ScientificResult { epoch, .. } => *epoch,
+            Self::CrossChainFinalityAnnounce { epoch, .. } => *epoch,
+            Self::PhoneMineSubmit { epoch, .. } => *epoch,
+            Self::EnsembleJobPost { epoch, .. } => *epoch,
+            Self::EnsembleVote { epoch, .. } => *epoch,
+            Self::SlashValidator { epoch, .. } => *epoch,
+            Self::SlashAppeal { epoch, .. } => *epoch,
+            Self::BridgeFund { epoch, .. } => *epoch,
+            Self::BridgeWrap { epoch, .. } => *epoch,
+            Self::BridgeUnwrap { epoch, .. } => *epoch,
+            Self::BridgeUnlock { epoch, .. } => *epoch,
+            Self::OracleFeedCreate { epoch, .. } => *epoch,
+            Self::OracleReport { epoch, .. } => *epoch,
+            Self::OracleFeedFinalize { epoch, .. } => *epoch,
+            Self::SessionListingCreate { epoch, .. } => *epoch,
+            Self::SessionListingBuy { epoch, .. } => *epoch,
+            Self::SessionListingCancel { epoch, .. } => *epoch,
+            Self::AgentSessionOpen { epoch, .. } => *epoch,
+            Self::AgentSessionClose { epoch, .. } => *epoch,
+            Self::VrfCommit { epoch, .. } => *epoch,
+            Self::VrfReveal { epoch, .. } => *epoch,
+            Self::GatewayRewardSplit { epoch, .. } => *epoch,
+            Self::NameAuctionOpen { epoch, .. } => *epoch,
+            Self::MemorySet { epoch, .. } => *epoch,
+            Self::MemoryDelete { epoch, .. } => *epoch,
+            Self::AmberPillMint { epoch, .. } => *epoch,
+            Self::PhoneStorageProof { epoch, .. } => *epoch,
+            Self::FineTuneJobPost { epoch, .. } => *epoch,
+            Self::FineTuneJobComplete { epoch, .. } => *epoch,
+            Self::ComputerUseJobPost { epoch, .. } => *epoch,
+            Self::ComputerUseJobComplete { epoch, .. } => *epoch,
+            Self::BlobServeProof { epoch, .. } => *epoch,
+            Self::SnapshotSave { epoch, .. } => *epoch,
+            Self::NameAuctionBid { epoch, .. } => *epoch,
+            Self::NameAuctionSettle { epoch, .. } => *epoch,
+            Self::NameAuctionCancel { epoch, .. } => *epoch,
+            Self::FreeportAuctionOpen { epoch, .. } => *epoch,
+            Self::FreeportAuctionBid { epoch, .. } => *epoch,
+            Self::FreeportAuctionSettle { epoch, .. } => *epoch,
+            Self::PrivateAuthEnroll { epoch, .. } => *epoch,
+            Self::PrivateAuthApprove { epoch, .. } => *epoch,
+            Self::GovernancePropose { epoch, .. } => *epoch,
+            Self::GovernanceVote { epoch, .. } => *epoch,
+            Self::GovernanceFinalize { epoch, .. } => *epoch,
             Self::ClockNodeRegister { epoch, .. } => *epoch,
             Self::ClockDoubleSignEvidence { epoch, .. } => *epoch,
             Self::ProjectCreate { epoch, .. } => *epoch,
@@ -1898,6 +2607,31 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::SpamGatePayEvm { .. }
         | LedgerEntry::SensorDataPurchase { .. } => ENTRY_WEIGHT_HEAVY,
 
+        // ── Standard (3): phone mining + slashing appeals ────────────────────
+        LedgerEntry::PhoneMineSubmit { .. }
+        | LedgerEntry::SlashAppeal { .. }
+        | LedgerEntry::EnsembleVote { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Standard (3): oracle reports + session ops + VRF ─────────────────
+        LedgerEntry::OracleReport { .. }
+        | LedgerEntry::VrfCommit { .. }
+        | LedgerEntry::VrfReveal { .. }
+        | LedgerEntry::SessionListingBuy { .. }
+        | LedgerEntry::SessionListingCancel { .. }
+        | LedgerEntry::AgentSessionClose { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Heavy (5): ensemble jobs + bridge ops + slash + oracle + sessions ──
+        LedgerEntry::EnsembleJobPost { .. }
+        | LedgerEntry::SlashValidator { .. }
+        | LedgerEntry::BridgeFund { .. }
+        | LedgerEntry::BridgeWrap { .. }
+        | LedgerEntry::BridgeUnwrap { .. }
+        | LedgerEntry::BridgeUnlock { .. }
+        | LedgerEntry::OracleFeedCreate { .. }
+        | LedgerEntry::OracleFeedFinalize { .. }
+        | LedgerEntry::SessionListingCreate { .. }
+        | LedgerEntry::AgentSessionOpen { .. } => ENTRY_WEIGHT_HEAVY,
+
         // ── Bulk (10): large data operations ─────────────────────────────────
         LedgerEntry::BlobStore { .. }
         | LedgerEntry::LinkGitRefUpdate { .. }
@@ -1943,11 +2677,15 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::RuntimeDeploy { .. }
         | LedgerEntry::MempoolOperatorRegister { .. }
         | LedgerEntry::HardwareClaim { .. }
+        | LedgerEntry::ScientificResult { .. }
+        | LedgerEntry::GovernancePropose { .. }
+        | LedgerEntry::GovernanceVote { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
         | LedgerEntry::FlashSale { .. }
         | LedgerEntry::ProductCreate { .. }
         | LedgerEntry::TestnetOperatorRegister { .. }
+        | LedgerEntry::TestnetOperatorDeregister { .. }
         | LedgerEntry::SpamGateSet { .. }
         | LedgerEntry::TokenApprove { .. }
         | LedgerEntry::TokenRevoke { .. }
@@ -1959,7 +2697,35 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::TaskSubmit { .. }
         | LedgerEntry::TaskApprove { .. } => ENTRY_WEIGHT_STANDARD,
 
+        // ── Phase 5 entries ───────────────────────────────────────────────────
+        LedgerEntry::FineTuneJobPost { .. }
+        | LedgerEntry::ComputerUseJobPost { .. } => ENTRY_WEIGHT_HEAVY,
+
+        LedgerEntry::MemorySet { .. }
+        | LedgerEntry::MemoryDelete { .. }
+        | LedgerEntry::AmberPillMint { .. }
+        | LedgerEntry::PhoneStorageProof { .. }
+        | LedgerEntry::FineTuneJobComplete { .. }
+        | LedgerEntry::ComputerUseJobComplete { .. }
+        | LedgerEntry::BlobServeProof { .. }
+        | LedgerEntry::SnapshotSave { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Name / Freeport auctions (heavy open, standard bid/settle/cancel) ─
+        LedgerEntry::NameAuctionOpen { .. }
+        | LedgerEntry::FreeportAuctionOpen { .. }
+        | LedgerEntry::PrivateAuthEnroll { .. } => ENTRY_WEIGHT_HEAVY,
+
+        LedgerEntry::NameAuctionBid { .. }
+        | LedgerEntry::NameAuctionSettle { .. }
+        | LedgerEntry::NameAuctionCancel { .. }
+        | LedgerEntry::FreeportAuctionBid { .. }
+        | LedgerEntry::FreeportAuctionSettle { .. }
+        | LedgerEntry::PrivateAuthApprove { .. } => ENTRY_WEIGHT_STANDARD,
+
         // ── System (0) — free ────────────────────────────────────────────────
-        LedgerEntry::RuntimeReward { .. } => ENTRY_WEIGHT_SYSTEM,
+        LedgerEntry::RuntimeReward { .. }
+        | LedgerEntry::GovernanceFinalize { .. }
+        | LedgerEntry::CrossChainFinalityAnnounce { .. }
+        | LedgerEntry::GatewayRewardSplit { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }

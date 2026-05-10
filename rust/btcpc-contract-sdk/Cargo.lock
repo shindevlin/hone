@@ -68,6 +68,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "btcpc-registry"
+version = "1.0.0"
+dependencies = [
+ "borsh",
+ "btcpc-contract-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

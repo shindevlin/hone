@@ -4,6 +4,7 @@ members = [
     "sdk-macros",
     "examples/ft",
     "examples/nft",
+    "examples/registry",
 ]
 resolver = "2"
 

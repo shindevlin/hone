@@ -36,6 +36,10 @@ impl Counter {
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
+// Make alloc types available in no_std mode (wasm32 target).
+#[cfg(target_arch = "wasm32")]
+extern crate alloc;
+
 #[cfg(feature = "wee_alloc")]
 #[cfg(target_arch = "wasm32")]
 #[global_allocator]
@@ -60,6 +64,15 @@ pub use env::*;
 pub use borsh::{BorshDeserialize, BorshSerialize};
 pub use serde::{Deserialize, Serialize};
 pub use serde_json;
+
+/// Private re-exports for macro-generated code. Not part of the public API.
+#[doc(hidden)]
+pub mod __private {
+    #[cfg(target_arch = "wasm32")]
+    pub use alloc::{vec, vec::Vec, format};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use std::{vec, vec::Vec, format};
+}
 
 /// Panic the contract with a message. State changes are rolled back.
 #[macro_export]
@@ -88,6 +101,6 @@ macro_rules! log {
 #[macro_export]
 macro_rules! emit {
     ($event:expr) => {
-        $crate::event::emit_event($event);
+        $crate::event::emit_event(&$event);
     };
 }

@@ -459,6 +459,7 @@ dependencies = [
 name = "btcpc-node"
 version = "0.8.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "axum",
  "base64 0.22.1",

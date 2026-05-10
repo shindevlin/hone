@@ -2305,6 +2305,21 @@
       </div>
 
       <div class="settings-section">
+        <h3>Testnet</h3>
+        <div class="setting-row">
+          <div>
+            <span>Run testnet on this device</span>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Earn BTCPC from the testnet fund each epoch. Same keys — no new wallet needed.</div>
+          </div>
+          <label class="sensor-toggle">
+            <input type="checkbox" id="toggle-testnet">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div id="testnet-status-note" style="margin-top:6px;font-size:11px;display:none;"></div>
+      </div>
+
+      <div class="settings-section">
         <h3>On-Device AI</h3>
         <div class="setting-row">
           <span>Run AI on this device (experimental)</span>
@@ -4293,6 +4308,74 @@ try {
 } catch (e) {
   console.error('[BTCPC] Tab bar init error:', e);
 }
+
+// ─── Testnet Toggle ───
+(async function initTestnetToggle() {
+  const toggle = document.getElementById('toggle-testnet');
+  const note   = document.getElementById('testnet-status-note');
+  if (!toggle) return;
+
+  // Detect local node
+  const LOCAL_NODE = 'http://localhost:4242';
+  let localBase = null;
+  try {
+    const r = await fetch(LOCAL_NODE + '/api/node/info', { signal: AbortSignal.timeout(1200) });
+    if (r.ok) localBase = LOCAL_NODE;
+  } catch (_) {}
+  // Fallback to API_BASE if same-origin node (served via btcpc.net proxy)
+  if (!localBase) localBase = API_BASE;
+
+  const acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account') || '';
+
+  async function refreshTestnetStatus() {
+    if (!acct) return;
+    try {
+      const r = await fetch(localBase + '/api/node/testnet/status/' + encodeURIComponent(acct));
+      if (r.ok) {
+        const d = await r.json();
+        toggle.checked = !!d.registered;
+        if (d.registered) {
+          note.textContent = 'Registered — earning from testnet fund each epoch.';
+          note.style.color = '#22c55e';
+        } else {
+          note.textContent = '';
+        }
+        note.style.display = d.registered ? 'block' : 'none';
+      }
+    } catch (_) {}
+  }
+
+  await refreshTestnetStatus();
+
+  toggle.addEventListener('change', async () => {
+    const enabled = toggle.checked;
+    note.textContent = enabled ? 'Registering…' : 'Deregistering…';
+    note.style.color = 'var(--muted)';
+    note.style.display = 'block';
+    try {
+      const r = await fetch(localBase + '/api/node/testnet/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await r.json();
+      if (r.ok && d.ok) {
+        note.textContent = enabled
+          ? 'Registered — earning from testnet fund each epoch.'
+          : 'Deregistered.';
+        note.style.color = enabled ? '#22c55e' : 'var(--muted)';
+      } else {
+        note.textContent = 'Error: ' + (d.error || 'unknown');
+        note.style.color = '#ef4444';
+        toggle.checked = !enabled; // revert
+      }
+    } catch (e) {
+      note.textContent = 'Could not reach local node. Start BTCPC to use this setting.';
+      note.style.color = '#ef4444';
+      toggle.checked = !enabled;
+    }
+  });
+})();
 
 // ─── On-Device AI Toggle ───
 const ondeviceToggle = document.getElementById('toggle-ondevice-ai');

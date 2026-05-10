@@ -79,3 +79,6 @@ website-redesign/
 
 # Scheduled task lock
 .claude/scheduled_tasks.lock
+
+# Graphify knowledge graph output (generated, not source)
+graphify-out/

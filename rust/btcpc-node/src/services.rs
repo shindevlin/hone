@@ -26,10 +26,13 @@ pub async fn run_service_node(
         if epoch <= last_epoch { continue; }
         last_epoch = epoch;
 
+        let uptime_ms = now_ms().saturating_sub(genesis_ts);
+        let container_hours = uptime_ms / 3_600_000;
+
         let entry = LedgerEntry::ServiceHeartbeat {
             node_id:         account.clone(),
             epoch,
-            container_hours: 1,
+            container_hours,
             signed_by:       account.clone(),
         };
 
@@ -46,6 +49,6 @@ pub async fn run_service_node(
             }).await;
         }
 
-        info!("service: heartbeat epoch {} hours=1", epoch);
+        info!("service: heartbeat epoch {} hours={}", epoch, container_hours);
     }
 }

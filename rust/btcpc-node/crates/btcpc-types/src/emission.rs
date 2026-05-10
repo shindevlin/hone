@@ -155,13 +155,22 @@ pub const MIN_REVIEW_VOTES: u64 = 3;
 
 // ── Testnet incentive fund ────────────────────────────────────────────────────
 
-/// System account holding mainnet tokens reserved for testnet operators.
-/// Seeded in genesis so nodes running btcpc-satoshi get small mainnet rewards.
+/// System account holding mainnet tokens reserved for testnet node operators.
+/// Receives 0.4%/epoch from the epoch reward pool.
+/// Testnet operators (accounts running btcpc-satoshi nodes) claim proportional
+/// shares via TestnetReward entries — same account name as their mainnet identity.
 pub const TESTNET_FUND_ACCOUNT: &str = "__testnet_fund__";
 
 /// Per registered testnet operator per mainnet epoch (base, era 0).
 /// Scales with epoch duration the same way clock_reward_at does.
 pub const TESTNET_REWARD_BASE_DREAMS: u64 = 5_000_000; // 0.0005 BTCPC at era 0
+
+// ── DAO treasury ─────────────────────────────────────────────────────────────
+
+/// DAO treasury account — no individual keys, chain governance decides spending.
+/// Receives 0.1%/epoch from the epoch reward pool.
+/// Exempt from dormant-account token decay.
+pub const TREASURY_ACCOUNT: &str = "__treasury__";
 
 
 /// Per-epoch clock reward that maintains constant daily income as epoch duration grows.

@@ -1,5 +1,10 @@
 //! Cross-contract call API.
 
+#[cfg(target_arch = "wasm32")]
+extern crate alloc;
+#[cfg(target_arch = "wasm32")]
+use alloc::{string::{String, ToString}, vec::Vec, borrow::ToOwned};
+
 use crate::types::{Balance, Gas};
 
 /// A deferred cross-contract call.

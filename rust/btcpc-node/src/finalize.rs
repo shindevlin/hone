@@ -181,7 +181,7 @@ fn apply_entropy_decay(chain: &Arc<Chain>, current_epoch: u64) {
 
     for account in &account_ids {
         // Skip protocol / system accounts — they never decay.
-        if matches!(account.as_str(), "__recycle__" | "__testnet_fund__" | "treasury" | "shindevlin") {
+        if matches!(account.as_str(), "__recycle_fund__" | "__testnet_fund__" | "__treasury__" | "shindevlin") {
             continue;
         }
 

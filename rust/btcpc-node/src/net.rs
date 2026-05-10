@@ -93,9 +93,9 @@ struct BtcpcBehaviour {
 }
 
 // ---------------------------------------------------------------------------
-// Topic names
-// ---------------------------------------------------------------------------
-
+// Internal broadcast routing keys (unchanged — all callers use these strings).
+// The on-wire gossipsub topic is "{chain_id}/{key}" so mainnet and testnet
+// never share a mesh even when they share the same physical peers.
 const TOPIC_BLOCKS:     &str = "btcpc/blocks";
 const TOPIC_ENTRIES:    &str = "btcpc/entries";
 const TOPIC_SEALS:      &str = "btcpc/seals";
@@ -256,13 +256,16 @@ impl Network {
             .build();
 
         // ------------------------------------------------------------------
-        // 3. Subscribe to topics
+        // 3. Subscribe to topics — on-wire name = "{chain_id}/{key}"
+        //    e.g. "btcpc-1/btcpc/entries" vs "btcpc-satoshi/btcpc/entries"
+        //    so mainnet and testnet never share a gossip mesh.
         // ------------------------------------------------------------------
-        let t_blocks    = gossipsub::IdentTopic::new(TOPIC_BLOCKS);
-        let t_entries   = gossipsub::IdentTopic::new(TOPIC_ENTRIES);
-        let t_seals     = gossipsub::IdentTopic::new(TOPIC_SEALS);
-        let t_sync      = gossipsub::IdentTopic::new(TOPIC_SYNC);
-        let t_consensus = gossipsub::IdentTopic::new(TOPIC_CONSENSUS);
+        let cid = &self.config.chain_id;
+        let t_blocks    = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_BLOCKS));
+        let t_entries   = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_ENTRIES));
+        let t_seals     = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SEALS));
+        let t_sync      = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SYNC));
+        let t_consensus = gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CONSENSUS));
 
         swarm.behaviour_mut().gossipsub.subscribe(&t_blocks)?;
         swarm.behaviour_mut().gossipsub.subscribe(&t_entries)?;
@@ -515,14 +518,17 @@ impl Network {
         message: &gossipsub::Message,
         source: String,
     ) {
-        // Resolve topic string from hash — we know all four topics
+        // Resolve topic string from hash — match against this node's chain-scoped topics.
+        // A message on a different chain_id's topics will simply fall through to the
+        // unknown-topic branch and be silently dropped.
+        let cid = &self.config.chain_id;
         let topic_str = {
             let h = &message.topic;
-            if      h == &gossipsub::IdentTopic::new(TOPIC_BLOCKS).hash()     { TOPIC_BLOCKS     }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_ENTRIES).hash()    { TOPIC_ENTRIES    }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_SEALS).hash()      { TOPIC_SEALS      }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_SYNC).hash()       { TOPIC_SYNC       }
-            else if h == &gossipsub::IdentTopic::new(TOPIC_CONSENSUS).hash()  { TOPIC_CONSENSUS  }
+            if      h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_BLOCKS)).hash()     { TOPIC_BLOCKS     }
+            else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_ENTRIES)).hash()    { TOPIC_ENTRIES    }
+            else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SEALS)).hash()      { TOPIC_SEALS      }
+            else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_SYNC)).hash()       { TOPIC_SYNC       }
+            else if h == &gossipsub::IdentTopic::new(format!("{}/{}", cid, TOPIC_CONSENSUS)).hash()  { TOPIC_CONSENSUS  }
             else {
                 debug!("Message on unknown topic hash {:?}", h);
                 return;

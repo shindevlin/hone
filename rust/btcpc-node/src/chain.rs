@@ -329,6 +329,10 @@ impl Chain {
         true
     }
 
+    pub fn pending_count(&self) -> usize {
+        self.pending.lock().len()
+    }
+
     /// Drain and sort the pending pool, returning entries in deterministic hash order.
     /// All nodes that received the same gossip will sort identically, ensuring consistent
     /// "first claim wins" across the whole network regardless of gossip arrival timing.
@@ -1900,6 +1904,10 @@ impl Chain {
                         "registered_epoch": epoch,
                     })).unwrap_or_default());
             }
+            LedgerEntry::TestnetOperatorDeregister { mainnet_account, testnet_chain_id, .. } => {
+                let key = format!("testnet_op:{}:{}", mainnet_account, testnet_chain_id);
+                let _ = self.store.state_delete(&key);
+            }
             LedgerEntry::TestnetReward { mainnet_account, amount, epoch, .. } => {
                 self.ensure_account(mainnet_account, *epoch)?;
                 // Drain from testnet fund — fund was seeded at genesis.
@@ -1915,6 +1923,12 @@ impl Chain {
             LedgerEntry::SensorReward { node_id, amount, epoch } => {
                 self.ensure_account(node_id, *epoch)?;
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
+            }
+            LedgerEntry::GatewayRewardSplit { sensor_account, gateway_account, sensor_amount, gateway_amount, epoch } => {
+                self.ensure_account(sensor_account, *epoch)?;
+                self.ensure_account(gateway_account, *epoch)?;
+                self.store.credit(sensor_account, NATIVE_TOKEN, *sensor_amount)?;
+                self.store.credit(gateway_account, NATIVE_TOKEN, *gateway_amount)?;
             }
             LedgerEntry::VerifierReward { node_id, amount, epoch } => {
                 self.ensure_account(node_id, *epoch)?;
@@ -2483,6 +2497,149 @@ impl Chain {
                 self.touch_alive(account, *epoch);
             }
 
+            // ── Governance ────────────────────────────────────────────────────
+            LedgerEntry::GovernancePropose {
+                proposal_id, proposer, title, description,
+                action, action_key, action_value, voting_ends_epoch, epoch, ..
+            } => {
+                let council = crate::tx::governance_keys(self);
+                anyhow::ensure!(
+                    council.iter().any(|a| a == proposer),
+                    "account '{}' is not in the governance council", proposer
+                );
+                anyhow::ensure!(!proposal_id.is_empty(), "proposal_id cannot be empty");
+                let key = format!("governance:proposal:{}", proposal_id);
+                anyhow::ensure!(
+                    self.store.state_get(&key).is_none(),
+                    "proposal '{}' already exists", proposal_id
+                );
+                let record = serde_json::json!({
+                    "proposal_id": proposal_id,
+                    "proposer": proposer,
+                    "title": title,
+                    "description": description,
+                    "action": action,
+                    "action_key": action_key,
+                    "action_value": action_value,
+                    "voting_ends_epoch": voting_ends_epoch,
+                    "submitted_epoch": epoch,
+                    "yes_votes": 0u64,
+                    "no_votes": 0u64,
+                    "status": "open",
+                });
+                self.store.state_set(&key, &serde_json::to_vec(&record)?)?;
+                info!("[governance] proposal '{}' submitted by '{}': {}", proposal_id, proposer, title);
+            }
+
+            LedgerEntry::GovernanceVote { proposal_id, voter, approve, epoch, .. } => {
+                let prop_key = format!("governance:proposal:{}", proposal_id);
+                let raw = self.store.state_get(&prop_key)
+                    .ok_or_else(|| anyhow::anyhow!("proposal '{}' not found", proposal_id))?;
+                let mut proposal: serde_json::Value = serde_json::from_slice(&raw)?;
+                anyhow::ensure!(
+                    proposal["status"].as_str() == Some("open"),
+                    "proposal '{}' is not open for voting", proposal_id
+                );
+                let ends = proposal["voting_ends_epoch"].as_u64().unwrap_or(0);
+                anyhow::ensure!(
+                    *epoch <= ends,
+                    "voting on proposal '{}' closed at epoch {}", proposal_id, ends
+                );
+                let stake = self.get_stake(voter);
+                anyhow::ensure!(
+                    stake > 0,
+                    "account '{}' has no stake — stake BTCPC to vote", voter
+                );
+                // Idempotency: reject double-votes.
+                let vote_key = format!("governance:vote:{}:{}", proposal_id, voter);
+                anyhow::ensure!(
+                    self.store.state_get(&vote_key).is_none(),
+                    "account '{}' has already voted on proposal '{}'", voter, proposal_id
+                );
+                self.store.state_set(&vote_key, serde_json::json!({ "approve": approve, "epoch": epoch }).to_string().as_bytes())?;
+                if *approve {
+                    let yes = proposal["yes_votes"].as_u64().unwrap_or(0) + 1;
+                    proposal["yes_votes"] = serde_json::json!(yes);
+                } else {
+                    let no = proposal["no_votes"].as_u64().unwrap_or(0) + 1;
+                    proposal["no_votes"] = serde_json::json!(no);
+                }
+                self.store.state_set(&prop_key, &serde_json::to_vec(&proposal)?)?;
+                info!("[governance] '{}' voted {} on proposal '{}'",
+                    voter, if *approve { "yes" } else { "no" }, proposal_id);
+            }
+
+            LedgerEntry::GovernanceFinalize { proposal_id, outcome, yes_votes, no_votes, epoch, .. } => {
+                let prop_key = format!("governance:proposal:{}", proposal_id);
+                let raw = self.store.state_get(&prop_key)
+                    .ok_or_else(|| anyhow::anyhow!("proposal '{}' not found for finalization", proposal_id))?;
+                let mut proposal: serde_json::Value = serde_json::from_slice(&raw)?;
+                anyhow::ensure!(
+                    proposal["status"].as_str() == Some("open"),
+                    "proposal '{}' already finalized", proposal_id
+                );
+                proposal["status"] = serde_json::json!(outcome);
+                proposal["yes_votes"] = serde_json::json!(yes_votes);
+                proposal["no_votes"] = serde_json::json!(no_votes);
+                proposal["finalized_epoch"] = serde_json::json!(epoch);
+                // Execute on-chain action for passed proposals.
+                if outcome == "passed" {
+                    let action = proposal["action"].as_str().unwrap_or("").to_owned();
+                    let akey  = proposal["action_key"].as_str().unwrap_or("").to_owned();
+                    let aval  = proposal["action_value"].as_str().unwrap_or("").to_owned();
+                    match action.as_str() {
+                        "param_set" if !akey.is_empty() => {
+                            self.store.state_set(
+                                &format!("chain_param:{}", akey),
+                                aval.as_bytes(),
+                            )?;
+                            info!("[governance] proposal '{}' passed — set chain_param:{} = {}",
+                                proposal_id, akey, aval);
+                        }
+                        "council_add" if !akey.is_empty() => {
+                            let mut council = crate::tx::governance_keys(self);
+                            if !council.contains(&akey) {
+                                council.push(akey.clone());
+                                self.store.state_set(
+                                    "chain_param:governance_keys",
+                                    &serde_json::to_vec(&council)?,
+                                )?;
+                                info!("[governance] proposal '{}' passed — added '{}' to council",
+                                    proposal_id, akey);
+                            }
+                        }
+                        "council_remove" if !akey.is_empty() => {
+                            let council: Vec<String> = crate::tx::governance_keys(self)
+                                .into_iter().filter(|a| a != &akey).collect();
+                            self.store.state_set(
+                                "chain_param:governance_keys",
+                                &serde_json::to_vec(&council)?,
+                            )?;
+                            info!("[governance] proposal '{}' passed — removed '{}' from council",
+                                proposal_id, akey);
+                        }
+                        _ => {} // "text" or unknown — signal only
+                    }
+                }
+                self.store.state_set(&prop_key, &serde_json::to_vec(&proposal)?)?;
+                info!("[governance] proposal '{}' finalized: {} ({} yes / {} no)",
+                    proposal_id, outcome, yes_votes, no_votes);
+            }
+
+            // ── Scientific compute result ─────────────────────────────────────
+            LedgerEntry::ScientificResult { job_id, .. } => {
+                let key = format!("sci_result:{}", job_id);
+                self.store.state_set(&key, &serde_json::to_vec(entry)?)?;
+                info!("[science] on-chain result for job '{}'", job_id);
+            }
+
+            // ── Cross-chain finality announcement ─────────────────────────────
+            LedgerEntry::CrossChainFinalityAnnounce { target_chain, finality_epoch, .. } => {
+                let key = format!("cc_finality:{}:{}", target_chain, finality_epoch);
+                self.store.state_set(&key, &serde_json::to_vec(entry)?)?;
+                info!("[cross-chain] finality at epoch {} for '{}'", finality_epoch, target_chain);
+            }
+
             // ── Clock Node Registration ───────────────────────────────────────
             LedgerEntry::ClockNodeRegister { node_id, stake, epoch, pubkey, .. } => {
                 anyhow::ensure!(
@@ -2725,6 +2882,200 @@ impl Chain {
                 self.store.state_set(&task_key, &serde_json::to_vec(&task)?)?;
             }
 
+            LedgerEntry::OracleFeedCreate { .. } => {
+                crate::oracle::apply_create(self, entry)?;
+            }
+            LedgerEntry::OracleReport { .. } => {
+                crate::oracle::apply_report(self, entry)?;
+            }
+            LedgerEntry::OracleFeedFinalize { .. } => {
+                crate::oracle::apply_finalize(self, entry)?;
+            }
+            LedgerEntry::SessionListingCreate { .. } => {
+                crate::session_market::apply_create(self, entry)?;
+            }
+            LedgerEntry::SessionListingBuy { .. } => {
+                crate::session_market::apply_buy(self, entry)?;
+            }
+            LedgerEntry::SessionListingCancel { .. } => {
+                crate::session_market::apply_cancel(self, entry)?;
+            }
+            LedgerEntry::AgentSessionOpen { .. } => {
+                // server_pubkey is stored in CF_META at node startup.
+                let server_pubkey = self.store.state_get("node:server_pubkey")
+                    .and_then(|b| String::from_utf8(b).ok())
+                    .unwrap_or_default();
+                crate::agent_session::apply_open(self, entry, &server_pubkey)?;
+            }
+            LedgerEntry::AgentSessionClose { .. } => {
+                crate::agent_session::apply_close(self, entry)?;
+            }
+            LedgerEntry::VrfCommit { .. } => {
+                crate::vrf::apply_commit(self, entry)?;
+            }
+            LedgerEntry::VrfReveal { .. } => {
+                crate::vrf::apply_reveal(self, entry)?;
+            }
+
+            LedgerEntry::EnsembleJobPost { .. } => {
+                crate::ensemble::apply_job_post(self, entry)?;
+            }
+            LedgerEntry::EnsembleVote { .. } => {
+                crate::ensemble::apply_vote(self, entry)?;
+            }
+            LedgerEntry::SlashValidator { .. } => {
+                crate::slashing::apply_slash(self, entry)?;
+            }
+            LedgerEntry::SlashAppeal { .. } => {
+                crate::slashing::apply_appeal(self, entry)?;
+            }
+            LedgerEntry::BridgeFund { .. } => {
+                crate::bridge::apply_fund(self, entry)?;
+            }
+            LedgerEntry::BridgeWrap { .. } => {
+                crate::bridge::apply_wrap(self, entry)?;
+            }
+            LedgerEntry::BridgeUnwrap { .. } => {
+                crate::bridge::apply_unwrap(self, entry)?;
+            }
+            LedgerEntry::BridgeUnlock { .. } => {
+                crate::bridge::apply_unlock(self, entry)?;
+            }
+
+            LedgerEntry::PhoneMineSubmit { account, work_hash, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+
+                // Reward: 500 dreams per valid proof.
+                const PHONE_MINE_REWARD: u64 = 500;
+                self.store.credit(account, btcpc_types::NATIVE_TOKEN, PHONE_MINE_REWARD)?;
+
+                // Increment proof counter.
+                let proofs_key = format!("phone_proofs:{}", account);
+                let proofs: u64 = self.store.state_get(&proofs_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or(0);
+                self.store.state_set(&proofs_key, &serde_json::to_vec(&(proofs + 1))?)?;
+                self.store.state_set(
+                    &format!("phone_last_reward:{}", account),
+                    &serde_json::to_vec(epoch)?,
+                )?;
+                // Record work hash to prevent replay.
+                self.store.state_set(
+                    &format!("phone_work_used:{}", work_hash),
+                    &serde_json::to_vec(epoch)?,
+                )?;
+            }
+
+            // ── Name auctions ─────────────────────────────────────────────────
+            LedgerEntry::NameAuctionOpen { auction_id, name, opener, min_bid, end_epoch, epoch, .. } => {
+                self.touch_alive(opener, *epoch);
+                self.ensure_account(opener, *epoch)?;
+                crate::auction::apply_name_open(self, auction_id, name, opener, *min_bid, *end_epoch, *epoch)?;
+            }
+            LedgerEntry::NameAuctionBid { auction_id, bidder, amount, epoch, .. } => {
+                self.touch_alive(bidder, *epoch);
+                self.ensure_account(bidder, *epoch)?;
+                crate::auction::apply_bid(self, auction_id, bidder, *amount, *epoch)?;
+            }
+            LedgerEntry::NameAuctionSettle { auction_id, epoch, .. } => {
+                crate::auction::apply_settle(self, auction_id, *epoch)?;
+            }
+            LedgerEntry::NameAuctionCancel { auction_id, opener, .. } => {
+                crate::auction::apply_cancel(self, auction_id, opener)?;
+            }
+
+            // ── Freeport auctions ─────────────────────────────────────────────
+            LedgerEntry::FreeportAuctionOpen { auction_id, item_type, item_id, seller, min_bid, end_epoch, epoch, .. } => {
+                self.touch_alive(seller, *epoch);
+                self.ensure_account(seller, *epoch)?;
+                crate::auction::apply_freeport_open(self, auction_id, item_type, item_id, seller, *min_bid, *end_epoch, *epoch)?;
+            }
+            LedgerEntry::FreeportAuctionBid { auction_id, bidder, amount, epoch, .. } => {
+                self.touch_alive(bidder, *epoch);
+                self.ensure_account(bidder, *epoch)?;
+                crate::auction::apply_bid(self, auction_id, bidder, *amount, *epoch)?;
+            }
+            LedgerEntry::FreeportAuctionSettle { auction_id, epoch, .. } => {
+                crate::auction::apply_settle(self, auction_id, *epoch)?;
+            }
+
+            // ── Private authorization ─────────────────────────────────────────
+            LedgerEntry::PrivateAuthEnroll { group_id, member, member_pubkey, threshold_n, threshold_m, epoch, .. } => {
+                self.touch_alive(member, *epoch);
+                self.ensure_account(member, *epoch)?;
+                crate::private_auth::apply_enroll(self, group_id, member, member_pubkey, *threshold_n, *threshold_m)?;
+            }
+            LedgerEntry::PrivateAuthApprove { group_id, tx_hash, approver, epoch, .. } => {
+                self.touch_alive(approver, *epoch);
+                self.ensure_account(approver, *epoch)?;
+                let _ = crate::private_auth::apply_approve(self, group_id, tx_hash, approver)?;
+            }
+
+            // ── Phase 5: Memory service ───────────────────────────────────────
+            LedgerEntry::MemorySet { account, key, value, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::memory_service::apply_set(self, account, key, value)?;
+            }
+            LedgerEntry::MemoryDelete { account, key, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::memory_service::apply_delete(self, account, key)?;
+            }
+
+            // ── Amber Pill ────────────────────────────────────────────────────
+            LedgerEntry::AmberPillMint { account, pill_id, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::amber_pill::apply_mint(self, account, pill_id, *epoch)?;
+            }
+
+            // ── Phone storage ─────────────────────────────────────────────────
+            LedgerEntry::PhoneStorageProof { account, device_id, proof_hash, bytes_proven, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::phone_storage::apply_proof(self, account, device_id, proof_hash, *bytes_proven, *epoch)?;
+            }
+
+            // ── Fine-tune jobs ────────────────────────────────────────────────
+            LedgerEntry::FineTuneJobPost { job_id, requester, base_model, dataset_cid, max_fee, epoch, .. } => {
+                self.touch_alive(requester, *epoch);
+                self.ensure_account(requester, *epoch)?;
+                crate::finetune::apply_post(self, job_id, requester, base_model, dataset_cid, *max_fee, *epoch)?;
+            }
+            LedgerEntry::FineTuneJobComplete { job_id, worker, adapter_cid, epoch, .. } => {
+                self.touch_alive(worker, *epoch);
+                self.ensure_account(worker, *epoch)?;
+                crate::finetune::apply_complete(self, job_id, worker, adapter_cid, *epoch)?;
+            }
+
+            // ── Computer-use jobs ─────────────────────────────────────────────
+            LedgerEntry::ComputerUseJobPost { job_id, requester, task_json, max_fee, epoch, .. } => {
+                self.touch_alive(requester, *epoch);
+                self.ensure_account(requester, *epoch)?;
+                crate::computer_use::apply_post(self, job_id, requester, task_json, *max_fee, *epoch)?;
+            }
+            LedgerEntry::ComputerUseJobComplete { job_id, worker, result_cid, epoch, .. } => {
+                self.touch_alive(worker, *epoch);
+                self.ensure_account(worker, *epoch)?;
+                crate::computer_use::apply_complete(self, job_id, worker, result_cid, *epoch)?;
+            }
+
+            // ── Blob serve proof ──────────────────────────────────────────────
+            LedgerEntry::BlobServeProof { node_id, cid, bytes_served, proof_hash, epoch, .. } => {
+                self.touch_alive(node_id, *epoch);
+                self.ensure_account(node_id, *epoch)?;
+                crate::blob_serve::apply_serve_proof(self, node_id, cid, *bytes_served, proof_hash, *epoch)?;
+            }
+
+            // ── Snapshot replication ──────────────────────────────────────────
+            LedgerEntry::SnapshotSave { account, slug, cid, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::snapshot_replication::apply_save(self, account, slug, cid, *epoch)?;
+            }
+
         }
 
         self.index_tx_history(entry);
@@ -2868,6 +3219,43 @@ impl Chain {
                 } else {
                     let _ = self.store.state_delete(&key);
                 }
+            }
+        }
+    }
+
+    /// Finalize any governance proposals whose voting window has closed.
+    /// Called once per epoch seal. Passes if yes > no and total votes ≥ 2 (quorum).
+    pub fn drain_governance_proposals(&self, current_epoch: u64) {
+        let records = self.store.state_scan_prefix("governance:proposal:");
+        for (_key, val) in records {
+            let Ok(proposal) = serde_json::from_slice::<serde_json::Value>(&val) else { continue };
+            if proposal["status"].as_str() != Some("open") { continue; }
+            let ends = proposal["voting_ends_epoch"].as_u64().unwrap_or(u64::MAX);
+            if current_epoch <= ends { continue; }
+            let proposal_id = match proposal["proposal_id"].as_str() {
+                Some(id) => id.to_owned(),
+                None => continue,
+            };
+            let yes = proposal["yes_votes"].as_u64().unwrap_or(0);
+            let no  = proposal["no_votes"].as_u64().unwrap_or(0);
+            let total = yes + no;
+            let outcome = if total < 2 {
+                "no_quorum"
+            } else if yes > no {
+                "passed"
+            } else {
+                "rejected"
+            };
+            let entry = LedgerEntry::GovernanceFinalize {
+                proposal_id: proposal_id.clone(),
+                outcome: outcome.to_owned(),
+                yes_votes: yes,
+                no_votes: no,
+                epoch: current_epoch,
+                signed_by: self.node_id.clone(),
+            };
+            if let Err(e) = self.apply_entry(&entry) {
+                warn!("[governance] finalize '{}' failed: {}", proposal_id, e);
             }
         }
     }
@@ -3482,7 +3870,7 @@ mod tests {
     #[test]
     fn test_clock_node_register() {
         let (chain, _dir) = make_chain("clock-reg");
-        let min_stake = 100u64 * 10_000_000_000; // 100 BTCPC default (matches chain.rs fallback)
+        let min_stake = 5u64 * 10_000_000_000; // 5 BTCPC default (matches chain.rs fallback)
         fund(&chain, "clock1", min_stake + 50 * 10_000_000_000);
         seal_epoch(&chain, 0);
 
@@ -3988,6 +4376,8 @@ mod tests {
     fn test_account_create_subsidized_from_testnet_fund() {
         use crate::tx;
         use btcpc_types::{BASE_FEE_INITIAL_DREAMS, ENTRY_WEIGHT_REGISTRATION, TESTNET_FUND_ACCOUNT, RECYCLE_FUND_ACCOUNT};
+        use ed25519_dalek::{Signer, SigningKey};
+        use rand::rngs::OsRng;
 
         let (chain, _dir) = make_chain("fee-subsidy");
         // Seed testnet fund (normally done at genesis).
@@ -3998,14 +4388,24 @@ mod tests {
         let testnet_before = chain.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
         let recycle_before  = chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
 
-        tx::validate_and_apply(&chain, &LedgerEntry::AccountCreate {
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pubkey = hex::encode(signing_key.verifying_key().to_bytes());
+        let mut keys = std::collections::BTreeMap::new();
+        keys.insert("owner".to_string(), pubkey.clone());
+        keys.insert("active".to_string(), pubkey.clone());
+        keys.insert("posting".to_string(), pubkey);
+        let entry = LedgerEntry::AccountCreate {
             account: "newuser".to_string(),
-            keys: Default::default(),
+            keys,
             chain_proofs: vec![],
             epoch: 1,
             funded_by: None,
             machine_fingerprint: None,
-        }, None).expect("AccountCreate");
+        };
+        let msg = tx::canonical_signing_message(&entry, &chain.chain_id)
+            .expect("account create signing message");
+        let sig = hex::encode(signing_key.sign(msg.as_bytes()).to_bytes());
+        tx::validate_and_apply(&chain, &entry, Some(&sig)).expect("AccountCreate");
 
         let testnet_after  = chain.get_balance(TESTNET_FUND_ACCOUNT, NATIVE_TOKEN);
         let recycle_after   = chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
@@ -4035,6 +4435,7 @@ mod tests {
             node_id: "a".to_string(), epoch: 1,
             bytes_proven: 0, query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "a".to_string(),
         };
 
@@ -4478,6 +4879,7 @@ mod tests {
             bytes_proven: STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "storer".to_string(),
         }).expect("heartbeat applied");
 
@@ -4838,6 +5240,7 @@ mod tests {
             bytes_proven: 5 * STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "storer".to_string(),
         }).expect("no-proof heartbeat");
         let beat = chain.store.state_get("storage_beat:1:storer").unwrap();
@@ -4905,6 +5308,7 @@ mod tests {
             bytes_proven: 10 * STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: Some(bad_proof),
+            tier: None,
             signed_by: "storer".into(),
         }).expect("heartbeat with bad proof accepted to chain");
 

@@ -1,5 +1,10 @@
 //! Structured event emission (indexed, queryable off-chain).
 
+#[cfg(target_arch = "wasm32")]
+extern crate alloc;
+#[cfg(target_arch = "wasm32")]
+use alloc::string::String;
+
 use serde::Serialize;
 
 /// Marker trait for serializable events.
