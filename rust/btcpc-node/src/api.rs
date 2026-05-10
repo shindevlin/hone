@@ -68,6 +68,16 @@ pub struct AppState {
     pub node_account: Arc<String>,
     /// This node's ed25519 signing key — used to self-sign entries like testnet opt-in.
     pub signing_key: Arc<Option<ed25519_dalek::SigningKey>>,
+    /// Scientific compute engine — job lifecycle and latency map.
+    pub scientific: Arc<crate::scientific::ScientificEngine>,
+    /// Cross-chain finality module — writes announcement files and on-chain records.
+    pub cross_chain: Arc<crate::cross_chain_finality::CrossChainFinalityModule>,
+    /// Encrypted secret store (AES-256-GCM local file + RocksDB index).
+    pub secret_store: Arc<crate::secret_store::SecretStore>,
+    /// Chain health monitor — epoch stall detection, peer alerts.
+    pub health_monitor: Arc<crate::monitor::HealthMonitor>,
+    /// In-memory blob bandwidth meter (per-CID byte counter, flushed each epoch).
+    pub blob_bandwidth: Arc<crate::blob_bandwidth::BlobBandwidthMeter>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -246,6 +256,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/governance/proposals", get(get_governance_proposals).post(post_governance_propose))
         .route("/api/governance/proposals/:id", get(get_governance_proposal))
         .route("/api/governance/vote", post(post_governance_vote))
+        // ── Scientific compute jobs ───────────────────────────────────────
+        .route("/api/science/jobs", get(get_science_jobs).post(post_science_create))
+        .route("/api/science/jobs/type/:job_type", get(get_science_jobs_by_type))
+        .route("/api/science/jobs/:id", get(get_science_job))
+        .route("/api/science/jobs/:id/start", post(post_science_start))
+        .route("/api/science/jobs/:id/complete", post(post_science_complete))
+        // ── System contracts ──────────────────────────────────────────────
+        .route("/api/contracts/system", get(get_system_contracts))
+        // ── Cross-chain finality ──────────────────────────────────────────
+        .route("/api/cross-chain/finality/:chain_id", get(get_cross_chain_finality))
         // ── Peer bootstrap registry ───────────────────────────────────────
         .route("/api/peers/bootstrap", get(get_bootstrap_peers))
         .route("/api/peers/bootstrap", post(post_bootstrap_peer))
@@ -307,6 +327,119 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/models", get(get_v1_models))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
+        // ── TOTP 2FA ──────────────────────────────────────────────────────
+        .route("/api/totp/setup", post(post_totp_setup))
+        .route("/api/totp/enable", post(post_totp_enable))
+        .route("/api/totp/verify", post(post_totp_verify))
+        .route("/api/totp/disable", post(post_totp_disable))
+        .route("/api/totp/backup-codes", post(post_totp_backup_codes))
+        // ── Streaming inference ───────────────────────────────────────────
+        .route("/api/inference/stream", post(post_inference_stream))
+        .route("/api/task/job/:id/stream", get(get_task_job_stream))
+        // ── Phone mining ──────────────────────────────────────────────────
+        .route("/api/mining/phone/claim", post(post_phone_mine_claim))
+        .route("/api/mining/phone/submit", post(post_phone_mine_submit))
+        .route("/api/mining/phone/status", get(get_phone_mine_status))
+        // ── Fee market ────────────────────────────────────────────────────
+        .route("/api/chain/fee-estimate", get(get_fee_estimate))
+        .route("/api/mempool/status", get(get_mempool_status))
+        // ── Node health (detailed) ────────────────────────────────────────
+        .route("/api/node/health/detailed", get(get_node_health_detailed))
+        // ── Ensemble inference ────────────────────────────────────────────
+        .route("/api/ensemble/post", post(post_ensemble_job))
+        .route("/api/ensemble/vote", post(post_ensemble_vote))
+        .route("/api/ensemble/job/:id", get(get_ensemble_job))
+        .route("/api/ensemble/jobs", get(get_ensemble_jobs))
+        // ── Slashing ─────────────────────────────────────────────────────
+        .route("/api/slash/submit", post(post_slash_validator))
+        .route("/api/slash/appeal", post(post_slash_appeal))
+        .route("/api/slash/:id", get(get_slash))
+        .route("/api/slash/list", get(get_slashes))
+        // ── Bridge ───────────────────────────────────────────────────────
+        .route("/api/bridge/fund", post(post_bridge_fund))
+        .route("/api/bridge/wrap", post(post_bridge_wrap))
+        .route("/api/bridge/unwrap", post(post_bridge_unwrap))
+        .route("/api/bridge/unlock", post(post_bridge_unlock))
+        .route("/api/bridge/status", get(get_bridge_status))
+        .route("/api/bridge/queue", get(get_bridge_queue))
+        // ── Oracle feeds ──────────────────────────────────────────────────
+        .route("/api/oracle/feed/create", post(post_oracle_create))
+        .route("/api/oracle/feed/:id/report", post(post_oracle_report))
+        .route("/api/oracle/feed/:id/finalize", post(post_oracle_finalize))
+        .route("/api/oracle/feed/:id", get(get_oracle_feed))
+        .route("/api/oracle/feeds", get(get_oracle_feeds))
+        .route("/api/oracle/price/:pair", get(get_oracle_price))
+        .route("/api/oracle/reputation/:reporter", get(get_oracle_reputation))
+        // ── Session marketplace ───────────────────────────────────────────
+        .route("/api/sessions/list", post(post_session_list))
+        .route("/api/sessions/buy", post(post_session_buy))
+        .route("/api/sessions/cancel", post(post_session_cancel))
+        .route("/api/sessions/listings", get(get_session_listings))
+        .route("/api/sessions/listing/:id", get(get_session_listing))
+        // ── Agent sessions ────────────────────────────────────────────────
+        .route("/api/agent-session/open", post(post_agent_session_open))
+        .route("/api/agent-session/close", post(post_agent_session_close))
+        .route("/api/agent-session/:id", get(get_agent_session))
+        .route("/api/agent-session/:id/turn", post(post_agent_session_turn))
+        // ── VRF beacon ────────────────────────────────────────────────────
+        .route("/api/vrf/commit", post(post_vrf_commit))
+        .route("/api/vrf/reveal", post(post_vrf_reveal))
+        .route("/api/vrf/beacon", get(get_vrf_beacon))
+        .route("/api/vrf/round/:epoch", get(get_vrf_round))
+        // ── Name auctions ─────────────────────────────────────────────────────
+        .route("/api/auction/name/open", post(post_name_auction_open))
+        .route("/api/auction/name/:id/bid", post(post_name_auction_bid))
+        .route("/api/auction/name/:id/settle", post(post_name_auction_settle))
+        .route("/api/auction/name/:id/cancel", post(post_name_auction_cancel))
+        .route("/api/auction/name/:id", get(get_auction))
+        .route("/api/auction/name", get(get_name_auctions))
+        // ── Freeport auctions ─────────────────────────────────────────────────
+        .route("/api/auction/freeport/open", post(post_freeport_auction_open))
+        .route("/api/auction/freeport/:id/bid", post(post_freeport_auction_bid))
+        .route("/api/auction/freeport/:id/settle", post(post_freeport_auction_settle))
+        .route("/api/auction/freeport/:id", get(get_auction))
+        // ── Private authorization ─────────────────────────────────────────────
+        .route("/api/private-auth/enroll", post(post_private_auth_enroll))
+        .route("/api/private-auth/approve", post(post_private_auth_approve))
+        .route("/api/private-auth/status/:tx_hash", get(get_private_auth_status))
+        // ── Memory service ────────────────────────────────────────────────────
+        .route("/api/memory/:account/:key", post(post_memory_set))
+        .route("/api/memory/:account/:key", axum::routing::delete(delete_memory_key))
+        .route("/api/memory/:account/:key", get(get_memory_value))
+        .route("/api/memory/:account", get(get_memory_account))
+        // ── Amber Pill ────────────────────────────────────────────────────────
+        .route("/api/amber-pill/mint", post(post_amber_pill_mint))
+        .route("/api/amber-pill/:account", get(get_amber_pill))
+        // ── Phone storage ─────────────────────────────────────────────────────
+        .route("/api/phone-storage/proof", post(post_phone_storage_proof))
+        // ── Fine-tune jobs ────────────────────────────────────────────────────
+        .route("/api/finetune/post", post(post_finetune_job))
+        .route("/api/finetune/:id/complete", post(post_finetune_complete))
+        .route("/api/finetune/:id", get(get_finetune_job))
+        .route("/api/finetune/open", get(get_finetune_jobs))
+        // ── Computer-use jobs ─────────────────────────────────────────────────
+        .route("/api/computer-use/post", post(post_computer_use_job))
+        .route("/api/computer-use/:id/complete", post(post_computer_use_complete))
+        .route("/api/computer-use/:id", get(get_computer_use_job))
+        .route("/api/computer-use/open", get(get_computer_use_jobs))
+        // ── Blob serve proof + bandwidth ──────────────────────────────────────
+        .route("/api/blob/serve-proof", post(post_blob_serve_proof))
+        .route("/api/blob/bandwidth/:cid", get(get_blob_bandwidth))
+        // ── Peer commerce ─────────────────────────────────────────────────────
+        .route("/api/commerce/storefront", post(post_storefront_register))
+        .route("/api/commerce/storefront/:account", get(get_storefront))
+        .route("/api/commerce/storefronts", get(get_storefronts))
+        // ── Gateway resolver ──────────────────────────────────────────────────
+        .route("/api/resolve", get(get_resolve))
+        .route("/api/resolve/name/:name", get(get_resolve_name))
+        // ── Snapshot replication ──────────────────────────────────────────────
+        .route("/api/snapshot/:account", post(post_snapshot_save))
+        .route("/api/snapshot/:account/:slug", get(get_snapshot))
+        .route("/api/snapshots/:account", get(get_snapshots))
+        // ── RAG service ───────────────────────────────────────────────────────
+        .route("/api/rag/:account/index", post(post_rag_index))
+        .route("/api/rag/:account/query", post(post_rag_query))
+        .route("/api/rag/:account/doc/:doc_id", axum::routing::delete(delete_rag_doc))
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state)
@@ -3344,6 +3477,7 @@ async fn post_sensor_commit(
         sensor_type: body.sensor_type,
         epoch,
         signed_by: body.owner,
+        gateway_account: None,
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
@@ -4949,6 +5083,149 @@ async fn post_governance_vote(
     };
     let sig = non_empty(&body.signature);
     apply_and_broadcast(&s, entry, sig)
+}
+
+// ── Scientific compute endpoints ──────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ScienceCreateBody {
+    requester: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    job_type: String,
+    model: Option<String>,
+    /// Hex-encoded input bytes.
+    input_data_hex: String,
+    #[serde(default)]
+    max_fee: u64,
+    #[serde(default)]
+    open_source: bool,
+}
+
+/// POST /api/science/jobs — create a new scientific compute job.
+async fn post_science_create(
+    State(s): State<AppState>,
+    Json(body): Json<ScienceCreateBody>,
+) -> Json<serde_json::Value> {
+    let input = match hex::decode(&body.input_data_hex) {
+        Ok(b) => b,
+        Err(_) => return Json(serde_json::json!({"error": "input_data_hex is not valid hex"})),
+    };
+    match s.scientific.create_job(
+        &body.requester,
+        &body.title,
+        &body.job_type,
+        body.model.as_deref(),
+        &input,
+        body.max_fee,
+        body.open_source,
+    ) {
+        Ok(job) => Json(serde_json::json!({"ok": true, "job": job})),
+        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+/// GET /api/science/jobs — list all queued jobs.
+async fn get_science_jobs(State(s): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!(s.scientific.get_open_jobs()))
+}
+
+/// GET /api/science/jobs/type/:job_type — list jobs of a specific type.
+async fn get_science_jobs_by_type(
+    State(s): State<AppState>,
+    Path(job_type): Path<String>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!(s.scientific.get_jobs_by_type(&job_type)))
+}
+
+/// GET /api/science/jobs/:id — get a specific job.
+async fn get_science_job(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Json<serde_json::Value> {
+    match s.scientific.get_job(&id) {
+        Some(job) => Json(serde_json::json!(job)),
+        None => Json(serde_json::json!({"error": "job not found"})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ScienceStartBody {
+    shard_group_id: Option<String>,
+}
+
+/// POST /api/science/jobs/:id/start — transition a queued job to running.
+async fn post_science_start(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ScienceStartBody>,
+) -> Json<serde_json::Value> {
+    match s.scientific.start_job(&id, body.shard_group_id.as_deref()) {
+        Ok(job) => Json(serde_json::json!({"ok": true, "job": job})),
+        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ScienceCompleteBody {
+    result_hash: String,
+    /// Hex-encoded result bytes (may be empty for small results already stored off-chain).
+    #[serde(default)]
+    result_bytes_hex: String,
+    contributing_nodes: Vec<String>,
+    work_values: std::collections::HashMap<String, u64>,
+    epoch: u64,
+}
+
+/// POST /api/science/jobs/:id/complete — record results and distribute payouts.
+async fn post_science_complete(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ScienceCompleteBody>,
+) -> Json<serde_json::Value> {
+    let result_bytes = match hex::decode(&body.result_bytes_hex) {
+        Ok(b) => b,
+        Err(_) if body.result_bytes_hex.is_empty() => vec![],
+        Err(_) => return Json(serde_json::json!({"error": "result_bytes_hex is not valid hex"})),
+    };
+    match s.scientific.complete_job(
+        &id,
+        &body.result_hash,
+        &result_bytes,
+        body.contributing_nodes,
+        body.work_values,
+        body.epoch,
+    ) {
+        Ok(job) => Json(serde_json::json!({"ok": true, "job": job})),
+        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+// ── System contracts endpoint ─────────────────────────────────────────────────
+
+/// GET /api/contracts/system — addresses of built-in system contracts.
+async fn get_system_contracts(State(s): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "registry": crate::system_contracts::registry_contract_id(&s.chain),
+    }))
+}
+
+// ── Cross-chain finality endpoint ─────────────────────────────────────────────
+
+/// GET /api/cross-chain/finality/:chain_id — latest finality announcement.
+async fn get_cross_chain_finality(
+    State(s): State<AppState>,
+    Path(chain_id): Path<String>,
+) -> Json<serde_json::Value> {
+    match s.cross_chain.load_latest_announcement(&chain_id) {
+        Some(ann) => Json(serde_json::json!(ann)),
+        None => Json(serde_json::json!({
+            "chain_id": chain_id,
+            "finality_epoch": s.cross_chain.get_finality_cutoff(&chain_id),
+            "announcement": null,
+        })),
+    }
 }
 
 /// GET /download/:filename — serve binary files from $BTCPC_DATA_DIR/downloads/
@@ -6618,6 +6895,1867 @@ async fn get_v1_models(State(s): State<AppState>) -> Json<serde_json::Value> {
 
     Json(serde_json::json!({ "object": "list", "data": data }))
 }
+
+// ── TOTP 2FA handlers ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct TotpSetupRequest { account: String }
+
+async fn post_totp_setup(
+    State(s): State<AppState>,
+    Json(body): Json<TotpSetupRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let secret = crate::totp::generate_secret();
+    let uri = crate::totp::otpauth_uri(&body.account, &secret);
+    // Store pending (not yet enabled) secret.
+    s.secret_store.set(&format!("totp_pending:{}", body.account), &secret)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "otpauth_uri": uri, "secret": secret })))
+}
+
+#[derive(Deserialize)]
+struct TotpEnableRequest { account: String, code: u32 }
+
+async fn post_totp_enable(
+    State(s): State<AppState>,
+    Json(body): Json<TotpEnableRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pending_key = format!("totp_pending:{}", body.account);
+    let secret = s.secret_store.get(&pending_key).ok_or(StatusCode::NOT_FOUND)?;
+    if !crate::totp::verify(&secret, body.code) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    s.secret_store.set(&format!("totp_active:{}", body.account), &secret)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let _ = s.secret_store.delete(&pending_key);
+    Ok(Json(serde_json::json!({ "enabled": true })))
+}
+
+#[derive(Deserialize)]
+struct TotpVerifyRequest { account: String, code: u32 }
+
+async fn post_totp_verify(
+    State(s): State<AppState>,
+    Json(body): Json<TotpVerifyRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let secret = s.secret_store.get(&format!("totp_active:{}", body.account))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !crate::totp::verify(&secret, body.code) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(Json(serde_json::json!({ "valid": true })))
+}
+
+#[derive(Deserialize)]
+struct TotpDisableRequest { account: String, code: u32 }
+
+async fn post_totp_disable(
+    State(s): State<AppState>,
+    Json(body): Json<TotpDisableRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let secret = s.secret_store.get(&format!("totp_active:{}", body.account))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !crate::totp::verify(&secret, body.code) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let _ = s.secret_store.delete(&format!("totp_active:{}", body.account));
+    Ok(Json(serde_json::json!({ "disabled": true })))
+}
+
+#[derive(Deserialize)]
+struct TotpBackupRequest { account: String, code: u32 }
+
+async fn post_totp_backup_codes(
+    State(s): State<AppState>,
+    Json(body): Json<TotpBackupRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let secret = s.secret_store.get(&format!("totp_active:{}", body.account))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !crate::totp::verify(&secret, body.code) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let codes = crate::totp::generate_backup_codes();
+    // Store hashes, not plaintext.
+    let hashes: Vec<String> = codes.iter().map(|c| crate::totp::hash_backup_code(c)).collect();
+    let _ = s.secret_store.set(
+        &format!("totp_backup:{}", body.account),
+        &serde_json::to_string(&hashes).unwrap_or_default(),
+    );
+    Ok(Json(serde_json::json!({ "codes": codes, "note": "store these safely — they will not be shown again" })))
+}
+
+// ── Streaming inference SSE ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct InferenceStreamRequest {
+    account: String,
+    prompt: String,
+    #[serde(default)]
+    model: Option<String>,
+}
+
+async fn post_inference_stream(
+    State(s): State<AppState>,
+    Json(body): Json<InferenceStreamRequest>,
+) -> impl axum::response::IntoResponse {
+    use axum::response::sse::KeepAlive;
+    use tokio_stream::StreamExt;
+
+    let ollama_url = std::env::var("OLLAMA_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    let model = body.model
+        .unwrap_or_else(|| s.current_model.try_read().map(|m| m.clone()).unwrap_or_default());
+
+    // Deduct inference fee (1000 dreams) before streaming.
+    let fee: u64 = 1_000;
+    if s.chain.get_balance(&body.account, NATIVE_TOKEN) < fee {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(1);
+        let _ = tx.try_send(Ok(Event::default().data("{\"error\":\"insufficient balance\"}")));
+        return Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+            .keep_alive(KeepAlive::default())
+            .into_response();
+    }
+    let _ = s.chain.store.debit(&body.account, NATIVE_TOKEN, fee);
+    let _ = s.chain.store.credit("treasury", NATIVE_TOKEN, fee);
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
+    let req_body = serde_json::json!({ "model": model, "prompt": body.prompt, "stream": true });
+
+    tokio::spawn(async move {
+        let http = reqwest::Client::new();
+        let resp = match http.post(format!("{}/api/generate", ollama_url))
+            .json(&req_body).send().await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = tx.send(Ok(Event::default().data(format!("{{\"error\":\"{}\"}}", e)))).await;
+                return;
+            }
+        };
+        let mut byte_stream = resp.bytes_stream();
+        while let Some(chunk) = byte_stream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if let Ok(text) = std::str::from_utf8(&bytes) {
+                        if tx.send(Ok(Event::default().data(text.trim_end().to_owned()))).await.is_err() { break; }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Ok(Event::default().data(format!("{{\"error\":\"{}\"}}", e)))).await;
+                    break;
+                }
+            }
+        }
+        let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+    });
+
+    Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+async fn get_task_job_stream(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+) -> impl axum::response::IntoResponse {
+    use axum::response::sse::KeepAlive;
+
+    let output_key = format!("infer_output:{}", job_id);
+    let words: Vec<String> = s.chain.store.state_get(&output_key)
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
+    tokio::spawn(async move {
+        for word in words {
+            if tx.send(Ok(Event::default().data(format!("{{\"token\":\"{}\"}}", word)))).await.is_err() { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;
+    });
+
+    Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+// ── Phone mining ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PhoneMineClaim { account: String }
+
+async fn post_phone_mine_claim(
+    State(s): State<AppState>,
+    Json(body): Json<PhoneMineClaim>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use sha2::{Digest, Sha256};
+    let job_id = hex::encode(Sha256::digest(
+        format!("phone-work:{}:{}", body.account, crate::utils::now_ms()).as_bytes()
+    ));
+    let prompt = "Describe a random natural phenomenon in one sentence.";
+    let work_unit = serde_json::json!({
+        "job_id": job_id,
+        "prompt": prompt,
+        "max_tokens": 32,
+        "account": body.account,
+        "issued_epoch": s.chain.current_epoch(),
+    });
+    let _ = s.chain.store.state_set(
+        &format!("phone_work:{}", job_id),
+        &serde_json::to_vec(&work_unit).unwrap_or_default(),
+    );
+    Ok(Json(serde_json::json!({ "job_id": job_id, "prompt": prompt, "max_tokens": 32 })))
+}
+
+#[derive(Deserialize)]
+struct PhoneMineSubmit {
+    account: String,
+    job_id: String,
+    device_id: String,
+    work_hash: String,
+    output: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_phone_mine_submit(
+    State(s): State<AppState>,
+    Json(body): Json<PhoneMineSubmit>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use sha2::{Digest, Sha256};
+
+    let work_key = format!("phone_work:{}", body.job_id);
+    let work_raw = s.chain.store.state_get(&work_key).ok_or(StatusCode::NOT_FOUND)?;
+    let work: serde_json::Value = serde_json::from_slice(&work_raw)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if work["account"].as_str() != Some(&body.account) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Verify work_hash = SHA256(job_id|output|account).
+    let expected = hex::encode(Sha256::digest(
+        format!("{}|{}|{}", body.job_id, body.output, body.account).as_bytes()
+    ));
+    if body.work_hash != expected {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    let epoch = s.chain.current_epoch();
+    let prompt_hash = hex::encode(Sha256::digest(
+        work["prompt"].as_str().unwrap_or("").as_bytes()
+    ));
+    let nonce = s.chain.store.state_get(&format!("nonce:{}", body.account))
+        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+        .unwrap_or(0);
+
+    let entry = btcpc_types::LedgerEntry::PhoneMineSubmit {
+        account:     body.account.clone(),
+        nonce,
+        device_id:   body.device_id.clone(),
+        work_hash:   body.work_hash.clone(),
+        prompt_hash,
+        epoch,
+        signed_by:   body.account.clone(),
+        signature:   body.signature,
+    };
+
+    s.chain.push_pending(entry.clone(), None);
+    if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
+        let _ = s.tx_broadcast.send((entry, None));
+    }
+    let _ = s.chain.store.state_delete(&work_key);
+
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_phone_mine_status(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let account = params.get("account").cloned().unwrap_or_default();
+    let proofs_key = format!("phone_proofs:{}", account);
+    let proofs_submitted: u64 = s.chain.store.state_get(&proofs_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(0);
+    let last_reward_key = format!("phone_last_reward:{}", account);
+    let last_reward: u64 = s.chain.store.state_get(&last_reward_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(0);
+    Json(serde_json::json!({
+        "account": account,
+        "proofs_submitted": proofs_submitted,
+        "last_reward_epoch": last_reward,
+    }))
+}
+
+// ── Fee market ────────────────────────────────────────────────────────────────
+
+async fn get_fee_estimate(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let base_fee: u64 = s.chain.store.state_get("chain_param:base_fee")
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["fee"].as_u64())
+        .unwrap_or(btcpc_types::BASE_FEE_INITIAL_DREAMS);
+    let suggested_priority = base_fee / 10; // 10% tip suggestion
+    Json(serde_json::json!({
+        "base_fee": base_fee,
+        "base_fee_btcpc": base_fee as f64 / DREAMS_PER_BTCPC as f64,
+        "suggested_priority": suggested_priority,
+        "epoch": s.chain.current_epoch(),
+    }))
+}
+
+async fn get_mempool_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let pending = s.chain.pending_count();
+    let base_fee: u64 = s.chain.store.state_get("chain_param:base_fee")
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["fee"].as_u64())
+        .unwrap_or(btcpc_types::BASE_FEE_INITIAL_DREAMS);
+    let target = btcpc_types::EPOCH_TARGET_WEIGHT_UNITS;
+    let congestion_pct = (pending as u64 * 100).min(target * 2) / target.max(1);
+    Json(serde_json::json!({
+        "pending_count": pending,
+        "base_fee": base_fee,
+        "congestion_pct": congestion_pct,
+        "epoch": s.chain.current_epoch(),
+    }))
+}
+
+// ── Node health (detailed) ────────────────────────────────────────────────────
+
+async fn get_node_health_detailed(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let now = crate::utils::now_ms();
+    let last_seal_ts: u64 = s.chain.store.state_get("last_seal_ts")
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j.as_u64())
+        .unwrap_or(now);
+    let epoch_lag_ms = now.saturating_sub(last_seal_ts);
+    let peer_count = s.peer_count.load(std::sync::atomic::Ordering::Relaxed);
+    let alerts = s.health_monitor.recent_alerts();
+    let healer_event: serde_json::Value = s.chain.store.state_get("healer:last_event")
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!(null));
+    Json(serde_json::json!({
+        "epoch_lag_ms": epoch_lag_ms,
+        "peer_count": peer_count,
+        "last_seal_epoch": s.chain.current_epoch(),
+        "alerts": alerts,
+        "healer": healer_event,
+        "healthy": epoch_lag_ms < btcpc_types::EPOCH_MS * 2 && peer_count > 0,
+    }))
+}
+
+// ── Ensemble handlers ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct EnsembleJobRequest {
+    requester: String,
+    model: Option<String>,
+    input_hash: String,
+    max_fee: u64,
+    n_workers: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_ensemble_job(
+    State(s): State<AppState>,
+    Json(body): Json<EnsembleJobRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use sha2::{Digest, Sha256};
+    let job_id = hex::encode(Sha256::digest(
+        format!("ensemble:{}:{}:{}", body.requester, body.input_hash, crate::utils::now_ms()).as_bytes()
+    ));
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.requester))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let model = body.model.unwrap_or_else(|| s.current_model.try_read().map(|m| m.clone()).unwrap_or_default());
+    let entry = btcpc_types::LedgerEntry::EnsembleJobPost {
+        job_id: job_id.clone(), requester: body.requester.clone(), model,
+        input_hash: body.input_hash, max_fee: body.max_fee, n_workers: body.n_workers,
+        epoch, nonce, signed_by: body.requester.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "job_id": job_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct EnsembleVoteRequest {
+    job_id: String,
+    worker: String,
+    output_hash: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_ensemble_vote(
+    State(s): State<AppState>,
+    Json(body): Json<EnsembleVoteRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.worker))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::EnsembleVote {
+        job_id: body.job_id.clone(), worker: body.worker.clone(),
+        output_hash: body.output_hash, epoch, nonce,
+        signed_by: body.worker.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_ensemble_job(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let raw = s.chain.store.state_get(&format!("ensemble_job:{}", job_id))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let job: serde_json::Value = serde_json::from_slice(&raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(job))
+}
+
+async fn get_ensemble_jobs(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let jobs: Vec<serde_json::Value> = s.chain.store.state_scan_prefix("ensemble_job:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "jobs": jobs, "count": jobs.len() }))
+}
+
+// ── Slashing handlers ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SlashRequest {
+    reporter: String,
+    accused: String,
+    violation: String,
+    evidence: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_slash_validator(
+    State(s): State<AppState>,
+    Json(body): Json<SlashRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use sha2::{Digest, Sha256};
+    let slash_id = hex::encode(Sha256::digest(
+        format!("slash:{}:{}:{}", body.reporter, body.accused, crate::utils::now_ms()).as_bytes()
+    ));
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.reporter))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::SlashValidator {
+        slash_id: slash_id.clone(), reporter: body.reporter.clone(),
+        accused: body.accused, violation: body.violation, evidence: body.evidence,
+        epoch, nonce, signed_by: body.reporter.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "slash_id": slash_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct AppealRequest {
+    slash_id: String,
+    panelist: String,
+    overturn: bool,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_slash_appeal(
+    State(s): State<AppState>,
+    Json(body): Json<AppealRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.panelist))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::SlashAppeal {
+        slash_id: body.slash_id.clone(), panelist: body.panelist.clone(),
+        overturn: body.overturn, epoch, nonce,
+        signed_by: body.panelist.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_slash(
+    State(s): State<AppState>,
+    Path(slash_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let raw = s.chain.store.state_get(&format!("slash:{}", slash_id))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let record: serde_json::Value = serde_json::from_slice(&raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(record))
+}
+
+async fn get_slashes(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let records: Vec<serde_json::Value> = s.chain.store.state_scan_prefix("slash:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "slashes": records, "count": records.len() }))
+}
+
+// ── Bridge handlers ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BridgeFundRequest {
+    bridge_id: String,
+    custodian: String,
+    amount_dreams: u64,
+    external_tx_hash: String,
+    chain: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_bridge_fund(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeFundRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.custodian))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::BridgeFund {
+        bridge_id: body.bridge_id, custodian: body.custodian.clone(),
+        amount_dreams: body.amount_dreams, external_tx_hash: body.external_tx_hash,
+        chain: body.chain, epoch, nonce,
+        signed_by: body.custodian.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct BridgeWrapRequest {
+    account: String,
+    amount_dreams: u64,
+    external_address: String,
+    chain: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_bridge_wrap(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeWrapRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.account))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::BridgeWrap {
+        account: body.account.clone(), amount_dreams: body.amount_dreams,
+        external_address: body.external_address, chain: body.chain,
+        epoch, nonce, signed_by: body.account.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct BridgeUnwrapRequest {
+    account: String,
+    amount_dreams: u64,
+    recipient_external: String,
+    chain: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_bridge_unwrap(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeUnwrapRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.account))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::BridgeUnwrap {
+        account: body.account.clone(), amount_dreams: body.amount_dreams,
+        recipient_external: body.recipient_external, chain: body.chain,
+        epoch, nonce, signed_by: body.account.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct BridgeUnlockRequest {
+    request_id: String,
+    custodian: String,
+    external_tx_hash: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_bridge_unlock(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeUnlockRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let nonce: u64 = s.chain.store.state_get(&format!("nonce:{}", body.custodian))
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::BridgeUnlock {
+        request_id: body.request_id, custodian: body.custodian.clone(),
+        external_tx_hash: body.external_tx_hash, epoch, nonce,
+        signed_by: body.custodian.clone(), signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_bridge_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    Json(crate::bridge::status(&s.chain))
+}
+
+async fn get_bridge_queue(State(s): State<AppState>) -> Json<serde_json::Value> {
+    use crate::bridge::UnlockRequest;
+    let queue: Vec<UnlockRequest> = s.chain.store.state_get("bridge_unlock_queue")
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let pending: Vec<&UnlockRequest> = queue.iter().filter(|r| !r.fulfilled).collect();
+    Json(serde_json::json!({ "queue": queue, "pending_count": pending.len() }))
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 5 handlers — Memory, Amber Pill, Phone Storage, Fine-tune, Computer-Use,
+//                    Blob Serve, Peer Commerce, Gateway Resolver, Snapshots, RAG
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Memory service ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct MemorySetBody {
+    value: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_memory_set(
+    State(s): State<AppState>,
+    Path((account, key)): Path<(String, String)>,
+    Json(body): Json<MemorySetBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::MemorySet {
+        account: account.clone(),
+        key,
+        value: body.value,
+        epoch,
+        nonce: body.nonce,
+        signed_by: account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct MemoryDeleteBody {
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn delete_memory_key(
+    State(s): State<AppState>,
+    Path((account, key)): Path<(String, String)>,
+    Json(body): Json<MemoryDeleteBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::MemoryDelete {
+        account: account.clone(),
+        key,
+        epoch,
+        nonce: body.nonce,
+        signed_by: account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true })))
+}
+
+async fn get_memory_value(
+    State(s): State<AppState>,
+    Path((account, key)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let value = crate::memory_service::get(&s.chain, &account, &key);
+    Json(serde_json::json!({ "account": account, "key": key, "value": value }))
+}
+
+async fn get_memory_account(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let entries = crate::memory_service::scan(&s.chain, &account);
+    let map: serde_json::Map<String, serde_json::Value> = entries.into_iter()
+        .map(|(k, v)| (k, serde_json::Value::String(v)))
+        .collect();
+    Json(serde_json::json!({ "account": account, "memory": map }))
+}
+
+// ── Amber Pill ────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AmberPillMintBody {
+    account: String,
+    pill_id: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_amber_pill_mint(
+    State(s): State<AppState>,
+    Json(body): Json<AmberPillMintBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::AmberPillMint {
+        account: body.account.clone(),
+        pill_id: body.pill_id,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_amber_pill(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let pill = crate::amber_pill::get_pill(&s.chain, &account);
+    let has_pill = pill.is_some();
+    Json(serde_json::json!({ "account": account, "has_pill": has_pill, "pill": pill }))
+}
+
+// ── Phone storage ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PhoneStorageProofBody {
+    account: String,
+    device_id: String,
+    proof_hash: String,
+    bytes_proven: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_phone_storage_proof(
+    State(s): State<AppState>,
+    Json(body): Json<PhoneStorageProofBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::PhoneStorageProof {
+        account: body.account.clone(),
+        device_id: body.device_id,
+        proof_hash: body.proof_hash,
+        bytes_proven: body.bytes_proven,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+// ── Fine-tune jobs ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct FineTuneJobBody {
+    job_id: String,
+    requester: String,
+    base_model: String,
+    dataset_cid: String,
+    max_fee: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_finetune_job(
+    State(s): State<AppState>,
+    Json(body): Json<FineTuneJobBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::FineTuneJobPost {
+        job_id: body.job_id,
+        requester: body.requester.clone(),
+        base_model: body.base_model,
+        dataset_cid: body.dataset_cid,
+        max_fee: body.max_fee,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.requester.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct FineTuneCompleteBody {
+    worker: String,
+    adapter_cid: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_finetune_complete(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+    Json(body): Json<FineTuneCompleteBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::FineTuneJobComplete {
+        job_id,
+        worker: body.worker.clone(),
+        adapter_cid: body.adapter_cid,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.worker.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_finetune_job(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let job = crate::finetune::get_job(&s.chain, &job_id);
+    Json(serde_json::json!({ "job_id": job_id, "job": job }))
+}
+
+async fn get_finetune_jobs(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let jobs = crate::finetune::list_open_jobs(&s.chain);
+    Json(serde_json::json!({ "jobs": jobs, "count": jobs.len() }))
+}
+
+// ── Computer-use jobs ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ComputerUseJobBody {
+    job_id: String,
+    requester: String,
+    task_json: String,
+    max_fee: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_computer_use_job(
+    State(s): State<AppState>,
+    Json(body): Json<ComputerUseJobBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::ComputerUseJobPost {
+        job_id: body.job_id,
+        requester: body.requester.clone(),
+        task_json: body.task_json,
+        max_fee: body.max_fee,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.requester.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct ComputerUseCompleteBody {
+    worker: String,
+    result_cid: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_computer_use_complete(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+    Json(body): Json<ComputerUseCompleteBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::ComputerUseJobComplete {
+        job_id,
+        worker: body.worker.clone(),
+        result_cid: body.result_cid,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.worker.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_computer_use_job(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let job = crate::computer_use::get_job(&s.chain, &job_id);
+    Json(serde_json::json!({ "job_id": job_id, "job": job }))
+}
+
+async fn get_computer_use_jobs(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let jobs = crate::computer_use::list_open_jobs(&s.chain);
+    Json(serde_json::json!({ "jobs": jobs, "count": jobs.len() }))
+}
+
+// ── Blob serve proof + bandwidth ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BlobServeProofBody {
+    node_id: String,
+    cid: String,
+    bytes_served: u64,
+    proof_hash: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_blob_serve_proof(
+    State(s): State<AppState>,
+    Json(body): Json<BlobServeProofBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    // Record in bandwidth meter
+    s.blob_bandwidth.record(&body.cid, body.bytes_served);
+    let entry = btcpc_types::LedgerEntry::BlobServeProof {
+        node_id: body.node_id.clone(),
+        cid: body.cid,
+        bytes_served: body.bytes_served,
+        proof_hash: body.proof_hash,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.node_id.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_blob_bandwidth(
+    State(s): State<AppState>,
+    Path(cid): Path<String>,
+) -> Json<serde_json::Value> {
+    let bytes = s.blob_bandwidth.peek(&cid);
+    Json(serde_json::json!({ "cid": cid, "bytes_pending": bytes }))
+}
+
+// ── Peer commerce ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct StorefrontRegisterBody {
+    account: String,
+    name: String,
+    description: String,
+    #[serde(default)]
+    contact: Option<String>,
+    #[serde(default)]
+    catalogue_cid: Option<String>,
+    epoch: u64,
+}
+
+async fn post_storefront_register(
+    State(s): State<AppState>,
+    Json(body): Json<StorefrontRegisterBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    crate::peer_commerce::register(
+        &s.chain, &body.account, &body.name, &body.description,
+        body.contact.as_deref(), body.catalogue_cid.as_deref(), body.epoch,
+    ).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(serde_json::json!({ "registered": true, "account": body.account })))
+}
+
+async fn get_storefront(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let sf = crate::peer_commerce::get(&s.chain, &account);
+    Json(serde_json::json!({ "account": account, "storefront": sf }))
+}
+
+async fn get_storefronts(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let storefronts = crate::peer_commerce::list(&s.chain);
+    Json(serde_json::json!({ "storefronts": storefronts, "count": storefronts.len() }))
+}
+
+// ── Gateway resolver ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ResolveQuery {
+    q: String,
+}
+
+async fn get_resolve(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<ResolveQuery>,
+) -> Json<serde_json::Value> {
+    Json(crate::gateway_resolver::resolve(&s.chain, &params.q))
+}
+
+async fn get_resolve_name(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Json<serde_json::Value> {
+    let account = crate::gateway_resolver::resolve_name(&s.chain, &name);
+    Json(serde_json::json!({ "name": name, "account": account }))
+}
+
+// ── Snapshot replication ──────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SnapshotSaveBody {
+    slug: String,
+    cid: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_snapshot_save(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+    Json(body): Json<SnapshotSaveBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::SnapshotSave {
+        account: account.clone(),
+        slug: body.slug,
+        cid: body.cid,
+        epoch,
+        nonce: body.nonce,
+        signed_by: account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_snapshot(
+    State(s): State<AppState>,
+    Path((account, slug)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let snap = crate::snapshot_replication::get(&s.chain, &account, &slug);
+    Json(serde_json::json!({ "account": account, "slug": slug, "snapshot": snap }))
+}
+
+async fn get_snapshots(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let snaps = crate::snapshot_replication::list(&s.chain, &account);
+    Json(serde_json::json!({ "account": account, "snapshots": snaps }))
+}
+
+// ── RAG service ───────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct RagIndexBody {
+    doc_id: String,
+    content: String,
+}
+
+async fn post_rag_index(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+    Json(body): Json<RagIndexBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    match crate::rag::index_document(&s.chain, &account, &body.doc_id, &body.content, epoch).await {
+        Ok(()) => Ok(Json(serde_json::json!({ "indexed": true, "doc_id": body.doc_id }))),
+        Err(e) => {
+            tracing::warn!("RAG index error: {}", e);
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RagQueryBody {
+    query: String,
+}
+
+async fn post_rag_query(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+    Json(body): Json<RagQueryBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match crate::rag::query(&s.chain, &account, &body.query).await {
+        Ok(result) => Ok(Json(serde_json::json!(result))),
+        Err(e) => {
+            tracing::warn!("RAG query error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn delete_rag_doc(
+    State(s): State<AppState>,
+    Path((account, doc_id)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let _ = crate::rag::delete_document(&s.chain, &account, &doc_id);
+    Json(serde_json::json!({ "deleted": true, "doc_id": doc_id }))
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 4 handlers — Name Auctions, Freeport Auctions, Private Authorization
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+struct NameAuctionOpenRequest {
+    opener: String,
+    name: String,
+    min_bid: u64,
+    end_epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_name_auction_open(
+    State(s): State<AppState>,
+    Json(body): Json<NameAuctionOpenRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let auction_id = format!("name-{}-{}", body.name.to_lowercase(), epoch);
+    let entry = btcpc_types::LedgerEntry::NameAuctionOpen {
+        auction_id: auction_id.clone(),
+        name: body.name,
+        opener: body.opener.clone(),
+        min_bid: body.min_bid,
+        end_epoch: body.end_epoch,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.opener.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "auction_id": auction_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct AuctionBidRequest {
+    bidder: String,
+    amount: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_name_auction_bid(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+    Json(body): Json<AuctionBidRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::NameAuctionBid {
+        auction_id,
+        bidder: body.bidder.clone(),
+        amount: body.amount,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.bidder.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct AuctionSettleRequest {
+    settler: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_name_auction_settle(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+    Json(body): Json<AuctionSettleRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::NameAuctionSettle {
+        auction_id,
+        settler: body.settler.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.settler.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct AuctionCancelRequest {
+    opener: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_name_auction_cancel(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+    Json(body): Json<AuctionCancelRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::NameAuctionCancel {
+        auction_id,
+        opener: body.opener.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.opener.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_auction(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("auction:{}", auction_id);
+    let data: serde_json::Value = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Json(serde_json::json!({ "auction_id": auction_id, "data": data }))
+}
+
+async fn get_name_auctions(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let auctions: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("auction:name-")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "auctions": auctions, "count": auctions.len() }))
+}
+
+#[derive(Deserialize)]
+struct FreeportAuctionOpenRequest {
+    seller: String,
+    item_type: String,
+    item_id: String,
+    min_bid: u64,
+    end_epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_freeport_auction_open(
+    State(s): State<AppState>,
+    Json(body): Json<FreeportAuctionOpenRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let auction_id = format!("fp-{}-{}-{}", body.item_type, body.item_id, epoch);
+    let entry = btcpc_types::LedgerEntry::FreeportAuctionOpen {
+        auction_id: auction_id.clone(),
+        item_type: body.item_type,
+        item_id: body.item_id,
+        seller: body.seller.clone(),
+        min_bid: body.min_bid,
+        end_epoch: body.end_epoch,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.seller.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "auction_id": auction_id, "epoch": epoch })))
+}
+
+async fn post_freeport_auction_bid(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+    Json(body): Json<AuctionBidRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::FreeportAuctionBid {
+        auction_id,
+        bidder: body.bidder.clone(),
+        amount: body.amount,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.bidder.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn post_freeport_auction_settle(
+    State(s): State<AppState>,
+    Path(auction_id): Path<String>,
+    Json(body): Json<AuctionSettleRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::FreeportAuctionSettle {
+        auction_id,
+        settler: body.settler.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.settler.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct PrivateAuthEnrollRequest {
+    group_id: String,
+    member: String,
+    member_pubkey: String,
+    threshold_n: u32,
+    threshold_m: u32,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_private_auth_enroll(
+    State(s): State<AppState>,
+    Json(body): Json<PrivateAuthEnrollRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::PrivateAuthEnroll {
+        group_id: body.group_id,
+        member: body.member.clone(),
+        member_pubkey: body.member_pubkey,
+        threshold_n: body.threshold_n,
+        threshold_m: body.threshold_m,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.member.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct PrivateAuthApproveRequest {
+    group_id: String,
+    tx_hash: String,
+    approver: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_private_auth_approve(
+    State(s): State<AppState>,
+    Json(body): Json<PrivateAuthApproveRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::PrivateAuthApprove {
+        group_id: body.group_id,
+        tx_hash: body.tx_hash,
+        approver: body.approver.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.approver.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_private_auth_status(
+    State(s): State<AppState>,
+    Path(tx_hash): Path<String>,
+) -> Json<serde_json::Value> {
+    Json(crate::private_auth::approval_status(&s.chain, &tx_hash))
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 3 handlers — Oracle, Session Market, Agent Sessions, VRF
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Oracle ────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct OracleCreateRequest {
+    creator: String,
+    asset_pair: String,
+    #[serde(default)]
+    update_interval_epochs: Option<u64>,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_oracle_create(
+    State(s): State<AppState>,
+    Json(body): Json<OracleCreateRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let feed_id = format!("{}-{}", body.asset_pair.to_lowercase().replace('/', "-"), epoch);
+    let entry = btcpc_types::LedgerEntry::OracleFeedCreate {
+        feed_id: feed_id.clone(),
+        creator: body.creator.clone(),
+        asset_pair: body.asset_pair,
+        update_interval_epochs: body.update_interval_epochs.unwrap_or(1),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.creator.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "feed_id": feed_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct OracleReportRequest {
+    reporter: String,
+    commit_hash: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_oracle_report(
+    State(s): State<AppState>,
+    Path(feed_id): Path<String>,
+    Json(body): Json<OracleReportRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::OracleReport {
+        feed_id,
+        reporter: body.reporter.clone(),
+        commit_hash: body.commit_hash,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.reporter.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct OracleFinalizeRequest {
+    finalizer: String,
+    reveals: Vec<btcpc_types::OracleReveal>,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_oracle_finalize(
+    State(s): State<AppState>,
+    Path(feed_id): Path<String>,
+    Json(body): Json<OracleFinalizeRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::OracleFeedFinalize {
+        feed_id,
+        finalizer: body.finalizer.clone(),
+        reveals: body.reveals,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.finalizer.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_oracle_feed(
+    State(s): State<AppState>,
+    Path(feed_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let meta_key = format!("oracle_feed:{}", feed_id);
+    let meta: serde_json::Value = s.chain.store.state_get(&meta_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let reports_key = format!("oracle_reports:{}", feed_id);
+    let reports: serde_json::Value = s.chain.store.state_get(&reports_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!([]));
+    Json(serde_json::json!({ "feed_id": feed_id, "meta": meta, "reports": reports }))
+}
+
+async fn get_oracle_feeds(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let feeds: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("oracle_feed:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "feeds": feeds, "count": feeds.len() }))
+}
+
+async fn get_oracle_price(
+    State(s): State<AppState>,
+    Path(pair): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("oracle_price:{}", pair.to_lowercase().replace('/', "-"));
+    let price_data: serde_json::Value = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Json(serde_json::json!({ "pair": pair, "data": price_data }))
+}
+
+async fn get_oracle_reputation(
+    State(s): State<AppState>,
+    Path(reporter): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("oracle_rep:{}", reporter);
+    let rep: i64 = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(0i64);
+    Json(serde_json::json!({ "reporter": reporter, "reputation": rep }))
+}
+
+// ── Session marketplace ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SessionListRequest {
+    seller: String,
+    model: String,
+    price_dreams: u64,
+    turn_count: u32,
+    summary_hash: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_session_list(
+    State(s): State<AppState>,
+    Json(body): Json<SessionListRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let listing_id = format!("{}-{}", body.seller, epoch);
+    let entry = btcpc_types::LedgerEntry::SessionListingCreate {
+        listing_id: listing_id.clone(),
+        seller: body.seller.clone(),
+        model: body.model,
+        price_dreams: body.price_dreams,
+        summary_hash: body.summary_hash,
+        turn_count: body.turn_count,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.seller.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "listing_id": listing_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct SessionBuyRequest {
+    buyer: String,
+    listing_id: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_session_buy(
+    State(s): State<AppState>,
+    Json(body): Json<SessionBuyRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::SessionListingBuy {
+        listing_id: body.listing_id,
+        buyer: body.buyer.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.buyer.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct SessionCancelRequest {
+    seller: String,
+    listing_id: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_session_cancel(
+    State(s): State<AppState>,
+    Json(body): Json<SessionCancelRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::SessionListingCancel {
+        listing_id: body.listing_id,
+        seller: body.seller.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.seller.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_session_listings(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let listings: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("session_listing:")
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    Json(serde_json::json!({ "listings": listings, "count": listings.len() }))
+}
+
+async fn get_session_listing(
+    State(s): State<AppState>,
+    Path(listing_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("session_listing:{}", listing_id);
+    let listing: serde_json::Value = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Json(serde_json::json!({ "listing_id": listing_id, "data": listing }))
+}
+
+// ── Agent sessions ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AgentSessionOpenRequest {
+    client: String,
+    model: String,
+    client_pubkey: String,
+    fee_escrow: u64,
+    #[serde(default)]
+    system_prompt: Option<String>,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_agent_session_open(
+    State(s): State<AppState>,
+    Json(body): Json<AgentSessionOpenRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let session_id = format!("{}-{}", body.client, epoch);
+    let entry = btcpc_types::LedgerEntry::AgentSessionOpen {
+        session_id: session_id.clone(),
+        client: body.client.clone(),
+        model: body.model,
+        client_pubkey: body.client_pubkey,
+        fee_escrow: body.fee_escrow,
+        system_prompt: body.system_prompt,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.client.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "session_id": session_id, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct AgentSessionCloseRequest {
+    session_id: String,
+    client: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_agent_session_close(
+    State(s): State<AppState>,
+    Json(body): Json<AgentSessionCloseRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::AgentSessionClose {
+        session_id: body.session_id,
+        client: body.client.clone(),
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.client.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+async fn get_agent_session(
+    State(s): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let key = format!("agent_session:{}", session_id);
+    let session: serde_json::Value = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let turns_key = format!("agent_session_turns:{}", session_id);
+    let turns: serde_json::Value = s.chain.store.state_get(&turns_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!([]));
+    Json(serde_json::json!({ "session_id": session_id, "session": session, "turns": turns }))
+}
+
+#[derive(Deserialize)]
+struct AgentTurnRequest {
+    message: String,
+    #[serde(default)]
+    tools: Vec<serde_json::Value>,
+}
+
+async fn post_agent_session_turn(
+    State(s): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<AgentTurnRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match crate::agent_session::execute_turn(&s.chain, &session_id, &body.message, &body.tools).await {
+        Ok(response) => Ok(Json(serde_json::json!({
+            "session_id": session_id,
+            "response": response,
+        }))),
+        Err(e) => {
+            tracing::warn!("agent turn error session={}: {}", session_id, e);
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+// ── VRF beacon ────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct VrfCommitRequest {
+    committer: String,
+    commit_hash: String,
+    epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_vrf_commit(
+    State(s): State<AppState>,
+    Json(body): Json<VrfCommitRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let entry = btcpc_types::LedgerEntry::VrfCommit {
+        committer: body.committer.clone(),
+        commit_hash: body.commit_hash,
+        epoch: body.epoch,
+        nonce: body.nonce,
+        signed_by: body.committer.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": body.epoch })))
+}
+
+#[derive(Deserialize)]
+struct VrfRevealRequest {
+    committer: String,
+    secret_hex: String,
+    epoch: u64,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_vrf_reveal(
+    State(s): State<AppState>,
+    Json(body): Json<VrfRevealRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let entry = btcpc_types::LedgerEntry::VrfReveal {
+        committer: body.committer.clone(),
+        secret_hex: body.secret_hex,
+        epoch: body.epoch,
+        nonce: body.nonce,
+        signed_by: body.committer.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": body.epoch })))
+}
+
+async fn get_vrf_beacon(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let key = format!("vrf_beacon:{}", epoch.saturating_sub(1));
+    let beacon: serde_json::Value = s.chain.store.state_get(&key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Json(serde_json::json!({ "current_epoch": epoch, "last_beacon": beacon }))
+}
+
+async fn get_vrf_round(
+    State(s): State<AppState>,
+    Path(epoch): Path<u64>,
+) -> Json<serde_json::Value> {
+    let commits_key = format!("vrf_commits:{}", epoch);
+    let reveals_key = format!("vrf_reveals:{}", epoch);
+    let beacon_key = format!("vrf_beacon:{}", epoch);
+    let commits: serde_json::Value = s.chain.store.state_get(&commits_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!({}));
+    let reveals: serde_json::Value = s.chain.store.state_get(&reveals_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!({}));
+    let beacon: serde_json::Value = s.chain.store.state_get(&beacon_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Json(serde_json::json!({ "epoch": epoch, "commits": commits, "reveals": reveals, "beacon": beacon }))
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 
 pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {
     let app = router(state);

@@ -329,6 +329,10 @@ impl Chain {
         true
     }
 
+    pub fn pending_count(&self) -> usize {
+        self.pending.lock().len()
+    }
+
     /// Drain and sort the pending pool, returning entries in deterministic hash order.
     /// All nodes that received the same gossip will sort identically, ensuring consistent
     /// "first claim wins" across the whole network regardless of gossip arrival timing.
@@ -1920,6 +1924,12 @@ impl Chain {
                 self.ensure_account(node_id, *epoch)?;
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
             }
+            LedgerEntry::GatewayRewardSplit { sensor_account, gateway_account, sensor_amount, gateway_amount, epoch } => {
+                self.ensure_account(sensor_account, *epoch)?;
+                self.ensure_account(gateway_account, *epoch)?;
+                self.store.credit(sensor_account, NATIVE_TOKEN, *sensor_amount)?;
+                self.store.credit(gateway_account, NATIVE_TOKEN, *gateway_amount)?;
+            }
             LedgerEntry::VerifierReward { node_id, amount, epoch } => {
                 self.ensure_account(node_id, *epoch)?;
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
@@ -2616,6 +2626,20 @@ impl Chain {
                     proposal_id, outcome, yes_votes, no_votes);
             }
 
+            // ── Scientific compute result ─────────────────────────────────────
+            LedgerEntry::ScientificResult { job_id, .. } => {
+                let key = format!("sci_result:{}", job_id);
+                self.store.state_set(&key, &serde_json::to_vec(entry)?)?;
+                info!("[science] on-chain result for job '{}'", job_id);
+            }
+
+            // ── Cross-chain finality announcement ─────────────────────────────
+            LedgerEntry::CrossChainFinalityAnnounce { target_chain, finality_epoch, .. } => {
+                let key = format!("cc_finality:{}:{}", target_chain, finality_epoch);
+                self.store.state_set(&key, &serde_json::to_vec(entry)?)?;
+                info!("[cross-chain] finality at epoch {} for '{}'", finality_epoch, target_chain);
+            }
+
             // ── Clock Node Registration ───────────────────────────────────────
             LedgerEntry::ClockNodeRegister { node_id, stake, epoch, pubkey, .. } => {
                 anyhow::ensure!(
@@ -2856,6 +2880,200 @@ impl Chain {
                 task["approved_epoch"] = serde_json::json!(epoch);
                 task["approved_by"] = serde_json::json!(approver);
                 self.store.state_set(&task_key, &serde_json::to_vec(&task)?)?;
+            }
+
+            LedgerEntry::OracleFeedCreate { .. } => {
+                crate::oracle::apply_create(self, entry)?;
+            }
+            LedgerEntry::OracleReport { .. } => {
+                crate::oracle::apply_report(self, entry)?;
+            }
+            LedgerEntry::OracleFeedFinalize { .. } => {
+                crate::oracle::apply_finalize(self, entry)?;
+            }
+            LedgerEntry::SessionListingCreate { .. } => {
+                crate::session_market::apply_create(self, entry)?;
+            }
+            LedgerEntry::SessionListingBuy { .. } => {
+                crate::session_market::apply_buy(self, entry)?;
+            }
+            LedgerEntry::SessionListingCancel { .. } => {
+                crate::session_market::apply_cancel(self, entry)?;
+            }
+            LedgerEntry::AgentSessionOpen { .. } => {
+                // server_pubkey is stored in CF_META at node startup.
+                let server_pubkey = self.store.state_get("node:server_pubkey")
+                    .and_then(|b| String::from_utf8(b).ok())
+                    .unwrap_or_default();
+                crate::agent_session::apply_open(self, entry, &server_pubkey)?;
+            }
+            LedgerEntry::AgentSessionClose { .. } => {
+                crate::agent_session::apply_close(self, entry)?;
+            }
+            LedgerEntry::VrfCommit { .. } => {
+                crate::vrf::apply_commit(self, entry)?;
+            }
+            LedgerEntry::VrfReveal { .. } => {
+                crate::vrf::apply_reveal(self, entry)?;
+            }
+
+            LedgerEntry::EnsembleJobPost { .. } => {
+                crate::ensemble::apply_job_post(self, entry)?;
+            }
+            LedgerEntry::EnsembleVote { .. } => {
+                crate::ensemble::apply_vote(self, entry)?;
+            }
+            LedgerEntry::SlashValidator { .. } => {
+                crate::slashing::apply_slash(self, entry)?;
+            }
+            LedgerEntry::SlashAppeal { .. } => {
+                crate::slashing::apply_appeal(self, entry)?;
+            }
+            LedgerEntry::BridgeFund { .. } => {
+                crate::bridge::apply_fund(self, entry)?;
+            }
+            LedgerEntry::BridgeWrap { .. } => {
+                crate::bridge::apply_wrap(self, entry)?;
+            }
+            LedgerEntry::BridgeUnwrap { .. } => {
+                crate::bridge::apply_unwrap(self, entry)?;
+            }
+            LedgerEntry::BridgeUnlock { .. } => {
+                crate::bridge::apply_unlock(self, entry)?;
+            }
+
+            LedgerEntry::PhoneMineSubmit { account, work_hash, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+
+                // Reward: 500 dreams per valid proof.
+                const PHONE_MINE_REWARD: u64 = 500;
+                self.store.credit(account, btcpc_types::NATIVE_TOKEN, PHONE_MINE_REWARD)?;
+
+                // Increment proof counter.
+                let proofs_key = format!("phone_proofs:{}", account);
+                let proofs: u64 = self.store.state_get(&proofs_key)
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .unwrap_or(0);
+                self.store.state_set(&proofs_key, &serde_json::to_vec(&(proofs + 1))?)?;
+                self.store.state_set(
+                    &format!("phone_last_reward:{}", account),
+                    &serde_json::to_vec(epoch)?,
+                )?;
+                // Record work hash to prevent replay.
+                self.store.state_set(
+                    &format!("phone_work_used:{}", work_hash),
+                    &serde_json::to_vec(epoch)?,
+                )?;
+            }
+
+            // ── Name auctions ─────────────────────────────────────────────────
+            LedgerEntry::NameAuctionOpen { auction_id, name, opener, min_bid, end_epoch, epoch, .. } => {
+                self.touch_alive(opener, *epoch);
+                self.ensure_account(opener, *epoch)?;
+                crate::auction::apply_name_open(self, auction_id, name, opener, *min_bid, *end_epoch, *epoch)?;
+            }
+            LedgerEntry::NameAuctionBid { auction_id, bidder, amount, epoch, .. } => {
+                self.touch_alive(bidder, *epoch);
+                self.ensure_account(bidder, *epoch)?;
+                crate::auction::apply_bid(self, auction_id, bidder, *amount, *epoch)?;
+            }
+            LedgerEntry::NameAuctionSettle { auction_id, epoch, .. } => {
+                crate::auction::apply_settle(self, auction_id, *epoch)?;
+            }
+            LedgerEntry::NameAuctionCancel { auction_id, opener, .. } => {
+                crate::auction::apply_cancel(self, auction_id, opener)?;
+            }
+
+            // ── Freeport auctions ─────────────────────────────────────────────
+            LedgerEntry::FreeportAuctionOpen { auction_id, item_type, item_id, seller, min_bid, end_epoch, epoch, .. } => {
+                self.touch_alive(seller, *epoch);
+                self.ensure_account(seller, *epoch)?;
+                crate::auction::apply_freeport_open(self, auction_id, item_type, item_id, seller, *min_bid, *end_epoch, *epoch)?;
+            }
+            LedgerEntry::FreeportAuctionBid { auction_id, bidder, amount, epoch, .. } => {
+                self.touch_alive(bidder, *epoch);
+                self.ensure_account(bidder, *epoch)?;
+                crate::auction::apply_bid(self, auction_id, bidder, *amount, *epoch)?;
+            }
+            LedgerEntry::FreeportAuctionSettle { auction_id, epoch, .. } => {
+                crate::auction::apply_settle(self, auction_id, *epoch)?;
+            }
+
+            // ── Private authorization ─────────────────────────────────────────
+            LedgerEntry::PrivateAuthEnroll { group_id, member, member_pubkey, threshold_n, threshold_m, epoch, .. } => {
+                self.touch_alive(member, *epoch);
+                self.ensure_account(member, *epoch)?;
+                crate::private_auth::apply_enroll(self, group_id, member, member_pubkey, *threshold_n, *threshold_m)?;
+            }
+            LedgerEntry::PrivateAuthApprove { group_id, tx_hash, approver, epoch, .. } => {
+                self.touch_alive(approver, *epoch);
+                self.ensure_account(approver, *epoch)?;
+                let _ = crate::private_auth::apply_approve(self, group_id, tx_hash, approver)?;
+            }
+
+            // ── Phase 5: Memory service ───────────────────────────────────────
+            LedgerEntry::MemorySet { account, key, value, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::memory_service::apply_set(self, account, key, value)?;
+            }
+            LedgerEntry::MemoryDelete { account, key, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::memory_service::apply_delete(self, account, key)?;
+            }
+
+            // ── Amber Pill ────────────────────────────────────────────────────
+            LedgerEntry::AmberPillMint { account, pill_id, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::amber_pill::apply_mint(self, account, pill_id, *epoch)?;
+            }
+
+            // ── Phone storage ─────────────────────────────────────────────────
+            LedgerEntry::PhoneStorageProof { account, device_id, proof_hash, bytes_proven, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::phone_storage::apply_proof(self, account, device_id, proof_hash, *bytes_proven, *epoch)?;
+            }
+
+            // ── Fine-tune jobs ────────────────────────────────────────────────
+            LedgerEntry::FineTuneJobPost { job_id, requester, base_model, dataset_cid, max_fee, epoch, .. } => {
+                self.touch_alive(requester, *epoch);
+                self.ensure_account(requester, *epoch)?;
+                crate::finetune::apply_post(self, job_id, requester, base_model, dataset_cid, *max_fee, *epoch)?;
+            }
+            LedgerEntry::FineTuneJobComplete { job_id, worker, adapter_cid, epoch, .. } => {
+                self.touch_alive(worker, *epoch);
+                self.ensure_account(worker, *epoch)?;
+                crate::finetune::apply_complete(self, job_id, worker, adapter_cid, *epoch)?;
+            }
+
+            // ── Computer-use jobs ─────────────────────────────────────────────
+            LedgerEntry::ComputerUseJobPost { job_id, requester, task_json, max_fee, epoch, .. } => {
+                self.touch_alive(requester, *epoch);
+                self.ensure_account(requester, *epoch)?;
+                crate::computer_use::apply_post(self, job_id, requester, task_json, *max_fee, *epoch)?;
+            }
+            LedgerEntry::ComputerUseJobComplete { job_id, worker, result_cid, epoch, .. } => {
+                self.touch_alive(worker, *epoch);
+                self.ensure_account(worker, *epoch)?;
+                crate::computer_use::apply_complete(self, job_id, worker, result_cid, *epoch)?;
+            }
+
+            // ── Blob serve proof ──────────────────────────────────────────────
+            LedgerEntry::BlobServeProof { node_id, cid, bytes_served, proof_hash, epoch, .. } => {
+                self.touch_alive(node_id, *epoch);
+                self.ensure_account(node_id, *epoch)?;
+                crate::blob_serve::apply_serve_proof(self, node_id, cid, *bytes_served, proof_hash, *epoch)?;
+            }
+
+            // ── Snapshot replication ──────────────────────────────────────────
+            LedgerEntry::SnapshotSave { account, slug, cid, epoch, .. } => {
+                self.touch_alive(account, *epoch);
+                self.ensure_account(account, *epoch)?;
+                crate::snapshot_replication::apply_save(self, account, slug, cid, *epoch)?;
             }
 
         }
@@ -4217,6 +4435,7 @@ mod tests {
             node_id: "a".to_string(), epoch: 1,
             bytes_proven: 0, query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "a".to_string(),
         };
 
@@ -4660,6 +4879,7 @@ mod tests {
             bytes_proven: STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "storer".to_string(),
         }).expect("heartbeat applied");
 
@@ -5020,6 +5240,7 @@ mod tests {
             bytes_proven: 5 * STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: None,
+            tier: None,
             signed_by: "storer".to_string(),
         }).expect("no-proof heartbeat");
         let beat = chain.store.state_get("storage_beat:1:storer").unwrap();
@@ -5087,6 +5308,7 @@ mod tests {
             bytes_proven: 10 * STORAGE_CHALLENGE_CHUNK_BYTES,
             query_count: 0,
             challenge_response: Some(bad_proof),
+            tier: None,
             signed_by: "storer".into(),
         }).expect("heartbeat with bad proof accepted to chain");
 

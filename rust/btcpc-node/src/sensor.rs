@@ -58,13 +58,14 @@ pub async fn run_sensor_node(
         let batch_hash = hex::encode(Sha256::digest(batch.to_string().as_bytes()));
 
         let entry = LedgerEntry::SensorDataCommit {
-            sensor_id:     sensor_id.clone(),
-            owner:         account.clone(),
-            batch_hash:    batch_hash.clone(),
-            reading_count: 1,
-            sensor_type:   "sampled".to_owned(),
+            sensor_id:       sensor_id.clone(),
+            owner:           account.clone(),
+            batch_hash:      batch_hash.clone(),
+            reading_count:   1,
+            sensor_type:     "sampled".to_owned(),
             epoch,
-            signed_by:     account.clone(),
+            signed_by:       account.clone(),
+            gateway_account: None,
         };
 
         if let Err(e) = chain.apply_entry(&entry) {

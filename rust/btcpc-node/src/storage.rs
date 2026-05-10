@@ -34,12 +34,17 @@ pub async fn run_storage_node(
         // Consume git serve query count for this epoch.
         let git_queries = git_serve_queries.swap(0, Ordering::Relaxed) as u64;
 
+        // Tier is derived from bytes proven: <10GB=1, 10-100GB=2, ≥100GB=3.
+        let bytes_gb = bytes_proven / (1024 * 1024 * 1024);
+        let tier: u8 = if bytes_gb >= 100 { 3 } else if bytes_gb >= 10 { 2 } else { 1 };
+
         let entry = LedgerEntry::StorageHeartbeat {
             node_id:            account.clone(),
             epoch,
             bytes_proven,
             query_count:        git_queries,
             challenge_response: None,
+            tier:               Some(tier),
             signed_by:          account.clone(),
         };
 

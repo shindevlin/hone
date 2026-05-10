@@ -97,6 +97,7 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
         | LedgerEntry::RuntimeReward { .. }
         | LedgerEntry::LinkGitServeReward { .. }
         | LedgerEntry::LinkGitBuildReward { .. }
+        | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::GenesisAlloc  { .. }
     )
 }
@@ -617,6 +618,7 @@ pub fn validate_and_apply(
         | LedgerEntry::VerifierReward { .. }
         | LedgerEntry::ServiceReward { .. }
         | LedgerEntry::RuntimeReward { .. }
+        | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::EpochSeal { .. } => {
             bail!("entry type is not externally submittable");
         }
@@ -1279,6 +1281,344 @@ pub fn validate_and_apply(
             check_nonce(chain, approver, *nonce)?;
             check_signature(chain, signed_by, entry, sig_hex, "active")?;
             chain.apply_entry(entry)?;
+        }
+
+        LedgerEntry::OracleFeedCreate { creator, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, creator, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, creator);
+        }
+        LedgerEntry::OracleReport { reporter, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, reporter, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, reporter);
+        }
+        LedgerEntry::OracleFeedFinalize { finalizer, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, finalizer, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, finalizer);
+        }
+        LedgerEntry::SessionListingCreate { seller, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, seller, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, seller);
+        }
+        LedgerEntry::SessionListingBuy { buyer, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, buyer, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, buyer);
+        }
+        LedgerEntry::SessionListingCancel { seller, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, seller, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, seller);
+        }
+        LedgerEntry::AgentSessionOpen { client, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, client, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, client);
+        }
+        LedgerEntry::AgentSessionClose { client, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, client, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, client);
+        }
+        LedgerEntry::VrfCommit { committer, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, committer, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, committer);
+        }
+        LedgerEntry::VrfReveal { committer, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, committer, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, committer);
+        }
+
+        LedgerEntry::EnsembleJobPost { requester, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, requester, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, requester);
+        }
+        LedgerEntry::EnsembleVote { worker, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, worker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, worker);
+        }
+        LedgerEntry::SlashValidator { reporter, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, reporter, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, reporter);
+        }
+        LedgerEntry::SlashAppeal { panelist, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, panelist, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, panelist);
+        }
+        LedgerEntry::BridgeFund { custodian, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, custodian, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, custodian);
+        }
+        LedgerEntry::BridgeWrap { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+        LedgerEntry::BridgeUnwrap { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+        LedgerEntry::BridgeUnlock { custodian, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, custodian, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, custodian);
+        }
+
+        LedgerEntry::PhoneMineSubmit { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
+        // ── Name auctions ─────────────────────────────────────────────────────
+        LedgerEntry::NameAuctionOpen { opener, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, opener, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, opener);
+        }
+        LedgerEntry::NameAuctionBid { bidder, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, bidder, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, bidder);
+        }
+        LedgerEntry::NameAuctionSettle { settler, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, settler, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, settler);
+        }
+        LedgerEntry::NameAuctionCancel { opener, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, opener, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, opener);
+        }
+
+        // ── Freeport auctions ──────────────────────────────────────────────────
+        LedgerEntry::FreeportAuctionOpen { seller, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, seller, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, seller);
+        }
+        LedgerEntry::FreeportAuctionBid { bidder, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, bidder, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, bidder);
+        }
+        LedgerEntry::FreeportAuctionSettle { settler, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, settler, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, settler);
+        }
+
+        // ── Private authorization ──────────────────────────────────────────────
+        LedgerEntry::PrivateAuthEnroll { member, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, member, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, member);
+        }
+        LedgerEntry::PrivateAuthApprove { approver, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, approver, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, approver);
+        }
+
+        // ── Phase 5: Memory service ───────────────────────────────────────────
+        LedgerEntry::MemorySet { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+        LedgerEntry::MemoryDelete { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
+        // ── Amber Pill ────────────────────────────────────────────────────────
+        LedgerEntry::AmberPillMint { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
+        // ── Phone storage ─────────────────────────────────────────────────────
+        LedgerEntry::PhoneStorageProof { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
+        // ── Fine-tune jobs ────────────────────────────────────────────────────
+        LedgerEntry::FineTuneJobPost { requester, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, requester, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, requester);
+        }
+        LedgerEntry::FineTuneJobComplete { worker, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, worker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, worker);
+        }
+
+        // ── Computer-use jobs ─────────────────────────────────────────────────
+        LedgerEntry::ComputerUseJobPost { requester, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, requester, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, requester);
+        }
+        LedgerEntry::ComputerUseJobComplete { worker, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, worker, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, worker);
+        }
+
+        // ── Blob serve proof ──────────────────────────────────────────────────
+        LedgerEntry::BlobServeProof { node_id, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, node_id, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, node_id);
+        }
+
+        // ── Snapshot replication ──────────────────────────────────────────────
+        LedgerEntry::SnapshotSave { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signed_by)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, account);
+        }
+
+        // ── Scientific compute / cross-chain (system-only) ───────────────────
+        LedgerEntry::ScientificResult { .. } => {
+            bail!("ScientificResult is emitted automatically by the ScientificEngine");
+        }
+        LedgerEntry::CrossChainFinalityAnnounce { .. } => {
+            bail!("CrossChainFinalityAnnounce is emitted automatically by the cross-chain module");
+        }
+        LedgerEntry::GatewayRewardSplit { .. } => {
+            bail!("GatewayRewardSplit is emitted automatically by the epoch reward engine");
         }
     }
 

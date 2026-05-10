@@ -25,6 +25,10 @@ state machine, block production, contract execution, and HTTP API.
     BTCPC_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
     BTCPC_SENSOR              — "true" to emit SensorDataCommit each epoch (earns SensorReward)
     BTCPC_MEMPOOL             — "true" to emit MempoolHeartbeat each epoch (earns MempoolReward)
+    BTCPC_SECRETS_PASSPHRASE  — AES-256-GCM passphrase for secrets.enc (default: hw_fingerprint)
+    BTCPC_AUTO_UPDATE         — "1" to enable auto-update from BTCPC_UPDATE_URL
+    BTCPC_UPDATE_URL          — URL to poll for binary updates (requires BTCPC_AUTO_UPDATE=1)
+    BTCPC_ALERT_WEBHOOK       — HTTP POST URL for health alert notifications
 */
 
 mod api;
@@ -50,9 +54,38 @@ mod store;
 mod tx;
 mod utils;
 mod wallet;
+mod scientific;
+mod cross_chain_finality;
+mod system_contracts;
 mod ens;
 mod linkgit_server;
 mod storage_sync;
+mod secret_store;
+mod model_healer;
+mod monitor;
+mod updater;
+mod totp;
+mod work_generator;
+mod ensemble;
+mod slashing;
+mod bridge;
+mod oracle;
+mod session_market;
+mod agent_session;
+mod vrf;
+mod auction;
+mod private_auth;
+mod memory_service;
+mod amber_pill;
+mod blob_bandwidth;
+mod blob_serve;
+mod peer_commerce;
+mod gateway_resolver;
+mod snapshot_replication;
+mod phone_storage;
+mod finetune;
+mod computer_use;
+mod rag;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -169,6 +202,16 @@ async fn main() -> Result<()> {
     let hw = hardware::detect();
     let hw_fingerprint_for_seal = hw.fingerprint.clone();
     let hw_account_for_seal = cfg.account.clone();
+
+    // Secret store: encrypted local file + RocksDB runtime index.
+    let secret_store_arc: Arc<secret_store::SecretStore> = Arc::new(
+        secret_store::SecretStore::open(&cfg.data_dir, &hw.fingerprint, chain.store.clone())
+            .unwrap_or_else(|e| {
+                warn!("[secrets] init failed ({}), starting with empty store", e);
+                secret_store::SecretStore::open(&cfg.data_dir, "fallback", chain.store.clone())
+                    .expect("fallback secret store open")
+            })
+    );
     if !hw.fingerprint.is_empty() {
         let hw_entry = LedgerEntry::HardwareClaim {
             account:     cfg.account.clone(),
@@ -183,6 +226,12 @@ async fn main() -> Result<()> {
             &hw.fingerprint[..hw.fingerprint.len().min(16)], hw.summary);
     } else {
         info!("[hardware] no identifiable hardware found — skipping hw claim");
+    }
+
+    // Store server pubkey for agent session ECDH (node's own ed25519 verifying key).
+    if let Some(sk) = signing_key.as_ref().as_ref() {
+        let pubkey_hex = hex::encode(sk.verifying_key().to_bytes());
+        let _ = chain.store.state_set("node:server_pubkey", pubkey_hex.as_bytes());
     }
 
     info!("chain state ready — latest epoch={}", chain.current_epoch());
@@ -545,6 +594,19 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Cross-chain finality announcer ────────────────────────────────────────
+    {
+        let cc_module = Arc::new(cross_chain_finality::CrossChainFinalityModule::new(
+            chain.clone(),
+            cfg.data_dir.to_str().unwrap_or("."),
+        ));
+        let chain_id  = cfg.chain_id.clone();
+        let account   = cfg.account.clone();
+        tokio::spawn(async move {
+            cross_chain_finality::run_announcer(cc_module, chain_id, account).await;
+        });
+    }
+
     // ── Inference marketplace daemon ──────────────────────────────────────────
     {
         let chain_ref = chain.clone();
@@ -814,6 +876,9 @@ async fn main() -> Result<()> {
     // ── Contract engine ───────────────────────────────────────────────────────
     let contracts = Arc::new(ContractEngine::new(chain.clone()));
 
+    // Deploy built-in system contracts on first start (idempotent).
+    system_contracts::ensure_system_contracts(&chain, &contracts);
+
     // ── Testnet sim daemon ────────────────────────────────────────────────────
     if cfg.chain_id == TESTNET_CHAIN_ID {
         let chain_ref = chain.clone();
@@ -846,6 +911,55 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Work generator (synthetic inference demand) ───────────────────────────
+    if std::env::var("BTCPC_WORK_GENERATOR").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        let chain_ref   = chain.clone();
+        let account     = cfg.account.clone();
+        let genesis_ts  = cfg.genesis_timestamp.unwrap_or(0);
+        let cmd_wg      = net_handle.cmd_tx.clone();
+        let sk_ref      = signing_key.clone();
+        tokio::spawn(async move {
+            work_generator::run(chain_ref, account, genesis_ts, cmd_wg, sk_ref).await;
+        });
+    }
+
+    // ── Periodic sweepers (ensemble, session market, agent sessions, VRF) ───────
+    {
+        let chain_ref = chain.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let epoch = chain_ref.current_epoch();
+                ensemble::sweep_expired(&chain_ref, epoch);
+                session_market::sweep_expired(&chain_ref, epoch);
+                agent_session::sweep_expired(&chain_ref, epoch);
+                vrf::sweep_epoch(&chain_ref, epoch);
+            }
+        });
+    }
+
+    // ── Model healer ──────────────────────────────────────────────────────────
+    {
+        let chain_ref   = chain.clone();
+        let ollama_url  = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_owned());
+        let pref_model  = std::env::var("BTCPC_MODEL").unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
+        tokio::spawn(async move { model_healer::run(chain_ref, ollama_url, pref_model).await; });
+    }
+
+    // ── Chain health monitor ──────────────────────────────────────────────────
+    let health_monitor = Arc::new(monitor::HealthMonitor::new());
+    {
+        let chain_ref  = chain.clone();
+        let monitor_ref = health_monitor.clone();
+        tokio::spawn(async move { monitor::run(chain_ref, monitor_ref).await; });
+    }
+
+    // ── Auto-updater ──────────────────────────────────────────────────────────
+    {
+        let data_dir = cfg.data_dir.clone();
+        tokio::spawn(async move { updater::run(data_dir).await; });
+    }
+
     // ── HTTP API ──────────────────────────────────────────────────────────────
     let ollama_url_for_model = std::env::var("OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_owned());
@@ -872,6 +986,14 @@ async fn main() -> Result<()> {
         git_serve_queries: git_serve_queries.clone(),
         node_account:      Arc::new(cfg.account.clone()),
         signing_key:       signing_key.clone(),
+        scientific:        Arc::new(scientific::ScientificEngine::new(chain.clone())),
+        cross_chain:       Arc::new(cross_chain_finality::CrossChainFinalityModule::new(
+            chain.clone(),
+            cfg.data_dir.to_str().unwrap_or("."),
+        )),
+        secret_store: secret_store_arc,
+        health_monitor,
+        blob_bandwidth: Arc::new(blob_bandwidth::BlobBandwidthMeter::new()),
     };
     api::serve(app_state, cfg.api_port).await?;
 
@@ -1294,12 +1416,24 @@ async fn emit_epoch_rewards(
             let proof_valid = j["proof_valid"].as_bool().unwrap_or(false);
             let score = if proof_valid { raw } else { raw * STORAGE_PROOF_NO_PROOF_BPS / 10_000 };
             if score == 0 { return None; }
-            Some((j["node_id"].as_str()?.to_owned(), score))
+            // P2-C: blob payout tier multiplier (1×, 2×, 5× based on reported tier).
+            // Tier thresholds: tier 2 requires ≥ 10 GB, tier 3 requires ≥ 100 GB.
+            let tier = j["tier"].as_u64().unwrap_or(1);
+            let bytes_gb = bytes / (1024 * 1024 * 1024);
+            let effective_tier = match tier {
+                3 if bytes_gb >= 100 => 3,
+                2 if bytes_gb >= 10  => 2,
+                _ => 1,
+            };
+            let tier_mul = match effective_tier { 3 => 5, 2 => 2, _ => 1 };
+            Some((j["node_id"].as_str()?.to_owned(), score.saturating_mul(tier_mul)))
         }).collect();
 
     // Sensors: type-aware sensor_score() per individual sensor, then grouped by owner.
     // Sensors with a registered location earn a 1.3× boost (T4-3, SENSOR_LOCATION_BOOST_BPS).
     // After SENSOR_LOCATION_REQUIRED_EPOCH, unlocated sensors are skipped entirely.
+    // gateway_map: sensor_account → gateway_account (for 60/40 split)
+    let mut sensor_gateway_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let sensor_nodes: Vec<(String, u64)> = {
         let mut by_owner: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
         for (_, v) in chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch)) {
@@ -1320,6 +1454,10 @@ async fn emit_epoch_rewards(
                 (base as u128 * SENSOR_LOCATION_BOOST_BPS as u128 / 10_000) as u64
             } else { base };
             *by_owner.entry(owner.to_owned()).or_default() += score;
+            // Record gateway association for reward split
+            if let Some(gw) = j["gateway_account"].as_str() {
+                sensor_gateway_map.insert(owner.to_string(), gw.to_string());
+            }
         }
         // Coverage reports: dead-spot reports earn more; corroborated cells earn 1.5× bonus.
         // Scores merged into sensor_nodes pool so coverage reporters share the sensor reward pool.
@@ -1554,9 +1692,34 @@ async fn emit_epoch_rewards(
     distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, cmd_tx, |node_id, amount, ep| {
         LedgerEntry::StorageReward { node_id, amount, epoch: ep }
     }).await;
-    distribute_rewards_desktop(epoch, &sensor_nodes, sensor_pool, chain, cmd_tx, |node_id, amount, ep| {
-        LedgerEntry::SensorReward { node_id, amount, epoch: ep }
-    }).await;
+    // Sensor rewards: split 60/40 when gateway is registered, plain SensorReward otherwise.
+    {
+        let total_score: u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
+        for (node_id, score) in &sensor_nodes {
+            if total_score == 0 || *score == 0 { continue; }
+            let amount = (sensor_pool as u128 * *score as u128 / total_score as u128) as u64;
+            if amount == 0 { continue; }
+            let entry = if let Some(gateway) = sensor_gateway_map.get(node_id) {
+                const SENSOR_BPS: u128 = 6_000;
+                const GATEWAY_BPS: u128 = 4_000;
+                let sensor_amount = (amount as u128 * SENSOR_BPS / 10_000) as u64;
+                let gateway_amount = (amount as u128 * GATEWAY_BPS / 10_000) as u64;
+                LedgerEntry::GatewayRewardSplit {
+                    sensor_account: node_id.clone(),
+                    gateway_account: gateway.clone(),
+                    sensor_amount,
+                    gateway_amount,
+                    epoch,
+                }
+            } else {
+                LedgerEntry::SensorReward { node_id: node_id.clone(), amount, epoch }
+            };
+            let _ = chain.apply_entry(&entry);
+            if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
+                let _ = cmd_tx.send(crate::net::NetCmd::Broadcast { topic: "btcpc/entries", data }).await;
+            }
+        }
+    }
     distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, cmd_tx, |node_id, amount, ep| {
         LedgerEntry::VerifierReward { node_id, amount, epoch: ep }
     }).await;
