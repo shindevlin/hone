@@ -41,6 +41,24 @@ cargo run --manifest-path rust/btcpc-api-catalog/Cargo.toml -- \
 
 Remove `--limit` when running the full verifier. The first full pass may be slow because the upstream catalog has more than 1,400 entries.
 
+## First Orchestrator Smoke Test
+After creating a snapshot, run one API-tool job through the Rust sidecar:
+
+```bash
+cargo run --manifest-path rust/btcpc-orchestrator/Cargo.toml -- \
+  run-api-tool \
+  --catalog /mnt/btcpc-storage/catalogs/public-apis.snapshot.json \
+  --category Weather \
+  --query Open-Meteo \
+  --out /tmp/btcpc-api-tool-report.json
+```
+
+A successful report should show:
+- `job.status = "Succeeded"`
+- `attempt.status = "Succeeded"`
+- `span.attributes.http.status = 200`
+- non-null `attestation`
+
 ## LLM / Runtime Use
 The catalog is useful as a tool-selection index. A model can ask for:
 - public weather APIs with no auth
