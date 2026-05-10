@@ -618,8 +618,7 @@ pub fn validate_and_apply(
         | LedgerEntry::VerifierReward { .. }
         | LedgerEntry::ServiceReward { .. }
         | LedgerEntry::RuntimeReward { .. }
-        | LedgerEntry::GatewayRewardSplit { .. }
-        | LedgerEntry::EpochSeal { .. } => {
+        | LedgerEntry::GatewayRewardSplit { .. } => {
             bail!("entry type is not externally submittable");
         }
 
@@ -1616,9 +1615,6 @@ pub fn validate_and_apply(
         }
         LedgerEntry::CrossChainFinalityAnnounce { .. } => {
             bail!("CrossChainFinalityAnnounce is emitted automatically by the cross-chain module");
-        }
-        LedgerEntry::GatewayRewardSplit { .. } => {
-            bail!("GatewayRewardSplit is emitted automatically by the epoch reward engine");
         }
     }
 

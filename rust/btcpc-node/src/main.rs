@@ -863,7 +863,6 @@ async fn main() -> Result<()> {
                             repo_id, owner, repo_name, commit_hash, peer_http,
                         });
                     }
-                    Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         warn!("net events lagged by {}", n);
                     }
