@@ -74,6 +74,7 @@ mod ton_relay;
 mod session_market;
 mod agent_session;
 mod agent_task;
+mod agent_worker;
 mod vrf;
 mod auction;
 mod private_auth;
@@ -923,6 +924,19 @@ async fn main() -> Result<()> {
         let relay_ctr    = mempool_relay_counter.clone();
         tokio::spawn(async move {
             run_mempool_node(chain_ref, account, genesis_ts, cmd_mempool, relay_ctr).await;
+        });
+    }
+
+    // ── Agent worker / verifier daemon ───────────────────────────────────────
+    if std::env::var("BTCPC_AGENT_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false)
+        || std::env::var("BTCPC_AGENT_VERIFIER").map(|v| v == "true" || v == "1").unwrap_or(false)
+    {
+        let chain_ref = chain.clone();
+        let account   = cfg.account.clone();
+        let cmd_aw    = net_handle.cmd_tx.clone();
+        let sk_ref    = signing_key.clone();
+        tokio::spawn(async move {
+            agent_worker::run(chain_ref, account, cmd_aw, sk_ref).await;
         });
     }
 
