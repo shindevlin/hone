@@ -46,6 +46,7 @@ public class AppPrefs {
     public static final String KEY_CLOCK_ENABLED   = "clockEnabled";
     public static final String KEY_SENSORS_ENABLED = "sensorsEnabled";
     public static final String KEY_STORAGE_ENABLED = "storageEnabled";
+    public static final String KEY_TESTNET_ENABLED = "testnetEnabled";
 
     // ---- Flipper Zero pairing (BLE MAC-based) ----
     public static final String KEY_FLIPPER_BLE_MAC  = "flipperBleMac";
@@ -186,6 +187,14 @@ public class AppPrefs {
 
     public boolean isStorageEnabled() {
         return prefs.getBoolean(KEY_STORAGE_ENABLED, false);
+    }
+
+    public boolean isTestnetEnabled() {
+        return prefs.getBoolean(KEY_TESTNET_ENABLED, false);
+    }
+
+    public void setTestnetEnabled(boolean enabled) {
+        prefs.edit().putBoolean(KEY_TESTNET_ENABLED, enabled).apply();
     }
 
     public String getRelayState() {
