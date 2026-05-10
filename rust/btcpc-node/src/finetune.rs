@@ -111,3 +111,56 @@ pub fn list_open_jobs(chain: &Chain) -> Vec<FineTuneJob> {
         .filter(|j| j.status == FineTuneJobStatus::Open)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&btcpc_types::LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_post_stores_job_with_status_open() {
+        let (chain, _dir) = make_chain("ft_post");
+        fund(&chain, "alice", 1_000_000);
+        apply_post(&chain, "job1", "alice", "llama3", "bafycid1", 500, 1).unwrap();
+        let job = get_job(&chain, "job1").expect("job should exist");
+        assert_eq!(job.status, FineTuneJobStatus::Open);
+        assert_eq!(job.requester, "alice");
+        assert_eq!(job.base_model, "llama3");
+    }
+
+    #[test]
+    fn test_complete_updates_status_and_adapter_cid() {
+        let (chain, _dir) = make_chain("ft_complete");
+        fund(&chain, "alice", 1_000_000);
+        apply_post(&chain, "job2", "alice", "llama3", "bafycid2", 500, 1).unwrap();
+        apply_complete(&chain, "job2", "worker1", "bafyadapter1", 2).unwrap();
+        let job = get_job(&chain, "job2").expect("job should exist");
+        assert_eq!(job.status, FineTuneJobStatus::Complete);
+        assert_eq!(job.adapter_cid, Some("bafyadapter1".to_string()));
+        assert_eq!(job.worker, Some("worker1".to_string()));
+    }
+
+    #[test]
+    fn test_complete_on_unknown_job_returns_err() {
+        let (chain, _dir) = make_chain("ft_unknown");
+        let result = apply_complete(&chain, "nonexistent-job", "worker1", "bafyadapter1", 1);
+        assert!(result.is_err());
+    }
+}

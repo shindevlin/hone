@@ -55,7 +55,7 @@ pub fn apply_serve_proof(
     let reward = BLOB_SERVE_REWARD_DREAMS;
     chain.store.credit(node_id, NATIVE_TOKEN, reward)?;
 
-    // Update serve stats
+    // Update serve stats (per node)
     let stats_key = format!("blob_serve_stats:{}", node_id);
     let mut stats: serde_json::Value = chain.store.state_get(&stats_key)
         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -64,5 +64,80 @@ pub fn apply_serve_proof(
     stats["bytes_total"] = serde_json::json!(stats["bytes_total"].as_u64().unwrap_or(0) + bytes_served);
     chain.store.state_set(&stats_key, &serde_json::to_vec(&stats)?)?;
 
+    // Update per-cid bandwidth accumulator
+    let bw_key = format!("blob_serve_bw:{}", cid);
+    let prev_bw: u64 = chain.store.state_get(&bw_key)
+        .and_then(|b| b.as_slice().try_into().ok().map(u64::from_le_bytes))
+        .unwrap_or(0);
+    chain.store.state_set(&bw_key, &(prev_bw + bytes_served).to_le_bytes())?;
+
     Ok(())
+}
+
+/// Return cumulative bytes served for `cid` across all nodes. Returns 0 if unknown.
+pub fn get_bandwidth(chain: &Chain, cid: &str) -> u64 {
+    let bw_key = format!("blob_serve_bw:{}", cid);
+    chain.store.state_get(&bw_key)
+        .and_then(|b| b.as_slice().try_into().ok().map(u64::from_le_bytes))
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Sha256, Digest as _};
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&btcpc_types::LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    /// Compute a valid proof_hash for apply_serve_proof.
+    fn valid_hash(cid: &str, bytes: u64, node_id: &str, epoch: u64) -> String {
+        let mut h = Sha256::new();
+        h.update(cid.as_bytes());
+        h.update(bytes.to_le_bytes());
+        h.update(node_id.as_bytes());
+        h.update(epoch.to_le_bytes());
+        hex::encode(h.finalize())
+    }
+
+    #[test]
+    fn test_proof_stores_bandwidth() {
+        let (chain, _dir) = make_chain("blob_store");
+        fund(&chain, "node1", 1_000_000);
+        let ph = valid_hash("bafycid1", 1024, "node1", 1);
+        apply_serve_proof(&chain, "node1", "bafycid1", 1024, &ph, 1).unwrap();
+        assert_eq!(get_bandwidth(&chain, "bafycid1"), 1024);
+    }
+
+    #[test]
+    fn test_two_proofs_same_cid_accumulate_bytes() {
+        let (chain, _dir) = make_chain("blob_accum");
+        fund(&chain, "node1", 1_000_000);
+        let ph1 = valid_hash("bafycid2", 1024, "node1", 1);
+        let ph2 = valid_hash("bafycid2", 2048, "node1", 2);
+        apply_serve_proof(&chain, "node1", "bafycid2", 1024, &ph1, 1).unwrap();
+        apply_serve_proof(&chain, "node1", "bafycid2", 2048, &ph2, 2).unwrap();
+        assert_eq!(get_bandwidth(&chain, "bafycid2"), 3072);
+    }
+
+    #[test]
+    fn test_get_bandwidth_returns_zero_for_unknown_cid() {
+        let (chain, _dir) = make_chain("blob_unknown");
+        assert_eq!(get_bandwidth(&chain, "bafyunknown"), 0);
+    }
 }

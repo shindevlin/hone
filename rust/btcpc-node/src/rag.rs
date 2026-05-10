@@ -113,6 +113,53 @@ pub struct RagSource {
     pub excerpt: String,
 }
 
+/// Sync variant — record document metadata on-chain without calling Ollama.
+/// Stores a metadata-only record (`content_hash`, `chunk_count`) and updates
+/// the account's doc-id index.  Used by chain entries and tests.
+pub fn apply_index(
+    chain: &Chain,
+    account: &str,
+    doc_id: &str,
+    content_hash: &str,
+    chunk_count: u64,
+    epoch: u64,
+) -> Result<()> {
+    let meta = serde_json::json!({
+        "doc_id": doc_id,
+        "account": account,
+        "content_hash": content_hash,
+        "chunk_count": chunk_count,
+        "indexed_epoch": epoch,
+    });
+    chain.store.state_set(&doc_key(doc_id), &serde_json::to_vec(&meta)?)?;
+    let mut index: Vec<String> = chain.store.state_get(&index_key(account))
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    if !index.contains(&doc_id.to_string()) {
+        index.push(doc_id.to_string());
+        chain.store.state_set(&index_key(account), &serde_json::to_vec(&index)?)?;
+    }
+    Ok(())
+}
+
+/// Sync delete alias — removes the doc and updates the index.
+pub fn apply_delete(chain: &Chain, account: &str, doc_id: &str) -> Result<()> {
+    delete_document(chain, account, doc_id)
+}
+
+/// Return the list of doc metadata values for the given account.
+pub fn get_docs(chain: &Chain, account: &str) -> Vec<serde_json::Value> {
+    let index: Vec<String> = chain.store.state_get(&index_key(account))
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    index.iter()
+        .filter_map(|id| {
+            chain.store.state_get(&doc_key(id))
+                .and_then(|b| serde_json::from_slice(&b).ok())
+        })
+        .collect()
+}
+
 fn build_context(scored: &[(f32, RagDocument)], max_chars: usize) -> String {
     let mut out = String::new();
     for (_, doc) in scored {
@@ -130,6 +177,55 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm_a == 0.0 || norm_b == 0.0 { 0.0 } else { dot / (norm_a * norm_b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    #[test]
+    fn test_index_stores_doc() {
+        let (chain, _dir) = make_chain("rag_index");
+        apply_index(&chain, "alice", "doc1", "abc123", 5, 1).unwrap();
+        let docs = get_docs(&chain, "alice");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0]["doc_id"].as_str().unwrap(), "doc1");
+        assert_eq!(docs[0]["chunk_count"].as_u64().unwrap(), 5);
+    }
+
+    #[test]
+    fn test_delete_removes_doc() {
+        let (chain, _dir) = make_chain("rag_delete");
+        apply_index(&chain, "alice", "doc2", "def456", 3, 1).unwrap();
+        apply_delete(&chain, "alice", "doc2").unwrap();
+        let docs = get_docs(&chain, "alice");
+        assert!(docs.is_empty(), "doc should be removed from index");
+    }
+
+    #[test]
+    fn test_get_docs_returns_empty_vec_for_unknown_account() {
+        let (chain, _dir) = make_chain("rag_empty");
+        let docs = get_docs(&chain, "nobody");
+        assert!(docs.is_empty());
+    }
+
+    #[test]
+    fn test_index_then_delete_yields_empty_list() {
+        let (chain, _dir) = make_chain("rag_idx_del");
+        apply_index(&chain, "bob", "docA", "hash1", 2, 1).unwrap();
+        apply_delete(&chain, "bob", "docA").unwrap();
+        assert!(get_docs(&chain, "bob").is_empty());
+    }
 }
 
 /// Call Ollama /api/embeddings and return the embedding vector.

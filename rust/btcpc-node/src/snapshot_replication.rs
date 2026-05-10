@@ -57,3 +57,48 @@ pub fn delete(chain: &Chain, account: &str, slug: &str) -> Result<()> {
     chain.store.state_delete(&snapshot_key(account, slug))?;
     Ok(())
 }
+
+/// Alias for `get` — returns the Snapshot for the given account+slug.
+pub fn get_snapshot(chain: &Chain, account: &str, slug: &str) -> Option<Snapshot> {
+    get(chain, account, slug)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    #[test]
+    fn test_save_stores_snapshot() {
+        let (chain, _dir) = make_chain("snap_save");
+        apply_save(&chain, "alice", "my-snapshot", "bafycid1", 1).unwrap();
+        let snap = get_snapshot(&chain, "alice", "my-snapshot").expect("snapshot should exist");
+        assert_eq!(snap.cid, "bafycid1");
+        assert_eq!(snap.account, "alice");
+        assert_eq!(snap.slug, "my-snapshot");
+    }
+
+    #[test]
+    fn test_second_save_same_slug_updates_cid() {
+        let (chain, _dir) = make_chain("snap_update");
+        apply_save(&chain, "alice", "snap1", "bafycid1", 1).unwrap();
+        apply_save(&chain, "alice", "snap1", "bafycid2", 2).unwrap();
+        let snap = get_snapshot(&chain, "alice", "snap1").expect("snapshot");
+        assert_eq!(snap.cid, "bafycid2");
+    }
+
+    #[test]
+    fn test_get_snapshot_returns_none_for_unknown_slug() {
+        let (chain, _dir) = make_chain("snap_unknown");
+        assert!(get_snapshot(&chain, "alice", "no-such-slug").is_none());
+    }
+}

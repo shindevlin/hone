@@ -60,3 +60,75 @@ pub fn apply_proof(
 
     Ok(())
 }
+
+/// Return the stored stats JSON for the given account+device, or None if not found.
+pub fn get_proof(chain: &Chain, account: &str, device_id: &str) -> Option<serde_json::Value> {
+    let stats_key = format!("phone_store_stats:{}:{}", account, device_id);
+    chain.store.state_get(&stats_key)
+        .and_then(|b| serde_json::from_slice(&b).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Sha256, Digest as _};
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&btcpc_types::LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    /// Build a valid proof_hash for apply_proof.
+    fn make_proof_hash(device_id: &str, inner: &str, account: &str, epoch: u64) -> String {
+        let mut h = Sha256::new();
+        h.update(device_id.as_bytes());
+        h.update(inner.as_bytes());
+        h.update(account.as_bytes());
+        h.update(epoch.to_le_bytes());
+        hex::encode(h.finalize())
+    }
+
+    #[test]
+    fn test_proof_stored_correctly() {
+        let (chain, _dir) = make_chain("phone_store");
+        fund(&chain, "alice", 1_000_000);
+        let ph = make_proof_hash("dev1", "inner1", "alice", 1);
+        apply_proof(&chain, "alice", "dev1", &ph, 512 * 1024, 1).unwrap();
+        let stats = get_proof(&chain, "alice", "dev1").expect("stats should exist");
+        assert_eq!(stats["proofs"].as_u64().unwrap(), 1);
+        assert_eq!(stats["bytes_total"].as_u64().unwrap(), 512 * 1024);
+    }
+
+    #[test]
+    fn test_bytes_proven_accumulates_on_second_proof() {
+        let (chain, _dir) = make_chain("phone_accum");
+        fund(&chain, "alice", 1_000_000);
+        // Two distinct proof hashes (different epoch values)
+        let ph1 = make_proof_hash("devX", "inner1", "alice", 1);
+        let ph2 = make_proof_hash("devX", "inner2", "alice", 2);
+        apply_proof(&chain, "alice", "devX", &ph1, 100, 1).unwrap();
+        apply_proof(&chain, "alice", "devX", &ph2, 200, 2).unwrap();
+        let stats = get_proof(&chain, "alice", "devX").expect("stats");
+        assert_eq!(stats["bytes_total"].as_u64().unwrap(), 300);
+        assert_eq!(stats["proofs"].as_u64().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_get_proof_returns_none_for_unknown_device() {
+        let (chain, _dir) = make_chain("phone_unknown");
+        assert!(get_proof(&chain, "bob", "nonexistent-device").is_none());
+    }
+}

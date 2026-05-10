@@ -54,7 +54,8 @@ pub type Ctx = Arc<Mutex<ExecutionContext>>;
 
 /// Register all host functions with a wasmtime Linker.
 pub fn register_host_functions(linker: &mut Linker<Ctx>) -> Result<()> {
-    let module = "btcpc_env";
+    // Rust `extern "C"` blocks in wasm32 targets export under the "env" module by default.
+    let module = "env";
 
     // ── Identity ─────────────────────────────────────────────────────────────
 

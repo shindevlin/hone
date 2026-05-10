@@ -114,3 +114,57 @@ pub fn list_open_jobs(chain: &Chain) -> Vec<ComputerUseJob> {
         .filter(|j| j.status == ComputerUseJobStatus::Open)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    fn fund(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&btcpc_types::LedgerEntry::GenesisAlloc {
+            account: account.to_string(),
+            amount,
+            token: btcpc_types::NATIVE_TOKEN.to_string(),
+        }).unwrap();
+    }
+
+    const TASK: &str = r#"{"url":"https://example.com","actions":[],"expected_outcome":"done"}"#;
+
+    #[test]
+    fn test_post_stores_job_with_status_open() {
+        let (chain, _dir) = make_chain("cu_post");
+        fund(&chain, "alice", 1_000_000);
+        apply_post(&chain, "cujob1", "alice", TASK, 500, 1).unwrap();
+        let job = get_job(&chain, "cujob1").expect("job should exist");
+        assert_eq!(job.status, ComputerUseJobStatus::Open);
+        assert_eq!(job.requester, "alice");
+    }
+
+    #[test]
+    fn test_complete_updates_status_and_result_cid() {
+        let (chain, _dir) = make_chain("cu_complete");
+        fund(&chain, "alice", 1_000_000);
+        apply_post(&chain, "cujob2", "alice", TASK, 500, 1).unwrap();
+        apply_complete(&chain, "cujob2", "worker1", "bafyresult1", 2).unwrap();
+        let job = get_job(&chain, "cujob2").expect("job should exist");
+        assert_eq!(job.status, ComputerUseJobStatus::Complete);
+        assert_eq!(job.result_cid, Some("bafyresult1".to_string()));
+        assert_eq!(job.worker, Some("worker1".to_string()));
+    }
+
+    #[test]
+    fn test_complete_on_unknown_job_returns_err() {
+        let (chain, _dir) = make_chain("cu_unknown");
+        let result = apply_complete(&chain, "nonexistent-job", "worker1", "bafyresult1", 1);
+        assert!(result.is_err());
+    }
+}

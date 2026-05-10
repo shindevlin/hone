@@ -45,3 +45,59 @@ pub fn get_pill(chain: &Chain, account: &str) -> Option<AmberPill> {
 
 /// Entry weight multiplier for AmberPill holders: 1.5× (expressed as BPS: 15_000 / 10_000).
 pub const AMBER_PILL_WEIGHT_BPS: u64 = 15_000;
+
+/// Look up an AmberPill by its pill_id string (not by account).
+pub fn get_pill_by_id(chain: &Chain, pill_id: &str) -> Option<AmberPill> {
+    let account = chain.store.state_get(&pill_id_key(pill_id))
+        .and_then(|b| String::from_utf8(b).ok())?;
+    get_pill(chain, &account)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("btcpc_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "btcpc-test".to_string());
+        (chain, dir)
+    }
+
+    #[test]
+    fn test_mint_stores_pill() {
+        let (chain, _dir) = make_chain("amber_mint");
+        apply_mint(&chain, "alice", "pill-abc", 1).unwrap();
+        let pill = get_pill(&chain, "alice").expect("pill should exist");
+        assert_eq!(pill.pill_id, "pill-abc");
+        assert_eq!(pill.minted_epoch, 1);
+    }
+
+    #[test]
+    fn test_second_mint_same_pill_id_errors() {
+        // The existing code returns Err on duplicate pill_id — this pins that behaviour.
+        let (chain, _dir) = make_chain("amber_dup_pill");
+        apply_mint(&chain, "alice", "pill-dup", 1).unwrap();
+        let result = apply_mint(&chain, "bob", "pill-dup", 2);
+        assert!(result.is_err(), "duplicate pill_id must be rejected");
+    }
+
+    #[test]
+    fn test_second_mint_same_account_errors() {
+        let (chain, _dir) = make_chain("amber_dup_acc");
+        apply_mint(&chain, "alice", "pill-x", 1).unwrap();
+        let result = apply_mint(&chain, "alice", "pill-y", 2);
+        assert!(result.is_err(), "account already holds a pill");
+    }
+
+    #[test]
+    fn test_pill_owner_matches_account() {
+        let (chain, _dir) = make_chain("amber_owner");
+        apply_mint(&chain, "carol", "pill-carol", 5).unwrap();
+        let pill = get_pill_by_id(&chain, "pill-carol").expect("pill by id");
+        assert_eq!(pill.account, "carol");
+    }
+}
