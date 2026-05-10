@@ -3,6 +3,11 @@
 //! On-chain (wasm32): these are extern "C" imports from the runtime.
 //! Off-chain (tests): a mock implementation is injected.
 
+#[cfg(target_arch = "wasm32")]
+use alloc::{string::String, vec, vec::Vec};
+#[cfg(not(target_arch = "wasm32"))]
+use std::string::String;
+
 use crate::types::{AccountId, Balance, Epoch};
 
 // ── WASM host function imports ──────────────────────────────────────────────
@@ -169,6 +174,20 @@ pub fn panic_str(msg: &str) -> ! {
     }
     #[cfg(not(target_arch = "wasm32"))]
     panic!("{}", msg)
+}
+
+/// Read the method name from the dispatch register (register 0).
+/// Called by macro-generated dispatch functions.
+pub fn read_method_name() -> String {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        let len = sys::register_len(0) as usize;
+        let mut buf = vec![0u8; len];
+        sys::read_register(0, buf.as_mut_ptr() as u64);
+        String::from_utf8(buf).unwrap_or_default()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::mock::env::method_name()
 }
 
 // ── Storage (low-level, use collections for ergonomics) ─────────────────────

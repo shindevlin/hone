@@ -1,3 +1,8 @@
+#[cfg(target_arch = "wasm32")]
+extern crate alloc;
+#[cfg(target_arch = "wasm32")]
+use alloc::{string::String, vec::Vec};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 

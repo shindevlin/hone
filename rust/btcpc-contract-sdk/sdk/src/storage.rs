@@ -1,5 +1,12 @@
 //! Typed persistent storage collections backed by the host KV store.
 
+#[cfg(target_arch = "wasm32")]
+extern crate alloc;
+#[cfg(target_arch = "wasm32")]
+use alloc::{vec, vec::Vec, string::String, collections::BTreeMap};
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::BTreeMap;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use borsh::io::{self, Read, Write};
 use crate::env::{storage_read, storage_write, storage_remove, storage_has_key};

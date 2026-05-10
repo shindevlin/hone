@@ -107,6 +107,10 @@ pub mod env {
         env_state().lock().unwrap().return_value = value;
     }
 
+    pub fn method_name() -> String {
+        "mock_method".to_string()
+    }
+
     pub fn promise_create(
         _contract: &str,
         _method: &str,
