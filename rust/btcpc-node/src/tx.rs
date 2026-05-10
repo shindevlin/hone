@@ -100,6 +100,7 @@ pub fn is_system_entry(entry: &LedgerEntry) -> bool {
         | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::GenesisAlloc  { .. }
         | LedgerEntry::TonWalletActivated { .. }
+        | LedgerEntry::AgentTaskSettle { .. }
     )
 }
 
@@ -622,6 +623,99 @@ pub fn validate_and_apply(
         | LedgerEntry::GatewayRewardSplit { .. }
         | LedgerEntry::TonWalletActivated { .. } => {
             bail!("entry type is not externally submittable");
+        }
+
+        // ── Agentic task marketplace ──────────────────────────────────────────
+        LedgerEntry::AgentCreditDeposit { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == account, "signed_by must equal account");
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        LedgerEntry::AgentCreditWithdraw { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == account, "signed_by must equal account");
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        LedgerEntry::AgentTaskPost { requester, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == requester, "signed_by must equal requester");
+            require_key(chain, requester)?;
+            check_nonce(chain, requester, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, requester)?;
+        }
+
+        LedgerEntry::AgentTaskBid { agent, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == agent, "signed_by must equal agent");
+            require_key(chain, agent)?;
+            check_nonce(chain, agent, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, agent)?;
+        }
+
+        LedgerEntry::AgentTaskAssign { signed_by, nonce, task_id, .. } => {
+            let _guard = chain.write_lock.lock();
+            // Only the requester or a node acting on their behalf may assign.
+            require_key(chain, signed_by)?;
+            check_nonce(chain, signed_by, *nonce)?;
+            // Verify signed_by is actually the task requester.
+            let task_raw = chain.store.state_get(&crate::agent_task::task_key(task_id))
+                .ok_or_else(|| anyhow::anyhow!("task '{}' not found", task_id))?;
+            let task: crate::agent_task::AgentTask = serde_json::from_slice(&task_raw)?;
+            anyhow::ensure!(&task.requester == signed_by, "only the requester can assign");
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, signed_by)?;
+        }
+
+        LedgerEntry::AgentTaskSubmit { agent, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == agent, "signed_by must equal agent");
+            require_key(chain, agent)?;
+            check_nonce(chain, agent, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, agent)?;
+        }
+
+        LedgerEntry::AgentTaskVerifierCommit { verifier, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == verifier, "signed_by must equal verifier");
+            require_key(chain, verifier)?;
+            check_nonce(chain, verifier, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, verifier)?;
+        }
+
+        LedgerEntry::AgentTaskVerifierReveal { verifier, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == verifier, "signed_by must equal verifier");
+            require_key(chain, verifier)?;
+            check_nonce(chain, verifier, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, verifier)?;
+            // Try to settle immediately after each reveal.
+            let task_id = match entry {
+                LedgerEntry::AgentTaskVerifierReveal { task_id, .. } => task_id.clone(),
+                _ => unreachable!(),
+            };
+            let current_epoch = chain.current_epoch();
+            let _ = crate::agent_task::try_settle(chain, &task_id, current_epoch);
         }
 
         // ── TON wallet activation intent ─────────────────────────────────────
@@ -1243,6 +1337,9 @@ pub fn validate_and_apply(
         }
         LedgerEntry::GovernanceFinalize { .. } => {
             bail!("GovernanceFinalize is system-only — emitted automatically at epoch seal");
+        }
+        LedgerEntry::AgentTaskSettle { .. } => {
+            bail!("AgentTaskSettle is system-only — emitted automatically on verifier consensus");
         }
 
         // ── Clock node registration ───────────────────────────────────────────

@@ -2944,6 +2944,35 @@ impl Chain {
             }
 
             // ── TON wallet activation ─────────────────────────────────────────
+            // ── Agentic task marketplace ──────────────────────────────────────
+            LedgerEntry::AgentCreditDeposit { .. } => {
+                crate::agent_task::apply_credit_deposit(self, entry)?;
+            }
+            LedgerEntry::AgentCreditWithdraw { .. } => {
+                crate::agent_task::apply_credit_withdraw(self, entry)?;
+            }
+            LedgerEntry::AgentTaskPost { .. } => {
+                crate::agent_task::apply_task_post(self, entry)?;
+            }
+            LedgerEntry::AgentTaskBid { .. } => {
+                crate::agent_task::apply_task_bid(self, entry)?;
+            }
+            LedgerEntry::AgentTaskAssign { .. } => {
+                crate::agent_task::apply_task_assign(self, entry)?;
+            }
+            LedgerEntry::AgentTaskSubmit { .. } => {
+                crate::agent_task::apply_task_submit(self, entry)?;
+            }
+            LedgerEntry::AgentTaskVerifierCommit { .. } => {
+                crate::agent_task::apply_verifier_commit(self, entry)?;
+            }
+            LedgerEntry::AgentTaskVerifierReveal { .. } => {
+                crate::agent_task::apply_verifier_reveal(self, entry)?;
+            }
+            LedgerEntry::AgentTaskSettle { .. } => {
+                crate::agent_task::apply_settle(self, entry)?;
+            }
+
             LedgerEntry::TonActivationIntent { btcpc_account, ton_address, source_chain, source_address, epoch, .. } => {
                 self.touch_alive(btcpc_account, *epoch);
                 self.ensure_account(btcpc_account, *epoch)?;

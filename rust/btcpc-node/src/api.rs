@@ -381,6 +381,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent-session/close", post(post_agent_session_close))
         .route("/api/agent-session/:id", get(get_agent_session))
         .route("/api/agent-session/:id/turn", post(post_agent_session_turn))
+        // ── Agentic task marketplace ───────────────────────────────────────
+        .route("/api/agent/credit/deposit", post(post_agent_credit_deposit))
+        .route("/api/agent/credit/withdraw", post(post_agent_credit_withdraw))
+        .route("/api/agent/credit/:account", get(get_agent_credit))
+        .route("/api/agent/task/post", post(post_agent_task_post))
+        .route("/api/agent/task/:id", get(get_agent_task))
+        .route("/api/agent/task/:id/bid", post(post_agent_task_bid))
+        .route("/api/agent/task/:id/assign", post(post_agent_task_assign))
+        .route("/api/agent/task/:id/submit", post(post_agent_task_submit))
+        .route("/api/agent/task/:id/verify/commit", post(post_agent_task_verifier_commit))
+        .route("/api/agent/task/:id/verify/reveal", post(post_agent_task_verifier_reveal))
+        .route("/api/agent/tasks", get(get_agent_tasks))
         // ── VRF beacon ────────────────────────────────────────────────────
         .route("/api/vrf/commit", post(post_vrf_commit))
         .route("/api/vrf/reveal", post(post_vrf_reveal))
@@ -8739,6 +8751,200 @@ async fn get_vrf_beacon(State(s): State<AppState>) -> Json<serde_json::Value> {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(serde_json::Value::Null);
     Json(serde_json::json!({ "current_epoch": epoch, "last_beacon": beacon }))
+}
+
+// ── Agentic task marketplace ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AgentCreditDepositBody {
+    account: String, amount: u64, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_credit_deposit(
+    State(s): State<AppState>,
+    Json(body): Json<AgentCreditDepositBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentCreditDeposit {
+        account: body.account, amount: body.amount,
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentCreditWithdrawBody {
+    account: String, amount: u64, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_credit_withdraw(
+    State(s): State<AppState>,
+    Json(body): Json<AgentCreditWithdrawBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentCreditWithdraw {
+        account: body.account, amount: body.amount,
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+async fn get_agent_credit(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let credit = crate::agent_task::get_credit(&s.chain, &account);
+    Json(serde_json::json!({ "account": account, "agent_credit_dreams": credit }))
+}
+
+#[derive(Deserialize)]
+struct AgentTaskPostBody {
+    task_id: String, requester: String, description: String,
+    #[serde(default)] tools_allowed: Vec<String>,
+    max_fee: u64,
+    #[serde(default)] min_verifiers: Option<u32>,
+    #[serde(default)] bid_window_epochs: Option<u64>,
+    #[serde(default)] deadline_epoch: Option<u64>,
+    nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_post(
+    State(s): State<AppState>,
+    Json(body): Json<AgentTaskPostBody>,
+) -> Json<serde_json::Value> {
+    let epoch = s.chain.current_epoch();
+    let entry = LedgerEntry::AgentTaskPost {
+        task_id: body.task_id, requester: body.requester, description: body.description,
+        tools_allowed: body.tools_allowed, max_fee: body.max_fee,
+        min_verifiers: body.min_verifiers.unwrap_or(2),
+        bid_window_epochs: body.bid_window_epochs.unwrap_or(3),
+        deadline_epoch: body.deadline_epoch.unwrap_or(epoch + 20),
+        epoch, nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+async fn get_agent_task(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let raw = s.chain.store.state_get(&crate::agent_task::task_key(&task_id));
+    match raw.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+        Some(v) => Json(v),
+        None => Json(serde_json::json!({ "error": "not found" })),
+    }
+}
+
+#[derive(Deserialize)]
+struct AgentTaskBidBody {
+    agent: String, proposed_fee: u64, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_bid(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+    Json(body): Json<AgentTaskBidBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentTaskBid {
+        task_id, agent: body.agent, proposed_fee: body.proposed_fee,
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentTaskAssignBody {
+    agent: String, fee: u64, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_assign(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+    Json(body): Json<AgentTaskAssignBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentTaskAssign {
+        task_id, agent: body.agent, fee: body.fee,
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentTaskSubmitBody {
+    agent: String, result_hash: String,
+    #[serde(default)] output_cid: Option<String>,
+    nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_submit(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+    Json(body): Json<AgentTaskSubmitBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentTaskSubmit {
+        task_id, agent: body.agent, result_hash: body.result_hash,
+        output_cid: body.output_cid.unwrap_or_default(),
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentTaskVerifierCommitBody {
+    verifier: String, commit_hash: String, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_verifier_commit(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+    Json(body): Json<AgentTaskVerifierCommitBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentTaskVerifierCommit {
+        task_id, verifier: body.verifier, commit_hash: body.commit_hash,
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentTaskVerifierRevealBody {
+    verifier: String, result_hash: String, salt: String, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_task_verifier_reveal(
+    State(s): State<AppState>,
+    Path(task_id): Path<String>,
+    Json(body): Json<AgentTaskVerifierRevealBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentTaskVerifierReveal {
+        task_id, verifier: body.verifier, result_hash: body.result_hash,
+        salt: body.salt, epoch: s.chain.current_epoch(), nonce: body.nonce,
+        signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentTasksQuery {
+    #[serde(default)] requester: Option<String>,
+    #[serde(default)] agent: Option<String>,
+    #[serde(default)] status: Option<String>,
+}
+async fn get_agent_tasks(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<AgentTasksQuery>,
+) -> Json<serde_json::Value> {
+    let tasks: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("agent_task:")
+        .into_iter()
+        .filter_map(|(_, raw)| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .filter(|t| {
+            if let Some(r) = &q.requester { if t["requester"].as_str() != Some(r.as_str()) { return false; } }
+            if let Some(a) = &q.agent { if t["agent"].as_str() != Some(a.as_str()) { return false; } }
+            if let Some(st) = &q.status { if t["status"].as_str() != Some(st.as_str()) { return false; } }
+            true
+        })
+        .collect();
+    let count = tasks.len();
+    Json(serde_json::json!({ "tasks": tasks, "count": count }))
 }
 
 async fn get_vrf_round(

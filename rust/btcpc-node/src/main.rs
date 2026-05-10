@@ -73,6 +73,7 @@ mod oracle;
 mod ton_relay;
 mod session_market;
 mod agent_session;
+mod agent_task;
 mod vrf;
 mod auction;
 mod private_auth;
@@ -1211,6 +1212,8 @@ async fn emit_epoch_rewards(
 ) {
     // Sweep expired pending token transfers → refund sender.
     sweep_expired_pending_transfers(epoch, chain);
+    // Sweep expired agentic tasks → refund escrow.
+    agent_task::sweep_expired(chain, epoch);
 
     let raw_pool = if era(epoch) >= RECYCLE_ERA {
         let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);

@@ -1805,6 +1805,104 @@ pub enum LedgerEntry {
         relay:          String, // relay node account
     },
 
+    // ── Agentic task marketplace ──────────────────────────────────────────────
+
+    /// User deposits BTCPC into their agent credit balance (pre-paid escrow pool).
+    AgentCreditDeposit {
+        account:   String,
+        amount:    u64,
+        epoch:     u64,
+        nonce:     u64,
+        signed_by: String,
+    },
+
+    /// User withdraws unused agent credit back to their wallet.
+    AgentCreditWithdraw {
+        account:   String,
+        amount:    u64,
+        epoch:     u64,
+        nonce:     u64,
+        signed_by: String,
+    },
+
+    /// User posts an agentic task. `max_fee` is reserved from agent_credit.
+    AgentTaskPost {
+        task_id:        String,
+        requester:      String,
+        description:    String,       // plaintext task description
+        tools_allowed:  Vec<String>,  // e.g. ["web_search","chain_read","code_exec"]
+        max_fee:        u64,          // dreams reserved from agent_credit
+        min_verifiers:  u32,          // how many verifiers must agree (e.g. 2)
+        bid_window_epochs: u64,
+        deadline_epoch: u64,
+        epoch:          u64,
+        nonce:          u64,
+        signed_by:      String,
+    },
+
+    /// Agent bids to take a task.
+    AgentTaskBid {
+        task_id:      String,
+        agent:        String,
+        proposed_fee: u64,
+        epoch:        u64,
+        nonce:        u64,
+        signed_by:    String,
+    },
+
+    /// Requester (or auto-assign after bid window) assigns task to an agent.
+    AgentTaskAssign {
+        task_id:   String,
+        agent:     String,
+        fee:       u64,  // agreed fee (≤ proposed_fee ≤ max_fee)
+        epoch:     u64,
+        nonce:     u64,
+        signed_by: String,
+    },
+
+    /// Agent submits result. `result_hash` = SHA-256(task_id | output_text | agent).
+    AgentTaskSubmit {
+        task_id:     String,
+        agent:       String,
+        result_hash: String,  // hex SHA-256
+        output_cid:  String,  // BTCPC-FS CID or "" for off-chain delivery
+        epoch:       u64,
+        nonce:       u64,
+        signed_by:   String,
+    },
+
+    /// Verifier commits to a result hash (blind commit phase).
+    AgentTaskVerifierCommit {
+        task_id:     String,
+        verifier:    String,
+        commit_hash: String,  // SHA-256(result_hash | salt)
+        epoch:       u64,
+        nonce:       u64,
+        signed_by:   String,
+    },
+
+    /// Verifier reveals their result hash + salt.
+    AgentTaskVerifierReveal {
+        task_id:     String,
+        verifier:    String,
+        result_hash: String,
+        salt:        String,
+        epoch:       u64,
+        nonce:       u64,
+        signed_by:   String,
+    },
+
+    /// System entry: emitted when majority verifier consensus is reached.
+    /// Pays agent + verifiers; refunds remainder to requester's credit balance.
+    AgentTaskSettle {
+        task_id:      String,
+        agent:        String,
+        winning_hash: String,
+        fee_paid:     u64,
+        verifier_cut: u64,   // per-verifier share
+        epoch:        u64,
+    },
+
     // ── wBTCPC bridge ────────────────────────────────────────────────────────
 
     /// Custodian deposits funds into the bridge, minting wBTCPC up to the 4.2M cap.
@@ -2531,6 +2629,15 @@ impl LedgerEntry {
             Self::RuntimeReward { epoch, .. } => *epoch,
             Self::TonActivationIntent { epoch, .. } => *epoch,
             Self::TonWalletActivated { epoch, .. } => *epoch,
+            Self::AgentCreditDeposit { epoch, .. } => *epoch,
+            Self::AgentCreditWithdraw { epoch, .. } => *epoch,
+            Self::AgentTaskPost { epoch, .. } => *epoch,
+            Self::AgentTaskBid { epoch, .. } => *epoch,
+            Self::AgentTaskAssign { epoch, .. } => *epoch,
+            Self::AgentTaskSubmit { epoch, .. } => *epoch,
+            Self::AgentTaskVerifierCommit { epoch, .. } => *epoch,
+            Self::AgentTaskVerifierReveal { epoch, .. } => *epoch,
+            Self::AgentTaskSettle { epoch, .. } => *epoch,
         }
     }
 
@@ -2753,6 +2860,16 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::FreeportAuctionSettle { .. }
         | LedgerEntry::PrivateAuthApprove { .. } => ENTRY_WEIGHT_STANDARD,
 
+        // ── Agentic task marketplace ──────────────────────────────────────────
+        LedgerEntry::AgentTaskPost { .. } => ENTRY_WEIGHT_HEAVY,
+        LedgerEntry::AgentCreditDeposit { .. }
+        | LedgerEntry::AgentCreditWithdraw { .. }
+        | LedgerEntry::AgentTaskBid { .. }
+        | LedgerEntry::AgentTaskAssign { .. }
+        | LedgerEntry::AgentTaskSubmit { .. }
+        | LedgerEntry::AgentTaskVerifierCommit { .. }
+        | LedgerEntry::AgentTaskVerifierReveal { .. } => ENTRY_WEIGHT_STANDARD,
+
         // ── TON activation ────────────────────────────────────────────────────
         LedgerEntry::TonActivationIntent { .. } => ENTRY_WEIGHT_STANDARD,
 
@@ -2761,6 +2878,7 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::GovernanceFinalize { .. }
         | LedgerEntry::CrossChainFinalityAnnounce { .. }
         | LedgerEntry::GatewayRewardSplit { .. }
-        | LedgerEntry::TonWalletActivated { .. } => ENTRY_WEIGHT_SYSTEM,
+        | LedgerEntry::TonWalletActivated { .. }
+        | LedgerEntry::AgentTaskSettle { .. } => ENTRY_WEIGHT_SYSTEM,
     }
 }
