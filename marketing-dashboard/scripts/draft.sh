@@ -4,7 +4,7 @@ set -e
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BTCPC_REPO="$(cd "$REPO/.." && pwd)"
-ZEROCLAW_BIN="${ZEROCLAW_BIN:-$HOME/repos/zeroclaw/target/release/zeroclaw}"
+ZEROCLAW_BIN="${ZEROCLAW_BIN:-$HOME/.cargo/bin/zeroclaw}"
 CONFIG_TEMPLATE="$REPO/zeroclaw/drafter/config.toml"
 CONFIG_LIVE="$REPO/zeroclaw/drafter/.config.live.toml"
 PROMPT_FILE="$REPO/zeroclaw/drafter/prompt.md"
