@@ -1,8 +1,7 @@
 {
+  "genesis_timestamp": 1777633200000,
+  "chain_id": "btcpc-1",
   "accounts": {
-    "__testnet_fund__": {
-      "balance": 80800000000
-    },
     "a": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -428,7 +427,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "betchu-bot": {},
     "bf": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -534,7 +532,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "bridgeproof": {},
     "brooke": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -545,7 +542,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "brutus11": {},
     "bryce": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -561,23 +557,11 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "btcpc": {
-      "keys": {
-        "active": "7af72460d11441394863ac37a62f19dd56d01c2eaca503f728db6777a2b603f0",
-        "hide": "90b0eff041c5fad111ae38a38e14e6bd5b92cd38917ab8f92f27172fc7a91d73",
-        "memo": "d018d94e68f153e006a245f569c5ca4b31ea4096a0f8aa5a0636a640cc6d5854",
-        "owner": "291545af54484475083677304114b8f798159421c1b2b3ffccdd4c501146b9e9",
-        "posting": "4a559a6658cc76207ded5a509918760ec14e706c79f59ac1c90a20143539f6a4",
-        "seek": "cb89fe490fc9703e0c9ba288ae7f6a11188e0147cfb7c30b3af953af5ed0e39d"
-      }
-    },
     "bu": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "bullship": {},
-    "buswingspread": {},
     "bv": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -763,7 +747,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "clock-984f1a06": {},
     "cm": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -799,7 +782,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "counselflow": {},
     "cp": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -1510,17 +1492,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "freeport": {
-      "keys": {
-        "active": "d4e565ca593d6b22c5fc82590fd0f5e0f5455495038d8cf4f8f8e397482d10c1",
-        "hide": "2edaf160430e29097eba4e7f9bdd66aa1d3268e8b61893c835d11969dc736cc1",
-        "memo": "29fc995b11887ca44aef1c61ff630e525ac01f293b090242fa2e5711966d6dcd",
-        "owner": "e84c1393c307a760f9d8cf3307e30deae2ef966c9ffb5e90f4a64516243d68a3",
-        "posting": "d39fbcd02ff5c04147b063b81de59e73814c9c4b4eed390139d650defd75421d",
-        "seek": "7bd753b437ae23bc39c408a478e030055a2b9060a15fe7d7201a0f71a289c48a"
-      }
-    },
-    "freeport-escrow": {},
     "freya": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -1610,9 +1581,6 @@
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
-    },
-    "genesis-node-1": {
-      "balance": 180000000
     },
     "george": {
       "keys": {
@@ -2139,7 +2107,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "itsurs": {},
     "iu": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -2373,26 +2340,6 @@
     "jose": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
-      }
-    },
-    "josh": {
-      "keys": {
-        "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
-        "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
-        "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
-        "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
-        "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
-        "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
-      }
-    },
-    "joshua": {
-      "keys": {
-        "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
-        "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
-        "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
-        "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
-        "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
-        "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
       }
     },
     "joy": {
@@ -2835,17 +2782,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "linkgit": {
-      "keys": {
-        "active": "e2e850f5d9f7f4a4f8f1614f744bbc27c30280040f51199eee710e68bbfbef94",
-        "hide": "a7bb9867e232f5c84a16123c8aa261d20ec2f4be68bff215fc9246284b63d026",
-        "memo": "66bb6fa55c5220ce1634cc79c6035a203297e1e88882f9d684848ac9859dc232",
-        "owner": "5111c10d97bc8f873a01e95757ec90448d768884154575cf53083063c7d42cc2",
-        "posting": "1c225668a729ba187b02138e94bbe96f21a6659f7bedac9d7ddf025f01019fbf",
-        "seek": "1fde35dd473a42f0165991f15f5c4a77ceed0117cc4f54da3567658d1731fe5f"
-      }
-    },
-    "linkgit-registry": {},
     "lisa": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -3326,17 +3262,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "natoshisakamoto": {
-      "balance": 901600000,
-      "keys": {
-        "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
-        "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
-        "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
-        "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
-        "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
-        "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
-      }
-    },
     "nb": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -3356,9 +3281,6 @@
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
-    },
-    "nebra-1": {
-      "balance": 170000000
     },
     "neha": {
       "keys": {
@@ -3423,16 +3345,6 @@
     "nj": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
-      }
-    },
-    "nk": {
-      "keys": {
-        "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
-        "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
-        "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
-        "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
-        "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
-        "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
       }
     },
     "nl": {
@@ -4125,8 +4037,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "realfake": {},
-    "redaktly": {},
     "reed": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -4492,30 +4402,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "shin": {
-      "keys": {
-        "active": "55a343071425acfd0cc22d8e7ff056e6cfebff06c3a6dceb3fe5a647542d25af",
-        "hide": "9cb38d3709175b2b67ace60e4564c114386ddb2c6e0f63bf56bfbbbc61e1e48d",
-        "memo": "76f74f8c87270f9ba44e7d00a89b1df2821701da764821f2a1752cbf1fc67fad",
-        "owner": "fc1b21c5c1bda1ae81d4b0f927c9086ea7654b5d6406ca756034d5b265d9ac47",
-        "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2",
-        "seek": "8b5c9af81431659e882f94fc376b620956dcd269be4c1a87724d58323a0b2591"
-      }
-    },
-    "shindevlin": {
-      "balance": 5471680000,
-      "keys": {
-        "active": "55a343071425acfd0cc22d8e7ff056e6cfebff06c3a6dceb3fe5a647542d25af",
-        "hide": "9cb38d3709175b2b67ace60e4564c114386ddb2c6e0f63bf56bfbbbc61e1e48d",
-        "memo": "76f74f8c87270f9ba44e7d00a89b1df2821701da764821f2a1752cbf1fc67fad",
-        "owner": "fc1b21c5c1bda1ae81d4b0f927c9086ea7654b5d6406ca756034d5b265d9ac47",
-        "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2",
-        "seek": "8b5c9af81431659e882f94fc376b620956dcd269be4c1a87724d58323a0b2591"
-      }
-    },
-    "shindevlin-android": {
-      "balance": 170000000
-    },
     "shira": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -4611,7 +4497,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "spirit-of-ngu": {},
     "sq": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -5027,7 +4912,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "ursos": {},
     "us": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -5123,17 +5007,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "verasens": {
-      "keys": {
-        "active": "d5e6c1bdc7b0770116efaffbca811aad7c640faca5dda25802e948b4076cd85f",
-        "hide": "b7e5800c8a119aede55e4ebff78745efb4d3720f1c1ca77908bdc7d85b3da46c",
-        "memo": "3e78c4368cf4ce27656332c90b34f2abae2506de5188e341b82ddc104267dac0",
-        "owner": "af2b087aef2934dcaa3b6f35074afaefffa0dde2b8de5d6de1ff67d42d90fc75",
-        "posting": "ec917a3214585d446ccdf5e08ae67a8451bf7111afc73024a162ce407bacf0b4",
-        "seek": "0f637086d49802602f139cd7020b7e7368e5a15cac383391da42856b6a34b3c5"
-      }
-    },
-    "verasens-registry": {},
     "vf": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -5274,7 +5147,6 @@
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
     },
-    "waitlyfi": {},
     "walter": {
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
@@ -5934,6 +5806,162 @@
       "keys": {
         "posting": "e4b6ac67da80655af5c5e719f4f36b6dca4ebc50ca2842a6263c6ba30defb7a2"
       }
-    }
+    },
+    "shindevlin": {
+      "balance": 136991600000000,
+      "keys": {
+        "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
+        "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
+        "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
+        "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
+        "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
+        "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+      }
+    },
+    "shin": {
+      "keys": {
+        "owner": "9b39fd355644db31b2fa3e1a845bacf9969abeca354107132e9eb5b5ddc8b7e7",
+        "active": "72872dee50b3c1bbd08dab53b2892dffa4c76f0c5ba0ed39d35aac9fc62a15c4",
+        "posting": "3c5fe3f8646a13e70b2f74b9b0cf4343c0ecd0c2de48ae0c81bbd80524e23be3",
+        "memo": "d1f0a6e39d64150f855f67e3245f1a8ae448f624dd8fd323beed89136809bf67",
+        "hide": "0bb9aabfcba921e2259831a94f1b998619fa35bffd07914f1381f2cf3a0c1884",
+        "seek": "3411750c01f2cdd264f401818858066c78a3b0863101a37dfe27586411af3dba"
+      }
+    },
+    "natoshisakamoto": {
+      "balance": 21359200000000,
+      "keys": {
+        "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
+        "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
+        "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
+        "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
+        "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
+        "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
+      }
+    },
+    "nk": {
+      "keys": {
+        "owner": "c1a1dac28ffcbe79c9726a37676d52e4cbc1c2d3f1d644287be9b9a5c15efb49",
+        "active": "4c6bf694627189b08ed2cd9fc1fe48d6b7ec311f637678f4c552e1440b4d13d1",
+        "posting": "2793aed82d26aa59ab7ffccde759bd2fabd5d85169d71e06e5c255a38b3dddda",
+        "memo": "59cb8a43c82a9f5d4ddad32c38cb945dab12e233f8943b1d903d48049febc90a",
+        "hide": "ff7ad46ffabef213d044311413cc942ab984571cab0b2f42e091c541bbb22166",
+        "seek": "f4cc3d2342afc883b50dbbdd000e781e6667b56c2031338a2ae73a9613855be1"
+      }
+    },
+    "josh": {
+      "balance": 6300000000000,
+      "keys": {
+        "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
+        "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
+        "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
+        "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
+        "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
+        "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
+      }
+    },
+    "joshua": {
+      "keys": {
+        "owner": "c7b12c651b2eae967eb67abed3407d66b867f788186d465af8df750c81b114cb",
+        "active": "0c19af2c462ade67762ec6abc29f33c7918946a695e3c9e9f5e1821b167e441e",
+        "posting": "a9bee1992f9c1610497ce7c38f5129ff66715044c339e70abf827119d4ec516d",
+        "memo": "08e7941992367af00aaf2cb3398f12407a62caf0ffc781f8829f54efa457fe61",
+        "hide": "37c7d4cb3310d5816b3039c48d4b571f7f4f774923fb3faa9d9b4cee81069cf5",
+        "seek": "1bd15cddb5d189a4142a1e5ad6ffeae3fdaa2360e5749e0f784e8b856ba14e40"
+      }
+    },
+    "bullship": {
+      "balance": 5100000000000,
+      "keys": {
+        "owner": "9e25334343a922ff3a639fa967fc709545316cae25f1f33cec1e7eb2456fb33f",
+        "active": "c9d08bea297d73e6df90868a5800c6342832d88a0db5986d01cf765ccba99a83",
+        "posting": "96af00e358fca17dfc9525010ca39ccd71a058ccc0dd2d4dd5a0be235c7f8776",
+        "memo": "36ba69eb502120f55aa126d3af239040f111f539047338754687e6fa602441c1",
+        "hide": "0af662901d724493db42da2e701eabf6ba154424e1f449b946e7aafd7e8f9140",
+        "seek": "b9f692b38938e4b1a53f2c7ed6b22fe27a992ae9253ee706db9d0287505ee0db"
+      }
+    },
+    "pm100": {
+      "balance": 10000000000000,
+      "keys": {
+        "owner": "48015975ee2950c453a4bcc9cfb5958803f33cd1a2b498f9e69bedd8f86d414d",
+        "active": "f85bc196d5e1c1886532b49fc7a6ac50bd0525bb654bd454f55c2e77996898eb",
+        "posting": "cd52c352e3c18a37714832659c83d6d1ea175c0754e88cee80ebb7a8cafc9a44",
+        "memo": "1e042afee74b7849394a7b8ee3c1c7d669825106b355dc8d583a97fbbec0985c",
+        "hide": "9f59da89a3633871443dfe90e09055d4a8bd23386b26289d247521875844c515",
+        "seek": "292903777159c4ffa92d9ff72dde21c7dccd0af9695b072e2626a31b7fd6c5dd"
+      }
+    },
+    "nsfwotica": {
+      "balance": 955000000000,
+      "keys": {
+        "posting": ""
+      }
+    },
+    "btcpc": {
+      "keys": {
+        "owner": "291545af54484475083677304114b8f798159421c1b2b3ffccdd4c501146b9e9",
+        "active": "7af72460d11441394863ac37a62f19dd56d01c2eaca503f728db6777a2b603f0",
+        "posting": "4a559a6658cc76207ded5a509918760ec14e706c79f59ac1c90a20143539f6a4",
+        "memo": "d018d94e68f153e006a245f569c5ca4b31ea4096a0f8aa5a0636a640cc6d5854",
+        "hide": "90b0eff041c5fad111ae38a38e14e6bd5b92cd38917ab8f92f27172fc7a91d73",
+        "seek": "cb89fe490fc9703e0c9ba288ae7f6a11188e0147cfb7c30b3af953af5ed0e39d"
+      }
+    },
+    "freeport": {
+      "keys": {
+        "owner": "e84c1393c307a760f9d8cf3307e30deae2ef966c9ffb5e90f4a64516243d68a3",
+        "active": "d4e565ca593d6b22c5fc82590fd0f5e0f5455495038d8cf4f8f8e397482d10c1",
+        "posting": "d39fbcd02ff5c04147b063b81de59e73814c9c4b4eed390139d650defd75421d",
+        "memo": "29fc995b11887ca44aef1c61ff630e525ac01f293b090242fa2e5711966d6dcd",
+        "hide": "2edaf160430e29097eba4e7f9bdd66aa1d3268e8b61893c835d11969dc736cc1",
+        "seek": "7bd753b437ae23bc39c408a478e030055a2b9060a15fe7d7201a0f71a289c48a"
+      }
+    },
+    "linkgit": {
+      "keys": {
+        "owner": "5111c10d97bc8f873a01e95757ec90448d768884154575cf53083063c7d42cc2",
+        "active": "e2e850f5d9f7f4a4f8f1614f744bbc27c30280040f51199eee710e68bbfbef94",
+        "posting": "1c225668a729ba187b02138e94bbe96f21a6659f7bedac9d7ddf025f01019fbf",
+        "memo": "66bb6fa55c5220ce1634cc79c6035a203297e1e88882f9d684848ac9859dc232",
+        "hide": "a7bb9867e232f5c84a16123c8aa261d20ec2f4be68bff215fc9246284b63d026",
+        "seek": "1fde35dd473a42f0165991f15f5c4a77ceed0117cc4f54da3567658d1731fe5f"
+      }
+    },
+    "verasens": {
+      "keys": {
+        "owner": "af2b087aef2934dcaa3b6f35074afaefffa0dde2b8de5d6de1ff67d42d90fc75",
+        "active": "d5e6c1bdc7b0770116efaffbca811aad7c640faca5dda25802e948b4076cd85f",
+        "posting": "ec917a3214585d446ccdf5e08ae67a8451bf7111afc73024a162ce407bacf0b4",
+        "memo": "3e78c4368cf4ce27656332c90b34f2abae2506de5188e341b82ddc104267dac0",
+        "hide": "b7e5800c8a119aede55e4ebff78745efb4d3720f1c1ca77908bdc7d85b3da46c",
+        "seek": "0f637086d49802602f139cd7020b7e7368e5a15cac383391da42856b6a34b3c5"
+      }
+    },
+    "nebra-1": {
+      "balance": 6576000000000
+    },
+    "__testnet_fund__": {
+      "balance": 309183400000000
+    },
+    "__treasury__": {},
+    "__recycle_fund__": {
+      "balance": 4805000000000
+    },
+    "betchu-bot": {},
+    "bridgeproof": {},
+    "brutus11": {},
+    "buswingspread": {},
+    "clock-984f1a06": {},
+    "counselflow": {},
+    "freeport-escrow": {},
+    "itsurs": {},
+    "linkgit-registry": {},
+    "realfake": {},
+    "redaktly": {},
+    "spirit-of-ngu": {},
+    "ursos": {},
+    "verasens-registry": {},
+    "waitlyfi": {}
   }
 }
