@@ -511,6 +511,629 @@ impl BtcpcClient {
         Ok(resp)
     }
 
+    // ── TOTP 2FA (P1-B) ───────────────────────────────────────────────────────
+
+    pub async fn totp_setup(&self, account: &str, nonce: u64, sig: &str) -> Result<serde_json::Value> {
+        self.http.post(self.url("/api/totp/setup"))
+            .json(&serde_json::json!({ "account": account, "nonce": nonce, "signature": sig }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn totp_enable(&self, account: &str, code: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx("/api/totp/enable",
+            serde_json::json!({ "account": account, "code": code, "nonce": nonce, "signature": sig })).await
+    }
+
+    pub async fn totp_verify(&self, account: &str, code: &str) -> Result<serde_json::Value> {
+        self.http.post(self.url("/api/totp/verify"))
+            .json(&serde_json::json!({ "account": account, "code": code }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn totp_disable(&self, account: &str, code: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx("/api/totp/disable",
+            serde_json::json!({ "account": account, "code": code, "nonce": nonce, "signature": sig })).await
+    }
+
+    pub async fn totp_backup_codes(&self, account: &str, nonce: u64, sig: &str) -> Result<serde_json::Value> {
+        self.http.post(self.url("/api/totp/backup-codes"))
+            .json(&serde_json::json!({ "account": account, "nonce": nonce, "signature": sig }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Streaming Inference SSE (P1-C) ────────────────────────────────────────
+
+    /// Returns the raw `reqwest::Response` for the caller to consume as an SSE stream.
+    pub async fn inference_stream(
+        &self,
+        account: &str,
+        prompt: &str,
+        model: Option<&str>,
+    ) -> Result<reqwest::Response> {
+        let key = self.api_key.as_deref()
+            .ok_or_else(|| anyhow!("BTCPC_API_KEY required for paid inference endpoint"))?;
+        let mut body = serde_json::json!({ "account": account, "prompt": prompt });
+        if let Some(m) = model { body["model"] = serde_json::Value::String(m.to_owned()); }
+        let resp = self.http.post(self.url("/api/inference/stream"))
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&body).send().await?.error_for_status()?;
+        Ok(resp)
+    }
+
+    /// Stream a settled inference job (replayed as SSE).
+    pub async fn task_job_stream(&self, job_id: &str) -> Result<reqwest::Response> {
+        self.http.get(self.url(&format!("/api/task/job/{}/stream", job_id)))
+            .send().await?.error_for_status().map_err(Into::into)
+    }
+
+    // ── Phone Mining (P1-E) ───────────────────────────────────────────────────
+
+    pub async fn phone_mine_claim(
+        &self, account: &str, device_id: &str, nonce: u64, sig: &str,
+    ) -> Result<serde_json::Value> {
+        self.http.post(self.url("/api/mining/phone/claim"))
+            .json(&serde_json::json!({ "account": account, "device_id": device_id, "nonce": nonce, "signature": sig }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn phone_mine_submit(
+        &self, account: &str, job_id: &str, work_hash: &str,
+        device_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/mining/phone/submit", serde_json::json!({
+            "account": account, "job_id": job_id, "work_hash": work_hash,
+            "device_id": device_id, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn phone_mine_status(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/mining/phone/status?account={}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Mempool Fee Market (P1-F) ─────────────────────────────────────────────
+
+    pub async fn fee_estimate(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/chain/fee-estimate"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn mempool_status(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/mempool/status"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Ensemble Coordinator (P2-B) ───────────────────────────────────────────
+
+    pub async fn ensemble_job_post(
+        &self, account: &str, prompt: &str, model: &str,
+        n_workers: u32, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/ensemble/job", serde_json::json!({
+            "account": account, "prompt": prompt, "model": model,
+            "n_workers": n_workers, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn ensemble_vote(
+        &self, account: &str, job_id: &str, output: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/ensemble/vote/{}", job_id), serde_json::json!({
+            "account": account, "output": output, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    // ── Slashing Framework (P2-D) ─────────────────────────────────────────────
+
+    pub async fn slash_validator(
+        &self, reporter: &str, target: &str, evidence: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/slash", serde_json::json!({
+            "reporter": reporter, "target": target,
+            "evidence": evidence, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn slash_appeal(
+        &self, account: &str, slash_id: &str, appeal_text: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/slash/appeal", serde_json::json!({
+            "account": account, "slash_id": slash_id,
+            "appeal_text": appeal_text, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    // ── Bridge Registry (P2-E) ────────────────────────────────────────────────
+
+    pub async fn bridge_wrap(
+        &self, account: &str, amount_dreams: u64, chain: &str,
+        dest_address: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/bridge/wrap", serde_json::json!({
+            "account": account, "amount": amount_dreams, "chain": chain,
+            "dest_address": dest_address, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn bridge_unwrap(
+        &self, account: &str, wrapped_tx_hash: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/bridge/unwrap", serde_json::json!({
+            "account": account, "wrapped_tx_hash": wrapped_tx_hash,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn bridge_fund(
+        &self, funder: &str, amount_dreams: u64, chain: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/bridge/fund", serde_json::json!({
+            "funder": funder, "amount": amount_dreams,
+            "chain": chain, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn bridge_unlock(
+        &self, account: &str, claim_proof: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/bridge/unlock", serde_json::json!({
+            "account": account, "claim_proof": claim_proof,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn bridge_status(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/bridge/status/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Oracle Feeds (P3-B) ───────────────────────────────────────────────────
+
+    pub async fn oracle_feed_create(
+        &self, account: &str, feed_id: &str, asset_pair: &str,
+        update_interval_epochs: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/oracle/feed/create", serde_json::json!({
+            "account": account, "feed_id": feed_id, "asset_pair": asset_pair,
+            "update_interval_epochs": update_interval_epochs, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn oracle_report(
+        &self, account: &str, feed_id: &str, commit_hash: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/oracle/report", serde_json::json!({
+            "account": account, "feed_id": feed_id,
+            "commit_hash": commit_hash, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn oracle_feed_finalize(
+        &self, account: &str, feed_id: &str,
+        reveals: Vec<serde_json::Value>, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/oracle/feed/finalize", serde_json::json!({
+            "account": account, "feed_id": feed_id,
+            "reveals": reveals, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn oracle_feed_get(&self, feed_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/oracle/feed/{}", feed_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Session Market (P3-C) ─────────────────────────────────────────────────
+
+    pub async fn session_listing_create(
+        &self, account: &str, session_id: &str, price_dreams: u64,
+        summary_hash: &str, turn_count: u32, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/session/listing/create", serde_json::json!({
+            "account": account, "session_id": session_id, "price": price_dreams,
+            "summary_hash": summary_hash, "turn_count": turn_count,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn session_listing_buy(
+        &self, account: &str, listing_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/session/listing/buy/{}", listing_id), serde_json::json!({
+            "account": account, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn session_listing_cancel(
+        &self, account: &str, listing_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/session/listing/cancel/{}", listing_id), serde_json::json!({
+            "account": account, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn session_listings(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/session/listings?account={}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Agent Sessions (P3-D) ─────────────────────────────────────────────────
+
+    pub async fn agent_session_open(
+        &self, client: &str, client_pubkey: &str, fee_escrow: u64,
+        system_prompt: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/agent/session/open", serde_json::json!({
+            "client": client, "client_pubkey": client_pubkey, "fee_escrow": fee_escrow,
+            "system_prompt": system_prompt, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_session_close(
+        &self, client: &str, session_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/agent/session/close", serde_json::json!({
+            "client": client, "session_id": session_id, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_session_get(&self, session_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/agent/session/{}", session_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── VRF Beacon (P3-E) ─────────────────────────────────────────────────────
+
+    pub async fn vrf_commit(
+        &self, account: &str, commit_hash: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/vrf/commit", serde_json::json!({
+            "account": account, "commit_hash": commit_hash,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn vrf_reveal(
+        &self, account: &str, secret_hex: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/vrf/reveal", serde_json::json!({
+            "account": account, "secret_hex": secret_hex,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn vrf_beacon(&self, epoch: u64) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/vrf/beacon/{}", epoch)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Name Auctions (P4-A) ──────────────────────────────────────────────────
+
+    pub async fn name_auction_open(
+        &self, account: &str, name: &str, duration_epochs: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/auction/name/open", serde_json::json!({
+            "account": account, "name": name,
+            "duration_epochs": duration_epochs, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn name_auction_bid(
+        &self, account: &str, auction_id: &str, amount_dreams: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/auction/bid", serde_json::json!({
+            "account": account, "auction_id": auction_id, "amount": amount_dreams,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn name_auction_settle(
+        &self, account: &str, auction_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/auction/settle", serde_json::json!({
+            "account": account, "auction_id": auction_id,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn name_auction_cancel(
+        &self, account: &str, auction_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/auction/cancel", serde_json::json!({
+            "account": account, "auction_id": auction_id,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn name_auction_get(&self, auction_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/auction/{}", auction_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Freeport Auctions (P4-B) ──────────────────────────────────────────────
+
+    pub async fn freeport_auction_open(
+        &self, account: &str, item_id: &str, item_type: &str,
+        duration_epochs: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/freeport/auction/open", serde_json::json!({
+            "account": account, "item_id": item_id, "item_type": item_type,
+            "duration_epochs": duration_epochs, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn freeport_auction_bid(
+        &self, account: &str, auction_id: &str, amount_dreams: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/freeport/auction/bid", serde_json::json!({
+            "account": account, "auction_id": auction_id, "amount": amount_dreams,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn freeport_auction_settle(
+        &self, account: &str, auction_id: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/freeport/auction/settle", serde_json::json!({
+            "account": account, "auction_id": auction_id,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn freeport_auction_get(&self, auction_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/freeport/auction/{}", auction_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Private Authorization (P4-E) ──────────────────────────────────────────
+
+    pub async fn private_auth_enroll(
+        &self, account: &str, group_id: &str, threshold_m: u32, threshold_n: u32,
+        members: Vec<String>, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/private-auth/enroll", serde_json::json!({
+            "account": account, "group_id": group_id,
+            "threshold_m": threshold_m, "threshold_n": threshold_n,
+            "members": members, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn private_auth_approve(
+        &self, account: &str, group_id: &str, target_tx: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/private-auth/approve", serde_json::json!({
+            "account": account, "group_id": group_id, "target_tx": target_tx,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn private_auth_status(&self, group_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/private-auth/status/{}", group_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── RAG Service (P5-A) ────────────────────────────────────────────────────
+
+    pub async fn rag_index(
+        &self, account: &str, doc_id: &str, content: &str, nonce: u64, sig: &str,
+    ) -> Result<serde_json::Value> {
+        self.http.post(self.url("/api/rag/index"))
+            .json(&serde_json::json!({
+                "account": account, "doc_id": doc_id, "content": content,
+                "nonce": nonce, "signature": sig,
+            }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn rag_query(&self, account: &str, query: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/rag/query?account={}&q={}", account, query)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn rag_delete(
+        &self, account: &str, doc_id: &str, nonce: u64, sig: &str,
+    ) -> Result<serde_json::Value> {
+        self.http.delete(self.url(&format!("/api/rag/doc/{}", doc_id)))
+            .json(&serde_json::json!({ "account": account, "nonce": nonce, "signature": sig }))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Memory Service (P5-B) ─────────────────────────────────────────────────
+
+    pub async fn memory_set(
+        &self, account: &str, key: &str, value: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/memory/set", serde_json::json!({
+            "account": account, "key": key, "value": value,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn memory_get(&self, account: &str, key: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/memory/get/{}/{}", account, key)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn memory_delete(
+        &self, account: &str, key: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/memory/del", serde_json::json!({
+            "account": account, "key": key, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn memory_scan(&self, account: &str, prefix: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/memory/scan/{}?prefix={}", account, prefix)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Fine-Tune Routes (P5-C) ───────────────────────────────────────────────
+
+    pub async fn finetune_post(
+        &self, account: &str, base_model: &str, dataset_cid: &str,
+        lora_rank: u32, max_fee: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/finetune/job", serde_json::json!({
+            "account": account, "base_model": base_model, "dataset_cid": dataset_cid,
+            "lora_rank": lora_rank, "max_fee": max_fee, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn finetune_complete(
+        &self, worker: &str, job_id: &str, adapter_cid: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/finetune/complete", serde_json::json!({
+            "worker": worker, "job_id": job_id, "adapter_cid": adapter_cid,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn finetune_job_get(&self, job_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/finetune/job/{}", job_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn finetune_jobs_open(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/finetune/jobs/open"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Computer-Use Routes (P5-D) ────────────────────────────────────────────
+
+    pub async fn computer_use_post(
+        &self, account: &str, task_json: serde_json::Value,
+        max_fee: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/computer-use/job", serde_json::json!({
+            "account": account, "task_json": task_json,
+            "max_fee": max_fee, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn computer_use_complete(
+        &self, worker: &str, job_id: &str, result_json: serde_json::Value, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/computer-use/complete", serde_json::json!({
+            "worker": worker, "job_id": job_id, "result_json": result_json,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn computer_use_job_get(&self, job_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/computer-use/job/{}", job_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn computer_use_jobs_open(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/computer-use/jobs/open"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Blob Serve Proof (P5-E) ───────────────────────────────────────────────
+
+    pub async fn blob_serve_proof(
+        &self, node_id: &str, cid: &str, bytes_served: u64,
+        epoch: u64, proof_hash: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/blob/serve-proof", serde_json::json!({
+            "node_id": node_id, "cid": cid, "bytes_served": bytes_served,
+            "epoch": epoch, "proof_hash": proof_hash, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    // ── Blob Bandwidth Metering (P5-F) ────────────────────────────────────────
+
+    pub async fn blob_bandwidth_peek(&self, cid: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/blob/bandwidth/{}", cid)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Peer Commerce (P5-G) ──────────────────────────────────────────────────
+
+    pub async fn peer_commerce_register(
+        &self, account: &str, product_cid: &str, price_dreams: u64,
+        description: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/peer-commerce/register", serde_json::json!({
+            "account": account, "product_cid": product_cid, "price": price_dreams,
+            "description": description, "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn peer_commerce_get(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/peer-commerce/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn peer_commerce_list(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/peer-commerce/list"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Amber Pill (P5-H) ─────────────────────────────────────────────────────
+
+    pub async fn amber_pill_mint(
+        &self, account: &str, device_fingerprint: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/amber-pill/mint", serde_json::json!({
+            "account": account, "device_fingerprint": device_fingerprint,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn amber_pill_get(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/amber-pill/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Gateway Resolver (P5-I) ───────────────────────────────────────────────
+
+    pub async fn gateway_resolve(&self, shortcode: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/gateway/resolve/{}", shortcode)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Snapshot Replication (P5-J) ───────────────────────────────────────────
+
+    pub async fn snapshot_save(
+        &self, account: &str, slug: &str, cid: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/snapshot/save", serde_json::json!({
+            "account": account, "slug": slug, "cid": cid,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    pub async fn snapshot_get(&self, account: &str, slug: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/snapshot/{}/{}", account, slug)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn snapshot_list(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/snapshot/list/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Phone Storage (P5-K) ──────────────────────────────────────────────────
+
+    pub async fn phone_storage_proof(
+        &self, account: &str, device_id: &str, cid: &str,
+        bytes_stored: u64, proof_hash: &str, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/phone-storage/proof", serde_json::json!({
+            "account": account, "device_id": device_id, "cid": cid,
+            "bytes_stored": bytes_stored, "proof_hash": proof_hash,
+            "nonce": nonce, "signature": sig,
+        })).await
+    }
+
+    // ── Node Health (P1-H) ────────────────────────────────────────────────────
+
+    pub async fn health_detailed(&self) -> Result<serde_json::Value> {
+        self.http.get(self.url("/api/node/health/detailed"))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     async fn post_tx(&self, path: &str, body: serde_json::Value) -> Result<TxResponse> {
@@ -624,8 +1247,11 @@ pub struct WalletFile {
     pub version: u8,
     /// BTCPC account name.
     pub account: String,
-    /// Derived BTCPC ed25519 public key (hex). Used to verify identity.
+    /// Derived BTCPC posting public key (hex). Kept for older callers.
     pub btcpc_public_key_hex: String,
+    /// BTCPC role public keys derived from the canonical BTCPC wallet path.
+    #[serde(default)]
+    pub btcpc_role_public_keys: std::collections::HashMap<String, String>,
     /// Derived chain addresses / public keys.
     /// Keys: "evm", "solana", "bitcoin". Values: address strings (all public).
     pub chain_addresses: std::collections::HashMap<String, String>,
@@ -633,8 +1259,28 @@ pub struct WalletFile {
 
 /// Derivation paths used per chain.
 pub mod paths {
-    /// BTCPC ed25519 (SLIP10, all components hardened). Coin type 2301.
-    pub const BTCPC: &[u32] = &[0x8000002C, 0x800008FD, 0x80000000, 0x80000000, 0x80000000];
+    const H: u32 = 0x8000_0000;
+    /// BTCPC SLIP-44 coin type. This must match btcpc-node wallet derivation.
+    pub const BTCPC_COIN: u32 = 6942;
+    /// BTCPC owner key: cold key for key rotation and governance.
+    pub const BTCPC_OWNER: &[u32] = &[44 | H, BTCPC_COIN | H, 0 | H, 0 | H];
+    /// BTCPC active key: transfers, staking, and API-key registration.
+    pub const BTCPC_ACTIVE: &[u32] = &[44 | H, BTCPC_COIN | H, 1 | H, 0 | H];
+    /// BTCPC posting key: daily protocol activity.
+    pub const BTCPC_POSTING: &[u32] = &[44 | H, BTCPC_COIN | H, 2 | H, 0 | H];
+    /// BTCPC memo key: encrypted messages and selective disclosure.
+    pub const BTCPC_MEMO: &[u32] = &[44 | H, BTCPC_COIN | H, 3 | H, 0 | H];
+    /// BTCPC hide key: private content encryption.
+    pub const BTCPC_HIDE: &[u32] = &[44 | H, BTCPC_COIN | H, 4 | H, 0 | H];
+    /// BTCPC seek key: encrypted buyer delivery.
+    pub const BTCPC_SEEK: &[u32] = &[44 | H, BTCPC_COIN | H, 5 | H, 0 | H];
+    /// Canonical BTCPC signing key for backwards-compatible callers: posting.
+    pub const BTCPC: &[u32] = BTCPC_POSTING;
+    /// Legacy SDK v1 path. Use only to migrate older public wallet files.
+    pub const BTCPC_LEGACY: &[u32] = &[44 | H, 2301 | H, 0 | H, 0 | H, 0 | H];
+    pub const BTCPC_OWNER_STR: &str = "m/44'/6942'/0'/0'";
+    pub const BTCPC_ACTIVE_STR: &str = "m/44'/6942'/1'/0'";
+    pub const BTCPC_POSTING_STR: &str = "m/44'/6942'/2'/0'";
     /// Ethereum/EVM secp256k1 BIP44.
     pub const EVM: &str = "m/44'/60'/0'/0/0";
     /// Solana ed25519 (SLIP10, all hardened).
@@ -681,15 +1327,17 @@ impl Wallet {
             fs::create_dir_all(parent)?;
         }
         let kp = self.btcpc_keypair()?;
+        let role_keys = self.btcpc_role_public_keys()?;
         let mut addrs = std::collections::HashMap::new();
         if let Ok(a) = self.evm_address()       { addrs.insert("evm".into(), a); }
         if let Ok(a) = self.bitcoin_pubkey_hex() { addrs.insert("bitcoin".into(), a); }
         addrs.insert("solana".into(), self.solana_address());
 
         let wf = WalletFile {
-            version: 2,
+            version: 3,
             account: self.account.clone(),
             btcpc_public_key_hex: kp.public_key_hex(),
+            btcpc_role_public_keys: role_keys,
             chain_addresses: addrs,
         };
         fs::write(path, serde_json::to_string_pretty(&wf)?)?;
@@ -698,8 +1346,36 @@ impl Wallet {
 
     /// BTCPC signing key derived via SLIP10-ed25519.
     pub fn btcpc_keypair(&self) -> Result<KeyPair> {
-        let key_bytes = slip10_ed25519_derive(&self.seed, paths::BTCPC);
+        self.btcpc_role_keypair("posting")
+    }
+
+    /// BTCPC role key derived from canonical m/44'/6942'/role'/0' paths.
+    pub fn btcpc_role_keypair(&self, role: &str) -> Result<KeyPair> {
+        let path = match role {
+            "owner" => paths::BTCPC_OWNER,
+            "active" => paths::BTCPC_ACTIVE,
+            "posting" => paths::BTCPC_POSTING,
+            "memo" => paths::BTCPC_MEMO,
+            "hide" => paths::BTCPC_HIDE,
+            "seek" => paths::BTCPC_SEEK,
+            other => return Err(anyhow!("unknown BTCPC wallet role '{}'", other)),
+        };
+        let key_bytes = slip10_ed25519_derive(&self.seed, path);
         KeyPair::from_bytes(&key_bytes)
+    }
+
+    /// Legacy SDK v1 BTCPC key path. Only for migration of existing wallet.json files.
+    pub fn legacy_btcpc_keypair(&self) -> Result<KeyPair> {
+        let key_bytes = slip10_ed25519_derive(&self.seed, paths::BTCPC_LEGACY);
+        KeyPair::from_bytes(&key_bytes)
+    }
+
+    pub fn btcpc_role_public_keys(&self) -> Result<std::collections::HashMap<String, String>> {
+        let mut out = std::collections::HashMap::new();
+        for role in ["owner", "active", "posting", "memo", "hide", "seek"] {
+            out.insert(role.to_string(), self.btcpc_role_keypair(role)?.public_key_hex());
+        }
+        Ok(out)
     }
 
     /// EVM address string (0x-prefixed) from BIP44 secp256k1.
@@ -737,7 +1413,7 @@ impl Wallet {
     pub fn chain_addresses(&self) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
         if let Ok(kp) = self.btcpc_keypair() {
-            out.push(("btcpc".into(), kp.public_key_hex(), "m/44'/2301'/0'/0'/0'".into()));
+            out.push(("btcpc".into(), kp.public_key_hex(), paths::BTCPC_POSTING_STR.into()));
         }
         if let Ok(addr) = self.evm_address() {
             out.push(("evm".into(), addr, "m/44'/60'/0'/0/0".into()));
