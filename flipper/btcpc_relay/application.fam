@@ -7,7 +7,7 @@ App(
     sources=["btcpc_relay.c", "sha256.c"],
     stack_size=2 * 1024,
     fap_category="BTCPC",
-    fap_description="BTCPC sensor relay — pairs with the BTCPC Android app via BLE",
+    fap_description="Announces BLE MAC over USB CDC for auto-pairing with the BTCPC Android app",
     fap_author="Shin Devlin / btcpc.network",
-    fap_version="1.1",
+    fap_version="1.2",
 )
