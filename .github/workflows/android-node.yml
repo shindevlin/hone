@@ -46,8 +46,9 @@ jobs:
           NDK="${ANDROID_NDK_ROOT:-$ANDROID_NDK_LATEST_HOME}"
           echo "NDK=$NDK"
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
-          ls "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-clang" || \
-            (echo "clang not found in NDK"; ls "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep clang | head -5; exit 1)
+          BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          ls "$BIN" | grep -q 'aarch64-linux-android.*-clang$' || \
+            (echo "aarch64 clang not found in NDK bin: $BIN"; ls "$BIN" | grep clang | head -5; exit 1)
 
       - name: Build arm64-v8a (phones)
         working-directory: rust/btcpc-android
