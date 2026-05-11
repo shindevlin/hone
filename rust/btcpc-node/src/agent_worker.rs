@@ -18,6 +18,7 @@ use tracing::{info, warn, error};
 use btcpc_types::{LedgerEntry, epoch_duration_ms};
 use crate::chain::Chain;
 use crate::agent_task::{AgentTask, TaskStatus};
+use crate::agent_tools;
 use crate::net::NetCmd;
 
 const OLLAMA_TIMEOUT_SECS: u64 = 120;
@@ -134,7 +135,7 @@ async fn execute_assigned_tasks(
             continue;
         }
 
-        match run_task(&task).await {
+        match run_task(&task, chain).await {
             Ok(output) => {
                 let result_hash = hex::encode(Sha256::digest(
                     format!("{}|{}|{}", task.task_id, output, account).as_bytes()
@@ -187,7 +188,7 @@ async fn verify_submitted_tasks(
         // Already committed?
         if task.commits.iter().any(|c| c.verifier == account) { continue; }
 
-        match run_task(&task).await {
+        match run_task(&task, chain).await {
             Ok(output) => {
                 let result_hash = hex::encode(Sha256::digest(
                     format!("{}|{}|{}", task.task_id, output, account).as_bytes()
@@ -284,8 +285,10 @@ async fn reveal_committed_verifications(
     }
 }
 
-/// Execute a task's description via Ollama.
-async fn run_task(task: &AgentTask) -> anyhow::Result<String> {
+/// Execute a task via Ollama.  If the task declares allowed tools, runs a
+/// ReAct loop (up to 8 iterations); otherwise falls back to a single-shot
+/// /api/generate call.
+async fn run_task(task: &AgentTask, chain: &Chain) -> anyhow::Result<String> {
     let ollama_url = std::env::var("OLLAMA_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_owned());
     let model = std::env::var("BTCPC_MODEL")
@@ -295,16 +298,57 @@ async fn run_task(task: &AgentTask) -> anyhow::Result<String> {
         .timeout(Duration::from_secs(OLLAMA_TIMEOUT_SECS))
         .build()?;
 
-    let resp = http.post(format!("{}/api/generate", ollama_url))
-        .json(&serde_json::json!({
-            "model": model,
-            "prompt": task.description,
-            "stream": false,
-        }))
-        .send().await?
-        .json::<serde_json::Value>().await?;
+    if task.tools_allowed.is_empty() {
+        let resp = http.post(format!("{}/api/generate", ollama_url))
+            .json(&serde_json::json!({
+                "model":  model,
+                "prompt": task.description,
+                "stream": false,
+            }))
+            .send().await?
+            .json::<serde_json::Value>().await?;
+        return Ok(resp["response"].as_str().unwrap_or("").to_owned());
+    }
 
-    Ok(resp["response"].as_str().unwrap_or("").to_owned())
+    // ReAct loop: build system prompt, then alternate model calls with tool dispatch.
+    let system = agent_tools::build_system_prompt(&task.tools_allowed);
+    let mut messages = vec![
+        serde_json::json!({ "role": "system",  "content": system }),
+        serde_json::json!({ "role": "user",    "content": &task.description }),
+    ];
+
+    for _ in 0..8usize {
+        let resp = http.post(format!("{}/api/chat", ollama_url))
+            .json(&serde_json::json!({
+                "model":    model,
+                "messages": messages,
+                "stream":   false,
+            }))
+            .send().await?
+            .json::<serde_json::Value>().await?;
+
+        let content = resp["message"]["content"].as_str().unwrap_or("").to_owned();
+
+        if let Some((tool_name, args)) = agent_tools::parse_tool_call(&content) {
+            messages.push(serde_json::json!({ "role": "assistant", "content": &content }));
+            let result = agent_tools::dispatch(&tool_name, &args, chain).await;
+            let result_text = serde_json::to_string(&result.value).unwrap_or_default();
+            messages.push(serde_json::json!({
+                "role":    "user",
+                "content": format!("[tool:{}] {}", tool_name, result_text),
+            }));
+            info!("[agent-worker] tool {} ok={}", tool_name, result.ok);
+        } else {
+            return Ok(content);
+        }
+    }
+
+    // Exhausted iterations — return last assistant message.
+    Ok(messages.iter().rev()
+        .find(|m| m["role"].as_str() == Some("assistant"))
+        .and_then(|m| m["content"].as_str())
+        .unwrap_or("")
+        .to_owned())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

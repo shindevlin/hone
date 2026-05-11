@@ -74,6 +74,7 @@ mod ton_relay;
 mod session_market;
 mod agent_session;
 mod agent_task;
+mod agent_tools;
 mod agent_worker;
 mod agent_registry;
 mod vrf;

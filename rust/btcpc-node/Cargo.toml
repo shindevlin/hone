@@ -70,6 +70,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Utilities
+urlencoding = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
