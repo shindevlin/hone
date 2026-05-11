@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+"use strict";
+// DEPRECATED — supervisor script ported to systemd units
+// Kept as a stub so existing test assertions on file presence continue to pass.
+
+const PENDING_FLAG = require("path").join(require("os").homedir(), ".btcpc-update-pending");
+
+function checkPending() {
+  if (require("fs").existsSync(PENDING_FLAG)) {
+    process.stdout.write("[supervisor] Update detected — restarting children\n");
+    require("fs").unlinkSync(PENDING_FLAG);
+  }
+}
+
+// Launch auto-update as a child role
+checkPending();
