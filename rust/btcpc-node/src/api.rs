@@ -353,6 +353,7 @@ pub fn router(state: AppState) -> Router {
         // ── Slashing ─────────────────────────────────────────────────────
         .route("/api/slash/submit", post(post_slash_validator))
         .route("/api/slash/appeal", post(post_slash_appeal))
+        .route("/api/slash/appeal/:id", get(get_slash_appeal))
         .route("/api/slash/:id", get(get_slash))
         .route("/api/slash/list", get(get_slashes))
         // ── Bridge ───────────────────────────────────────────────────────
@@ -7420,6 +7421,31 @@ async fn get_slash(
         .ok_or(StatusCode::NOT_FOUND)?;
     let record: serde_json::Value = serde_json::from_slice(&raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(record))
+}
+
+async fn get_slash_appeal(
+    State(s): State<AppState>,
+    Path(slash_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let raw = s.chain.store.state_get(&format!("slash:{}", slash_id))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let record: serde_json::Value = serde_json::from_slice(&raw)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let votes = record.get("appeal_votes").cloned().unwrap_or(serde_json::json!([]));
+    let vote_count = votes.as_array().map(|v| v.len()).unwrap_or(0);
+    let overturn_count = votes.as_array()
+        .map(|v| v.iter().filter(|x| x.get("overturn").and_then(|o| o.as_bool()).unwrap_or(false)).count())
+        .unwrap_or(0);
+    let deadline = record.get("appeal_deadline").cloned().unwrap_or(serde_json::json!(null));
+    let outcome = record.get("appeal_outcome").cloned();
+    Ok(Json(serde_json::json!({
+        "slash_id": slash_id,
+        "appeal_deadline": deadline,
+        "votes": votes,
+        "vote_count": vote_count,
+        "overturn_count": overturn_count,
+        "outcome": outcome,
+    })))
 }
 
 async fn get_slashes(State(s): State<AppState>) -> Json<serde_json::Value> {
