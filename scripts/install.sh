@@ -9,38 +9,52 @@ set -euo pipefail
 
 GITHUB_REPO="shindevlin/btcpc"
 RELEASE_TAG="node-v1.0.0"
-ASSET_NODE="btcpc-node-linux-x86_64"
-ASSET_CLI="btcpc-linux-x86_64"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  aarch64|arm64) SUFFIX="linux-aarch64" ;;
+  *)             SUFFIX="linux-x86_64"  ;;
+esac
+ASSET_NODE="btcpc-node-${SUFFIX}"
+ASSET_CLI="btcpc-${SUFFIX}"
 BINARY_NODE="/usr/local/bin/btcpc-node"
 BINARY_CLI="/usr/local/bin/btcpc"
+RELEASE_BASE="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}"
 SCRIPTS_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/stable/scripts"
+RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/stable"
 
-echo "==> Installing BTCPC node and CLI ${RELEASE_TAG}"
+echo "==> Installing BTCPC node and CLI ${RELEASE_TAG} (${SUFFIX})"
 
 # ── Download node binary ──────────────────────────────────────────────────────
-DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${ASSET_NODE}"
-echo "==> Downloading node binary from ${DOWNLOAD_URL}"
-curl -fsSL "$DOWNLOAD_URL" -o "$BINARY_NODE"
+echo "==> Downloading node binary"
+curl -fsSL "${RELEASE_BASE}/${ASSET_NODE}" -o "$BINARY_NODE"
 chmod +x "$BINARY_NODE"
 echo "==> Installed: $BINARY_NODE"
 
 # ── Download CLI binary ───────────────────────────────────────────────────────
-CLI_URL="https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${ASSET_CLI}"
-echo "==> Downloading btcpc CLI from ${CLI_URL}"
-curl -fsSL "$CLI_URL" -o "$BINARY_CLI"
+echo "==> Downloading btcpc CLI"
+curl -fsSL "${RELEASE_BASE}/${ASSET_CLI}" -o "$BINARY_CLI"
 chmod +x "$BINARY_CLI"
 echo "==> Installed: $BINARY_CLI"
 
-# ── Data directory ────────────────────────────────────────────────────────────
+# ── Mainnet data directory + user ────────────────────────────────────────────
 mkdir -p /var/lib/btcpc
 id btcpc &>/dev/null || useradd --system --no-create-home --home /var/lib/btcpc btcpc
 chown btcpc:btcpc /var/lib/btcpc
 
+# ── Testnet data directory + genesis ────────────────────────────────────────
+mkdir -p /var/lib/btcpc-testnet
+chown btcpc:btcpc /var/lib/btcpc-testnet
+echo "==> Downloading testnet genesis"
+curl -fsSL "${RAW_BASE}/rust/btcpc-node/testnet-genesis.json" \
+    -o /var/lib/btcpc-testnet/genesis.json
+chown btcpc:btcpc /var/lib/btcpc-testnet/genesis.json
+
 # ── Systemd units ─────────────────────────────────────────────────────────────
 echo "==> Installing systemd units"
-curl -fsSL "${SCRIPTS_BASE}/btcpc-node.service"   -o /etc/systemd/system/btcpc-node.service
-curl -fsSL "${SCRIPTS_BASE}/btcpc-update.service" -o /etc/systemd/system/btcpc-update.service
-curl -fsSL "${SCRIPTS_BASE}/btcpc-update.timer"   -o /etc/systemd/system/btcpc-update.timer
+curl -fsSL "${SCRIPTS_BASE}/btcpc-node.service"     -o /etc/systemd/system/btcpc-node.service
+curl -fsSL "${SCRIPTS_BASE}/btcpc-testnet.service"  -o /etc/systemd/system/btcpc-testnet.service
+curl -fsSL "${SCRIPTS_BASE}/btcpc-update.service"   -o /etc/systemd/system/btcpc-update.service
+curl -fsSL "${SCRIPTS_BASE}/btcpc-update.timer"     -o /etc/systemd/system/btcpc-update.timer
 systemctl daemon-reload
 
 # ── Enable auto-update timer ──────────────────────────────────────────────────
@@ -54,20 +68,18 @@ echo "  1. Create your account and log in:"
 echo "       btcpc account create yourname"
 echo "       btcpc login"
 echo ""
-echo "  2. Edit the node service file:"
+echo "  2. Set your account in both service files:"
 echo "       nano /etc/systemd/system/btcpc-node.service"
-echo "     Required env vars:"
-echo "       BTCPC_ACCOUNT          — your account name"
-echo "       BTCPC_NODE_ID          — unique node label"
-echo "       BTCPC_GENESIS_TIMESTAMP=1777633200000"
-echo "       BTCPC_CHAIN_ID=btcpc-1"
-echo "       BTCPC_BOOTSTRAP_PEERS  — (optional, auto-fetched from Hive)"
+echo "       nano /etc/systemd/system/btcpc-testnet.service"
+echo "     Required env vars in each:"
+echo "       BTCPC_ACCOUNT   — your account name"
+echo "       BTCPC_NODE_ID   — unique node label"
 echo ""
-echo "  3. Start the node:"
-echo "       systemctl enable --now btcpc-node"
+echo "  3. Start both mainnet and testnet:"
+echo "       systemctl enable --now btcpc-node btcpc-testnet"
 echo ""
-echo "  4. Publish a git repo:"
-echo "       cd my-project"
-echo "       btcpc repo init my-project"
-echo "       git push -u origin main"
+echo "  4. Check status:"
+echo "       systemctl status btcpc-node btcpc-testnet"
+echo "       curl http://localhost:4242/api/node/info   # mainnet"
+echo "       curl http://localhost:4343/api/node/info   # testnet"
 echo ""

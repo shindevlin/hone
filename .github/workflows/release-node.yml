@@ -14,6 +14,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add aarch64 target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-aarch64-linux-gnu
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -21,15 +29,32 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust/btcpc-node/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/btcpc-node/Cargo.lock') }}
+            rust/btcpc-cli/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/btcpc-node/Cargo.lock', 'rust/btcpc-cli/Cargo.lock') }}
 
-      - name: Build release binary
+      - name: Build node binaries
         run: |
           cd rust/btcpc-node
           cargo build --release
-          cp target/release/btcpc-node ../../btcpc-node-linux-x86_64
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+            cargo build --release --target aarch64-unknown-linux-gnu
+          cp target/release/btcpc-node                              ../../btcpc-node-linux-x86_64
+          cp target/aarch64-unknown-linux-gnu/release/btcpc-node    ../../btcpc-node-linux-aarch64
+
+      - name: Build CLI binaries
+        run: |
+          cd rust/btcpc-cli
+          cargo build --release
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+            cargo build --release --target aarch64-unknown-linux-gnu
+          cp target/release/btcpc-cli                              ../../btcpc-linux-x86_64
+          cp target/aarch64-unknown-linux-gnu/release/btcpc-cli    ../../btcpc-linux-aarch64
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: btcpc-node-linux-x86_64
+          files: |
+            btcpc-node-linux-x86_64
+            btcpc-node-linux-aarch64
+            btcpc-linux-x86_64
+            btcpc-linux-aarch64
