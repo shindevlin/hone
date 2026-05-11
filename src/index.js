@@ -9,7 +9,9 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const express = require('express');
+const express = require("express");
+const exchangeRoutes = require("./routes/exchangeRoutes");
+
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -226,6 +228,8 @@ app.use("/api/finetune", finetuneRoutes);
 app.use("/api/browser", computerUseRoutes);
 app.use("/api/memory", memoryRoutes);
 app.use("/api/purchase", purchaseRoutes);
+app.use("/api/exchange", exchangeRoutes);
+
 app.use("/api/mining/phone", phoneMiningRoutes);
 app.use("/api/storage/phone", phoneStorageRoutes);
 app.use("/public", publicRoutes);

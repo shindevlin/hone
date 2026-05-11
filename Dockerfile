@@ -1,29 +1,47 @@
-FROM node:20-alpine
+# ── Stage 1: build Rust binaries ─────────────────────────────────────────────
+FROM rust:1.80-bookworm AS builder
+
+WORKDIR /build
+
+# Cache dependency layer
+COPY rust/btcpc-node/Cargo.toml rust/btcpc-node/Cargo.lock* ./rust/btcpc-node/
+COPY rust/btcpc-node/crates ./rust/btcpc-node/crates
+COPY rust/btcpc-cli/Cargo.toml rust/btcpc-cli/Cargo.lock* ./rust/btcpc-cli/
+COPY rust/btcpc-contract-runtime/Cargo.toml ./rust/btcpc-contract-runtime/
+RUN mkdir -p rust/btcpc-node/src && echo "fn main(){}" > rust/btcpc-node/src/main.rs && \
+    mkdir -p rust/btcpc-cli/src && echo "fn main(){}" > rust/btcpc-cli/src/main.rs && \
+    mkdir -p rust/btcpc-contract-runtime/src && echo "" > rust/btcpc-contract-runtime/src/lib.rs && \
+    cd rust/btcpc-node && cargo build --release 2>/dev/null; true
+
+# Full source build
+COPY rust ./rust
+RUN cd rust/btcpc-node && cargo build --release && \
+    cd /build/rust/btcpc-cli && cargo build --release
+
+# ── Stage 2: minimal runtime image ───────────────────────────────────────────
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates curl libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# System deps for native modules + healthchecks
-RUN apk add --no-cache python3 make g++ git curl
+COPY --from=builder /build/rust/btcpc-node/target/release/btcpc-node /usr/local/bin/btcpc-node
+COPY --from=builder /build/rust/btcpc-cli/target/release/btcpc      /usr/local/bin/btcpc
 
-# Install dependencies first (cached layer)
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+COPY rust/btcpc-node/genesis.json         /app/genesis.json
+COPY rust/btcpc-node/testnet-genesis.json /app/testnet-genesis.json
+COPY website /app/website
 
-# Copy source
-COPY bin ./bin
-COPY src ./src
-COPY contracts ./contracts
-COPY scripts ./scripts
-COPY docs ./docs
+RUN mkdir -p /app/data /app/.btcpc
 
-# Create runtime dirs
-RUN mkdir -p /app/data /app/blocks /app/.btcpc-inference
+# API 4242 | explorer 4243 | P2P 6942 | testnet API 4246 | testnet P2P 6946
+EXPOSE 4242 4243 6942 4246 6946
 
-# Expose ports: API (3000), explorer (4242), storage HTTP (4243), P2P (6942), clock P2P (6943)
-EXPOSE 3000 4242 4243 6942 6943
+ENV BTCPC_DATA_DIR=/app/data \
+    BTCPC_GENESIS_FILE=/app/genesis.json \
+    BTCPC_API_PORT=4242 \
+    BTCPC_P2P_PORT=6942
 
-# Multi-role supervisor. Override which roles run via BTCPC_ROLES env var:
-#   BTCPC_ROLES=all  (default) — api + miner + clock + storage
-#   BTCPC_ROLES=miner,clock     — just the earning roles
-#   BTCPC_ROLES=api             — HTTP API only
-CMD ["node", "bin/btcpc-all"]
+CMD ["/usr/local/bin/btcpc-node"]

@@ -41,26 +41,29 @@ function calculatePrice(totalSold, oracleFeeds) {
  * This is called by stateStore.applyEntry during block processing.
  * 
  * @param {object} params - { buyer, token, amount, entry, state }
- * @param {object} state - References to in-memory maps from stateStore (balances, tokenBalances, exchangeQueue, etc.)
+ * @param {object} state - References to in-memory maps and functions from stateStore
  */
 function applyExchangeBuy(params, state) {
-    const { buyer, token, amount, epoch } = params;
+    const { buyer, token, amount } = params;
     const { 
-        balances, 
-        tokenBalances, 
         exchangeQueue, 
         exchangeStats,
         oracleFeeds,
-        _round // round to 10 decimals
+        _round,
+        _debit,
+        _credit
     } = state;
 
     if (exchangeQueue.length === 0) return; // Nothing to buy
+
+    // Buyer pays in stablecoins
+    // (In stateStore, stablecoin tokens are handled by _debit and _credit as well)
+    if (!_debit(buyer, token, amount)) return;
 
     const currentPrice = calculatePrice(exchangeStats.total_volume, oracleFeeds);
     const btcpcToBuy = _round(amount / currentPrice);
     
     let remainingToFulfill = btcpcToBuy;
-    let totalPaidToSellers = 0;
     let totalFees = 0;
 
     // FIFO Fulfillment
@@ -73,14 +76,9 @@ function applyExchangeBuy(params, state) {
         const sellerShare = _round(usdValue - fee);
 
         // Credit seller with stablecoins
-        const sellerTokenMap = tokenBalances.get(token);
-        if (sellerTokenMap) {
-            sellerTokenMap.set(deposit.seller, _round((sellerTokenMap.get(deposit.seller) || 0) + sellerShare));
-        }
+        _credit(deposit.seller, token, sellerShare);
 
-        totalFees += fee;
-        totalPaidToSellers += sellerShare;
-        
+        totalFees = _round(totalFees + fee);
         remainingToFulfill = _round(remainingToFulfill - take);
         deposit.amount = _round(deposit.amount - take);
 
@@ -92,16 +90,13 @@ function applyExchangeBuy(params, state) {
     const actualBought = _round(btcpcToBuy - remainingToFulfill);
     
     // Credit buyer with BTCPC
-    balances.set(buyer, _round((balances.get(buyer) || 0) + actualBought));
+    _credit(buyer, "BTCPC", actualBought);
     
     // Debit BTCPC from exchange system account (where it was locked on deposit)
-    balances.set('btcpc_exchange', _round((balances.get('btcpc_exchange') || 0) - actualBought));
+    _debit("btcpc_exchange", "BTCPC", actualBought);
 
     // Credit fee recipient with stablecoins
-    const feeTokenMap = tokenBalances.get(token);
-    if (feeTokenMap) {
-        feeTokenMap.set(FEE_RECIPIENT, _round((feeTokenMap.get(FEE_RECIPIENT) || 0) + totalFees));
-    }
+    _credit(FEE_RECIPIENT, token, totalFees);
 
     // Update stats
     exchangeStats.total_volume = _round(exchangeStats.total_volume + actualBought);
