@@ -138,46 +138,79 @@ pub struct WalletKeys {
 
 // ── TON address derivation ────────────────────────────────────────────────────
 
-/// Derives the wallet_v4r2 EQ... address for a TON public key via tonapi.io.
-/// Falls back to empty string on network error (address can be re-derived later).
-pub async fn derive_ton_address(pubkey_hex: &str) -> String {
-    let url = format!("https://tonapi.io/v2/pubkeys/{}/wallets", pubkey_hex);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap_or_default();
-    let Ok(resp) = client.get(&url).send().await else { return String::new() };
-    let Ok(json) = resp.json::<serde_json::Value>().await else { return String::new() };
-    // tonapi returns {"wallets": [{"address": "...", "interfaces": ["wallet_v4r2"], ...}]}
-    json["wallets"]
-        .as_array()
-        .and_then(|arr| {
-            arr.iter().find(|w| {
-                w["interfaces"].as_array()
-                    .map(|ifaces| ifaces.iter().any(|i| i.as_str().unwrap_or("").contains("v4r2")))
-                    .unwrap_or(false)
-            })
-        })
-        .and_then(|w| w["address"].as_str())
-        .unwrap_or("")
-        .to_string()
+/// Derives the TON wallet_v4r2 EQ... address from a public key — fully offline.
+///
+/// TVM cell hash algorithm:
+///   data_hash  = SHA-256([d1=0x00, d2=0x51, seqno(4), subwallet_id(4), pubkey(32), 0x40])
+///   state_hash = SHA-256([d1=0x02, d2=0x01, 0x34, code_hash(32), data_hash(32)])
+///   address    = base64url_nopad([0x11, 0x00, state_hash(32), crc16_xmodem(first 34 bytes)(2)])
+fn ton_wallet_address(pubkey: &[u8; 32]) -> String {
+    // SHA-256 cell hash of the deployed wallet_v4r2 bytecode (invariant for all v4r2 wallets).
+    const CODE_HASH: [u8; 32] = [
+        0x84, 0xda, 0xfa, 0x44, 0x9f, 0x98, 0xa6, 0x98,
+        0x77, 0x89, 0xba, 0x23, 0x29, 0x41, 0xd2, 0x4b,
+        0x08, 0xc5, 0x9d, 0xe6, 0xf6, 0xe4, 0xba, 0xbb,
+        0x7f, 0x63, 0xae, 0x7c, 0xcb, 0x64, 0x7f, 0x9e,
+    ];
+
+    // Data cell: 321 bits = seqno(32) + subwallet_id(32) + pubkey(256) + plugins(1)
+    // Augmented to 41 bytes: bit 320=0, then completion bit=1, then 6 zeros → last byte 0x40
+    // d1=0x00 (0 refs), d2=0x51 (floor(321/8)+ceil(321/8) = 40+41 = 81)
+    let mut dp = [0u8; 43];
+    dp[0] = 0x00; dp[1] = 0x51;
+    // dp[2..6] = seqno = 0 (already zero)
+    dp[6] = 0x29; dp[7] = 0xA9; dp[8] = 0xA3; dp[9] = 0x17; // subwallet_id = 0x29A9A317
+    dp[10..42].copy_from_slice(pubkey);
+    dp[42] = 0x40; // bit320=0, completion bit=1, padding=000000
+    let data_hash: [u8; 32] = Sha256::digest(dp).into();
+
+    // StateInit cell: 5 bits (0b00110 = no split, no special, has code, has data, no lib)
+    // Augmented: 0b00110_100 = 0x34; d1=0x02 (2 refs), d2=0x01 (1 augmented byte)
+    let mut sp = [0u8; 67];
+    sp[0] = 0x02; sp[1] = 0x01; sp[2] = 0x34;
+    sp[3..35].copy_from_slice(&CODE_HASH);
+    sp[35..67].copy_from_slice(&data_hash);
+    let state_hash: [u8; 32] = Sha256::digest(sp).into();
+
+    // User-friendly address: tag(bounceable=0x11) + workchain(0x00) + hash + CRC16-XMODEM
+    let mut addr = [0u8; 36];
+    addr[0] = 0x11; addr[1] = 0x00;
+    addr[2..34].copy_from_slice(&state_hash);
+    let crc = crc16_xmodem(&addr[..34]);
+    addr[34] = (crc >> 8) as u8;
+    addr[35] = (crc & 0xff) as u8;
+
+    base64url_no_pad(&addr)
 }
 
-/// Backfill ton_address if missing. Saves the updated keys file in-place.
-/// Called once per startup in the async context; no-op if already set.
+fn base64url_no_pad(data: &[u8]) -> String {
+    const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = Vec::with_capacity(((data.len() + 2) / 3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(C[((n >> 18) & 63) as usize]);
+        out.push(C[((n >> 12) & 63) as usize]);
+        if chunk.len() > 1 { out.push(C[((n >> 6) & 63) as usize]); }
+        if chunk.len() > 2 { out.push(C[(n & 63) as usize]); }
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// Backfill ton_address if missing using local derivation — no network call.
+/// Called once per startup; no-op if already set.
 pub async fn ensure_ton_address(data_dir: &Path, keys: &mut WalletKeys) {
     if !keys.ton_address.is_empty() {
         return;
     }
-    let addr = derive_ton_address(&keys.ton_public_key).await;
-    if addr.is_empty() {
-        warn!("wallet: could not derive TON address from tonapi.io (offline?) — will retry next startup");
-        return;
-    }
-    keys.ton_address = addr;
+    let Ok(bytes) = hex::decode(&keys.ton_public_key) else { return };
+    let Ok(pub_arr): Result<[u8; 32], _> = bytes.try_into() else { return };
+    keys.ton_address = ton_wallet_address(&pub_arr);
     let key_path = data_dir.join("wallet.key");
     if let Err(e) = save(&key_path, keys) {
-        warn!("wallet: could not save ton_address backfill: {}", e);
+        warn!("wallet: could not save ton_address: {}", e);
     } else {
         info!("wallet: ton_address backfilled → {}", keys.ton_address);
     }
@@ -580,7 +613,7 @@ fn derive_all(mnemonic: Mnemonic) -> Result<WalletKeys> {
 
         ton_public_key:  ton_pub_s.clone(),
         ton_private_key: hex::encode(&ton_priv),
-        ton_address:     String::new(), // backfilled async via ensure_ton_address()
+        ton_address:     ton_wallet_address(&ton_pub),
 
         stellar_address:     xlm_addr_s.clone(),
         stellar_private_key: hex::encode(&xlm_priv),
