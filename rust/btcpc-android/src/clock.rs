@@ -222,6 +222,7 @@ pub async fn run(
                             timestamp: ts,
                             seal_hash,
                             signature: None,
+                            node_version: None,
                         };
                         let _ = chain_ref.apply_entry(&entry);
 
