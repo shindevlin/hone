@@ -269,7 +269,7 @@ pub fn cmd_repo_info(owner: &str, name: &str) -> Result<()> {
         } else {
             println!("{}",  "Refs:".bold());
             let mut sorted: Vec<_> = refs.iter().collect();
-            sorted.sort_by_key(|(k, _)| k.clone());
+            sorted.sort_by_key(|(k, _)| k.as_str());
             for (refname, sha) in sorted {
                 let sha_str = sha.as_str().unwrap_or("?");
                 let short = if sha_str.len() >= 8 { &sha_str[..8] } else { sha_str };

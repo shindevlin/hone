@@ -876,6 +876,32 @@ enum AgentCommands {
         #[arg(long)] signed_by: String,
         #[arg(long)] key_file: Option<PathBuf>,
     },
+    /// Submit a completed task result (agent workers)
+    Submit {
+        #[arg(long)] task_id: String,
+        #[arg(long)] agent: String,
+        /// SHA-256(task_id|output|agent)
+        #[arg(long)] result_hash: String,
+        /// Optional CID of full output stored on BTCPC-FS
+        #[arg(long, default_value = "")] output_cid: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Commit a verifier hash (verifier nodes, phase 1 of commit-reveal)
+    VerifierCommit {
+        #[arg(long)] task_id: String,
+        #[arg(long)] verifier: String,
+        /// SHA-256(result_hash + salt)
+        #[arg(long)] commit_hash: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Reveal a verifier result (verifier nodes, phase 2 of commit-reveal)
+    VerifierReveal {
+        #[arg(long)] task_id: String,
+        #[arg(long)] verifier: String,
+        #[arg(long)] result_hash: String,
+        #[arg(long)] salt: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1500,6 +1526,15 @@ fn run() -> Result<()> {
             }
             AgentCommands::Assign { task_id, agent, fee, signed_by, key_file } => {
                 agent::cmd_agent_task_assign(&task_id, &agent, fee, &signed_by, key_file.as_deref())?;
+            }
+            AgentCommands::Submit { task_id, agent, result_hash, output_cid, key_file } => {
+                agent::cmd_agent_task_submit(&task_id, &agent, &result_hash, &output_cid, key_file.as_deref())?;
+            }
+            AgentCommands::VerifierCommit { task_id, verifier, commit_hash, key_file } => {
+                agent::cmd_agent_verifier_commit(&task_id, &verifier, &commit_hash, key_file.as_deref())?;
+            }
+            AgentCommands::VerifierReveal { task_id, verifier, result_hash, salt, key_file } => {
+                agent::cmd_agent_verifier_reveal(&task_id, &verifier, &result_hash, &salt, key_file.as_deref())?;
             }
         },
 

@@ -186,3 +186,61 @@ pub fn cmd_agent_task_assign(
     print_resp(&resp);
     Ok(())
 }
+
+pub fn cmd_agent_task_submit(
+    task_id: &str, agent: &str, result_hash: &str, output_cid: &str,
+    key_file: Option<&Path>,
+) -> Result<()> {
+    let api = ApiClient::new();
+    let kp = KeyPair::from_file(&resolve_key_file(key_file)?)?;
+    let nonce = next_nonce(&api, agent)?;
+    let chain_id = node_chain_id(&api)?;
+    let sig = sign_entry(&kp, &chain_id, "AgentTaskSubmit", json!({
+        "task_id": task_id, "agent": agent,
+        "result_hash": result_hash, "output_cid": output_cid, "nonce": nonce,
+    }));
+    let resp: Value = api.post(&format!("/api/agent/task/{}/submit", task_id), &json!({
+        "agent": agent, "result_hash": result_hash, "output_cid": output_cid,
+        "nonce": nonce, "signed_by": agent, "signature": sig,
+    }))?;
+    print_resp(&resp);
+    Ok(())
+}
+
+pub fn cmd_agent_verifier_commit(
+    task_id: &str, verifier: &str, commit_hash: &str, key_file: Option<&Path>,
+) -> Result<()> {
+    let api = ApiClient::new();
+    let kp = KeyPair::from_file(&resolve_key_file(key_file)?)?;
+    let nonce = next_nonce(&api, verifier)?;
+    let chain_id = node_chain_id(&api)?;
+    let sig = sign_entry(&kp, &chain_id, "AgentTaskVerifierCommit", json!({
+        "task_id": task_id, "verifier": verifier, "commit_hash": commit_hash, "nonce": nonce,
+    }));
+    let resp: Value = api.post(&format!("/api/agent/task/{}/verify/commit", task_id), &json!({
+        "verifier": verifier, "commit_hash": commit_hash,
+        "nonce": nonce, "signed_by": verifier, "signature": sig,
+    }))?;
+    print_resp(&resp);
+    Ok(())
+}
+
+pub fn cmd_agent_verifier_reveal(
+    task_id: &str, verifier: &str, result_hash: &str, salt: &str,
+    key_file: Option<&Path>,
+) -> Result<()> {
+    let api = ApiClient::new();
+    let kp = KeyPair::from_file(&resolve_key_file(key_file)?)?;
+    let nonce = next_nonce(&api, verifier)?;
+    let chain_id = node_chain_id(&api)?;
+    let sig = sign_entry(&kp, &chain_id, "AgentTaskVerifierReveal", json!({
+        "task_id": task_id, "verifier": verifier,
+        "result_hash": result_hash, "salt": salt, "nonce": nonce,
+    }));
+    let resp: Value = api.post(&format!("/api/agent/task/{}/verify/reveal", task_id), &json!({
+        "verifier": verifier, "result_hash": result_hash, "salt": salt,
+        "nonce": nonce, "signed_by": verifier, "signature": sig,
+    }))?;
+    print_resp(&resp);
+    Ok(())
+}
