@@ -443,6 +443,9 @@ pub fn router(state: AppState) -> Router {
         // ── Blob serve proof + bandwidth ──────────────────────────────────────
         .route("/api/blob/serve-proof", post(post_blob_serve_proof))
         .route("/api/blob/bandwidth/:cid", get(get_blob_bandwidth))
+        // ── BTCPC-FS Hive external replicas ──────────────────────────────────
+        .route("/api/storage/hive-replica/commit", post(post_hive_replica_commit))
+        .route("/api/storage/hive-replica/verify", post(post_hive_replica_verify))
         // ── Peer commerce ─────────────────────────────────────────────────────
         .route("/api/commerce/storefront", post(post_storefront_register))
         .route("/api/commerce/storefront/:account", get(get_storefront))
@@ -7924,6 +7927,104 @@ async fn get_blob_bandwidth(
 ) -> Json<serde_json::Value> {
     let bytes = s.blob_bandwidth.peek(&cid);
     Json(serde_json::json!({ "cid": cid, "bytes_pending": bytes }))
+}
+
+// ── BTCPC-FS Hive external replicas ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct HiveReplicaCommitBody {
+    node_id: String,
+    cid: String,
+    hive_account: String,
+    custom_json_id: String,
+    hive_block_num: u64,
+    hive_tx_id: String,
+    op_index: u32,
+    payload_sha256: String,
+    merkle_root: String,
+    bytes_replicated: u64,
+    replica_kind: String,
+    confirmations: u32,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_hive_replica_commit(
+    State(s): State<AppState>,
+    Json(body): Json<HiveReplicaCommitBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::HiveReplicaCommit {
+        node_id: body.node_id.clone(),
+        cid: body.cid,
+        hive_account: body.hive_account,
+        custom_json_id: body.custom_json_id,
+        hive_block_num: body.hive_block_num,
+        hive_tx_id: body.hive_tx_id,
+        op_index: body.op_index,
+        payload_sha256: body.payload_sha256,
+        merkle_root: body.merkle_root,
+        bytes_replicated: body.bytes_replicated,
+        replica_kind: body.replica_kind,
+        confirmations: body.confirmations,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.node_id.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
+}
+
+#[derive(Deserialize)]
+struct HiveReplicaVerifyBody {
+    verifier: String,
+    node_id: String,
+    cid: String,
+    hive_account: String,
+    custom_json_id: String,
+    hive_block_num: u64,
+    hive_tx_id: String,
+    op_index: u32,
+    payload_sha256: String,
+    merkle_root: String,
+    bytes_verified: u64,
+    replica_kind: String,
+    challenge_hash: String,
+    nonce: u64,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_hive_replica_verify(
+    State(s): State<AppState>,
+    Json(body): Json<HiveReplicaVerifyBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let epoch = s.chain.current_epoch();
+    let entry = btcpc_types::LedgerEntry::HiveReplicaVerify {
+        verifier: body.verifier.clone(),
+        node_id: body.node_id,
+        cid: body.cid,
+        hive_account: body.hive_account,
+        custom_json_id: body.custom_json_id,
+        hive_block_num: body.hive_block_num,
+        hive_tx_id: body.hive_tx_id,
+        op_index: body.op_index,
+        payload_sha256: body.payload_sha256,
+        merkle_root: body.merkle_root,
+        bytes_verified: body.bytes_verified,
+        replica_kind: body.replica_kind,
+        challenge_hash: body.challenge_hash,
+        epoch,
+        nonce: body.nonce,
+        signed_by: body.verifier.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((entry, body.signature));
+    Ok(Json(serde_json::json!({ "accepted": true, "epoch": epoch })))
 }
 
 // ── Peer commerce ─────────────────────────────────────────────────────────────

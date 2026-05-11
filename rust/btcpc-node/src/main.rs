@@ -84,6 +84,7 @@ mod memory_service;
 mod amber_pill;
 mod blob_bandwidth;
 mod blob_serve;
+mod hive_replica;
 mod peer_commerce;
 mod gateway_resolver;
 mod snapshot_replication;
