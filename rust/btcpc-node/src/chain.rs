@@ -1118,7 +1118,7 @@ impl Chain {
             // Verify the Merkle range proof (T4-1) — proof_valid=true earns full reward.
             // T2-4: when proof is valid, effective_bytes = total_chunks × chunk_size, not
             // self-declared bytes_proven. This prevents inflated reward claims.
-            LedgerEntry::StorageHeartbeat { node_id, epoch, bytes_proven, query_count, challenge_response, .. } => {
+            LedgerEntry::StorageHeartbeat { node_id, epoch, bytes_proven, query_count, challenge_response, tier, .. } => {
                 self.ensure_account(node_id, *epoch)?;
                 let (proof_valid, proven_chunks) = challenge_response.as_ref()
                     .map(|p| (verify_storage_proof(&self.store, p, node_id, *epoch, *bytes_proven), p.total_chunks))
@@ -1134,6 +1134,7 @@ impl Chain {
                         "node_id": node_id, "epoch": epoch,
                         "bytes_proven": effective_bytes, "query_count": query_count,
                         "proof_valid": proof_valid,
+                        "tier": tier.unwrap_or(1),
                     })).unwrap_or_default());
             }
 

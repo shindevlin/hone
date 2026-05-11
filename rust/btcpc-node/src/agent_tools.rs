@@ -46,6 +46,7 @@ Maximum {} tool calls per task."#, tool_docs, MAX_TOOL_ITERATIONS)
 
 #[derive(Debug)]
 pub struct ToolResult {
+    #[allow(dead_code)]
     pub tool:  String,
     pub ok:    bool,
     pub value: Value,
