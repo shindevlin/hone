@@ -62,7 +62,7 @@ public class AppPrefs {
 
     // ---- defaults ----
     public static final String DEFAULT_API_URL      = "https://btcpc.net";
-    public static final String DEFAULT_TESTNET_API_URL = "https://btcpc.net:4343";
+    public static final String DEFAULT_TESTNET_API_URL = "https://testnet.btcpc.net";
     public static final String DEFAULT_RELAY_URL   = "wss://btcpc-relay.shindevlin.workers.dev/ws";
     public static final String DEFAULT_ACCOUNT     = "";
     public static final String DEFAULT_DEVICE_NAME = "android-phone";
