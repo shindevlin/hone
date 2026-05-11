@@ -77,13 +77,13 @@ impl Chain {
                 self.store.credit(to, token, *amount);
                 self.store.increment_nonce(from);
             }
-            Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, compute_proof } => {
+            Mine { miner, epoch, model, input_tokens, output_tokens, tool_calls, hw_tier, output_hash, .. } => {
                 let key = format!("mine:{}:{}", epoch, miner);
                 let rec = serde_json::json!({
                     "miner": miner, "epoch": epoch,
                     "model": model, "input_tokens": input_tokens,
                     "output_tokens": output_tokens, "tool_calls": tool_calls,
-                    "hw_tier": hw_tier, "compute_proof": compute_proof,
+                    "hw_tier": hw_tier, "output_hash": output_hash,
                 });
                 let _ = self.store.set_json(&key, &rec);
             }

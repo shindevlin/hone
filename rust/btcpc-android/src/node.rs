@@ -391,6 +391,7 @@ async fn run_verifier(
                         verdict:     verdict.to_owned(),
                         value_score,
                         reason:      None,
+                        reveal_salt: None,
                         epoch,
                         signed_by:   account.clone(),
                     };

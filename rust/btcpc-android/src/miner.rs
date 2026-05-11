@@ -48,7 +48,7 @@ pub async fn run_miner(
         // Run on-device inference — this is the proof of work.
         let model_id = std::env::var("BTCPC_MODEL")
             .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
-        let (input_tokens, output_tokens, compute_proof) = {
+        let (input_tokens, output_tokens, output_hash) = {
             let mut engine = llm.lock().await;
             if engine.ensure_ready().await {
                 let prompt = format!("btcpc epoch {} miner {}", next_epoch, account);
@@ -78,9 +78,13 @@ pub async fn run_miner(
             model:         model_id,
             input_tokens,
             output_tokens,
-            tool_calls:    0,  // phones don't make tool calls
-            hw_tier:       0,  // 0 = phone
-            compute_proof: compute_proof.clone(),
+            tool_calls:    0,
+            hw_tier:       0,
+            output_hash:   output_hash.clone(),
+            job_id:        None,
+            node_version:  None,
+            software_hash: None,
+            model_hash:    None,
         };
         let _ = chain.apply_entry(&entry);
 
