@@ -1086,6 +1086,9 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let model = s.current_model.read().await.clone();
     let hw_fingerprint = s.hw_fingerprint.as_ref().clone();
     let hw_summary = s.hw_summary.as_ref().clone();
+    let model_healer: serde_json::Value = s.chain.store.state_get("healer:last_event")
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::json!(null));
     Json(serde_json::json!({
         "account":        account,
         "chain_id":       chain_id,
@@ -1099,6 +1102,7 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         "version":        env!("CARGO_PKG_VERSION"),
         "hw_fingerprint": hw_fingerprint,
         "hw_summary":     hw_summary,
+        "model_healer":   model_healer,
     }))
 }
 
