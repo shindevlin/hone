@@ -1,7 +1,10 @@
 "use strict";
 
+const BtcpcNativeExchange = require('./BtcpcNativeExchange');
+
 /**
  * BTCPC State Store — in-memory chain state cache.
+
  * Shin Devlin
  *
  * Pure in-memory cache. No I/O. No Mongoose. The blockchain (block files on
@@ -1283,6 +1286,41 @@ function applyEntry(entry) {
         }
       }
       break;
+
+    // ── Native Exchange (v3.4) ───────────────────────────────────────
+    case "EXCHANGE_DEPOSIT":
+      if (from && amount > 0 && token === "BTCPC") {
+        // Lock BTCPC in exchange system account
+        _addBalance(from, -amount, "BTCPC");
+        _addBalance("btcpc_exchange", amount, "BTCPC");
+        // Add to FIFO queue
+        exchangeQueue.push({
+          seller: from,
+          amount: amount,
+          epoch: entry.epoch
+        });
+      }
+      break;
+
+    case "EXCHANGE_BUY":
+      // stablecoin amount and token in entry.stable_data
+      if (from && entry.stable_data && entry.stable_data.amount > 0) {
+        BtcpcNativeExchange.applyExchangeBuy({
+          buyer: from,
+          token: entry.stable_data.token,
+          amount: entry.stable_data.amount,
+          epoch: entry.epoch
+        }, {
+          balances,
+          tokenBalances,
+          exchangeQueue,
+          exchangeStats,
+          oracleFeeds: require('../services/oracleFeeds'), // Lazy load if possible, or use global
+          _round
+        });
+      }
+      break;
+
 
     case "PRODUCT_CREATE":
       if (entry.product_data && entry.product_data.product_id && from) {
@@ -5278,7 +5316,17 @@ function resetAll() {
   _ensureAccount("btcpc", { epoch: 0, public_keys: {}, chain_addresses: {} });
 }
 
+function getExchangeQueue() { return exchangeQueue; }
+function getExchangeStats() { return exchangeStats; }
+function getExchangeQueueLength() { return exchangeQueue.length; }
+function availableWbtcpcInQueue() {
+  let total = 0;
+  for (let d of exchangeQueue) total = _round(total + d.amount);
+  return total;
+}
+
 module.exports = {
+
   // Mutators
   applyEntry: applyEntry,
   applyEntries: applyEntries,

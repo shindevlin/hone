@@ -1980,6 +1980,52 @@ async function recordBridgeUnlock(funder, chainId, epoch) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Native Exchange (v3.4)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Record a BTCPC deposit into the FIFO exchange queue.
+ */
+async function recordExchangeDeposit(seller, amount, epoch) {
+  if (!seller) throw new Error('seller required');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+  const entry = _entry({
+    type: 'EXCHANGE_DEPOSIT',
+    from: seller,
+    to: 'btcpc_exchange',
+    token: 'BTCPC',
+    amount: amount,
+    epoch: epoch || 0,
+  });
+  return _persist(entry);
+}
+
+/**
+ * Record a purchase from the FIFO exchange using stablecoins.
+ * @param {string} buyer - Account name
+ * @param {string} token - Stablecoin symbol (e.g., 'wUSDC')
+ * @param {number} amount - Amount of stablecoins
+ */
+async function recordExchangeBuy(buyer, token, amount, epoch) {
+  if (!buyer) throw new Error('buyer required');
+  if (!token) throw new Error('token required');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('amount must be positive');
+
+  const entry = _entry({
+    type: 'EXCHANGE_BUY',
+    from: buyer,
+    epoch: epoch || 0,
+    stable_data: {
+      token,
+      amount
+    }
+  });
+  return _persist(entry);
+}
+
+
+// ─────────────────────────────────────────────────────────────────
 // Stateful compute ledger entries (v2.14-beta)
 // ─────────────────────────────────────────────────────────────────
 
@@ -3249,7 +3295,10 @@ module.exports = {
   recordEscrowRefund,
   recordNodeRegister,
   recordHeartbeat,
+  recordExchangeDeposit,
+  recordExchangeBuy,
   recordNFTCreate,
+
   recordNFTMint,
   recordNFTTransfer,
   recordSoulboundMint,
