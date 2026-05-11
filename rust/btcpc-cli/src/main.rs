@@ -1,17 +1,25 @@
 mod agent;
 mod api;
 mod auction;
+mod bridge;
 mod chain;
 mod contract;
+mod ensemble;
 mod finetune;
 mod helpers;
 mod inference;
 mod key;
 mod memory;
+mod oracle;
+mod private_auth;
 mod repo;
 mod science;
 mod session;
+mod sessions;
+mod slash;
+mod totp;
 mod tx;
+mod vrf;
 mod wallet;
 
 use anyhow::Result;
@@ -243,6 +251,63 @@ enum Commands {
         /// Node URL (default: http://localhost:4242)
         #[arg(long)]
         node_url: Option<String>,
+    },
+
+    /// Ensemble inference coordinator (fan-out to N workers, majority vote)
+    Ensemble {
+        #[command(subcommand)]
+        action: EnsembleCommands,
+    },
+
+    /// Slash misbehaving validators and file/vote on appeals
+    Slash {
+        #[command(subcommand)]
+        action: SlashCommands,
+    },
+
+    /// wBTCPC cross-chain bridge (wrap, unwrap, fund, unlock)
+    Bridge {
+        #[command(subcommand)]
+        action: BridgeCommands,
+    },
+
+    /// On-chain oracle price feeds (commit-reveal, median aggregation)
+    Oracle {
+        #[command(subcommand)]
+        action: OracleCommands,
+    },
+
+    /// VRF beacon — deterministic randomness from clock-node commit-reveal
+    Vrf {
+        #[command(subcommand)]
+        action: VrfCommands,
+    },
+
+    /// Session marketplace — buy/sell AI context windows on-chain
+    #[command(name = "session-market")]
+    SessionMarket {
+        #[command(subcommand)]
+        action: SessionMarketCommands,
+    },
+
+    /// Agent sessions — multi-turn on-chain agent conversations
+    #[command(name = "agent-session")]
+    AgentSession {
+        #[command(subcommand)]
+        action: AgentSessionCommands,
+    },
+
+    /// TOTP 2FA for account operations
+    Totp {
+        #[command(subcommand)]
+        action: TotpCommands,
+    },
+
+    /// Private M-of-N authorization for high-value transfers
+    #[command(name = "private-auth")]
+    PrivateAuth {
+        #[command(subcommand)]
+        action: PrivateAuthCommands,
     },
 
     /// Clear the saved session
@@ -814,6 +879,259 @@ enum AgentCommands {
 }
 
 #[derive(Subcommand)]
+enum EnsembleCommands {
+    /// Post an ensemble job (fan-out to N workers)
+    Post {
+        #[arg(long)] requester: String,
+        #[arg(long)] input_hash: String,
+        #[arg(long)] max_fee: u64,
+        #[arg(long, default_value_t = 3)] n_workers: u64,
+        #[arg(long)] model: Option<String>,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Submit a worker vote for an ensemble job
+    Vote {
+        #[arg(long)] job_id: String,
+        #[arg(long)] worker: String,
+        #[arg(long)] output_hash: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get an ensemble job by ID
+    Get { job_id: String },
+    /// List all ensemble jobs
+    List,
+}
+
+#[derive(Subcommand)]
+enum SlashCommands {
+    /// Submit a slash report against a validator
+    Submit {
+        #[arg(long)] reporter: String,
+        #[arg(long)] accused: String,
+        #[arg(long)] violation: String,
+        #[arg(long)] evidence: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Vote on a slash appeal
+    Appeal {
+        #[arg(long)] slash_id: String,
+        #[arg(long)] panelist: String,
+        /// Pass --overturn to vote to overturn the slash
+        #[arg(long)] overturn: bool,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get a slash record by ID
+    Get { slash_id: String },
+    /// List all slash records
+    List,
+}
+
+#[derive(Subcommand)]
+enum BridgeCommands {
+    /// Custodian funds the bridge (deposit ETH/BTC, receive wBTCPC)
+    Fund {
+        #[arg(long)] bridge_id: String,
+        #[arg(long)] custodian: String,
+        #[arg(long)] amount_dreams: u64,
+        #[arg(long)] external_tx_hash: String,
+        #[arg(long, default_value = "ethereum")] chain: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Wrap BTCPC → wBTCPC (sends to external chain)
+    Wrap {
+        #[arg(long)] account: String,
+        #[arg(long)] amount_dreams: u64,
+        #[arg(long)] external_address: String,
+        #[arg(long, default_value = "ethereum")] chain: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Unwrap wBTCPC → BTCPC (queues an unlock request)
+    Unwrap {
+        #[arg(long)] account: String,
+        #[arg(long)] amount_dreams: u64,
+        #[arg(long)] recipient_external: String,
+        #[arg(long, default_value = "ethereum")] chain: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Custodian marks an unlock request as fulfilled
+    Unlock {
+        #[arg(long)] request_id: String,
+        #[arg(long)] custodian: String,
+        #[arg(long)] external_tx_hash: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Show wBTCPC supply and cap utilization
+    Status,
+    /// Show pending unlock queue
+    Queue,
+}
+
+#[derive(Subcommand)]
+enum OracleCommands {
+    /// Create a new oracle price feed
+    Create {
+        #[arg(long)] creator: String,
+        #[arg(long)] feed_id: String,
+        #[arg(long)] description: String,
+        #[arg(long)] asset_pair: String,
+        #[arg(long, default_value_t = 3)] min_reporters: u32,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Submit a price report to a feed
+    Report {
+        #[arg(long)] feed_id: String,
+        #[arg(long)] reporter: String,
+        #[arg(long)] value: String,
+        #[arg(long)] commit_hash: Option<String>,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Finalize a feed round (reveal phase for commit-reveal)
+    Finalize {
+        #[arg(long)] feed_id: String,
+        #[arg(long)] finalizer: String,
+        #[arg(long)] reveal_value: Option<String>,
+        #[arg(long)] reveal_salt: Option<String>,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get a feed by ID
+    Get { feed_id: String },
+    /// List all oracle feeds
+    List,
+    /// Get latest price for an asset pair (e.g. BTC-USD)
+    Price { pair: String },
+    /// Get reporter reputation
+    Reputation { reporter: String },
+}
+
+#[derive(Subcommand)]
+enum VrfCommands {
+    /// Submit a VRF commitment (clock nodes only)
+    Commit {
+        #[arg(long)] clock_node: String,
+        #[arg(long)] commit_hash: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Reveal a VRF commitment
+    Reveal {
+        #[arg(long)] clock_node: String,
+        #[arg(long)] reveal_value: String,
+        #[arg(long)] salt: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get the current VRF beacon value
+    Beacon,
+    /// Get VRF round for a specific epoch
+    Round { epoch: u64 },
+}
+
+#[derive(Subcommand)]
+enum SessionMarketCommands {
+    /// Create a session listing (sell AI context window)
+    Create {
+        #[arg(long)] provider: String,
+        #[arg(long)] context_summary: String,
+        #[arg(long)] price_per_turn: u64,
+        #[arg(long, default_value_t = 50)] max_turns: u32,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Buy a session listing
+    Buy {
+        #[arg(long)] listing_id: String,
+        #[arg(long)] buyer: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Cancel a session listing (provider only)
+    Cancel {
+        #[arg(long)] listing_id: String,
+        #[arg(long)] provider: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// List all active session listings
+    Listings,
+    /// Get a specific listing
+    Get { listing_id: String },
+}
+
+#[derive(Subcommand)]
+enum AgentSessionCommands {
+    /// Open a multi-turn agent session
+    Open {
+        #[arg(long)] requester: String,
+        #[arg(long)] agent: String,
+        #[arg(long, default_value_t = 20)] max_turns: u32,
+        #[arg(long, value_delimiter = ',')] tools: Vec<String>,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Close an agent session
+    Close {
+        #[arg(long)] session_id: String,
+        #[arg(long)] account: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get session details and turn history
+    Get { session_id: String },
+    /// Send a turn in an agent session
+    Turn {
+        #[arg(long)] session_id: String,
+        #[arg(long)] sender: String,
+        #[arg(long)] message: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TotpCommands {
+    /// Generate a TOTP secret and return an otpauth:// URI
+    Setup {
+        #[arg(long)] account: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Activate TOTP by verifying the first code
+    Enable {
+        #[arg(long)] account: String,
+        #[arg(long)] code: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Check a TOTP code (read-only, no signature required)
+    Verify {
+        #[arg(long)] account: String,
+        #[arg(long)] code: String,
+    },
+    /// Disable TOTP (requires active code)
+    Disable {
+        #[arg(long)] account: String,
+        #[arg(long)] code: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Generate single-use backup codes
+    BackupCodes {
+        #[arg(long)] account: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PrivateAuthCommands {
+    /// Enroll an account in M-of-N private authorization
+    Enroll {
+        #[arg(long)] account: String,
+        #[arg(long, value_delimiter = ',')] approvers: Vec<String>,
+        #[arg(long)] threshold: u32,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Vote to approve or reject a pending high-value transaction
+    Approve {
+        #[arg(long)] tx_hash: String,
+        #[arg(long)] approver: String,
+        /// Omit to reject; pass --approved to approve
+        #[arg(long)] approved: bool,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get authorization status for a pending transaction
+    Status { tx_hash: String },
+}
+
+#[derive(Subcommand)]
 enum RepoCommands {
     /// Register a new repository on-chain and print the git remote URL
     Create {
@@ -1182,6 +1500,129 @@ fn run() -> Result<()> {
             }
             AgentCommands::Assign { task_id, agent, fee, signed_by, key_file } => {
                 agent::cmd_agent_task_assign(&task_id, &agent, fee, &signed_by, key_file.as_deref())?;
+            }
+        },
+
+        Commands::Ensemble { action } => match action {
+            EnsembleCommands::Post { requester, input_hash, max_fee, n_workers, model, key_file } => {
+                ensemble::cmd_ensemble_post(&requester, &input_hash, max_fee, n_workers, model, key_file.as_deref())?;
+            }
+            EnsembleCommands::Vote { job_id, worker, output_hash, key_file } => {
+                ensemble::cmd_ensemble_vote(&job_id, &worker, &output_hash, key_file.as_deref())?;
+            }
+            EnsembleCommands::Get { job_id } => { ensemble::cmd_ensemble_get(&job_id)?; }
+            EnsembleCommands::List => { ensemble::cmd_ensemble_list()?; }
+        },
+
+        Commands::Slash { action } => match action {
+            SlashCommands::Submit { reporter, accused, violation, evidence, key_file } => {
+                slash::cmd_slash_submit(&reporter, &accused, &violation, &evidence, key_file.as_deref())?;
+            }
+            SlashCommands::Appeal { slash_id, panelist, overturn, key_file } => {
+                slash::cmd_slash_appeal(&slash_id, &panelist, overturn, key_file.as_deref())?;
+            }
+            SlashCommands::Get { slash_id } => { slash::cmd_slash_get(&slash_id)?; }
+            SlashCommands::List => { slash::cmd_slash_list()?; }
+        },
+
+        Commands::Bridge { action } => match action {
+            BridgeCommands::Fund { bridge_id, custodian, amount_dreams, external_tx_hash, chain, key_file } => {
+                bridge::cmd_bridge_fund(&bridge_id, &custodian, amount_dreams, &external_tx_hash, &chain, key_file.as_deref())?;
+            }
+            BridgeCommands::Wrap { account, amount_dreams, external_address, chain, key_file } => {
+                bridge::cmd_bridge_wrap(&account, amount_dreams, &external_address, &chain, key_file.as_deref())?;
+            }
+            BridgeCommands::Unwrap { account, amount_dreams, recipient_external, chain, key_file } => {
+                bridge::cmd_bridge_unwrap(&account, amount_dreams, &recipient_external, &chain, key_file.as_deref())?;
+            }
+            BridgeCommands::Unlock { request_id, custodian, external_tx_hash, key_file } => {
+                bridge::cmd_bridge_unlock(&request_id, &custodian, &external_tx_hash, key_file.as_deref())?;
+            }
+            BridgeCommands::Status => { bridge::cmd_bridge_status()?; }
+            BridgeCommands::Queue  => { bridge::cmd_bridge_queue()?; }
+        },
+
+        Commands::Oracle { action } => match action {
+            OracleCommands::Create { creator, feed_id, description, asset_pair, min_reporters, key_file } => {
+                oracle::cmd_oracle_create(&creator, &feed_id, &description, &asset_pair, min_reporters, key_file.as_deref())?;
+            }
+            OracleCommands::Report { feed_id, reporter, value, commit_hash, key_file } => {
+                oracle::cmd_oracle_report(&feed_id, &reporter, &value, commit_hash, key_file.as_deref())?;
+            }
+            OracleCommands::Finalize { feed_id, finalizer, reveal_value, reveal_salt, key_file } => {
+                oracle::cmd_oracle_finalize(&feed_id, &finalizer, reveal_value, reveal_salt, key_file.as_deref())?;
+            }
+            OracleCommands::Get { feed_id } => { oracle::cmd_oracle_get(&feed_id)?; }
+            OracleCommands::List => { oracle::cmd_oracle_list()?; }
+            OracleCommands::Price { pair } => { oracle::cmd_oracle_price(&pair)?; }
+            OracleCommands::Reputation { reporter } => { oracle::cmd_oracle_reputation(&reporter)?; }
+        },
+
+        Commands::Vrf { action } => match action {
+            VrfCommands::Commit { clock_node, commit_hash, key_file } => {
+                vrf::cmd_vrf_commit(&clock_node, &commit_hash, key_file.as_deref())?;
+            }
+            VrfCommands::Reveal { clock_node, reveal_value, salt, key_file } => {
+                vrf::cmd_vrf_reveal(&clock_node, &reveal_value, &salt, key_file.as_deref())?;
+            }
+            VrfCommands::Beacon => { vrf::cmd_vrf_beacon()?; }
+            VrfCommands::Round { epoch } => { vrf::cmd_vrf_round(epoch)?; }
+        },
+
+        Commands::SessionMarket { action } => match action {
+            SessionMarketCommands::Create { provider, context_summary, price_per_turn, max_turns, key_file } => {
+                sessions::cmd_session_list_create(&provider, &context_summary, price_per_turn, max_turns, key_file.as_deref())?;
+            }
+            SessionMarketCommands::Buy { listing_id, buyer, key_file } => {
+                sessions::cmd_session_buy(&listing_id, &buyer, key_file.as_deref())?;
+            }
+            SessionMarketCommands::Cancel { listing_id, provider, key_file } => {
+                sessions::cmd_session_cancel(&listing_id, &provider, key_file.as_deref())?;
+            }
+            SessionMarketCommands::Listings => { sessions::cmd_session_listings()?; }
+            SessionMarketCommands::Get { listing_id } => { sessions::cmd_session_listing_get(&listing_id)?; }
+        },
+
+        Commands::AgentSession { action } => match action {
+            AgentSessionCommands::Open { requester, agent, max_turns, tools, key_file } => {
+                sessions::cmd_agent_session_open(&requester, &agent, max_turns, tools, key_file.as_deref())?;
+            }
+            AgentSessionCommands::Close { session_id, account, key_file } => {
+                sessions::cmd_agent_session_close(&session_id, &account, key_file.as_deref())?;
+            }
+            AgentSessionCommands::Get { session_id } => { sessions::cmd_agent_session_get(&session_id)?; }
+            AgentSessionCommands::Turn { session_id, sender, message, key_file } => {
+                sessions::cmd_agent_session_turn(&session_id, &sender, &message, key_file.as_deref())?;
+            }
+        },
+
+        Commands::Totp { action } => match action {
+            TotpCommands::Setup { account, key_file } => {
+                totp::cmd_totp_setup(&account, key_file.as_deref())?;
+            }
+            TotpCommands::Enable { account, code, key_file } => {
+                totp::cmd_totp_enable(&account, &code, key_file.as_deref())?;
+            }
+            TotpCommands::Verify { account, code } => {
+                totp::cmd_totp_verify(&account, &code)?;
+            }
+            TotpCommands::Disable { account, code, key_file } => {
+                totp::cmd_totp_disable(&account, &code, key_file.as_deref())?;
+            }
+            TotpCommands::BackupCodes { account, key_file } => {
+                totp::cmd_totp_backup_codes(&account, key_file.as_deref())?;
+            }
+        },
+
+        Commands::PrivateAuth { action } => match action {
+            PrivateAuthCommands::Enroll { account, approvers, threshold, key_file } => {
+                private_auth::cmd_private_auth_enroll(&account, approvers, threshold, key_file.as_deref())?;
+            }
+            PrivateAuthCommands::Approve { tx_hash, approver, approved, key_file } => {
+                private_auth::cmd_private_auth_approve(&tx_hash, &approver, approved, key_file.as_deref())?;
+            }
+            PrivateAuthCommands::Status { tx_hash } => {
+                private_auth::cmd_private_auth_status(&tx_hash)?;
             }
         },
 
