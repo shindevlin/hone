@@ -79,7 +79,7 @@ public class ActivityFragment extends Fragment {
 
     private void loadHistory() {
         String account = prefs.getAccount();
-        String apiBase = prefs.getApiUrl();
+        String apiBase = prefs.getEffectiveApiUrl();
 
         if (account.isEmpty()) {
             swipeRefresh.setRefreshing(false);

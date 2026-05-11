@@ -57,6 +57,7 @@ public class SettingsFragment extends Fragment {
     private ArrayAdapter<String> wifiSuggestionAdapter;
     private MaterialButton saveBtn;
     private TextView saveStatus;
+    private com.google.android.material.switchmaterial.SwitchMaterial testnetSwitch;
 
     private TextView relayStatusView;
     private TextView clockStatusView;
@@ -171,6 +172,10 @@ public class SettingsFragment extends Fragment {
         deviceNameInput.setText(prefs.getDeviceName());
 
         saveBtn.setOnClickListener(v -> saveSettings());
+
+        testnetSwitch = view.findViewById(R.id.settings_testnet_switch);
+        testnetSwitch.setChecked(prefs.isTestnetEnabled());
+        testnetSwitch.setOnCheckedChangeListener((btn, checked) -> prefs.setTestnetEnabled(checked));
 
         refreshTrustedWifiUi();
         refreshServiceStatuses();

@@ -105,7 +105,7 @@ public class LocalRelayService extends Service {
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     // API endpoints — local node first, remote fallback
-    private static final String REMOTE_API_BASE = "https://btcpc.net/api";
+    private volatile String remoteApiBase = AppPrefs.DEFAULT_API_URL + "/api";
 
     private static final String ACTION_USB_PERMISSION = "network.btcpc.app.USB_PERMISSION";
     /** Broadcast when a Flipper Zero is detected via USB and not yet BLE-paired. */
@@ -197,6 +197,8 @@ public class LocalRelayService extends Service {
 
         // Method 1: Start WiFi HTTP server (NanoHTTPD on port 6942)
         startWifiServer();
+
+        remoteApiBase = new AppPrefs(this).getEffectiveApiUrl() + "/api";
 
         // Method 2: Check for already-attached Flipper Zero (USB OTG)
         probeAttachedUsb();
@@ -868,7 +870,7 @@ public class LocalRelayService extends Service {
         jsonBody = attachGps(jsonBody);
         jsonBody = injectAccount(jsonBody);
 
-        String url = REMOTE_API_BASE + "/sensors/" + sensorId + "/readings";
+        String url = remoteApiBase + "/sensors/" + sensorId + "/readings";
         try {
             String resp = httpPost(url, jsonBody);
             Log.i(TAG, "[" + transport + "] API OK for " + sensorId + ": " + resp);

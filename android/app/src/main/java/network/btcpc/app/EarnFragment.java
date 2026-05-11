@@ -333,7 +333,7 @@ public class EarnFragment extends Fragment {
     };
 
     private void fetchChainMiningStatus() {
-        ChainApi.fetchMiningStatus(prefs.getJwt(), prefs.getApiUrl(),
+        ChainApi.fetchMiningStatus(prefs.getJwt(), prefs.getEffectiveApiUrl(),
                 new ChainApi.MiningStatusCallback() {
             @Override
             public void onSuccess(long proofs, long epoch, long lastEpoch) {
@@ -428,7 +428,7 @@ public class EarnFragment extends Fragment {
     // ── Model fetch ──
 
     private void fetchModels() {
-        ChainApi.fetchPhoneModels(prefs.getApiUrl(), new ChainApi.PhoneModelsCallback() {
+        ChainApi.fetchPhoneModels(prefs.getEffectiveApiUrl(), new ChainApi.PhoneModelsCallback() {
             @Override
             public void onSuccess(List<String> ids, List<String> names) {
                 if (!isAdded()) return;

@@ -110,7 +110,7 @@ public class WalletFragment extends Fragment {
         createAccountBtn.setOnClickListener(v -> {
             android.content.Intent intent = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse(prefs.getApiUrl().replace("/api", "") + "/create-account"));
+                    android.net.Uri.parse(prefs.getEffectiveApiUrl().replace("/api", "") + "/create-account"));
             startActivity(intent);
         });
 
@@ -191,13 +191,13 @@ public class WalletFragment extends Fragment {
         loginBtn.setText("Signing in…");
         loginError.setVisibility(View.GONE);
 
-        ChainApi.login(username, password, prefs.getApiUrl(), new ChainApi.LoginCallback() {
+        ChainApi.login(username, password, prefs.getEffectiveApiUrl(), new ChainApi.LoginCallback() {
             @Override
             public void onSuccess(String account, String token) {
                 if (!isAdded()) return;
                 String keyToSave = postingKey.isEmpty() ? prefs.getPostingKey() : postingKey;
                 prefs.saveAll(account, token, keyToSave,
-                        prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
+                        prefs.getEffectiveApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
                 loginBtn.setEnabled(true);
                 loginBtn.setText("Sign In");
                 showWallet();
@@ -222,7 +222,7 @@ public class WalletFragment extends Fragment {
     private void loadBalance() {
         String account = prefs.getAccount();
         String jwt     = prefs.getJwt();
-        String apiBase = prefs.getApiUrl();
+        String apiBase = prefs.getEffectiveApiUrl();
 
         if (account.isEmpty() || jwt.isEmpty()) {
             swipeRefresh.setRefreshing(false);
@@ -387,7 +387,7 @@ public class WalletFragment extends Fragment {
                 dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(false);
                 dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setText("Delegating…");
 
-                ChainApi.delegate(miner, amount, prefs.getJwt(), prefs.getApiUrl(),
+                ChainApi.delegate(miner, amount, prefs.getJwt(), prefs.getEffectiveApiUrl(),
                         new ChainApi.DelegateCallback() {
                     @Override public void onSuccess(double newAmount, String m) {
                         if (!isAdded()) return;

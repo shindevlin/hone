@@ -74,7 +74,7 @@ public class StakeActivity extends AppCompatActivity {
 
     private void loadRequirements() {
         swipeRefresh.setRefreshing(true);
-        ChainApi.fetchStakeRequirements(prefs.getApiUrl(), new ChainApi.StakeRequirementsCallback() {
+        ChainApi.fetchStakeRequirements(prefs.getEffectiveApiUrl(), new ChainApi.StakeRequirementsCallback() {
             @Override
             public void onSuccess(Map<String, ChainApi.StakeRoleInfo> reqs) {
                 requirements = reqs;
@@ -211,7 +211,7 @@ public class StakeActivity extends AppCompatActivity {
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("Staking…");
 
                 final double finalAmount = amount;
-                ChainApi.stake(roleId, finalAmount, prefs.getJwt(), prefs.getApiUrl(),
+                ChainApi.stake(roleId, finalAmount, prefs.getJwt(), prefs.getEffectiveApiUrl(),
                         new ChainApi.StakeCallback() {
                     @Override public void onSuccess(double newAmount, String role) {
                         dialog.dismiss();
@@ -298,7 +298,7 @@ public class StakeActivity extends AppCompatActivity {
 
                 final double finalShare = sharePct;
                 ChainApi.sponsorStake(beneficiary, amount, sharePct,
-                        prefs.getJwt(), prefs.getApiUrl(),
+                        prefs.getJwt(), prefs.getEffectiveApiUrl(),
                         new ChainApi.SponsorStakeCallback() {
                     @Override public void onSuccess(String ben, double amt, double pct) {
                         dialog.dismiss();

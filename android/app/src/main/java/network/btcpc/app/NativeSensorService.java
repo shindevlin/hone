@@ -86,7 +86,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
     private static final String CHANNEL_ID = "btcpc_sensors";
     private static final int NOTIFICATION_ID = 9440;
     private static final String PREFS = "btcpc_native_state";
-    private static final String API_BASE = "https://btcpc.net/api";
+    private volatile String apiBase = AppPrefs.DEFAULT_API_URL + "/api";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final OkHttpClient client = new OkHttpClient.Builder().retryOnConnectionFailure(true).build();
@@ -307,7 +307,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             body.put("batch_hash", batchHash);
             body.put("epoch", epoch);
             body.put("signed_by", account);
-            postJson(API_BASE + "/tracker/sighting", body);
+            postJson(apiBase + "/tracker/sighting", body);
             Log.i(TAG, "BLE batch committed: airtag=" + at + " fmd=" + af + " tile=" + ti);
         } catch (Exception e) {
             Log.w(TAG, "BLE batch commit failed: " + e.getMessage());
@@ -648,7 +648,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             body.put("allow_precise_location", false);
             SensorSigner regSigner = getSigner(sensorId);
             if (regSigner != null) body.put("public_key", regSigner.publicKeySpkiHex);
-            postJson(API_BASE + "/sensors", body);
+            postJson(apiBase + "/sensors", body);
             registeredSensors.add(sensorId);
             persistState("Sensors: registered " + sensorId);
         } catch (Exception e) {
@@ -669,7 +669,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
         try {
             JSONObject body = new JSONObject();
             body.put("public_key", signer.publicKeySpkiHex);
-            postJson(API_BASE + "/sensors/" + encode(sensorId) + "/register-key", body);
+            postJson(apiBase + "/sensors/" + encode(sensorId) + "/register-key", body);
             keyRegisteredSensors.add(sensorId);
             Log.i(TAG, "Sensor key registered: " + sensorId);
         } catch (Exception e) {
@@ -731,7 +731,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
                 }
             }
 
-            String url = API_BASE + "/sensors/" + encode(snapshot.sensorId) + "/readings";
+            String url = apiBase + "/sensors/" + encode(snapshot.sensorId) + "/readings";
             postJson(url, body);
             persistState(String.format(Locale.US, "Sensors: submitted %s=%.3f", snapshot.type, value));
         } catch (Exception e) {
@@ -895,6 +895,7 @@ public class NativeSensorService extends Service implements SensorEventListener,
             keyRegisteredSensors.clear();
         }
         postingKey = newPostingKey;
+        apiBase = new AppPrefs(this).getEffectiveApiUrl() + "/api";
 
         String saved = prefs.getString("sensor_device_name", null);
         if (saved == null || saved.isEmpty()) {

@@ -61,7 +61,8 @@ public class AppPrefs {
     public static final String KEY_LAST_EVENT    = "last_event";
 
     // ---- defaults ----
-    public static final String DEFAULT_API_URL     = "https://btcpc.net";
+    public static final String DEFAULT_API_URL      = "https://btcpc.net";
+    public static final String DEFAULT_TESTNET_API_URL = "https://btcpc.net:4343";
     public static final String DEFAULT_RELAY_URL   = "wss://btcpc-relay.shindevlin.workers.dev/ws";
     public static final String DEFAULT_ACCOUNT     = "";
     public static final String DEFAULT_DEVICE_NAME = "android-phone";
@@ -97,6 +98,12 @@ public class AppPrefs {
         // strip trailing slash
         while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
         return url;
+    }
+
+    /** Returns the testnet API URL when testnet mode is on, otherwise the user-configured URL. */
+    public String getEffectiveApiUrl() {
+        if (isTestnetEnabled()) return DEFAULT_TESTNET_API_URL;
+        return getApiUrl();
     }
 
     public String getRelayUrl() {

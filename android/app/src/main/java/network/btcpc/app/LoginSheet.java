@@ -99,12 +99,12 @@ public class LoginSheet extends DialogFragment {
         setLoading(true);
         AppPrefs prefs = new AppPrefs(requireContext());
 
-        ChainApi.login(username, password, prefs.getApiUrl(), new ChainApi.LoginCallback() {
+        ChainApi.login(username, password, prefs.getEffectiveApiUrl(), new ChainApi.LoginCallback() {
             @Override
             public void onSuccess(String account, String token) {
                 if (!isAdded()) return;
                 prefs.saveAll(account, token, prefs.getPostingKey(),
-                        prefs.getApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
+                        prefs.getEffectiveApiUrl(), prefs.getRelayUrl(), prefs.getDeviceName());
                 setLoading(false);
                 if (callback != null) callback.onLoggedIn(account, token);
                 dismissAllowingStateLoss();

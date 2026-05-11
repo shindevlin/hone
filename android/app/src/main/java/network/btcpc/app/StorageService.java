@@ -125,7 +125,7 @@ public class StorageService extends Service {
     private void fetchAssignments(String account, String jwt) {
         new Thread(() -> {
             try {
-                String url = prefs.getApiUrl() + "/api/storage/phone/assignments";
+                String url = prefs.getEffectiveApiUrl() + "/api/storage/phone/assignments";
                 Request req = new Request.Builder()
                         .url(url)
                         .addHeader("Authorization", "Bearer " + jwt)
@@ -208,7 +208,7 @@ public class StorageService extends Service {
     private void sendHeartbeat() {
         new Thread(() -> {
             try {
-                String url = prefs.getApiUrl() + "/api/storage/phone/heartbeat";
+                String url = prefs.getEffectiveApiUrl() + "/api/storage/phone/heartbeat";
                 JSONObject body = new JSONObject();
                 body.put("account", prefs.getAccount());
                 body.put("port", HTTP_PORT);

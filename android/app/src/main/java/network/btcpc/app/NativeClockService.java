@@ -86,7 +86,7 @@ public class NativeClockService extends Service {
         }
 
         String account    = prefs.getAccount();
-        String apiBase    = prefs.getApiUrl();
+        String apiBase    = prefs.getEffectiveApiUrl();
         String postingKey = prefs.getPostingKey();
         String chainId    = prefs.getChainId();
         long   genesisTs  = prefs.getGenesisTs(MAINNET_GENESIS_TS);

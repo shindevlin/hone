@@ -193,7 +193,7 @@ public class DashboardFragment extends Fragment {
 
     private void fetchChainStats() {
         if (!isAdded()) return;
-        String url = prefs.getApiUrl() + "/public/network";
+        String url = prefs.getEffectiveApiUrl() + "/public/network";
         Request req = new Request.Builder().url(url).get().build();
         http.newCall(req).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {
