@@ -3,7 +3,7 @@ members = [".", "crates/btcpc-types"]
 resolver = "2"
 
 [workspace.package]
-version = "0.8.0"
+version = "1.2.1"
 edition = "2021"
 authors = ["Shin Devlin <shindevlin@proton.me>"]
 license = "MIT OR Apache-2.0"
