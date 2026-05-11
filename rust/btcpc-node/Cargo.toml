@@ -55,6 +55,7 @@ sha3 = "0.10"
 ripemd = "0.1"
 bech32 = "0.9"
 blake2 = "0.10"
+everscale-types = { version = "0.1", default-features = false, features = ["sync"] }
 
 # Networking
 libp2p = { version = "0.56", features = [

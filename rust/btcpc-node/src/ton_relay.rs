@@ -236,8 +236,8 @@ async fn handle_activation(
     // Get relay TON wallet seqno
     let seqno = get_ton_seqno(client, &config.ton_address, &config.toncenter_api_key).await?;
 
-    // Attempt to send TON to target address (deferred until everscale-types is added)
-    let ton_tx_hash = match build_wallet_v3r2_boc(&config.ton_private_key, &ton_address, config.activation_nanoton, seqno) {
+    // Build and send the wallet_v3r2 transfer BoC.
+    let ton_tx_hash = match build_wallet_v3r2_boc_inner(&config.ton_private_key, &config.ton_address, &ton_address, config.activation_nanoton, seqno) {
         Ok(boc) => {
             let boc_b64 = base64::engine::general_purpose::STANDARD.encode(&boc);
             let body = serde_json::json!({"boc": boc_b64});
@@ -337,40 +337,212 @@ async fn get_ton_seqno(client: &Client, address: &str, api_key: &str) -> Result<
     Ok(seqno)
 }
 
-// ── TON BoC construction (TODO) ───────────────────────────────────────────────
+// ── TON BoC construction ──────────────────────────────────────────────────────
 
-/// Build a wallet_v3r2 transfer BoC.
+use everscale_types::cell::{Cell, CellBuilder};
+use everscale_types::boc::Boc;
+use ed25519_dalek::{SigningKey, Signer};
+
+/// Default subwallet_id used when a wallet is deployed without the custom id flag.
+const WALLET_V3_SUBWALLET_ID: u32 = 698_983_191;
+/// send_mode 3: pay fees separately + ignore action errors.
+const SEND_MODE: u8 = 3;
+
+/// Encode a TON Grams value (variable-length integer).
 ///
-/// TODO: Full TL-B cell serialization requires either:
-///   1. A TON library crate (everscale-types, ton-core)
-///   2. ~300 lines of careful bit-packing
-///
-/// To complete: add `everscale-types = "0.2"` to Cargo.toml and use CellBuilder.
-/// For now returns Err so the relay compiles and runs, detects deposits, logs intent,
-/// but defers the actual TON send to the next PR.
-fn build_wallet_v3r2_boc(
-    _private_key: &[u8; 32],
-    to_addr:      &str,
-    nanoton:      u64,
-    seqno:        u32,
-) -> Result<Vec<u8>> {
-    tracing::warn!(
-        "TON transaction not yet implemented. Would send {} nanoton to {} (seqno={})",
-        nanoton, to_addr, seqno
-    );
-    Err(anyhow::anyhow!("TON transaction signing not yet implemented — add everscale-types crate"))
+/// Format: 4-bit length `l` (number of significant bytes) followed by `l` bytes big-endian.
+/// Zero is encoded as four zero bits.
+fn store_grams(b: &mut CellBuilder, value: u128) -> anyhow::Result<()> {
+    if value == 0 {
+        b.store_small_uint(0, 4)
+            .map_err(|e| anyhow::anyhow!("store_grams(0): {}", e))?;
+        return Ok(());
+    }
+    let byte_len = ((128 - value.leading_zeros() + 7) / 8) as u8;
+    b.store_small_uint(byte_len, 4)
+        .map_err(|e| anyhow::anyhow!("store_grams len: {}", e))?;
+    let full = value.to_be_bytes(); // 16 bytes big-endian
+    let sig = &full[(16 - byte_len as usize)..];
+    b.store_raw(sig, byte_len as u16 * 8)
+        .map_err(|e| anyhow::anyhow!("store_grams val: {}", e))?;
+    Ok(())
 }
 
-/// Decode a user-friendly TON address (EQ... or UQ...) to its 32-byte account ID.
-fn _decode_ton_address(addr: &str) -> Result<[u8; 32]> {
+/// Append an `addr_std` address (no anycast) into a cell builder.
+///
+/// `addr_std$10 anycast:(nothing) workchain_id:int8 address:bits256`
+/// Total: 2 + 1 + 8 + 256 = 267 bits, no references.
+fn store_addr_std(b: &mut CellBuilder, workchain: i8, account_id: &[u8; 32]) -> anyhow::Result<()> {
+    b.store_bit_one().map_err(|e| anyhow::anyhow!("addr_std[1]: {}", e))?;  // $10 tag high bit
+    b.store_bit_zero().map_err(|e| anyhow::anyhow!("addr_std[0]: {}", e))?; // $10 tag low bit
+    b.store_bit_zero().map_err(|e| anyhow::anyhow!("addr_std anycast: {}", e))?; // anycast = nothing
+    b.store_u8(workchain as u8).map_err(|e| anyhow::anyhow!("addr_std wc: {}", e))?;
+    b.store_raw(account_id, 256).map_err(|e| anyhow::anyhow!("addr_std acct: {}", e))?;
+    Ok(())
+}
+
+/// Build a wallet_v3r2 external transfer BoC ready to submit to `/sendBoc`.
+///
+/// # Message structure (TL-B summary)
+///
+/// ```text
+/// ext_in_msg_info$10
+///   src:addr_none$00
+///   dest:addr_std(relay_wallet_addr)   ← the wallet contract being invoked
+///   import_fee:Grams(0)
+///   init:0
+///   body:1 (ref) ──────────────────────────────────────────────────────────╮
+///                                                                           │
+/// body_cell:                                                                │
+///   Ed25519 signature       [512 bits]                                      │
+///   subwallet_id            [32 bits]                                       │
+///   valid_until             [32 bits]                                       │
+///   seqno                   [32 bits]                                       │
+///   send_mode               [8 bits]                                        │
+///   ref ──────────────────────────────────────────────────────────────────╮ │
+///                                                                         │ │
+/// internal_msg:                                                           │ │
+///   int_msg_info$0                                                        │ │
+///   ihr_disabled:1 bounce:0 bounced:0                                     │ │
+///   src:addr_none$00                                                      │ │
+///   dest:addr_std(to_addr)             ← the activation target             │ │
+///   value:Grams(nanoton)                                                  │ │
+///   extra_currencies:0 ihr_fee:0 fwd_fee:0                                │ │
+///   created_lt:0 created_at:0                                             │ │
+///   init:0 body:0                                                         │ │
+/// ◄─────────────────────────────────────────────────────────────────────── ◄─╯
+/// ```
+///
+/// Ed25519 signs `signing_cell.repr_hash()` where `signing_cell` encodes
+/// `subwallet_id | valid_until | seqno | send_mode | ref(internal_msg)`.
+fn build_wallet_v3r2_boc(
+    private_key:         &[u8; 32],
+    to_addr:             &str,
+    nanoton:             u64,
+    seqno:               u32,
+) -> Result<Vec<u8>> {
+    // The relay wallet address is embedded in the TonRelayConfig; we receive only the
+    // destination address here.  The ext_in_msg_info dest is the relay's own wallet.
+    // Callers updated to pass relay_ton_address as `relay_addr` via the wrapper below.
+    // This internal implementation accepts both explicitly.
+    build_wallet_v3r2_boc_inner(private_key, to_addr, to_addr, nanoton, seqno)
+}
+
+/// Inner implementation that accepts both the relay wallet address (for ext_in_msg_info dest)
+/// and the transfer destination address (for the internal message).
+fn build_wallet_v3r2_boc_inner(
+    private_key:     &[u8; 32],
+    relay_addr:      &str,   // relay wallet (ext_in_msg_info dest)
+    dest_addr:       &str,   // activation target (internal message dest)
+    nanoton:         u64,
+    seqno:           u32,
+) -> Result<Vec<u8>> {
+    let (relay_wc, relay_account) = decode_ton_address(relay_addr)?;
+    let (dest_wc,  dest_account)  = decode_ton_address(dest_addr)?;
+
+    // ── 1. Internal message ───────────────────────────────────────────────────
+    let internal_msg: Cell = {
+        let mut b = CellBuilder::new();
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("int$0: {}", e))?;       // int_msg_info$0
+        b.store_bit_one().map_err(|e| anyhow::anyhow!("ihr_dis: {}", e))?;      // ihr_disabled=1
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("bounce: {}", e))?;      // bounce=0 (dest may not exist yet)
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("bounced: {}", e))?;     // bounced=0
+        // src: addr_none$00
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("src0: {}", e))?;
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("src1: {}", e))?;
+        // dest
+        store_addr_std(&mut b, dest_wc, &dest_account)?;
+        // value
+        store_grams(&mut b, nanoton as u128)?;
+        // extra_currencies dict: 0
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("extra_curr: {}", e))?;
+        // ihr_fee, fwd_fee
+        store_grams(&mut b, 0)?;
+        store_grams(&mut b, 0)?;
+        // created_lt (64), created_at (32)
+        b.store_u64(0).map_err(|e| anyhow::anyhow!("lt: {}", e))?;
+        b.store_u32(0).map_err(|e| anyhow::anyhow!("at: {}", e))?;
+        // init:0  body:0 (empty body inline)
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("init: {}", e))?;
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("body: {}", e))?;
+        b.build().map_err(|e| anyhow::anyhow!("internal_msg: {}", e))?
+    };
+
+    // ── 2. Signing cell (what Ed25519 covers) ─────────────────────────────────
+    let valid_until = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32)
+        .saturating_add(60);
+
+    let signing_cell: Cell = {
+        let mut b = CellBuilder::new();
+        b.store_u32(WALLET_V3_SUBWALLET_ID).map_err(|e| anyhow::anyhow!("subwallet_id: {}", e))?;
+        b.store_u32(valid_until).map_err(|e| anyhow::anyhow!("valid_until: {}", e))?;
+        b.store_u32(seqno).map_err(|e| anyhow::anyhow!("seqno: {}", e))?;
+        b.store_u8(SEND_MODE).map_err(|e| anyhow::anyhow!("mode: {}", e))?;
+        b.store_reference(internal_msg.clone()).map_err(|e| anyhow::anyhow!("sign ref: {}", e))?;
+        b.build().map_err(|e| anyhow::anyhow!("signing_cell: {}", e))?
+    };
+
+    // ── 3. Sign repr_hash of signing cell ────────────────────────────────────
+    let signing_key = SigningKey::from_bytes(private_key);
+    let hash: &[u8; 32] = signing_cell.repr_hash().as_ref();
+    let sig_bytes: [u8; 64] = signing_key.sign(hash).to_bytes();
+
+    // ── 4. Body cell: signature || signing data ───────────────────────────────
+    let body_cell: Cell = {
+        let mut b = CellBuilder::new();
+        b.store_raw(&sig_bytes, 512).map_err(|e| anyhow::anyhow!("sig: {}", e))?;
+        b.store_u32(WALLET_V3_SUBWALLET_ID).map_err(|e| anyhow::anyhow!("b_subwallet: {}", e))?;
+        b.store_u32(valid_until).map_err(|e| anyhow::anyhow!("b_valid_until: {}", e))?;
+        b.store_u32(seqno).map_err(|e| anyhow::anyhow!("b_seqno: {}", e))?;
+        b.store_u8(SEND_MODE).map_err(|e| anyhow::anyhow!("b_mode: {}", e))?;
+        b.store_reference(internal_msg).map_err(|e| anyhow::anyhow!("b_ref: {}", e))?;
+        b.build().map_err(|e| anyhow::anyhow!("body_cell: {}", e))?
+    };
+
+    // ── 5. External message envelope ─────────────────────────────────────────
+    let ext_cell: Cell = {
+        let mut b = CellBuilder::new();
+        // ext_in_msg_info$10
+        b.store_bit_one().map_err(|e| anyhow::anyhow!("ext$1: {}", e))?;
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("ext$0: {}", e))?;
+        // src: addr_none$00
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("esrc0: {}", e))?;
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("esrc1: {}", e))?;
+        // dest: relay wallet
+        store_addr_std(&mut b, relay_wc, &relay_account)?;
+        // import_fee: Grams(0)
+        store_grams(&mut b, 0)?;
+        // init:0  body:1 (body as reference)
+        b.store_bit_zero().map_err(|e| anyhow::anyhow!("einit: {}", e))?;
+        b.store_bit_one().map_err(|e| anyhow::anyhow!("ebody: {}", e))?;
+        b.store_reference(body_cell).map_err(|e| anyhow::anyhow!("ebody_ref: {}", e))?;
+        b.build().map_err(|e| anyhow::anyhow!("ext_cell: {}", e))?
+    };
+
+    Ok(Boc::encode(ext_cell))
+}
+
+/// Decode a user-friendly TON address (EQ…/UQ… base64url or standard base64)
+/// into `(workchain_id, account_id)`.
+///
+/// TON user-friendly address layout (36 bytes after base64 decode):
+///   [0]     flags byte  (0x11 bounceable, 0x51 non-bounceable, +0x80 testnet)
+///   [1]     workchain   (signed i8, usually 0 for basechain)
+///   [2..34] account_id  (32 bytes = 256 bits)
+///   [34..36] CRC16-CCITT of bytes [0..34]
+fn decode_ton_address(addr: &str) -> Result<(i8, [u8; 32])> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(addr)
         .or_else(|_| base64::engine::general_purpose::STANDARD.decode(addr))
-        .map_err(|e| anyhow::anyhow!("bad ton address: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("ton address decode: {}", e))?;
     if bytes.len() != 36 {
-        return Err(anyhow::anyhow!("ton address must be 36 bytes, got {}", bytes.len()));
+        return Err(anyhow::anyhow!("ton address must decode to 36 bytes, got {}", bytes.len()));
     }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes[2..34]);
-    Ok(out)
+    let workchain = bytes[1] as i8;
+    let mut account_id = [0u8; 32];
+    account_id.copy_from_slice(&bytes[2..34]);
+    Ok((workchain, account_id))
 }
