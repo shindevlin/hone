@@ -872,6 +872,56 @@ pub enum LedgerEntry {
         tier: Option<u8>,
         signed_by: AccountId,
     },
+    /// Storage node records a BTCPC-FS replica written to Hive custom_json.
+    ///
+    /// This is an external decentralized storage-domain commitment. It is not counted as
+    /// local disk capacity and does not earn storage rewards until a separate verifier
+    /// submits HiveReplicaVerify after fetching the Hive transaction independently.
+    HiveReplicaCommit {
+        node_id: AccountId,
+        cid: String,
+        hive_account: String,
+        custom_json_id: String,
+        hive_block_num: u64,
+        hive_tx_id: String,
+        op_index: u32,
+        payload_sha256: String,
+        merkle_root: String,
+        bytes_replicated: u64,
+        /// "full" | "chunk" | "parity" | "manifest".
+        replica_kind: String,
+        confirmations: u32,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    /// Independent verifier attests that a Hive replica commitment is retrievable and
+    /// matches the BTCPC-FS CID/Merkle metadata. This creates the second storage-domain
+    /// reward slot for the storage node.
+    HiveReplicaVerify {
+        verifier: AccountId,
+        node_id: AccountId,
+        cid: String,
+        hive_account: String,
+        custom_json_id: String,
+        hive_block_num: u64,
+        hive_tx_id: String,
+        op_index: u32,
+        payload_sha256: String,
+        merkle_root: String,
+        bytes_verified: u64,
+        /// "full" | "chunk" | "parity" | "manifest".
+        replica_kind: String,
+        /// sha256("{prev_seal_hash}:{node_id}:hive:{cid}:{hive_tx_id}:{epoch}").
+        challenge_hash: String,
+        epoch: Epoch,
+        nonce: u64,
+        signed_by: AccountId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
     /// Service node heartbeat proving active container-hours (decentralized compute).
     ServiceHeartbeat {
         node_id: AccountId,
@@ -2529,6 +2579,8 @@ impl LedgerEntry {
             Self::DeviceYieldUnstake { epoch, .. } => *epoch,
             Self::GatewayHeartbeat { epoch, .. } => *epoch,
             Self::StorageHeartbeat { epoch, .. } => *epoch,
+            Self::HiveReplicaCommit { epoch, .. } => *epoch,
+            Self::HiveReplicaVerify { epoch, .. } => *epoch,
             Self::ServiceHeartbeat { epoch, .. } => *epoch,
             Self::RuntimeRegister { epoch, .. } => *epoch,
             Self::RuntimeDeploy { epoch, .. } => *epoch,
@@ -2744,6 +2796,8 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
 
         // ── Heavy (5): multi-party coordination + significant indexing ─────────
         LedgerEntry::StorageHeartbeat { .. }
+        | LedgerEntry::HiveReplicaCommit { .. }
+        | LedgerEntry::HiveReplicaVerify { .. }
         | LedgerEntry::InferenceJobPost { .. }
         | LedgerEntry::InferenceJobBid { .. }
         | LedgerEntry::InferenceJobAward { .. }

@@ -1137,6 +1137,17 @@ impl Chain {
                         "tier": tier.unwrap_or(1),
                     })).unwrap_or_default());
             }
+            LedgerEntry::HiveReplicaCommit { node_id, epoch, .. } => {
+                self.touch_alive(node_id, *epoch);
+                self.ensure_account(node_id, *epoch)?;
+                crate::hive_replica::apply_commit(self, entry)?;
+            }
+            LedgerEntry::HiveReplicaVerify { verifier, node_id, epoch, .. } => {
+                self.touch_alive(verifier, *epoch);
+                self.ensure_account(verifier, *epoch)?;
+                self.ensure_account(node_id, *epoch)?;
+                crate::hive_replica::apply_verify(self, entry)?;
+            }
 
             // Track sensor commits per sensor_id (not per owner) so reward scoring
             // can apply type-aware sensor_score() per individual sensor.

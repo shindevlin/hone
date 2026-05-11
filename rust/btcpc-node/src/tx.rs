@@ -1735,6 +1735,25 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
             let _ = bump_nonce(chain, node_id);
         }
+        LedgerEntry::HiveReplicaCommit { node_id, nonce, signed_by, signature, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == node_id, "HiveReplicaCommit signed_by must equal node_id");
+            require_key(chain, signed_by)?;
+            check_nonce(chain, node_id, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex.or(signature.as_deref()), "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, node_id);
+        }
+        LedgerEntry::HiveReplicaVerify { verifier, node_id, nonce, signed_by, signature, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == verifier, "HiveReplicaVerify signed_by must equal verifier");
+            anyhow::ensure!(verifier != node_id, "Hive replica verifier must be independent from node_id");
+            require_key(chain, signed_by)?;
+            check_nonce(chain, verifier, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex.or(signature.as_deref()), "active")?;
+            chain.apply_entry(entry)?;
+            let _ = bump_nonce(chain, verifier);
+        }
 
         // ── Snapshot replication ──────────────────────────────────────────────
         LedgerEntry::SnapshotSave { account, nonce, signed_by, .. } => {
@@ -1810,6 +1829,8 @@ fn entry_epoch(entry: &LedgerEntry) -> Option<u64> {
         LedgerEntry::InferenceJobCancel  { epoch, .. }      => Some(*epoch),
         LedgerEntry::InferenceReviewVote { epoch, .. }      => Some(*epoch),
         LedgerEntry::StorageHeartbeat    { epoch, .. }      => Some(*epoch),
+        LedgerEntry::HiveReplicaCommit   { epoch, .. }      => Some(*epoch),
+        LedgerEntry::HiveReplicaVerify   { epoch, .. }      => Some(*epoch),
         LedgerEntry::SensorDataCommit    { epoch, .. }      => Some(*epoch),
         LedgerEntry::TrackerSightingCommit { epoch, .. }    => Some(*epoch),
         LedgerEntry::ServiceHeartbeat    { epoch, .. }      => Some(*epoch),
