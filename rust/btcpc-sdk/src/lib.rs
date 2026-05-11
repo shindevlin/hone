@@ -1134,6 +1134,122 @@ impl BtcpcClient {
             .send().await?.error_for_status()?.json().await.map_err(Into::into)
     }
 
+    // ── Agent registry ────────────────────────────────────────────────────────
+
+    pub async fn agent_register(&self, account: &str, name: &str, description: &str,
+        tools: Vec<String>, model: &str, min_fee: u64, nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/agent/register", serde_json::json!({
+            "account": account, "name": name, "description": description,
+            "tools": tools, "model": model, "min_fee": min_fee,
+            "nonce": nonce, "signed_by": account, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_deregister(&self, account: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx("/api/agent/deregister", serde_json::json!({
+            "account": account, "nonce": nonce, "signed_by": account, "signature": sig,
+        })).await
+    }
+
+    pub async fn get_agent_registry(&self, tool: Option<&str>) -> Result<serde_json::Value> {
+        let url = if let Some(t) = tool {
+            self.url(&format!("/api/agent/registry?tool={}", t))
+        } else {
+            self.url("/api/agent/registry")
+        };
+        self.http.get(url).send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn get_agent_registry_entry(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/agent/registry/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    // ── Agentic task marketplace ──────────────────────────────────────────────
+
+    pub async fn agent_credit_deposit(&self, account: &str, amount: u64, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx("/api/agent/credit/deposit", serde_json::json!({
+            "account": account, "amount": amount,
+            "nonce": nonce, "signed_by": account, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_credit_withdraw(&self, account: &str, amount: u64, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx("/api/agent/credit/withdraw", serde_json::json!({
+            "account": account, "amount": amount,
+            "nonce": nonce, "signed_by": account, "signature": sig,
+        })).await
+    }
+
+    pub async fn get_agent_credit(&self, account: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/agent/credit/{}", account)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn agent_task_post(&self, task_id: &str, requester: &str, description: &str,
+        tools: Vec<String>, max_fee: u64, min_verifiers: u32,
+        bid_window_epochs: u64, deadline_epoch: Option<u64>,
+        nonce: u64, sig: &str,
+    ) -> Result<TxResponse> {
+        self.post_tx("/api/agent/task/post", serde_json::json!({
+            "task_id": task_id, "requester": requester, "description": description,
+            "tools_allowed": tools, "max_fee": max_fee, "min_verifiers": min_verifiers,
+            "bid_window_epochs": bid_window_epochs, "deadline_epoch": deadline_epoch,
+            "nonce": nonce, "signed_by": requester, "signature": sig,
+        })).await
+    }
+
+    pub async fn get_agent_task(&self, task_id: &str) -> Result<serde_json::Value> {
+        self.http.get(self.url(&format!("/api/agent/task/{}", task_id)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn get_agent_tasks(&self, requester: Option<&str>, agent: Option<&str>, status: Option<&str>) -> Result<serde_json::Value> {
+        let mut params = vec![];
+        if let Some(r) = requester { params.push(format!("requester={}", r)); }
+        if let Some(a) = agent { params.push(format!("agent={}", a)); }
+        if let Some(s) = status { params.push(format!("status={}", s)); }
+        let qs = if params.is_empty() { String::new() } else { format!("?{}", params.join("&")) };
+        self.http.get(self.url(&format!("/api/agent/tasks{}", qs)))
+            .send().await?.error_for_status()?.json().await.map_err(Into::into)
+    }
+
+    pub async fn agent_task_bid(&self, task_id: &str, agent: &str, proposed_fee: u64, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/agent/task/{}/bid", task_id), serde_json::json!({
+            "agent": agent, "proposed_fee": proposed_fee,
+            "nonce": nonce, "signed_by": agent, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_task_assign(&self, task_id: &str, agent: &str, fee: u64, nonce: u64, sig: &str, signed_by: &str) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/agent/task/{}/assign", task_id), serde_json::json!({
+            "agent": agent, "fee": fee,
+            "nonce": nonce, "signed_by": signed_by, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_task_submit(&self, task_id: &str, agent: &str, result_hash: &str, output_cid: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/agent/task/{}/submit", task_id), serde_json::json!({
+            "agent": agent, "result_hash": result_hash, "output_cid": output_cid,
+            "nonce": nonce, "signed_by": agent, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_task_verifier_commit(&self, task_id: &str, verifier: &str, commit_hash: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/agent/task/{}/verify/commit", task_id), serde_json::json!({
+            "verifier": verifier, "commit_hash": commit_hash,
+            "nonce": nonce, "signed_by": verifier, "signature": sig,
+        })).await
+    }
+
+    pub async fn agent_task_verifier_reveal(&self, task_id: &str, verifier: &str, result_hash: &str, salt: &str, nonce: u64, sig: &str) -> Result<TxResponse> {
+        self.post_tx(&format!("/api/agent/task/{}/verify/reveal", task_id), serde_json::json!({
+            "verifier": verifier, "result_hash": result_hash, "salt": salt,
+            "nonce": nonce, "signed_by": verifier, "signature": sig,
+        })).await
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     async fn post_tx(&self, path: &str, body: serde_json::Value) -> Result<TxResponse> {

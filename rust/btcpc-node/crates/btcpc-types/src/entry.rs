@@ -1903,6 +1903,29 @@ pub enum LedgerEntry {
         epoch:        u64,
     },
 
+    // ── Agent registry ────────────────────────────────────────────────────────
+
+    /// Register or update an agent's on-chain advertisement.
+    AgentRegister {
+        account:     String,
+        name:        String,
+        description: String,
+        tools:       Vec<String>,  // e.g. ["web_search","chain_read","code_exec"]
+        model:       String,       // preferred Ollama model
+        min_fee:     u64,          // minimum dreams per task
+        epoch:       u64,
+        nonce:       u64,
+        signed_by:   String,
+    },
+
+    /// Remove an agent from the registry.
+    AgentDeregister {
+        account:   String,
+        epoch:     u64,
+        nonce:     u64,
+        signed_by: String,
+    },
+
     // ── wBTCPC bridge ────────────────────────────────────────────────────────
 
     /// Custodian deposits funds into the bridge, minting wBTCPC up to the 4.2M cap.
@@ -2629,6 +2652,8 @@ impl LedgerEntry {
             Self::RuntimeReward { epoch, .. } => *epoch,
             Self::TonActivationIntent { epoch, .. } => *epoch,
             Self::TonWalletActivated { epoch, .. } => *epoch,
+            Self::AgentRegister { epoch, .. } => *epoch,
+            Self::AgentDeregister { epoch, .. } => *epoch,
             Self::AgentCreditDeposit { epoch, .. } => *epoch,
             Self::AgentCreditWithdraw { epoch, .. } => *epoch,
             Self::AgentTaskPost { epoch, .. } => *epoch,
@@ -2859,6 +2884,10 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::FreeportAuctionBid { .. }
         | LedgerEntry::FreeportAuctionSettle { .. }
         | LedgerEntry::PrivateAuthApprove { .. } => ENTRY_WEIGHT_STANDARD,
+
+        // ── Agent registry ────────────────────────────────────────────────────
+        LedgerEntry::AgentRegister { .. } => ENTRY_WEIGHT_REGISTRATION,
+        LedgerEntry::AgentDeregister { .. } => ENTRY_WEIGHT_STANDARD,
 
         // ── Agentic task marketplace ──────────────────────────────────────────
         LedgerEntry::AgentTaskPost { .. } => ENTRY_WEIGHT_HEAVY,

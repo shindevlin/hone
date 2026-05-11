@@ -381,6 +381,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent-session/close", post(post_agent_session_close))
         .route("/api/agent-session/:id", get(get_agent_session))
         .route("/api/agent-session/:id/turn", post(post_agent_session_turn))
+        // ── Agent registry ─────────────────────────────────────────────────
+        .route("/api/agent/register", post(post_agent_register))
+        .route("/api/agent/deregister", post(post_agent_deregister))
+        .route("/api/agent/registry", get(get_agent_registry))
+        .route("/api/agent/registry/:account", get(get_agent_registry_entry))
         // ── Agentic task marketplace ───────────────────────────────────────
         .route("/api/agent/credit/deposit", post(post_agent_credit_deposit))
         .route("/api/agent/credit/withdraw", post(post_agent_credit_withdraw))
@@ -8751,6 +8756,71 @@ async fn get_vrf_beacon(State(s): State<AppState>) -> Json<serde_json::Value> {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(serde_json::Value::Null);
     Json(serde_json::json!({ "current_epoch": epoch, "last_beacon": beacon }))
+}
+
+// ── Agent registry ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AgentRegisterBody {
+    account: String, name: String, description: String,
+    #[serde(default)] tools: Vec<String>,
+    #[serde(default)] model: Option<String>,
+    #[serde(default)] min_fee: Option<u64>,
+    nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_register(
+    State(s): State<AppState>,
+    Json(body): Json<AgentRegisterBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentRegister {
+        account: body.account, name: body.name, description: body.description,
+        tools: body.tools,
+        model: body.model.unwrap_or_else(|| "qwen2.5:0.5b".to_owned()),
+        min_fee: body.min_fee.unwrap_or(0),
+        epoch: s.chain.current_epoch(), nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentDeregisterBody {
+    account: String, nonce: u64, signed_by: String,
+    #[serde(default)] signature: Option<String>,
+}
+async fn post_agent_deregister(
+    State(s): State<AppState>,
+    Json(body): Json<AgentDeregisterBody>,
+) -> Json<serde_json::Value> {
+    let entry = LedgerEntry::AgentDeregister {
+        account: body.account, epoch: s.chain.current_epoch(),
+        nonce: body.nonce, signed_by: body.signed_by,
+    };
+    apply_and_broadcast(&s, entry, body.signature.as_deref())
+}
+
+#[derive(Deserialize)]
+struct AgentRegistryQuery {
+    #[serde(default)] tool: Option<String>,
+}
+async fn get_agent_registry(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<AgentRegistryQuery>,
+) -> Json<serde_json::Value> {
+    let agents = crate::agent_registry::list_agents(&s.chain, q.tool.as_deref());
+    let count = agents.len();
+    Json(serde_json::json!({ "agents": agents, "count": count }))
+}
+
+async fn get_agent_registry_entry(
+    State(s): State<AppState>,
+    Path(account): Path<String>,
+) -> Json<serde_json::Value> {
+    let raw = s.chain.store.state_get(&crate::agent_registry::registry_key(&account));
+    match raw.and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+        Some(v) => Json(v),
+        None => Json(serde_json::json!({ "error": "not found" })),
+    }
 }
 
 // ── Agentic task marketplace ──────────────────────────────────────────────────

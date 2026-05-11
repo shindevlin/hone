@@ -625,6 +625,27 @@ pub fn validate_and_apply(
             bail!("entry type is not externally submittable");
         }
 
+        // ── Agent registry ────────────────────────────────────────────────────
+        LedgerEntry::AgentRegister { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == account, "signed_by must equal account");
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
+        LedgerEntry::AgentDeregister { account, nonce, signed_by, .. } => {
+            let _guard = chain.write_lock.lock();
+            anyhow::ensure!(signed_by == account, "signed_by must equal account");
+            require_key(chain, account)?;
+            check_nonce(chain, account, *nonce)?;
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+            bump_nonce(chain, account)?;
+        }
+
         // ── Agentic task marketplace ──────────────────────────────────────────
         LedgerEntry::AgentCreditDeposit { account, nonce, signed_by, .. } => {
             let _guard = chain.write_lock.lock();

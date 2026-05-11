@@ -75,6 +75,7 @@ mod session_market;
 mod agent_session;
 mod agent_task;
 mod agent_worker;
+mod agent_registry;
 mod vrf;
 mod auction;
 mod private_auth;

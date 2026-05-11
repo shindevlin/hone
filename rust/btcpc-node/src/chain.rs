@@ -2944,6 +2944,14 @@ impl Chain {
             }
 
             // ── TON wallet activation ─────────────────────────────────────────
+            // ── Agent registry ────────────────────────────────────────────────
+            LedgerEntry::AgentRegister { .. } => {
+                crate::agent_registry::apply_register(self, entry)?;
+            }
+            LedgerEntry::AgentDeregister { .. } => {
+                crate::agent_registry::apply_deregister(self, entry)?;
+            }
+
             // ── Agentic task marketplace ──────────────────────────────────────
             LedgerEntry::AgentCreditDeposit { .. } => {
                 crate::agent_task::apply_credit_deposit(self, entry)?;

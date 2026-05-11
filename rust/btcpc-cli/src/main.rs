@@ -1,3 +1,4 @@
+mod agent;
 mod api;
 mod auction;
 mod chain;
@@ -216,6 +217,13 @@ enum Commands {
     Gateway {
         /// Shortcode to resolve
         shortcode: String,
+    },
+
+    /// Agent registry and task marketplace
+    #[command(name = "agent")]
+    Agent {
+        #[command(subcommand)]
+        action: AgentCommands,
     },
 
     /// LinkGit repository management
@@ -726,6 +734,86 @@ enum PeerCommerceCommands {
 }
 
 #[derive(Subcommand)]
+enum AgentCommands {
+    /// Register this account as an agent
+    Register {
+        #[arg(long)] account: String,
+        #[arg(long)] name: String,
+        #[arg(long)] description: String,
+        /// Comma-separated tools e.g. web_search,chain_read
+        #[arg(long, value_delimiter = ',')] tools: Vec<String>,
+        #[arg(long, default_value = "qwen2.5:0.5b")] model: String,
+        #[arg(long, default_value_t = 0)] min_fee: u64,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Remove this account from the agent registry
+    Deregister {
+        #[arg(long)] account: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// List registered agents (optionally filter by tool)
+    List {
+        #[arg(long)] tool: Option<String>,
+    },
+    /// Get a specific agent's registration
+    Get {
+        account: String,
+    },
+    /// Deposit BTCPC into agent credit balance
+    Deposit {
+        #[arg(long)] account: String,
+        #[arg(long)] amount: u64,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Withdraw unused agent credit
+    Withdraw {
+        #[arg(long)] account: String,
+        #[arg(long)] amount: u64,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Show agent credit balance
+    Balance {
+        account: String,
+    },
+    /// Post a new task to the marketplace
+    Post {
+        #[arg(long)] task_id: String,
+        #[arg(long)] requester: String,
+        #[arg(long)] description: String,
+        #[arg(long, value_delimiter = ',')] tools: Vec<String>,
+        #[arg(long)] max_fee: u64,
+        #[arg(long, default_value_t = 2)] min_verifiers: u32,
+        #[arg(long, default_value_t = 3)] bid_window_epochs: u64,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Get a task by ID
+    Task {
+        task_id: String,
+    },
+    /// List tasks (filter by requester, agent, or status)
+    Tasks {
+        #[arg(long)] requester: Option<String>,
+        #[arg(long)] agent: Option<String>,
+        #[arg(long)] status: Option<String>,
+    },
+    /// Bid on a task
+    Bid {
+        #[arg(long)] task_id: String,
+        #[arg(long)] agent: String,
+        #[arg(long)] proposed_fee: u64,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+    /// Assign a task to an agent (requester only)
+    Assign {
+        #[arg(long)] task_id: String,
+        #[arg(long)] agent: String,
+        #[arg(long)] fee: u64,
+        #[arg(long)] signed_by: String,
+        #[arg(long)] key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum RepoCommands {
     /// Register a new repository on-chain and print the git remote URL
     Create {
@@ -1057,6 +1145,45 @@ fn run() -> Result<()> {
         Commands::Gateway { shortcode } => {
             finetune::cmd_gateway_resolve(&shortcode)?;
         }
+
+        Commands::Agent { action } => match action {
+            AgentCommands::Register { account, name, description, tools, model, min_fee, key_file } => {
+                agent::cmd_agent_register(&account, &name, &description, tools, &model, min_fee, key_file.as_deref())?;
+            }
+            AgentCommands::Deregister { account, key_file } => {
+                agent::cmd_agent_deregister(&account, key_file.as_deref())?;
+            }
+            AgentCommands::List { tool } => {
+                agent::cmd_agent_registry_list(tool)?;
+            }
+            AgentCommands::Get { account } => {
+                agent::cmd_agent_registry_get(&account)?;
+            }
+            AgentCommands::Deposit { account, amount, key_file } => {
+                agent::cmd_agent_credit_deposit(&account, amount, key_file.as_deref())?;
+            }
+            AgentCommands::Withdraw { account, amount, key_file } => {
+                agent::cmd_agent_credit_withdraw(&account, amount, key_file.as_deref())?;
+            }
+            AgentCommands::Balance { account } => {
+                agent::cmd_agent_credit_balance(&account)?;
+            }
+            AgentCommands::Post { task_id, requester, description, tools, max_fee, min_verifiers, bid_window_epochs, key_file } => {
+                agent::cmd_agent_task_post(&task_id, &requester, &description, tools, max_fee, min_verifiers, bid_window_epochs, key_file.as_deref())?;
+            }
+            AgentCommands::Task { task_id } => {
+                agent::cmd_agent_task_get(&task_id)?;
+            }
+            AgentCommands::Tasks { requester, agent, status } => {
+                agent::cmd_agent_tasks_list(requester, agent, status)?;
+            }
+            AgentCommands::Bid { task_id, agent, proposed_fee, key_file } => {
+                agent::cmd_agent_task_bid(&task_id, &agent, proposed_fee, key_file.as_deref())?;
+            }
+            AgentCommands::Assign { task_id, agent, fee, signed_by, key_file } => {
+                agent::cmd_agent_task_assign(&task_id, &agent, fee, &signed_by, key_file.as_deref())?;
+            }
+        },
 
         Commands::Repo { action } => match action {
             RepoCommands::Create { name, account, private, key_file } => {
