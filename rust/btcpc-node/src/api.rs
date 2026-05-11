@@ -224,6 +224,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sensor/vouch", post(post_sensor_vouch))
         .route("/api/coverage/report", post(post_coverage_report))
         .route("/api/sensor/:id", get(get_sensor))
+        .route("/api/sensors/:sensor_id/consensus/:epoch", get(get_sensor_consensus))
+        .route("/api/sensors/:sensor_id/strikes", get(get_sensor_strikes))
         .route("/api/gateway/heartbeat", post(post_gateway_heartbeat))
         .route("/api/gateway/:id", get(get_gateway))
         // ── BLE Tracker Claims ────────────────────────────────────────────
@@ -464,6 +466,8 @@ pub fn router(state: AppState) -> Router {
         // ── TON wallet activation ─────────────────────────────────────────────
         .route("/api/ton/activate", post(post_ton_activate))
         .route("/api/ton/activation/:account", get(get_ton_activation_status))
+        // ── LinkGit public REST API ────────────────────────────────────────────
+        .merge(crate::linkgit_server::linkgit_api_router(state.clone()))
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state)
@@ -3458,6 +3462,10 @@ struct SensorCommitBody {
     reading_count: u64,
     /// "continuous" | "event" | "sampled" | "pulse"
     sensor_type: String,
+    /// Representative numeric value for cross-validation consensus.
+    /// Stored in CF_META only; not part of the ledger entry.
+    #[serde(default)]
+    value: Option<f64>,
     #[serde(default)]
     signature: String,
 }
@@ -3491,24 +3499,232 @@ async fn post_sensor_register(
 }
 
 /// POST /api/sensor/commit
-/// Body: { sensor_id, owner, batch_hash, reading_count, sensor_type, signature }
+/// Body: { sensor_id, owner, batch_hash, reading_count, sensor_type, value?, signature }
+///
+/// Phase 1 — ASN diversity: reject if submitter /24 matches the first submitter this epoch.
+/// Phase 2 — 2-of-N consensus: compute median; mark reading confirmed/unconfirmed/unverified.
+/// Phase 3 — Strike tracking: increment strikes on unconfirmed; decay on confirmed.
 async fn post_sensor_commit(
     State(s): State<AppState>,
+    headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<SensorCommitBody>,
-) -> Json<serde_json::Value> {
+) -> (StatusCode, Json<serde_json::Value>) {
     let epoch = s.chain.current_epoch();
+
+    // ── Phase 1: Extract submitter /24 network prefix ─────────────────────────
+    let raw_ip = headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_owned())
+        .unwrap_or_else(|| addr.ip().to_string());
+
+    let submitter_net = ip_to_net_prefix(&raw_ip);
+    let net_key = format!("sensor_net:{}:{}", body.sensor_id, epoch);
+
+    // Load existing net entries for this sensor+epoch.
+    let mut nets: Vec<String> = s.chain.store
+        .state_get(&net_key)
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .unwrap_or_default();
+
+    // If there are already entries and the first submitter's /24 matches: reject.
+    if !nets.is_empty() && nets[0] == submitter_net {
+        return (StatusCode::CONFLICT, Json(serde_json::json!({
+            "hash": null,
+            "accepted": false,
+            "error": "verifier must be on a different network than the sensor submitter",
+        })));
+    }
+
+    // Record net prefix (append if not already present).
+    if !nets.contains(&submitter_net) {
+        nets.push(submitter_net.clone());
+        let _ = s.chain.store.state_set(
+            &net_key,
+            &serde_json::to_vec(&nets).unwrap_or_default(),
+        );
+    }
+
+    // ── Store per-submitter reading record ────────────────────────────────────
+    let reading_key = format!("sensor_readings:{}:{}:{}", epoch, body.sensor_id, body.owner);
+    let reading_rec = serde_json::json!({
+        "sensor_id": body.sensor_id,
+        "owner": body.owner,
+        "epoch": epoch,
+        "value": body.value,
+        "batch_hash": body.batch_hash,
+        "submitter_net": submitter_net,
+    });
+    let _ = s.chain.store.state_set(
+        &reading_key,
+        &serde_json::to_vec(&reading_rec).unwrap_or_default(),
+    );
+
+    // ── Apply ledger entry first ──────────────────────────────────────────────
     let entry = LedgerEntry::SensorDataCommit {
-        sensor_id: body.sensor_id,
+        sensor_id: body.sensor_id.clone(),
         owner: body.owner.clone(),
-        batch_hash: body.batch_hash,
+        batch_hash: body.batch_hash.clone(),
         reading_count: body.reading_count,
-        sensor_type: body.sensor_type,
+        sensor_type: body.sensor_type.clone(),
         epoch,
-        signed_by: body.owner,
+        signed_by: body.owner.clone(),
         gateway_account: None,
     };
     let sig = non_empty(&body.signature);
-    apply_and_broadcast(&s, entry, sig)
+    let result = apply_and_broadcast(&s, entry, sig);
+
+    // ── Phase 2: 2-of-N consensus ─────────────────────────────────────────────
+    let status = sensor_cross_validate(&s, &body.sensor_id, epoch, &body.owner);
+
+    // ── Phase 3: strike tracking ──────────────────────────────────────────────
+    let strikes_key = format!("sensor_strikes:{}", body.sensor_id);
+    let mut strikes: u64 = s.chain.store
+        .state_get(&strikes_key)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["count"].as_u64())
+        .unwrap_or(0);
+
+    if status == "unconfirmed" {
+        strikes = strikes.saturating_add(1);
+        // Record offence timestamp.
+        let offence_key = format!("sensor_offence:{}:{}", body.sensor_id, epoch);
+        let _ = s.chain.store.state_set(
+            &offence_key,
+            &serde_json::to_vec(&serde_json::json!({
+                "sensor_id": body.sensor_id,
+                "epoch": epoch,
+                "reason": "diverged_from_consensus",
+            })).unwrap_or_default(),
+        );
+        // At 5 strikes: record sensor_offence for manual review / slashing.
+        if strikes >= 5 {
+            let slash_key = format!("sensor_slash_pending:{}", body.sensor_id);
+            let _ = s.chain.store.state_set(
+                &slash_key,
+                &serde_json::to_vec(&serde_json::json!({
+                    "sensor_id": body.sensor_id,
+                    "strike_count": strikes,
+                    "epoch": epoch,
+                    "reason": "SENSOR_DIVERGENCE",
+                })).unwrap_or_default(),
+            );
+            tracing::warn!(
+                "sensor: {} reached {} strikes at epoch {} — slash pending",
+                body.sensor_id, strikes, epoch
+            );
+        }
+    } else if status == "confirmed" {
+        strikes = strikes.saturating_sub(1);
+    }
+
+    let _ = s.chain.store.state_set(
+        &strikes_key,
+        &serde_json::to_vec(&serde_json::json!({ "count": strikes })).unwrap_or_default(),
+    );
+
+    let mut resp = result.0;
+    resp["consensus_status"] = serde_json::Value::String(status);
+    (StatusCode::OK, Json(resp))
+}
+
+/// Derive a /24 network prefix from an IP string.
+/// IPv4: "192.168.1.42" → "192.168.1"
+/// IPv6: uses the full address (no meaningful /24 concept).
+fn ip_to_net_prefix(ip: &str) -> String {
+    if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
+        match addr {
+            std::net::IpAddr::V4(v4) => {
+                let o = v4.octets();
+                return format!("{}.{}.{}", o[0], o[1], o[2]);
+            }
+            std::net::IpAddr::V6(_) => return ip.to_owned(),
+        }
+    }
+    ip.to_owned()
+}
+
+/// Scan all readings for `sensor_id` in `epoch`, compute median, and update
+/// per-submitter status keys. Returns the status for `this_submitter`.
+fn sensor_cross_validate(
+    s: &AppState,
+    sensor_id: &str,
+    epoch: u64,
+    this_submitter: &str,
+) -> String {
+    let prefix = format!("sensor_readings:{}:{}:", epoch, sensor_id);
+    let readings: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .collect();
+
+    if readings.len() < 2 {
+        // Solo reading — store status and return early.
+        let status_key = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, this_submitter);
+        let _ = s.chain.store.state_set(
+            &status_key,
+            b"unverified",
+        );
+        return "unverified".to_owned();
+    }
+
+    // Collect numeric values where present.
+    let mut values: Vec<f64> = readings.iter()
+        .filter_map(|r| r["value"].as_f64())
+        .collect();
+
+    if values.is_empty() {
+        // No values to compare — accept all as unverified.
+        for r in &readings {
+            if let Some(owner) = r["owner"].as_str() {
+                let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
+                let _ = s.chain.store.state_set(&sk, b"unverified");
+            }
+        }
+        return "unverified".to_owned();
+    }
+
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = if values.len() % 2 == 0 {
+        (values[values.len() / 2 - 1] + values[values.len() / 2]) / 2.0
+    } else {
+        values[values.len() / 2]
+    };
+
+    // Determine per-reading status and count how many agree.
+    let threshold = 0.15_f64;
+    let mut confirmed_count = 0usize;
+    let mut statuses: Vec<(&str, &str)> = Vec::new(); // (owner, status)
+    for r in &readings {
+        let owner = r["owner"].as_str().unwrap_or("");
+        let status = match r["value"].as_f64() {
+            Some(v) if median == 0.0 || ((v - median).abs() / median.abs()) <= threshold => {
+                confirmed_count += 1;
+                "confirmed"
+            }
+            Some(_) => "unconfirmed",
+            None => "unverified",
+        };
+        statuses.push((owner, status));
+    }
+
+    // If 2+ agree: mark them confirmed; otherwise mark the diverging ones unconfirmed.
+    for (owner, status) in &statuses {
+        let final_status = if confirmed_count >= 2 { status } else { "unconfirmed" };
+        let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
+        let _ = s.chain.store.state_set(&sk, final_status.as_bytes());
+    }
+
+    // Return status for this_submitter.
+    statuses.iter()
+        .find(|(o, _)| *o == this_submitter)
+        .map(|(_, st)| {
+            if confirmed_count >= 2 { st.to_string() } else { "unconfirmed".to_owned() }
+        })
+        .unwrap_or_else(|| "unverified".to_owned())
 }
 
 /// POST /api/coverage/report
@@ -3576,6 +3792,80 @@ async fn get_sensor(
         },
         None => Err(StatusCode::NOT_FOUND),
     }
+}
+
+/// GET /api/sensors/:sensor_id/consensus/:epoch
+/// Returns all readings for a sensor in an epoch, their consensus status, and the median value.
+async fn get_sensor_consensus(
+    State(s): State<AppState>,
+    Path((sensor_id, epoch)): Path<(String, u64)>,
+) -> Json<serde_json::Value> {
+    let prefix = format!("sensor_readings:{}:{}:", epoch, sensor_id);
+    let readings: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .map(|mut r| {
+            let owner = r["owner"].as_str().unwrap_or("").to_owned();
+            let sk = format!("sensor_reading_status:{}:{}:{}", epoch, sensor_id, owner);
+            let status = s.chain.store.state_get(&sk)
+                .and_then(|b| String::from_utf8(b).ok())
+                .unwrap_or_else(|| "unknown".to_owned());
+            r["status"] = serde_json::Value::String(status);
+            r
+        })
+        .collect();
+
+    let mut values: Vec<f64> = readings.iter()
+        .filter_map(|r| r["value"].as_f64())
+        .collect();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median: Option<f64> = if values.is_empty() {
+        None
+    } else if values.len() % 2 == 0 {
+        Some((values[values.len() / 2 - 1] + values[values.len() / 2]) / 2.0)
+    } else {
+        Some(values[values.len() / 2])
+    };
+
+    Json(serde_json::json!({
+        "sensor_id": sensor_id,
+        "epoch": epoch,
+        "readings": readings,
+        "median": median,
+    }))
+}
+
+/// GET /api/sensors/:sensor_id/strikes
+/// Returns the current strike count and recent offence records.
+async fn get_sensor_strikes(
+    State(s): State<AppState>,
+    Path(sensor_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let strikes_key = format!("sensor_strikes:{}", sensor_id);
+    let count: u64 = s.chain.store
+        .state_get(&strikes_key)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|j| j["count"].as_u64())
+        .unwrap_or(0);
+
+    let offence_prefix = format!("sensor_offence:{}:", sensor_id);
+    let offences: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix(&offence_prefix)
+        .into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        .collect();
+
+    let slash_pending = s.chain.store
+        .state_get(&format!("sensor_slash_pending:{}", sensor_id))
+        .is_some();
+
+    Json(serde_json::json!({
+        "sensor_id": sensor_id,
+        "strike_count": count,
+        "slash_pending": slash_pending,
+        "recent_offences": offences,
+    }))
 }
 
 /// GET /api/gateway/:id
