@@ -1,0 +1,26 @@
+[package]
+name = "btcpc-hivefs-adapter"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "BTCPC-FS Hive external replica writer and verifier (Phases 2-3)"
+
+# Stand-alone crate — not part of the btcpc-node workspace.
+[workspace]
+
+[[bin]]
+name = "btcpc-hivefs-adapter"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+bs58 = "0.5"
