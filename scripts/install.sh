@@ -8,7 +8,7 @@
 set -euo pipefail
 
 GITHUB_REPO="shindevlin/btcpc"
-RELEASE_TAG="node-v1.0.0"
+RELEASE_TAG="node-v1.1.0"
 ARCH="$(uname -m)"
 case "$ARCH" in
   aarch64|arm64) SUFFIX="linux-aarch64" ;;
