@@ -1289,14 +1289,14 @@ function applyEntry(entry) {
 
     // ── Native Exchange (v3.4) ───────────────────────────────────────
     case "EXCHANGE_DEPOSIT":
-      if (from && amount > 0 && token === "BTCPC") {
+      if (from && parsedAmount > 0 && token === "BTCPC") {
         // Lock BTCPC in exchange system account
-        _addBalance(from, -amount, "BTCPC");
-        _addBalance("btcpc_exchange", amount, "BTCPC");
+        if (!_debit(from, "BTCPC", parsedAmount)) break;
+        _credit("btcpc_exchange", "BTCPC", parsedAmount);
         // Add to FIFO queue
         exchangeQueue.push({
           seller: from,
-          amount: amount,
+          amount: parsedAmount,
           epoch: entry.epoch
         });
       }
@@ -1315,11 +1315,14 @@ function applyEntry(entry) {
           tokenBalances,
           exchangeQueue,
           exchangeStats,
-          oracleFeeds: require('../services/oracleFeeds'), // Lazy load if possible, or use global
-          _round
+          oracleFeeds: require('../services/oracleFeeds'),
+          _round,
+          _debit,
+          _credit
         });
       }
       break;
+
 
 
     case "PRODUCT_CREATE":
@@ -5376,7 +5379,12 @@ module.exports = {
   // Token/NFT
   getToken: getToken,
   getAllTokens: getAllTokens,
+  getExchangeQueue: getExchangeQueue,
+  getExchangeStats: getExchangeStats,
+  getExchangeQueueLength: getExchangeQueueLength,
+  availableWbtcpcInQueue: availableWbtcpcInQueue,
   getNFT: getNFT,
+
   getNFTsByOwner: getNFTsByOwner,
   getNFTsByCollection: getNFTsByCollection,
   getAllNFTs: getAllNFTs,

@@ -26,3 +26,33 @@ jobs:
 
       - name: Run unit tests
         run: npm test -- --runInBand --forceExit --testTimeout=30000
+
+  rust-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/btcpc-node/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/btcpc-node/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install RocksDB deps
+        run: sudo apt-get install -y librocksdb-dev clang libclang-dev
+
+      - name: cargo check
+        run: cd rust/btcpc-node && cargo check --all-targets
+
+      - name: cargo test (lib)
+        run: cd rust/btcpc-node && cargo test --lib -- --test-threads=2

@@ -62,6 +62,36 @@ ARCH="$(uname -m)"
 say "Detected: $PLATFORM ($ARCH) using $PKG"
 
 # ------------------------------------------------------------------
+# Role selection
+# ------------------------------------------------------------------
+cat <<'ROLES'
+
+  Which roles do you want to run?
+
+  [1] Clock only       (~50 MB — earns clock rewards, no GPU needed)
+  [2] Clock + Miner    (needs Ollama ~2 GB — earns mining + clock rewards)
+  [3] Clock + Storage  (needs disk space — earns storage + clock rewards)
+  [4] Full node        (all roles — clock + miner + storage + worker)
+
+ROLES
+
+BTCPC_ROLE_CHOICE="${BTCPC_ROLE:-}"
+if [ -z "$BTCPC_ROLE_CHOICE" ]; then
+  printf "  Choice [1-4, default=2]: "
+  read -r BTCPC_ROLE_CHOICE </dev/tty || BTCPC_ROLE_CHOICE="2"
+fi
+case "$BTCPC_ROLE_CHOICE" in
+  1) BTCPC_ROLES="clock";                  say "Role: Clock only" ;;
+  3) BTCPC_ROLES="clock,storage";          say "Role: Clock + Storage" ;;
+  4) BTCPC_ROLES="clock,miner,storage,worker"; say "Role: Full node" ;;
+  *) BTCPC_ROLES="clock,miner";            say "Role: Clock + Miner" ;;
+esac
+export BTCPC_ROLES
+
+WANT_MINER=false
+case "$BTCPC_ROLES" in *miner*) WANT_MINER=true ;; esac
+
+# ------------------------------------------------------------------
 # Install helper (with retry)
 # ------------------------------------------------------------------
 need_cmd() {
@@ -140,26 +170,30 @@ if [ "$NODE_OK" = "false" ]; then
 fi
 
 # ------------------------------------------------------------------
-# 3. Ollama (always auto-install silently)
+# 3. Ollama (only when miner role selected)
 # ------------------------------------------------------------------
-if ! command -v ollama >/dev/null 2>&1; then
-  say "Installing Ollama..."
-  while true; do
-    if curl -fsSL https://ollama.com/install.sh | sh; then
-      break
-    fi
-    say "Ollama install failed. Retrying in 15 seconds..."
-    sleep 15
-  done
-  ok "Ollama installed"
-else
-  ok "Ollama already installed"
-fi
+if [ "$WANT_MINER" = "true" ]; then
+  if ! command -v ollama >/dev/null 2>&1; then
+    say "Installing Ollama (required for miner role)..."
+    while true; do
+      if curl -fsSL https://ollama.com/install.sh | sh; then
+        break
+      fi
+      say "Ollama install failed. Retrying in 15 seconds..."
+      sleep 15
+    done
+    ok "Ollama installed"
+  else
+    ok "Ollama already installed"
+  fi
 
-if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
-  say "Starting Ollama..."
-  nohup ollama serve >/dev/null 2>&1 &
-  sleep 2
+  if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
+    say "Starting Ollama..."
+    nohup ollama serve >/dev/null 2>&1 &
+    sleep 2
+  fi
+else
+  say "Skipping Ollama (not needed for role: $BTCPC_ROLES)"
 fi
 
 # ------------------------------------------------------------------

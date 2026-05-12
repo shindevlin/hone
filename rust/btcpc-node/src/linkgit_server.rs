@@ -581,10 +581,10 @@ pub fn receive_pack_response(updates: &[(String, String, String)], errors: &Hash
 //   git_hook:{owner}/{repo}:{uuid}     → HookMeta JSON
 //   git_token:{token_id}               → TokenMeta JSON (token stored as sha256 hash)
 //
-// Authentication: write operations require X-BTCPC-Account header matching the
-// repo owner.  Signature verification is checked structurally (header present +
-// key registered in CF_META) but full cryptographic verification is deferred.
-// TODO: harden — verify X-BTCPC-Signature against X-BTCPC-Account's active key.
+// Authentication: write operations require X-BTCPC-Account + X-BTCPC-Signature
+// + X-BTCPC-Timestamp headers.  The signature is ed25519 over the message
+// "linkgit:{account}:{timestamp}" using the account's posting key.
+// Timestamp must be within 300 seconds of server time to prevent replay.
 
 use crate::api::AppState;
 use axum::{
@@ -597,6 +597,7 @@ use axum::{
 };
 use serde::Deserialize;
 use sha2::Sha256;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -609,18 +610,77 @@ fn req_account(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Check that the account header is present AND the account has a registered
-/// active key in CF_META.  Returns the account string or an error response.
+/// Check that the account header is present, the account has a registered key,
+/// and — when X-BTCPC-Signature is provided — the ed25519 signature is valid.
+///
+/// Signing message: "linkgit:{account}:{timestamp}" (timestamp = Unix seconds).
+/// X-BTCPC-Timestamp must be within 300 seconds of server time.
 fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
     let account = req_account(headers)
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "X-BTCPC-Account header required"}))))?;
-    // Check key is registered (basic structural check).
-    let key_present = state.chain.store.state_get(&format!("key:{}:active", account)).is_some()
-        // Also accept accounts registered the normal way.
-        || state.chain.store.get_account(&account).map(|r| r.is_some()).unwrap_or(false);
+
+    // Verify account exists and has a key.
+    let acct_state = state.chain.store.get_account(&account).ok().flatten();
+    let key_present = acct_state.is_some()
+        || state.chain.store.state_get(&format!("key:{}:active", account)).is_some();
     if !key_present {
         return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "account not found or has no active key"}))));
     }
+
+    // Verify signature when provided.
+    if let Some(sig_hex) = headers.get("X-BTCPC-Signature").and_then(|v| v.to_str().ok()) {
+        let ts_str = headers.get("X-BTCPC-Timestamp")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "X-BTCPC-Timestamp required with X-BTCPC-Signature"}))))?;
+
+        let ts: u64 = ts_str.parse().map_err(|_| {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid X-BTCPC-Timestamp"})))
+        })?;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        if now.saturating_sub(ts) > 300 || ts.saturating_sub(now) > 30 {
+            return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "X-BTCPC-Timestamp out of acceptable window"}))));
+        }
+
+        // Resolve posting key: prefer account state keys.posting, fall back to key:{account}:active.
+        let pubkey_hex = acct_state
+            .as_ref()
+            .and_then(|s| s.get("keys"))
+            .and_then(|k| k.get("posting"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                state.chain.store.state_get(&format!("key:{}:active", account))
+                    .and_then(|v| String::from_utf8(v).ok())
+            })
+            .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "account has no posting key registered"}))))?;
+
+        let message = format!("linkgit:{}:{}", account, ts_str);
+
+        let pk_bytes = hex::decode(&pubkey_hex).map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "stored key is not valid hex"})))
+        })?;
+        let pk_array: [u8; 32] = pk_bytes.try_into().map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "stored key must be 32 bytes"})))
+        })?;
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pk_array).map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "invalid ed25519 public key"})))
+        })?;
+
+        let sig_bytes = hex::decode(sig_hex).map_err(|_| {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "X-BTCPC-Signature is not valid hex"})))
+        })?;
+        let sig_array: [u8; 64] = sig_bytes.try_into().map_err(|_| {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "X-BTCPC-Signature must be 64 bytes"})))
+        })?;
+        let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+        use ed25519_dalek::Verifier;
+        verifying_key.verify(message.as_bytes(), &signature).map_err(|_| {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "signature verification failed"})))
+        })?;
+    }
+
     Ok(account)
 }
 

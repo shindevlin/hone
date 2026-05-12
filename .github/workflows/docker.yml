@@ -3,7 +3,7 @@ name: Build & Push Docker Image
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', 'node-v*']
   workflow_dispatch:
 
 jobs:

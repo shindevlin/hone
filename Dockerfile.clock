@@ -1,0 +1,40 @@
+# btcpc-clock — minimal clock-only image (~50 MB runtime)
+# Earns clock rewards; no Ollama, no GPU, no storage required.
+FROM rust:1.80-bookworm AS builder
+
+WORKDIR /build
+
+COPY rust/btcpc-node/Cargo.toml rust/btcpc-node/Cargo.lock* ./rust/btcpc-node/
+COPY rust/btcpc-node/crates ./rust/btcpc-node/crates
+RUN mkdir -p rust/btcpc-node/src && echo "fn main(){}" > rust/btcpc-node/src/main.rs && \
+    cd rust/btcpc-node && cargo build --release 2>/dev/null; true
+
+COPY rust/btcpc-node/src ./rust/btcpc-node/src
+RUN cd rust/btcpc-node && cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates curl libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /build/rust/btcpc-node/target/release/btcpc-node /usr/local/bin/btcpc-node
+COPY rust/btcpc-node/genesis.json         /app/genesis.json
+COPY rust/btcpc-node/testnet-genesis.json /app/testnet-genesis.json
+
+RUN mkdir -p /app/data
+
+# API 4242 | P2P 6942
+EXPOSE 4242 6942
+
+ENV BTCPC_DATA_DIR=/app/data \
+    BTCPC_GENESIS_FILE=/app/genesis.json \
+    BTCPC_API_PORT=4242 \
+    BTCPC_P2P_PORT=6942 \
+    BTCPC_ROLES=clock \
+    BTCPC_IS_MINER=false \
+    BTCPC_IS_WORKER=false \
+    BTCPC_IS_STORAGE=false
+
+CMD ["/usr/local/bin/btcpc-node"]
