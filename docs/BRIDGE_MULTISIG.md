@@ -17,9 +17,9 @@ After running the deployment script, fill in these addresses:
 
 | Contract | Address |
 |----------|---------|
-| Safe | `(post-deploy)` |
-| BridgeLock | `(post-deploy)` |
-| BridgeReserve | `(post-deploy)` |
+| Safe | `0xfB1fd0E05a916aC03c7Dd4DD3DD45Dde1A950aC9` |
+| BridgeLock | `0x68dE3cFe9ee7e13383cf5A9FfFE8ddE457BD5942` |
+| BridgeReserve | `0xaDdA7318dDA1FB98A7A4Ef942B264dF1eF81A791` |
 
 ## Deployment
 
