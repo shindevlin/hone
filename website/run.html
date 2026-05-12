@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run a Node — BTCPC</title>
+  <meta name="description" content="Start earning BTCPC in 2 minutes. Copy one command, paste it, done.">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { background: #080c14; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
+
+    .hero {
+      text-align: center;
+      padding: 72px 24px 48px;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .hero h1 { font-size: 48px; font-weight: 800; margin: 0 0 16px; }
+    .hero h1 span { color: #f7931a; }
+    .hero p { font-size: 18px; color: #94a3b8; margin: 0; }
+
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      max-width: 1040px;
+      margin: 0 auto 80px;
+      padding: 0 24px;
+    }
+
+    .platform-card {
+      background: #0f1420;
+      border: 1px solid #1e2a3a;
+      border-radius: 16px;
+      padding: 32px;
+    }
+    .platform-card.recommended { border-color: rgba(247,147,26,.5); }
+
+    .platform-icon { font-size: 40px; margin-bottom: 16px; display: block; }
+    .platform-name {
+      font-size: 22px;
+      font-weight: 800;
+      color: #e2e8f0;
+      margin: 0 0 4px;
+    }
+    .platform-who {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0 0 28px;
+    }
+
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(247,147,26,.15);
+      border: 1px solid rgba(247,147,26,.4);
+      color: #f7931a;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-text { flex: 1; }
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin: 0 0 6px;
+    }
+    .step-desc {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin: 0 0 10px;
+    }
+
+    .cmd-box {
+      background: #0a0e17;
+      border: 1px solid #1e2a3a;
+      border-radius: 8px;
+      padding: 10px 44px 10px 14px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      color: #f7931a;
+      position: relative;
+      word-break: break-all;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+      background: #1e2a3a;
+      color: #94a3b8;
+      border: none;
+      border-radius: 5px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s;
+    }
+    .copy-btn:hover { background: #2a3a50; color: #e2e8f0; }
+    .copy-btn.copied { background: #166534; color: #86efac; }
+
+    .step-link {
+      display: inline-block;
+      background: #f7931a;
+      color: #000;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      margin-top: 6px;
+    }
+    .step-link:hover { opacity: .85; }
+    .step-link.ghost {
+      background: rgba(247,147,26,.1);
+      color: #f7931a;
+      border: 1px solid rgba(247,147,26,.3);
+    }
+
+    .earn-strip {
+      background: #0f1420;
+      border-top: 1px solid #1e2a3a;
+      border-bottom: 1px solid #1e2a3a;
+      padding: 48px 24px;
+      margin-bottom: 64px;
+    }
+    .earn-strip h2 {
+      text-align: center;
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0 0 32px;
+      color: #e2e8f0;
+    }
+    .earn-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .earn-item {
+      text-align: center;
+      padding: 20px;
+      background: #080c14;
+      border-radius: 12px;
+      border: 1px solid #1e2a3a;
+    }
+    .earn-item .earn-icon { font-size: 28px; margin-bottom: 8px; display: block; }
+    .earn-item .earn-label { font-size: 13px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; }
+    .earn-item .earn-desc { font-size: 12px; color: #64748b; }
+
+    .footer {
+      text-align: center;
+      padding: 32px 24px;
+      color: #64748b;
+      font-size: 13px;
+    }
+    .footer a { color: #f7931a; text-decoration: none; }
+  </style>
+</head>
+<body>
+<script src="/nav.js?v=2"></script>
+
+<section class="hero">
+  <h1>Run a <span>BTCPC</span> Node</h1>
+  <p>Pick your device. Copy one command. You're earning in under 2 minutes.</p>
+</section>
+
+<div class="platform-grid">
+
+  <!-- Windows -->
+  <div class="platform-card recommended">
+    <span class="platform-icon">🪟</span>
+    <div class="platform-name">Windows</div>
+    <div class="platform-who">Works on Windows 10 &amp; 11</div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <div class="step-title">Install Docker Desktop</div>
+        <div class="step-desc">Free download. Run the installer, reboot, then start Docker Desktop. You'll see a little whale icon in your taskbar when it's ready.</div>
+        <a href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener" class="step-link">Download Docker →</a>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <div class="step-title">Open PowerShell and paste this</div>
+        <div class="step-desc">Press the Windows key, type "PowerShell", press Enter. Then paste:</div>
+        <div class="cmd-box">
+          irm https://btcpc.net/btcpc-start.ps1 | iex
+          <button class="copy-btn" onclick="copyCmd(this,'irm https://btcpc.net/btcpc-start.ps1 | iex')">copy</button>
+        </div>
+        <div class="step-desc" style="margin-top:8px;">The script asks for your BTCPC username, downloads the node, and starts it. That's it.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <div class="step-title">You're done</div>
+        <div class="step-desc">Your node starts automatically. Open <a href="https://btcpc.net/app" target="_blank">btcpc.net/app</a> to see your balance grow.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mac / Linux -->
+  <div class="platform-card">
+    <span class="platform-icon">🍎 🐧</span>
+    <div class="platform-name">Mac or Linux</div>
+    <div class="platform-who">macOS 12+ · Ubuntu · Debian · any Linux</div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <div class="step-title">Open Terminal</div>
+        <div class="step-desc">On Mac: press <strong>⌘ Space</strong>, type "Terminal", press Enter.<br>On Linux: press <strong>Ctrl+Alt+T</strong>.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <div class="step-title">Paste this one line</div>
+        <div class="cmd-box">
+          curl -fsSL https://btcpc.net/install.sh | bash
+          <button class="copy-btn" onclick="copyCmd(this,'curl -fsSL https://btcpc.net/install.sh | bash')">copy</button>
+        </div>
+        <div class="step-desc" style="margin-top:8px;">It installs everything, asks which roles to run (clock / miner / full), and starts the node.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <div class="step-title">You're done</div>
+        <div class="step-desc">Check your balance at <a href="https://btcpc.net/app" target="_blank">btcpc.net/app</a>. Rewards arrive every 30-second epoch.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Android -->
+  <div class="platform-card">
+    <span class="platform-icon">📱</span>
+    <div class="platform-name">Android Phone</div>
+    <div class="platform-who">Android 8+ · runs in background</div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <div class="step-title">Download the APK</div>
+        <div class="step-desc">Direct APK install — no app store needed. Open your browser on Android and go to:</div>
+        <div class="cmd-box">
+          btcpc.net/android
+          <button class="copy-btn" onclick="copyCmd(this,'https://btcpc.net/android')">copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <div class="step-title">Install and open the app</div>
+        <div class="step-desc">If Android says "install from unknown sources", tap Settings and allow it for your browser. Then install and open BTCPC.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <div class="step-title">Enter your username — done</div>
+        <div class="step-desc">The app runs a clock node in the background. It earns while your phone is charging.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- What you earn -->
+<div class="earn-strip">
+  <h2>What you earn</h2>
+  <div class="earn-grid">
+    <div class="earn-item">
+      <span class="earn-icon">🕐</span>
+      <div class="earn-label">Clock Rewards</div>
+      <div class="earn-desc">Every node earns for keeping the epoch clock honest. No GPU needed.</div>
+    </div>
+    <div class="earn-item">
+      <span class="earn-icon">⛏️</span>
+      <div class="earn-label">Mining Rewards</div>
+      <div class="earn-desc">Run inference jobs with Ollama. More compute = more rewards.</div>
+    </div>
+    <div class="earn-item">
+      <span class="earn-icon">💾</span>
+      <div class="earn-label">Storage Rewards</div>
+      <div class="earn-desc">Rent out disk space to store encrypted blobs on the network.</div>
+    </div>
+    <div class="earn-item">
+      <span class="earn-icon">🔁</span>
+      <div class="earn-label">Every 30 seconds</div>
+      <div class="earn-desc">Rewards land on-chain at each epoch seal — no wait, no lock-up.</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Questions? <a href="https://t.me/btcpcbot" target="_blank" rel="noopener">@btcpcbot on Telegram</a> &nbsp;·&nbsp;
+  <a href="/install">All install options</a> &nbsp;·&nbsp;
+  <a href="/app">Open wallet</a>
+</div>
+
+<script>
+function copyCmd(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// Auto-highlight the right card based on OS
+const ua = navigator.userAgent;
+if (/Windows/.test(ua)) {
+  document.querySelector('.platform-card.recommended').style.borderColor = '#f7931a';
+} else if (/Android/.test(ua)) {
+  document.querySelectorAll('.platform-card')[2].style.borderColor = 'rgba(247,147,26,.5)';
+} else {
+  document.querySelectorAll('.platform-card')[1].style.borderColor = 'rgba(247,147,26,.5)';
+}
+</script>
+</body>
+</html>

@@ -327,6 +327,7 @@ pub fn router(state: AppState) -> Router {
         // ── OpenAI-compatible inference gateway ───────────────────────────
         .route("/v1/chat/completions", post(post_v1_chat_completions))
         .route("/v1/models", get(get_v1_models))
+        .route("/v1/pricing", get(get_v1_pricing))
         // ── Binary download server ────────────────────────────────────────
         .route("/download/:filename", get(get_download_file))
         // ── TOTP 2FA ──────────────────────────────────────────────────────
@@ -7214,6 +7215,21 @@ async fn get_v1_models(State(s): State<AppState>) -> Json<serde_json::Value> {
     }
 
     Json(serde_json::json!({ "object": "list", "data": data }))
+}
+
+async fn get_v1_pricing(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let active_model = s.current_model.read().await.clone();
+    Json(serde_json::json!({
+        "currency": "dreams",
+        "dreams_per_btcpc": 100_000_000u64,
+        "inference": {
+            "dreams_per_token": DREAMS_PER_TOKEN,
+            "min_fee_dreams": MIN_INFERENCE_FEE_DREAMS,
+            "price_per_1k_tokens_btcpc": (DREAMS_PER_TOKEN * 1000) as f64 / 100_000_000.0,
+            "active_model": active_model
+        },
+        "note": "Fee debited from your BTCPC balance per request. Set Authorization: Bearer <account>."
+    }))
 }
 
 // ── TOTP 2FA handlers ────────────────────────────────────────────────────────

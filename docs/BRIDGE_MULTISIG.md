@@ -59,9 +59,18 @@ BTCPC_BRIDGE_LOCK=0x...
 BTCPC_BRIDGE_RESERVE=0x...
 ```
 
-### 5. Fund BridgeReserve
+### 5. Fund BridgeReserve with wBTCPC
 
-Send initial USDT/USDC/DAI reserves via the Safe UI at `https://app.safe.global/base:<SAFE_ADDRESS>`.
+The bridge is **one-way purchase only** — users send stablecoins and receive wBTCPC.
+Stablecoins stay locked in BridgeLock as treasury; there is no redemption path.
+
+BridgeReserve must be pre-loaded with wBTCPC so it has inventory to sell:
+
+1. The Safe owner approves BridgeReserve to spend wBTCPC from the team wallet.
+2. Call `fundToken(WBTCPC_ADDRESS, amount)` via the Safe UI.
+3. The relayer will call `unlock(user, wBTCPC, amount, txHash)` for each confirmed purchase.
+
+Safe UI: `https://app.safe.global/base:<SAFE_ADDRESS>`
 
 ## Safe Operations (post-deploy)
 
@@ -72,7 +81,7 @@ All privileged operations on BridgeLock and BridgeReserve require 2-of-3 Safe si
 | `setMintedDreams()` | BridgeLock | Oracle updates the cumulative BTCPC minted counter |
 | `setAcceptedToken()` | BridgeLock | Add/remove supported stablecoins |
 | `unlockFunds()` | BridgeLock | Refund a failed bridge deposit (7-day timelock) |
-| `fundToken()` / `fundETH()` | BridgeReserve | Add liquidity for unwrap payouts |
+| `fundToken()` / `fundETH()` | BridgeReserve | Load wBTCPC inventory for sale to buyers |
 | `setRelayer()` | BridgeReserve | Rotate the trusted relayer address |
 | `emergencyWithdraw*()` | BridgeReserve | Emergency liquidity withdrawal |
 
