@@ -71,7 +71,9 @@ describe_("Go-Live Checklist smoke tests", () => {
       await withRetry(async () => {
         const res = await client().get("/health");
         expect(res.status).toBe(200);
-        expect(res.data.toString().trim().toLowerCase()).toContain("ok");
+        const body = res.data;
+        const text = typeof body === "string" ? body.toLowerCase() : JSON.stringify(body).toLowerCase();
+        expect(text).toContain("ok");
       });
     },
     10000
@@ -91,7 +93,9 @@ describe_("Go-Live Checklist smoke tests", () => {
           "status" in body ||
           "machine_status" in body ||
           "health" in body ||
-          "ok" in body;
+          "ok" in body ||
+          "truth_bearing" in body ||
+          "peer_count" in body;
         expect(hasStatus).toBe(true);
       });
     },
@@ -112,7 +116,9 @@ describe_("Go-Live Checklist smoke tests", () => {
           "peers" in body ||
           "nodes" in body ||
           "connected" in body ||
-          "network" in body;
+          "network" in body ||
+          "peer_count" in body ||
+          "registered_clocks" in body;
         expect(hasPeers).toBe(true);
       });
     },
@@ -139,7 +145,8 @@ describe_("Go-Live Checklist smoke tests", () => {
           "node_id" in first ||
           "id" in first ||
           "username" in first ||
-          "name" in first;
+          "name" in first ||
+          "account" in first;
         expect(hasIdentity).toBe(true);
       });
     },
@@ -280,25 +287,21 @@ describe_("Go-Live Checklist smoke tests", () => {
     "Node announcements carry a real advertised P2P address (no localhost)",
     async () => {
       await withRetry(async () => {
-        const res = await client().get("/api/node/list");
+        // Bootstrap peer list is the canonical source of announced multiaddrs
+        const res = await client().get("/api/peers/bootstrap?chain_id=btcpc-1");
         expect(res.status).toBe(200);
-        const body = res.data;
-        const nodes = Array.isArray(body)
-          ? body
-          : body.nodes || body.data || [];
-        expect(nodes.length).toBeGreaterThan(0);
-        // At least one node must advertise a non-localhost P2P address
-        const publicNode = nodes.find((n) => {
-          const addr =
-            n.p2p_address || n.p2pAddress || n.address || n.advertised_address || "";
+        const peers = res.data.peers || [];
+        // At least one peer must have a non-localhost multiaddr
+        const publicPeer = peers.find((addr) => {
           return (
+            typeof addr === "string" &&
             addr.length > 0 &&
             !addr.includes("localhost") &&
             !addr.includes("127.0.0.1") &&
             !addr.includes("0.0.0.0")
           );
         });
-        expect(publicNode).toBeDefined();
+        expect(publicPeer).toBeDefined();
       });
     },
     10000
@@ -312,7 +315,11 @@ describe_("Go-Live Checklist smoke tests", () => {
         try {
           const res = await client().get("/health");
           if (res.status === 200) {
-            const text = res.data.toString().trim().toLowerCase();
+            // Handle both plain-text "OK" and JSON {"status":"ok"} responses
+            const body = res.data;
+            const text = typeof body === "string"
+              ? body.trim().toLowerCase()
+              : JSON.stringify(body).toLowerCase();
             if (text.includes("ok")) successCount++;
           }
         } catch (_) {

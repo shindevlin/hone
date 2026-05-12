@@ -7219,9 +7219,11 @@ async fn get_v1_models(State(s): State<AppState>) -> Json<serde_json::Value> {
 
 async fn get_v1_pricing(State(s): State<AppState>) -> Json<serde_json::Value> {
     let active_model = s.current_model.read().await.clone();
+    let tokens_per_btcpc = 100_000_000u64 / DREAMS_PER_TOKEN;
     Json(serde_json::json!({
         "currency": "dreams",
         "dreams_per_btcpc": 100_000_000u64,
+        "tokens_per_btcpc": tokens_per_btcpc,
         "inference": {
             "dreams_per_token": DREAMS_PER_TOKEN,
             "min_fee_dreams": MIN_INFERENCE_FEE_DREAMS,
