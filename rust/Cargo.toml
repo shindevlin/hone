@@ -4,6 +4,7 @@ members = [
     "btcpc-node/crates/btcpc-types",
     "btcpc-p2p",
     "btcpc-market",
+    "linkgit",
 ]
 resolver = "2"
 
