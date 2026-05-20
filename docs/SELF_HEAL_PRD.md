@@ -187,7 +187,7 @@ Items from code review of finalizationConsensus.js. Non-blocking for genesis but
 **Repo**: `~/repos/warp` (warpdotdev/warp, AGPL, personal use only — never distributed)
 **Output**: `~/repos/btcpc-terminal-pro` (private, local only)
 **Full plan**: `~/repos/warp/BTCPC_FORK_PLAN.md`
-**End-user terminal** (separate): `github.com/shindevlin/btcpc-terminal` (Rio fork, MIT, ships to node operators)
+**End-user terminal** (separate): `github.com/shindevlin/btcpc/tree/main/ludicrous` (Rio fork, MIT, ships to node operators)
 
 Agent picks one phase at a time. Each phase must leave the repo in a `cargo check`-passing state before committing.
 
