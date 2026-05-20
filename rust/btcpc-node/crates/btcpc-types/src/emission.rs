@@ -200,6 +200,44 @@ pub fn isqrt(n: u64) -> u64 {
     x
 }
 
+// ── Layer A: long-term global network health scalar ───────────────────────────
+//
+// A two-speed integer EMA of total pool utilization produces a scalar in
+// [LAYER_A_SCALAR_MIN, LAYER_A_SCALAR_MAX] that is multiplied into raw_pool
+// each epoch before the 2% reserve split.  The fast EMA reuses EMA_ALPHA_*
+// (7-day window).  The slow EMA tracks a 90-day baseline.  The scalar is
+// min(fast, slow) so any recent utilisation dip deflates the ceiling quickly,
+// while recovery requires both windows to climb back together.
+//
+// Damped tokens (raw_pool − adjusted_pool) flow to the recycle fund — they
+// are not destroyed, just deferred until the network fills back up.
+
+/// Slow EMA alpha numerator (90-day window at era-0 30s epochs).
+pub const LAYER_A_SLOW_ALPHA_NUM: u64 = 2;
+/// Slow EMA alpha denominator: 2 / (90 × 86400 / 30 + 1) = 2 / 259201.
+pub const LAYER_A_SLOW_ALPHA_DENOM: u64 = 259_201;
+
+/// Minimum scalar (0.70×): floor even when the network is fully idle.
+pub const LAYER_A_SCALAR_MIN: u64 = 7_000;
+/// Maximum scalar (1.00×): full emission when utilisation is at capacity.
+pub const LAYER_A_SCALAR_MAX: u64 = 10_000;
+/// Denominator for Layer A scalar fixed-point arithmetic.
+pub const LAYER_A_SCALAR_DENOM: u64 = 10_000;
+/// Number of distinct activity pool types — used to normalise util_signal.
+pub const LAYER_A_POOL_COUNT: u64 = 9;
+
+/// Compute the Layer A long-term scalar from the two EMA values.
+///
+/// Returns a value in `[LAYER_A_SCALAR_MIN, LAYER_A_SCALAR_MAX]` (fixed-point
+/// over `LAYER_A_SCALAR_DENOM`).  Uses `min(fast, slow)` so a recent dip in
+/// the fast EMA immediately pulls the scalar down without waiting for the slow
+/// window to catch up.
+#[inline]
+pub fn layer_a_scalar(fast_ema: u64, slow_ema: u64) -> u64 {
+    let ema = fast_ema.min(slow_ema).min(LAYER_A_SCALAR_DENOM);
+    LAYER_A_SCALAR_MIN + (LAYER_A_SCALAR_MAX - LAYER_A_SCALAR_MIN) * ema / LAYER_A_SCALAR_DENOM
+}
+
 /// Stake-weight multiplier for inference mining: min(isqrt(stake/MIN_STAKE), 10).
 /// Bootstrap floor of 1 so unstaked nodes can still participate at minimum rate.
 pub fn stake_weight(stake: u64) -> u64 {
@@ -781,5 +819,64 @@ mod tests {
         let years = ms as f64 / 1000.0 / 86400.0 / 365.25;
         // Should be ~124 years
         assert!((120.0..130.0).contains(&years), "expected ~124 years, got {:.1}", years);
+    }
+
+    #[test]
+    fn layer_a_scalar_bounds() {
+        // Full health → max scalar
+        assert_eq!(layer_a_scalar(LAYER_A_SCALAR_DENOM, LAYER_A_SCALAR_DENOM), LAYER_A_SCALAR_MAX);
+        // No activity → floor
+        assert_eq!(layer_a_scalar(0, 0), LAYER_A_SCALAR_MIN);
+        // 50% utilisation → midpoint
+        let mid = layer_a_scalar(5_000, 5_000);
+        assert_eq!(mid, 8_500); // 7000 + 3000 * 5000 / 10000 = 8500
+        // min(fast, slow) governs: fast dips, slow stays high
+        assert_eq!(layer_a_scalar(3_000, LAYER_A_SCALAR_DENOM), layer_a_scalar(3_000, 3_000));
+        // Over-range EMA is clamped to DENOM
+        assert_eq!(layer_a_scalar(99_999, LAYER_A_SCALAR_DENOM), LAYER_A_SCALAR_MAX);
+    }
+
+    #[test]
+    fn layer_a_ema_warmup_30_epochs() {
+        // Cold start: both EMAs default to LAYER_A_SCALAR_DENOM (full health).
+        // Signal drops to 0 for 30 epochs (idle chain).
+        // Fast EMA (alpha = 2/20161, ~7-day window) should barely move:
+        //   after 30 steps, fast ≈ 10000 × (20159/20161)^30 ≈ 9851.
+        // Slow EMA (alpha = 2/259201, ~90-day window) moves even less.
+        let mut fast = LAYER_A_SCALAR_DENOM;
+        let mut slow = LAYER_A_SCALAR_DENOM;
+        for _ in 0..30 {
+            fast = (EMA_ALPHA_NUM * 0
+                + (EMA_ALPHA_DENOM - EMA_ALPHA_NUM) * fast)
+                / EMA_ALPHA_DENOM;
+            slow = (LAYER_A_SLOW_ALPHA_NUM * 0
+                + (LAYER_A_SLOW_ALPHA_DENOM - LAYER_A_SLOW_ALPHA_NUM) * slow)
+                / LAYER_A_SLOW_ALPHA_DENOM;
+        }
+        let scalar = layer_a_scalar(fast, slow);
+        // After only 30 idle epochs the scalar should still be above 99% of max.
+        assert!(scalar > 9_900,
+            "scalar={scalar} — 30 idle epochs should barely affect a 7-day EMA");
+    }
+
+    #[test]
+    fn layer_a_ema_sustained_idle_depresses_scalar() {
+        // After a very long idle period (10× the fast window = 201610 epochs),
+        // both EMAs converge close to 0, pushing the scalar toward the floor.
+        let mut fast = LAYER_A_SCALAR_DENOM;
+        let mut slow = LAYER_A_SCALAR_DENOM;
+        for _ in 0..201_610 {
+            fast = (EMA_ALPHA_NUM * 0
+                + (EMA_ALPHA_DENOM - EMA_ALPHA_NUM) * fast)
+                / EMA_ALPHA_DENOM;
+            slow = (LAYER_A_SLOW_ALPHA_NUM * 0
+                + (LAYER_A_SLOW_ALPHA_DENOM - LAYER_A_SLOW_ALPHA_NUM) * slow)
+                / LAYER_A_SLOW_ALPHA_DENOM;
+        }
+        let scalar = layer_a_scalar(fast, slow);
+        // Fast EMA should be near zero; slow still relatively high, so min = fast ≈ 0.
+        // Scalar should be close to LAYER_A_SCALAR_MIN.
+        assert!(scalar < LAYER_A_SCALAR_MIN + 500,
+            "scalar={scalar} — long idle should pull scalar near the 0.70 floor");
     }
 }

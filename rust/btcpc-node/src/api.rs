@@ -986,7 +986,6 @@ async fn post_github_webhook(
     if let Ok(secret) = std::env::var("BTCPC_GITHUB_WEBHOOK_SECRET") {
         if !secret.is_empty() {
             let expected = {
-                use sha2::Digest;
                 type HmacSha256 = hmac::Hmac<sha2::Sha256>;
                 use hmac::Mac;
                 let mut mac = HmacSha256::new_from_slice(secret.as_bytes())

@@ -115,6 +115,9 @@ use btcpc_types::{
     STORAGE_PROOF_NO_PROOF_BPS,
     SENSOR_LOCATION_BOOST_BPS, SENSOR_LOCATION_REQUIRED_EPOCH,
     EMA_ALPHA_NUM, EMA_ALPHA_DENOM,
+    LAYER_A_SLOW_ALPHA_NUM, LAYER_A_SLOW_ALPHA_DENOM,
+    LAYER_A_SCALAR_DENOM, LAYER_A_POOL_COUNT,
+    layer_a_scalar,
     entry_weight, compute_next_base_fee, BASE_FEE_INITIAL_DREAMS, EPOCH_TARGET_WEIGHT_UNITS,
 };
 
@@ -1275,6 +1278,27 @@ async fn emit_epoch_rewards(
     };
     if raw_pool == 0 { return; }
 
+    // ── Layer A: long-term global network health scalar ───────────────────────
+    // Read both EMA values from the PREVIOUS epoch (cold-start default = full health).
+    // The scalar is applied to raw_pool before the 2% reserve split so the entire
+    // epoch ceiling — including reserve contributions — scales with long-run health.
+    // Damped tokens (raw_pool − adjusted_pool) go to the recycle fund immediately.
+    let read_layer_a_ema = |key: &str| -> u64 {
+        chain.store.state_get(key)
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|j| j["ema"].as_u64())
+            .unwrap_or(LAYER_A_SCALAR_DENOM) // default: full health until EMAs warm up
+    };
+    let layer_a_fast_prev = read_layer_a_ema("layer_a:fast_ema");
+    let layer_a_slow_prev = read_layer_a_ema("layer_a:slow_ema");
+    let long_term_scalar  = layer_a_scalar(layer_a_fast_prev, layer_a_slow_prev);
+    let adjusted_pool     = (raw_pool as u128 * long_term_scalar as u128 / LAYER_A_SCALAR_DENOM as u128) as u64;
+    let layer_a_damped    = raw_pool.saturating_sub(adjusted_pool);
+    if layer_a_damped > 0 {
+        let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, layer_a_damped);
+    }
+    let raw_pool = adjusted_pool; // shadow: all downstream logic operates on the scaled pool
+
     // ── Mandatory 2% reserve split (Layer D, always fires) ───────────────────
     // 1.5% → recycle fund  |  0.4% → testnet fund  |  0.1% → treasury (DAO)
     let reserve_total  = (raw_pool as u128 * 2 / 100) as u64;
@@ -1848,6 +1872,24 @@ async fn emit_epoch_rewards(
     update_ema_cm("linkgit",       linkgit_repos.len()    as u64, cm_linkgit);
     update_ema_cm("linkgit_build", linkgit_builders.len() as u64, cm_build);
 
+    // ── Layer A: update EMAs with this epoch's total utilisation signal ───────
+    // Signal = fraction of the theoretical maximum (all 9 pool types at 100%),
+    // expressed in [0, LAYER_A_SCALAR_DENOM].  Normalising by the fixed pool
+    // count (not active_pool_count) so a chain with only 3 active pool types
+    // naturally settles below full scalar until the remaining pools organise.
+    let util_signal = (total_util as u128 * LAYER_A_SCALAR_DENOM as u128
+        / (LAYER_A_POOL_COUNT as u128 * ACTIVITY_RATIO_DENOM as u128)) as u64;
+    let layer_a_fast_new = (EMA_ALPHA_NUM * util_signal
+        + (EMA_ALPHA_DENOM - EMA_ALPHA_NUM) * layer_a_fast_prev)
+        / EMA_ALPHA_DENOM;
+    let layer_a_slow_new = (LAYER_A_SLOW_ALPHA_NUM * util_signal
+        + (LAYER_A_SLOW_ALPHA_DENOM - LAYER_A_SLOW_ALPHA_NUM) * layer_a_slow_prev)
+        / LAYER_A_SLOW_ALPHA_DENOM;
+    let _ = chain.store.state_set("layer_a:fast_ema",
+        &serde_json::to_vec(&serde_json::json!({ "ema": layer_a_fast_new })).unwrap_or_default());
+    let _ = chain.store.state_set("layer_a:slow_ema",
+        &serde_json::to_vec(&serde_json::json!({ "ema": layer_a_slow_new })).unwrap_or_default());
+
     // ── Subscription fee release ───────────────────────────────────────────────
     sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
 
@@ -1860,11 +1902,15 @@ async fn emit_epoch_rewards(
     }
 
     info!(
-        "clock: epoch {} raw={} reserve={} gated={}({:.0}%) scarcity_recycle={} \
+        "clock: epoch {} raw_pre_a={} scalar_a={:.3} adjusted={} reserve={} gated={}({:.0}%) \
+         scarcity_recycle={} layer_a_ema(f={},s={}) \
          [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{} tracker={}/{} git={}/{} build={}/{}]",
-        epoch, raw_pool, reserve_total, gated_pool,
+        epoch, adjusted_pool.saturating_add(layer_a_damped),
+        long_term_scalar as f64 / LAYER_A_SCALAR_DENOM as f64,
+        raw_pool, reserve_total, gated_pool,
         activity_ratio_num as f64 / ACTIVITY_RATIO_DENOM as f64 * 100.0,
         scarcity_recycle + idle_recycle,
+        layer_a_fast_new, layer_a_slow_new,
         inference_pool, mines.len(),
         storage_pool, storage_nodes.len(),
         sensor_pool, sensor_nodes.len(),
