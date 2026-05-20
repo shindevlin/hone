@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "btcpc-node"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "btcpc-types"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "borsh",
  "hex",

@@ -78,6 +78,8 @@ pub struct AppState {
     pub health_monitor: Arc<crate::monitor::HealthMonitor>,
     /// In-memory blob bandwidth meter (per-CID byte counter, flushed each epoch).
     pub blob_bandwidth: Arc<crate::blob_bandwidth::BlobBandwidthMeter>,
+    /// Hardware capabilities probed at startup (Ollama, GNSS, GPU, disk).
+    pub capabilities: Arc<crate::hardware_probe::NodeCapabilities>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -122,6 +124,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/stake/:account", get(get_stake))
         .route("/api/epoch/:epoch", get(get_epoch))
         .route("/health", get(health))
+        // ── GitHub App ────────────────────────────────────────────────────
+        .route("/api/github/webhook", post(post_github_webhook))
+        // ── Node hosting (BTCPC-native cloud deploy) ─────────────────────
+        .route("/api/service/node-hosting", get(get_node_hosting_listings))
+        .route("/api/service/node-hosting/buy", post(post_node_hosting_buy))
+        .route("/api/service/node-hosting/my-nodes", get(get_my_hosted_nodes))
         // ── POST endpoints ────────────────────────────────────────────────
         .route("/api/transfer", post(post_transfer))
         .route("/api/stake", post(post_stake))
@@ -366,6 +374,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bridge/unlock", post(post_bridge_unlock))
         .route("/api/bridge/status", get(get_bridge_status))
         .route("/api/bridge/queue", get(get_bridge_queue))
+        .route("/api/bridge/claim-proof", post(post_bridge_claim_proof))
         // ── Oracle feeds ──────────────────────────────────────────────────
         .route("/api/oracle/feed/create", post(post_oracle_create))
         .route("/api/oracle/feed/:id/report", post(post_oracle_report))
@@ -960,6 +969,192 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "node": "btcpc-node" }))
 }
 
+/// POST /api/github/webhook
+///
+/// Receives GitHub App webhook events. On `installation` or `installation_repositories`,
+/// auto-creates a BTCPC account for the installer (prefixed `gh_`). This is the
+/// decentralised onboarding path: any BTCPC node can receive and process the webhook,
+/// creating the account on-chain and gossiping it to all peers.
+///
+/// Set BTCPC_GITHUB_WEBHOOK_SECRET to the secret configured in the GitHub App.
+async fn post_github_webhook(
+    headers: HeaderMap,
+    State(s): State<AppState>,
+    body: axum::body::Bytes,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // Verify HMAC-SHA256 signature from GitHub
+    if let Ok(secret) = std::env::var("BTCPC_GITHUB_WEBHOOK_SECRET") {
+        if !secret.is_empty() {
+            let expected = {
+                use sha2::Digest;
+                type HmacSha256 = hmac::Hmac<sha2::Sha256>;
+                use hmac::Mac;
+                let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+                    .unwrap_or_else(|_| panic!("HMAC key error"));
+                mac.update(&body);
+                format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+            };
+            let provided = headers.get("X-Hub-Signature-256")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if provided != expected {
+                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "invalid signature"})));
+            }
+        }
+    }
+
+    let event = headers.get("X-GitHub-Event")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    let payload: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "bad payload"}))),
+    };
+
+    match event {
+        "installation" | "installation_repositories" => {
+            let action = payload["action"].as_str().unwrap_or("");
+            if action == "created" || action == "added" {
+                let github_login = payload["installation"]["account"]["login"]
+                    .as_str().unwrap_or("");
+                if !github_login.is_empty() {
+                    let btcpc_account = format!("gh_{}", github_login.to_lowercase()
+                        .chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').collect::<String>());
+
+                    // Create account on-chain if it doesn't exist
+                    if s.chain.store.get_account(&btcpc_account).ok().flatten().is_none() {
+                        let epoch = s.chain.current_epoch();
+                        let entry = btcpc_types::LedgerEntry::AccountCreate {
+                            account: btcpc_account.clone(),
+                            keys: std::collections::BTreeMap::new(),
+                            chain_proofs: vec![],
+                            epoch,
+                            funded_by: None,
+                            machine_fingerprint: None,
+                        };
+                        s.chain.push_pending(entry.clone(), None);
+                        let _ = s.tx_broadcast.send((entry, None));
+                        tracing::info!("[github-app] created BTCPC account '{}' for GitHub user '{}'",
+                            btcpc_account, github_login);
+                    }
+
+                    return (StatusCode::OK, Json(serde_json::json!({
+                        "ok": true,
+                        "event": event,
+                        "btcpc_account": btcpc_account,
+                        "note": "Account created on-chain. Visit btcpc.net/app to claim your wallet."
+                    })));
+                }
+            }
+        }
+        "ping" => {
+            return (StatusCode::OK, Json(serde_json::json!({"ok": true, "event": "ping"})));
+        }
+        _ => {}
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"ok": true, "event": event})))
+}
+
+// ── Node hosting ─────────────────────────────────────────────────────────────
+
+async fn get_node_hosting_listings(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let listings = crate::services::list_hosting_nodes(&s.chain);
+    Json(serde_json::json!({
+        "listings": listings,
+        "price_dreams": crate::services::HOSTING_PRICE_DREAMS,
+        "price_btcpc": crate::services::HOSTING_PRICE_DREAMS as f64 / 100_000_000.0,
+        "duration_epochs": crate::services::HOSTING_DURATION_EPOCHS,
+        "note": "Pay BTCPC to a service node to get a hosted clock node on the BTCPC network."
+    }))
+}
+
+#[derive(Deserialize)]
+struct NodeHostingBuyBody {
+    buyer: String,
+    service_node: String,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_node_hosting_buy(
+    State(s): State<AppState>,
+    Json(body): Json<NodeHostingBuyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let price = crate::services::HOSTING_PRICE_DREAMS;
+
+    // Verify buyer has enough balance
+    let bal = s.chain.store.get_balance(&body.buyer, NATIVE_TOKEN);
+    if bal < price {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "insufficient balance",
+            "balance_dreams": bal,
+            "required_dreams": price,
+        }))));
+    }
+
+    // Verify service node exists and is a known hoster
+    let listings = crate::services::list_hosting_nodes(&s.chain);
+    let found = listings.iter().any(|l| l["node"].as_str() == Some(&body.service_node));
+    if !found {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "service node not found or not accepting hosting orders",
+            "service_node": body.service_node,
+        }))));
+    }
+
+    // Deduct payment: Transfer from buyer → service node
+    let nonce: u64 = s.chain.store.get_account(&body.buyer)
+        .ok().flatten()
+        .and_then(|st| st.get("nonce").and_then(|v| v.as_u64()))
+        .unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let transfer = LedgerEntry::Transfer {
+        from: body.buyer.clone(),
+        to: body.service_node.clone(),
+        amount: price,
+        token: NATIVE_TOKEN.to_string(),
+        memo: Some("btcpc-node-hosting".to_string()),
+        epoch,
+        nonce,
+        signed_by: body.buyer.clone(),
+        twofactor: None,
+    };
+    s.chain.push_pending(transfer.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((transfer, body.signature));
+
+    // Generate request ID and record pending request
+    use sha2::Digest;
+    let request_id = hex::encode(
+        sha2::Sha256::digest(format!("{}:{}:{}", body.buyer, body.service_node, epoch).as_bytes())
+    );
+    if let Err(e) = crate::services::place_hosting_request(
+        &s.chain, &body.buyer, &body.service_node, &request_id,
+    ) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))));
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "request_id": request_id,
+        "buyer": body.buyer,
+        "service_node": body.service_node,
+        "price_dreams": price,
+        "status": "pending",
+        "note": "Your node will be provisioned within 30 seconds by the service node."
+    })))
+}
+
+async fn get_my_hosted_nodes(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let account = params.get("account").cloned().unwrap_or_default();
+    let nodes = crate::services::list_hosted_nodes(&s.chain, &account);
+    Json(serde_json::json!({ "account": account, "nodes": nodes }))
+}
+
 // GET /public/machine-status — truth-bearing and isolation status (smoke-test target)
 async fn get_public_machine_status(State(s): State<AppState>) -> Json<serde_json::Value> {
     let truth = s.clock.truth_status();
@@ -1077,7 +1272,8 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let account  = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
     let chain_id = std::env::var("BTCPC_CHAIN_ID").unwrap_or_else(|_| "btcpc-1".to_owned());
     let is_clock  = std::env::var("BTCPC_CLOCK").map(|v| v == "true" || v == "1").unwrap_or(false);
-    let is_worker = std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false);
+    let is_worker = std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1")
+        .unwrap_or(s.capabilities.has_ollama);
     let is_miner  = std::env::var("BTCPC_MINER").map(|v| v == "true" || v == "1").unwrap_or(false);
     // Wall-clock epoch is ground truth; DB epoch may lag after genesis resets.
     let genesis_ts: u64 = std::env::var("BTCPC_GENESIS_TIMESTAMP")
@@ -1098,6 +1294,14 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let model_healer: serde_json::Value = s.chain.store.state_get("healer:last_event")
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(serde_json::json!(null));
+    let sensor_id = format!("{}/gnss-base", account);
+    let is_sensor = (0u64..=20).any(|off| {
+        s.chain.store.state_get(
+            &format!("sensor_commit:{}:{}", epoch.saturating_sub(off), sensor_id)
+        ).is_some()
+    });
+    let has_gpu  = s.capabilities.has_gpu;
+    let disk_gb  = s.capabilities.disk_gb;
     Json(serde_json::json!({
         "account":        account,
         "chain_id":       chain_id,
@@ -1106,7 +1310,9 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         "is_clock":       is_clock,
         "is_worker":      is_worker,
         "is_miner":       is_miner,
-        "is_sensor":      false,
+        "is_sensor":      is_sensor,
+        "has_gpu":        has_gpu,
+        "disk_gb":        disk_gb,
         "model":          model,
         "version":        env!("CARGO_PKG_VERSION"),
         "hw_fingerprint": hw_fingerprint,
@@ -3530,26 +3736,28 @@ async fn post_sensor_commit(
         .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
         .unwrap_or_default();
 
-    // If there are already entries and the first submitter's /24 matches: reject.
-    if !nets.is_empty() && nets[0] == submitter_net {
-        return (StatusCode::CONFLICT, Json(serde_json::json!({
-            "hash": null,
-            "accepted": false,
-            "error": "verifier must be on a different network than the sensor submitter",
-        })));
-    }
-
-    // Record net prefix (append if not already present).
-    if !nets.contains(&submitter_net) {
-        nets.push(submitter_net.clone());
-        let _ = s.chain.store.state_set(
-            &net_key,
-            &serde_json::to_vec(&nets).unwrap_or_default(),
-        );
-    }
-
     // ── Store per-submitter reading record ────────────────────────────────────
     let reading_key = format!("sensor_readings:{}:{}:{}", epoch, body.sensor_id, body.owner);
+
+    // Cross-net Sybil guard: only applies to NEW owners this epoch.
+    // Re-submissions from the same owner update their reading without re-checking.
+    let already_submitted = s.chain.store.state_get(&reading_key).is_some();
+    if !already_submitted {
+        if !nets.is_empty() && nets[0] == submitter_net {
+            return (StatusCode::CONFLICT, Json(serde_json::json!({
+                "hash": null,
+                "accepted": false,
+                "error": "verifier must be on a different network than the sensor submitter",
+            })));
+        }
+        if !nets.contains(&submitter_net) {
+            nets.push(submitter_net.clone());
+            let _ = s.chain.store.state_set(
+                &net_key,
+                &serde_json::to_vec(&nets).unwrap_or_default(),
+            );
+        }
+    }
     let reading_rec = serde_json::json!({
         "sensor_id": body.sensor_id,
         "owner": body.owner,
@@ -7889,6 +8097,144 @@ async fn get_bridge_queue(State(s): State<AppState>) -> Json<serde_json::Value> 
         .unwrap_or_default();
     let pending: Vec<&UnlockRequest> = queue.iter().filter(|r| !r.fulfilled).collect();
     Json(serde_json::json!({ "queue": queue, "pending_count": pending.len() }))
+}
+
+/// POST /api/bridge/claim-proof
+///
+/// Issues a secp256k1-signed EIP-191 proof that authorises `eth_address` to call
+/// `wBTCPC.claim()` on the target EVM chain and mint `amount_dreams * 100` raw
+/// wBTCPC units (10-decimal token, 1 BTCPC = 10^10 raw).
+///
+/// The BTCPC is burned from the account's on-chain balance via a BridgeWrap entry.
+/// The oracle private key must be set in `BTCPC_ORACLE_KEY` (32-byte hex).
+#[derive(Deserialize)]
+struct BridgeClaimProofRequest {
+    btcpc_account: String,
+    eth_address: String,
+    amount_dreams: u64,
+    chain_id: Option<u64>,
+    #[serde(default)]
+    signature: Option<String>,
+}
+
+async fn post_bridge_claim_proof(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeClaimProofRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    use sha3::{Digest, Keccak256};
+    use secp256k1::{Secp256k1, SecretKey, Message};
+
+    let oracle_key_hex = std::env::var("BTCPC_ORACLE_KEY").map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "BTCPC_ORACLE_KEY not configured"})),
+    ))?;
+    let key_bytes = hex::decode(oracle_key_hex.trim()).map_err(|_| (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "invalid BTCPC_ORACLE_KEY hex"})),
+    ))?;
+    let secret_key = SecretKey::from_slice(&key_bytes).map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "invalid BTCPC_ORACLE_KEY bytes"})),
+    ))?;
+
+    // Check balance
+    let balance: u64 = s.chain.store.get_balance(&body.btcpc_account, NATIVE_TOKEN);
+    if balance < body.amount_dreams {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "insufficient balance",
+            "balance_dreams": balance,
+            "requested_dreams": body.amount_dreams,
+        }))));
+    }
+
+    // Decode eth_address → [u8; 20]
+    let eth_hex = body.eth_address.trim_start_matches("0x");
+    let eth_bytes: [u8; 20] = hex::decode(eth_hex)
+        .ok().and_then(|v| v.try_into().ok())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid eth_address"}))))?;
+
+    // btcpcAccount packed as bytes32 (right-padded)
+    let mut account_b32 = [0u8; 32];
+    let acct = body.btcpc_account.as_bytes();
+    account_b32[..acct.len().min(32)].copy_from_slice(&acct[..acct.len().min(32)]);
+
+    // amount in wBTCPC raw units: 1 dream = 100 raw units (10 decimals vs 8)
+    let amount_raw: u128 = body.amount_dreams as u128 * 100;
+
+    // Generate unique bytes32 nonce from account + amount + nanosecond timestamp
+    let chain_id = body.chain_id.unwrap_or(8453u64);
+    let ts_ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let nonce_input = format!("btcpc_claim:{}:{}:{}:{}", body.btcpc_account, body.amount_dreams, chain_id, ts_ns);
+    let nonce_b32: [u8; 32] = Keccak256::digest(nonce_input.as_bytes()).into();
+    let nonce_hex = hex::encode(&nonce_b32);
+    let nonce_key = format!("cc_nonce:{}", &nonce_hex);
+
+    if s.chain.store.state_get(&nonce_key).is_some() {
+        return Err((StatusCode::CONFLICT, Json(serde_json::json!({"error": "nonce collision, retry"}))));
+    }
+
+    // abi.encodePacked(uint256 chainId, address sender, bytes32 account, uint256 amount, bytes32 nonce)
+    // uint256: 32 bytes BE  |  address: 20 bytes  |  bytes32: 32 bytes  |  uint256: 32 bytes BE  |  bytes32: 32 bytes
+    let mut packed = Vec::with_capacity(148);
+    let mut chain_id_be = [0u8; 32];
+    chain_id_be[24..].copy_from_slice(&chain_id.to_be_bytes()); // u64 → last 8 bytes of uint256
+    packed.extend_from_slice(&chain_id_be);
+    packed.extend_from_slice(&eth_bytes);
+    packed.extend_from_slice(&account_b32);
+    let mut amount_be = [0u8; 32];
+    amount_be[16..].copy_from_slice(&amount_raw.to_be_bytes()); // u128 → last 16 bytes of uint256
+    packed.extend_from_slice(&amount_be);
+    packed.extend_from_slice(&nonce_b32);
+
+    let msg_hash: [u8; 32] = Keccak256::digest(&packed).into();
+
+    // EIP-191: keccak256("\x19Ethereum Signed Message:\n32" || msgHash)
+    let mut prefixed = Vec::with_capacity(60);
+    prefixed.extend_from_slice(b"\x19Ethereum Signed Message:\n32");
+    prefixed.extend_from_slice(&msg_hash);
+    let eth_hash: [u8; 32] = Keccak256::digest(&prefixed).into();
+
+    let secp = Secp256k1::signing_only();
+    let msg = Message::from_digest(eth_hash);
+    let (rec_id, sig_compact) = secp.sign_ecdsa_recoverable(&msg, &secret_key).serialize_compact();
+    let mut sig_65 = [0u8; 65];
+    sig_65[..64].copy_from_slice(&sig_compact);
+    sig_65[64] = rec_id.to_i32() as u8 + 27;
+
+    // Record nonce
+    let _ = s.chain.store.state_set(&nonce_key, &serde_json::to_vec(&ts_ns).unwrap());
+
+    // Burn BTCPC via BridgeWrap
+    let tx_nonce: u64 = s.chain.store.get_account(&body.btcpc_account)
+        .ok().flatten()
+        .and_then(|st| st.get("nonce").and_then(|v| v.as_u64()))
+        .unwrap_or(0);
+    let epoch = s.chain.current_epoch();
+    let wrap_entry = btcpc_types::LedgerEntry::BridgeWrap {
+        account: body.btcpc_account.clone(),
+        amount_dreams: body.amount_dreams,
+        external_address: format!("0x{}", hex::encode(&eth_bytes)),
+        chain: format!("eip155:{}", chain_id),
+        epoch,
+        nonce: tx_nonce,
+        signed_by: body.btcpc_account.clone(),
+        signature: body.signature.clone(),
+    };
+    s.chain.push_pending(wrap_entry.clone(), body.signature.clone());
+    let _ = s.tx_broadcast.send((wrap_entry, body.signature));
+
+    Ok(Json(serde_json::json!({
+        "btcpc_account": body.btcpc_account,
+        "eth_address": format!("0x{}", hex::encode(&eth_bytes)),
+        "amount_dreams": body.amount_dreams,
+        "amount_wbtcpc_raw": amount_raw.to_string(),
+        "chain_id": chain_id,
+        "nonce": format!("0x{}", nonce_hex),
+        "signature": format!("0x{}", hex::encode(&sig_65)),
+        "claim_fee_wei": "100000000000000",
+        "note": "Call wBTCPC.claim(btcpcAccount, amount, nonce, signature) on Base. Send claim_fee_wei as msg.value."
+    })))
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
