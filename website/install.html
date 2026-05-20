@@ -210,80 +210,6 @@
     The Terminal card (bash curl one-liner) will NOT work in plain Windows PowerShell because it needs a Unix shell.
   </div>
 
-  <!-- Agent instructions -->
-  <div style="max-width:900px;margin:0 auto 40px;padding:0 24px;">
-    <div style="background:#0d1117;border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:28px;">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#22c55e;font-weight:700;margin-bottom:14px;">For AI agents — read before running anything</div>
-      <p style="font-size:14px;color:#94a3b8;margin:0 0 20px;line-height:1.7;">If you are an AI agent installing BTCPC on a machine, use the decision tree below to pick the right path and verify success. Do not guess — check first.</p>
-
-      <div style="background:#050908;border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:16px 18px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:12px;color:#86efac;white-space:pre;overflow-x:auto;line-height:1.8;margin-bottom:16px;">## STEP 0 — Check if already installed
-btcpc --version
-# IF prints a version → already installed. Skip to STEP 4 (verify).
-# IF command not found → continue to STEP 1.
-
-## STEP 1 — Identify the runtime environment
-uname -s          # Darwin = macOS, Linux = Linux/server
-uname -m          # x86_64 / aarch64
-cat /etc/os-release 2>/dev/null | grep ID   # ubuntu / debian / alpine
-which docker 2>/dev/null &amp;&amp; echo DOCKER_AVAILABLE
-# Android / Termux: 'uname -s' prints Linux, $PREFIX contains /data/data/com.termux
-
-## STEP 2 — Choose install path
-# macOS or Linux (server/CI/desktop) → use Terminal one-liner (STEP 3A)
-# Windows (PowerShell available) → use Docker (STEP 3B)
-# Android + Termux shell → see /android-install page
-# No shell at all → use Telegram bot @btcpcbot for wallet only
-
-## STEP 3A — Terminal install (macOS / Linux / WSL)
-curl https://btcpc.net/install.sh | bash
-# Expected: script prints progress, ends with "BTCPC node is running"
-# IF error "ollama not found" → install Ollama first: https://ollama.ai/download
-# IF error "permission denied" → run: chmod +x ~/.btcpc/btcpc
-
-## STEP 3B — Docker install (Windows / any platform with Docker)
-# Requires: Docker Desktop running (whale icon in tray)
-#
-# Mac / Linux:
-curl -O https://btcpc.net/docker-compose.yml
-BTCPC_MINER=&lt;your-username&gt; docker compose up -d
-#
-# Windows PowerShell:
-Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml
-$env:BTCPC_MINER="&lt;your-username&gt;"; docker compose up -d
-
-## STEP 4 — Verify installation
-btcpc --version
-# Expected: btcpc X.Y.Z
-curl http://localhost:4242/api/node/info
-# Expected: {"chain_id":"btcpc-1","account":"...","epoch":...}
-docker logs btcpc-node 2&gt;&amp;1 | tail -5   # if using Docker
-# Expected: "Registered tunnel connection" or "Epoch sealed"</div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
-        <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#f7931a;font-weight:700;margin-bottom:10px;">Rules for agents</div>
-          <ul style="margin:0;padding-left:18px;font-size:13px;color:#94a3b8;line-height:1.9;">
-            <li>Run <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc --version</code> first — skip install if already done</li>
-            <li>Never pipe curl to bash without confirming the URL is <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc.net</code></li>
-            <li>Use Docker path on Windows — the bash one-liner fails in PowerShell</li>
-            <li>After install, confirm with <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">localhost:4242/api/node/info</code> before proceeding</li>
-            <li>Then go to <a href="/integrate" style="color:#f7931a;">btcpc.net/integrate</a> to set up your wallet and API key</li>
-          </ul>
-        </div>
-        <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#f7931a;font-weight:700;margin-bottom:10px;">Path selector</div>
-          <table style="width:100%;font-size:12px;border-collapse:collapse;color:#94a3b8;">
-            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">macOS / Linux</td><td style="padding:6px 4px;color:#22c55e;">Terminal one-liner</td></tr>
-            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Windows</td><td style="padding:6px 4px;color:#22c55e;">Docker Desktop</td></tr>
-            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Server / CI</td><td style="padding:6px 4px;color:#22c55e;">Terminal one-liner</td></tr>
-            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Android</td><td style="padding:6px 4px;color:#22c55e;">APK or Termux</td></tr>
-            <tr><td style="padding:6px 4px;color:#e2e8f0;">Wallet only</td><td style="padding:6px 4px;color:#22c55e;">Telegram @btcpcbot</td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="install-grid">
 
     <!-- Native Desktop App -->
@@ -420,6 +346,80 @@ docker logs btcpc-node 2&gt;&amp;1 | tail -5   # if using Docker
       <span class="card-action">Open @btcpcbot →</span>
     </a>
 
+  </div>
+
+  <!-- Agent instructions — at the bottom, agents can scroll -->
+  <div style="max-width:900px;margin:0 auto 60px;padding:0 24px;">
+    <div style="background:#0d1117;border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:28px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#22c55e;font-weight:700;margin-bottom:14px;">For AI agents — read before running anything</div>
+      <p style="font-size:14px;color:#94a3b8;margin:0 0 20px;line-height:1.7;">If you are an AI agent installing BTCPC on a machine, use the decision tree below to pick the right path and verify success. Do not guess — check first.</p>
+
+      <div style="background:#050908;border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:16px 18px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:12px;color:#86efac;white-space:pre;overflow-x:auto;line-height:1.8;margin-bottom:16px;">## STEP 0 — Check if already installed
+btcpc --version
+# IF prints a version → already installed. Skip to STEP 4 (verify).
+# IF command not found → continue to STEP 1.
+
+## STEP 1 — Identify the runtime environment
+uname -s          # Darwin = macOS, Linux = Linux/server
+uname -m          # x86_64 / aarch64
+cat /etc/os-release 2>/dev/null | grep ID   # ubuntu / debian / alpine
+which docker 2>/dev/null &amp;&amp; echo DOCKER_AVAILABLE
+# Android / Termux: 'uname -s' prints Linux, $PREFIX contains /data/data/com.termux
+
+## STEP 2 — Choose install path
+# macOS or Linux (server/CI/desktop) → use Terminal one-liner (STEP 3A)
+# Windows (PowerShell available) → use Docker (STEP 3B)
+# Android + Termux shell → see /android-install page
+# No shell at all → use Telegram bot @btcpcbot for wallet only
+
+## STEP 3A — Terminal install (macOS / Linux / WSL)
+curl https://btcpc.net/install.sh | bash
+# Expected: script prints progress, ends with "BTCPC node is running"
+# IF error "ollama not found" → install Ollama first: https://ollama.ai/download
+# IF error "permission denied" → run: chmod +x ~/.btcpc/btcpc
+
+## STEP 3B — Docker install (Windows / any platform with Docker)
+# Requires: Docker Desktop running (whale icon in tray)
+#
+# Mac / Linux:
+curl -O https://btcpc.net/docker-compose.yml
+BTCPC_MINER=&lt;your-username&gt; docker compose up -d
+#
+# Windows PowerShell:
+Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml
+$env:BTCPC_MINER="&lt;your-username&gt;"; docker compose up -d
+
+## STEP 4 — Verify installation
+btcpc --version
+# Expected: btcpc X.Y.Z
+curl http://localhost:4242/api/node/info
+# Expected: {"chain_id":"btcpc-1","account":"...","epoch":...}
+docker logs btcpc-node 2&gt;&amp;1 | tail -5   # if using Docker
+# Expected: "Registered tunnel connection" or "Epoch sealed"</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+        <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#f7931a;font-weight:700;margin-bottom:10px;">Rules for agents</div>
+          <ul style="margin:0;padding-left:18px;font-size:13px;color:#94a3b8;line-height:1.9;">
+            <li>Run <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc --version</code> first — skip install if already done</li>
+            <li>Never pipe curl to bash without confirming the URL is <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc.net</code></li>
+            <li>Use Docker path on Windows — the bash one-liner fails in PowerShell</li>
+            <li>After install, confirm with <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">localhost:4242/api/node/info</code> before proceeding</li>
+            <li>Then go to <a href="/integrate" style="color:#f7931a;">btcpc.net/integrate</a> to set up your wallet and API key</li>
+          </ul>
+        </div>
+        <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#f7931a;font-weight:700;margin-bottom:10px;">Path selector</div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse;color:#94a3b8;">
+            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">macOS / Linux</td><td style="padding:6px 4px;color:#22c55e;">Terminal one-liner</td></tr>
+            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Windows</td><td style="padding:6px 4px;color:#22c55e;">Docker Desktop</td></tr>
+            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Server / CI</td><td style="padding:6px 4px;color:#22c55e;">Terminal one-liner</td></tr>
+            <tr style="border-bottom:1px solid #1e2a3a;"><td style="padding:6px 4px;color:#e2e8f0;">Android</td><td style="padding:6px 4px;color:#22c55e;">APK or Termux</td></tr>
+            <tr><td style="padding:6px 4px;color:#e2e8f0;">Wallet only</td><td style="padding:6px 4px;color:#22c55e;">Telegram @btcpcbot</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="footer">

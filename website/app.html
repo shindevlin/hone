@@ -60,81 +60,6 @@
     .brand-mark { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; box-shadow: 0 0 14px rgba(247,147,26,0.35); }
     #nav-bar a.active { color: var(--orange); }
 
-    /* SovAI Summit welcome */
-    #sovai-welcome {
-      position: fixed; inset: 0; z-index: 100;
-      display: none; align-items: center; justify-content: center;
-      padding: 18px; background: rgba(2, 14, 9, 0.78);
-    }
-    #sovai-welcome.active { display: flex; }
-    .sovai-panel {
-      width: min(560px, 100%);
-      border: 1px solid #c9a96e;
-      border-radius: 8px;
-      background: #0a3d2a;
-      color: #f0ece4;
-      font-family: Tahoma, Arial, sans-serif;
-      overflow: hidden;
-      box-shadow: 0 22px 80px rgba(0,0,0,0.55);
-    }
-    .sovai-hero {
-      min-height: 150px;
-      background-image:
-        linear-gradient(180deg, rgba(10,61,42,0.12), rgba(10,61,42,0.92)),
-        url('https://sovaisummit.com/wp-content/uploads/2026/02/Hero_Dark_Green-scaled.png');
-      background-size: cover;
-      background-position: center;
-      display: flex;
-      align-items: flex-end;
-      padding: 22px;
-    }
-    .sovai-eyebrow {
-      color: #9dcc52;
-      font-size: 12px;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-    .sovai-title {
-      color: #f0ece4;
-      font-size: 28px;
-      line-height: 1.1;
-      font-weight: 800;
-      margin: 0;
-    }
-    .sovai-body {
-      padding: 18px 22px 22px;
-      border-top: 1px solid rgba(201,169,110,0.45);
-      background: rgba(0,0,0,0.18);
-    }
-    .sovai-body p {
-      color: #f0ece4;
-      font-size: 14px;
-      line-height: 1.55;
-      margin-bottom: 14px;
-    }
-    .sovai-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-    .sovai-actions button {
-      border-radius: 6px;
-      border: 1px solid #c9a96e;
-      padding: 11px 12px;
-      font-family: Tahoma, Arial, sans-serif;
-      cursor: pointer;
-      font-weight: 700;
-    }
-    .sovai-primary { background: #9dcc52; color: #0a3d2a; }
-    .sovai-secondary { background: transparent; color: #f0ece4; }
-    .sovai-dismiss {
-      grid-column: 1 / -1;
-      background: rgba(0,0,0,0.18);
-      color: #f0ece4;
-    }
-
     /* Screens */
     .screen { display: none; max-width: 480px; margin: 0 auto; padding: 20px 16px; padding-bottom: 72px; }
     .screen.active { display: block; }
@@ -573,25 +498,6 @@
       <circle cx="60" cy="95" r="3" fill="#22c55e"><animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/></circle>
     </svg>
     <span>Resuming session...</span>
-  </div>
-
-  <div id="sovai-welcome" role="dialog" aria-modal="true" aria-labelledby="sovai-title">
-    <div class="sovai-panel">
-      <div class="sovai-hero">
-        <div>
-          <div class="sovai-eyebrow">SovAI Summit 2026</div>
-          <h2 class="sovai-title" id="sovai-title">Welcome, sovereign AI builders.</h2>
-        </div>
-      </div>
-      <div class="sovai-body">
-        <p>BTCPC turns useful compute, sensors, and storage into sovereign AI infrastructure. Create a wallet, run a node, and earn tokens by helping build the only truly sovereign AI in existence.</p>
-        <div class="sovai-actions">
-          <button class="sovai-primary" id="sovai-create">Create Wallet</button>
-          <button class="sovai-secondary" id="sovai-node">Run a Node</button>
-          <button class="sovai-dismiss" id="sovai-dismiss">Continue</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Screen: Setup -->
@@ -2970,34 +2876,6 @@ function showScreen(id) {
   document.getElementById(id).classList.add('active');
 }
 
-// ─── SovAI Summit Welcome ───
-(function initSovaiWelcome() {
-  const modal = document.getElementById('sovai-welcome');
-  if (!modal) return;
-  const dismissedKey = 'btcpc-sovai-summit-welcome-dismissed';
-  if (!localStorage.getItem(dismissedKey)) modal.classList.add('active');
-  function close() {
-    localStorage.setItem(dismissedKey, '1');
-    modal.classList.remove('active');
-  }
-  const createBtn = document.getElementById('sovai-create');
-  const nodeBtn = document.getElementById('sovai-node');
-  const dismissBtn = document.getElementById('sovai-dismiss');
-  if (createBtn) createBtn.addEventListener('click', () => {
-    close();
-    showScreen('screen-setup');
-    const accountInput = document.getElementById('input-account');
-    if (accountInput) accountInput.focus();
-  });
-  if (nodeBtn) nodeBtn.addEventListener('click', () => {
-    close();
-    window.open('/setup.html', '_blank', 'noopener');
-  });
-  if (dismissBtn) dismissBtn.addEventListener('click', close);
-  modal.addEventListener('click', (event) => {
-    if (event.target === modal) close();
-  });
-})();
 
 // ─── Setup ───
 document.getElementById('btn-start').addEventListener('click', async () => {

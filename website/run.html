@@ -171,6 +171,70 @@
       font-size: 13px;
     }
     .footer a { color: #f7931a; text-decoration: none; }
+
+    .github-strip {
+      max-width: 760px;
+      margin: 0 auto 56px;
+      padding: 0 24px;
+    }
+    .github-card {
+      background: linear-gradient(135deg, #0f1420 0%, #0d1117 100%);
+      border: 1px solid #30363d;
+      border-radius: 16px;
+      padding: 36px 40px;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .github-card .gh-icon { font-size: 48px; flex-shrink: 0; }
+    .github-card .gh-body { flex: 1; min-width: 200px; }
+    .github-card h3 { font-size: 20px; font-weight: 800; margin: 0 0 6px; }
+    .github-card p { font-size: 14px; color: #94a3b8; margin: 0 0 16px; line-height: 1.5; }
+    .gh-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #f7931a; color: #000;
+      padding: 11px 22px; border-radius: 8px;
+      font-weight: 700; font-size: 14px; text-decoration: none;
+    }
+    .gh-btn:hover { opacity: .85; }
+
+    .cloud-section {
+      max-width: 1040px;
+      margin: 0 auto 64px;
+      padding: 0 24px;
+    }
+    .cloud-section h2 { font-size: 22px; font-weight: 800; margin: 0 0 6px; }
+    .cloud-section .sub { font-size: 14px; color: #64748b; margin: 0 0 24px; }
+    .cloud-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .cloud-card {
+      background: #0f1420;
+      border: 1px solid #1e2a3a;
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .cloud-card .cc-head { display: flex; align-items: center; gap: 12px; }
+    .cloud-card .cc-logo { font-size: 28px; }
+    .cloud-card .cc-name { font-size: 16px; font-weight: 700; }
+    .cloud-card .cc-desc { font-size: 13px; color: #64748b; line-height: 1.5; }
+    .deploy-btn {
+      display: inline-block;
+      background: rgba(247,147,26,.12);
+      color: #f7931a;
+      border: 1px solid rgba(247,147,26,.3);
+      padding: 9px 18px; border-radius: 7px;
+      font-weight: 700; font-size: 13px;
+      text-decoration: none; text-align: center;
+      transition: background .15s;
+    }
+    .deploy-btn:hover { background: rgba(247,147,26,.22); }
   </style>
 </head>
 <body>
@@ -179,6 +243,7 @@
 <section class="hero">
   <h1>Run a <span>BTCPC</span> Node</h1>
   <p>Pick your device. Copy one command. You're earning in under 2 minutes.</p>
+  <p style="margin-top:12px;font-size:15px;color:#4ade80;font-weight:700;">Free to download. Free to run. Always.</p>
 </section>
 
 <div class="platform-grid">
@@ -186,7 +251,7 @@
   <!-- Windows -->
   <div class="platform-card recommended">
     <span class="platform-icon">🪟</span>
-    <div class="platform-name">Windows</div>
+    <div class="platform-name">Windows <span style="font-size:12px;font-weight:700;background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);border-radius:4px;padding:2px 8px;vertical-align:middle;">FREE</span></div>
     <div class="platform-who">Works on Windows 10 &amp; 11</div>
 
     <div class="step">
@@ -223,7 +288,7 @@
   <!-- Mac / Linux -->
   <div class="platform-card">
     <span class="platform-icon">🍎 🐧</span>
-    <div class="platform-name">Mac or Linux</div>
+    <div class="platform-name">Mac or Linux <span style="font-size:12px;font-weight:700;background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);border-radius:4px;padding:2px 8px;vertical-align:middle;">FREE</span></div>
     <div class="platform-who">macOS 12+ · Ubuntu · Debian · any Linux</div>
 
     <div class="step">
@@ -258,7 +323,7 @@
   <!-- Android -->
   <div class="platform-card">
     <span class="platform-icon">📱</span>
-    <div class="platform-name">Android Phone</div>
+    <div class="platform-name">Android Phone <span style="font-size:12px;font-weight:700;background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);border-radius:4px;padding:2px 8px;vertical-align:middle;">FREE</span></div>
     <div class="platform-who">Android 8+ · runs in background</div>
 
     <div class="step">
@@ -292,6 +357,40 @@
 
 </div>
 
+<!-- GitHub App — one-click install -->
+<div class="github-strip">
+  <div class="github-card">
+    <div class="gh-icon">⚡</div>
+    <div class="gh-body">
+      <h3>Install as a GitHub App</h3>
+      <p>Click Install, pick your repos — done. BTCPC creates your account on-chain automatically.
+         No terminal, no config. Your GitHub identity becomes your BTCPC identity.</p>
+      <span class="gh-btn" style="opacity:.45;cursor:default;pointer-events:none;">
+        Coming soon
+      </span>
+      <span style="display:block;margin-top:10px;font-size:12px;color:#64748b;">
+        GitHub App registration in progress — webhook backend is live, app listing pending.
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Run in the cloud via BTCPC hosting -->
+<div class="cloud-section">
+  <h2>Don't want to run it yourself?</h2>
+  <p class="sub">Pay 5 BTCPC once — a service node on the network runs your node for 30 days. No VPS, no credit card, no server to manage.</p>
+  <div class="cloud-grid" style="max-width:400px;">
+    <div class="cloud-card" style="border-color: rgba(247,147,26,.4);">
+      <div class="cc-head">
+        <span class="cc-logo">⛓️</span>
+        <span class="cc-name" style="color:#f7931a;">BTCPC Network Hosting</span>
+      </div>
+      <div class="cc-desc">Pay once in BTCPC, get a clock node running on the network for 30 days. Renews with one click.</div>
+      <a href="/app?action=host-node" class="deploy-btn" style="background:rgba(247,147,26,.2);border-color:rgba(247,147,26,.5);color:#f7931a;">Deploy with BTCPC →</a>
+    </div>
+  </div>
+</div>
+
 <!-- What you earn -->
 <div class="earn-strip">
   <h2>What you earn</h2>
@@ -321,6 +420,7 @@
 
 <div class="footer">
   Questions? <a href="https://t.me/btcpcbot" target="_blank" rel="noopener">@btcpcbot on Telegram</a> &nbsp;·&nbsp;
+  <a href="/download">Download binary</a> &nbsp;·&nbsp;
   <a href="/install">All install options</a> &nbsp;·&nbsp;
   <a href="/app">Open wallet</a>
 </div>

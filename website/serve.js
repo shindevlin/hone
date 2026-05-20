@@ -119,6 +119,7 @@ app.use((req, res, next) => {
   const htmlPath = path.join(ROOT, req.path + ".html");
   require("fs").stat(htmlPath, (err, stats) => {
     if (!err && stats.isFile()) {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(htmlPath);
     } else {
       next();

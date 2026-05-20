@@ -1,318 +1,229 @@
 #!/usr/bin/env bash
-# BTCPC Universal Installer - Self-Healing Edition
-# Supports: macOS, Linux (apt/yum/pacman/apk), Windows WSL
-# Usage: curl https://btcpc.net/install.sh | bash
-# Database is optional (Phase F) - no database install required.
+# BTCPC Node Installer
+# Usage: curl -fsSL https://btcpc.net/install.sh | bash
+set -e
 
-REPO_URL="${BTCPC_REPO_URL:-https://github.com/shindevlin/btcpc.git}"
-INSTALL_DIR="${BTCPC_INSTALL_DIR:-$HOME/.btcpc}"
-NODE_VERSION="${BTCPC_NODE_VERSION:-20}"
 ORANGE='\033[38;5;208m'
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 RESET='\033[0m'
 
-say() { printf "${ORANGE}[btcpc]${RESET} %s\n" "$1"; }
-ok()  { printf "${GREEN}[ok]${RESET} %s\n" "$1"; }
+say()  { printf "${ORANGE}[btcpc]${RESET} %s\n" "$1"; }
+ok()   { printf "${GREEN}[ok]${RESET} %s\n" "$1"; }
+err()  { printf "${RED}[error]${RESET} %s\n" "$1" >&2; exit 1; }
 
 cat <<'BANNER'
 
-  ######   ######## ######  ######  ######
-  ##  ##      ##    ##      ##  ##  ##
-  ######      ##    ##      ######  ##
-  ##  ##      ##    ##      ##      ##
-  ######      ##    ######  ##      ######
+  ██████╗ ████████╗ ██████╗██████╗  ██████╗
+  ██╔══██╗╚══██╔══╝██╔════╝██╔══██╗██╔════╝
+  ██████╔╝   ██║   ██║     ██████╔╝██║
+  ██╔══██╗   ██║   ██║     ██╔═══╝ ██║
+  ██████╔╝   ██║   ╚██████╗██║     ╚██████╗
+  ╚═════╝    ╚═╝    ╚═════╝╚═╝      ╚═════╝
 
-  Bitcoin Proof of Compute -- Universal Installer
+  Bitcoin Proof of Compute — Free to run, free forever.
 
 BANNER
 
-# ------------------------------------------------------------------
-# Detect OS
-# ------------------------------------------------------------------
+# ── Detect OS / arch ──────────────────────────────────────────────────────────
 OS="$(uname -s)"
-case "$OS" in
-  Darwin*)  PLATFORM="mac"; PKG="brew" ;;
-  Linux*)
-    PLATFORM="linux"
-    if   command -v apt-get  >/dev/null 2>&1; then PKG="apt"
-    elif command -v dnf      >/dev/null 2>&1; then PKG="dnf"
-    elif command -v yum      >/dev/null 2>&1; then PKG="yum"
-    elif command -v pacman   >/dev/null 2>&1; then PKG="pacman"
-    elif command -v apk      >/dev/null 2>&1; then PKG="apk"
-    else PKG="unknown"
-    fi
-    if grep -qi microsoft /proc/version 2>/dev/null; then
-      PLATFORM="wsl"
-    fi
-    ;;
-  CYGWIN*|MINGW*|MSYS*)
-    say "Native Windows shell detected. Use the .bat or .ps1 installer instead:"
-    say "  https://btcpc.net/install"
-    say "Sleeping 30 seconds before exiting."
-    sleep 30
-    exit 0
-    ;;
-  *)
-    say "Unknown OS: $OS. Attempting to continue anyway..."
-    PLATFORM="unknown"; PKG="unknown"
-    ;;
-esac
-
 ARCH="$(uname -m)"
-say "Detected: $PLATFORM ($ARCH) using $PKG"
 
-# ------------------------------------------------------------------
-# Role selection
-# ------------------------------------------------------------------
-cat <<'ROLES'
-
-  Which roles do you want to run?
-
-  [1] Clock only       (~50 MB — earns clock rewards, no GPU needed)
-  [2] Clock + Miner    (needs Ollama ~2 GB — earns mining + clock rewards)
-  [3] Clock + Storage  (needs disk space — earns storage + clock rewards)
-  [4] Full node        (all roles — clock + miner + storage + worker)
-
-ROLES
-
-BTCPC_ROLE_CHOICE="${BTCPC_ROLE:-}"
-if [ -z "$BTCPC_ROLE_CHOICE" ]; then
-  printf "  Choice [1-4, default=2]: "
-  read -r BTCPC_ROLE_CHOICE </dev/tty || BTCPC_ROLE_CHOICE="2"
-fi
-case "$BTCPC_ROLE_CHOICE" in
-  1) BTCPC_ROLES="clock";                  say "Role: Clock only" ;;
-  3) BTCPC_ROLES="clock,storage";          say "Role: Clock + Storage" ;;
-  4) BTCPC_ROLES="clock,miner,storage,worker"; say "Role: Full node" ;;
-  *) BTCPC_ROLES="clock,miner";            say "Role: Clock + Miner" ;;
+case "$OS" in
+  Linux*)  PLATFORM="linux" ;;
+  Darwin*) PLATFORM="mac"   ;;
+  CYGWIN*|MINGW*|MSYS*) err "Use the Windows installer: https://btcpc.net/install" ;;
+  *) err "Unsupported OS: $OS" ;;
 esac
-export BTCPC_ROLES
 
-WANT_MINER=false
-case "$BTCPC_ROLES" in *miner*) WANT_MINER=true ;; esac
+case "$ARCH" in
+  x86_64|amd64)   ARCH_TAG="amd64" ;;
+  aarch64|arm64)  ARCH_TAG="arm64" ;;
+  *) ARCH_TAG="amd64" ;;
+esac
 
-# ------------------------------------------------------------------
-# Install helper (with retry)
-# ------------------------------------------------------------------
-need_cmd() {
-  local cmd="$1"
-  if command -v "$cmd" >/dev/null 2>&1; then
-    return 0
-  fi
-  say "Installing $cmd..."
-  local installed=false
-  while [ "$installed" = "false" ]; do
-    case "$PKG" in
-      brew)
-        if ! command -v brew >/dev/null 2>&1; then
-          say "Homebrew not found. Installing it first..."
-          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        fi
-        brew install "$cmd" && installed=true || true
-        ;;
-      apt)    sudo apt-get update -qq && sudo apt-get install -y "$cmd" && installed=true || true ;;
-      dnf)    sudo dnf install -y "$cmd" && installed=true || true ;;
-      yum)    sudo yum install -y "$cmd" && installed=true || true ;;
-      pacman) sudo pacman -Sy --noconfirm "$cmd" && installed=true || true ;;
-      apk)    sudo apk add --no-cache "$cmd" && installed=true || true ;;
-      *)
-        say "Cannot auto-install $cmd on $PLATFORM. Retrying in 30 seconds..."
-        sleep 30
-        ;;
-    esac
-    if [ "$installed" = "false" ]; then
-      say "Installation of $cmd failed. Retrying in 15 seconds..."
-      sleep 15
-    fi
-  done
-  ok "$cmd installed"
-}
+BIN_NAME="btcpc-node-${PLATFORM}-${ARCH_TAG}"
+DOWNLOAD_URL="https://btcpc.net/downloads/${BIN_NAME}"
+INSTALL_BIN="/usr/local/bin/btcpc-node"
+DATA_DIR="${BTCPC_DATA_DIR:-$HOME/.btcpc}"
 
-# ------------------------------------------------------------------
-# 1. Required tools: curl, git
-# ------------------------------------------------------------------
-say "Checking required tools..."
-need_cmd curl
-need_cmd git
+# ── Ask account name ──────────────────────────────────────────────────────────
+if [ -z "${BTCPC_ACCOUNT:-}" ]; then
+  printf "${ORANGE}[btcpc]${RESET} Enter your BTCPC username (letters, numbers, hyphens): "
+  read -r BTCPC_ACCOUNT
+fi
+[ -z "$BTCPC_ACCOUNT" ] && err "Account name required."
 
-# ------------------------------------------------------------------
-# 2. Node.js (via nvm - no sudo, no system pollution)
-# ------------------------------------------------------------------
-NODE_OK=false
-if command -v node >/dev/null 2>&1; then
-  CURRENT_NODE="$(node -v | sed 's/^v//' | cut -d. -f1)"
-  if [ "$CURRENT_NODE" -ge "$NODE_VERSION" ] 2>/dev/null; then
-    NODE_OK=true
-    ok "Node.js $(node -v) already installed"
-  fi
+# ── Role selection ────────────────────────────────────────────────────────────
+if [ -z "${BTCPC_ROLE_CHOICE:-}" ]; then
+  echo ""
+  say "Choose your node role:"
+  echo "  1) Clock only      — lightweight, any machine, no GPU needed"
+  echo "  2) Clock + Miner   — runs Ollama inference (default, GPU recommended)"
+  echo "  3) Full node       — clock + miner + storage"
+  printf "${ORANGE}[btcpc]${RESET} Choice [1/2/3, default=2]: "
+  read -r BTCPC_ROLE_CHOICE
 fi
 
-if [ "$NODE_OK" = "false" ]; then
-  say "Installing Node.js $NODE_VERSION via nvm..."
-  while true; do
-    if [ ! -d "$HOME/.nvm" ]; then
-      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && break || true
-    else
-      break
-    fi
-    say "nvm install failed. Retrying in 15 seconds..."
-    sleep 15
-  done
-  export NVM_DIR="$HOME/.nvm"
-  # shellcheck disable=SC1091
-  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-  while ! nvm install "$NODE_VERSION" 2>/dev/null; do
-    say "nvm install $NODE_VERSION failed. Retrying in 15 seconds..."
-    sleep 15
-  done
-  nvm use "$NODE_VERSION" 2>/dev/null || true
-  ok "Node.js $(node -v) installed"
+case "${BTCPC_ROLE_CHOICE:-2}" in
+  1) BTCPC_CLOCK=true;  BTCPC_MINER=false; BTCPC_STORAGE=false ;;
+  3) BTCPC_CLOCK=true;  BTCPC_MINER=true;  BTCPC_STORAGE=true  ;;
+  *) BTCPC_CLOCK=true;  BTCPC_MINER=true;  BTCPC_STORAGE=false ;;
+esac
+
+# ── Download binary ───────────────────────────────────────────────────────────
+say "Downloading BTCPC node (${PLATFORM}/${ARCH_TAG})..."
+
+TMP="$(mktemp)"
+if curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP" 2>/dev/null; then
+  ok "Downloaded binary."
+else
+  say "Prebuilt binary not yet available for ${PLATFORM}/${ARCH_TAG}."
+  say "Building from source (requires Rust — this takes ~5 minutes)..."
+  if ! command -v cargo >/dev/null 2>&1; then
+    say "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+  BUILD_DIR="$(mktemp -d)"
+  git clone --depth=1 "${BTCPC_REPO_URL:-https://github.com/btcpc-network/btcpc}" "$BUILD_DIR" 2>/dev/null
+  cd "$BUILD_DIR/rust/btcpc-node"
+  cargo build --release --quiet
+  cp target/release/btcpc-node "$TMP"
+  cd - >/dev/null
+  rm -rf "$BUILD_DIR"
+  ok "Built from source."
 fi
 
-# ------------------------------------------------------------------
-# 3. Ollama (only when miner role selected)
-# ------------------------------------------------------------------
-if [ "$WANT_MINER" = "true" ]; then
-  if ! command -v ollama >/dev/null 2>&1; then
-    say "Installing Ollama (required for miner role)..."
-    while true; do
-      if curl -fsSL https://ollama.com/install.sh | sh; then
-        break
-      fi
-      say "Ollama install failed. Retrying in 15 seconds..."
-      sleep 15
-    done
-    ok "Ollama installed"
+chmod +x "$TMP"
+
+# Verify it runs
+if ! "$TMP" --version >/dev/null 2>&1; then
+  err "Downloaded binary failed to run. Try again or report at https://btcpc.net/help"
+fi
+
+# Install binary
+if install -m 755 "$TMP" "$INSTALL_BIN" 2>/dev/null; then
+  ok "Installed to $INSTALL_BIN"
+elif sudo install -m 755 "$TMP" "$INSTALL_BIN" 2>/dev/null; then
+  ok "Installed to $INSTALL_BIN (sudo)"
+else
+  mkdir -p "$HOME/.local/bin"
+  install -m 755 "$TMP" "$HOME/.local/bin/btcpc-node"
+  INSTALL_BIN="$HOME/.local/bin/btcpc-node"
+  ok "Installed to $INSTALL_BIN (user-local)"
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+rm -f "$TMP"
+
+# ── Data directory ────────────────────────────────────────────────────────────
+mkdir -p "$DATA_DIR"
+
+# ── Generate posting key (deterministic from account + machine-id) ────────────
+say "Generating key for @${BTCPC_ACCOUNT}..."
+MACHINE_ID="$(cat /etc/machine-id 2>/dev/null || hostname)"
+POSTING_KEY="$(printf '%s:%s' "$BTCPC_ACCOUNT" "$MACHINE_ID" | sha256sum | awk '{print $1}')"
+
+# ── Systemd service (Linux) ───────────────────────────────────────────────────
+if [ "$PLATFORM" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+  GENESIS_FILE="/usr/local/share/btcpc/genesis.json"
+
+  # Download genesis if not present
+  if [ ! -f "$GENESIS_FILE" ]; then
+    sudo mkdir -p "$(dirname "$GENESIS_FILE")" 2>/dev/null || mkdir -p "$HOME/.btcpc"
+    GENESIS_FILE="$HOME/.btcpc/genesis.json"
+    curl -fsSL https://btcpc.net/genesis.json -o "$GENESIS_FILE" 2>/dev/null || true
+  fi
+
+  SERVICE_DIR="$HOME/.config/systemd/user"
+  mkdir -p "$SERVICE_DIR"
+  cat > "$SERVICE_DIR/btcpc-node.service" <<SERVICE
+[Unit]
+Description=BTCPC Node (@${BTCPC_ACCOUNT})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${INSTALL_BIN}
+Environment="BTCPC_ACCOUNT=${BTCPC_ACCOUNT}"
+Environment="BTCPC_POSTING_KEY=${POSTING_KEY}"
+Environment="BTCPC_CHAIN_ID=btcpc-1"
+Environment="BTCPC_DATA_DIR=${DATA_DIR}"
+Environment="BTCPC_API_PORT=4242"
+Environment="BTCPC_P2P_PORT=6942"
+Environment="BTCPC_CLOCK=${BTCPC_CLOCK}"
+Environment="BTCPC_MINER=${BTCPC_MINER}"
+Environment="BTCPC_STORAGE=${BTCPC_STORAGE}"
+Environment="BTCPC_GENESIS_FILE=${GENESIS_FILE}"
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+SERVICE
+
+  systemctl --user daemon-reload
+  systemctl --user enable btcpc-node
+  systemctl --user start  btcpc-node
+
+  sleep 2
+  if systemctl --user is-active --quiet btcpc-node; then
+    ok "Node is running (systemd user service)."
   else
-    ok "Ollama already installed"
+    say "Service may still be starting. Check: systemctl --user status btcpc-node"
   fi
 
-  if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
-    say "Starting Ollama..."
-    nohup ollama serve >/dev/null 2>&1 &
-    sleep 2
-  fi
-else
-  say "Skipping Ollama (not needed for role: $BTCPC_ROLES)"
+elif [ "$PLATFORM" = "mac" ]; then
+  # macOS launchd plist
+  PLIST="$HOME/Library/LaunchAgents/net.btcpc.node.plist"
+  cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>net.btcpc.node</string>
+  <key>ProgramArguments</key>
+  <array><string>${INSTALL_BIN}</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BTCPC_ACCOUNT</key><string>${BTCPC_ACCOUNT}</string>
+    <key>BTCPC_POSTING_KEY</key><string>${POSTING_KEY}</string>
+    <key>BTCPC_CHAIN_ID</key><string>btcpc-1</string>
+    <key>BTCPC_DATA_DIR</key><string>${DATA_DIR}</string>
+    <key>BTCPC_API_PORT</key><string>4242</string>
+    <key>BTCPC_P2P_PORT</key><string>6942</string>
+    <key>BTCPC_CLOCK</key><string>${BTCPC_CLOCK}</string>
+    <key>BTCPC_MINER</key><string>${BTCPC_MINER}</string>
+    <key>BTCPC_STORAGE</key><string>${BTCPC_STORAGE}</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${DATA_DIR}/node.log</string>
+  <key>StandardErrorPath</key><string>${DATA_DIR}/node.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl load "$PLIST"
+  ok "Node started (launchd). Logs: $DATA_DIR/node.log"
 fi
 
-# ------------------------------------------------------------------
-# 3b. CUDA / GPU detection (WSL + Linux with NVIDIA)
-# ------------------------------------------------------------------
-if command -v nvidia-smi >/dev/null 2>&1; then
-  ok "NVIDIA GPU detected: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
-elif [ -f /usr/lib/wsl/lib/libcuda.so ] || [ -f /usr/lib/wsl/lib/libcuda.so.1 ]; then
-  say "WSL NVIDIA driver detected but nvidia-smi not found"
-  say "Installing CUDA toolkit for WSL..."
-  case "$PKG" in
-    apt)
-      # WSL already has the driver from Windows — just need the toolkit
-      if ! dpkg -l cuda-toolkit-12-* >/dev/null 2>&1; then
-        wget -q https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb 2>/dev/null && \
-        sudo dpkg -i /tmp/cuda-keyring.deb 2>/dev/null && \
-        sudo apt-get update -qq 2>/dev/null && \
-        sudo apt-get install -y cuda-toolkit-12-6 2>/dev/null && \
-        ok "CUDA toolkit installed" || say "CUDA install failed (non-fatal — Ollama may still use GPU)"
-      else
-        ok "CUDA toolkit already installed"
-      fi
-      ;;
-    *) say "CUDA auto-install only supported on apt-based systems. Install manually if needed." ;;
-  esac
-elif lspci 2>/dev/null | grep -qi nvidia; then
-  say "NVIDIA GPU detected but no driver installed"
-  say "Installing NVIDIA driver + CUDA..."
-  case "$PKG" in
-    apt)
-      sudo apt-get update -qq 2>/dev/null && \
-      sudo apt-get install -y nvidia-driver-535 nvidia-cuda-toolkit 2>/dev/null && \
-      ok "NVIDIA driver + CUDA installed (reboot may be required)" || \
-      say "NVIDIA driver install failed (non-fatal — Ollama will use CPU)"
-      ;;
-    dnf|yum)
-      sudo $PKG install -y nvidia-driver cuda-toolkit 2>/dev/null && \
-      ok "NVIDIA driver + CUDA installed" || say "NVIDIA install failed (non-fatal)"
-      ;;
-    pacman)
-      sudo pacman -Sy --noconfirm nvidia nvidia-utils cuda 2>/dev/null && \
-      ok "NVIDIA + CUDA installed" || say "NVIDIA install failed (non-fatal)"
-      ;;
-    *) say "Install NVIDIA drivers manually for GPU mining. Ollama will use CPU for now." ;;
-  esac
-else
-  say "No NVIDIA GPU detected — mining will use CPU (slower but still works)"
+# ── Ollama (miner only) ───────────────────────────────────────────────────────
+if [ "$BTCPC_MINER" = "true" ] && ! command -v ollama >/dev/null 2>&1; then
+  say "Installing Ollama for inference mining..."
+  curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null || true
 fi
 
-# ------------------------------------------------------------------
-# 4. Clone BTCPC
-# ------------------------------------------------------------------
-if [ -d "$INSTALL_DIR/.git" ]; then
-  say "BTCPC already installed at $INSTALL_DIR -- updating..."
-  cd "$INSTALL_DIR"
-  git pull --ff-only 2>/dev/null || true
-else
-  say "Cloning BTCPC to $INSTALL_DIR..."
-  if ! git clone "$REPO_URL" "$INSTALL_DIR" 2>/dev/null; then
-    # Try with GITHUB_TOKEN if set
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-      say "Retrying clone with GITHUB_TOKEN..."
-      AUTHED_URL="$(echo "$REPO_URL" | sed "s|https://|https://${GITHUB_TOKEN}@|")"
-      if ! git clone "$AUTHED_URL" "$INSTALL_DIR" 2>/dev/null; then
-        say "Clone failed even with GITHUB_TOKEN. This repo may be private and your token may not have access."
-        say "Set GITHUB_TOKEN to a valid personal access token with repo scope and retry."
-        say "Sleeping 30 seconds before exiting."
-        sleep 30
-        exit 0
-      fi
-    else
-      say "Clone failed. This repo may be private. Set GITHUB_TOKEN env var with repo access and retry."
-      say "Sleeping 30 seconds before exiting."
-      sleep 30
-      exit 0
-    fi
-  fi
-  cd "$INSTALL_DIR"
-fi
-
-# ------------------------------------------------------------------
-# 5. npm install
-# ------------------------------------------------------------------
-say "Installing dependencies (this takes a minute)..."
-while ! npm install --silent 2>/dev/null; do
-  say "npm install failed. Retrying in 15 seconds..."
-  sleep 15
-done
-ok "dependencies installed"
-
-# ------------------------------------------------------------------
-# 6. Configure .env (database is optional - not required)
-# ------------------------------------------------------------------
-if [ ! -f "$INSTALL_DIR/.env" ]; then
-  say "Creating .env..."
-  JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | head -c 32 | xxd -p | tr -d '\n')"
-  cat > "$INSTALL_DIR/.env" <<EOF
-NODE_ENV=production
-PORT=3000
-OLLAMA_URL=http://localhost:11434
-JWT_SECRET=${JWT_SECRET}
-JWT_EXPIRES_IN=7d
-EOF
-  ok ".env created"
-fi
-
-# ------------------------------------------------------------------
-# 7. Launch the setup wizard (restart automatically on crash)
-# ------------------------------------------------------------------
-echo
-ok "Installation complete!"
-echo
-say "Launching the BTCPC intelligent installer..."
-say "(will detect your AI engines and ask what you want to run)"
-echo
-sleep 1
-cd "$INSTALL_DIR"
-while true; do
-  node bin/btcpc-setup 2>&1 || true
-  say "btcpc-setup exited. Restarting in 5 seconds..."
-  sleep 5
-done
+# ── Done ──────────────────────────────────────────────────────────────────────
+echo ""
+ok "BTCPC node installed and running."
+echo ""
+echo "  Account:    @${BTCPC_ACCOUNT}"
+echo "  Roles:      clock=${BTCPC_CLOCK} miner=${BTCPC_MINER} storage=${BTCPC_STORAGE}"
+echo "  API:        http://localhost:4242"
+echo "  Wallet:     https://btcpc.net/app"
+echo "  Logs:       journalctl --user -u btcpc-node -f"
+echo ""
+say "Rewards land every 30 seconds. Welcome to the network."

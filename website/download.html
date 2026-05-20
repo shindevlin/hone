@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download BTCPC Node</title>
+  <meta name="description" content="Download the BTCPC node binary for Linux, macOS, Windows, or Android. Free. No sign-up.">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { background: #080c14; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
+
+    .hero {
+      text-align: center;
+      padding: 72px 24px 48px;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    .hero h1 { font-size: 44px; font-weight: 800; margin: 0 0 16px; }
+    .hero h1 span { color: #f7931a; }
+    .hero p { font-size: 17px; color: #94a3b8; margin: 0 0 32px; }
+
+    .quick-install {
+      background: #0f1420;
+      border: 1px solid rgba(247,147,26,.35);
+      border-radius: 12px;
+      padding: 20px 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 16px;
+      max-width: 100%;
+      text-align: left;
+    }
+    .qi-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .qi-cmd { font-family: 'SF Mono','Fira Code',monospace; font-size: 14px; color: #f7931a; }
+    .qi-copy {
+      background: rgba(247,147,26,.12);
+      color: #f7931a;
+      border: 1px solid rgba(247,147,26,.3);
+      border-radius: 7px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      font-family: inherit;
+      transition: background .15s;
+    }
+    .qi-copy:hover { background: rgba(247,147,26,.22); }
+    .qi-copy.copied { background: #166534; color: #86efac; border-color: #166534; }
+
+    .section {
+      max-width: 860px;
+      margin: 0 auto 64px;
+      padding: 0 24px;
+    }
+    .section h2 { font-size: 20px; font-weight: 800; margin: 0 0 6px; }
+    .section .sub { font-size: 13px; color: #64748b; margin: 0 0 20px; }
+
+    .dl-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .dl-card {
+      background: #0f1420;
+      border: 1px solid #1e2a3a;
+      border-radius: 14px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .dl-card.featured { border-color: rgba(247,147,26,.4); }
+
+    .dl-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .dl-os { font-size: 36px; flex-shrink: 0; }
+    .dl-name { font-size: 18px; font-weight: 800; color: #e2e8f0; }
+    .dl-arch { font-size: 12px; color: #64748b; }
+
+    .dl-size { font-size: 12px; color: #64748b; }
+    .dl-note { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+
+    .dl-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #f7931a;
+      color: #000;
+      padding: 11px 22px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      align-self: flex-start;
+      margin-top: 4px;
+    }
+    .dl-btn:hover { opacity: .85; }
+    .dl-btn.ghost {
+      background: rgba(247,147,26,.1);
+      color: #f7931a;
+      border: 1px solid rgba(247,147,26,.3);
+    }
+    .dl-btn.disabled {
+      background: #1e2a3a;
+      color: #475569;
+      cursor: default;
+      pointer-events: none;
+    }
+    .dl-btn .arrow { font-size: 16px; }
+
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .badge.live { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+    .badge.soon { background: #1e2a3a; color: #64748b; border: 1px solid #2d3748; }
+
+    .verify-box {
+      background: #0f1420;
+      border: 1px solid #1e2a3a;
+      border-radius: 12px;
+      padding: 24px;
+      font-family: 'SF Mono','Fira Code',monospace;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.8;
+    }
+    .verify-box .comment { color: #475569; }
+    .verify-box .cmd { color: #f7931a; }
+
+    .manual-steps {
+      background: #0f1420;
+      border: 1px solid #1e2a3a;
+      border-radius: 12px;
+      padding: 24px 28px;
+    }
+    .manual-steps ol { margin: 0; padding: 0 0 0 20px; }
+    .manual-steps li { font-size: 14px; color: #94a3b8; line-height: 1.7; margin-bottom: 4px; }
+    .manual-steps li code { background: #0a0e17; border: 1px solid #1e2a3a; border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #f7931a; }
+
+    .also-strip {
+      text-align: center;
+      padding: 40px 24px 64px;
+      color: #64748b;
+      font-size: 14px;
+    }
+    .also-strip a { color: #f7931a; text-decoration: none; }
+    .also-strip a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<script src="/nav.js?v=2"></script>
+
+<section class="hero">
+  <h1>Download <span>BTCPC</span> Node</h1>
+  <p>Free to download. Free to run. No GPU required to get started.</p>
+
+  <div class="quick-install">
+    <div>
+      <div class="qi-label">Quickest install — Mac &amp; Linux</div>
+      <div class="qi-cmd">curl -fsSL https://btcpc.net/install.sh | bash</div>
+    </div>
+    <button class="qi-copy" onclick="copyInstall(this)">Copy</button>
+  </div>
+</section>
+
+<!-- Binary downloads -->
+<div class="section">
+  <h2>Prebuilt binaries</h2>
+  <p class="sub">Single static binary. Copy it anywhere, run it. No dependencies.</p>
+  <div class="dl-grid">
+
+    <!-- Linux x86-64 -->
+    <div class="dl-card featured">
+      <div class="dl-head">
+        <span class="dl-os">🐧</span>
+        <div>
+          <div class="dl-name">Linux</div>
+          <div class="dl-arch">x86-64 (amd64) &nbsp; <span class="badge live">Live</span></div>
+        </div>
+      </div>
+      <div class="dl-note">Ubuntu 20.04+, Debian 10+, Fedora 35+, any 64-bit Linux.</div>
+      <div class="dl-size">~40 MB · statically linked</div>
+      <a href="/downloads/btcpc-node-linux-amd64" class="dl-btn">
+        <span>&#8595;</span> Download binary
+      </a>
+    </div>
+
+    <!-- Linux ARM64 -->
+    <div class="dl-card">
+      <div class="dl-head">
+        <span class="dl-os">🐧</span>
+        <div>
+          <div class="dl-name">Linux ARM64</div>
+          <div class="dl-arch">aarch64 &nbsp; <span class="badge soon">Soon</span></div>
+        </div>
+      </div>
+      <div class="dl-note">Raspberry Pi 4/5, Oracle Ampere, AWS Graviton, Hetzner ARM.</div>
+      <span class="dl-btn disabled">Coming soon</span>
+    </div>
+
+    <!-- macOS -->
+    <div class="dl-card">
+      <div class="dl-head">
+        <span class="dl-os">🍎</span>
+        <div>
+          <div class="dl-name">macOS</div>
+          <div class="dl-arch">Apple Silicon + Intel &nbsp; <span class="badge soon">Soon</span></div>
+        </div>
+      </div>
+      <div class="dl-note">Universal binary for M1/M2/M3 and older Intel Macs. macOS 12+.</div>
+      <span class="dl-btn disabled">Coming soon</span>
+    </div>
+
+    <!-- Windows -->
+    <div class="dl-card">
+      <div class="dl-head">
+        <span class="dl-os">🪟</span>
+        <div>
+          <div class="dl-name">Windows</div>
+          <div class="dl-arch">x86-64 &nbsp; <span class="badge soon">Soon</span></div>
+        </div>
+      </div>
+      <div class="dl-note">Windows 10 / 11. For now, use the PowerShell installer on the <a href="/run" style="color:#f7931a;">Run a Node</a> page.</div>
+      <span class="dl-btn disabled">Coming soon</span>
+    </div>
+
+    <!-- Android -->
+    <div class="dl-card">
+      <div class="dl-head">
+        <span class="dl-os">📱</span>
+        <div>
+          <div class="dl-name">Android APK</div>
+          <div class="dl-arch">ARM64 &nbsp; <span class="badge live">Live</span></div>
+        </div>
+      </div>
+      <div class="dl-note">Android 8+. Clock node that earns while your phone charges. Sideload via browser.</div>
+      <a href="/android" class="dl-btn">
+        <span>&#8595;</span> Go to Android page
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<!-- Manual install (for people who downloaded raw binary) -->
+<div class="section">
+  <h2>Manual install (Linux)</h2>
+  <p class="sub">Downloaded the binary directly? Three steps.</p>
+  <div class="manual-steps">
+    <ol>
+      <li>Make it executable: <code>chmod +x btcpc-node-linux-amd64</code></li>
+      <li>Move it to your PATH: <code>sudo mv btcpc-node-linux-amd64 /usr/local/bin/btcpc-node</code></li>
+      <li>Run it: <code>BTCPC_ACCOUNT=yourname btcpc-node</code></li>
+    </ol>
+    <p style="margin:16px 0 0;font-size:13px;color:#64748b;">
+      For a persistent background service (auto-starts on boot), use the <a href="/run" style="color:#f7931a;">one-line installer</a> instead — it sets up systemd automatically.
+    </p>
+  </div>
+</div>
+
+<!-- Verify -->
+<div class="section">
+  <h2>Verify the binary</h2>
+  <p class="sub">Check the binary runs before you install it.</p>
+  <div class="verify-box">
+    <span class="comment"># After downloading to ~/Downloads/</span><br>
+    <span class="cmd">chmod +x ~/Downloads/btcpc-node-linux-amd64</span><br>
+    <span class="cmd">~/Downloads/btcpc-node-linux-amd64 --version</span><br>
+    <br>
+    <span class="comment"># Expected output:</span><br>
+    btcpc-node 0.1.0
+  </div>
+</div>
+
+<!-- Build from source -->
+<div class="section">
+  <h2>Build from source</h2>
+  <p class="sub">Requires Rust (rustup). Takes ~5 minutes on first build.</p>
+  <div class="verify-box">
+    <span class="comment"># Install Rust if you don't have it</span><br>
+    <span class="cmd">curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh</span><br>
+    <br>
+    <span class="comment"># Clone and build</span><br>
+    <span class="cmd">git clone https://github.com/btcpc-network/btcpc</span><br>
+    <span class="cmd">cd btcpc/rust/btcpc-node</span><br>
+    <span class="cmd">cargo build --release</span><br>
+    <br>
+    <span class="comment"># Binary at target/release/btcpc-node</span><br>
+    <span class="cmd">./target/release/btcpc-node --version</span>
+  </div>
+</div>
+
+<div class="also-strip">
+  <a href="/run">Guided setup (recommended for new users)</a>
+  &nbsp;·&nbsp;
+  <a href="/app">Open wallet</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/btcpc-network/btcpc" target="_blank" rel="noopener">Source on GitHub</a>
+</div>
+
+<script>
+function copyInstall(btn) {
+  navigator.clipboard.writeText('curl -fsSL https://btcpc.net/install.sh | bash').then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+</script>
+</body>
+</html>

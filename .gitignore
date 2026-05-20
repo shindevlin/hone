@@ -40,6 +40,7 @@ cache/
 website/BTCPC-android-release.apk
 website/BTCPC-desktop-linux.AppImage
 website/btcpc-desktop-linux.deb
+website/downloads/
 android/btcpc-release.keystore
 android/app/build/
 
