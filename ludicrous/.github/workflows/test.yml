@@ -1,0 +1,111 @@
+name: Test
+
+on:
+  push:
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/test.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  test-native:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup toolchain install stable --profile minimal
+      - run: rustup component add rustfmt clippy
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -yq && sudo apt-get install -yq libasound2-dev libfontconfig1-dev glslang-tools
+      - run: cargo fetch
+      - run: cargo fmt -- --check --color always
+      - run: cargo clippy --all-targets --all-features
+      - run: cargo test --release --features wgpu
+  msys2-build-test: #cargo test doesn't necessarily build the exec we want
+    strategy:
+      matrix:
+        sys: [MINGW64, UCRT64, CLANG64]
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.sys }}
+        update: true
+        install: base-devel git
+        pacboy: >-
+          rust:p
+          cc:p
+          pkgconf:p
+          cmake:p
+          freetype:p
+          python:p
+          fontconfig:p
+
+    - name: Run cargo
+      shell: msys2 {0}
+      run: cargo build --release --features wgpu
+
+  # cli:
+  #   strategy:
+  #     matrix:
+  #       os: [macos-latest]
+
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: Swatinem/rust-cache@v2
+  #     - run: rustup toolchain install stable --profile minimal
+  #     - run: cargo fetch
+  #     - run: cargo build -p rio --bin rio
+  #     - run: RIO_LOG_LEVEL=info ./target/debug/rio -e touch ${HOME}/rio.test
+  #     - run: |
+  #         FILE=${HOME}/rio.test
+  #         if [ -f "$FILE" ]; then
+  #           echo "$FILE exists."
+  #         else
+  #           echo "$FILE does not exist."
+  #           exit 1
+  #         fi
+  #       shell: bash
+
+  # webassembly:
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     GECKODRIVER: chromedriver
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         cache-all-crates: "true"
+  #     - run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+  #     - run: cargo fetch
+  #     - run: cargo build -p sugarloaf --target wasm32-unknown-unknown
+  #     - run: cd ./sugarloaf && make install
+  #     - uses: nanasess/setup-chromedriver@v2
+  #     - run: |
+  #         export DISPLAY=:99
+  #         chromedriver --url-base=/wd/hub &
+  #     - run: make test-renderer

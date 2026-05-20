@@ -1,0 +1,128 @@
+[package]
+name = "rioterm"
+description = "Rio terminal is a hardware-accelerated GPU terminal emulator, focusing to run in desktops and browsers."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "rio"
+path = "src/main.rs"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "registry"] }
+wgpu = { workspace = true }
+rio-backend = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+criterion = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bitflags = { workspace = true }
+futures = { workspace = true }
+corcovado = { workspace = true }
+regex = { workspace = true }
+onig = { workspace = true }
+raw-window-handle = { workspace = true }
+clap = { version = "4.6.1", features = ["derive"] }
+dirs = "6.0.0"
+notify = "8.2.0"
+rustc-hash = { workspace = true }
+rapidhash = { version = "4.4.1", default-features = false }
+image_rs = { workspace = true }
+libc = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+taffy = { version = "0.10.1", features = ["flexbox","grid"] }
+teletypewriter = { workspace = true }
+unicode-width = { workspace = true }
+copa = { workspace = true }
+url = { workspace = true }
+smallvec = { workspace = true }
+rio-window = { workspace = true }
+lru = "0.16.0"
+rio-notifier = { workspace = true }
+
+[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
+cpal = { version = "0.15", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+ahash = { version = "0.8.12", default-features = false, features = ["std"] }
+dunce = "1.0.5"
+tinyvec = { version = "1.8.1", features = ["alloc"] }
+windows-sys = { version = "0.60.2", features = [
+    "Win32_System_Console",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_System_IO",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Diagnostics_Debug",
+]}
+# `wgpu` backend is a hard requirement on Windows — there's no native
+# DX12/Vulkan-via-ash backend yet, so without it the binary has no
+# GPU rendering path. Force it on for Windows builds; Linux/macOS
+# builds opt in via `--features wgpu` if they want librashader filters.
+[target.'cfg(windows)'.dependencies.sugarloaf]
+workspace = true
+features = ["wgpu"]
+[target.'cfg(windows)'.dependencies.rio-backend]
+workspace = true
+features = ["wgpu"]
+[target.'cfg(target_arch = "wasm32")'.dependencies.sugarloaf]
+workspace = true
+features = ["wgpu"]
+[target.'cfg(target_arch = "wasm32")'.dependencies.rio-backend]
+workspace = true
+features = ["wgpu"]
+
+[features]
+default = ["wayland", "x11"]
+audio = ["cpal"]
+x11 = [
+    "rio-backend/x11",
+    "rio-window/x11"
+]
+wayland = [
+    "rio-backend/wayland",
+    "rio-window/wayland",
+    "rio-window/wayland-dlopen",
+]
+wgpu = ["sugarloaf/wgpu", "rio-backend/wgpu"]
+
+# "rio-window/wayland-csd-adwaita-crossfont",
+
+[package.metadata.deb]
+name = "rioterm"
+maintainer = "Raphael Amorim <rapha850@gmail.com>"
+copyright = "2022-present, Raphael Amorim <rapha850@gmail.com>"
+depends = "$auto"
+section = "admin"
+priority = "optional"
+assets = [
+    ["../../target/release/rio", "usr/local/bin/", "755"],
+    ["../../misc/rio.desktop", "usr/share/applications/", "644"],
+    ["../../misc/rio.terminfo", "usr/share/info/", "644"],
+    ["../../misc/logo.svg", "usr/share/icons/hicolor/scalable/apps/rio.svg", "644"],
+    ["../../README.md", "usr/share/doc/rio/", "644"],
+    ["../../LICENSE", "usr/share/doc/rio/", "664"]
+]
+extended-description = """\
+Rio terminal is a hardware-accelerated GPU terminal emulator, focusing to run in desktops and browsers.
+The supported platforms currently consist of BSD, Linux, MacOS and Windows."""
