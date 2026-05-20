@@ -30,7 +30,7 @@ jobs:
             ~/.cargo/git
             rust/btcpc-node/target
             rust/btcpc-cli/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/btcpc-node/Cargo.lock', 'rust/btcpc-cli/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
 
       - name: Build node binaries
         run: |
