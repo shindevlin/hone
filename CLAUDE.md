@@ -51,12 +51,40 @@ System entries (EpochSeal, ClockReward, MineReward, etc.) apply immediately on e
 
 The epoch IS the block. `signing_clocks` in SealedEpoch is who gets ClockReward.
 
+## Monorepo Structure
+
+```
+btcpc/
+  rust/
+    btcpc-node/          ← chain node (canonical)
+    btcpc-node/crates/btcpc-types/
+    btcpc-p2p/           ← libp2p DHT sidecar
+    btcpc-market/        ← commerce HTTP service
+    btcpc-gnss-capture/  ← GNSS RTCM3 capture
+  ludicrous/             ← Warp fork (BTCPC terminal)
+    plugins/ludicrous/   ← Claude Code plugin
+  clients/
+    btcpc-desktop/       ← Electron/Tauri desktop app
+    btcpc-android/       ← Capacitor Android client
+    btcpc-flipper/       ← Flipper Zero firmware
+  bots/
+    btcpcbot/            ← Telegram chain bot
+    btcpcwalletbot/      ← Telegram wallet bot
+  services/
+    btcpc-relay/         ← Cloudflare Workers relay
+  marketing/             ← Open-source marketing
+  website/               ← btcpc.net landing page
+  verasens/              ← Sensor verification protocol
+  linkgit/               ← Ed25519 Git-native identity layer
+  freeport/              ← NAT-traversal P2P port router
+```
+
 ## Telegram Bots
 
 See [docs/bots.md](docs/bots.md) for full bot documentation.
 - Bots are thin HTTP clients — no direct DB access, all via `/api/bot/*`
-- Live in standalone repos: `~/repos/btcpcbot/`, `~/repos/btcpcwalletbot/`
-- Tokens in `.env` files only — NEVER in git, NEVER in chat
+- Live in `bots/btcpcbot/` and `bots/btcpcwalletbot/` (in this repo)
+- Tokens in `.env` files only — NEVER in git, NEVER in chat (.gitignore guards in place)
 
 ## DEPRECATED: Node.js (do not use)
 

@@ -44,15 +44,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust/btcpc-node/target
+            rust/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install RocksDB deps
         run: sudo apt-get install -y librocksdb-dev clang libclang-dev
 
-      - name: cargo check
-        run: cd rust/btcpc-node && cargo check --all-targets
+      - name: cargo check (workspace)
+        run: cd rust && cargo check --workspace --all-targets
 
-      - name: cargo test (lib)
-        run: cd rust/btcpc-node && cargo test --lib -- --test-threads=2
+      - name: cargo test (btcpc-node lib)
+        run: cd rust && cargo test -p btcpc-node --lib -- --test-threads=2
