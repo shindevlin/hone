@@ -38,7 +38,7 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
             cargo build --release --target aarch64-unknown-linux-gnu
           cp target/release/btcpc-node                              ../../btcpc-node-linux-x86_64
-          cp target/aarch64-unknown-linux-gnu/release/btcpc-node    ../../btcpc-node-linux-aarch64
+          cp target/aarch64-unknown-linux-gnu/release/btcpc-node    ../../btcpc-node-aarch64-linux
 
       - name: Build CLI binaries
         run: |
@@ -54,6 +54,6 @@ jobs:
         with:
           files: |
             btcpc-node-linux-x86_64
-            btcpc-node-linux-aarch64
+            btcpc-node-aarch64-linux
             btcpc-linux-x86_64
             btcpc-linux-aarch64
