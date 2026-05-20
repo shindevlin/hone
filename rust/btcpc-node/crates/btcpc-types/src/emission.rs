@@ -226,6 +226,19 @@ pub const LAYER_A_SCALAR_DENOM: u64 = 10_000;
 /// Number of distinct activity pool types — used to normalise util_signal.
 pub const LAYER_A_POOL_COUNT: u64 = 9;
 
+// ── Layer C: fee-driven boost ─────────────────────────────────────────────────
+//
+// Verified fee flows from the previous epoch unlock idle rewards that the
+// activity gate would otherwise send to the recycle fund.  Net-flow accounting
+// removes circular payments (ring A→B→A cancels to zero) so only genuine
+// new-capital activity contributes.  The boost is capped at idle_recycle so
+// no new supply is ever created — tokens are just redirected, not minted.
+
+/// Fraction of net verified fees that unlocks idle rewards.
+/// 1/2 means 50% of net fees may release idle tokens into active distribution.
+pub const LAYER_C_FEE_BOOST_NUM: u64 = 1;
+pub const LAYER_C_FEE_BOOST_DENOM: u64 = 2;
+
 /// Compute the Layer A long-term scalar from the two EMA values.
 ///
 /// Returns a value in `[LAYER_A_SCALAR_MIN, LAYER_A_SCALAR_MAX]` (fixed-point

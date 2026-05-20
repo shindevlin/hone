@@ -835,6 +835,19 @@ pub fn apply_pay(chain: &Chain, entry: &LedgerEntry) -> Result<()> {
         let _ = chain.store.state_set(&prune_key, job_id.as_bytes());
     }
 
+    // Layer C: record verified fee flow so emit_epoch_rewards can compute the
+    // fee-driven boost in the next epoch.  Only non-zero worker payments count
+    // (verifier/recycle splits are internal redistribution, not new-capital flow).
+    if *worker_amount > 0 {
+        let fee_key = format!("fee_flow:{}:{}", epoch, job_id);
+        let record  = serde_json::json!({
+            "from":   job.requester,
+            "to":     worker,
+            "amount": *worker_amount,
+        });
+        let _ = chain.store.state_set(&fee_key, &serde_json::to_vec(&record).unwrap_or_default());
+    }
+
     info!("inference job paid: {} worker={} +{}", job_id, worker, worker_amount);
     Ok(())
 }

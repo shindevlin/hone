@@ -118,6 +118,7 @@ use btcpc_types::{
     LAYER_A_SLOW_ALPHA_NUM, LAYER_A_SLOW_ALPHA_DENOM,
     LAYER_A_SCALAR_DENOM, LAYER_A_POOL_COUNT,
     layer_a_scalar,
+    LAYER_C_FEE_BOOST_NUM, LAYER_C_FEE_BOOST_DENOM,
     entry_weight, compute_next_base_fee, BASE_FEE_INITIAL_DREAMS, EPOCH_TARGET_WEIGHT_UNITS,
 };
 
@@ -1727,8 +1728,42 @@ async fn emit_epoch_rewards(
     } else {
         (total_util / active_pool_count).max(MIN_ACTIVITY_RATIO_NUM)
     };
-    let gated_pool   = (activity_pool as u128 * activity_ratio_num as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
-    let idle_recycle = activity_pool.saturating_sub(gated_pool);
+    let gated_pool_base = (activity_pool as u128 * activity_ratio_num as u128 / ACTIVITY_RATIO_DENOM as u128) as u64;
+    let idle_before_c   = activity_pool.saturating_sub(gated_pool_base);
+
+    // ── Layer C: fee-driven boost ─────────────────────────────────────────────
+    // Verified fee flows from epoch-1 unlock idle rewards that would otherwise
+    // recycle.  Net-flow accounting removes circular payments (A→B→A → 0).
+    // Cap = idle_before_c: redirects idle tokens, never creates new supply.
+    let fee_boost = if epoch > 0 {
+        let prev_epoch = epoch - 1;
+        let mut directed: std::collections::BTreeMap<(String, String), u64> =
+            std::collections::BTreeMap::new();
+        for (_, val) in chain.store.state_scan_prefix(&format!("fee_flow:{}:", prev_epoch)) {
+            let Ok(j) = serde_json::from_slice::<serde_json::Value>(&val) else { continue };
+            let from   = j["from"].as_str().unwrap_or("").to_owned();
+            let to     = j["to"].as_str().unwrap_or("").to_owned();
+            let amount = j["amount"].as_u64().unwrap_or(0);
+            if from.is_empty() || to.is_empty() || from == to || amount == 0 { continue; }
+            *directed.entry((from, to)).or_default() += amount;
+        }
+        // Build canonical (min, max) pair set — each unordered pair counted once.
+        let canonical: std::collections::BTreeSet<(String, String)> = directed.keys()
+            .map(|(f, t)| if f <= t { (f.clone(), t.clone()) } else { (t.clone(), f.clone()) })
+            .collect();
+        let net_total: u128 = canonical.iter().map(|(a, b)| {
+            let a_to_b = directed.get(&(a.clone(), b.clone())).copied().unwrap_or(0) as u128;
+            let b_to_a = directed.get(&(b.clone(), a.clone())).copied().unwrap_or(0) as u128;
+            if a_to_b >= b_to_a { a_to_b - b_to_a } else { b_to_a - a_to_b }
+        }).sum();
+        let boost_raw = ((net_total * LAYER_C_FEE_BOOST_NUM as u128) / LAYER_C_FEE_BOOST_DENOM as u128) as u64;
+        boost_raw.min(idle_before_c)
+    } else {
+        0
+    };
+
+    let gated_pool   = gated_pool_base.saturating_add(fee_boost);
+    let idle_recycle = idle_before_c.saturating_sub(fee_boost);
     if idle_recycle > 0 {
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, idle_recycle);
     }
@@ -1902,14 +1937,14 @@ async fn emit_epoch_rewards(
     }
 
     info!(
-        "clock: epoch {} raw_pre_a={} scalar_a={:.3} adjusted={} reserve={} gated={}({:.0}%) \
-         scarcity_recycle={} layer_a_ema(f={},s={}) \
+        "clock: epoch {} raw_pre_a={} scalar_a={:.3} adjusted={} reserve={} \
+         gated={}({:.0}%) fee_boost={} scarcity_recycle={} layer_a_ema(f={},s={}) \
          [infer={}/{} store={}/{} sensor={}/{} verify={}/{} svc={}/{} mem={}/{} tracker={}/{} git={}/{} build={}/{}]",
         epoch, adjusted_pool.saturating_add(layer_a_damped),
         long_term_scalar as f64 / LAYER_A_SCALAR_DENOM as f64,
         raw_pool, reserve_total, gated_pool,
         activity_ratio_num as f64 / ACTIVITY_RATIO_DENOM as f64 * 100.0,
-        scarcity_recycle + idle_recycle,
+        fee_boost, scarcity_recycle + idle_recycle,
         layer_a_fast_new, layer_a_slow_new,
         inference_pool, mines.len(),
         storage_pool, storage_nodes.len(),
