@@ -1,0 +1,29 @@
+{
+  "name": "btcpc-android",
+  "version": "1.0.0",
+  "description": "Android APK wrapper for the BTCPC PWA with native sensor access",
+  "main": "index.js",
+  "scripts": {
+    "sync": "npx cap sync android",
+    "build": "./scripts/build-apk.sh",
+    "build:release": "./scripts/build-release.sh",
+    "open": "npx cap open android",
+    "run": "npx cap run android"
+  },
+  "keywords": ["btcpc", "android", "capacitor", "pwa"],
+  "author": "Shin Devlin <shin@btcpc.network>",
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/device": "^8.0.2",
+    "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/motion": "^8.0.0",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

@@ -1,0 +1,15 @@
+App(
+    appid="btcpc",
+    name="BTCPC",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="btcpc_app",
+    stack_size=16 * 1024,
+    fap_category="NFC",
+    fap_version="0.2.0",
+    fap_icon="btcpc_wallet.png",
+    fap_description="BTCPC hardware wallet + sensor array — store keys, sign transactions, environmental scanning",
+    fap_author="Natoshi Sakamoto",
+    fap_weburl="https://github.com/shindevlin/btcpc",
+    fap_icon_assets="images",
+    requires=["gui", "storage", "dialogs", "nfc"],
+)
