@@ -92,6 +92,7 @@ mod phone_storage;
 mod finetune;
 mod computer_use;
 mod rag;
+mod hardware_probe;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -554,7 +555,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut last_sent: u64 = 0;
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 let now = now_ms();
                 let elapsed = now.saturating_sub(genesis_ts);
                 let epoch = elapsed / btcpc_types::EPOCH_MS;
@@ -636,6 +637,27 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ── Hardware probe — auto-detect installed hardware, fill unset role flags ──
+    // If an env var is explicitly set ("true"/"false"), that value wins.
+    // If it is absent (not set at all), the probe result fills the gap.
+    let capabilities = Arc::new(hardware_probe::probe(&cfg.data_dir).await);
+    fn env_or_probe(var: &str, detected: bool) -> bool {
+        match std::env::var(var) {
+            Ok(v) => v == "true" || v == "1",
+            Err(_) => detected,
+        }
+    }
+    let enable_storage = env_or_probe("BTCPC_STORAGE", capabilities.disk_gb >= 10);
+    let enable_service = env_or_probe("BTCPC_SERVICE", false);
+    let enable_sensor  = env_or_probe("BTCPC_SENSOR",  capabilities.has_gnss);
+    let enable_worker  = env_or_probe("BTCPC_WORKER",  capabilities.has_ollama);
+    let enable_mempool = env_or_probe("BTCPC_MEMPOOL", false);
+    info!(
+        "roles — miner={} clock={} storage={} service={} sensor={} worker={} mempool={}",
+        cfg.is_miner, cfg.is_clock, enable_storage, enable_service,
+        enable_sensor, enable_worker, enable_mempool,
+    );
+
     // ── Mining (legacy direct-inference loop) ────────────────────────────────
     // NOTE: BTCPC_MINER submits Mine entries each epoch via a local Ollama call.
     // This bypasses the inference marketplace. New deployments should use
@@ -657,7 +679,7 @@ async fn main() -> Result<()> {
 
     // ── Storage node (StorageHeartbeat each epoch) ───────────────────────────
     // BTCPC_STORAGE=true: proves bytes on disk each epoch, earns StorageReward.
-    if std::env::var("BTCPC_STORAGE").map(|v| v == "true" || v == "1").unwrap_or(false) {
+    if enable_storage {
         let chain_ref   = chain.clone();
         let account     = cfg.account.clone();
         let data_dir    = cfg.data_dir.clone();
@@ -672,7 +694,7 @@ async fn main() -> Result<()> {
     // ── Service node (ServiceHeartbeat each epoch) ───────────────────────────
     // BTCPC_SERVICE=true: proves active container-hours, earns ServiceReward.
     // Covers general service nodes; LinkGit storage nodes set this flag too.
-    if std::env::var("BTCPC_SERVICE").map(|v| v == "true" || v == "1").unwrap_or(false) {
+    if enable_service {
         let chain_ref   = chain.clone();
         let account     = cfg.account.clone();
         let genesis_ts  = cfg.genesis_timestamp.unwrap_or(0);
@@ -685,7 +707,7 @@ async fn main() -> Result<()> {
     // ── Sensor node (SensorDataCommit each epoch) ────────────────────────────
     // BTCPC_SENSOR=true: reads system sensors (CPU temp, uptime) and submits
     // SensorDataCommit each epoch, earning SensorReward.
-    if std::env::var("BTCPC_SENSOR").map(|v| v == "true" || v == "1").unwrap_or(false) {
+    if enable_sensor {
         let chain_ref  = chain.clone();
         let account    = cfg.account.clone();
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
@@ -698,7 +720,7 @@ async fn main() -> Result<()> {
     // ── Worker (inference marketplace participant) ────────────────────────────
     // BTCPC_WORKER=true: watches the chain for posted inference jobs, bids on
     // them, calls Ollama when awarded, and submits InferenceJobComplete.
-    if std::env::var("BTCPC_WORKER").map(|v| v == "true" || v == "1").unwrap_or(false) {
+    if enable_worker {
         let chain_ref = chain.clone();
         let account = cfg.account.clone();
         let cmd_for_worker = net_handle.cmd_tx.clone();
@@ -796,6 +818,7 @@ async fn main() -> Result<()> {
         let peer_count_ref = shared_peer_count.clone();
         let relay_counter_ref = mempool_relay_counter.clone();
         let mut events = net_events;
+        let gossip_genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
@@ -871,7 +894,18 @@ async fn main() -> Result<()> {
                         // Miners no longer produce blocks — block gossip is ignored.
                     }
                     Ok(NetworkEvent::EpochSeal { seal }) => {
-                        clock_ref.receive_seal(seal);
+                        // Drop seals from ghost peers that are more than 10 epochs stale.
+                        let real_epoch = now_ms().saturating_sub(gossip_genesis_ts) / 30_000;
+                        let stale = seal.get("epoch_number")
+                            .and_then(|v| v.as_u64())
+                            .map(|e| real_epoch > e + 10)
+                            .unwrap_or(false);
+                        if stale {
+                            let seal_epoch = seal.get("epoch_number").and_then(|v| v.as_u64()).unwrap_or(0);
+                            tracing::debug!("dropping stale seal epoch {} (real epoch {})", seal_epoch, real_epoch);
+                        } else {
+                            clock_ref.receive_seal(seal);
+                        }
                     }
                     Ok(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }) => {
                         clock_ref.receive_reward_proposal(clock::RewardProposal {
@@ -919,7 +953,7 @@ async fn main() -> Result<()> {
     // ── Mempool heartbeat node ────────────────────────────────────────────────
     // BTCPC_MEMPOOL=true: reports entries relayed per epoch, earns MempoolReward.
     // Any running node already relays gossip — this just makes that work auditable.
-    if std::env::var("BTCPC_MEMPOOL").map(|v| v == "true" || v == "1").unwrap_or(false) {
+    if enable_mempool {
         let chain_ref    = chain.clone();
         let account      = cfg.account.clone();
         let genesis_ts   = cfg.genesis_timestamp.unwrap_or(0);
@@ -1026,6 +1060,7 @@ async fn main() -> Result<()> {
         secret_store: secret_store_arc,
         health_monitor,
         blob_bandwidth: Arc::new(blob_bandwidth::BlobBandwidthMeter::new()),
+        capabilities,
     };
     api::serve(app_state, cfg.api_port).await?;
 
