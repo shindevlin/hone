@@ -262,6 +262,8 @@ pub fn router(state: AppState) -> Router {
         // ── Clock node reputation (Phase 8) ───────────────────────────────
         .route("/api/clock/register", post(post_clock_register))
         .route("/api/clock/self-register", post(post_clock_self_register))
+        .route("/api/clock/registered", get(get_clock_registered))
+        .route("/api/clock/status", get(get_clock_status))
         .route("/api/clock/:node_id/uptime", get(get_clock_uptime))
         // ── Consensus / fork choice (T1-7, T1-8) ─────────────────────────
         .route("/api/chain/validators/:epoch", get(get_epoch_validators))
@@ -5474,6 +5476,62 @@ async fn get_fork_evidence(
 
 // ── Clock node reputation (Phase 8) ──────────────────────────────────────────
 
+/// GET /api/clock/registered — all registered clock nodes with their stake and uptime.
+async fn get_clock_registered(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let nodes: Vec<serde_json::Value> = s.chain.store
+        .state_scan_prefix("clock_reg:")
+        .into_iter()
+        .filter_map(|(key, val)| {
+            let node_id = key.strip_prefix("clock_reg:")?.to_owned();
+            let mut j: serde_json::Value = serde_json::from_slice(&val).ok()?;
+            if j["stake"].as_u64().unwrap_or(0) == 0 { return None; } // slashed
+            let uptime: serde_json::Value = s.chain.store
+                .state_get(&format!("clock_uptime:{}", node_id))
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
+            j["uptime"] = uptime;
+            Some(j)
+        })
+        .collect();
+    let min_stake: u64 = s.chain.store.state_get("chain_param:clock_min_stake")
+        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+        .unwrap_or(5 * 10_000_000_000);
+    Json(serde_json::json!({
+        "count":     nodes.len(),
+        "min_stake": min_stake,
+        "nodes":     nodes,
+    }))
+}
+
+/// GET /api/clock/status — this node's clock consensus status.
+async fn get_clock_status(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let truth = s.clock.truth_status();
+    let registered = s.clock.registered_clocks();
+    let peer_count = s.peer_count.load(std::sync::atomic::Ordering::Relaxed);
+    let node_account = s.node_account.as_ref().clone();
+    // in_quorum: currently counted toward quorum denominator this epoch.
+    let in_quorum = registered.contains(&node_account);
+    // store_registered: has a valid clock_reg entry (will be in quorum from next epoch seal).
+    let reg_key = format!("clock_reg:{}", node_account);
+    let reg_info: Option<serde_json::Value> = s.chain.store
+        .state_get(&reg_key)
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let store_registered = reg_info.as_ref()
+        .and_then(|j| j["stake"].as_u64())
+        .unwrap_or(0) > 0;
+    Json(serde_json::json!({
+        "node_account":      node_account,
+        "in_quorum":         in_quorum,
+        "store_registered":  store_registered,
+        "registered_count":  registered.len(),
+        "registered_clocks": registered,
+        "peer_count":        peer_count,
+        "truth_bearing":     truth["truth_bearing"],
+        "observer":          truth["observer"],
+        "registration":      reg_info,
+    }))
+}
+
 /// GET /api/clock/:node_id/uptime — uptime stats and current reward multiplier.
 async fn get_clock_uptime(
     State(s): State<AppState>,
@@ -5523,19 +5581,15 @@ async fn post_clock_register(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let entry = btcpc_types::LedgerEntry::ClockNodeRegister {
         node_id: body.node_id,
-        stake: body.stake,
-        epoch: body.epoch,
-        pubkey: body.pubkey,
-        signature: None, // signature is verified via sig_hex, not embedded in entry
+        stake:   body.stake,
+        epoch:   body.epoch,
+        pubkey:  body.pubkey,
+        signature: None,
     };
     let sig = non_empty(&body.signature);
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => {
-            let _ = s.tx_broadcast.send((entry, sig.map(|s| s.to_owned())));
-            (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash })))
-        },
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
-    }
+    let r = apply_and_broadcast(&s, entry, sig);
+    let status = if r["accepted"].as_bool().unwrap_or(false) { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+    (status, r)
 }
 
 /// POST /api/clock/self-register — self-register this node as a clock node using
@@ -5584,15 +5638,9 @@ async fn post_clock_self_register(
         }))),
     };
 
-    match crate::tx::validate_and_apply(&s.chain, &entry, Some(sig_hex.as_str())) {
-        Ok(hash) => {
-            let _ = s.tx_broadcast.send((entry, Some(sig_hex)));
-            (StatusCode::OK, Json(serde_json::json!({
-                "ok": true, "hash": hash, "account": account, "stake": stake, "epoch": epoch
-            })))
-        }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
-    }
+    let r = apply_and_broadcast(&s, entry, Some(sig_hex.as_str()));
+    let status = if r["accepted"].as_bool().unwrap_or(false) { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+    (status, r)
 }
 
 // ── Governance: chain parameters ─────────────────────────────────────────────

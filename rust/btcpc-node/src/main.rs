@@ -269,6 +269,8 @@ async fn main() -> Result<()> {
 
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
+    // Populate registered_clocks immediately from store so quorum is correct from epoch 1.
+    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store));
     {
         let clock_ref = clock.clone();
         tokio::spawn(async move {

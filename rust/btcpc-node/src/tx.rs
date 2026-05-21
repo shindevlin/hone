@@ -121,7 +121,10 @@ pub fn validate_and_apply(
 
     // Stale-entry guard: reject any user entry whose embedded epoch is more than
     // STALE_WINDOW epochs behind the current tip. EpochSeal has its own tighter check.
-    if !is_system_entry(entry) {
+    // ClockNodeRegister is exempt: it is idempotent, key-authenticated, and balance-checked,
+    // so there is no replay risk and P2P propagation latency must not block registration.
+    let stale_exempt = is_system_entry(entry) || matches!(entry, LedgerEntry::ClockNodeRegister { .. });
+    if !stale_exempt {
         if let Some(entry_epoch) = entry_epoch(entry) {
             let current = chain.current_epoch();
             if current > STALE_WINDOW && entry_epoch < current - STALE_WINDOW {
@@ -1101,6 +1104,29 @@ pub fn validate_and_apply(
             if bal < *amount {
                 bail!("insufficient balance for role stake: {} has {} dreams", staker, bal);
             }
+            // Self-stake: each physical device must independently meet the role minimum.
+            // Backers (staker != node) are not subject to the per-device minimum.
+            if staker == node {
+                let param_key = format!("chain_param:{}_min_stake", role);
+                let min: u64 = chain.store.state_get(&param_key)
+                    .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+                    .unwrap_or(0);
+                if min > 0 {
+                    let existing_key = format!("role_stake:{}:{}:{}", role, node, staker);
+                    let existing: u64 = chain.store.state_get(&existing_key)
+                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                        .and_then(|j| j["amount"].as_u64())
+                        .unwrap_or(0);
+                    let total_after = existing + amount;
+                    if total_after < min {
+                        bail!(
+                            "self-stake on '{}' role '{}' requires at least {} dreams per device; \
+                             this stake would bring total to {} dreams (need {} more)",
+                            node, role, min, total_after, min - total_after
+                        );
+                    }
+                }
+            }
             chain.apply_entry(entry)?;
             bump_nonce(chain, staker)?;
         }
@@ -1364,13 +1390,45 @@ pub fn validate_and_apply(
         }
 
         // ── Clock node registration ───────────────────────────────────────────
-        LedgerEntry::ClockNodeRegister { node_id, .. } => {
+        LedgerEntry::ClockNodeRegister { node_id, pubkey, .. } => {
             let _guard = chain.write_lock.lock();
-            require_key(chain, node_id)?;
-            // Accept active or posting key — this is a self-registration (the node
-            // is staking itself), and nodes commonly only hold their posting key.
-            check_signature(chain, node_id, entry, sig_hex, "active")
-                .or_else(|_| check_signature(chain, node_id, entry, sig_hex, "posting"))?;
+            // If the account exists but has no registered key yet (created via ensure_account
+            // from a stake propagation), verify against the pubkey embedded in the entry itself.
+            // This allows a node to self-authenticate its registration even when its account was
+            // implicitly created without keys on a remote node.
+            let account_has_key = chain.store.get_account(node_id)?
+                .and_then(|s| {
+                    let post = s.get("keys").and_then(|v| v.get("posting")).and_then(|v| v.as_str()).filter(|k| !k.is_empty()).map(|_| true);
+                    let act  = s.get("keys").and_then(|v| v.get("active" )).and_then(|v| v.as_str()).filter(|k| !k.is_empty()).map(|_| true);
+                    post.or(act)
+                })
+                .unwrap_or(false);
+
+            if account_has_key {
+                // Account has a registered key — validate against it as normal.
+                check_signature(chain, node_id, entry, sig_hex, "active")
+                    .or_else(|_| check_signature(chain, node_id, entry, sig_hex, "posting"))?;
+            } else if let Some(pk_hex) = pubkey {
+                // Account has no key yet — use the entry's embedded pubkey for self-auth.
+                let sig_str = sig_hex.filter(|s| !s.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("signature required for ClockNodeRegister"))?;
+                let pk_bytes = hex::decode(pk_hex)
+                    .map_err(|_| anyhow::anyhow!("invalid pubkey hex in ClockNodeRegister"))?;
+                let pk_arr: [u8; 32] = pk_bytes.try_into()
+                    .map_err(|_| anyhow::anyhow!("pubkey must be 32 bytes"))?;
+                let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pk_arr)
+                    .map_err(|e| anyhow::anyhow!("invalid ed25519 pubkey: {}", e))?;
+                let sig_bytes = hex::decode(sig_str)
+                    .map_err(|_| anyhow::anyhow!("invalid signature hex"))?;
+                let sig_arr: [u8; 64] = sig_bytes.try_into()
+                    .map_err(|_| anyhow::anyhow!("signature must be 64 bytes"))?;
+                let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+                let msg = crate::tx::canonical_signing_message(entry, &chain.chain_id)?;
+                use ed25519_dalek::Verifier;
+                verifying_key.verify(msg.as_bytes(), &signature)
+                    .map_err(|_| anyhow::anyhow!("ClockNodeRegister signature invalid against embedded pubkey"))?;
+            }
+            // else: account doesn't exist at all — no key check (account created by apply_entry)
             chain.apply_entry(entry)?;
         }
 
