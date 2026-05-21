@@ -2654,48 +2654,31 @@ impl Chain {
             }
 
             // ── Clock Node Registration ───────────────────────────────────────
-            LedgerEntry::ClockNodeRegister { node_id, stake, epoch, pubkey, .. } => {
-                anyhow::ensure!(
-                    self.store.get_account(node_id)?.is_some(),
-                    "account '{}' does not exist", node_id
-                );
-                // Idempotent: if already registered at the same stake, succeed silently.
-                let reg_key_check = format!("clock_reg:{}", node_id);
-                if let Some(existing) = self.store.state_get(&reg_key_check) {
-                    if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&existing) {
-                        if j["stake"].as_u64().unwrap_or(0) >= *stake {
-                            info!("[clock] node '{}' already registered — idempotent re-register", node_id);
-                            return Ok(());
-                        }
-                    }
-                }
-                // Read dynamic minimum from governance; fall back to 5 BTCPC.
-                let min_stake: u64 = self.store.state_get("chain_param:clock_min_stake")
-                    .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
-                    .unwrap_or(5 * 10_000_000_000);
-                anyhow::ensure!(
-                    *stake >= min_stake,
-                    "clock node stake {} dreams is below minimum {} dreams", stake, min_stake
-                );
-                self.store.debit(node_id, NATIVE_TOKEN, *stake)?;
+            // Pool-backed FIFO staking: quorum eligibility is determined by
+            // role_stake:clock:{node}:{node} pool size, NOT by a separate balance
+            // deduction here. This entry is now pubkey-caching only — it records
+            // the node's signing key for the double-sign slash mechanism.
+            // No balance is deducted. Staking via NodeRoleStake IS the stake.
+            LedgerEntry::ClockNodeRegister { node_id, epoch, pubkey, .. } => {
+                // Idempotent: if pubkey is unchanged, succeed silently.
                 let reg_key = format!("clock_reg:{}", node_id);
                 let prev: serde_json::Value = self.store.state_get(&reg_key)
                     .and_then(|b| serde_json::from_slice(&b).ok())
                     .unwrap_or(serde_json::json!({}));
-                let prev_stake = prev["stake"].as_u64().unwrap_or(0);
-                // Preserve existing pubkey if not overriding.
                 let stored_pubkey = pubkey.as_deref()
                     .map(|s| s.to_owned())
                     .or_else(|| prev["pubkey"].as_str().map(|s| s.to_owned()));
+                // Preserve any legacy stake field (slash guard reads it).
+                let legacy_stake = prev["stake"].as_u64().unwrap_or(0);
                 self.store.state_set(&reg_key, &serde_json::to_vec(&serde_json::json!({
-                    "node_id": node_id,
-                    "stake": prev_stake + stake,
+                    "node_id":          node_id,
+                    "stake":            legacy_stake,
                     "registered_epoch": epoch,
-                    "pubkey": stored_pubkey,
-                    "min_at_registration": min_stake,
+                    "pubkey":           stored_pubkey,
+                    "pool_backed":      true,
                 }))?)?;
                 self.touch_alive(node_id, *epoch);
-                info!("[clock] node '{}' registered with {} dreams at epoch {}", node_id, stake, epoch);
+                info!("[clock] node '{}' pubkey cached at epoch {}", node_id, epoch);
             }
 
             // ── Clock Double-Sign Slash ───────────────────────────────────────

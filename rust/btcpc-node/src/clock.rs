@@ -605,23 +605,69 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
 
 // ── Registered clock nodes ────────────────────────────────────────────────────
 
-/// Scan sled for all active (non-slashed) clock node registrations.
-/// Returns a sorted list of account IDs. Called at each epoch seal to refresh
-/// the registered set in `ClockConsensus`.
+/// Return all nodes eligible for the clock quorum.
+///
+/// Eligibility is pool-driven (FIFO staking): a node is in quorum if its
+/// self-stake in `role_stake:clock:{node}:{node}` is >= `clock_min_stake`.
+/// No explicit `ClockNodeRegister` transaction is required — staking IS
+/// registration. Nodes are ordered by the epoch they first staked (FIFO);
+/// if stake later drops below the minimum, the node loses its slot.
+///
+/// `clock_reg:` entries are still respected for backward-compat and pubkey
+/// caching, but the authoritative eligibility signal is the live pool stake.
+/// Slashed nodes (pool zeroed via ClockDoubleSignEvidence) are excluded.
 pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
-    let mut nodes: Vec<String> = store
-        .state_scan_prefix("clock_reg:")
+    let min_stake: u64 = store.state_get("chain_param:clock_min_stake")
+        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+        .unwrap_or(5 * 10_000_000_000);
+
+    // Collect all self-stakes on the clock role.
+    // Key format: role_stake:clock:{node}:{staker} — we want staker == node.
+    let mut eligible: Vec<(String, u64)> = store
+        .state_scan_prefix("role_stake:clock:")
         .into_iter()
         .filter_map(|(key, val)| {
+            // Strip prefix, split remaining "node:staker" on the first ':'
+            let rest = key.strip_prefix("role_stake:clock:")?;
+            // node_id can contain ':' if account names ever do, but in practice they don't.
+            // Split on last ':' to get staker, everything before is node.
+            let sep = rest.rfind(':')?;
+            let node   = &rest[..sep];
+            let staker = &rest[sep + 1..];
+            if node != staker { return None; } // backer stake, not self-stake
             let j: serde_json::Value = serde_json::from_slice(&val).ok()?;
-            // Exclude slashed nodes (stake == 0 after slash).
-            if j["stake"].as_u64().unwrap_or(0) == 0 { return None; }
-            // Key format: "clock_reg:{node_id}"
-            let node_id = key.strip_prefix("clock_reg:")?.to_owned();
-            Some(node_id)
+            let amount = j["amount"].as_u64().unwrap_or(0);
+            if amount < min_stake { return None; }
+            let staked_epoch = j["staked_epoch"].as_u64().unwrap_or(u64::MAX);
+            Some((node.to_owned(), staked_epoch))
         })
         .collect();
+
+    // FIFO: nodes that staked earlier get priority; sort by first-staked epoch.
+    eligible.sort_by_key(|(_, epoch)| *epoch);
+    let mut nodes: Vec<String> = eligible.into_iter().map(|(id, _)| id).collect();
+
+    // Also include any legacy clock_reg: entries that aren't already in the list
+    // (e.g. genesis-era registrations that pre-date the pool model) — only if
+    // the pool stake still covers them or they have a non-zero legacy stake.
+    for (key, val) in store.state_scan_prefix("clock_reg:") {
+        let node_id = match key.strip_prefix("clock_reg:") {
+            Some(n) => n.to_owned(),
+            None => continue,
+        };
+        if nodes.contains(&node_id) { continue; }
+        let j: serde_json::Value = match serde_json::from_slice(&val) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Legacy: non-zero stake = the stake was balance-deducted at registration time.
+        if j["stake"].as_u64().unwrap_or(0) > 0 {
+            nodes.push(node_id);
+        }
+    }
+
     nodes.sort();
+    nodes.dedup();
     nodes
 }
 
