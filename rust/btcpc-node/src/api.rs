@@ -121,6 +121,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/account/:account/history", get(get_account_history))
         .route("/api/block/:epoch", get(get_block))
         .route("/api/latest", get(get_latest))
+        .route("/api/sync/snapshot", get(get_sync_snapshot))
+        .route("/api/sync/blocks", get(get_sync_blocks))
         .route("/api/stake/:account", get(get_stake))
         .route("/api/epoch/:epoch", get(get_epoch))
         .route("/health", get(health))
@@ -188,6 +190,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/node/testnet/toggle", post(post_testnet_toggle))
         .route("/api/node/role/stake", post(post_node_role_stake))
         .route("/api/node/role/unstake", post(post_node_role_unstake))
+        .route("/api/entry/:hash", get(get_entry_by_hash))
+        .route("/api/node/role/stakes/:node", get(get_node_role_stakes))
+        .route("/api/node/role/stakes/:node/:role", get(get_node_role_stakes_by_role))
+        .route("/api/node/role/positions/:staker", get(get_role_positions))
         // ── Node capability marketplace ───────────────────────────────────
         .route("/api/node/capability", post(post_node_capability))
         .route("/api/node/miners/all", get(get_node_miners_all))
@@ -255,6 +261,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chain/state_root", get(get_state_root))
         // ── Clock node reputation (Phase 8) ───────────────────────────────
         .route("/api/clock/register", post(post_clock_register))
+        .route("/api/clock/self-register", post(post_clock_self_register))
         .route("/api/clock/:node_id/uptime", get(get_clock_uptime))
         // ── Consensus / fork choice (T1-7, T1-8) ─────────────────────────
         .route("/api/chain/validators/:epoch", get(get_epoch_validators))
@@ -1840,12 +1847,70 @@ fn non_empty(s: &str) -> Option<&str> {
     if s.is_empty() { None } else { Some(s) }
 }
 
+// GET /api/sync/snapshot — full account state export for bootstrapping a diverged node.
+// Returns the current epoch checkpoint + every account record. A node can load this
+// as its starting state instead of replaying from genesis and diverging.
+async fn get_sync_snapshot(State(s): State<AppState>) -> Json<serde_json::Value> {
+    let epoch = s.chain.store.latest_epoch().unwrap_or(0);
+    let ids = s.chain.store.scan_account_ids();
+    let accounts: Vec<serde_json::Value> = ids.iter()
+        .filter_map(|id| s.chain.store.get_account(id).ok().flatten())
+        .collect();
+    Json(serde_json::json!({
+        "epoch": epoch,
+        "account_count": accounts.len(),
+        "accounts": accounts,
+    }))
+}
+
+// GET /api/sync/blocks?from=N&limit=L — bulk sealed-block fetch for catch-up sync.
+// Returns up to 1000 blocks starting from epoch `from`. A node that missed entries
+// can call this repeatedly against a healthy peer to fill gaps without replaying gossip.
+async fn get_sync_blocks(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, u64>>,
+) -> Json<serde_json::Value> {
+    let from  = params.get("from").copied().unwrap_or(0);
+    let limit = params.get("limit").copied().unwrap_or(500).min(1000);
+    let mut blocks = Vec::new();
+    for epoch in from..from.saturating_add(limit) {
+        match s.chain.store.read_block(epoch) {
+            Ok(Some(data)) => {
+                if let Some(block) = Block::from_bytes(&data) {
+                    blocks.push(serde_json::json!({
+                        "epoch":   epoch,
+                        "hash":    block.header.hash_hex(),
+                        "header":  block.header,
+                        "payload": block.payload,
+                    }));
+                }
+            }
+            _ => break,
+        }
+    }
+    Json(serde_json::json!({
+        "from":   from,
+        "count":  blocks.len(),
+        "blocks": blocks,
+    }))
+}
+
 /// Validate, apply, broadcast, and return the standard JSON response.
 fn apply_and_broadcast(
     s: &AppState,
     entry: LedgerEntry,
     sig_hex: Option<&str>,
 ) -> Json<serde_json::Value> {
+    // HARDLINE: zero peers = silent fork. A disconnected node that applies entries locally
+    // produces chain state the network has never seen and cannot reconcile. Do not remove,
+    // soften, or add an offline bypass to this check. No exceptions for any entry type.
+    if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        return Json(serde_json::json!({
+            "hash": null,
+            "accepted": false,
+            "error": "not connected to network — entry rejected to prevent local fork",
+        }));
+    }
     match tx::validate_and_apply(&s.chain, &entry, sig_hex) {
         Ok(hash) => {
             // Carry the signature alongside the entry so gossip peers can re-verify.
@@ -5473,6 +5538,63 @@ async fn post_clock_register(
     }
 }
 
+/// POST /api/clock/self-register — self-register this node as a clock node using
+/// the node's own posting key. No caller signature needed; the node signs internally.
+/// Optional body: { "stake": <dreams> }  — defaults to clock_min_stake (5 BTCPC).
+async fn post_clock_self_register(
+    State(s): State<AppState>,
+    body: Option<Json<serde_json::Value>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let sk = match s.signing_key.as_ref().as_ref() {
+        Some(k) => k,
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "node has no signing key configured (BTCPC_POSTING_KEY not set)"
+        }))),
+    };
+
+    let account   = s.node_account.as_ref().clone();
+    let epoch     = s.chain.current_epoch();
+    let chain_id  = s.chain.chain_id.clone();
+    let pubkey_hex = hex::encode(sk.verifying_key().to_bytes());
+
+    let min_stake: u64 = s.chain.store.state_get("chain_param:clock_min_stake")
+        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+        .unwrap_or(5 * 10_000_000_000);
+
+    let stake: u64 = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("stake").and_then(|s| s.as_u64()))
+        .unwrap_or(min_stake);
+
+    let entry = btcpc_types::LedgerEntry::ClockNodeRegister {
+        node_id:   account.clone(),
+        stake,
+        epoch,
+        pubkey:    Some(pubkey_hex),
+        signature: None,
+    };
+
+    let sig_hex = match crate::tx::canonical_signing_message(&entry, &chain_id) {
+        Ok(msg) => {
+            use ed25519_dalek::Signer;
+            hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+        }
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": format!("signing message error: {}", e)
+        }))),
+    };
+
+    match crate::tx::validate_and_apply(&s.chain, &entry, Some(sig_hex.as_str())) {
+        Ok(hash) => {
+            let _ = s.tx_broadcast.send((entry, Some(sig_hex)));
+            (StatusCode::OK, Json(serde_json::json!({
+                "ok": true, "hash": hash, "account": account, "stake": stake, "epoch": epoch
+            })))
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
 // ── Governance: chain parameters ─────────────────────────────────────────────
 
 /// GET /api/chain/param/:key — return current value of a governance parameter.
@@ -6088,10 +6210,10 @@ async fn post_node_role_stake(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
-    }
+    let result = apply_and_broadcast(&s, entry, sig);
+    let accepted = result.0.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false);
+    let code = if accepted { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+    (code, result)
 }
 
 /// POST /api/node/role/unstake — withdraw from a node role backing position.
@@ -6109,10 +6231,90 @@ async fn post_node_role_unstake(
         signed_by: b.signed_by,
     };
     let sig = if b.signature.is_empty() { None } else { Some(b.signature.as_str()) };
-    match crate::tx::validate_and_apply(&s.chain, &entry, sig) {
-        Ok(hash) => (StatusCode::OK, Json(serde_json::json!({ "ok": true, "hash": hash }))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))),
+    let result = apply_and_broadcast(&s, entry, sig);
+    let accepted = result.0.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false);
+    let code = if accepted { StatusCode::OK } else { StatusCode::BAD_REQUEST };
+    (code, result)
+}
+
+// GET /api/entry/:hash — look up any entry by its hash prefix (first 8 chars of hex hash).
+async fn get_entry_by_hash(
+    State(s): State<AppState>,
+    Path(hash): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let prefix = format!("txglobal:");
+    let needle = hash.to_lowercase();
+    let records = s.chain.store.state_scan_prefix(&prefix);
+    for (key, val) in records {
+        // key = txglobal:{epoch_hex}:{hash_prefix}
+        if key.ends_with(&needle[..needle.len().min(8)]) || key.contains(&needle[..needle.len().min(16)]) {
+            let record: serde_json::Value = serde_json::from_slice(&val)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            return Ok(Json(record));
+        }
     }
+    Err(StatusCode::NOT_FOUND)
+}
+
+// GET /api/node/role/stakes/:node — all role stakes across all roles for a node.
+async fn get_node_role_stakes(
+    State(s): State<AppState>,
+    Path(node): Path<String>,
+) -> Json<serde_json::Value> {
+    let mut roles: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
+    for role in ["miner","sensor","clock","storage","service","verifier","worker","mempool"] {
+        let prefix = format!("role_stake:{}:{}:", role, node);
+        let records = s.chain.store.state_scan_prefix(&prefix);
+        let entries: Vec<serde_json::Value> = records.into_iter()
+            .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+            .collect();
+        if !entries.is_empty() {
+            roles.insert(role.to_string(), entries);
+        }
+    }
+    Json(serde_json::json!({ "node": node, "stakes": roles }))
+}
+
+// GET /api/node/role/stakes/:node/:role — stakes on a specific role for a node.
+async fn get_node_role_stakes_by_role(
+    State(s): State<AppState>,
+    Path((node, role)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let prefix = format!("role_stake:{}:{}:", role, node);
+    let records = s.chain.store.state_scan_prefix(&prefix);
+    let entries: Vec<serde_json::Value> = records.into_iter()
+        .filter_map(|(_, v)| serde_json::from_slice(&v).ok())
+        .collect();
+    let total: u64 = entries.iter()
+        .filter_map(|e| e["amount"].as_u64())
+        .sum();
+    Json(serde_json::json!({
+        "node": node,
+        "role": role,
+        "total_dreams": total,
+        "total_btcpc": total as f64 / btcpc_types::DREAMS_PER_BTCPC as f64,
+        "backers": entries,
+    }))
+}
+
+// GET /api/node/role/positions/:staker — all role stake positions held by a staker.
+async fn get_role_positions(
+    State(s): State<AppState>,
+    Path(staker): Path<String>,
+) -> Json<serde_json::Value> {
+    let mut positions: Vec<serde_json::Value> = Vec::new();
+    for role in ["miner","sensor","clock","storage","service","verifier","worker","mempool"] {
+        let prefix = format!("role_stake:{}:", role);
+        let records = s.chain.store.state_scan_prefix(&prefix);
+        for (_, v) in records {
+            if let Ok(entry) = serde_json::from_slice::<serde_json::Value>(&v) {
+                if entry.get("staker").and_then(|s| s.as_str()) == Some(&staker) {
+                    positions.push(entry);
+                }
+            }
+        }
+    }
+    Json(serde_json::json!({ "staker": staker, "positions": positions }))
 }
 
 // ── OTC Liquidity Desk ────────────────────────────────────────────────────────

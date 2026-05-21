@@ -51,6 +51,20 @@ System entries (EpochSeal, ClockReward, MineReward, etc.) apply immediately on e
 
 The epoch IS the block. `signing_clocks` in SealedEpoch is who gets ClockReward.
 
+## Hardline: No Local Submission Without Peers
+
+**A node with zero peers MUST NOT accept or apply any user-submitted entry.**
+
+If a node applies entries locally while disconnected from the network, it silently forks — its chain state diverges from the canonical chain with no way to reconcile. The user sees transactions as confirmed; the network has never seen them. This is a chain integrity failure.
+
+The rule:
+- `apply_and_broadcast` in `api.rs` rejects all submissions when `peer_count == 0`
+- Do NOT remove or soften this check
+- Do NOT add a "local mode" or "offline mode" that bypasses it
+- Do NOT show submitted entries as confirmed until they have been sealed in an epoch by the network
+
+This applies to ALL entry types: stakes, transfers, registrations, sensor data, everything. There are no exceptions.
+
 ## Monorepo Structure
 
 ```
