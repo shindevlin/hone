@@ -63,6 +63,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 # Utilities
 urlencoding = "2"
 anyhow = "1"
+socket2 = { version = "0.5", features = ["all"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs-next = "2"

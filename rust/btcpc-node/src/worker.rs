@@ -24,12 +24,14 @@ use btcpc_types::LedgerEntry;
 use crate::chain::Chain;
 use crate::inference::{self, JobStatus};
 use crate::net::NetCmd;
+use crate::udp_gossip::UdpGossipHandle;
 use crate::utils::now_ms;
 
 pub async fn run_worker(
     chain: Arc<Chain>,
     account: String,
     cmd_tx: tokio::sync::mpsc::Sender<NetCmd>,
+    udp: UdpGossipHandle,
 ) {
     info!("worker daemon started: account={}", account);
 
@@ -39,7 +41,7 @@ pub async fn run_worker(
     loop {
         let epoch = chain.current_epoch();
 
-        bid_on_posted_jobs(&chain, &account, epoch, &cmd_tx).await;
+        bid_on_posted_jobs(&chain, &account, epoch, &cmd_tx, &udp).await;
         execute_awarded_jobs(&chain, &account, epoch, &cmd_tx, &mut completed).await;
 
         tokio::time::sleep(Duration::from_secs(10)).await;
@@ -51,6 +53,7 @@ async fn bid_on_posted_jobs(
     account: &str,
     epoch: u64,
     cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
+    udp: &UdpGossipHandle,
 ) {
     let fee_bps: u64 = std::env::var("BTCPC_WORKER_FEE_BPS")
         .ok().and_then(|s| s.parse().ok()).unwrap_or(9000);
@@ -93,6 +96,7 @@ async fn bid_on_posted_jobs(
         match chain.apply_entry(&entry) {
             Ok(_) => {
                 broadcast(&entry, cmd_tx).await;
+                udp.send_if_light(entry);
                 info!("worker: bid on job {} fee={} model={}", job.job_id, bid_fee, job.model);
             }
             Err(e) => warn!("worker: bid failed for job {}: {}", job.job_id, e),
@@ -130,6 +134,7 @@ async fn execute_awarded_jobs(
 
         if input_text.is_empty() {
             warn!("worker: no input text for job {} — skipping", job.job_id);
+            completed.insert(job.job_id.clone());
             continue;
         }
 
@@ -183,6 +188,7 @@ async fn call_ollama(model: &str, prompt: &str) -> (String, String, u64) {
             "model": model,
             "prompt": prompt,
             "stream": false,
+            "keep_alive": "0s",
             "options": { "temperature": 0.0 },
         }))
         .send()

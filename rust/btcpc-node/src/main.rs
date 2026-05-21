@@ -93,6 +93,7 @@ mod finetune;
 mod computer_use;
 mod rag;
 mod hardware_probe;
+mod udp_gossip;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -664,6 +665,19 @@ async fn main() -> Result<()> {
         enable_sensor, enable_worker, enable_mempool,
     );
 
+    // ── UDP multicast gossip — Phase 2 transport ────────────────────────────
+    // Propagates light entries (bids) to LAN peers in <1ms via 239.1.1.1:6944.
+    // Does NOT count toward peer_count — the zero-peers gate is libp2p-only.
+    let udp_handle = {
+        let (udp_gossip, handle) = udp_gossip::UdpGossip::new(
+            chain.clone(),
+            net_handle.cmd_tx.clone(),
+            cfg.chain_id.clone(),
+        );
+        tokio::spawn(async move { udp_gossip.run().await });
+        handle
+    };
+
     // ── Mining (legacy direct-inference loop) ────────────────────────────────
     // NOTE: BTCPC_MINER submits Mine entries each epoch via a local Ollama call.
     // This bypasses the inference marketplace. New deployments should use
@@ -730,8 +744,9 @@ async fn main() -> Result<()> {
         let chain_ref = chain.clone();
         let account = cfg.account.clone();
         let cmd_for_worker = net_handle.cmd_tx.clone();
+        let udp_for_worker = udp_handle.clone();
         tokio::spawn(async move {
-            worker::run_worker(chain_ref, account, cmd_for_worker).await;
+            worker::run_worker(chain_ref, account, cmd_for_worker, udp_for_worker).await;
         });
     }
 
