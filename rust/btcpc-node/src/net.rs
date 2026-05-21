@@ -196,6 +196,10 @@ impl Network {
                 noise::Config::new,
                 yamux::Config::default,
             )?
+            // QUIC: UDP transport, encrypted natively, punches NAT better than TCP.
+            // with_dns() bridges OtherTransportPhase → WebsocketPhase so both coexist.
+            .with_quic()
+            .with_dns()?
             .with_websocket(
                 noise::Config::new,
                 yamux::Config::default,
@@ -286,6 +290,16 @@ impl Network {
             .ok().and_then(|s| s.parse().ok()).unwrap_or(4943u16);
         let listen_ws: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}/ws", ws_port).parse()?;
         swarm.listen_on(listen_ws)?;
+
+        // QUIC transport — UDP, encrypted natively, mobile-friendly, punches NAT better than TCP.
+        // Shares the same port number as TCP but on UDP — no conflict, different stacks.
+        // Override with BTCPC_QUIC_PORT if the UDP port needs to differ from p2p_port.
+        let quic_port: u16 = std::env::var("BTCPC_QUIC_PORT")
+            .ok().and_then(|s| s.parse().ok()).unwrap_or(self.config.p2p_port);
+        let listen_quic: Multiaddr = format!("/ip4/0.0.0.0/udp/{}/quic-v1", quic_port).parse()?;
+        if let Err(e) = swarm.listen_on(listen_quic) {
+            warn!("QUIC listener failed (UDP/{} unavailable): {}", quic_port, e);
+        }
 
         // ------------------------------------------------------------------
         // 5. Load stored peers + run discovery, then dial all
