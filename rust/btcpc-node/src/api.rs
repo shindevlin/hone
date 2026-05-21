@@ -5482,39 +5482,41 @@ async fn get_clock_registered(State(s): State<AppState>) -> Json<serde_json::Val
         .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
         .unwrap_or(5 * 10_000_000_000);
 
-    // Pool-driven: collect all self-stakes on clock role with pool >= min_stake.
-    let mut nodes: Vec<serde_json::Value> = s.chain.store
-        .state_scan_prefix("role_stake:clock:")
+    // Aggregate total stake per node across all stakers; include if >= min_stake.
+    let mut per_node: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    for (key, val) in s.chain.store.state_scan_prefix("role_stake:clock:") {
+        let rest = match key.strip_prefix("role_stake:clock:") { Some(r) => r.to_owned(), None => continue };
+        let sep = match rest.rfind(':') { Some(i) => i, None => continue };
+        let node = rest[..sep].to_owned();
+        if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&val) {
+            let amount = j["amount"].as_u64().unwrap_or(0);
+            let epoch  = j["staked_epoch"].as_u64().unwrap_or(u64::MAX);
+            let e = per_node.entry(node).or_insert((0, u64::MAX));
+            e.0 += amount;
+            e.1 = e.1.min(epoch);
+        }
+    }
+    let mut nodes: Vec<serde_json::Value> = per_node
         .into_iter()
-        .filter_map(|(key, val)| {
-            let rest = key.strip_prefix("role_stake:clock:")?;
-            let sep = rest.rfind(':')?;
-            let node   = &rest[..sep];
-            let staker = &rest[sep + 1..];
-            if node != staker { return None; }
-            let j: serde_json::Value = serde_json::from_slice(&val).ok()?;
-            let pool = j["amount"].as_u64().unwrap_or(0);
-            if pool < min_stake { return None; }
-            let staked_epoch = j["staked_epoch"].as_u64().unwrap_or(0);
-            let slots = pool / min_stake;
+        .filter(|(_, (total, _))| *total >= min_stake)
+        .map(|(node_id, (total, first_epoch))| {
             let uptime: serde_json::Value = s.chain.store
-                .state_get(&format!("clock_uptime:{}", node))
+                .state_get(&format!("clock_uptime:{}", node_id))
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
-            // Pick up pubkey from clock_reg if present.
             let pubkey = s.chain.store
-                .state_get(&format!("clock_reg:{}", node))
+                .state_get(&format!("clock_reg:{}", node_id))
                 .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
                 .and_then(|r| r["pubkey"].as_str().map(|s| s.to_owned()));
-            Some(serde_json::json!({
-                "node_id":      node,
-                "pool_stake":   pool,
-                "pool_btcpc":   pool as f64 / 10_000_000_000.0,
-                "slots":        slots,
-                "staked_epoch": staked_epoch,
+            serde_json::json!({
+                "node_id":      node_id,
+                "total_stake":  total,
+                "total_btcpc":  total as f64 / 10_000_000_000.0,
+                "slots":        total / min_stake,
+                "staked_epoch": first_epoch,
                 "pubkey":       pubkey,
                 "uptime":       uptime,
-            }))
+            })
         })
         .collect();
 

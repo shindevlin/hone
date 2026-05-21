@@ -621,29 +621,39 @@ pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
         .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
         .unwrap_or(5 * 10_000_000_000);
 
-    // Collect all self-stakes on the clock role.
-    // Key format: role_stake:clock:{node}:{staker} — we want staker == node.
-    let mut eligible: Vec<(String, u64)> = store
-        .state_scan_prefix("role_stake:clock:")
+    // Aggregate total stake per node across ALL stakers (self + backers).
+    // Key format: role_stake:clock:{node}:{staker}
+    // A node enters quorum when its total backing reaches min_stake.
+    // FIFO: earliest first-stake epoch per node gets priority.
+    let mut per_node: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    for (key, val) in store.state_scan_prefix("role_stake:clock:") {
+        let rest = match key.strip_prefix("role_stake:clock:") {
+            Some(r) => r.to_owned(),
+            None => continue,
+        };
+        let sep = match rest.rfind(':') {
+            Some(i) => i,
+            None => continue,
+        };
+        let node = rest[..sep].to_owned();
+        let j: serde_json::Value = match serde_json::from_slice(&val) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let amount = j["amount"].as_u64().unwrap_or(0);
+        let staked_epoch = j["staked_epoch"].as_u64().unwrap_or(u64::MAX);
+        let entry = per_node.entry(node).or_insert((0, u64::MAX));
+        entry.0 += amount;
+        entry.1 = entry.1.min(staked_epoch); // earliest stake epoch wins
+    }
+
+    let mut eligible: Vec<(String, u64)> = per_node
         .into_iter()
-        .filter_map(|(key, val)| {
-            // Strip prefix, split remaining "node:staker" on the first ':'
-            let rest = key.strip_prefix("role_stake:clock:")?;
-            // node_id can contain ':' if account names ever do, but in practice they don't.
-            // Split on last ':' to get staker, everything before is node.
-            let sep = rest.rfind(':')?;
-            let node   = &rest[..sep];
-            let staker = &rest[sep + 1..];
-            if node != staker { return None; } // backer stake, not self-stake
-            let j: serde_json::Value = serde_json::from_slice(&val).ok()?;
-            let amount = j["amount"].as_u64().unwrap_or(0);
-            if amount < min_stake { return None; }
-            let staked_epoch = j["staked_epoch"].as_u64().unwrap_or(u64::MAX);
-            Some((node.to_owned(), staked_epoch))
-        })
+        .filter(|(_, (total, _))| *total >= min_stake)
+        .map(|(node, (_, first_epoch))| (node, first_epoch))
         .collect();
 
-    // FIFO: nodes that staked earlier get priority; sort by first-staked epoch.
+    // FIFO: nodes that staked earlier get priority.
     eligible.sort_by_key(|(_, epoch)| *epoch);
     let mut nodes: Vec<String> = eligible.into_iter().map(|(id, _)| id).collect();
 
