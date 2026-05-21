@@ -29,25 +29,25 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-node-${{ hashFiles('rust/Cargo.lock') }}
 
       - name: Build node binaries
         run: |
-          cd rust/btcpc-node
-          cargo build --release
+          cd rust
+          cargo build --release -p btcpc-node
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-            cargo build --release --target aarch64-unknown-linux-gnu
-          cp target/release/btcpc-node                              ../../btcpc-node-linux-x86_64
-          cp target/aarch64-unknown-linux-gnu/release/btcpc-node    ../../btcpc-node-aarch64-linux
+            cargo build --release -p btcpc-node --target aarch64-unknown-linux-gnu
+          cp target/release/btcpc-node                              ../btcpc-node-linux-x86_64
+          cp target/aarch64-unknown-linux-gnu/release/btcpc-node    ../btcpc-node-aarch64-linux
 
       - name: Build CLI binaries
         run: |
-          cd rust/btcpc-cli
-          cargo build --release
+          cd rust
+          cargo build --release -p btcpc-cli
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-            cargo build --release --target aarch64-unknown-linux-gnu
-          cp target/release/btcpc-cli                              ../../btcpc-linux-x86_64
-          cp target/aarch64-unknown-linux-gnu/release/btcpc-cli    ../../btcpc-linux-aarch64
+            cargo build --release -p btcpc-cli --target aarch64-unknown-linux-gnu
+          cp target/release/btcpc-cli                              ../btcpc-linux-x86_64
+          cp target/aarch64-unknown-linux-gnu/release/btcpc-cli    ../btcpc-linux-aarch64
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
