@@ -1302,11 +1302,9 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     let model_healer: serde_json::Value = s.chain.store.state_get("healer:last_event")
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or(serde_json::json!(null));
-    let sensor_id = format!("{}/gnss-base", account);
     let is_sensor = (0u64..=20).any(|off| {
-        s.chain.store.state_get(
-            &format!("sensor_commit:{}:{}", epoch.saturating_sub(off), sensor_id)
-        ).is_some()
+        let prefix = format!("sensor_commit:{}:{}/", epoch.saturating_sub(off), account);
+        !s.chain.store.state_scan_prefix(&prefix).is_empty()
     });
     let has_gpu  = s.capabilities.has_gpu;
     let disk_gb  = s.capabilities.disk_gb;
@@ -5476,88 +5474,85 @@ async fn get_fork_evidence(
 
 // ── Clock node reputation (Phase 8) ──────────────────────────────────────────
 
-/// GET /api/clock/registered — all clock-eligible nodes (pool-driven FIFO staking).
+/// GET /api/clock/registered — staker-centric view; device names are not exposed.
+/// Shows each account that has stake backing eligible clock devices, with device count.
 async fn get_clock_registered(State(s): State<AppState>) -> Json<serde_json::Value> {
+
     let min_stake: u64 = s.chain.store.state_get("chain_param:clock_min_stake")
         .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
         .unwrap_or(5 * 10_000_000_000);
 
-    // Aggregate total stake per node across all stakers; include if >= min_stake.
-    let mut per_node: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    // Pass 1: collect all entries and compute per-node totals.
+    // key format: role_stake:clock:{node}:{staker}
+    let mut node_total: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut raw: Vec<(String, String, u64, u64)> = Vec::new(); // (node, staker, amount, epoch)
     for (key, val) in s.chain.store.state_scan_prefix("role_stake:clock:") {
         let rest = match key.strip_prefix("role_stake:clock:") { Some(r) => r.to_owned(), None => continue };
         let sep = match rest.rfind(':') { Some(i) => i, None => continue };
-        let node = rest[..sep].to_owned();
+        let node   = rest[..sep].to_owned();
+        let staker = rest[sep+1..].to_owned();
         if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&val) {
             let amount = j["amount"].as_u64().unwrap_or(0);
             let epoch  = j["staked_epoch"].as_u64().unwrap_or(u64::MAX);
-            let e = per_node.entry(node).or_insert((0, u64::MAX));
-            e.0 += amount;
-            e.1 = e.1.min(epoch);
+            *node_total.entry(node.clone()).or_insert(0) += amount;
+            raw.push((node, staker, amount, epoch));
         }
     }
-    let mut nodes: Vec<serde_json::Value> = per_node
+
+    // Pass 2: aggregate by staker over eligible nodes only.
+    // staker -> (distinct eligible device count, total staked on eligible devices, first epoch)
+    let mut staker_devices: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    let mut staker_stake: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new(); // (total, first_epoch)
+    for (node, staker, amount, epoch) in &raw {
+        if node_total.get(node).copied().unwrap_or(0) < min_stake { continue; }
+        staker_devices.entry(staker.clone()).or_default().insert(node.clone());
+        let e = staker_stake.entry(staker.clone()).or_insert((0, u64::MAX));
+        e.0 += amount;
+        e.1 = e.1.min(*epoch);
+    }
+
+    let pool_accounts: std::collections::HashSet<String> = staker_devices.keys().cloned().collect();
+    let mut accounts: Vec<serde_json::Value> = staker_devices
         .into_iter()
-        .filter(|(_, (total, _))| *total >= min_stake)
-        .map(|(node_id, (total, first_epoch))| {
-            let uptime: serde_json::Value = s.chain.store
-                .state_get(&format!("clock_uptime:{}", node_id))
-                .and_then(|b| serde_json::from_slice(&b).ok())
-                .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
-            let pubkey = s.chain.store
-                .state_get(&format!("clock_reg:{}", node_id))
-                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                .and_then(|r| r["pubkey"].as_str().map(|s| s.to_owned()));
+        .map(|(account, _nodes)| {
+            let (total, first_epoch) = staker_stake.get(&account).copied().unwrap_or((0, 0));
+            // devices = pool capacity: how many physical machines this stake covers (FIFO auto-allocation)
+            let devices = if min_stake > 0 { total / min_stake } else { 0 };
             serde_json::json!({
-                "node_id":      node_id,
-                "total_stake":  total,
-                "total_btcpc":  total as f64 / 10_000_000_000.0,
-                "slots":        total / min_stake,
-                "staked_epoch": first_epoch,
-                "pubkey":       pubkey,
-                "uptime":       uptime,
+                "account":            account,
+                "devices":            devices,
+                "total_stake":        total,
+                "total_btcpc":        total as f64 / 10_000_000_000.0,
+                "first_staked_epoch": first_epoch,
             })
         })
         .collect();
 
-    // Include legacy clock_reg: nodes (pre-pool-model, balance deducted at registration).
-    let pool_ids: std::collections::HashSet<String> = nodes.iter()
-        .filter_map(|n| n["node_id"].as_str().map(|s| s.to_owned()))
-        .collect();
+    // Legacy clock_reg: nodes — node_id == account name, include if not already in pool.
     for (key, val) in s.chain.store.state_scan_prefix("clock_reg:") {
-        let node_id = match key.strip_prefix("clock_reg:") {
-            Some(n) => n.to_owned(),
-            None => continue,
-        };
-        if pool_ids.contains(&node_id) { continue; }
+        let node_id = match key.strip_prefix("clock_reg:") { Some(n) => n.to_owned(), None => continue };
+        if pool_accounts.contains(&node_id) { continue; }
         let j: serde_json::Value = match serde_json::from_slice(&val) { Ok(v) => v, Err(_) => continue };
         let legacy_stake = j["stake"].as_u64().unwrap_or(0);
-        if legacy_stake == 0 { continue; } // slashed
-        let uptime: serde_json::Value = s.chain.store
-            .state_get(&format!("clock_uptime:{}", node_id))
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or(serde_json::json!({"seals": 0, "epochs": 0}));
-        nodes.push(serde_json::json!({
-            "node_id":      node_id,
-            "pool_stake":   0,
-            "pool_btcpc":   0.0,
-            "legacy_stake": legacy_stake,
-            "legacy_btcpc": legacy_stake as f64 / 10_000_000_000.0,
-            "slots":        1,
-            "staked_epoch": j["registered_epoch"].as_u64().unwrap_or(0),
-            "pubkey":       j["pubkey"].as_str(),
-            "uptime":       uptime,
+        if legacy_stake == 0 { continue; }
+        let devices = if min_stake > 0 { legacy_stake / min_stake } else { 1 };
+        accounts.push(serde_json::json!({
+            "account":            node_id,
+            "devices":            devices,
+            "total_stake":        legacy_stake,
+            "total_btcpc":        legacy_stake as f64 / 10_000_000_000.0,
+            "first_staked_epoch": j["registered_epoch"].as_u64().unwrap_or(0),
         }));
     }
 
-    // FIFO: sort by staked_epoch ascending.
-    nodes.sort_by_key(|n| n["staked_epoch"].as_u64().unwrap_or(u64::MAX));
+    // FIFO order.
+    accounts.sort_by_key(|a| a["first_staked_epoch"].as_u64().unwrap_or(u64::MAX));
 
     Json(serde_json::json!({
-        "count":     nodes.len(),
+        "stakers":   accounts.len(),
         "min_stake": min_stake,
         "min_btcpc": min_stake as f64 / 10_000_000_000.0,
-        "nodes":     nodes,
+        "accounts":  accounts,
     }))
 }
 
