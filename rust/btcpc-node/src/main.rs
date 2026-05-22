@@ -94,6 +94,7 @@ mod computer_use;
 mod rag;
 mod hardware_probe;
 mod udp_gossip;
+mod tor;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1055,6 +1056,8 @@ async fn main() -> Result<()> {
 
     tracing::info!("software_hash: {}", &software_hash[..software_hash.len().min(24)]);
 
+    let onion_address = tor::start_hidden_service(&chain, cfg.api_port, cfg.p2p_port).await;
+
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
@@ -1082,6 +1085,7 @@ async fn main() -> Result<()> {
         health_monitor,
         blob_bandwidth: Arc::new(blob_bandwidth::BlobBandwidthMeter::new()),
         capabilities,
+        onion_address: Arc::new(onion_address),
     };
     api::serve(app_state, cfg.api_port).await?;
 

@@ -80,6 +80,8 @@ pub struct AppState {
     pub blob_bandwidth: Arc<crate::blob_bandwidth::BlobBandwidthMeter>,
     /// Hardware capabilities probed at startup (Ollama, GNSS, GPU, disk).
     pub capabilities: Arc<crate::hardware_probe::NodeCapabilities>,
+    /// Tor v3 hidden service address (e.g. "abc123.onion"), empty if Tor is disabled.
+    pub onion_address: Arc<String>,
 }
 
 /// POST rate limit: max requests per IP per window.
@@ -1308,6 +1310,7 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
     });
     let has_gpu  = s.capabilities.has_gpu;
     let disk_gb  = s.capabilities.disk_gb;
+    let onion    = s.onion_address.as_ref().clone();
     Json(serde_json::json!({
         "account":        account,
         "chain_id":       chain_id,
@@ -1324,6 +1327,7 @@ async fn get_node_info(State(s): State<AppState>) -> Json<serde_json::Value> {
         "hw_fingerprint": hw_fingerprint,
         "hw_summary":     hw_summary,
         "model_healer":   model_healer,
+        "onion_address":  onion,
     }))
 }
 
