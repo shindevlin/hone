@@ -96,6 +96,7 @@ mod hardware_probe;
 mod udp_gossip;
 mod tor;
 mod matrix_transport;
+mod i2p;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1083,6 +1084,12 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── I2P datagram transport — Phase 6 transport cascade ───────────────────
+    // Propagates entries through the I2P garlic-routed mesh via SAM bridge.
+    // I2P peers do NOT count toward peer_count — libp2p-only hardline intact.
+    let i2p_handle =
+        i2p::start_i2p(chain.clone(), net_handle.cmd_tx.clone()).await;
+
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
@@ -1112,6 +1119,7 @@ async fn main() -> Result<()> {
         capabilities,
         onion_address: Arc::new(onion_address),
         matrix_handle,
+        i2p_handle,
     };
     api::serve(app_state, cfg.api_port).await?;
 
