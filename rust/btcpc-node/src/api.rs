@@ -83,11 +83,11 @@ pub struct AppState {
     /// Tor v3 hidden service address (e.g. "abc123.onion"), empty if Tor is disabled.
     pub onion_address: Arc<String>,
     /// Matrix room transport handle — None if BTCPC_MATRIX is not enabled.
-    /// Used by the broadcast pump to forward accepted entries to the Matrix room.
     pub matrix_handle: Option<crate::matrix_transport::MatrixHandle>,
     /// I2P datagram transport handle — None if BTCPC_I2P is not enabled.
-    /// Used by the broadcast pump to forward accepted entries into the I2P mesh.
     pub i2p_handle: Option<crate::i2p::I2pHandle>,
+    /// LoRaWAN transport handle — None if BTCPC_LORAWAN is not enabled.
+    pub lorawan_handle: Option<crate::lorawan::LoraWanHandle>,
 }
 
 /// POST rate limit: max requests per IP per window.

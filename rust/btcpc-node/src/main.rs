@@ -97,6 +97,7 @@ mod udp_gossip;
 mod tor;
 mod matrix_transport;
 mod i2p;
+mod lorawan;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -285,6 +286,12 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── LoRaWAN transport — Phase 8 transport cascade ────────────────────────
+    // Must be started before the seal handler so the handle can be captured.
+    // LoRaWAN peers do NOT count toward peer_count — libp2p-only hardline intact.
+    let lorawan_handle =
+        lorawan::start_lorawan(chain.clone(), net_handle.cmd_tx.clone()).await;
+
     // Wire: clock sealed events → chain epoch advancement + MineReward emission + consensus proposal
     {
         let mut sealed_rx = clock.subscribe();
@@ -295,6 +302,7 @@ async fn main() -> Result<()> {
         // Hardware conflict check: after each epoch seal we verify our fingerprint is still ours.
         let hw_fp  = hw_fingerprint_for_seal;
         let hw_acc = hw_account_for_seal;
+        let lorawan_for_seal = lorawan_handle.clone();
         tokio::spawn(async move {
             loop {
                 match sealed_rx.recv().await {
@@ -328,7 +336,20 @@ async fn main() -> Result<()> {
                             let mut applied = 0usize;
                             for (e, sig) in &pending {
                                 match tx::validate_and_apply(&chain_ref, e, sig.as_deref()) {
-                                    Ok(_) => applied += 1,
+                                    Ok(_) => {
+                                        applied += 1;
+                                        // Forward accepted non-system entry hashes to LoRaWAN
+                                        // devices on the next downlink window.
+                                        if !tx::is_system_entry(e) {
+                                            if let Some(ref lh) = lorawan_for_seal {
+                                                if let Ok(hash_bytes) = hex::decode(e.hash()) {
+                                                    if let Ok(arr) = hash_bytes.try_into() {
+                                                        lh.queue_hash(arr);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     Err(err) => tracing::debug!(
                                         "[epoch {}] pending entry rejected: {}", sealed_epoch, err
                                     ),
@@ -1120,6 +1141,7 @@ async fn main() -> Result<()> {
         onion_address: Arc::new(onion_address),
         matrix_handle,
         i2p_handle,
+        lorawan_handle,
     };
     api::serve(app_state, cfg.api_port).await?;
 
