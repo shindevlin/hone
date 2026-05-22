@@ -247,3 +247,114 @@ async fn bind_multicast_socket(port: u16, ttl: u32) -> anyhow::Result<UdpSocket>
     s2.set_nonblocking(true)?;
     Ok(UdpSocket::from_std(s2.into())?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn make_chain() -> (Arc<Chain>, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix("btcpc_udp_test_")
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Arc::new(Chain::new(store, "udp-test-node".into(), "btcpc-satoshi".into()));
+        (chain, dir)
+    }
+
+    /// `UdpGossip::new` must construct without panic and return a valid handle
+    /// whose sender channel is immediately usable.
+    #[test]
+    fn udp_gossip_new_constructs_without_panic() {
+        let (chain, _dir) = make_chain();
+        let (p2p_tx, _p2p_rx) = tokio::sync::mpsc::channel(64);
+        let (_gossip, handle) = UdpGossip::new(chain, p2p_tx, "btcpc-satoshi".into());
+
+        // The handle must be Clone and the sender must be valid (not closed).
+        let _handle2 = handle.clone();
+        assert!(
+            !handle.tx.is_closed(),
+            "internal mpsc sender must not be closed immediately after construction"
+        );
+    }
+
+    /// `UdpGossipHandle::send_if_light` must silently drop entry types that are
+    /// not on the allowlist (everything except `InferenceJobBid`), without
+    /// panicking and without delivering anything to the internal channel.
+    #[test]
+    fn send_if_light_drops_non_light_entries_silently() {
+        let (chain, _dir) = make_chain();
+        let (p2p_tx, _p2p_rx) = tokio::sync::mpsc::channel(64);
+        let (_gossip, handle) = UdpGossip::new(chain, p2p_tx, "btcpc-satoshi".into());
+
+        // A Transfer entry is not a light entry — must be dropped, not queued.
+        let non_light = LedgerEntry::Transfer {
+            from:      "alice".into(),
+            to:        "bob".into(),
+            amount:    1_000_000,
+            token:     btcpc_types::NATIVE_TOKEN.into(),
+            memo:      None,
+            epoch:     1,
+            nonce:     1,
+            signed_by: "alice".into(),
+            twofactor: None,
+        };
+        handle.send_if_light(non_light);
+
+        // The internal receiver must still be empty — nothing was enqueued.
+        assert_eq!(
+            handle.tx.max_capacity() - handle.tx.capacity(),
+            0,
+            "non-light entry must not be enqueued in the internal channel"
+        );
+    }
+
+    /// `is_light_entry` accepts `InferenceJobBid` and rejects everything else.
+    /// Tests the allowlist predicate in isolation.
+    #[test]
+    fn is_light_entry_allowlist_correct() {
+        let bid = LedgerEntry::InferenceJobBid {
+            job_id:    "job-001".into(),
+            bidder:    "alice".into(),
+            fee:       500_000,
+            role:      "worker".into(),
+            epoch:     1,
+            nonce:     1,
+            signed_by: "alice".into(),
+        };
+        assert!(
+            is_light_entry(&bid),
+            "InferenceJobBid must be classified as a light entry"
+        );
+
+        let transfer = LedgerEntry::Transfer {
+            from:      "alice".into(),
+            to:        "bob".into(),
+            amount:    1,
+            token:     btcpc_types::NATIVE_TOKEN.into(),
+            memo:      None,
+            epoch:     1,
+            nonce:     2,
+            signed_by: "alice".into(),
+            twofactor: None,
+        };
+        assert!(
+            !is_light_entry(&transfer),
+            "Transfer must not be classified as a light entry"
+        );
+
+        let stake = LedgerEntry::Stake {
+            account:   "alice".into(),
+            amount:    1_000_000,
+            epoch:     1,
+            signed_by: "alice".into(),
+            nonce:     3,
+        };
+        assert!(
+            !is_light_entry(&stake),
+            "Stake must not be classified as a light entry"
+        );
+    }
+}

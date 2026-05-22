@@ -324,3 +324,71 @@ async fn run_send_loop(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    // Serialise env-var access so parallel test threads do not race.
+    static ENV_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
+    fn make_chain_and_cmd_tx() -> (Arc<Chain>, tokio::sync::mpsc::Sender<crate::net::NetCmd>, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix("btcpc_i2p_test_")
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Arc::new(Chain::new(store, "i2p-test-node".into(), "btcpc-satoshi".into()));
+        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(64);
+        (chain, cmd_tx, dir)
+    }
+
+    /// When `BTCPC_I2P` is not set, `start_i2p` must return `None` immediately
+    /// without attempting a SAM bridge connection.
+    #[tokio::test]
+    async fn i2p_disabled_returns_none_when_env_unset() {
+        let _guard = ENV_LOCK.lock();
+        std::env::remove_var("BTCPC_I2P");
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_i2p(chain, cmd_tx).await;
+
+        assert!(
+            result.is_none(),
+            "expected None when BTCPC_I2P is unset"
+        );
+    }
+
+    /// When `BTCPC_I2P=true` but the SAM bridge is not listening on the
+    /// configured port, `start_i2p` must return `None` without panicking.
+    /// The port is chosen dynamically to avoid conflicts with a real I2P router.
+    #[tokio::test]
+    async fn i2p_enabled_but_sam_unreachable_returns_none() {
+        let _guard = ENV_LOCK.lock();
+
+        // Bind then drop — leaves a closed port that will refuse connections.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral listener");
+        let port = listener.local_addr().expect("local_addr").port();
+        drop(listener);
+
+        std::env::set_var("BTCPC_I2P", "true");
+        std::env::set_var("BTCPC_I2P_SAM_HOST", "127.0.0.1");
+        std::env::set_var("BTCPC_I2P_SAM_PORT", port.to_string());
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_i2p(chain, cmd_tx).await;
+
+        std::env::remove_var("BTCPC_I2P");
+        std::env::remove_var("BTCPC_I2P_SAM_HOST");
+        std::env::remove_var("BTCPC_I2P_SAM_PORT");
+
+        assert!(
+            result.is_none(),
+            "expected None when SAM bridge port is unreachable"
+        );
+    }
+}

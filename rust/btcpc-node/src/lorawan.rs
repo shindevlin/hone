@@ -464,3 +464,132 @@ fn track_gateway(chain: &Arc<Chain>, mac: [u8; 8]) {
         &now.to_le_bytes(),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    // Serialise env-var access so parallel test threads do not race.
+    static ENV_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
+    fn make_chain_and_cmd_tx() -> (Arc<Chain>, tokio::sync::mpsc::Sender<crate::net::NetCmd>, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix("btcpc_lorawan_test_")
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Arc::new(Chain::new(store, "lorawan-test-node".into(), "btcpc-satoshi".into()));
+        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(64);
+        (chain, cmd_tx, dir)
+    }
+
+    /// When `BTCPC_LORAWAN` is not set, `start_lorawan` must return `None`
+    /// immediately without binding any socket.
+    #[tokio::test]
+    async fn lorawan_disabled_returns_none_when_env_unset() {
+        let _guard = ENV_LOCK.lock();
+        std::env::remove_var("BTCPC_LORAWAN");
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_lorawan(chain, cmd_tx).await;
+
+        assert!(
+            result.is_none(),
+            "expected None when BTCPC_LORAWAN is unset"
+        );
+    }
+
+    /// When `BTCPC_LORAWAN=true` with a high-numbered port, `start_lorawan` must
+    /// return `Some(handle)` and the handle must be Clone.
+    #[tokio::test]
+    async fn lorawan_enabled_binds_and_returns_handle() {
+        let _guard = ENV_LOCK.lock();
+
+        // Pick an ephemeral port by binding to :0 then releasing it.
+        // We pass this port to start_lorawan via env var.
+        let probe = tokio::net::UdpSocket::bind("0.0.0.0:0")
+            .await
+            .expect("probe bind");
+        let port = probe.local_addr().expect("local_addr").port();
+        drop(probe);
+
+        std::env::set_var("BTCPC_LORAWAN", "true");
+        std::env::set_var("BTCPC_LORAWAN_PORT", port.to_string());
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_lorawan(chain, cmd_tx).await;
+
+        std::env::remove_var("BTCPC_LORAWAN");
+        std::env::remove_var("BTCPC_LORAWAN_PORT");
+
+        assert!(
+            result.is_some(),
+            "expected Some(handle) when BTCPC_LORAWAN=true and port is bindable"
+        );
+        // Verify Clone works on the handle.
+        let handle = result.unwrap();
+        let _handle2 = handle.clone();
+    }
+
+    /// The Semtech PUSH_ACK wire format must be exactly four bytes:
+    ///   [0x02, token[0], token[1], 0x01]
+    ///
+    /// Verified by sending a real ACK over loopback UDP and checking the
+    /// received bytes match the Semtech spec (Table 3 of the protocol doc).
+    #[tokio::test]
+    async fn semtech_push_ack_frame_format_is_correct() {
+        // Two sockets: server (sends the ACK) and client (receives it).
+        let server_sock = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind server socket");
+        let client_sock = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind client socket");
+
+        let client_addr = client_sock.local_addr().expect("client addr");
+
+        let token: [u8; 2] = [0xAB, 0xCD];
+
+        // send_ack is private async fn — call it directly via super::*.
+        send_ack(&server_sock, client_addr, token, PUSH_ACK).await;
+
+        let mut buf = [0u8; 16];
+        let (len, _src) = client_sock.recv_from(&mut buf).await.expect("recv_from");
+
+        assert_eq!(len, 4, "PUSH_ACK frame must be exactly 4 bytes");
+        assert_eq!(
+            &buf[..4],
+            &[PROTOCOL_VERSION, token[0], token[1], PUSH_ACK],
+            "PUSH_ACK frame bytes must be [0x02, tok0, tok1, 0x01]"
+        );
+    }
+
+    /// The Semtech PULL_ACK wire format must be exactly four bytes:
+    ///   [0x02, token[0], token[1], 0x04]
+    #[tokio::test]
+    async fn semtech_pull_ack_frame_format_is_correct() {
+        let server_sock = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind server socket");
+        let client_sock = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind client socket");
+
+        let client_addr = client_sock.local_addr().expect("client addr");
+        let token: [u8; 2] = [0x12, 0x34];
+
+        send_ack(&server_sock, client_addr, token, PULL_ACK).await;
+
+        let mut buf = [0u8; 16];
+        let (len, _src) = client_sock.recv_from(&mut buf).await.expect("recv_from");
+
+        assert_eq!(len, 4, "PULL_ACK frame must be exactly 4 bytes");
+        assert_eq!(
+            &buf[..4],
+            &[PROTOCOL_VERSION, token[0], token[1], PULL_ACK],
+            "PULL_ACK frame bytes must be [0x02, tok0, tok1, 0x04]"
+        );
+    }
+}

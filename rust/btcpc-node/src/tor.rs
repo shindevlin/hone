@@ -145,3 +145,73 @@ async fn try_start(
 
     Some(onion)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    // Serialise env-var access so parallel test threads do not race.
+    static ENV_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
+    fn make_chain() -> (Arc<Chain>, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix("btcpc_tor_test_")
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Arc::new(Chain::new(store, "tor-test-node".into(), "btcpc-satoshi".into()));
+        (chain, dir)
+    }
+
+    /// When `BTCPC_TOR` is not set, `start_hidden_service` must return an empty
+    /// string immediately without attempting any network connection.
+    #[tokio::test]
+    async fn tor_disabled_returns_empty_string_when_env_unset() {
+        let _guard = ENV_LOCK.lock();
+        std::env::remove_var("BTCPC_TOR");
+        std::env::remove_var("BTCPC_TOR_CONTROL_PORT");
+
+        let (chain, _dir) = make_chain();
+        let result = start_hidden_service(&chain, 4242, 6942).await;
+
+        assert!(
+            result.is_empty(),
+            "expected empty string when BTCPC_TOR is unset, got: {:?}",
+            result
+        );
+    }
+
+    /// When `BTCPC_TOR=true` but the Tor control port is not listening,
+    /// `start_hidden_service` must return an empty string and must not panic.
+    /// The port is chosen dynamically so the test is safe even on machines
+    /// where a real Tor daemon is running.
+    #[tokio::test]
+    async fn tor_enabled_but_port_unreachable_returns_empty_string() {
+        let _guard = ENV_LOCK.lock();
+
+        // Bind, read the port, then drop — OS will not re-use it immediately
+        // but nobody else is listening on it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral listener");
+        let port = listener.local_addr().expect("local_addr").port();
+        drop(listener);
+
+        std::env::set_var("BTCPC_TOR", "true");
+        std::env::set_var("BTCPC_TOR_CONTROL_PORT", port.to_string());
+
+        let (chain, _dir) = make_chain();
+        let result = start_hidden_service(&chain, 4242, 6942).await;
+
+        std::env::remove_var("BTCPC_TOR");
+        std::env::remove_var("BTCPC_TOR_CONTROL_PORT");
+
+        assert!(
+            result.is_empty(),
+            "expected empty string when control port is unreachable, got: {:?}",
+            result
+        );
+    }
+}

@@ -394,3 +394,97 @@ async fn run_send_loop(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    // Serialise env-var access so parallel test threads do not race.
+    static ENV_LOCK: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
+    fn make_chain_and_cmd_tx() -> (Arc<Chain>, tokio::sync::mpsc::Sender<crate::net::NetCmd>, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix("btcpc_nostr_test_")
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Arc::new(Chain::new(store, "nostr-test-node".into(), "btcpc-satoshi".into()));
+        let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::channel(64);
+        (chain, cmd_tx, dir)
+    }
+
+    /// When `BTCPC_NOSTR` is not set, `start_nostr` must return `None`
+    /// immediately without attempting any relay connection.
+    #[tokio::test]
+    async fn nostr_disabled_returns_none_when_env_unset() {
+        let _guard = ENV_LOCK.lock();
+        std::env::remove_var("BTCPC_NOSTR");
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_nostr(chain, cmd_tx, "btcpc-satoshi".into()).await;
+
+        assert!(
+            result.is_none(),
+            "expected None when BTCPC_NOSTR is unset"
+        );
+    }
+
+    /// When `BTCPC_NOSTR=true` and all relay URLs are unreachable,
+    /// `start_nostr` must complete without panicking within a reasonable
+    /// timeout.
+    ///
+    /// Note on expected return value: nostr-sdk 0.37 does not fail
+    /// synchronously when relay connections cannot be established.
+    /// `client.connect()` returns immediately, and `client.subscribe()`
+    /// succeeds vacuously against an empty connected-relay set, so
+    /// `start_nostr` returns `Some(handle)` rather than `None`.  The
+    /// invariant verified here is panic-freedom and bounded completion time.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_enabled_with_unreachable_relays_does_not_panic() {
+        let _guard = ENV_LOCK.lock();
+
+        // Use a non-routable loopback port so attempts fail fast.
+        std::env::set_var("BTCPC_NOSTR", "true");
+        std::env::set_var("BTCPC_NOSTR_RELAYS", "wss://127.0.0.1:19999");
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            start_nostr(chain, cmd_tx, "btcpc-satoshi".into()),
+        )
+        .await;
+
+        std::env::remove_var("BTCPC_NOSTR");
+        std::env::remove_var("BTCPC_NOSTR_RELAYS");
+
+        assert!(
+            result.is_ok(),
+            "start_nostr must complete within 10 s even when all relays are unreachable"
+        );
+    }
+
+    /// Configuring an empty relay list causes `start_nostr` to return `None`
+    /// (the `relay_urls.is_empty()` early-exit path in `try_start`).
+    #[tokio::test]
+    async fn nostr_enabled_with_empty_relay_list_returns_none() {
+        let _guard = ENV_LOCK.lock();
+
+        std::env::set_var("BTCPC_NOSTR", "true");
+        // A single comma expands to zero non-empty relay tokens after split+filter.
+        std::env::set_var("BTCPC_NOSTR_RELAYS", ",");
+
+        let (chain, cmd_tx, _dir) = make_chain_and_cmd_tx();
+        let result = start_nostr(chain, cmd_tx, "btcpc-satoshi".into()).await;
+
+        std::env::remove_var("BTCPC_NOSTR");
+        std::env::remove_var("BTCPC_NOSTR_RELAYS");
+
+        assert!(
+            result.is_none(),
+            "expected None when BTCPC_NOSTR_RELAYS resolves to an empty list"
+        );
+    }
+}
