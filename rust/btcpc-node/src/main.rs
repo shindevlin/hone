@@ -95,6 +95,7 @@ mod rag;
 mod hardware_probe;
 mod udp_gossip;
 mod tor;
+mod matrix_transport;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1058,6 +1059,30 @@ async fn main() -> Result<()> {
 
     let onion_address = tor::start_hidden_service(&chain, cfg.api_port, cfg.p2p_port).await;
 
+    // ── Matrix room transport — Phase 5 transport cascade ─────────────────────
+    // Propagates entries through a federated Matrix room for global reach.
+    // Matrix peers do NOT count toward peer_count — libp2p-only hardline intact.
+    let matrix_handle =
+        matrix_transport::start_matrix(chain.clone(), net_handle.cmd_tx.clone()).await;
+
+    // If Matrix is active, subscribe to the broadcast channel and forward every
+    // accepted entry into the Matrix room.
+    if let Some(ref mh) = matrix_handle {
+        let mh_clone = mh.clone();
+        let mut mx_rx = tx_broadcast.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match mx_rx.recv().await {
+                    Ok((entry, _sig)) => mh_clone.send_entry(entry),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("matrix broadcast rx lagged by {} entries", n);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     let app_state = api::AppState {
         chain: chain.clone(),
         contracts,
@@ -1086,6 +1111,7 @@ async fn main() -> Result<()> {
         blob_bandwidth: Arc::new(blob_bandwidth::BlobBandwidthMeter::new()),
         capabilities,
         onion_address: Arc::new(onion_address),
+        matrix_handle,
     };
     api::serve(app_state, cfg.api_port).await?;
 
