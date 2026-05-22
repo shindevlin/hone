@@ -95,6 +95,7 @@ mod rag;
 mod hardware_probe;
 mod udp_gossip;
 mod tor;
+mod nostr_transport;
 mod matrix_transport;
 mod i2p;
 mod lorawan;
@@ -1081,6 +1082,30 @@ async fn main() -> Result<()> {
 
     let onion_address = tor::start_hidden_service(&chain, cfg.api_port, cfg.p2p_port).await;
 
+    // ── Nostr relay transport — Phase 4 transport cascade ────────────────────
+    // Propagates entries through the Nostr relay network for open-internet reach.
+    // Nostr relay peers do NOT count toward peer_count — libp2p-only hardline intact.
+    let nostr_handle =
+        nostr_transport::start_nostr(chain.clone(), net_handle.cmd_tx.clone(), cfg.chain_id.clone()).await;
+
+    // If Nostr is active, subscribe to the broadcast channel and forward every
+    // accepted entry into the Nostr relay pool.
+    if let Some(ref nh) = nostr_handle {
+        let nh_clone = nh.clone();
+        let mut nostr_rx = tx_broadcast.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match nostr_rx.recv().await {
+                    Ok((entry, _sig)) => nh_clone.send_entry(entry),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("nostr broadcast rx lagged by {} entries", n);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     // ── Matrix room transport — Phase 5 transport cascade ─────────────────────
     // Propagates entries through a federated Matrix room for global reach.
     // Matrix peers do NOT count toward peer_count — libp2p-only hardline intact.
@@ -1139,6 +1164,7 @@ async fn main() -> Result<()> {
         blob_bandwidth: Arc::new(blob_bandwidth::BlobBandwidthMeter::new()),
         capabilities,
         onion_address: Arc::new(onion_address),
+        nostr_handle,
         matrix_handle,
         i2p_handle,
         lorawan_handle,

@@ -378,8 +378,8 @@ pub fn merkle_leaf(key: &[u8], val: &[u8]) -> [u8; 32] {
 pub fn merkle_node(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"node:");
-    h.update(left.as_ref());
-    h.update(right.as_ref());
+    h.update(left.as_slice());
+    h.update(right.as_slice());
     h.finalize().into()
 }
 

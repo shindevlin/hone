@@ -82,6 +82,8 @@ pub struct AppState {
     pub capabilities: Arc<crate::hardware_probe::NodeCapabilities>,
     /// Tor v3 hidden service address (e.g. "abc123.onion"), empty if Tor is disabled.
     pub onion_address: Arc<String>,
+    /// Nostr relay transport handle — None if BTCPC_NOSTR is not enabled.
+    pub nostr_handle: Option<crate::nostr_transport::NostrHandle>,
     /// Matrix room transport handle — None if BTCPC_MATRIX is not enabled.
     pub matrix_handle: Option<crate::matrix_transport::MatrixHandle>,
     /// I2P datagram transport handle — None if BTCPC_I2P is not enabled.
