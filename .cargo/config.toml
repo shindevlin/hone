@@ -2,6 +2,9 @@
 # NDK_HOME must be set (e.g. /opt/android-ndk or via ANDROID_NDK_HOME).
 # cargo-ndk sets these automatically when invoked via: cargo ndk -t arm64-v8a build --release
 
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
 [target.aarch64-linux-android]
 linker = "aarch64-linux-android34-clang"
 

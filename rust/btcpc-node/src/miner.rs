@@ -225,11 +225,12 @@ async fn run_inference_prompt(epoch: u64, miner: &str, prompt: &str) -> (u64, u6
     let client = reqwest::Client::new();
     let result = client
         .post(format!("{}/api/generate", ollama_url))
-        .timeout(Duration::from_secs(25))
+        .timeout(Duration::from_secs(60))
         .json(&serde_json::json!({
             "model": model,
             "prompt": prompt,
             "stream": false,
+            "keep_alive": "0s",
             "options": { "num_predict": 64, "temperature": 0.0 },
         }))
         .send()

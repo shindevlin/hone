@@ -1104,29 +1104,8 @@ pub fn validate_and_apply(
             if bal < *amount {
                 bail!("insufficient balance for role stake: {} has {} dreams", staker, bal);
             }
-            // Self-stake: each physical device must independently meet the role minimum.
-            // Backers (staker != node) are not subject to the per-device minimum.
-            if staker == node {
-                let param_key = format!("chain_param:{}_min_stake", role);
-                let min: u64 = chain.store.state_get(&param_key)
-                    .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
-                    .unwrap_or(0);
-                if min > 0 {
-                    let existing_key = format!("role_stake:{}:{}:{}", role, node, staker);
-                    let existing: u64 = chain.store.state_get(&existing_key)
-                        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                        .and_then(|j| j["amount"].as_u64())
-                        .unwrap_or(0);
-                    let total_after = existing + amount;
-                    if total_after < min {
-                        bail!(
-                            "self-stake on '{}' role '{}' requires at least {} dreams per device; \
-                             this stake would bring total to {} dreams (need {} more)",
-                            node, role, min, total_after, min - total_after
-                        );
-                    }
-                }
-            }
+            // Minimum enforcement is at quorum membership time (registered_clock_nodes),
+            // not at stake submission. Users stake from their account onto any device.
             chain.apply_entry(entry)?;
             bump_nonce(chain, staker)?;
         }
