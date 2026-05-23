@@ -54,6 +54,7 @@ libp2p = { version = "0.56", features = [
 ] }
 matrix-sdk = { version = "0.17", default-features = false, features = ["markdown"] }
 nostr-sdk = { version = "0.37" }
+rustls = { version = "0.23", features = ["ring"], default-features = false }
 
 # HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
 # Use rustls so cross-compilation (ARM64/Pi) works without system OpenSSL.

@@ -136,6 +136,10 @@ use store::Store;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install ring as the rustls 0.23 crypto provider before any TLS code runs.
+    // Required when multiple providers (ring + aws-lc-rs) are in the dep tree.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cfg = Config::from_env();
 
     // Prevent multiple instances on the same machine.
