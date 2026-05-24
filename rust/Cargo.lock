@@ -770,6 +770,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ripemd",
  "rocksdb",
+ "rustls",
  "secp256k1",
  "serde",
  "serde_json",
