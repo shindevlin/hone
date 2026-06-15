@@ -7,8 +7,8 @@
  *
  * Environment:
  *   BTCPC_SMOKE_URL   — base URL to target (default: http://localhost:4242)
- *   BTCPC_SMOKE_SKIP  — set to "1" to skip all tests (CI default); set to "0"
- *                       to run them even if the env var was exported as "1"
+ *   BTCPC_SMOKE_SKIP  — tests are skipped by default (opt-in). Set to "0" to
+ *                       actually run them against a live node at BTCPC_SMOKE_URL.
  *   BTCPC_SMOKE_API_KEY — API key for authenticated inference test (optional;
  *                         the authenticated POST test is skipped when absent)
  *
@@ -22,7 +22,11 @@ const BASE = (process.env.BTCPC_SMOKE_URL || "http://localhost:4242").replace(
   /\/$/,
   ""
 );
-const SKIP = process.env.BTCPC_SMOKE_SKIP === "1";
+// Smoke tests hit a live node at BTCPC_SMOKE_URL. They are opt-IN: skipped by
+// default (no node in unit-test/CI runs) and only run when BTCPC_SMOKE_SKIP is
+// explicitly set to "0". Previously this skipped only when ==="1", so the suite
+// ran by default and the workers crashed trying to reach a node that isn't up.
+const SKIP = process.env.BTCPC_SMOKE_SKIP !== "0";
 const API_KEY = process.env.BTCPC_SMOKE_API_KEY || "";
 
 const RETRY_COUNT = 3;

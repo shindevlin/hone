@@ -1,0 +1,5 @@
+# Shell scripts MUST use LF. A CRLF shebang line breaks `bash` on Linux/macOS
+# (`/usr/bin/env bash\r: bad interpreter`), which silently breaks the installer
+# when the repo is checked out on Windows with core.autocrlf=true.
+*.sh   text eol=lf
+*.bash text eol=lf

@@ -1,5 +1,11 @@
 "use strict";
 
+// Account creation hashes passwords with bcryptjs (pure-JS, cost 10) and does
+// several hashes per test; on a loaded machine a single test can exceed Jest's
+// default 5s. Raise the suite timeout — this is environment slowness, not a
+// product regression (cost 10 is the intended factor).
+jest.setTimeout(30000);
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

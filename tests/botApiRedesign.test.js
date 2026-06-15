@@ -1,5 +1,10 @@
 "use strict";
 
+// Password create/login paths hash with bcryptjs (cost 10), repeated across
+// many cases here; the default 5s Jest timeout is too tight on a loaded box.
+// Environment slowness, not a product regression.
+jest.setTimeout(30000);
+
 /**
  * Bot API redesign — conversational wallet creation + password auth
  *

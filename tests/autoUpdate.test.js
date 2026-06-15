@@ -370,7 +370,10 @@ describe("auto-update — script file checks", () => {
     expect(fs.existsSync(SCRIPT)).toBe(true);
   });
 
-  test("bin/btcpc-auto-update has executable bit set", () => {
+  // The executable bit is a POSIX concept; NTFS/Windows doesn't track it
+  // (Node reports it unset). Assertion runs on Linux/macOS CI, skipped on Windows.
+  var testPosix = process.platform === 'win32' ? test.skip : test;
+  testPosix("bin/btcpc-auto-update has executable bit set", () => {
     var stat = fs.statSync(SCRIPT);
     // 0o100 = owner execute
     expect(stat.mode & 0o100).toBeTruthy();

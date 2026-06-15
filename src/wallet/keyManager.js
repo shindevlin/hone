@@ -7,8 +7,16 @@
 
 const crypto = require("crypto");
 const bip39 = require("bip39");
-const HDKey = require("hdkey");
 const secp256k1 = require("secp256k1");
+// BIP-32 HD derivation via native secp256k1 (tiny-secp256k1). Replaces the
+// legacy `hdkey` package, which used pure-JS bignum elliptic math (ecurve/bigi)
+// — correct but ~1300ms per derivation under Jest's transformed environment
+// (vs milliseconds native), which blew test timeouts on the account-creation
+// flow. Output is byte-identical to hdkey for the same seed+path (verified
+// against golden vectors in keyManagerHdParity.test.js) — no wallet forks.
+const { BIP32Factory } = require("bip32");
+const tinySecp256k1 = require("tiny-secp256k1");
+const bip32 = BIP32Factory(tinySecp256k1);
 const { derivePath, getPublicKey: ed25519PubKey } = require("ed25519-hd-key");
 const keccak256 = require("js-sha3").keccak256;
 const bs58 = require("bs58");
@@ -81,9 +89,8 @@ function validateMnemonic(mnemonic) {
  * @returns {{ privateKey: Buffer, publicKey: Buffer }}
  */
 function deriveKeypairFromSeed(seed, path) {
-  const master = HDKey.fromMasterSeed(seed);
-  const child = master.derive(path);
-  const privKey = child.privateKey;
+  const child = bip32.fromSeed(seed).derivePath(path);
+  const privKey = Buffer.from(child.privateKey);
   const pubKey = secp256k1.publicKeyCreate(privKey, true); // compressed
   return { privateKey: privKey, publicKey: Buffer.from(pubKey) };
 }
@@ -267,9 +274,8 @@ function decryptKey(encrypted, totpOrPassword) {
  * @returns {{ privateKey: string, publicKey: string, address: string }}
  */
 function deriveEVMWallet(seed) {
-  const master = HDKey.fromMasterSeed(seed);
-  const child = master.derive(CHAIN_PATHS.evm);
-  const privKey = child.privateKey;
+  const child = bip32.fromSeed(seed).derivePath(CHAIN_PATHS.evm);
+  const privKey = Buffer.from(child.privateKey);
   const pubKey = secp256k1.publicKeyCreate(privKey, false); // uncompressed 65 bytes
   // EVM address = last 20 bytes of keccak256(uncompressed pubkey without 0x04 prefix)
   const hash = keccak256(Buffer.from(pubKey.slice(1)));
@@ -327,9 +333,8 @@ function deriveTONWallet(seed) {
  * @returns {{ privateKey: string, publicKey: string, address: string }}
  */
 function deriveBitcoinWallet(seed) {
-  const master = HDKey.fromMasterSeed(seed);
-  const child = master.derive(CHAIN_PATHS.bitcoin);
-  const privKey = child.privateKey;
+  const child = bip32.fromSeed(seed).derivePath(CHAIN_PATHS.bitcoin);
+  const privKey = Buffer.from(child.privateKey);
   const pubKey = secp256k1.publicKeyCreate(privKey, true); // compressed 33 bytes
   // P2WPKH address: bech32 encode of HASH160(compressed pubkey)
   const sha = crypto.createHash("sha256").update(pubKey).digest();

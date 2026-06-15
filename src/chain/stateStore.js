@@ -80,6 +80,7 @@ var networkPolicy = { stakeFreeUntilStakers: 1000 };
 // ─────────────────────────────────────────────────────────────────
 // Stores: seller → { name, banner_cid, description_cid, categories, stake_amount, stake_paid_usd, capacity, rep_score, rep_votes_up, rep_votes_down, total_sales, total_fulfilled, total_disputed, created_epoch, status }
 // "capacity" is how many products the store can hold, bought via bonding curve.
+var stores = new Map();
 // Native Exchange Queue
 var exchangeQueue = [];
 var exchangeStats = { total_volume: 0, total_fees: 0 };

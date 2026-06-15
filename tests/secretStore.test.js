@@ -44,7 +44,11 @@ describe('secretStore — loading', () => {
     expect(secretStore.hasUser('alice')).toBe(false); // reset wiped the file too
   });
 
-  it('creates the file with mode 0600', () => {
+  // POSIX file-permission bits don't exist on Windows/NTFS (Node reports 0666),
+  // so this assertion is only meaningful on POSIX hosts. It still runs — and
+  // protects — on Linux/macOS CI; it's skipped on Windows dev machines.
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+  itPosix('creates the file with mode 0600', () => {
     const stat = fs.statSync(process.env.BTCPC_SECRETS_PATH);
     // mode & 0o777 gives permission bits
     const perms = stat.mode & 0o777;

@@ -1,6 +1,6 @@
 {
   "name": "freeport-protocol",
-  "version": "3.1.157",
+  "version": "3.1.159",
   "description": "Freeport Protocol — sovereign blockchain where compute, storage, and commerce flow without gatekeepers",
   "main": "src/index.js",
   "scripts": {
@@ -44,6 +44,7 @@
     "axios": "^1.6.5",
     "bcryptjs": "^2.4.3",
     "bech32": "^2.0.0",
+    "bip32": "^4.0.0",
     "bip39": "^3.1.0",
     "bs58": "^4.0.1",
     "commander": "^14.0.3",
@@ -65,6 +66,7 @@
     "secp256k1": "^5.0.1",
     "serialport": "^13.0.0",
     "speakeasy": "^2.0.0",
+    "tiny-secp256k1": "^2.2.4",
     "winston": "^3.11.0",
     "ws": "^8.20.0"
   },
@@ -78,6 +80,9 @@
     "nodemon": "^3.0.2"
   },
   "jest": {
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/jest.setup.js"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "<rootDir>/btcpc/",
