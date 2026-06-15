@@ -140,7 +140,7 @@
       if (clockTimer) clearInterval(clockTimer);
       clockTimer = setInterval(function () {
         if (!connected) return;
-        var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+        var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
         if (epoch < 0) epoch = 0;
         send(
           createMessage("CLOCK_HEARTBEAT", {

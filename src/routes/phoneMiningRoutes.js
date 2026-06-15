@@ -59,7 +59,7 @@ function generateJobId() {
 }
 
 function currentEpoch() {
-    const GENESIS_TS = 1776236400000; // 2026-04-15T07:00:00.000Z
+    const GENESIS_TS = 1777633200000; // 2026-05-01T11:00:00.000Z (noon Ireland, UTC+1)
     const EPOCH_MS = 30000;
     return Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
 }

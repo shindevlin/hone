@@ -20,7 +20,7 @@ const BASELINE_WORK_PER_EPOCH = 100; // baseline expected work per epoch at diff
 // Genesis timestamp — hardcoded. Midnight California, April 15 2026.
 // This is the birth of the BTCPC v3.0 chain. All nodes must agree on this value.
 // Every epoch number on every node is derived from this single constant.
-const GENESIS_TIMESTAMP = 1776236400000; // 2026-04-15T07:00:00.000Z (midnight California)
+const GENESIS_TIMESTAMP = 1777633200000; // 2026-05-01T11:00:00.000Z (noon Ireland, UTC+1)
 let epochInterval = null;
 let currentDifficulty = 1.0;
 

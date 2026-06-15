@@ -38,6 +38,9 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 // Backoff resets on successful connect — setupPeerSocket creates a fresh peer
 // object with reconnectAttempts: 0, overwriting any previous entry.
 const MAX_RECONNECT_DELAY_MS = 60000; // 1 minute
+// Cap on a single unencrypted relay message before JSON.parse (DoS guard).
+// Block sync uses windowed REQUEST_BLOCKS, so legit relay frames stay small.
+const MAX_RELAY_MESSAGE_BYTES = parseInt(process.env.BTCPC_MAX_RELAY_MESSAGE_BYTES) || 1048576; // 1 MiB
 
 // Relay URLs — supports multiple for redundancy via BTCPC_RELAY_URLS (comma-separated).
 // Falls back to BTCPC_RELAY_URL (single) or the built-in Cloudflare relay.
@@ -317,8 +320,19 @@ function setupPeerSocket(ws, address, direction) {
     peer.lastSeen = Date.now();
 
     if (!peer.noiseEnabled) {
-      // Relay connection — plain JSON messages
+      // Relay connection — plain JSON messages.
+      // Relay traffic is unencrypted and unauthenticated at the transport
+      // layer, so cap payload size before JSON.parse to prevent a relay (or
+      // anything posing as one) from forcing a multi-MB allocation.
       try {
+        const byteLen = typeof data === "string"
+          ? Buffer.byteLength(data, "utf8")
+          : (data && data.length) || 0;
+        if (byteLen > MAX_RELAY_MESSAGE_BYTES) {
+          console.error("[BTCPC P2P] Oversized relay message from " + address +
+            " (" + byteLen + " bytes > " + MAX_RELAY_MESSAGE_BYTES + ") — dropped");
+          return;
+        }
         const raw = typeof data === "string" ? data : data.toString("utf8");
         const msg = JSON.parse(raw);
         handleIncoming(peer, msg);

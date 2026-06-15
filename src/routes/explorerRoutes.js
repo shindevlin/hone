@@ -14,7 +14,7 @@ const path = require("path");
 const router = express.Router();
 
 const BLOCKS_DIR = path.resolve(process.cwd(), "data/blocks");
-const GENESIS_TIMESTAMP = 1776236400000;
+const GENESIS_TIMESTAMP = 1777633200000;
 const EPOCH_MS = 30000;
 const GENESIS_REWARD = 243.06;
 

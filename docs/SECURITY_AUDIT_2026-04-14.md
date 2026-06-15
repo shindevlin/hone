@@ -57,7 +57,7 @@ No non-breaking fix is currently available for that chain. Do not force-downgrad
 
 ## Notes For Next LLM
 
-- Do not change `src/services/epochManager.js` genesis timestamp. It is correctly set to `1776236400000`.
+- ~~Do not change `src/services/epochManager.js` genesis timestamp. It is correctly set to `1776236400000`.~~ **Superseded:** genesis was moved to `1777633200000` (2026-05-01 noon Ireland, UTC+1). The whole codebase was swept to this value; `1776236400000` is now stale. See CLAUDE.md.
 - Package metadata mismatch was fixed in the working tree: `package.json`, `package-lock.json`, and lock root now report `3.0.87`.
 - Future version bumps must update `package.json` and `package-lock.json` together.
 - `bin/btcpc-chain-monitor` and several timeout constants use `300000` for monitor/backoff/timeouts, not epoch length.

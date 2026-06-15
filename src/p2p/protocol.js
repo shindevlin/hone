@@ -717,10 +717,21 @@ function handleEpochCommit(peer, msg, ctx) {
 /**
  * REQUEST_BLOCKS — Serve block history to a peer requesting chain sync.
  */
+// Max epochs a single REQUEST_BLOCKS may span. Caps the work one peer can
+// force per request; a syncing peer issues multiple windowed requests.
+const MAX_BLOCKS_PER_REQUEST = parseInt(process.env.BTCPC_MAX_BLOCKS_PER_REQUEST) || 1000;
+
 function handleRequestBlocks(peer, msg, ctx) {
   const data = msg.data || {};
-  const from = data.from || 0;
-  const to = data.to || from;
+
+  // Sanitize peer-supplied range: coerce to finite non-negative integers and
+  // clamp the span so a malicious from/to (NaN, negative, 0→huge) can't force
+  // an oversized scan. Invalid input degrades to an empty response.
+  let from = Math.floor(Number(data.from));
+  let to = Math.floor(Number(data.to));
+  if (!Number.isFinite(from) || from < 0) from = 0;
+  if (!Number.isFinite(to) || to < from) to = from;
+  if (to - from > MAX_BLOCKS_PER_REQUEST) to = from + MAX_BLOCKS_PER_REQUEST;
 
   console.log("[BTCPC P2P] Block request from " + (peer.nodeId || "unknown").slice(0, 12) +
     " (epochs " + from + "-" + to + ")");
@@ -1052,26 +1063,21 @@ async function handleEpochFinalized(peer, msg, ctx) {
       var sigOk = messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "posting")
         || messageAuth.verifyAccountSignature(data.proposer, blockHeaderData, data.block_signature, "active");
       if (!sigOk) {
-        if (messageAuth.REQUIRE_SIGNATURES) {
-          console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
-          return;
-        }
-        console.log("[BTCPC P2P WARN] EPOCH_FINALIZED epoch " + epochNum + " from " + (data.proposer || "?") + " has invalid block_signature — will be rejected after v2.17");
+        // Block signature is consensus-critical: an invalid signature on a
+        // finalized block must NEVER be applied, even when the test-only
+        // BTCPC_REQUIRE_SIGNATURES flag is disabled. Hard reject unconditionally.
+        console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: invalid block_signature from proposer " + data.proposer + " for epoch " + epochNum);
+        return;
       }
     }
   } else if (data.proposer || data.block_signature) {
-    // Partial — has one but not both fields; treat as unsigned for compat.
-    if (messageAuth.REQUIRE_SIGNATURES) {
-      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " missing block_signature or proposer (strict mode)");
-      return;
-    }
-    console.log("[BTCPC P2P WARN] Unsigned EPOCH_FINALIZED epoch " + epochNum + " from " + (peer.nodeId || "?").slice(0, 16) + " — will be rejected after v2.17");
+    // Partial — has one field but not both; cannot verify. Reject unconditionally.
+    console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " missing block_signature or proposer");
+    return;
   } else {
-    if (messageAuth.REQUIRE_SIGNATURES) {
-      console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " has no block_signature (strict mode)");
-      return;
-    }
-    console.log("[BTCPC P2P WARN] Unsigned EPOCH_FINALIZED epoch " + epochNum + " from " + (peer.nodeId || "?").slice(0, 16) + " — will be rejected after v2.17");
+    // Unsigned finalized block (no proposer, no signature). Reject unconditionally.
+    console.log("[BTCPC P2P] EPOCH_FINALIZED REJECTED: epoch " + epochNum + " has no block_signature");
+    return;
   }
 
   _lastFinalizedEpoch = epochNum;
@@ -1167,11 +1173,11 @@ async function handleAccountAnnounce(peer, msg, ctx) {
       // Re-announcement (key update) — must be signed by the EXISTING owner key on chain.
       var reannounceOk = messageAuth.verifyMessage(proofPayload, data.proof, existingAccount.public_keys.owner);
       if (!reannounceOk) {
-        if (messageAuth.REQUIRE_SIGNATURES) {
-          console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — re-announcement proof invalid (key theft attempt?)");
-          return;
-        }
-        console.log("[BTCPC P2P WARN] ACCOUNT_ANNOUNCE for " + data.username + " has invalid re-announcement proof — will be rejected after v2.17");
+        // Re-announcement rewrites an existing account's keys — accepting an
+        // invalid proof is a key-theft vector. Hard reject unconditionally,
+        // regardless of the test-only BTCPC_REQUIRE_SIGNATURES flag.
+        console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — re-announcement proof invalid (key theft attempt?)");
+        return;
       }
     } else {
       // First announcement — self-certifying: signature must match the claimed owner public key.
@@ -1185,13 +1191,19 @@ async function handleAccountAnnounce(peer, msg, ctx) {
         }
       }
     }
+  } else if (existingAccount && existingAccount.public_keys && existingAccount.public_keys.owner) {
+    // No proof on a message that would rewrite an EXISTING account's keys —
+    // always a key-theft attempt. Hard reject unconditionally.
+    console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field for existing account (key theft attempt?)");
+    return;
   } else {
-    // No proof field at all.
+    // No proof on a first announcement. Reject unless signatures are explicitly
+    // disabled for local testing (no existing keys at risk here).
     if (messageAuth.REQUIRE_SIGNATURES) {
       console.log("[BTCPC P2P] ACCOUNT_ANNOUNCE REJECTED: " + data.username + " — no proof field (strict mode)");
       return;
     }
-    console.log("[BTCPC P2P WARN] Unsigned ACCOUNT_ANNOUNCE for " + data.username + " — will be rejected after v2.17");
+    console.log("[BTCPC P2P WARN] Unsigned first-announcement ACCOUNT_ANNOUNCE for " + data.username + " accepted (BTCPC_REQUIRE_SIGNATURES disabled)");
   }
 
   console.log("[BTCPC P2P] Account announced: " + data.username + " | evm=" + (data.chain_addresses?.evm || "none"));
@@ -2233,7 +2245,7 @@ function handleTestnetHeartbeat(peer, msg, ctx) {
   var account = data.account || msg.nodeId;
   if (!account) return;
 
-  var GENESIS_TS = 1776236400000;
+  var GENESIS_TS = 1777633200000;
   var EPOCH_MS = 30000;
   var timeDerivedEpoch = Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
   var fileEpoch = Math.max(_currentEpochCache > 0 ? _currentEpochCache : 0, timeDerivedEpoch);
@@ -2275,7 +2287,7 @@ function handleClockHeartbeat(peer, msg, ctx) {
   // now" is more accurate than crediting an old epoch number.
   // Use time-derived epoch as a floor so a stale _currentEpochCache on restart
   // doesn't file heartbeats far behind the actual chain tip.
-  var GENESIS_TS = 1776236400000;
+  var GENESIS_TS = 1777633200000;
   var EPOCH_MS = 30000;
   var timeDerivedEpoch = Math.floor((Date.now() - GENESIS_TS) / EPOCH_MS);
   var fileEpoch = Math.max(

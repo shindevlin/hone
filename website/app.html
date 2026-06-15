@@ -1521,7 +1521,7 @@
       // ── Network Status Tab ─────────────────────────────────────────────────────
       (function() {
         var EPOCH_MS = 30000;
-        var GENESIS_TS = 1776236400000;
+        var GENESIS_TS = 1777633200000;
         var earningsHistory = JSON.parse(localStorage.getItem('btcpc-earnings-history') || '[]');
         while (earningsHistory.length < 10) earningsHistory.unshift(0);
         earningsHistory = earningsHistory.slice(-10);
@@ -2395,7 +2395,7 @@
     // ── Node Dashboard ──────────────────────────────────────────────────────
     (function() {
       var EPOCH_MS = 30000;
-      var GENESIS_TS = 1776236400000;
+      var GENESIS_TS = 1777633200000;
       var refreshInterval = null;
 
       async function refreshNode() {
@@ -4998,7 +4998,7 @@ if (account) {
   if (!document.documentElement.hasAttribute('data-desktop')) return;
 
   var EPOCH_MS = 30000;
-  var GENESIS_TS = 1776236400000;
+  var GENESIS_TS = 1777633200000;
 
   // ── Wire sidebar nav to main tab bar ──────────────────────────────────────
   var sbNav = document.getElementById('sb-nav');

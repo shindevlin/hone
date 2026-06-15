@@ -2274,7 +2274,7 @@ function catKey(categories) {
 }
 
 function effectivePrice(p) {
-  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
   if (p.sale_price != null && p.sale_ends_epoch != null && p.sale_ends_epoch > epoch) return p.sale_price;
   return p.price;
 }
@@ -2283,7 +2283,7 @@ function buildCard(p) {
   var key = p.product_id || (p.seller + '/' + p.slug);
   var ep  = effectivePrice(p);
   var hasSale = p.sale_price != null && p.sale_ends_epoch != null;
-  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
   var saleActive = hasSale && p.sale_ends_epoch > epoch;
   var imgSrc = p.image_cid
     ? (BTCPC_NODE + '/api/commerce/media/' + p.image_cid.replace('sha256:',''))
@@ -2488,7 +2488,7 @@ async function loadProducts() {
 }
 
 // ── PRODUCT CATALOG ─────────────────────────────────────────────────
-var _nowEpoch = Math.floor((Date.now() - 1776236400000) / 30000);
+var _nowEpoch = Math.floor((Date.now() - 1777633200000) / 30000);
 var PRODUCTS = {
   rtx3080: {
     key:'rtx3080', icon:'🖥️', bg:'#f0f4f8',
@@ -2639,7 +2639,7 @@ function epochsToHms(epochs) {
 }
 
 function renderFlashCountdowns() {
-  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
   document.querySelectorAll('[data-sale-key]').forEach(function(el) {
     var key = el.dataset.saleKey;
     var p = PRODUCTS[key];
@@ -2870,7 +2870,7 @@ function openProduct(key, buyIntent) {
   // Flash sale countdown in drawer
   var pdDealBadge = document.getElementById('pd-deal-badge');
   if (p.saleEndsEpoch) {
-    var epochNow = Math.floor((Date.now() - 1776236400000) / 30000);
+    var epochNow = Math.floor((Date.now() - 1777633200000) / 30000);
     var left = p.saleEndsEpoch - epochNow;
     if (left > 0) {
       pdDealBadge.style.display = '';
@@ -2883,7 +2883,7 @@ function openProduct(key, buyIntent) {
   var existEA = document.getElementById('pd-early-access-note');
   if (existEA) existEA.remove();
   if (p.expected_delivery_epoch) {
-    var epochNow2 = Math.floor((Date.now() - 1776236400000) / 30000);
+    var epochNow2 = Math.floor((Date.now() - 1777633200000) / 30000);
     if (p.expected_delivery_epoch > epochNow2) {
       var eanEl = document.createElement('div');
       eanEl.id = 'pd-early-access-note';

@@ -58,7 +58,7 @@ pub fn now_ms() -> u64 {
 }
 
 // Genesis timestamp: 2026-04-15T07:00:00.000Z
-const GENESIS_MS: u64 = 1776236400000;
+const GENESIS_MS: u64 = 1777633200000;
 const EPOCH_DURATION_MS: u64 = 30_000;
 
 pub fn current_epoch() -> u64 {

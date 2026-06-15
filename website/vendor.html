@@ -1681,7 +1681,7 @@ function editListing(l) {
   document.getElementById('p-delivery-cid').value = l.delivery_cid || '';
   document.getElementById('p-sale-price').value = l.sale_price || '';
   if (l.sale_ends_epoch) {
-    var saleMs = 1776236400000 + l.sale_ends_epoch * 30000;
+    var saleMs = 1777633200000 + l.sale_ends_epoch * 30000;
     var dt = new Date(saleMs);
     document.getElementById('p-sale-ends').value = dt.toISOString().slice(0,16);
   } else {
@@ -1737,7 +1737,7 @@ async function saveProduct() {
   var saleEndsEpoch;
   if (saleEndsRaw) {
     var endsMs = new Date(saleEndsRaw).getTime();
-    saleEndsEpoch = Math.floor((endsMs - 1776236400000) / 30000);
+    saleEndsEpoch = Math.floor((endsMs - 1777633200000) / 30000);
   }
 
   // Collect extended fields
@@ -2055,7 +2055,7 @@ async function loadMetrics() {
 
 // ── BUMP CONTROL ──────────────────────────────────────────────────────────────
 function renderBumpControl(l) {
-  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
   if (l.status !== 'active') return '';
   var bumpedUntil = l.bumped_until_epoch;
   if (bumpedUntil && bumpedUntil > epoch) {
@@ -2140,7 +2140,7 @@ function renderOffers() {
     tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="ico">🤝</div><p>No pending offers. When buyers make offers on your listings, they\'ll appear here.</p></div></td></tr>';
     return;
   }
-  var epoch = Math.floor((Date.now() - 1776236400000) / 30000);
+  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
   tbody.innerHTML = _offers.map(function(o) {
     var shortId = (o.offer_id||'').slice(0,14) + '…';
     var pid = (o.product_id||'').split('/')[1] || o.product_id || '—';
