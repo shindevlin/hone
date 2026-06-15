@@ -360,6 +360,11 @@ var miningProofsByEpoch = new Map();
 // Compute proofs indexed by epoch
 var computeProofsByEpoch = new Map();
 
+// Resolved finalization consensus results indexed by epoch.
+// Populated from FINALIZATION_CONSENSUS ledger entries so resolved epochs
+// survive process restarts (consensus state used to live only in memory).
+var finalizedConsensusByEpoch = new Map();
+
 // ─────────────────────────────────────────────────────────────────
 // Four-tier finality anchor log (v3.2)
 // ─────────────────────────────────────────────────────────────────
@@ -901,6 +906,21 @@ function applyEntry(entry) {
       if (spAmt === null || !from || !to) break;
       if (!_debit(from, "BTCPC", spAmt)) break;
       sponsoredStakes.set(to, { sponsor: from, amount: spAmt, sharePercent: entry.share_percent || 15, epoch: entry.epoch });
+      break;
+    }
+
+    case "FINALIZATION_CONSENSUS": {
+      var cd = entry.consensus_data;
+      if (!cd || typeof cd.epoch_number !== "number") break;
+      finalizedConsensusByEpoch.set(cd.epoch_number, {
+        proposer: cd.proposer || null,
+        consensus_hash: cd.consensus_hash || null,
+        total_work: cd.total_work || 0,
+        consensus_nodes: cd.consensus_nodes || 0,
+        consensus_proposals: cd.consensus_proposals || 0,
+        rewards: Array.isArray(cd.rewards) ? cd.rewards : [],
+        timestamp: entry.timestamp || 0
+      });
       break;
     }
 
@@ -3808,6 +3828,14 @@ function getMiningProofs(epochNumber) {
   return miningProofsByEpoch.get(epochNumber) || [];
 }
 
+/**
+ * Get the persisted finalization consensus result for an epoch, or null.
+ * Replayed from FINALIZATION_CONSENSUS ledger entries — survives restarts.
+ */
+function getFinalizedConsensus(epochNumber) {
+  return finalizedConsensusByEpoch.get(epochNumber) || null;
+}
+
 function getComputeProofs(epochNumber) {
   return computeProofsByEpoch.get(epochNumber) || [];
 }
@@ -5266,6 +5294,7 @@ function resetAll() {
   blobChallengeStats.clear();
   miningProofsByEpoch.clear();
   computeProofsByEpoch.clear();
+  finalizedConsensusByEpoch.clear();
   anchorLog.splice(0);
   slashRecords.clear();
   inferenceReviewVotes.clear();
@@ -5410,6 +5439,7 @@ module.exports = {
   getChainHeight: getChainHeight,
   getRecentEpochs: getRecentEpochs,
   getMiningProofs: getMiningProofs,
+  getFinalizedConsensus: getFinalizedConsensus,
   getComputeProofs: getComputeProofs,
   getRecentComputeProofs: getRecentComputeProofs,
   getMinerCount: getMinerCount,

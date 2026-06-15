@@ -133,8 +133,8 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 ## P5 — Documentation
 
-- [ ] **`README.md`** — replace any "if you see X, do Y" sections with "X is automatically handled by Y"
-- [ ] **`CLAUDE.md`** — same
+- [x] **`README.md`** — audited: no remaining "if you see X, do Y" sections (Rust-node rewrite removed them). Added a "Self-healing" section documenting what auto-recovers. (v3.1.157)
+- [x] **`CLAUDE.md`** — audited: contains agent/developer ops instructions only, no end-user fail-path instructions to replace. (v3.1.157)
 - [ ] **`docs/INDEX.md`** — already a vault entry point, no changes needed
 - [x] **`bin/btcpc-setup`** — interactive wizard. Either auto-detect everything and skip prompts (preferred), or rewrite as a true non-interactive `--auto` mode
   - Done: --auto flag + BTCPC_NONINTERACTIVE=1 (v3.1.129)
@@ -170,15 +170,15 @@ Each agent gets a fresh context. The codebase + this PRD + the memory files are 
 
 Items from code review of finalizationConsensus.js. Non-blocking for genesis but should be addressed before mainnet scale.
 
-- [ ] **Stake-weighted voting in consensus** — currently all proposals count as 1 vote regardless of proposer stake. Weight by registered stake so a Sybil network of low-stake nodes cannot outvote honest high-stake nodes. Modify `checkConsensus()` to sum stake instead of counting proposals. (`src/chain/finalizationConsensus.js`)
+- [x] **Stake-weighted voting in consensus** — `checkConsensus()`/`resolve()` now sum registered stake per group (via `stateStore.getStake`); a group needs >50% of total submitted stake. Falls back to count-based voting when no proposer has stake (bootstrap). (v3.1.157)
 
-- [ ] **Minimum proposal count for auto-resolve** — after `PROPOSAL_WINDOW_MS`, a single proposal auto-wins. Add optional `BTCPC_MIN_CONSENSUS_PROPOSALS` env var (default 1) so operators can require ≥N proposals before finalizing. (`src/chain/finalizationConsensus.js`)
+- [x] **Minimum proposal count for auto-resolve** — `BTCPC_MIN_CONSENSUS_PROPOSALS` env var (default 1); window expiry reschedules a 10s recheck until both the source and proposal-count floors are met. (v3.1.157)
 
-- [ ] **Consensus state persistence** — finalization results live only in memory; a crash before `EPOCH_FINALIZED` broadcast loses the round. Add a `FINALIZATION_CONSENSUS` ledger entry type so resolved epochs survive restarts. (`src/chain/stateStore.js`, `src/services/ledger.js`)
+- [x] **Consensus state persistence** — `resolve()` writes a `FINALIZATION_CONSENSUS` ledger entry (block-only type, no mempool gossip); `stateStore.getFinalizedConsensus(epoch)` replays it, and `isResolved`/`getWinner`/`submitProposal` consult chain state so resolved epochs survive restarts. (v3.1.157)
 
-- [ ] **Proposal validation against known work** — `submitProposal()` accepts any reward distribution without checking it against recorded mining proofs. Add a validation step that verifies proposed amounts are consistent with `stateStore.getMiningProofs()` for that epoch.
+- [x] **Proposal validation against known work** — `validateProposal()` runs in `submitProposal()`: rejects non-finite/negative amounts and totals over `BTCPC_MAX_PROPOSAL_TOTAL` (default 500). `BTCPC_STRICT_PROPOSAL_VALIDATION=1` additionally requires reward recipients to appear in local mining/compute proofs (off by default — nodes legitimately see different proof subsets). (v3.1.157)
 
-- [ ] **finalizationConsensus test gap fill** — add tests for: replay across epochs, empty-epoch resolution, hash mismatch detection (blockProposal hash matches hashRewards output), memory cleanup after 10 epochs, minimum node count config. (`tests/finalizationConsensus.test.js`)
+- [x] **finalizationConsensus test gap fill** — 23 tests: stake-weighted voting (Sybil swarm, stake split, count fallback), min-proposal floor, validation rejects, persistence + restart restore, replay across epochs, empty-epoch resolution, hash binding, 10-epoch memory cleanup, min source count. (v3.1.157)
 
 ---
 

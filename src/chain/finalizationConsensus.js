@@ -15,7 +15,15 @@
  *   → collect for 30s → group by consensus_hash → majority wins
  *   → earliest proposer in winning group broadcasts EPOCH_FINALIZED
  *
+ * Majority is stake-weighted: each proposal counts for its proposer's
+ * registered stake, so a Sybil swarm of zero-stake nodes cannot outvote
+ * honest high-stake nodes. When no proposer has stake (bootstrap), voting
+ * falls back to one-proposal-one-vote.
+ *
  * Single-miner fallback: if only one proposal after timeout, it wins.
+ *
+ * Resolved rounds are persisted as FINALIZATION_CONSENSUS ledger entries so
+ * a crash before the EPOCH_FINALIZED broadcast no longer loses the round.
  */
 
 var crypto = require("crypto");
@@ -28,12 +36,80 @@ var PROPOSAL_WINDOW_MS = parseInt(process.env.BTCPC_PROPOSAL_WINDOW_MS) || 30000
 // Default 1 allows solo operation during bootstrap.
 var MIN_CONSENSUS_SOURCES = parseInt(process.env.BTCPC_MIN_CONSENSUS_PEERS) || 1;
 
+// Minimum number of proposals required before an epoch auto-resolves after
+// the proposal window expires. Default 1 keeps solo bootstrap working;
+// operators can set BTCPC_MIN_CONSENSUS_PROPOSALS=2+ so a single proposal
+// can never auto-win.
+var MIN_CONSENSUS_PROPOSALS = parseInt(process.env.BTCPC_MIN_CONSENSUS_PROPOSALS) || 1;
+
+// Hard ceiling on the total BTCPC a single proposal may distribute.
+// Genesis reward is 243.06/epoch; 500 leaves margin for storage/clock/iot
+// add-ons while still rejecting fabricated jackpot proposals outright.
+var MAX_PROPOSAL_TOTAL = parseFloat(process.env.BTCPC_MAX_PROPOSAL_TOTAL) || 500;
+
+// Strict recipient validation: when enabled, every reward recipient in a
+// proposal must appear in locally-recorded mining/compute proofs for that
+// epoch (system accounts exempt). Off by default — nodes can legitimately
+// see different proof subsets, and rejecting here only means this node
+// doesn't count the proposal toward consensus.
+var STRICT_PROPOSAL_VALIDATION = process.env.BTCPC_STRICT_PROPOSAL_VALIDATION === "1";
+
+// Accounts that may receive rewards without a recorded proof.
+var SYSTEM_REWARD_ACCOUNTS = { btcpc_recycle: true, btcpc: true };
+
 // Per-epoch state
 // Map<epochNumber, { proposals: [], sourceTags: Set, windowStart: number, resolved: boolean, winner: object|null }>
 var epochs = new Map();
 
 // Callbacks
 var onResolvedCallbacks = [];
+
+// ─────────────────────────────────────────────────────────────────
+// Injectable providers (lazy-required defaults; overridable in tests)
+// ─────────────────────────────────────────────────────────────────
+
+var _stateStore = null;
+function _getStateStore() {
+  if (_stateStore === null) {
+    try { _stateStore = require("./stateStore"); } catch (e) { _stateStore = false; }
+  }
+  return _stateStore || null;
+}
+
+// Returns registered stake for a proposer account (0 when unknown).
+var stakeProvider = function (proposer) {
+  var ss = _getStateStore();
+  if (!ss || typeof ss.getStake !== "function") return 0;
+  try { return ss.getStake(proposer) || 0; } catch (e) { return 0; }
+};
+
+// Returns { miningProofs: [], computeProofs: [] } for an epoch.
+var proofProvider = function (epochNumber) {
+  var ss = _getStateStore();
+  if (!ss) return { miningProofs: [], computeProofs: [] };
+  try {
+    return {
+      miningProofs: typeof ss.getMiningProofs === "function" ? ss.getMiningProofs(epochNumber) : [],
+      computeProofs: typeof ss.getRecentComputeProofs === "function" ? ss.getRecentComputeProofs(epochNumber) : []
+    };
+  } catch (e) {
+    return { miningProofs: [], computeProofs: [] };
+  }
+};
+
+// Persists a resolved round; default writes a FINALIZATION_CONSENSUS ledger entry.
+var persistProvider = function (epochNumber, winner) {
+  var ledger;
+  try { ledger = require("../services/ledger"); } catch (e) { return; }
+  if (!ledger || typeof ledger.recordFinalizationConsensus !== "function") return;
+  Promise.resolve(ledger.recordFinalizationConsensus(epochNumber, winner)).catch(function (e) {
+    console.log("[BTCPC Consensus] Failed to persist epoch " + epochNumber + " consensus: " + (e && e.message));
+  });
+};
+
+function _setStakeProvider(fn) { stakeProvider = fn; }
+function _setProofProvider(fn) { proofProvider = fn; }
+function _setPersistProvider(fn) { persistProvider = fn; }
 
 /**
  * Hash a rewards array to produce a deterministic consensus_hash.
@@ -79,47 +155,159 @@ function _getEpoch(epochNumber) {
 }
 
 /**
+ * Read a persisted winner from chain state without touching in-memory
+ * epoch tracking (safe for arbitrary historical queries).
+ */
+function _persistedWinner(epochNumber) {
+  var ss = _getStateStore();
+  if (!ss || typeof ss.getFinalizedConsensus !== "function") return null;
+  var persisted = null;
+  try { persisted = ss.getFinalizedConsensus(epochNumber); } catch (e) { return null; }
+  if (!persisted) return null;
+  return {
+    proposer: persisted.proposer,
+    rewards: persisted.rewards,
+    total_work: persisted.total_work,
+    consensus_hash: persisted.consensus_hash,
+    consensus_nodes: persisted.consensus_nodes,
+    consensus_proposals: persisted.consensus_proposals,
+    restored_from_chain: true
+  };
+}
+
+/**
+ * Restore a resolved round from persisted chain state, if present.
+ * Lets isResolved/getWinner/submitProposal survive a process restart.
+ */
+function _restoreFromChain(epochNumber, state) {
+  if (state.resolved) return true;
+  var winner = _persistedWinner(epochNumber);
+  if (!winner) return false;
+  state.resolved = true;
+  state.winner = winner;
+  if (state.timer) { clearTimeout(state.timer); clearInterval(state.timer); state.timer = null; }
+  return true;
+}
+
+/**
+ * Validate a proposal before it is counted toward consensus.
+ * Structural checks always run; recipient-vs-proof checks only in strict mode.
+ * @returns {{ ok: boolean, reason: string|null }}
+ */
+function validateProposal(epochNumber, proposal) {
+  if (!proposal || typeof proposal !== "object") return { ok: false, reason: "missing proposal" };
+  if (!proposal.proposer || typeof proposal.proposer !== "string") return { ok: false, reason: "missing proposer" };
+  if (!Array.isArray(proposal.rewards)) return { ok: false, reason: "rewards not an array" };
+
+  var total = 0;
+  for (var i = 0; i < proposal.rewards.length; i++) {
+    var r = proposal.rewards[i];
+    var name = r && (r.miner || r.node_id);
+    var amount = r && r.amount;
+    if (!name || typeof name !== "string") return { ok: false, reason: "reward with missing miner" };
+    if (typeof amount !== "number" || !isFinite(amount) || amount < 0) {
+      return { ok: false, reason: "invalid reward amount for " + name };
+    }
+    total += amount;
+  }
+  if (total > MAX_PROPOSAL_TOTAL) {
+    return { ok: false, reason: "total rewards " + total.toFixed(4) + " exceed cap " + MAX_PROPOSAL_TOTAL };
+  }
+
+  if (STRICT_PROPOSAL_VALIDATION) {
+    var proofs = proofProvider(epochNumber);
+    var known = {};
+    var lists = [proofs.miningProofs || [], proofs.computeProofs || []];
+    for (var l = 0; l < lists.length; l++) {
+      for (var p = 0; p < lists[l].length; p++) {
+        var who = lists[l][p] && (lists[l][p].miner || lists[l][p].node_id);
+        if (who) known[who] = true;
+      }
+    }
+    // Only enforce when we actually have local proofs to compare against.
+    if (Object.keys(known).length > 0) {
+      for (var k = 0; k < proposal.rewards.length; k++) {
+        var rec = proposal.rewards[k].miner || proposal.rewards[k].node_id;
+        if (!SYSTEM_REWARD_ACCOUNTS[rec] && !known[rec]) {
+          return { ok: false, reason: "reward recipient " + rec + " has no recorded proof for epoch " + epochNumber };
+        }
+      }
+    }
+  }
+
+  return { ok: true, reason: null };
+}
+
+/**
+ * Sum the stake-weight of a group of proposals.
+ * Each proposal weighs its proposer's registered stake.
+ */
+function _groupStake(group) {
+  return group.reduce(function (sum, p) { return sum + (stakeProvider(p.proposer) || 0); }, 0);
+}
+
+/**
+ * Can this epoch auto-resolve right now? Both the distinct-source and the
+ * minimum-proposal-count requirements must be met.
+ */
+function _meetsResolveRequirements(state) {
+  return state.sourceTags.size >= MIN_CONSENSUS_SOURCES &&
+         state.proposals.length >= MIN_CONSENSUS_PROPOSALS;
+}
+
+/**
  * Submit a finalization proposal for an epoch.
  * Called when this miner computes its proposal OR when receiving one via P2P.
  *
  * @param {number} epochNumber
  * @param {object} proposal — { proposer, rewards, total_work, consensus_hash, settled_jobs, timestamp }
  * @param {string} [sourceTag] — caller-supplied tag identifying the source machine: "self", a peer IP, "relay", etc.
- * @returns {{ accepted: boolean, consensus: boolean, winner: object|null }}
+ * @returns {{ accepted: boolean, consensus: boolean, winner: object|null, reason?: string }}
  */
 function submitProposal(epochNumber, proposal, sourceTag) {
   var state = _getEpoch(epochNumber);
 
-  // Already resolved — reject late proposals
-  if (state.resolved) {
+  // Already resolved (in memory or persisted on chain) — reject late proposals
+  if (state.resolved || _restoreFromChain(epochNumber, state)) {
     return { accepted: false, consensus: true, winner: state.winner };
+  }
+
+  // Validate before counting toward consensus
+  var validation = validateProposal(epochNumber, proposal);
+  if (!validation.ok) {
+    console.log("[BTCPC Consensus] Epoch " + epochNumber + " proposal from " +
+      ((proposal && proposal.proposer) || "?") + " rejected: " + validation.reason);
+    return { accepted: false, consensus: false, winner: null, reason: validation.reason };
   }
 
   // Start the proposal window on first proposal
   if (!state.windowStart) {
     state.windowStart = Date.now();
 
-    // Set timeout for resolution — only finalize if distinct-source requirement is met
+    // Set timeout for resolution — only finalize if source + proposal-count requirements are met
     state.timer = setTimeout(function () {
       var s = epochs.get(epochNumber);
       if (!s || s.resolved) return;
-      if (s.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+      if (_meetsResolveRequirements(s)) {
         resolve(epochNumber);
       } else {
-        console.log("[BTCPC Consensus] Epoch " + epochNumber + " window expired but only " +
-          s.sourceTags.size + "/" + MIN_CONSENSUS_SOURCES + " distinct source(s) — waiting for peers");
-        // Reschedule — check again every 10s until sources arrive
+        console.log("[BTCPC Consensus] Epoch " + epochNumber + " window expired but requirements unmet (" +
+          s.sourceTags.size + "/" + MIN_CONSENSUS_SOURCES + " source(s), " +
+          s.proposals.length + "/" + MIN_CONSENSUS_PROPOSALS + " proposal(s)) — waiting");
+        // Reschedule — check again every 10s until requirements are met
         s.timer = setInterval(function () {
           var st = epochs.get(epochNumber);
           if (!st || st.resolved) { clearInterval(st && st.timer); return; }
-          if (st.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+          if (_meetsResolveRequirements(st)) {
             clearInterval(st.timer);
             st.timer = null;
             resolve(epochNumber);
           }
         }, 10000);
+        if (s.timer && s.timer.unref) s.timer.unref();
       }
     }, PROPOSAL_WINDOW_MS);
+    if (state.timer && state.timer.unref) state.timer.unref();
   }
 
   // Reject duplicate proposers
@@ -153,17 +341,21 @@ function submitProposal(epochNumber, proposal, sourceTag) {
 
 /**
  * Check if consensus has been reached for an epoch.
- * Groups proposals by consensus_hash, checks if any group has majority.
+ * Groups proposals by consensus_hash and checks for a majority.
+ *
+ * Stake-weighted: when any proposer has registered stake, a group needs
+ * > 50% of the total submitted stake. When no proposer has stake
+ * (bootstrap), falls back to > 50% of proposal count.
  */
 function checkConsensus(epochNumber) {
   var state = _getEpoch(epochNumber);
-  if (state.resolved) return { consensus: true, winner: state.winner };
+  if (state.resolved || _restoreFromChain(epochNumber, state)) return { consensus: true, winner: state.winner };
   if (state.proposals.length === 0) return { consensus: false, winner: null };
 
-  // Single proposal — wait for window. Only resolve if distinct-source requirement met.
+  // Single proposal — wait for window. Only resolve if requirements met.
   if (state.proposals.length === 1) {
     var elapsed = Date.now() - (state.windowStart || Date.now());
-    if (elapsed >= PROPOSAL_WINDOW_MS && state.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+    if (elapsed >= PROPOSAL_WINDOW_MS && _meetsResolveRequirements(state)) {
       resolve(epochNumber);
       return { consensus: true, winner: state.winner };
     }
@@ -179,25 +371,31 @@ function checkConsensus(epochNumber) {
     groups[hash].push(p);
   }
 
-  // Find the largest group
+  var totalStake = _groupStake(state.proposals);
+  var stakeWeighted = totalStake > 0;
+
+  // Find the strongest group: by stake when any stake exists, else by count.
+  // Ties break on total_work.
   var hashes = Object.keys(groups);
-  var bestHash = null;
-  var bestCount = 0;
+  var bestWeight = 0;
   var bestWork = 0;
+  var hasMajority = false;
 
   for (var j = 0; j < hashes.length; j++) {
     var group = groups[hashes[j]];
-    var groupWork = group.reduce(function (sum, p) { return sum + (p.total_work || 0); }, 0);
+    var weight = stakeWeighted ? _groupStake(group) : group.length;
+    var groupWork = group.reduce(function (sum, q) { return sum + (q.total_work || 0); }, 0);
 
-    if (group.length > bestCount || (group.length === bestCount && groupWork > bestWork)) {
-      bestHash = hashes[j];
-      bestCount = group.length;
+    if (weight > bestWeight || (weight === bestWeight && groupWork > bestWork)) {
+      bestWeight = weight;
       bestWork = groupWork;
     }
   }
 
-  // Check if majority (> 50% of proposals) AND distinct-source requirement met
-  if (bestCount > state.proposals.length / 2 && state.sourceTags.size >= MIN_CONSENSUS_SOURCES) {
+  var majorityBase = stakeWeighted ? totalStake : state.proposals.length;
+  hasMajority = bestWeight > majorityBase / 2;
+
+  if (hasMajority && _meetsResolveRequirements(state)) {
     resolve(epochNumber);
     return { consensus: true, winner: state.winner };
   }
@@ -209,6 +407,8 @@ function checkConsensus(epochNumber) {
 /**
  * Resolve an epoch — pick the winning proposal.
  * Called when consensus is reached or proposal window expires.
+ * Winner selection mirrors checkConsensus: stake-weight first (when any
+ * stake exists), proposal count otherwise, then total_work, then earliest.
  */
 function resolve(epochNumber) {
   var state = _getEpoch(epochNumber);
@@ -218,6 +418,7 @@ function resolve(epochNumber) {
   // Clear timer
   if (state.timer) {
     clearTimeout(state.timer);
+    clearInterval(state.timer);
     state.timer = null;
   }
 
@@ -230,20 +431,28 @@ function resolve(epochNumber) {
     groups[hash].push(p);
   }
 
-  // Find winning group: most proposals, then highest total_work, then earliest
+  var stakeWeighted = _groupStake(state.proposals) > 0;
+
+  function groupWeight(group) {
+    return stakeWeighted ? _groupStake(group) : group.length;
+  }
+
+  // Find winning group: highest weight, then highest total_work, then earliest
   var hashes = Object.keys(groups);
   var winningHash = hashes[0];
   var winningGroup = groups[winningHash];
 
   for (var j = 1; j < hashes.length; j++) {
     var group = groups[hashes[j]];
-    if (group.length > winningGroup.length) {
+    var w = groupWeight(group);
+    var winW = groupWeight(winningGroup);
+    if (w > winW) {
       winningHash = hashes[j];
       winningGroup = group;
-    } else if (group.length === winningGroup.length) {
+    } else if (w === winW) {
       // Tiebreak: highest total_work
-      var groupWork = group.reduce(function (s, p) { return s + (p.total_work || 0); }, 0);
-      var winWork = winningGroup.reduce(function (s, p) { return s + (p.total_work || 0); }, 0);
+      var groupWork = group.reduce(function (s, q) { return s + (q.total_work || 0); }, 0);
+      var winWork = winningGroup.reduce(function (s, q) { return s + (q.total_work || 0); }, 0);
       if (groupWork > winWork) {
         winningHash = hashes[j];
         winningGroup = group;
@@ -257,14 +466,21 @@ function resolve(epochNumber) {
 
   winner.consensus_nodes = state.sourceTags.size;
   winner.consensus_proposals = state.proposals.length;
+  winner.consensus_stake = _groupStake(winningGroup);
 
   state.resolved = true;
   state.winner = winner;
 
   console.log("[BTCPC Consensus] Epoch " + epochNumber + " resolved: " +
     state.proposals.length + " proposal(s) from " + state.sourceTags.size + " distinct source(s), " +
-    hashes.length + " group(s), winner: " + winner.proposer +
+    hashes.length + " group(s), " + (stakeWeighted ? "stake-weighted" : "count-based") +
+    ", winner: " + winner.proposer +
     " (hash: " + winningHash.slice(0, 12) + "...)");
+
+  // Persist the resolved round so a crash before EPOCH_FINALIZED doesn't lose it
+  try { persistProvider(epochNumber, winner); } catch (e) {
+    console.log("[BTCPC Consensus] Persist failed for epoch " + epochNumber + ": " + (e && e.message));
+  }
 
   // Fire callbacks
   for (var k = 0; k < onResolvedCallbacks.length; k++) {
@@ -276,7 +492,7 @@ function resolve(epochNumber) {
   while (keys.length > 10) {
     var old = keys.shift();
     var oldState = epochs.get(old);
-    if (oldState && oldState.timer) clearTimeout(oldState.timer);
+    if (oldState && oldState.timer) { clearTimeout(oldState.timer); clearInterval(oldState.timer); }
     epochs.delete(old);
   }
 
@@ -292,11 +508,12 @@ function onResolved(callback) {
 }
 
 /**
- * Check if an epoch has been resolved.
+ * Check if an epoch has been resolved (in memory or persisted on chain).
  */
 function isResolved(epochNumber) {
   var state = epochs.get(epochNumber);
-  return state ? state.resolved : false;
+  if (state && (state.resolved || _restoreFromChain(epochNumber, state))) return true;
+  return _persistedWinner(epochNumber) !== null;
 }
 
 /**
@@ -304,7 +521,8 @@ function isResolved(epochNumber) {
  */
 function getWinner(epochNumber) {
   var state = epochs.get(epochNumber);
-  return state && state.resolved ? state.winner : null;
+  if (state && (state.resolved || _restoreFromChain(epochNumber, state))) return state.winner;
+  return _persistedWinner(epochNumber);
 }
 
 /**
@@ -327,11 +545,15 @@ module.exports = {
   hashRewards: hashRewards,
   submitProposal: submitProposal,
   checkConsensus: checkConsensus,
+  validateProposal: validateProposal,
   resolve: resolve,
   onResolved: onResolved,
   isResolved: isResolved,
   getWinner: getWinner,
   getProposals: getProposals,
   amIBroadcaster: amIBroadcaster,
-  PROPOSAL_WINDOW_MS: PROPOSAL_WINDOW_MS
+  PROPOSAL_WINDOW_MS: PROPOSAL_WINDOW_MS,
+  _setStakeProvider: _setStakeProvider,
+  _setProofProvider: _setProofProvider,
+  _setPersistProvider: _setPersistProvider
 };

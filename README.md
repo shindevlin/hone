@@ -268,6 +268,16 @@ flows unless explicitly asked.
 
 ---
 
+## Self-healing
+
+BTCPC nodes are built for non-technical operators: every failure path recovers automatically, no manual intervention needed.
+
+- Installers retry downloads with backoff, launch Docker themselves, and re-run the whole flow until it succeeds
+- Missing or broken Ollama models are re-pulled or swapped for a verified fallback automatically; without Ollama the node keeps running as a clock-only contributor
+- Corrupt local state (secrets, queues) is backed up and rebuilt fresh instead of crashing
+- Taken ports are skipped to the next free one; dropped peer connections reconnect with capped backoff forever
+- Roles that crash-loop are isolated by a circuit breaker while the rest of the node keeps earning
+
 ## Links
 
 - **Website:** [btcpc.net](https://btcpc.net)

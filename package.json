@@ -1,6 +1,6 @@
 {
   "name": "freeport-protocol",
-  "version": "3.1.156",
+  "version": "3.1.157",
   "description": "Freeport Protocol — sovereign blockchain where compute, storage, and commerce flow without gatekeepers",
   "main": "src/index.js",
   "scripts": {

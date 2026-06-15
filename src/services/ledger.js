@@ -481,6 +481,37 @@ async function recordMiningReward(miner, amount, epoch, _token, _memo, rewardSou
 }
 
 /**
+ * Record a resolved finalization consensus result on the ledger so it
+ * survives restarts (consensus state otherwise lives only in memory and a
+ * crash before the EPOCH_FINALIZED broadcast loses the round).
+ *
+ * System entry: no payer, no gossip — FINALIZATION_CONSENSUS is a block-only
+ * type, so it reaches peers inside the next EPOCH_FINALIZED payload rather
+ * than via MEMPOOL_ENTRY.
+ */
+async function recordFinalizationConsensus(epochNumber, winner) {
+  const entry = _entry({
+    type: 'FINALIZATION_CONSENSUS',
+    token: 'BTCPC',
+    amount: 0,
+    epoch: epochNumber,
+    consensus_data: {
+      epoch_number: epochNumber,
+      proposer: winner.proposer || null,
+      consensus_hash: winner.consensus_hash || null,
+      total_work: winner.total_work || 0,
+      consensus_nodes: winner.consensus_nodes || 0,
+      consensus_proposals: winner.consensus_proposals || 0,
+      rewards: Array.isArray(winner.rewards) ? winner.rewards : [],
+    },
+  });
+  stateStore.applyEntry(entry);
+  pendingEntries.push(entry);
+  _appendPendingToDisk(entry);
+  return entry;
+}
+
+/**
  * Record a project revenue split configuration on the ledger.
  */
 async function recordProjectRevenueSplit(setter, project, splits, epoch) {
@@ -3274,6 +3305,7 @@ module.exports = {
   recordTransfer,
   recordAuthorizedTransfer,
   recordMiningReward,
+  recordFinalizationConsensus,
   recordProjectRevenueSplit,
   recordModelUpload,
   recordFaucet,
