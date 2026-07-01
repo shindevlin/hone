@@ -502,15 +502,108 @@ every future sensor type without a code change per sensor.
   **Done — see audit + decision block inline below (generic metadata kept,
   JSON convention documented).**
 
-  **OPEN QUESTION (needs user decision):** the audit surfaced that
-  reward-/sale-bearing `SensorReading` ingestion currently has **no
-  authentication** at all (`tx.rs` allowlisted pass-through, no `signed_by`,
-  metadata/data_hash attacker-controlled) — a separate, higher-severity issue
-  than the schema-shape question this item was scoped to answer. Should
-  requiring a device signature on reward-/sale-bearing `SensorReading` entries
-  be scheduled now as its own explicit work item under 1.1/1.3/Phase 6, before
-  1.2's aggregation service or 1.4's paid B2B answers ship against unverified
-  readings?
+  **RESOLVED — user directive: fix this now, treat as urgent (2026-07-01).**
+  See "SECURITY FIX: Sensor entry authentication" design block immediately
+  below. This supersedes the open question that was here.
+
+  ---
+
+  #### SECURITY FIX: Sensor entry authentication (urgent, Phase 1.1a)
+
+  **The vulnerability, confirmed by direct code read (not just the audit's
+  description):**
+  - `rust/btcpc-node/src/tx.rs` lines ~465-490 put `SensorReading`,
+    `SensorRegister`, and `GatewayHeartbeat` in a literal "Allowlisted
+    pass-through" match arm with **zero signature verification** — entries
+    go straight to `chain.apply_entry()`.
+  - `chain.rs:1014` (`SensorReading` application) destructures
+    `sensor_id, metadata, epoch` and explicitly **discards `owner`** via
+    `..` — the only validation present is a GNSS-speed plausibility check
+    (`SENSOR_GNSS_MAX_SPEED_M_S`). `value` and `data_hash` are never
+    checked against anything.
+  - `main.rs:1929-1950` computes `SensorReward` (and `GatewayRewardSplit`)
+    payouts by iterating `sensor_nodes`/`sensor_gateway_map`, which are
+    built from these unauthenticated entries. **Confirmed exploit path:**
+    submit a `SensorReading` (or `SensorRegister`/`GatewayHeartbeat`) with
+    any `owner`/`node_id` string you like — including someone else's real
+    account — and that epoch's `SensorReward` (or `GatewayRewardSplit`)
+    pays out to whatever account you named. No signature, no stake, no
+    prior registration required.
+
+  **Why this isn't a one-line fix — struct-level asymmetry found during
+  design:**
+  - `SensorRegister` and `GatewayHeartbeat` **already have a `signed_by:
+    AccountId` field** in their struct definitions
+    (`crates/btcpc-types/src/entry.rs`) — the field exists, `check_signature`
+    (the exact mechanism already used for `Stake` et al., see `tx.rs:2111`)
+    is simply never called on them. Fixing these two is a small, non-breaking
+    `tx.rs` change: move them out of the pass-through arm, call
+    `check_signature(chain, signed_by, entry, sig_hex, "posting")` (posting
+    key — device-tier auth, not owner/active — matches the "any sensor
+    device, not a hot wallet" model used elsewhere in the sensor design).
+  - `SensorReading` **has no `signed_by`, `sig_hex`, or `nonce` field at
+    all.** This is the genuinely breaking part: adding real per-reading
+    authentication requires an `entry.rs` schema change to `LedgerEntry`,
+    which every node on the network must run to keep parsing new blocks,
+    AND every producer of `SensorReading` must be updated to actually sign.
+  - **Confirmed producers requiring updates**, found by grepping the whole
+    repo for `LedgerEntry::SensorReading` construction:
+    - `rust/btcpc-node/src/main.rs` — node's own `BTCPC_SENSOR` self-report path.
+    - `rust/btcpc-node/src/sim.rs` — test/simulation harness.
+    - `rust/btcpc-android/src/sensors.rs` — **the live Android sensor
+      client. Confirmed it has NO signing capability at all today** (no
+      keypair/sign/ed25519 reference anywhere in that file) — it builds
+      and applies the entry unsigned. This is the actual client that would
+      break/need an app update, not a hypothetical.
+
+  **Rollout plan (why this can't be a silent merge-to-main):**
+  1. **Schema change**: add `signed_by: AccountId` and `sig_hex:
+     Option<String>` to `LedgerEntry::SensorReading` in
+     `crates/btcpc-types/src/entry.rs`. Make `sig_hex` `Option` (not
+     required) — this is the compatibility hinge, see step 3.
+  2. **tx.rs validation, soft-launch mode**: move `SensorReading` out of
+     the pass-through arm. New logic: if the named `owner` account has NO
+     posting key registered yet (fresh/unregistered sensor — the common
+     case for a brand-new device), **allow through unsigned** (mirrors
+     `check_signature`'s own existing "key not set yet — skip" bootstrap
+     behavior at `tx.rs:2111`, so this reuses existing semantics, doesn't
+     invent new ones). If the `owner` account DOES have a posting key
+     registered, `sig_hex` becomes mandatory and must verify — this is
+     what closes the theft vector for every account that matters (anyone
+     with an existing balance/reputation to protect already has a key
+     registered from normal account use).
+  3. **Same treatment for `SensorRegister`/`GatewayHeartbeat`** — wire
+     `check_signature` using their existing `signed_by` field, same
+     bootstrap-skip behavior for brand-new device-owner accounts.
+  4. **Update all three producers** to sign when the owner account has a
+     posting key available: `main.rs`, `sim.rs`, and — the one with real
+     user impact — `btcpc-android/src/sensors.rs` needs an actual signing
+     path added (device posting key must be available on-device; check
+     how the Android app currently manages any chain keys at all before
+     assuming one exists to reuse).
+  5. **Sequencing**: this is NOT "merge to main and walk away." Step 1-3
+     (chain-side) can land and deploy first because of the bootstrap-skip
+     compatibility path — old unsigned readings from accounts with no
+     posting key keep working, so this is non-breaking on day one. Step 4
+     (client-side signing) then rolls out after, and its real security
+     value only kicks in once (a) clients are actually signing and (b)
+     accounts register posting keys. Until posting-key registration is
+     widespread among real sensor-owner accounts, the vulnerability is
+     narrowed (can't forge readings FOR accounts that already have a key)
+     but not fully closed (fresh/keyless accounts remain exploitable by
+     design, matching how every other bootstrap-skip entry type in this
+     codebase already behaves).
+  6. **Tests required**: (a) unsigned reading for a keyless owner still
+     applies (bootstrap case, no regression); (b) unsigned or
+     wrong-signature reading for an owner WITH a registered posting key is
+     rejected; (c) correctly-signed reading for a keyed owner applies;
+     (d) same three cases for `SensorRegister` and `GatewayHeartbeat`.
+  7. **Explicitly deferred, not forgotten**: this fix does not address
+     `data_hash`/`value` integrity (could still submit a signed but
+     fabricated reading) — that's a data-quality/reputation problem for
+     Phase 6, not an authentication problem. This item is scoped ONLY to
+     "is the claimed owner the one who actually submitted this," which is
+     the theft-of-funds vector.
 
   ---
 
