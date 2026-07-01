@@ -14,6 +14,62 @@
 
 ---
 
+## GitHub-wide review findings (2026-07)
+
+A full review of every repo under `shindevlin` on GitHub (8 repos total:
+`btcpc`, `btcpc-desktop`, `btcpc-gnss-capture`, `btcpc-market`,
+`btcpc-marketing`, `phonehome`, `btcpc-terminal`, `btcpc-p2p`) turned up two
+things worth acting on:
+
+1. **`btcpc-marketing`'s `INNOVATIONS.md` oversells several features as
+   built when they are not.** Verified by grep against `rust/btcpc-node`:
+   - **Lucid Pruning** (chain self-compression via AI inference) — **no
+     code found.** Pure marketing copy.
+   - **Genesis Dreams / on-chain inscriptions** — **no code found.**
+   - **Sparse Merkle Tree state proofs** ("~1KB proof for any balance,
+     fixed-size regardless of account count") — **no SMT implementation
+     found.** What DOES exist: `state_root`, `merkle_root_transactions`,
+     `merkle_root_compute_proofs` as plain 32-byte fields in the block
+     header (`crates/btcpc-types/src/block.rs`) — a normal merkle-root
+     design, not a Sparse Merkle Tree, and no proof-generation code was
+     found to back the "~1KB proof" claim.
+   - **Resource-aware mining / auto-throttle** ("detects when user is at
+     the computer, reduces intensity") — **no code found.**
+   - **Finality blocks every 100 epochs for instant sync** — **partially
+     real, oversold.** A real `snapshot_replication.rs` module exists with
+     tests, but it's a per-account snapshot mechanism, not the described
+     "every 100 epochs, full network state snapshot, new nodes sync in
+     seconds" feature.
+   - **What IS real and correctly described:** Proof of Useful Work
+     (accurate — this is the actual chain model), Decentralized Clock
+     Nodes (real, `ClockReward`/`ClockNodeRegister` exist and work), Hive-
+     style 4-key account model (real, matches `AccountCreate`/key-role
+     structure seen throughout `entry.rs`), Cross-chain mining rewards
+     (real — `cross_chain_finality.rs` exists with a live API route),
+     Consensus-based epoch finalization (real — matches
+     `EpochSeal`/`EpochFinalize` and the finalization-consensus work done
+     this session), Mempool with tx hashes (real, matches existing P2P
+     mempool code reviewed in this session).
+   - **Action item:** `marketing/INNOVATIONS.md` (mirrored 1:1 locally from
+     `btcpc-marketing`) needs a truth pass — either build the missing
+     features for real, or stop claiming them. This is now a tracked item,
+     see Phase 8 below. Do not let unverified marketing claims keep
+     circulating as if they're shipped.
+
+2. **`phonehome` (github.com/shindevlin/phonehome) is a working, real
+   precedent for Phase 7.4's "resilient phone light-agent" problem** —
+   correcting the earlier note in Phase 7.4 that said "no existing repo
+   found for this." `phonehome` is a Rust CLI + Telegram bridge that
+   already solves the *reconnection* half of the problem: a
+   `poll_interval_ms`-based Telegram poller, session-resume via a
+   `session_file`, and a systemd `Restart=always` pattern — i.e. "if it's
+   gone, it comes back" is already a proven, working pattern in this
+   exact author's other project, just for a CLI-bridge use case, not
+   mining/storage. Phase 7.4 has been updated to reference this as a
+   starting pattern rather than building resilience from zero.
+
+---
+
 ## Ground rules for every phase below
 
 1. **Build AND test.** No item is done when the code compiles — it's done
@@ -317,10 +373,18 @@ start code until the design item is done and reviewed.
   Explicit use case: feeds Freeport's multi-warehouse shipping problem
   (verified pickup/delivery location proofs). Depends on Phase 1 landing
   first (needs real aggregated sensor data to verify against).
-- [ ] **7.4 — Resilient phone light-agent / light-storage nodes.** No
-  existing repo found for this (checked GitHub — 8 repos under
-  shindevlin, none are a dedicated phone light-agent app); this is new
-  build work, not an audit of existing code. Core requirement, stated by
+- [ ] **7.4 — Resilient phone light-agent / light-storage nodes.**
+  **UPDATED after full GitHub review:** no dedicated phone-light-agent
+  BTCPC repo exists, but `github.com/shindevlin/phonehome` (same author,
+  separate project — a Rust Telegram↔Claude Code bridge) is a working,
+  real precedent for the exact resilience pattern needed here: Telegram
+  long-polling with a configurable interval, session-resume via a
+  persisted session file, and a systemd `Restart=always` supervision
+  pattern — i.e. "if it's gone, it comes back" already proven to work in
+  production for a CLI-bridge use case. Study `phonehome`'s reconnect/
+  session-resume design (not its code directly — different domain) as the
+  starting reference for this item's resilience model, rather than
+  designing reconnection semantics from zero. Core requirement, stated by
   user: **"if it is gone, it should come back"** — phones disconnect
   constantly (battery, backgrounding, connectivity loss) and this must be
   treated as the NORMAL case, not a failure. Design session-state
@@ -336,6 +400,32 @@ start code until the design item is done and reviewed.
   the reward stream. Depends on Phase 6 (reputation) landing first — this
   is exactly the kind of mechanism that needs a trust score to not be
   immediately gamed by borrow-and-vanish.
+
+---
+
+## Phase 8 — Marketing truth pass (found during GitHub-wide review)
+
+`marketing/INNOVATIONS.md` (mirrored from `btcpc-marketing` repo) claims
+several features as built that are not, per direct code verification (see
+"GitHub-wide review findings" above). This phase can run in parallel with
+any other phase — it's independent, low-risk, and prevents false claims
+from continuing to circulate.
+
+- [ ] **Decide per oversold claim: build it for real, or rewrite the copy.**
+  For each of Lucid Pruning, Genesis Dreams/inscriptions, Sparse Merkle
+  Tree state proofs, and Resource-aware mining/auto-throttle: either scope
+  it as a real build item (in whichever phase above it best fits, or a new
+  one) or rewrite `marketing/INNOVATIONS.md` (and `btcpc-marketing`'s copy)
+  to stop claiming it exists. Do not leave it in an unverified limbo state.
+- [ ] **Correct the "Finality blocks" claim precision** — either build the
+  actual "every 100 epochs, full network snapshot, seconds-to-sync" feature
+  described, or narrow the marketing copy to accurately describe what
+  `snapshot_replication.rs` actually does (per-account snapshots) today.
+- [ ] **Push corrected copy to both locations** — `marketing/*.md` in this
+  repo AND the standalone `btcpc-marketing` GitHub repo must stay in sync;
+  decide which is canonical (recommend: this repo's `marketing/` is
+  canonical, `btcpc-marketing` becomes a mirror or is retired — document
+  the decision here once made).
 
 ---
 
