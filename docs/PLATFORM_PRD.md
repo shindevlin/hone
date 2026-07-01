@@ -548,19 +548,61 @@ every future sensor type without a code change per sensor.
     AND every producer of `SensorReading` must be updated to actually sign.
   - **Confirmed producers requiring updates**, found by grepping the whole
     repo for `LedgerEntry::SensorReading` construction:
-    - `rust/btcpc-node/src/main.rs` — node's own `BTCPC_SENSOR` self-report path.
-    - `rust/btcpc-node/src/sim.rs` — test/simulation harness.
+    - `rust/btcpc-node/src/sim.rs` — test/simulation harness. **Correction
+      during implementation:** `main.rs` was initially believed to also
+      construct `SensorReading` (the `BTCPC_SENSOR` env var it documents is
+      real, but re-checked by direct grep during implementation — `main.rs`
+      does not actually construct a `SensorReading` entry anywhere; only
+      `sim.rs` and the Android client do). Removed from the producer list.
     - `rust/btcpc-android/src/sensors.rs` — **the live Android sensor
-      client. Confirmed it has NO signing capability at all today** (no
-      keypair/sign/ed25519 reference anywhere in that file) — it builds
-      and applies the entry unsigned. This is the actual client that would
-      break/need an app update, not a hypothetical.
+      client. Confirmed it has NO account-key signing capability today.**
+      Verified precisely during implementation: `rust/btcpc-android` DOES
+      have an ed25519 `Keypair` in `net.rs`, but it's a **libp2p transport
+      identity** (peer-to-peer networking/handshake identity), not a
+      BTCPC account posting key that `check_signature` would recognize —
+      those are registered on-chain per `AccountId` via
+      `AccountUpdateKey`/`SensorKeyRegister`, which this crate has no
+      account/wallet module for at all (confirmed: no `account.rs`,
+      `wallet.rs`, or equivalent exists under `rust/btcpc-android/src/`).
+      **This means wiring real signing into the Android client is separate,
+      larger feature work** (deriving/storing a posting key, exposing it to
+      `sensors.rs`, signing the canonical entry hash, submitting `sig_hex`
+      alongside the gossiped entry) — scoped OUT of this urgent fix and
+      tracked as its own follow-up item below. `sensors.rs` also calls
+      `chain.apply_entry()` directly (local self-apply before gossip
+      broadcast), bypassing `tx.rs`/`validate_and_apply` entirely on-device
+      — the new signature check only bites when OTHER nodes receive this
+      entry via gossip and validate it through the normal path, which is
+      exactly where the theft vector lived (a remote attacker forging
+      entries for someone else's account). The phone's own local apply of
+      its own genuine readings was never the risk.
+    - **Follow-up item (not urgent, tracked separately):** add real BTCPC
+      posting-key signing to `rust/btcpc-android` so genuine phone-submitted
+      readings can pass the "owner has a posting key" branch of the new
+      check instead of relying on the bootstrap-skip path forever. Until
+      this lands, phone sensor owners should avoid registering a posting
+      key on their sensor-owner account if they want their phone's own
+      readings to keep applying — or accept that their readings will start
+      being rejected by remote nodes the moment they do register one. This
+      tradeoff is inherent to shipping the chain-side fix first; flagging
+      it here so it isn't a surprise later.
 
   **Rollout plan (why this can't be a silent merge-to-main):**
-  1. **Schema change**: add `signed_by: AccountId` and `sig_hex:
-     Option<String>` to `LedgerEntry::SensorReading` in
-     `crates/btcpc-types/src/entry.rs`. Make `sig_hex` `Option` (not
-     required) — this is the compatibility hinge, see step 3.
+  1. **Schema change — corrected during implementation**: only
+     `signed_by: AccountId` needs to be added to
+     `LedgerEntry::SensorReading` in `crates/btcpc-types/src/entry.rs`. The
+     actual signature bytes do NOT need to live in the struct — confirmed
+     by reading how `Stake` (which has `signed_by` but no in-struct
+     signature field) actually gets verified: the signature travels
+     out-of-band as an HTTP-layer parameter, threaded through
+     `validate_and_apply(chain, entry, sig_hex: Option<&str>)` at the API
+     boundary (`api.rs` extracts it per-request, e.g. via
+     `canonical_signing_message` + a submitted `sig_hex` field on the HTTP
+     body). So this is a smaller change than first designed: one new
+     struct field (`signed_by`), no `sig_hex` field on the entry itself.
+     "Make it optional for compatibility" still applies to how `tx.rs`
+     TREATS `signed_by`/verification (step 2's bootstrap-skip), not to the
+     struct shape.
   2. **tx.rs validation, soft-launch mode**: move `SensorReading` out of
      the pass-through arm. New logic: if the named `owner` account has NO
      posting key registered yet (fresh/unregistered sensor — the common

@@ -462,9 +462,29 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── Sensor entries: reward-/sale-bearing, so authentication is required
+        // once the claimed owner has a posting key. Bootstrap-compatible: a
+        // fresh/keyless owner account can still submit unsigned (mirrors
+        // check_signature's own existing "key not set yet" skip). This closes
+        // the theft-of-funds vector where anyone could forge a reading naming
+        // any account and collect that epoch's SensorReward/GatewayRewardSplit.
+        LedgerEntry::SensorReading { owner, signed_by, .. } => {
+            // Empty signed_by (unset, or an entry predating this field) is
+            // treated as "claims to be the owner" for the bootstrap check —
+            // check_signature will still require a real signature if `owner`
+            // already has a posting key registered.
+            let claimed_signer = if signed_by.is_empty() { owner.as_str() } else { signed_by.as_str() };
+            check_signature(chain, claimed_signer, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::SensorRegister { signed_by, .. }
+        | LedgerEntry::GatewayHeartbeat { signed_by, .. } => {
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
         // ── Allowlisted pass-through entries ──────────────────────────────────
-        LedgerEntry::SensorReading { .. }
-        | LedgerEntry::BlobStore { .. }
+        LedgerEntry::BlobStore { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
         // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
@@ -478,13 +498,11 @@ pub fn validate_and_apply(
         | LedgerEntry::EscrowRelease { .. }
         | LedgerEntry::FlashSale { .. }
         // Verasens sensors — recorded on-chain, state in sidecar
-        | LedgerEntry::SensorRegister { .. }
         | LedgerEntry::SensorKeyRegister { .. }
         | LedgerEntry::SensorVouch { .. }
         | LedgerEntry::SensorDataCommit { .. }
         | LedgerEntry::DeviceKeyRegister { .. }
         | LedgerEntry::DeviceYieldUnstake { .. }
-        | LedgerEntry::GatewayHeartbeat { .. }
         | LedgerEntry::StorageHeartbeat { .. }
         // LinkGit — recorded on-chain, object storage in btcpc-fs
         | LedgerEntry::LinkGitRepoCreate { .. }

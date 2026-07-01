@@ -394,6 +394,16 @@ pub enum LedgerEntry {
         value: f64,
         data_hash: String,
         metadata: Option<serde_json::Value>,
+        /// Account whose posting key signed this reading. Verification is
+        /// only enforced when `owner` already has a posting key registered
+        /// (bootstrap-compatible: fresh/keyless owners can still submit
+        /// unsigned readings, matching `check_signature`'s existing "key not
+        /// set yet" skip behavior). Empty string on entries that predate
+        /// this field or were submitted before the owner had a key —
+        /// `tx.rs` falls back to treating an empty `signed_by` as `owner`
+        /// for the purpose of the bootstrap check.
+        #[serde(default)]
+        signed_by: AccountId,
     },
 
     /// Crowdsourced cellular coverage measurement (dead-spot mapping vertical).
