@@ -1315,6 +1315,69 @@ start code until the design item is done and reviewed.
 
 ---
 
+## URGENT infrastructure blocker (found 2026-07-01, blocks ALL future Rust work)
+
+**`rust/btcpc-node` cannot currently be built from scratch with `cargo
+check`/`cargo test` on the Beastly WSL machine (Ubuntu, user `beastly`) —
+confirmed on UNMODIFIED `main`, not caused by any feature work.** This blocks
+every future Phase 1-8 item that touches Rust code from running its own
+tests before landing, and blocks the daily/parallel workflow's implementation
+items from ever validating a `cargo test` result.
+
+**Symptom:** `cargo check --bin btcpc-node` triggers a genuine rustc internal
+compiler panic (ICE) during `resolver_for_lowering`/`check_mod_deathness`
+analysis of the `api` module — not a code error, a compiler crash.
+
+**Isolation performed (2026-07-01), all confirmed:**
+- Reproduces on a completely clean scratch clone of `main` — not caused by
+  the sensor-auth fix or any other in-progress change.
+- Reproduces identically at rustc 1.95.0 (current `stable`) AND 1.93.0.
+- rustc 1.90.0 avoids the ICE but CANNOT be used — the workspace has a
+  dependency (`matrix-sdk` and friends) requiring rustc ≥1.93, so 1.90 fails
+  to even start compiling with a hard version-gate error.
+- **Net result: no rustc version currently on this machine, or installable
+  via `rustup` at the time of this check, can both (a) satisfy the
+  workspace's own dependency floor and (b) avoid the ICE.**
+- The narrower `crates/btcpc-types` package (a dependency of `btcpc-node`,
+  not the full binary) DOES compile cleanly — the ICE is specific to
+  building the full `btcpc-node` binary crate, not a fundamental problem
+  with the workspace's Rust code in general.
+- Confirmed NOT a memory/resource issue (31GB RAM available, plenty free).
+- Confirmed this is a **known, pre-existing problem**, not new: found
+  `build.err`/`build.first.err` log files already present in the deployment
+  checkout (`/home/beastly/btcpc-node/rust/btcpc-node/`) from a prior
+  session's build attempts, plus a `howtoinstallandrun.md` "lessons
+  learned" doc that recommends downloading a prebuilt release binary
+  specifically because building from source on this machine is unreliable.
+  The currently-running live node binaries were built at some point in the
+  past with a toolchain/dependency combination that no longer reproduces
+  from a fresh checkout today.
+
+**What this means practically, right now:** implementation items on this
+PRD can still be designed and written, but **cannot be verified by actually
+running `cargo test` on this machine** until this is resolved. Do not claim
+an item's tests pass without actually running them — if this blocker is
+still open, say so explicitly instead (e.g. "code written, compiles per
+`cargo check` on crate X, full binary test run blocked by the known rustc
+ICE — see this section").
+
+**Not resolved as part of this fix — needs its own dedicated investigation:**
+- Try `cargo check` with an intermediate rustc version between 1.90 and
+  1.93 if one becomes available, in case the regression is narrower than
+  currently bisected.
+- Check whether pinning specific dependency versions (rather than the
+  compiler) resolves it — e.g. downgrade whatever exact dependency trips
+  the `api` module's resolver pass, if it can be identified via `cargo
+  check -Z timings` or bisecting which file triggers it.
+- Consider filing the ICE upstream (rust-lang/rust) if it reproduces
+  reliably — the "we would appreciate a bug report" message in the panic
+  output includes a template link.
+- Check if a completely fresh `rustup` install (not reusing the existing
+  `~/.rustup` toolchain cache, which may have a corrupted/inconsistent
+  component set) resolves it.
+
+---
+
 ## Phase 8 — Marketing truth pass (found during GitHub-wide review)
 
 `marketing/INNOVATIONS.md` (mirrored from `btcpc-marketing` repo) claims
