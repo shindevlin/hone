@@ -539,13 +539,52 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
+        // ── LinkGit repo-control entries (Phase 1.2 follow-up): bind signed_by
+        // to the entry's actor and verify. Stops third-party forgery of repo
+        // actions (lock owner out, force-merge, overwrite refs, impersonate
+        // issue/PR authors). NOTE: this binds signed_by == the SELF-DECLARED
+        // actor field only — it does NOT yet verify that actor is authorized on
+        // the repo (e.g. is the owner or a granted collaborator). That deeper
+        // ACL check needs repo-state lookup at validation time and is a tracked
+        // follow-up; this layer closes anonymous/third-party forgery.
+        LedgerEntry::LinkGitRepoCreate { owner, signed_by, .. }
+        | LedgerEntry::LinkGitRefUpdate { owner, signed_by, .. }
+        | LedgerEntry::LinkGitStorageExtend { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("LinkGit: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitAccessGrant { grantor, signed_by, .. }
+        | LedgerEntry::LinkGitAccessRevoke { grantor, signed_by, .. } => {
+            if signed_by != grantor { bail!("LinkGit: signed_by must equal grantor"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitPruneProof { node_id, signed_by, .. } => {
+            if signed_by != node_id { bail!("LinkGitPruneProof: signed_by must equal node_id"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitPrMerge { actor, signed_by, .. }
+        | LedgerEntry::LinkGitPrClose { actor, signed_by, .. }
+        | LedgerEntry::LinkGitIssueClose { actor, signed_by, .. }
+        | LedgerEntry::LinkGitIssueReopen { actor, signed_by, .. } => {
+            if signed_by != actor { bail!("LinkGit: signed_by must equal actor"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitIssueCreate { author, signed_by, .. }
+        | LedgerEntry::LinkGitIssueComment { author, signed_by, .. }
+        | LedgerEntry::LinkGitPrCreate { author, signed_by, .. }
+        | LedgerEntry::LinkGitPrComment { author, signed_by, .. } => {
+            if signed_by != author { bail!("LinkGit: signed_by must equal author"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
         // ── Allowlisted pass-through — genuinely inert on-chain (no attributable
         // money/state effect until a separately-signed entry acts, or state is
         // managed by a sidecar that does its own auth). Audited Phase 1.2.
-        // NOTE: LinkGit entries here are NOT yet audited for this class of bug;
-        // LinkGitServeReward/BuildReward are is_system_entry (blocked from user
-        // submission), but LinkGitRepoCreate/PrMerge/etc. carry signed_by and
-        // should get the same treatment in a follow-up.
         LedgerEntry::BlobStore { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
@@ -556,24 +595,14 @@ pub fn validate_and_apply(
         | LedgerEntry::OrderCancel { .. }
         | LedgerEntry::OrderDispute { .. }
         | LedgerEntry::EscrowRelease { .. }
-        // LinkGit — recorded on-chain, object storage in btcpc-fs
-        | LedgerEntry::LinkGitRepoCreate { .. }
-        | LedgerEntry::LinkGitRefUpdate { .. }
-        | LedgerEntry::LinkGitAccessGrant { .. }
-        | LedgerEntry::LinkGitAccessRevoke { .. }
-        | LedgerEntry::LinkGitPruneProof { .. }
-        | LedgerEntry::LinkGitStorageExtend { .. }
+        // LinkGit serve/build rewards are is_system_entry (blocked from user
+        // submission — see is_system_entry), so not user-forgeable here.
+        // LinkGitServeHeartbeat has NO signed_by field and drives the serve-
+        // reward pool — a separate reward-farming hole tracked as its own
+        // schema-change follow-up (needs signed_by added, like SensorReading).
         | LedgerEntry::LinkGitServeHeartbeat { .. }
         | LedgerEntry::LinkGitServeReward { .. }
         | LedgerEntry::LinkGitBuildReward { .. }
-        | LedgerEntry::LinkGitIssueCreate { .. }
-        | LedgerEntry::LinkGitIssueComment { .. }
-        | LedgerEntry::LinkGitIssueClose { .. }
-        | LedgerEntry::LinkGitIssueReopen { .. }
-        | LedgerEntry::LinkGitPrCreate { .. }
-        | LedgerEntry::LinkGitPrComment { .. }
-        | LedgerEntry::LinkGitPrMerge { .. }
-        | LedgerEntry::LinkGitPrClose { .. }
         // BLE Tracker — inert (sighting/routing/hint gossip; no money)
         | LedgerEntry::TrackerSightingCommit { .. }
         | LedgerEntry::TrackerSightingData { .. }
@@ -2477,6 +2506,90 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "sensor_id": sensor_id, "voucher": voucher, "signed_by": signed_by,
             }),
 
+        // ── Phase 1.2 follow-up: LinkGit repo-control signing arms (exclude epoch).
+        LedgerEntry::LinkGitRepoCreate { repo_id, owner, name, visibility, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_REPO_CREATE",
+                "repo_id": repo_id, "owner": owner, "name": name,
+                "visibility": visibility, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitRefUpdate { repo_id, owner, ref_name, commit_hash, prev_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_REF_UPDATE",
+                "repo_id": repo_id, "owner": owner, "ref_name": ref_name,
+                "commit_hash": commit_hash, "prev_hash": prev_hash, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitStorageExtend { repo_id, owner, cids, keep_until_epoch, fee, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_STORAGE_EXTEND",
+                "repo_id": repo_id, "owner": owner, "cids": cids,
+                "keep_until_epoch": keep_until_epoch, "fee": fee, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitAccessGrant { repo_id, grantor, grantee, encrypted_key, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ACCESS_GRANT",
+                "repo_id": repo_id, "grantor": grantor, "grantee": grantee,
+                "encrypted_key": encrypted_key, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitAccessRevoke { repo_id, grantor, grantee, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ACCESS_REVOKE",
+                "repo_id": repo_id, "grantor": grantor, "grantee": grantee, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPruneProof { repo_id, node_id, pruned_root, bytes_freed, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PRUNE_PROOF",
+                "repo_id": repo_id, "node_id": node_id, "pruned_root": pruned_root,
+                "bytes_freed": bytes_freed, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrMerge { repo_id, pr_id, merge_commit, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_MERGE",
+                "repo_id": repo_id, "pr_id": pr_id, "merge_commit": merge_commit,
+                "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrClose { repo_id, pr_id, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_CLOSE",
+                "repo_id": repo_id, "pr_id": pr_id, "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueClose { repo_id, issue_id, actor, resolution, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_CLOSE",
+                "repo_id": repo_id, "issue_id": issue_id, "actor": actor,
+                "resolution": resolution, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueReopen { repo_id, issue_id, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_REOPEN",
+                "repo_id": repo_id, "issue_id": issue_id, "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueCreate { repo_id, issue_id, title, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_CREATE",
+                "repo_id": repo_id, "issue_id": issue_id, "title": title,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueComment { repo_id, issue_id, comment_id, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_COMMENT",
+                "repo_id": repo_id, "issue_id": issue_id, "comment_id": comment_id,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrCreate { repo_id, pr_id, title, source_branch, target_branch, head_commit, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_CREATE",
+                "repo_id": repo_id, "pr_id": pr_id, "title": title,
+                "source_branch": source_branch, "target_branch": target_branch,
+                "head_commit": head_commit, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrComment { repo_id, pr_id, comment_id, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_COMMENT",
+                "repo_id": repo_id, "pr_id": pr_id, "comment_id": comment_id,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+
         LedgerEntry::AccountUpdateKey { account, role, new_public_key, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -3189,5 +3302,55 @@ mod tests {
         let sig = sign(&alice_posting, &entry);
         validate_and_apply(&chain, &entry, Some(&sig))
             .expect("correctly-signed SensorDataCommit must apply");
+    }
+
+    // ── Phase 1.2 follow-up: LinkGit repo-control forgery rejection ───────────
+
+    #[test]
+    fn linkgit_access_revoke_cannot_be_forged() {
+        // Attacker forges a revoke to lock a repo owner out of their own repo.
+        // Fix binds signed_by == grantor.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "owner", 1_000_000_000_000);
+        let entry = LedgerEntry::LinkGitAccessRevoke {
+            repo_id: "repo-1".into(),
+            grantor: "owner".into(),   // claims to act as the owner
+            grantee: "collaborator".into(),
+            epoch: 0,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not forge an access revoke as the repo owner"
+        );
+    }
+
+    #[test]
+    fn linkgit_pr_merge_cannot_be_forged_then_applies_when_signed() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "maintainer", 1_000_000_000_000);
+        let forged = LedgerEntry::LinkGitPrMerge {
+            repo_id: "repo-1".into(), pr_id: "pr-9".into(),
+            merge_commit: "deadbeef".into(),
+            actor: "maintainer".into(),   // names the maintainer
+            epoch: 0,
+            signed_by: "attacker".into(), // but attacker signs
+        };
+        assert!(
+            validate_and_apply(&chain, &forged, None).is_err(),
+            "attacker must not force-merge a PR as the maintainer"
+        );
+        // Legit: the actual maintainer signs their own merge.
+        let signed = LedgerEntry::LinkGitPrMerge {
+            repo_id: "repo-1".into(), pr_id: "pr-9".into(),
+            merge_commit: "deadbeef".into(),
+            actor: "maintainer".into(),
+            epoch: 0,
+            signed_by: "maintainer".into(),
+        };
+        let maint_key = SigningKey::from_bytes(&[b'm'; 32]);
+        let sig = sign(&maint_key, &signed);
+        validate_and_apply(&chain, &signed, Some(&sig))
+            .expect("maintainer-signed PR merge must apply");
     }
 }
