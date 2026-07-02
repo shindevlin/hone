@@ -2371,6 +2371,112 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "owner": owner,
                 "signed_by": signed_by,
             }),
+
+        // ── Phase 1.2 audit: signing arms for the newly-authenticated
+        // pass-through entries. All exclude the server-set `epoch` (per this
+        // function's doc comment) and include `nonce` where the struct has one.
+        LedgerEntry::TrackerClaim { serial_commitment, tag_type, claimer, fee, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_CLAIM",
+                "serial_commitment": serial_commitment, "tag_type": tag_type,
+                "claimer": claimer, "fee": fee, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerSubscription { serial_commitment, claimer, fee_per_epoch, expires_epoch, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_SUBSCRIPTION",
+                "serial_commitment": serial_commitment, "claimer": claimer,
+                "fee_per_epoch": fee_per_epoch, "expires_epoch": expires_epoch, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerLostMode { serial_commitment, claimer, bounty_dreams, expires_epoch, contact_encrypted, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_LOST_MODE",
+                "serial_commitment": serial_commitment, "claimer": claimer,
+                "bounty_dreams": bounty_dreams, "expires_epoch": expires_epoch,
+                "contact_encrypted": contact_encrypted, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerFoundConfirm { serial_commitment, finder, claimer, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_FOUND_CONFIRM",
+                "serial_commitment": serial_commitment, "finder": finder,
+                "claimer": claimer, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerClaimRelease { serial_commitment, claimer, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_CLAIM_RELEASE",
+                "serial_commitment": serial_commitment, "claimer": claimer, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerAcousticProof { serial_commitment, witness_id, proof_hash, claimer, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_ACOUSTIC_PROOF",
+                "serial_commitment": serial_commitment, "witness_id": witness_id,
+                "proof_hash": proof_hash, "claimer": claimer, "signed_by": signed_by,
+            }),
+        LedgerEntry::TrackerFoundReport { serial_commitment, finder, gps_commitment, acoustic_proof_hash, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_FOUND_REPORT",
+                "serial_commitment": serial_commitment, "finder": finder,
+                "gps_commitment": gps_commitment, "acoustic_proof_hash": acoustic_proof_hash, "nonce": nonce,
+            }),
+        LedgerEntry::DeviceYieldUnstake { device_serial, staker, amount, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "DEVICE_YIELD_UNSTAKE",
+                "device_serial": device_serial, "staker": staker, "amount": amount, "nonce": nonce,
+            }),
+        LedgerEntry::SensorDataCommit { sensor_id, owner, batch_hash, reading_count, sensor_type, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_DATA_COMMIT",
+                "sensor_id": sensor_id, "owner": owner, "batch_hash": batch_hash,
+                "reading_count": reading_count, "sensor_type": sensor_type, "signed_by": signed_by,
+            }),
+        LedgerEntry::StorageHeartbeat { node_id, bytes_proven, query_count, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "STORAGE_HEARTBEAT",
+                "node_id": node_id, "bytes_proven": bytes_proven,
+                "query_count": query_count, "signed_by": signed_by,
+            }),
+        LedgerEntry::StoreUpdate { seller, store_id, name, description, onion_address, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "STORE_UPDATE",
+                "seller": seller, "store_id": store_id, "name": name,
+                "description": description, "onion_address": onion_address, "signed_by": signed_by,
+            }),
+        LedgerEntry::ProductCreate { seller, product_id, store_id, title, price, token, product_type, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "PRODUCT_CREATE",
+                "seller": seller, "product_id": product_id, "store_id": store_id,
+                "title": title, "price": price, "token": token,
+                "product_type": product_type, "signed_by": signed_by,
+            }),
+        LedgerEntry::ProductUpdate { seller, product_id, price, stock, active, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "PRODUCT_UPDATE",
+                "seller": seller, "product_id": product_id, "price": price,
+                "stock": stock, "active": active, "signed_by": signed_by,
+            }),
+        LedgerEntry::FlashSale { seller, product_id, sale_price, expires_epoch, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "FLASH_SALE",
+                "seller": seller, "product_id": product_id, "sale_price": sale_price,
+                "expires_epoch": expires_epoch, "signed_by": signed_by,
+            }),
+        LedgerEntry::DeviceKeyRegister { device_id, owner, device_pubkey, hardware_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "DEVICE_KEY_REGISTER",
+                "device_id": device_id, "owner": owner, "device_pubkey": device_pubkey,
+                "hardware_hash": hardware_hash, "signed_by": signed_by,
+            }),
+        LedgerEntry::SensorKeyRegister { sensor_id, owner, device_pubkey, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_KEY_REGISTER",
+                "sensor_id": sensor_id, "owner": owner,
+                "device_pubkey": device_pubkey, "signed_by": signed_by,
+            }),
+        LedgerEntry::SensorVouch { sensor_id, voucher, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_VOUCH",
+                "sensor_id": sensor_id, "voucher": voucher, "signed_by": signed_by,
+            }),
+
         LedgerEntry::AccountUpdateKey { account, role, new_public_key, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
