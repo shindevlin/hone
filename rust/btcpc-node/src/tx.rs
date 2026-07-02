@@ -2792,4 +2792,132 @@ mod tests {
         let bad_sig = sign(&wrong_sk, &entry);
         assert!(validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err());
     }
+
+    // ── Sensor entry authentication (PR #7 / Phase 1.1a security fix) ─────────
+    // These prove the theft-of-funds fix actually works: a reading naming an
+    // account with a registered posting key must carry that account's
+    // signature, so a third party can no longer forge readings/rewards for
+    // someone else. Keyless (fresh) accounts still bootstrap unsigned.
+
+    fn sensor_reading(owner: &str, signed_by: &str) -> LedgerEntry {
+        LedgerEntry::SensorReading {
+            sensor_id: "sensor-1".into(),
+            owner: owner.into(),
+            epoch: 0,
+            value: 42.0,
+            data_hash: "ab".repeat(32),
+            metadata: None,
+            signed_by: signed_by.into(),
+        }
+    }
+
+    #[test]
+    fn sensor_reading_keyless_owner_applies_unsigned() {
+        // Bootstrap case: a fresh account with no posting key can still submit
+        // unsigned, matching check_signature's existing "key not set yet" skip.
+        let (chain, _dir) = make_chain();
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: "fresh".into(), keys: Default::default(),
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).ok();
+        let entry = sensor_reading("fresh", "");
+        validate_and_apply(&chain, &entry, None)
+            .expect("unsigned reading for a keyless owner must still apply (bootstrap)");
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_rejects_unsigned() {
+        // The theft vector: once the owner has a posting key, an unsigned
+        // reading naming that owner must be rejected.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0); // fund() registers a posting key for alice
+        let entry = sensor_reading("alice", "alice");
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned reading for a keyed owner must be rejected"
+        );
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_rejects_wrong_signature() {
+        let (chain, _dir) = make_chain();
+        // alice's posting key seed is first byte of "alice" == b'a' (97).
+        fund(&chain, "alice", 0);
+        let entry = sensor_reading("alice", "alice");
+        let attacker = SigningKey::from_bytes(&[99; 32]); // not alice's posting key
+        let bad_sig = sign(&attacker, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err(),
+            "reading with a signature not from the owner's posting key must be rejected"
+        );
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_applies_with_correct_signature() {
+        // The case the broken canonical_signing_message previously made
+        // impossible (it signed the server-set epoch): a correctly-signed
+        // reading from a keyed owner applies.
+        let (chain, _dir) = make_chain();
+        // fund() registered alice's posting key from seed b'a'; reconstruct it.
+        fund(&chain, "alice", 0);
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let entry = sensor_reading("alice", "alice");
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("reading correctly signed by the owner's posting key must apply");
+    }
+
+    #[test]
+    fn sensor_reading_forge_for_other_account_rejected() {
+        // End-to-end statement of the fix: attacker tries to submit a reading
+        // naming victim (who has a key) and pay themselves the reward. Even
+        // signing with the attacker's own key, it must fail because the
+        // signature is checked against the *named owner's* posting key.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 0); // victim has a posting key
+        let attacker = SigningKey::from_bytes(&[123; 32]);
+        let entry = sensor_reading("victim", "victim");
+        let attacker_sig = sign(&attacker, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&attacker_sig)).is_err(),
+            "attacker must not be able to forge a signed reading naming the victim"
+        );
+    }
+
+    #[test]
+    fn sensor_register_keyed_owner_requires_signature() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        let entry = LedgerEntry::SensorRegister {
+            sensor_id: "s1".into(), owner: "alice".into(),
+            sensor_type: "gnss".into(), location: None, metadata: None,
+            epoch: 0, signed_by: "alice".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned SensorRegister for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed SensorRegister must apply");
+    }
+
+    #[test]
+    fn gateway_heartbeat_keyed_owner_requires_signature() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 0);
+        let entry = LedgerEntry::GatewayHeartbeat {
+            gateway_id: "g1".into(), owner: "alice".into(),
+            epoch: 0, signed_by: "alice".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned GatewayHeartbeat for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed GatewayHeartbeat must apply");
+    }
 }
