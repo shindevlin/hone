@@ -3080,4 +3080,114 @@ mod tests {
         validate_and_apply(&chain, &entry, Some(&sig))
             .expect("correctly-signed GatewayHeartbeat must apply");
     }
+
+    // ── Phase 1.2 pass-through auth audit — money/escrow theft vectors ────────
+
+    #[test]
+    fn tracker_found_confirm_cannot_be_forged_by_third_party() {
+        // The critical bug: an attacker names themselves `finder` and releases
+        // a victim's escrowed bounty. Fix binds signed_by == claimer (the bounty
+        // owner) — so a third party (attacker) cannot submit a confirm at all.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000); // claimer/bounty owner, has a key
+        let entry = LedgerEntry::TrackerFoundConfirm {
+            serial_commitment: "tag-abc".into(),
+            finder: "attacker".into(),   // attacker names self as finder
+            claimer: "victim".into(),
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(), // attacker tries to sign as themselves
+        };
+        // signed_by (attacker) != claimer (victim) → rejected before any escrow release.
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "third party must not be able to confirm a find and release the victim's bounty"
+        );
+        // Even with a valid signature over their OWN key, still rejected (binding fails).
+        let attacker_key = SigningKey::from_bytes(&[200; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "a validly-signed confirm from a non-claimer must still be rejected"
+        );
+    }
+
+    #[test]
+    fn tracker_found_confirm_applies_when_signed_by_claimer() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::TrackerFoundConfirm {
+            serial_commitment: "tag-abc".into(),
+            finder: "finder-acct".into(),
+            claimer: "victim".into(),
+            epoch: 0, nonce: 1,
+            signed_by: "victim".into(), // the bounty owner confirms
+        };
+        let victim_posting = SigningKey::from_bytes(&[b'v'; 32]);
+        let sig = sign(&victim_posting, &entry);
+        // Applies (no escrow exists in this minimal setup, but validation+apply succeed).
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("claimer-signed found-confirm must apply");
+    }
+
+    #[test]
+    fn tracker_lost_mode_cannot_escrow_from_another_account() {
+        // Attacker tries to force a victim to escrow a bounty. Fix: signed_by
+        // must == claimer (whose balance is debited).
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::TrackerLostMode {
+            serial_commitment: "tag-1".into(),
+            claimer: "victim".into(),
+            bounty_dreams: 500_000_000_000,
+            expires_epoch: 100,
+            contact_encrypted: None,
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not force a victim into a bounty escrow"
+        );
+    }
+
+    #[test]
+    fn device_yield_unstake_cannot_be_forced_by_third_party() {
+        // Attacker tries to force-unstake a victim's yield position. Fix:
+        // signed_by must == staker.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::DeviceYieldUnstake {
+            device_serial: "dev-1".into(),
+            staker: "victim".into(),
+            amount: 1_000,
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not force-unstake a victim's yield position"
+        );
+    }
+
+    #[test]
+    fn sensor_data_commit_requires_signature_from_keyed_owner() {
+        // SensorDataCommit drives SensorReward at epoch end — same class as the
+        // original PR #7 bug. A keyed owner's commit must be signed.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "s1".into(), owner: "alice".into(),
+            batch_hash: "bh".into(), reading_count: 100,
+            sensor_type: "gnss".into(), epoch: 0,
+            signed_by: "alice".into(), gateway_account: None,
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned SensorDataCommit for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed SensorDataCommit must apply");
+    }
 }
