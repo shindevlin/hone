@@ -85,6 +85,9 @@ pub struct AppState {
     /// Nostr relay transport handle — None if BTCPC_NOSTR is not enabled.
     pub nostr_handle: Option<crate::nostr_transport::NostrHandle>,
     /// Matrix room transport handle — None if BTCPC_MATRIX is not enabled.
+    /// Behind the optional `matrix` feature (off by default) — see
+    /// docs/PLAN_FABLE5_STABILIZATION.md Phase 0.
+    #[cfg(feature = "matrix")]
     pub matrix_handle: Option<crate::matrix_transport::MatrixHandle>,
     /// I2P datagram transport handle — None if BTCPC_I2P is not enabled.
     pub i2p_handle: Option<crate::i2p::I2pHandle>,
