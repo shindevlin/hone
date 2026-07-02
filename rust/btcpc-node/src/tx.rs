@@ -462,17 +462,10 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
-        // ── Sensor entries: reward-/sale-bearing, so authentication is required
-        // once the claimed owner has a posting key. Bootstrap-compatible: a
-        // fresh/keyless owner account can still submit unsigned (mirrors
-        // check_signature's own existing "key not set yet" skip). This closes
-        // the theft-of-funds vector where anyone could forge a reading naming
-        // any account and collect that epoch's SensorReward/GatewayRewardSplit.
+        // ── Sensor entries (PR #7): reward-/sale-bearing, authentication
+        // required once the claimed owner has a posting key. Bootstrap-
+        // compatible via check_signature's "key not set yet" skip.
         LedgerEntry::SensorReading { owner, signed_by, .. } => {
-            // Empty signed_by (unset, or an entry predating this field) is
-            // treated as "claims to be the owner" for the bootstrap check —
-            // check_signature will still require a real signature if `owner`
-            // already has a posting key registered.
             let claimed_signer = if signed_by.is_empty() { owner.as_str() } else { signed_by.as_str() };
             check_signature(chain, claimed_signer, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
@@ -483,27 +476,86 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
-        // ── Allowlisted pass-through entries ──────────────────────────────────
+        // ── Money-/escrow-moving entries (Phase 1.2 audit): bind signed_by to
+        // the AUTHORIZED account and verify its signature. Each was found
+        // forgeable for theft or grief in the pass-through arm. Fix mirrors PR #7
+        // + the InferenceJobPost pattern: require signed_by == the account whose
+        // funds/stake move, then check_signature.
+
+        // Tracker claim: debits `claimer`'s balance for the claim fee.
+        LedgerEntry::TrackerClaim { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerClaim: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Tracker subscription: debits `claimer` into escrow.
+        LedgerEntry::TrackerSubscription { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerSubscription: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Lost mode: debits `claimer` to escrow a bounty. Only the tracker owner
+        // (claimer) may put their own tracker into lost mode and escrow funds.
+        LedgerEntry::TrackerLostMode { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerLostMode: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Found confirm: RELEASES the claimer's escrowed bounty (70% to finder).
+        // Only the claimer (bounty owner) may confirm a find and release their
+        // own escrow — this is what stops an attacker naming themselves finder
+        // and draining someone else's bounty.
+        LedgerEntry::TrackerFoundConfirm { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerFoundConfirm: signed_by must equal claimer (only the bounty owner may release escrow)"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Device yield unstake: credits `staker` from their yield stake. Only the
+        // staker may unstake their own position (guard already caps to the
+        // staked amount; this stops forced-unstake grief).
+        LedgerEntry::DeviceYieldUnstake { staker, signed_by, .. } => {
+            if signed_by != staker { bail!("DeviceYieldUnstake: signed_by must equal staker"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Signature-required, no special actor-binding: these carry signed_by
+        // and drive rewards or attributable state, so a signature is required
+        // (closes forgery / impersonation), but the "authorized actor" is simply
+        // signed_by itself (there is no separate victim field to bind against).
+        LedgerEntry::SensorDataCommit { signed_by, .. }
+        | LedgerEntry::StorageHeartbeat { signed_by, .. }
+        | LedgerEntry::StoreUpdate { signed_by, .. }
+        | LedgerEntry::ProductCreate { signed_by, .. }
+        | LedgerEntry::ProductUpdate { signed_by, .. }
+        | LedgerEntry::FlashSale { signed_by, .. }
+        | LedgerEntry::DeviceKeyRegister { signed_by, .. }
+        | LedgerEntry::SensorKeyRegister { signed_by, .. }
+        | LedgerEntry::SensorVouch { signed_by, .. }
+        | LedgerEntry::TrackerClaimRelease { signed_by, .. }
+        | LedgerEntry::TrackerAcousticProof { signed_by, .. }
+        | LedgerEntry::TrackerFoundReport { signed_by, .. } => {
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Allowlisted pass-through — genuinely inert on-chain (no attributable
+        // money/state effect until a separately-signed entry acts, or state is
+        // managed by a sidecar that does its own auth). Audited Phase 1.2.
+        // NOTE: LinkGit entries here are NOT yet audited for this class of bug;
+        // LinkGitServeReward/BuildReward are is_system_entry (blocked from user
+        // submission), but LinkGitRepoCreate/PrMerge/etc. carry signed_by and
+        // should get the same treatment in a follow-up.
         LedgerEntry::BlobStore { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
-        // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
-        | LedgerEntry::StoreUpdate { .. }
-        | LedgerEntry::ProductCreate { .. }
-        | LedgerEntry::ProductUpdate { .. }
+        // Freeport orders/escrow — no on-chain balance movement; btcpc-market
+        // sidecar manages the money (EscrowRelease apply is an empty no-op).
         | LedgerEntry::OrderPlace { .. }
         | LedgerEntry::OrderFulfill { .. }
         | LedgerEntry::OrderCancel { .. }
         | LedgerEntry::OrderDispute { .. }
         | LedgerEntry::EscrowRelease { .. }
-        | LedgerEntry::FlashSale { .. }
-        // Verasens sensors — recorded on-chain, state in sidecar
-        | LedgerEntry::SensorKeyRegister { .. }
-        | LedgerEntry::SensorVouch { .. }
-        | LedgerEntry::SensorDataCommit { .. }
-        | LedgerEntry::DeviceKeyRegister { .. }
-        | LedgerEntry::DeviceYieldUnstake { .. }
-        | LedgerEntry::StorageHeartbeat { .. }
         // LinkGit — recorded on-chain, object storage in btcpc-fs
         | LedgerEntry::LinkGitRepoCreate { .. }
         | LedgerEntry::LinkGitRefUpdate { .. }
@@ -511,11 +563,9 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitAccessRevoke { .. }
         | LedgerEntry::LinkGitPruneProof { .. }
         | LedgerEntry::LinkGitStorageExtend { .. }
-        // LinkGit serve/build rewards — heartbeats are server-generated, rewards are system-generated
         | LedgerEntry::LinkGitServeHeartbeat { .. }
         | LedgerEntry::LinkGitServeReward { .. }
         | LedgerEntry::LinkGitBuildReward { .. }
-        // LinkGit COBs — issues and pull requests
         | LedgerEntry::LinkGitIssueCreate { .. }
         | LedgerEntry::LinkGitIssueComment { .. }
         | LedgerEntry::LinkGitIssueClose { .. }
@@ -524,17 +574,10 @@ pub fn validate_and_apply(
         | LedgerEntry::LinkGitPrComment { .. }
         | LedgerEntry::LinkGitPrMerge { .. }
         | LedgerEntry::LinkGitPrClose { .. }
-        // BLE Tracker — recorded on-chain, state in chain.rs
+        // BLE Tracker — inert (sighting/routing/hint gossip; no money)
         | LedgerEntry::TrackerSightingCommit { .. }
-        | LedgerEntry::TrackerClaim { .. }
-        | LedgerEntry::TrackerClaimRelease { .. }
-        | LedgerEntry::TrackerAcousticProof { .. }
-        | LedgerEntry::TrackerSubscription { .. }
         | LedgerEntry::TrackerSightingData { .. }
-        | LedgerEntry::TrackerHint { .. }
-        | LedgerEntry::TrackerLostMode { .. }
-        | LedgerEntry::TrackerFoundReport { .. }
-        | LedgerEntry::TrackerFoundConfirm { .. } => {
+        | LedgerEntry::TrackerHint { .. } => {
             chain.apply_entry(entry)?;
         }
 
