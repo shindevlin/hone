@@ -1175,6 +1175,7 @@ async fn main() -> Result<()> {
         capabilities,
         onion_address: Arc::new(onion_address),
         nostr_handle,
+        #[cfg(feature = "matrix")]
         matrix_handle,
         i2p_handle,
         lorawan_handle,
