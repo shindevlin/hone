@@ -2292,6 +2292,42 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "amount": amount,
                 "nonce": nonce,
             }),
+        // Signs only client-known, deterministic fields. Excludes `epoch`
+        // (server-set — the client cannot know the sealing epoch in advance,
+        // per this function's doc comment) and `metadata` (kept out of the
+        // signed message for stability; `data_hash` already commits to the
+        // reading's content). Field order fixed; the client SDK must
+        // reproduce this exactly.
+        LedgerEntry::SensorReading { sensor_id, owner, value, data_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SENSOR_READING",
+                "sensor_id": sensor_id,
+                "owner": owner,
+                "value": value,
+                "data_hash": data_hash,
+                "signed_by": signed_by,
+            }),
+        // Sensor/gateway registration + heartbeat: same rule — sign only
+        // client-known fields, exclude the server-set `epoch`.
+        LedgerEntry::SensorRegister { sensor_id, owner, sensor_type, location, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SENSOR_REGISTER",
+                "sensor_id": sensor_id,
+                "owner": owner,
+                "sensor_type": sensor_type,
+                "location": location,
+                "signed_by": signed_by,
+            }),
+        LedgerEntry::GatewayHeartbeat { gateway_id, owner, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "GATEWAY_HEARTBEAT",
+                "gateway_id": gateway_id,
+                "owner": owner,
+                "signed_by": signed_by,
+            }),
         LedgerEntry::AccountUpdateKey { account, role, new_public_key, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
