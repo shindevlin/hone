@@ -148,11 +148,42 @@ claim on a Rust item since the ICE commit is unverifiable.
 - [ ] **1.1 Fix and merge PR #7.** Signing arms added (`9e393c65`); now verify
   under a working build. **Acceptance:** all six rollout test cases run and
   pass, especially "correctly-signed reading for a keyed owner applies."
-- [ ] **1.2 Audit for sibling holes.** The same pass-through arm still contains
-  reward-/sale-bearing entries with no signature check: at minimum `BlobStore`,
-  `StorageHeartbeat`, the Freeport `Order*`/`Escrow*` family. **Acceptance:** a
-  written table, one row per pass-through entry, with theft/forgery analysis
-  and a test for each that can pay out.
+- [x] **1.2 Audit for sibling holes. DONE — PR #8 + the LinkGit follow-up
+  commit.** Audited every pass-through entry. Found and fixed:
+  - **7 exploitable** (money/escrow): `TrackerFoundConfirm` (critical —
+    bounty theft), `TrackerLostMode`, `TrackerClaim`, `TrackerSubscription`
+    (== claimer), `DeviceYieldUnstake` (== staker), `SensorDataCommit`,
+    `StorageHeartbeat` (reward-driving, signature required). Bound `signed_by`
+    to the authorized account + verify. Tests prove forge-rejection.
+  - **10 impersonation** (NEEDS-SIG): commerce metadata + device/sensor key
+    registration — signature now required.
+  - **~13 LinkGit repo-control** entries (RefUpdate, Access*, Pr*, Issue*,
+    RepoCreate, PruneProof, StorageExtend): bound `signed_by` to the entry's
+    actor field + verify. Closes third-party forgery of repo actions.
+  - **Inert** (orders/escrow via btcpc-market sidecar; sighting/routing
+    gossip) left in pass-through, documented.
+  - Full suite 251/0 on 1.90.
+- [ ] **1.2-followup-B — LinkGitServeHeartbeat reward-farming (schema change,
+  separate PR).** `LinkGitServeHeartbeat` has **NO `signed_by` field** and its
+  `owner`-attributed serve counts drive the `LinkGitServeReward` pool split at
+  epoch seal (`main.rs`, `linkgit:serve_count:{epoch}:{repo_id}`). An attacker
+  floods heartbeats for their OWN repo with varied `requester_hash` values
+  (bypassing per-epoch dedup), inflating their serve_count and capturing a
+  disproportionate share of the LinkGit reward pool — dilutes every honest
+  repo's reward. Same class as the original SensorReading bug, and same fix
+  shape: add `signed_by` to the struct (schema change → breaking, needs the
+  bootstrap-skip compat path + client update), verify it, and bind it to the
+  serving node. Scoped as its own branch/PR because it's a breaking schema
+  change, not a signature-only fix. **Acceptance:** forged heartbeats for an
+  account with a posting key are rejected; a test proves an attacker cannot
+  inflate serve_count for reward.
+- [ ] **1.2-followup-C — LinkGit repo-ACL authorization.** The Phase 1.2
+  LinkGit fix binds `signed_by == self-declared actor`, which stops anonymous/
+  third-party forgery but does NOT verify the actor is *authorized on the repo*
+  (e.g. `PrMerge`/`AccessGrant` should require repo-owner or granted-
+  collaborator status, checked against repo ACL state). Needs repo-state lookup
+  at validation time. **Acceptance:** a non-collaborator's signed PrMerge on
+  someone else's repo is rejected.
 - [ ] **1.3 Client-side signing for the one live producer.**
   `btcpc-android/src/sensors.rs` submits unsigned and has no BTCPC posting-key
   infra (only a libp2p transport identity). Add a device posting-key signing
