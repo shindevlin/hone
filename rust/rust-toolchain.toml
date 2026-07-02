@@ -1,0 +1,16 @@
+# Pinned toolchain for reproducible builds.
+#
+# WHY 1.90.0 specifically: rustc 1.93 and 1.95 trigger an internal compiler
+# error (ICE) on `btcpc-node`'s `api` module during the dead-code / resolver
+# pass (query stack: check_mod_deathness / resolver_for_lowering_raw).
+# 1.90.0 does not hit the ICE. The only thing that previously forced >=1.93
+# was `matrix-sdk` (a Matrix alt-transport), now behind the off-by-default
+# `matrix` cargo feature — so core btcpc-node builds and tests clean on 1.90.
+#
+# See docs/PLAN_FABLE5_STABILIZATION.md Phase 0 for the full diagnosis.
+#
+# When the upstream rustc ICE is fixed (or matrix-sdk drops its 1.93 floor),
+# revisit this pin and consider moving back to `stable`.
+[toolchain]
+channel = "1.90.0"
+components = ["rustfmt", "clippy"]

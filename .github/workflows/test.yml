@@ -35,8 +35,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Pin to 1.90.0 to match rust/rust-toolchain.toml — rustc 1.93/1.95 hit an
+      # ICE on btcpc-node's api module. matrix-sdk (the only thing that forced
+      # >=1.93) is behind the off-by-default `matrix` feature. See
+      # docs/PLAN_FABLE5_STABILIZATION.md Phase 0.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.90.0
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -51,8 +55,10 @@ jobs:
       - name: Install RocksDB deps
         run: sudo apt-get install -y librocksdb-dev clang libclang-dev
 
+      # Default features only (matrix off) — this is what nodes ship and what
+      # builds on 1.90. A PR that doesn't compile fails here and cannot merge.
       - name: cargo check (workspace)
         run: cd rust && cargo check --workspace --all-targets
 
-      - name: cargo test (btcpc-node lib)
-        run: cd rust && cargo test -p btcpc-node --lib -- --test-threads=2
+      - name: cargo test (btcpc-node)
+        run: cd rust && cargo test -p btcpc-node --bin btcpc-node -- --test-threads=2
