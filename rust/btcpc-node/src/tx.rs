@@ -2811,16 +2811,27 @@ mod tests {
         }
     }
 
+    /// Create + fund an account WITHOUT registering any key (keyless owner).
+    /// Balance is needed because SensorReading costs an epoch-bandwidth fee.
+    fn fund_keyless(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.into(), keys: Default::default(),
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.into(), amount, token: NATIVE_TOKEN.into(),
+        }).unwrap();
+    }
+
     #[test]
     fn sensor_reading_keyless_owner_applies_unsigned() {
         // Bootstrap case: a fresh account with no posting key can still submit
         // unsigned, matching check_signature's existing "key not set yet" skip.
+        // signed_by = owner so the owner pays the entry fee; no posting key is
+        // registered, so the signature requirement is skipped (bootstrap).
         let (chain, _dir) = make_chain();
-        chain.apply_entry(&LedgerEntry::AccountCreate {
-            account: "fresh".into(), keys: Default::default(),
-            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
-        }).ok();
-        let entry = sensor_reading("fresh", "");
+        fund_keyless(&chain, "fresh", 1_000_000_000_000);
+        let entry = sensor_reading("fresh", "fresh");
         validate_and_apply(&chain, &entry, None)
             .expect("unsigned reading for a keyless owner must still apply (bootstrap)");
     }
@@ -2830,7 +2841,7 @@ mod tests {
         // The theft vector: once the owner has a posting key, an unsigned
         // reading naming that owner must be rejected.
         let (chain, _dir) = make_chain();
-        fund(&chain, "alice", 0); // fund() registers a posting key for alice
+        fund(&chain, "alice", 1_000_000_000_000); // fund() registers a posting key for alice
         let entry = sensor_reading("alice", "alice");
         assert!(
             validate_and_apply(&chain, &entry, None).is_err(),
@@ -2842,7 +2853,7 @@ mod tests {
     fn sensor_reading_keyed_owner_rejects_wrong_signature() {
         let (chain, _dir) = make_chain();
         // alice's posting key seed is first byte of "alice" == b'a' (97).
-        fund(&chain, "alice", 0);
+        fund(&chain, "alice", 1_000_000_000_000);
         let entry = sensor_reading("alice", "alice");
         let attacker = SigningKey::from_bytes(&[99; 32]); // not alice's posting key
         let bad_sig = sign(&attacker, &entry);
@@ -2859,7 +2870,7 @@ mod tests {
         // reading from a keyed owner applies.
         let (chain, _dir) = make_chain();
         // fund() registered alice's posting key from seed b'a'; reconstruct it.
-        fund(&chain, "alice", 0);
+        fund(&chain, "alice", 1_000_000_000_000);
         let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
         let entry = sensor_reading("alice", "alice");
         let sig = sign(&alice_posting, &entry);
@@ -2874,7 +2885,7 @@ mod tests {
         // signing with the attacker's own key, it must fail because the
         // signature is checked against the *named owner's* posting key.
         let (chain, _dir) = make_chain();
-        fund(&chain, "victim", 0); // victim has a posting key
+        fund(&chain, "victim", 1_000_000_000_000); // victim has a posting key
         let attacker = SigningKey::from_bytes(&[123; 32]);
         let entry = sensor_reading("victim", "victim");
         let attacker_sig = sign(&attacker, &entry);
@@ -2887,7 +2898,7 @@ mod tests {
     #[test]
     fn sensor_register_keyed_owner_requires_signature() {
         let (chain, _dir) = make_chain();
-        fund(&chain, "alice", 0);
+        fund(&chain, "alice", 1_000_000_000_000);
         let entry = LedgerEntry::SensorRegister {
             sensor_id: "s1".into(), owner: "alice".into(),
             sensor_type: "gnss".into(), location: None, metadata: None,
@@ -2906,7 +2917,7 @@ mod tests {
     #[test]
     fn gateway_heartbeat_keyed_owner_requires_signature() {
         let (chain, _dir) = make_chain();
-        fund(&chain, "alice", 0);
+        fund(&chain, "alice", 1_000_000_000_000);
         let entry = LedgerEntry::GatewayHeartbeat {
             gateway_id: "g1".into(), owner: "alice".into(),
             epoch: 0, signed_by: "alice".into(),
