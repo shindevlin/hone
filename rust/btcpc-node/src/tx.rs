@@ -521,20 +521,62 @@ pub fn validate_and_apply(
 
         // ── Signature-required, no special actor-binding: these carry signed_by
         // and drive rewards or attributable state, so a signature is required
-        // (closes forgery / impersonation), but the "authorized actor" is simply
-        // signed_by itself (there is no separate victim field to bind against).
-        LedgerEntry::SensorDataCommit { signed_by, .. }
-        | LedgerEntry::StorageHeartbeat { signed_by, .. }
-        | LedgerEntry::StoreUpdate { signed_by, .. }
-        | LedgerEntry::ProductCreate { signed_by, .. }
-        | LedgerEntry::ProductUpdate { signed_by, .. }
-        | LedgerEntry::FlashSale { signed_by, .. }
-        | LedgerEntry::DeviceKeyRegister { signed_by, .. }
-        | LedgerEntry::SensorKeyRegister { signed_by, .. }
-        | LedgerEntry::SensorVouch { signed_by, .. }
-        | LedgerEntry::TrackerClaimRelease { signed_by, .. }
-        | LedgerEntry::TrackerAcousticProof { signed_by, .. }
-        | LedgerEntry::TrackerFoundReport { signed_by, .. } => {
+        // (closes forgery / impersonation) AND bind signed_by to the entry's
+        // owning/authorizing account where one exists — so a valid signature
+        // from account A cannot commit reward-bearing or attributable state
+        // FOR account B. (Adversarial-review finding: an earlier version only
+        // verified the signature, which let a keyed attacker farm rewards for an
+        // unregistered sensor_id / storage node_id by naming themselves owner
+        // but not proving ownership binding.)
+
+        // SensorDataCommit reward is attributed to `owner`
+        // (sensor_commit:{epoch}:{sensor_id} → SensorReward to owner).
+        LedgerEntry::SensorDataCommit { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("SensorDataCommit: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // StorageHeartbeat reward is attributed to `node_id` (storage_beat:… →
+        // StorageReward). (Also gated by verify_storage_proof, but bind anyway.)
+        LedgerEntry::StorageHeartbeat { node_id, signed_by, .. } => {
+            if signed_by != node_id { bail!("StorageHeartbeat: signed_by must equal node_id"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Commerce: seller owns the store/product.
+        LedgerEntry::StoreUpdate { seller, signed_by, .. }
+        | LedgerEntry::ProductCreate { seller, signed_by, .. }
+        | LedgerEntry::ProductUpdate { seller, signed_by, .. }
+        | LedgerEntry::FlashSale { seller, signed_by, .. } => {
+            if signed_by != seller { bail!("commerce entry: signed_by must equal seller"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Device/sensor key registration: owner registers a key for their device.
+        LedgerEntry::DeviceKeyRegister { owner, signed_by, .. }
+        | LedgerEntry::SensorKeyRegister { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("key register: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::SensorVouch { voucher, signed_by, .. } => {
+            if signed_by != voucher { bail!("SensorVouch: signed_by must equal voucher"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TrackerClaimRelease { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerClaimRelease: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TrackerFoundReport { finder, signed_by, .. } => {
+            if signed_by != finder { bail!("TrackerFoundReport: signed_by must equal finder"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // TrackerAcousticProof is signed by the WITNESS gateway (signed_by is
+        // itself the authorized actor; no separate account field to bind).
+        LedgerEntry::TrackerAcousticProof { signed_by, .. } => {
             check_signature(chain, signed_by, entry, sig_hex, "posting")?;
             chain.apply_entry(entry)?;
         }
@@ -3352,5 +3394,70 @@ mod tests {
         let sig = sign(&maint_key, &signed);
         validate_and_apply(&chain, &signed, Some(&sig))
             .expect("maintainer-signed PR merge must apply");
+    }
+
+    // ── Adversarial-review finding: signed-by-attacker, owner-is-someone-else.
+    // A keyed attacker must not be able to farm reward-bearing state naming a
+    // DIFFERENT account as owner. This is the gap a signature-only check missed.
+
+    #[test]
+    fn sensor_data_commit_cannot_be_farmed_with_mismatched_owner() {
+        let (chain, _dir) = make_chain();
+        // Attacker has a real, registered posting key (seed b'a').
+        fund(&chain, "attacker", 1_000_000_000_000);
+        // Commit naming a different owner (reward would attribute to `victim`
+        // or, if owner==attacker but signed_by==victim, impersonation). Here:
+        // attacker signs with their own key but names `victim` as owner to farm
+        // reward attribution — must be rejected because signed_by != owner.
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "unregistered-sensor".into(),
+            owner: "victim".into(),
+            batch_hash: "bh".into(), reading_count: 9999,
+            sensor_type: "gnss".into(), epoch: 0,
+            signed_by: "attacker".into(), gateway_account: None,
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal owner — cannot commit reward-bearing data for another account"
+        );
+    }
+
+    #[test]
+    fn storage_heartbeat_requires_signed_by_node_id() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "attacker", 1_000_000_000_000);
+        let entry = LedgerEntry::StorageHeartbeat {
+            node_id: "victim".into(), epoch: 0,
+            bytes_proven: 1_000_000, query_count: 0,
+            challenge_response: None, tier: None,
+            signed_by: "attacker".into(),
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal node_id — cannot claim storage reward for another node"
+        );
+    }
+
+    #[test]
+    fn product_create_cannot_be_forged_for_another_seller() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "attacker", 1_000_000_000_000);
+        let entry = LedgerEntry::ProductCreate {
+            seller: "victim-store".into(), product_id: "p1".into(),
+            store_id: "s1".into(), title: "fake".into(),
+            price: 1, token: NATIVE_TOKEN.into(), product_type: "digital".into(),
+            delivery_cid: None, stock: None, metadata: None, epoch: 0,
+            signed_by: "attacker".into(),
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal seller — cannot list products under another seller"
+        );
     }
 }
