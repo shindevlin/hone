@@ -485,11 +485,26 @@ every future sensor type without a code change per sensor.
   - **Phase-6 dependency to file:** add the per-`sensor_id` projection and the
     `[0, 10_000]`-bp read API to the Phase-6 design bullet as a required output
     of that single reputation system.
-- [ ] **Implement the split in `chain.rs`** — adjust `SensorReward`
+- [x] **Implement the split in `chain.rs`** — adjust `SensorReward`
   application to the small-fee model; confirm `SensorDataPurchase`'s
   existing split logic matches the design. Add tests: spam-reporting
   scenario should be unprofitable; legitimate high-query sensor should
-  out-earn a low-query one over N epochs.
+  out-earn a low-query one over N epochs. **Done — branch
+  `platform/p1-sensor-split-impl` (commit `c68bfec0`).** Added
+  `SENSOR_CREATION_FEE_DREAMS = 2_000` and `STORAGE_CONTRACT_FUND_ACCOUNT` to
+  `emission.rs`; `SensorReward` now mints the flat per-reading fee (via a new
+  `sensor_reading_counts` producer-side tally in `main.rs`) instead of a
+  score-weighted pool slice; `SensorDataPurchase` now credits the missing 15%
+  `storage_share` to `STORAGE_CONTRACT_FUND_ACCOUNT` (recycle absorbs the
+  rounding remainder), completing the real 80/15/5 split. `rep_mult`/
+  `g_create`/`g_split` hooks left as no-ops per the design handoff (Phase 6
+  not yet built). Added 3 tests (spam-is-unprofitable, high-query-out-earns-
+  low-query, three-way purchase split) — 257/257 `btcpc-node` tests +
+  11/11 `btcpc-types` tests green. **Follow-up flagged:** no per-batch
+  storage-node identity exists yet to pay `STORAGE_CONTRACT_FUND_ACCOUNT`
+  out proportionally — a future item should drain that pool once
+  batch-to-node tracking exists (noted inline in `emission.rs` and
+  `chain.rs`).
 
 ### 1.2 — Universal sensor ingest (any sensor type, no new chain code per type)
 
@@ -768,16 +783,42 @@ every future sensor type without a code change per sensor.
 
   ---
 
-- [ ] **Build the Verasens aggregation service** (new: likely a Rust sidecar
+- [x] **Build the Verasens aggregation service** (new: likely a Rust sidecar
   alongside `btcpc-market`/`linkgit`, e.g. `rust/verasens/`, replacing the
   empty root `verasens/` README stub). Ingests `SensorReading` events from
   the chain, groups by sensor type + geography + time window, and exposes a
   query API. This is the actual product — not a passthrough of raw chain
-  reads.
+  reads. **Done — branch `platform/p1-verasens-aggregation` (commit
+  `7ef5aa2e`).** New workspace member `rust/verasens/` (registered in
+  `rust/Cargo.toml`): pure in-memory `AggregationIndex`
+  (`BTreeMap<GroupKey, GroupAccumulator>`, grouped by sensor class + geo
+  bucket + time window) fed by `ingest.rs` parsing
+  `LedgerEntry::SensorReading` per the 1.2 JSON metadata convention; Axum API
+  under `/api/verasens` (`/health`, `POST /ingest`, `GET /query`,
+  `GET /groups/:class/:geo/:window_epochs/:window_index`); optional
+  `chain_feed.rs` HTTP poller adapter (off by default, no confirmed node-side
+  route to poll yet — chain-side follow-up). Verified/unverified provenance
+  is trust-boundary-based (`IngestSource::ChainConfirmed{signed}` vs.
+  `Unconfirmed`, defaulting to unconfirmed/fail-closed), not a re-verification
+  of ed25519 signatures — documented as a v1 limitation in `ingest.rs`.
 - [ ] **Tests**: ingest correctness (readings from 3+ sensor types
   aggregate independently and correctly), query correctness, and a
   self-heal test (aggregation service restart does not lose or double-count
-  in-flight readings).
+  in-flight readings). **Partial — see branch `platform/p1-verasens-aggregation`
+  (commit `7ef5aa2e`).** 25/25 unit tests passing (ingest parsing, dedup via
+  `HashSet<(sensor_id, epoch, data_hash)>`, query filters, per-class grouping)
+  covering ingest correctness and query correctness. **Remaining:** the
+  specific restart/self-heal test is NOT built — the `AggregationIndex` is
+  in-memory only (no persistence across process restart yet), so there is
+  nothing to test a restart against. Exact-duplicate-reading rejection
+  (the mechanism a self-heal test would exercise) has one direct unit test,
+  but no test exercises an actual process restart. Also remaining: an
+  end-to-end test exercising 3+ live sensor classes together through the
+  full ingest path in one scenario (current tests cover classes
+  independently). Next step: either add persistence to `AggregationIndex`
+  (v2, API-compatible per `state.rs`/`agg.rs` comments) and a restart test,
+  or explicitly scope self-heal out and re-file it against
+  `docs/SELF_HEAL_PRD.md`.
 
 ### 1.3 — Flipper Zero custom firmware (full sensor suite)
 
@@ -880,10 +921,34 @@ every future sensor type without a code change per sensor.
   (capturing and submitting these `SensorReading` entries per class) and the
   real-hardware verification remain as the two downstream 1.3 items below.
 
-- [ ] **Extend/replace `clients/btcpc-flipper`** (currently ~240 lines, C,
+- [x] **Extend/replace `clients/btcpc-flipper`** (currently ~240 lines, C,
   prototype only) to capture and submit `SensorReading` entries for each
   supported sensor, signed by the device key already described in
-  `DeviceKeyRegister`/`DeviceClaimStake`.
+  `DeviceKeyRegister`/`DeviceClaimStake`. **Done — branch
+  `platform/p1-flipper-sensor-submit` (commit `d64dfaae`, pushed to origin;
+  branched from `origin/flipper/full-pipeline` rather than bare `main` —
+  see branch-base deviation note in the commit/branch description, since
+  `main` lacked the BLE transport/scheduler scaffolding this depends on).**
+  Wired all 5 ratified sensor classes (subghz pre-existing; nfc, rfid125,
+  ibutton, ir added as new capture scenes following the existing sub-GHz
+  scene's capture → pack → `data_hash` → ed25519-sign → BLE-send pattern),
+  plus wired all 5 into the adaptive Auto Rotate scene (previously only
+  drove sub-GHz+heartbeat). Added the `BtcpcIrCapture` payload + wire
+  message (additive, backward-compatible protocol change) and a portable
+  `crypto/sha256.c` for `data_hash` computation matching the phone's
+  independent recomputation in `flipper_rx.rs`. **Notable fix found in the
+  process:** the vendored `crypto/tweetnacl.c` ed25519 implementation had
+  three compounding bugs making every keypair/signature it produced
+  cryptographically invalid — fixed and verified byte-for-byte against an
+  external ed25519 implementation, since it silently would have broken
+  device-key signing for all sensor classes, not just the new ones. 69/69
+  host-side test assertions passing (MSVC-built, since no Flipper SDK/ufbt/
+  ARM toolchain was available in this environment) across new
+  `test_sha256.c`, `test_ed25519.c`, `test_sensor_payloads.c`, plus the
+  pre-existing `test_scheduler.c`. NFC/RFID/iButton/IR hardware-trigger call
+  sites are written to the documented Flipper SDK shape but unverified
+  against a real SDK — narrowly isolated to one function per class for
+  hardware reconciliation.
 - [ ] **Test on real hardware** — no faked emulator success. A submitted
   reading must be independently verifiable on-chain and correctly ingested
   by the Phase 1.2 aggregation service.
