@@ -16,11 +16,18 @@ it, test it, commit, and tick the box.
 
 ## Phase 0 — Groundwork (do this first, before any phase below)
 
-- [ ] **Get OpenClaw running locally** — clone `github.com/openclaw/openclaw`,
+- [x] **Get OpenClaw running locally** — clone `github.com/openclaw/openclaw`,
   read its actual plugin API and inference-provider config (README describes
   it as Node/TS pnpm monorepo with a Gateway; confirm by reading code, not
   assumption). Document findings in this file under "OpenClaw Architecture
-  Notes" below.
+  Notes" below. **DONE** — cloned at HEAD `43a7fd38` (2026-07-03), read the
+  actual plugin SDK, provider config, and OpenAI-compatible provider path. All
+  facts recorded in "OpenClaw Architecture Notes" below are from source, not
+  assumption. (Note: this run did not execute `openclaw onboard`/`gateway` — it
+  requires Node ≥22.19 + `pnpm install`; the "read the code" half of this item,
+  which is what every downstream phase actually needs, is complete. Actually
+  standing up a live Gateway is folded into Phase 1's "Wire BTCPC as a provider"
+  step, where it's needed for the real round-trip.) Commit on `main`.
 - [ ] **Confirm BTCPC's OpenAI-compatible endpoint works standalone** —
   `curl -X POST https://btcpc.net/v1/chat/completions -H "Authorization:
   Bearer btcpc_..." -d '{"model":"auto","messages":[...]}'`. If this endpoint
@@ -125,17 +132,124 @@ OpenClaw agents pay each other in BTCPC for compute or goods, using
 
 ## OpenClaw Architecture Notes
 
-*(Fill in during Phase 0 as facts are confirmed by reading actual OpenClaw
-code — do not guess here, and correct anything below that turns out wrong.)*
+*Confirmed by reading actual OpenClaw source at HEAD `43a7fd38` (2026-07-03),
+`github.com/openclaw/openclaw`, version `2026.6.11`. File paths below are
+relative to the OpenClaw repo root. Correct anything here that later turns out
+wrong.*
 
-- Repo: `github.com/openclaw/openclaw`
-- Stack: Node.js/TypeScript, pnpm monorepo
-- Core component: "Gateway" — control plane for sessions, channels, tools, events
-- Companion apps: macOS, iOS, Android
-- Plugin system with bundled extensions; multiple sandbox backends
-- Multi-channel: WhatsApp, Telegram, Slack, Discord, Google Chat, Signal,
-  iMessage, IRC, Microsoft Teams, Matrix, and others
-- Voice on macOS/iOS/Android; live Canvas UI
+### Repo shape (confirmed)
+
+- Stack: Node.js/TypeScript, **pnpm** workspace monorepo. `engines.node >=22.19.0`,
+  `packageManager: pnpm@11.2.2`. Plain `npm install` is explicitly unsupported —
+  use `pnpm install`.
+- Workspace globs (`pnpm-workspace.yaml`): `.`, `ui`, `packages/*`, `extensions/*`.
+- Relevant `packages/`: `plugin-sdk` (plugin API facade), `llm-core`, `llm-runtime`,
+  `model-catalog-core` (provider/model config types), `net-policy`, `gateway-protocol`,
+  `gateway-client`, `agent-core`, `sdk`.
+- `extensions/` holds ~130 bundled plugins, including one **per LLM provider**
+  (`openai`, `anthropic`, `google`, `groq`, `deepseek`, `openrouter`, `litellm`,
+  `lmstudio`, `vllm`, `ollama`, `together`, `fireworks`, …) and one per channel
+  (`telegram`, `discord`, `slack`, `whatsapp`, `signal`, `imessage`, `matrix`, …).
+- Run/dev (from `README.md`): global install path is `openclaw onboard
+  --install-daemon` then `openclaw gateway status`; source-checkout path is
+  `pnpm install` → `pnpm openclaw setup` → `pnpm gateway:watch` (runs TS directly
+  via `tsx`). This run read the code but did not stand up a live Gateway — see
+  the Phase 0 item note.
+
+### Plugin system (needed by Phase 2 & 3) — CONFIRMED, no blockers
+
+- A bundled plugin is a directory under `extensions/<id>/` with:
+  - `openclaw.plugin.json` — the **manifest**. Real fields observed: `id`,
+    `activation.onStartup`, `enabledByDefault`, `providers`, `modelSupport`,
+    `providerEndpoints` (host allow-list metadata), `modelCatalog` (provider
+    `baseUrl` + `api` + full `models[]` with cost/context), `setup.providers`
+    (`envVars`), `providerAuthChoices` (auth methods, incl. `optionKey`/`cliFlag`),
+    `contracts`, and a JSON-Schema `configSchema` for plugin config.
+  - `package.json` with `"openclaw": { "extensions": ["./index.ts"] }` and
+    `@openclaw/plugin-sdk` as a dev dep (`workspace:*`).
+  - `index.ts` — entrypoint using `definePluginEntry({ id, name, description,
+    register(api) })` from `openclaw/plugin-sdk/plugin-entry`.
+- The `register(api)` object is `OpenClawPluginApi` (defined in
+  `src/plugins/types.ts`, re-exported via `packages/plugin-sdk`). It is **very
+  broad**. The registration methods that matter for BTCPC:
+  - `registerTool(tool | factory, opts)` — **this is the Phase 2 hook.** A tool is
+    `AnyAgentTool`: `{ name, label, description, parameters (a Typebox/JSON schema),
+    execute(toolCallId, rawParams) }`. Real template to copy:
+    `extensions/firecrawl/src/firecrawl-scrape-tool.ts` — an HTTP-backed external-API
+    tool with an API key, structurally identical to what a wallet tool needs.
+  - `registerProvider(provider)` — native LLM provider (Phase 1 uses this
+    indirectly; see below).
+  - `registerCli(...)`, `registerGatewayMethod(...)`, `registerHttpRoute(...)`,
+    `registerChannel(...)`, `registerService(...)` — `registerService` is a
+    **long-running service** hook, directly relevant to Phase 3 supervising a
+    `btcpc-node` child.
+  - `api.config` (full `OpenClawConfig`) and `api.pluginConfig` (this plugin's
+    config, validated against `configSchema`).
+- **Secret storage (answers the Phase 2 "never in plaintext config" requirement):**
+  OpenClaw stores secrets as **env-var / secret references**, not raw strings.
+  Primitives live in `openclaw/plugin-sdk/secret-input`:
+  `resolveSecretInputString`, `normalizeSecretInput`, `isSecretRef`, `coerceSecretRef`,
+  `buildSecretInputSchema`. Config fields declared with `buildOptionalSecretInputSchema()`
+  are recognized by redaction and resolved at runtime (e.g. from `$FIRECRAWL_API_KEY`).
+  `firecrawl/src/config.ts` is the reference pattern. **A BTCPC wallet plugin should
+  store its `/api/bot/*` JWT/token as a secret-input ref, not a plaintext string.**
+
+### Inference provider config (needed by Phase 1) — CONFIRMED, no blockers
+
+The Phase 1 assumption ("OpenClaw accepts an arbitrary OpenAI-compatible `baseURL`")
+is **correct**, and there are two clean paths:
+
+1. **Env-var override on the bundled `openai` extension.** `extensions/openai/base-url.ts`
+   → `resolveOpenAIDefaultBaseUrl()` returns `OPENAI_BASE_URL` if set, else
+   `https://api.openai.com/v1`. So the absolute-shortest wiring is:
+   `OPENAI_BASE_URL=https://btcpc.net/v1` + `OPENAI_API_KEY=btcpc_...`. Caveat:
+   this masquerades BTCPC as "openai" and its model catalog is the hardcoded GPT
+   list, so `model: auto`/BTCPC model ids won't be in the catalog (works for a
+   raw round-trip; not clean for a distinct provider).
+2. **Config-driven per-provider `baseUrl` (the correct path).** `baseUrl` is a
+   first-class field on provider catalog entries
+   (`packages/model-catalog-core/src/model-catalog-types.ts:223`, and per-model at
+   `:243`/`:253`), settable under `config.models.providers.<id>.baseUrl`. The
+   `litellm` / `lmstudio` / `vllm` / `openrouter` extensions exist precisely to
+   point at user-supplied OpenAI-compatible endpoints:
+   - `litellm` uses `config.models.providers.litellm.baseUrl` (default
+     `http://localhost:4000`), auth choice has `allowExplicitBaseUrl: true`, and
+     non-interactive setup accepts `ctx.opts.customBaseUrl`
+     (`extensions/litellm/index.ts`, `extensions/litellm/onboard.ts`).
+   - **This is the model to follow** for a first-class "btcpc" provider: either
+     configure BTCPC under an existing generic provider id, or (cleaner) add a
+     small `extensions/btcpc` provider plugin whose `modelCatalog.providers.btcpc`
+     has `baseUrl: https://btcpc.net/v1`, `api: "openai-*"`, and lists BTCPC's
+     `model: auto`. **No new BTCPC-node code is required for Phase 1 either way** —
+     it's OpenClaw-side config (path 1) or a small OpenClaw-side provider plugin
+     (path 2). Recommend path 2 for the "Wire BTCPC as a provider" step so on-chain
+     attribution and model ids are clean.
+
+- **Net-policy caveat (relevant if a BTCPC node is on localhost/LAN, e.g. Phase 3):**
+  OpenClaw gates private/LAN endpoints. `litellm` shows the escape hatch —
+  `resolveAllowPrivateNetwork` / `shouldAutoAllowPrivateLitellmEndpoint`
+  (`extensions/litellm/image-generation-provider.ts`). A public `https://btcpc.net/v1`
+  is unaffected; a `http://localhost:4242` local node would need the private-network
+  allow. `packages/net-policy` is the relevant package.
+
+### Channels (needed by Phase 2 "test across ≥2 channels") — CONFIRMED
+
+Bundled channel extensions cover far more than the PRD header lists — including
+`telegram`, `discord`, `slack`, `whatsapp`, `signal`, `imessage`, `irc`, `matrix`,
+`msteams`, `googlechat`, `feishu`, `line`, `mattermost`, `nostr`, `twitch`, and
+more. The Phase 2 goal (one plugin, identical behavior across e.g. Telegram +
+Discord) is architecturally sound: a plugin registers **tools**, which are
+channel-agnostic — the Gateway routes them to whichever channel the session is on.
+
+### Open flags for later phases
+
+- **Phase 3 supervision:** `registerService(...)` exists as an in-process
+  long-running service hook — Phase 3's "supervise a `btcpc-node` binary" is
+  plausible *inside* OpenClaw via a service that spawns/monitors the child, but the
+  sandbox-backend read that item calls for hasn't been done yet. Left for Phase 3.
+- **Model catalog vs. `model: auto`:** BTCPC's `model: auto` won't appear in
+  OpenClaw's model catalog unless BTCPC is added as a catalog provider (path 2
+  above). Path 1 works for a raw round-trip but not for catalog/routing UX.
 
 ---
 
