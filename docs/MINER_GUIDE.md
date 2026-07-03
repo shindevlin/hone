@@ -9,7 +9,7 @@ and earn rewards. It covers the Rust implementation only. The Node.js code in
 ## What BTCPC Is
 
 BTCPC is a sovereign proof-of-compute chain with a fixed supply of 42,000,000
-BTCPC (each divisible into 100,000,000 dreams). Epochs seal every 30 seconds.
+BTCPC (each divisible into 10,000,000,000 dreams). Epochs seal every 30 seconds.
 Rewards flow to nodes that do real, verifiable work each epoch: sealing the
 clock, submitting hardware and sensor data, running inference jobs, relaying
 traffic, and storing data. There is no proof-of-work puzzle. Earning requires

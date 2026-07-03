@@ -120,7 +120,14 @@ applies" test could never pass. **Fixed in commit `9e393c65`** (dedicated
 Nothing else is real until Rust code can be compiled and tested. Every "done"
 claim on a Rust item since the ICE commit is unverifiable.
 
-- [ ] **0.1 Restore a working build/test toolchain.** Resolve the rustc ICE
+- [x] **0.1 Restore a working build/test toolchain. DONE** (option **b** +
+  **a**): feature-gated `matrix-sdk` off by default (the sole ≥1.93 forcer),
+  and pinned rustc 1.90 via checked-in `rust/rust-toolchain.toml` (commit
+  `abd2ec4f`). Core `btcpc-node` compiles clean and `cargo test --bin
+  btcpc-node` runs to completion (254 passed / 0 failed). The rustc ICE only
+  manifests at ≥1.93; 1.90 avoids it and matrix is no longer forcing ≥1.93.
+  Original analysis below kept for the record.
+  Resolve the rustc ICE
   (query stack: `check_mod_deathness`/`resolver_for_lowering` on the `api`
   module; reproduces on unmodified `main` at rustc 1.93 and 1.95; 1.90 avoids
   it but fails the `matrix-sdk` ≥1.93 dependency floor). Options in priority
@@ -133,21 +140,27 @@ claim on a Rust item since the ICE commit is unverifiable.
   chain crates build on a stable toolchain independent of the transport crates.
   **Acceptance:** `cargo test -p btcpc-node` runs to completion from a clean
   checkout, producing a pass/fail count.
-- [ ] **0.2 CI gate: no Rust merge without a green build.** GitHub Actions job
-  running `cargo test` on every PR touching `rust/`. **Acceptance:** a PR that
-  doesn't compile cannot be merged. This is the structural fix for "PR #7 was
-  committed untested."
-- [ ] **0.3 Reconcile the dreams constant everywhere.** Code is canonical
-  (`DREAMS_PER_BTCPC = 10_000_000_000`). Fix `CLAUDE.md`, `PLATFORM_PRD.md`
-  (incl. the settlement seam), whitepaper, website copy. **Acceptance:**
-  `grep -r "100,000,000 dreams"` returns nothing; the T6-1 constants CI check
-  covers this value.
+- [x] **0.2 CI gate: no Rust merge without a green build. DONE** (`abd2ec4f`):
+  `.github/workflows/test.yml` `rust-check` job pins 1.90 and runs `cargo test
+  --bin btcpc-node` on every PR touching `rust/`. Verified green on the PR #8
+  merge (both `unit-tests` and `rust-check` passed). The structural fix for
+  "PR #7 was committed untested."
+- [x] **0.3 Reconcile the dreams constant everywhere. DONE.** Fixed the 6
+  factual occurrences of the wrong `1 BTCPC = 100,000,000 dreams` →
+  `10,000,000,000` (canonical `DREAMS_PER_BTCPC`): `CLAUDE.md`,
+  `docs/MINER_GUIDE.md`, `docs/PLATFORM_PRD.md` (settlement seam),
+  `marketing/FAQ.md`, `marketing/GLOSSARY.md`. Confirmed NO code used the wrong
+  value (money math was already safe — this was docs only). Acceptance met:
+  `grep -r "= 100,000,000 dreams"` returns only the notes that *describe* the
+  historical discrepancy, no factual claims.
 
 ### Phase 1 — Land the security fix, correctly and verified (Days 7–14)
 
-- [ ] **1.1 Fix and merge PR #7.** Signing arms added (`9e393c65`); now verify
-  under a working build. **Acceptance:** all six rollout test cases run and
-  pass, especially "correctly-signed reading for a keyed owner applies."
+- [x] **1.1 Fix and merge PR #7. DONE — merged via PR #8** (`82c3f5ef`). Signing
+  arms (`9e393c65`) verified under the now-working build: 7 sensor-auth tests
+  pass, including "correctly-signed reading for a keyed owner applies" (the case
+  the broken catchall previously made impossible). PR #7 was rebased into PR #8
+  and closed as merged-via-#8.
 - [x] **1.2 Audit for sibling holes. DONE — PR #8 + the LinkGit follow-up
   commit.** Audited every pass-through entry. Found and fixed:
   - **7 exploitable** (money/escrow): `TrackerFoundConfirm` (critical —

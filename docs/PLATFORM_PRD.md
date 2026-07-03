@@ -1044,7 +1044,8 @@ every future sensor type without a code change per sensor.
     batch_hash, usd_amount_cents, dreams_amount, fx_rate_id, status,
     chain_entry_hash, created_at, posted_at)`. `status`:
     `pending` → `posting` → `posted` | `failed`. `dreams_amount` is the
-    BTCPC/dreams the owner must receive (1 BTCPC = 100,000,000 dreams);
+    BTCPC/dreams the owner must receive (1 BTCPC = 10,000,000,000 dreams,
+    canonical `DREAMS_PER_BTCPC`);
     `fx_rate_id` pins the USD→BTCPC rate source/timestamp used, so the
     conversion is auditable and not re-derived later.
   - **Bridge interface (implemented by the separate "USD → BTCPC settlement

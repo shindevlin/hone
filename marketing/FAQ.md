@@ -15,7 +15,7 @@ No. BTCPC is a sovereign chain. However, mining BTCPC also generates claimable t
 42 million total supply. It's the Answer to the Ultimate Question of Life, the Universe, and Everything (Douglas Adams, The Hitchhiker's Guide to the Galaxy). We're serious about our engineering, but we don't take ourselves too seriously.
 
 ### What's a "dream"?
-The smallest unit of BTCPC — 1 BTCPC = 100,000,000 dreams. Like satoshis in Bitcoin. The name reflects the concept: every token is a dream computed into reality by AI.
+The smallest unit of BTCPC — 1 BTCPC = 10,000,000,000 dreams. Like satoshis in Bitcoin. The name reflects the concept: every token is a dream computed into reality by AI.
 
 ## Mining
 

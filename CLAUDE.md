@@ -37,7 +37,7 @@ curl http://localhost:4242/api/node/info
 
 ## Key Specs
 
-- Supply: 42,000,000 BTCPC (1 BTCPC = 100,000,000 dreams)
+- Supply: 42,000,000 BTCPC (1 BTCPC = 10,000,000,000 dreams; canonical constant `DREAMS_PER_BTCPC` in `crates/btcpc-types/src/lib.rs`)
 - Epoch duration: 30 seconds
 - Genesis timestamp: 1777633200000 (2026-05-01 noon Ireland, UTC+1). Do not change.
 - Chain ID: btcpc-satoshi (testnet), btcpc-1 (mainnet)

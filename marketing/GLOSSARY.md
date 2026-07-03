@@ -44,7 +44,7 @@
 
 ## BTCPC-Specific Terms
 
-**Dream** — The smallest unit of BTCPC (1 BTCPC = 100,000,000 dreams). Also, the AI output that miners produce.
+**Dream** — The smallest unit of BTCPC (1 BTCPC = 10,000,000,000 dreams). Also, the AI output that miners produce.
 
 **Genesis Dream** — A unique, inscribable NFT created with each block. The first AI output of every epoch, permanently recorded on-chain.
 
