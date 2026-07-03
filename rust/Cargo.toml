@@ -5,6 +5,7 @@ members = [
     "btcpc-p2p",
     "btcpc-market",
     "linkgit",
+    "verasens",
 ]
 resolver = "2"
 

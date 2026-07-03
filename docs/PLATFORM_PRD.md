@@ -768,12 +768,44 @@ every future sensor type without a code change per sensor.
 
   ---
 
-- [ ] **Build the Verasens aggregation service** (new: likely a Rust sidecar
+- [x] **Build the Verasens aggregation service** (new: likely a Rust sidecar
   alongside `btcpc-market`/`linkgit`, e.g. `rust/verasens/`, replacing the
   empty root `verasens/` README stub). Ingests `SensorReading` events from
   the chain, groups by sensor type + geography + time window, and exposes a
   query API. This is the actual product — not a passthrough of raw chain
   reads.
+  **Done — landed at `rust/verasens/` (new workspace member), 25 unit tests,
+  clean `cargo build`/`cargo test`/`cargo clippy`.** Pure core: `model.rs`
+  (SensorClass/GeoBucket/TimeWindow/GroupKey per the ratified metadata JSON
+  convention) + `ingest.rs` (parses `LedgerEntry::SensorReading` →
+  `ParsedReading`, applies the verified/unverified trust rule) + `agg.rs`
+  (`AggregationIndex`, keyed by class+geo+window, dedup'd by
+  `(sensor_id, epoch, data_hash)`, snapshotted into count/mean/min/max/p50/p95
+  + verified-vs-unverified counts + per-reading provenance
+  `(sensor_id, owner, data_hash, epoch, verified)`). Thin adapters on top:
+  `api.rs` (Axum: `GET /api/verasens/health`, `POST /api/verasens/ingest`,
+  `GET /api/verasens/query`, `GET /api/verasens/groups/:class/:geo/:window_epochs/:window_index`)
+  and `chain_feed.rs` (optional HTTP poller against a live node, off by
+  default, enabled via `VERASENS_CHAIN_FEED_URL`). Verified/unverified: v1
+  does not re-verify ed25519 signatures itself (would require chain
+  internals); it trusts the ingest boundary via `IngestSource` —
+  `ChainConfirmed { signed }` (from a node that already ran
+  `validate_and_apply`) vs. `Unconfirmed` (raw/out-of-band) — and a reading
+  is only `verified: true` when chain-confirmed AND `signed_by` is
+  non-empty, fail-closed by default (`POST /ingest` defaults to
+  `source=unconfirmed` unless the caller opts in). **Left for the sibling
+  Tests item**: ingest correctness across 3+ live sensor classes end-to-end,
+  and a real self-heal/restart test — the dedup mechanism
+  (`AggregationIndex.seen`) that prevents double-counting on replay exists
+  and has one direct unit test, but persistence-across-restart is not
+  implemented (index is in-memory only, called out as a v1 design choice
+  in `state.rs`/`agg.rs`) and no restart scenario is exercised. **Left for
+  a follow-up (live-chain adapter)**: `chain_feed.rs` assumes a node HTTP
+  route that returns `SensorReading`-shaped JSON for polling; no such route
+  is confirmed to exist yet on `btcpc-node`'s API (port 4242) — the adapter
+  is written against a configurable URL so it can be pointed at whatever
+  route lands, but wiring/confirming that route is chain-side work outside
+  this crate.
 - [ ] **Tests**: ingest correctness (readings from 3+ sensor types
   aggregate independently and correctly), query correctness, and a
   self-heal test (aggregation service restart does not lose or double-count
