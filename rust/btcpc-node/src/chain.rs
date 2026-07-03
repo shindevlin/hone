@@ -5223,6 +5223,7 @@ mod tests {
             value: 0.0,
             data_hash: "aa".repeat(32),
             metadata: Some(serde_json::json!({ "lat": -33.8688, "lon": 151.2093 })),
+            signed_by: String::new(),
         }).expect("first GNSS reading accepted");
 
         // Second reading: same location (zero speed) — should pass.
@@ -5233,6 +5234,7 @@ mod tests {
             value: 0.0,
             data_hash: "bb".repeat(32),
             metadata: Some(serde_json::json!({ "lat": -33.8688, "lon": 151.2093 })),
+            signed_by: String::new(),
         }).expect("same-location GNSS reading accepted");
 
         // Third reading: New York — ~16,000 km away in 30s = ~533 km/s. Must be rejected.
@@ -5243,6 +5245,7 @@ mod tests {
             value: 0.0,
             data_hash: "cc".repeat(32),
             metadata: Some(serde_json::json!({ "lat": 40.7128, "lon": -74.0060 })),
+            signed_by: String::new(),
         });
         assert!(err.is_err(), "impossible GNSS jump (Sydney→NYC in 30s) must be rejected");
 
@@ -5254,6 +5257,7 @@ mod tests {
             value: 22.5,
             data_hash: "dd".repeat(32),
             metadata: Some(serde_json::json!({ "type": "temperature" })),
+            signed_by: String::new(),
         }).expect("non-GNSS sensor reading accepted");
     }
 

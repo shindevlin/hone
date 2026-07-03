@@ -548,19 +548,61 @@ every future sensor type without a code change per sensor.
     AND every producer of `SensorReading` must be updated to actually sign.
   - **Confirmed producers requiring updates**, found by grepping the whole
     repo for `LedgerEntry::SensorReading` construction:
-    - `rust/btcpc-node/src/main.rs` — node's own `BTCPC_SENSOR` self-report path.
-    - `rust/btcpc-node/src/sim.rs` — test/simulation harness.
+    - `rust/btcpc-node/src/sim.rs` — test/simulation harness. **Correction
+      during implementation:** `main.rs` was initially believed to also
+      construct `SensorReading` (the `BTCPC_SENSOR` env var it documents is
+      real, but re-checked by direct grep during implementation — `main.rs`
+      does not actually construct a `SensorReading` entry anywhere; only
+      `sim.rs` and the Android client do). Removed from the producer list.
     - `rust/btcpc-android/src/sensors.rs` — **the live Android sensor
-      client. Confirmed it has NO signing capability at all today** (no
-      keypair/sign/ed25519 reference anywhere in that file) — it builds
-      and applies the entry unsigned. This is the actual client that would
-      break/need an app update, not a hypothetical.
+      client. Confirmed it has NO account-key signing capability today.**
+      Verified precisely during implementation: `rust/btcpc-android` DOES
+      have an ed25519 `Keypair` in `net.rs`, but it's a **libp2p transport
+      identity** (peer-to-peer networking/handshake identity), not a
+      BTCPC account posting key that `check_signature` would recognize —
+      those are registered on-chain per `AccountId` via
+      `AccountUpdateKey`/`SensorKeyRegister`, which this crate has no
+      account/wallet module for at all (confirmed: no `account.rs`,
+      `wallet.rs`, or equivalent exists under `rust/btcpc-android/src/`).
+      **This means wiring real signing into the Android client is separate,
+      larger feature work** (deriving/storing a posting key, exposing it to
+      `sensors.rs`, signing the canonical entry hash, submitting `sig_hex`
+      alongside the gossiped entry) — scoped OUT of this urgent fix and
+      tracked as its own follow-up item below. `sensors.rs` also calls
+      `chain.apply_entry()` directly (local self-apply before gossip
+      broadcast), bypassing `tx.rs`/`validate_and_apply` entirely on-device
+      — the new signature check only bites when OTHER nodes receive this
+      entry via gossip and validate it through the normal path, which is
+      exactly where the theft vector lived (a remote attacker forging
+      entries for someone else's account). The phone's own local apply of
+      its own genuine readings was never the risk.
+    - **Follow-up item (not urgent, tracked separately):** add real BTCPC
+      posting-key signing to `rust/btcpc-android` so genuine phone-submitted
+      readings can pass the "owner has a posting key" branch of the new
+      check instead of relying on the bootstrap-skip path forever. Until
+      this lands, phone sensor owners should avoid registering a posting
+      key on their sensor-owner account if they want their phone's own
+      readings to keep applying — or accept that their readings will start
+      being rejected by remote nodes the moment they do register one. This
+      tradeoff is inherent to shipping the chain-side fix first; flagging
+      it here so it isn't a surprise later.
 
   **Rollout plan (why this can't be a silent merge-to-main):**
-  1. **Schema change**: add `signed_by: AccountId` and `sig_hex:
-     Option<String>` to `LedgerEntry::SensorReading` in
-     `crates/btcpc-types/src/entry.rs`. Make `sig_hex` `Option` (not
-     required) — this is the compatibility hinge, see step 3.
+  1. **Schema change — corrected during implementation**: only
+     `signed_by: AccountId` needs to be added to
+     `LedgerEntry::SensorReading` in `crates/btcpc-types/src/entry.rs`. The
+     actual signature bytes do NOT need to live in the struct — confirmed
+     by reading how `Stake` (which has `signed_by` but no in-struct
+     signature field) actually gets verified: the signature travels
+     out-of-band as an HTTP-layer parameter, threaded through
+     `validate_and_apply(chain, entry, sig_hex: Option<&str>)` at the API
+     boundary (`api.rs` extracts it per-request, e.g. via
+     `canonical_signing_message` + a submitted `sig_hex` field on the HTTP
+     body). So this is a smaller change than first designed: one new
+     struct field (`signed_by`), no `sig_hex` field on the entry itself.
+     "Make it optional for compatibility" still applies to how `tx.rs`
+     TREATS `signed_by`/verification (step 2's bootstrap-skip), not to the
+     struct shape.
   2. **tx.rs validation, soft-launch mode**: move `SensorReading` out of
      the pass-through arm. New logic: if the named `owner` account has NO
      posting key registered yet (fresh/unregistered sensor — the common
@@ -1270,6 +1312,69 @@ start code until the design item is done and reviewed.
   the reward stream. Depends on Phase 6 (reputation) landing first — this
   is exactly the kind of mechanism that needs a trust score to not be
   immediately gamed by borrow-and-vanish.
+
+---
+
+## URGENT infrastructure blocker (found 2026-07-01, blocks ALL future Rust work)
+
+**`rust/btcpc-node` cannot currently be built from scratch with `cargo
+check`/`cargo test` on the Beastly WSL machine (Ubuntu, user `beastly`) —
+confirmed on UNMODIFIED `main`, not caused by any feature work.** This blocks
+every future Phase 1-8 item that touches Rust code from running its own
+tests before landing, and blocks the daily/parallel workflow's implementation
+items from ever validating a `cargo test` result.
+
+**Symptom:** `cargo check --bin btcpc-node` triggers a genuine rustc internal
+compiler panic (ICE) during `resolver_for_lowering`/`check_mod_deathness`
+analysis of the `api` module — not a code error, a compiler crash.
+
+**Isolation performed (2026-07-01), all confirmed:**
+- Reproduces on a completely clean scratch clone of `main` — not caused by
+  the sensor-auth fix or any other in-progress change.
+- Reproduces identically at rustc 1.95.0 (current `stable`) AND 1.93.0.
+- rustc 1.90.0 avoids the ICE but CANNOT be used — the workspace has a
+  dependency (`matrix-sdk` and friends) requiring rustc ≥1.93, so 1.90 fails
+  to even start compiling with a hard version-gate error.
+- **Net result: no rustc version currently on this machine, or installable
+  via `rustup` at the time of this check, can both (a) satisfy the
+  workspace's own dependency floor and (b) avoid the ICE.**
+- The narrower `crates/btcpc-types` package (a dependency of `btcpc-node`,
+  not the full binary) DOES compile cleanly — the ICE is specific to
+  building the full `btcpc-node` binary crate, not a fundamental problem
+  with the workspace's Rust code in general.
+- Confirmed NOT a memory/resource issue (31GB RAM available, plenty free).
+- Confirmed this is a **known, pre-existing problem**, not new: found
+  `build.err`/`build.first.err` log files already present in the deployment
+  checkout (`/home/beastly/btcpc-node/rust/btcpc-node/`) from a prior
+  session's build attempts, plus a `howtoinstallandrun.md` "lessons
+  learned" doc that recommends downloading a prebuilt release binary
+  specifically because building from source on this machine is unreliable.
+  The currently-running live node binaries were built at some point in the
+  past with a toolchain/dependency combination that no longer reproduces
+  from a fresh checkout today.
+
+**What this means practically, right now:** implementation items on this
+PRD can still be designed and written, but **cannot be verified by actually
+running `cargo test` on this machine** until this is resolved. Do not claim
+an item's tests pass without actually running them — if this blocker is
+still open, say so explicitly instead (e.g. "code written, compiles per
+`cargo check` on crate X, full binary test run blocked by the known rustc
+ICE — see this section").
+
+**Not resolved as part of this fix — needs its own dedicated investigation:**
+- Try `cargo check` with an intermediate rustc version between 1.90 and
+  1.93 if one becomes available, in case the regression is narrower than
+  currently bisected.
+- Check whether pinning specific dependency versions (rather than the
+  compiler) resolves it — e.g. downgrade whatever exact dependency trips
+  the `api` module's resolver pass, if it can be identified via `cargo
+  check -Z timings` or bisecting which file triggers it.
+- Consider filing the ICE upstream (rust-lang/rust) if it reproduces
+  reliably — the "we would appreciate a bug report" message in the panic
+  output includes a template link.
+- Check if a completely fresh `rustup` install (not reusing the existing
+  `~/.rustup` toolchain cache, which may have a corrupted/inconsistent
+  component set) resolves it.
 
 ---
 

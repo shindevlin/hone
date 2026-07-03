@@ -95,6 +95,7 @@ fn run_tick(chain: &Chain, tick: u64, epoch: u64) {
             "lon": 151.2093 + (tick as f64 * 0.0001),
             "sim": true,
         })),
+        signed_by: String::new(),
     };
     if let Err(e) = chain.apply_entry(&reading) {
         warn!("sim: sensor reading failed: {}", e);

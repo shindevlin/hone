@@ -96,6 +96,7 @@ mod hardware_probe;
 mod udp_gossip;
 mod tor;
 mod nostr_transport;
+#[cfg(feature = "matrix")]
 mod matrix_transport;
 mod i2p;
 mod lorawan;
@@ -1113,25 +1114,30 @@ async fn main() -> Result<()> {
     // ── Matrix room transport — Phase 5 transport cascade ─────────────────────
     // Propagates entries through a federated Matrix room for global reach.
     // Matrix peers do NOT count toward peer_count — libp2p-only hardline intact.
-    let matrix_handle =
-        matrix_transport::start_matrix(chain.clone(), net_handle.cmd_tx.clone()).await;
+    // Behind the optional `matrix` feature (off by default) — see
+    // docs/PLAN_FABLE5_STABILIZATION.md Phase 0 for why (rustc ICE via matrix-sdk).
+    #[cfg(feature = "matrix")]
+    {
+        let matrix_handle =
+            matrix_transport::start_matrix(chain.clone(), net_handle.cmd_tx.clone()).await;
 
-    // If Matrix is active, subscribe to the broadcast channel and forward every
-    // accepted entry into the Matrix room.
-    if let Some(ref mh) = matrix_handle {
-        let mh_clone = mh.clone();
-        let mut mx_rx = tx_broadcast.subscribe();
-        tokio::spawn(async move {
-            loop {
-                match mx_rx.recv().await {
-                    Ok((entry, _sig)) => mh_clone.send_entry(entry),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("matrix broadcast rx lagged by {} entries", n);
+        // If Matrix is active, subscribe to the broadcast channel and forward every
+        // accepted entry into the Matrix room.
+        if let Some(ref mh) = matrix_handle {
+            let mh_clone = mh.clone();
+            let mut mx_rx = tx_broadcast.subscribe();
+            tokio::spawn(async move {
+                loop {
+                    match mx_rx.recv().await {
+                        Ok((entry, _sig)) => mh_clone.send_entry(entry),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("matrix broadcast rx lagged by {} entries", n);
+                        }
+                        Err(_) => break,
                     }
-                    Err(_) => break,
                 }
-            }
-        });
+            });
+        }
     }
 
     // ── I2P datagram transport — Phase 6 transport cascade ───────────────────
@@ -1169,6 +1175,7 @@ async fn main() -> Result<()> {
         capabilities,
         onion_address: Arc::new(onion_address),
         nostr_handle,
+        #[cfg(feature = "matrix")]
         matrix_handle,
         i2p_handle,
         lorawan_handle,

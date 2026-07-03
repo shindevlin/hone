@@ -462,61 +462,193 @@ pub fn validate_and_apply(
             chain.apply_entry(entry)?;
         }
 
-        // ── Allowlisted pass-through entries ──────────────────────────────────
-        LedgerEntry::SensorReading { .. }
-        | LedgerEntry::BlobStore { .. }
+        // ── Sensor entries (PR #7): reward-/sale-bearing, authentication
+        // required once the claimed owner has a posting key. Bootstrap-
+        // compatible via check_signature's "key not set yet" skip.
+        LedgerEntry::SensorReading { owner, signed_by, .. } => {
+            let claimed_signer = if signed_by.is_empty() { owner.as_str() } else { signed_by.as_str() };
+            check_signature(chain, claimed_signer, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::SensorRegister { signed_by, .. }
+        | LedgerEntry::GatewayHeartbeat { signed_by, .. } => {
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Money-/escrow-moving entries (Phase 1.2 audit): bind signed_by to
+        // the AUTHORIZED account and verify its signature. Each was found
+        // forgeable for theft or grief in the pass-through arm. Fix mirrors PR #7
+        // + the InferenceJobPost pattern: require signed_by == the account whose
+        // funds/stake move, then check_signature.
+
+        // Tracker claim: debits `claimer`'s balance for the claim fee.
+        LedgerEntry::TrackerClaim { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerClaim: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Tracker subscription: debits `claimer` into escrow.
+        LedgerEntry::TrackerSubscription { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerSubscription: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Lost mode: debits `claimer` to escrow a bounty. Only the tracker owner
+        // (claimer) may put their own tracker into lost mode and escrow funds.
+        LedgerEntry::TrackerLostMode { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerLostMode: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Found confirm: RELEASES the claimer's escrowed bounty (70% to finder).
+        // Only the claimer (bounty owner) may confirm a find and release their
+        // own escrow — this is what stops an attacker naming themselves finder
+        // and draining someone else's bounty.
+        LedgerEntry::TrackerFoundConfirm { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerFoundConfirm: signed_by must equal claimer (only the bounty owner may release escrow)"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Device yield unstake: credits `staker` from their yield stake. Only the
+        // staker may unstake their own position (guard already caps to the
+        // staked amount; this stops forced-unstake grief).
+        LedgerEntry::DeviceYieldUnstake { staker, signed_by, .. } => {
+            if signed_by != staker { bail!("DeviceYieldUnstake: signed_by must equal staker"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Signature-required, no special actor-binding: these carry signed_by
+        // and drive rewards or attributable state, so a signature is required
+        // (closes forgery / impersonation) AND bind signed_by to the entry's
+        // owning/authorizing account where one exists — so a valid signature
+        // from account A cannot commit reward-bearing or attributable state
+        // FOR account B. (Adversarial-review finding: an earlier version only
+        // verified the signature, which let a keyed attacker farm rewards for an
+        // unregistered sensor_id / storage node_id by naming themselves owner
+        // but not proving ownership binding.)
+
+        // SensorDataCommit reward is attributed to `owner`
+        // (sensor_commit:{epoch}:{sensor_id} → SensorReward to owner).
+        LedgerEntry::SensorDataCommit { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("SensorDataCommit: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // StorageHeartbeat reward is attributed to `node_id` (storage_beat:… →
+        // StorageReward). (Also gated by verify_storage_proof, but bind anyway.)
+        LedgerEntry::StorageHeartbeat { node_id, signed_by, .. } => {
+            if signed_by != node_id { bail!("StorageHeartbeat: signed_by must equal node_id"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Commerce: seller owns the store/product.
+        LedgerEntry::StoreUpdate { seller, signed_by, .. }
+        | LedgerEntry::ProductCreate { seller, signed_by, .. }
+        | LedgerEntry::ProductUpdate { seller, signed_by, .. }
+        | LedgerEntry::FlashSale { seller, signed_by, .. } => {
+            if signed_by != seller { bail!("commerce entry: signed_by must equal seller"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // Device/sensor key registration: owner registers a key for their device.
+        LedgerEntry::DeviceKeyRegister { owner, signed_by, .. }
+        | LedgerEntry::SensorKeyRegister { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("key register: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::SensorVouch { voucher, signed_by, .. } => {
+            if signed_by != voucher { bail!("SensorVouch: signed_by must equal voucher"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TrackerClaimRelease { claimer, signed_by, .. } => {
+            if signed_by != claimer { bail!("TrackerClaimRelease: signed_by must equal claimer"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::TrackerFoundReport { finder, signed_by, .. } => {
+            if signed_by != finder { bail!("TrackerFoundReport: signed_by must equal finder"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        // TrackerAcousticProof is signed by the WITNESS gateway (signed_by is
+        // itself the authorized actor; no separate account field to bind).
+        LedgerEntry::TrackerAcousticProof { signed_by, .. } => {
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── LinkGit repo-control entries (Phase 1.2 follow-up): bind signed_by
+        // to the entry's actor and verify. Stops third-party forgery of repo
+        // actions (lock owner out, force-merge, overwrite refs, impersonate
+        // issue/PR authors). NOTE: this binds signed_by == the SELF-DECLARED
+        // actor field only — it does NOT yet verify that actor is authorized on
+        // the repo (e.g. is the owner or a granted collaborator). That deeper
+        // ACL check needs repo-state lookup at validation time and is a tracked
+        // follow-up; this layer closes anonymous/third-party forgery.
+        LedgerEntry::LinkGitRepoCreate { owner, signed_by, .. }
+        | LedgerEntry::LinkGitRefUpdate { owner, signed_by, .. }
+        | LedgerEntry::LinkGitStorageExtend { owner, signed_by, .. } => {
+            if signed_by != owner { bail!("LinkGit: signed_by must equal owner"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitAccessGrant { grantor, signed_by, .. }
+        | LedgerEntry::LinkGitAccessRevoke { grantor, signed_by, .. } => {
+            if signed_by != grantor { bail!("LinkGit: signed_by must equal grantor"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitPruneProof { node_id, signed_by, .. } => {
+            if signed_by != node_id { bail!("LinkGitPruneProof: signed_by must equal node_id"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitPrMerge { actor, signed_by, .. }
+        | LedgerEntry::LinkGitPrClose { actor, signed_by, .. }
+        | LedgerEntry::LinkGitIssueClose { actor, signed_by, .. }
+        | LedgerEntry::LinkGitIssueReopen { actor, signed_by, .. } => {
+            if signed_by != actor { bail!("LinkGit: signed_by must equal actor"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+        LedgerEntry::LinkGitIssueCreate { author, signed_by, .. }
+        | LedgerEntry::LinkGitIssueComment { author, signed_by, .. }
+        | LedgerEntry::LinkGitPrCreate { author, signed_by, .. }
+        | LedgerEntry::LinkGitPrComment { author, signed_by, .. } => {
+            if signed_by != author { bail!("LinkGit: signed_by must equal author"); }
+            check_signature(chain, signed_by, entry, sig_hex, "posting")?;
+            chain.apply_entry(entry)?;
+        }
+
+        // ── Allowlisted pass-through — genuinely inert on-chain (no attributable
+        // money/state effect until a separately-signed entry acts, or state is
+        // managed by a sidecar that does its own auth). Audited Phase 1.2.
+        LedgerEntry::BlobStore { .. }
         | LedgerEntry::ContractDeploy { .. }
         | LedgerEntry::ContractCall { .. }
-        // Freeport commerce — recorded on-chain, state managed by btcpc-market sidecar
-        | LedgerEntry::StoreUpdate { .. }
-        | LedgerEntry::ProductCreate { .. }
-        | LedgerEntry::ProductUpdate { .. }
+        // Freeport orders/escrow — no on-chain balance movement; btcpc-market
+        // sidecar manages the money (EscrowRelease apply is an empty no-op).
         | LedgerEntry::OrderPlace { .. }
         | LedgerEntry::OrderFulfill { .. }
         | LedgerEntry::OrderCancel { .. }
         | LedgerEntry::OrderDispute { .. }
         | LedgerEntry::EscrowRelease { .. }
-        | LedgerEntry::FlashSale { .. }
-        // Verasens sensors — recorded on-chain, state in sidecar
-        | LedgerEntry::SensorRegister { .. }
-        | LedgerEntry::SensorKeyRegister { .. }
-        | LedgerEntry::SensorVouch { .. }
-        | LedgerEntry::SensorDataCommit { .. }
-        | LedgerEntry::DeviceKeyRegister { .. }
-        | LedgerEntry::DeviceYieldUnstake { .. }
-        | LedgerEntry::GatewayHeartbeat { .. }
-        | LedgerEntry::StorageHeartbeat { .. }
-        // LinkGit — recorded on-chain, object storage in btcpc-fs
-        | LedgerEntry::LinkGitRepoCreate { .. }
-        | LedgerEntry::LinkGitRefUpdate { .. }
-        | LedgerEntry::LinkGitAccessGrant { .. }
-        | LedgerEntry::LinkGitAccessRevoke { .. }
-        | LedgerEntry::LinkGitPruneProof { .. }
-        | LedgerEntry::LinkGitStorageExtend { .. }
-        // LinkGit serve/build rewards — heartbeats are server-generated, rewards are system-generated
+        // LinkGit serve/build rewards are is_system_entry (blocked from user
+        // submission — see is_system_entry), so not user-forgeable here.
+        // LinkGitServeHeartbeat has NO signed_by field and drives the serve-
+        // reward pool — a separate reward-farming hole tracked as its own
+        // schema-change follow-up (needs signed_by added, like SensorReading).
         | LedgerEntry::LinkGitServeHeartbeat { .. }
         | LedgerEntry::LinkGitServeReward { .. }
         | LedgerEntry::LinkGitBuildReward { .. }
-        // LinkGit COBs — issues and pull requests
-        | LedgerEntry::LinkGitIssueCreate { .. }
-        | LedgerEntry::LinkGitIssueComment { .. }
-        | LedgerEntry::LinkGitIssueClose { .. }
-        | LedgerEntry::LinkGitIssueReopen { .. }
-        | LedgerEntry::LinkGitPrCreate { .. }
-        | LedgerEntry::LinkGitPrComment { .. }
-        | LedgerEntry::LinkGitPrMerge { .. }
-        | LedgerEntry::LinkGitPrClose { .. }
-        // BLE Tracker — recorded on-chain, state in chain.rs
+        // BLE Tracker — inert (sighting/routing/hint gossip; no money)
         | LedgerEntry::TrackerSightingCommit { .. }
-        | LedgerEntry::TrackerClaim { .. }
-        | LedgerEntry::TrackerClaimRelease { .. }
-        | LedgerEntry::TrackerAcousticProof { .. }
-        | LedgerEntry::TrackerSubscription { .. }
         | LedgerEntry::TrackerSightingData { .. }
-        | LedgerEntry::TrackerHint { .. }
-        | LedgerEntry::TrackerLostMode { .. }
-        | LedgerEntry::TrackerFoundReport { .. }
-        | LedgerEntry::TrackerFoundConfirm { .. } => {
+        | LedgerEntry::TrackerHint { .. } => {
             chain.apply_entry(entry)?;
         }
 
@@ -2274,6 +2406,232 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "amount": amount,
                 "nonce": nonce,
             }),
+        // Signs only client-known, deterministic fields. Excludes `epoch`
+        // (server-set — the client cannot know the sealing epoch in advance,
+        // per this function's doc comment) and `metadata` (kept out of the
+        // signed message for stability; `data_hash` already commits to the
+        // reading's content). Field order fixed; the client SDK must
+        // reproduce this exactly.
+        LedgerEntry::SensorReading { sensor_id, owner, value, data_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SENSOR_READING",
+                "sensor_id": sensor_id,
+                "owner": owner,
+                "value": value,
+                "data_hash": data_hash,
+                "signed_by": signed_by,
+            }),
+        // Sensor/gateway registration + heartbeat: same rule — sign only
+        // client-known fields, exclude the server-set `epoch`.
+        LedgerEntry::SensorRegister { sensor_id, owner, sensor_type, location, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "SENSOR_REGISTER",
+                "sensor_id": sensor_id,
+                "owner": owner,
+                "sensor_type": sensor_type,
+                "location": location,
+                "signed_by": signed_by,
+            }),
+        LedgerEntry::GatewayHeartbeat { gateway_id, owner, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "GATEWAY_HEARTBEAT",
+                "gateway_id": gateway_id,
+                "owner": owner,
+                "signed_by": signed_by,
+            }),
+
+        // ── Phase 1.2 audit: signing arms for the newly-authenticated
+        // pass-through entries. All exclude the server-set `epoch` (per this
+        // function's doc comment) and include `nonce` where the struct has one.
+        LedgerEntry::TrackerClaim { serial_commitment, tag_type, claimer, fee, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_CLAIM",
+                "serial_commitment": serial_commitment, "tag_type": tag_type,
+                "claimer": claimer, "fee": fee, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerSubscription { serial_commitment, claimer, fee_per_epoch, expires_epoch, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_SUBSCRIPTION",
+                "serial_commitment": serial_commitment, "claimer": claimer,
+                "fee_per_epoch": fee_per_epoch, "expires_epoch": expires_epoch, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerLostMode { serial_commitment, claimer, bounty_dreams, expires_epoch, contact_encrypted, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_LOST_MODE",
+                "serial_commitment": serial_commitment, "claimer": claimer,
+                "bounty_dreams": bounty_dreams, "expires_epoch": expires_epoch,
+                "contact_encrypted": contact_encrypted, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerFoundConfirm { serial_commitment, finder, claimer, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_FOUND_CONFIRM",
+                "serial_commitment": serial_commitment, "finder": finder,
+                "claimer": claimer, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerClaimRelease { serial_commitment, claimer, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_CLAIM_RELEASE",
+                "serial_commitment": serial_commitment, "claimer": claimer, "nonce": nonce,
+            }),
+        LedgerEntry::TrackerAcousticProof { serial_commitment, witness_id, proof_hash, claimer, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_ACOUSTIC_PROOF",
+                "serial_commitment": serial_commitment, "witness_id": witness_id,
+                "proof_hash": proof_hash, "claimer": claimer, "signed_by": signed_by,
+            }),
+        LedgerEntry::TrackerFoundReport { serial_commitment, finder, gps_commitment, acoustic_proof_hash, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "TRACKER_FOUND_REPORT",
+                "serial_commitment": serial_commitment, "finder": finder,
+                "gps_commitment": gps_commitment, "acoustic_proof_hash": acoustic_proof_hash, "nonce": nonce,
+            }),
+        LedgerEntry::DeviceYieldUnstake { device_serial, staker, amount, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "DEVICE_YIELD_UNSTAKE",
+                "device_serial": device_serial, "staker": staker, "amount": amount, "nonce": nonce,
+            }),
+        LedgerEntry::SensorDataCommit { sensor_id, owner, batch_hash, reading_count, sensor_type, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_DATA_COMMIT",
+                "sensor_id": sensor_id, "owner": owner, "batch_hash": batch_hash,
+                "reading_count": reading_count, "sensor_type": sensor_type, "signed_by": signed_by,
+            }),
+        LedgerEntry::StorageHeartbeat { node_id, bytes_proven, query_count, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "STORAGE_HEARTBEAT",
+                "node_id": node_id, "bytes_proven": bytes_proven,
+                "query_count": query_count, "signed_by": signed_by,
+            }),
+        LedgerEntry::StoreUpdate { seller, store_id, name, description, onion_address, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "STORE_UPDATE",
+                "seller": seller, "store_id": store_id, "name": name,
+                "description": description, "onion_address": onion_address, "signed_by": signed_by,
+            }),
+        LedgerEntry::ProductCreate { seller, product_id, store_id, title, price, token, product_type, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "PRODUCT_CREATE",
+                "seller": seller, "product_id": product_id, "store_id": store_id,
+                "title": title, "price": price, "token": token,
+                "product_type": product_type, "signed_by": signed_by,
+            }),
+        LedgerEntry::ProductUpdate { seller, product_id, price, stock, active, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "PRODUCT_UPDATE",
+                "seller": seller, "product_id": product_id, "price": price,
+                "stock": stock, "active": active, "signed_by": signed_by,
+            }),
+        LedgerEntry::FlashSale { seller, product_id, sale_price, expires_epoch, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "FLASH_SALE",
+                "seller": seller, "product_id": product_id, "sale_price": sale_price,
+                "expires_epoch": expires_epoch, "signed_by": signed_by,
+            }),
+        LedgerEntry::DeviceKeyRegister { device_id, owner, device_pubkey, hardware_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "DEVICE_KEY_REGISTER",
+                "device_id": device_id, "owner": owner, "device_pubkey": device_pubkey,
+                "hardware_hash": hardware_hash, "signed_by": signed_by,
+            }),
+        LedgerEntry::SensorKeyRegister { sensor_id, owner, device_pubkey, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_KEY_REGISTER",
+                "sensor_id": sensor_id, "owner": owner,
+                "device_pubkey": device_pubkey, "signed_by": signed_by,
+            }),
+        LedgerEntry::SensorVouch { sensor_id, voucher, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "SENSOR_VOUCH",
+                "sensor_id": sensor_id, "voucher": voucher, "signed_by": signed_by,
+            }),
+
+        // ── Phase 1.2 follow-up: LinkGit repo-control signing arms (exclude epoch).
+        LedgerEntry::LinkGitRepoCreate { repo_id, owner, name, visibility, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_REPO_CREATE",
+                "repo_id": repo_id, "owner": owner, "name": name,
+                "visibility": visibility, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitRefUpdate { repo_id, owner, ref_name, commit_hash, prev_hash, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_REF_UPDATE",
+                "repo_id": repo_id, "owner": owner, "ref_name": ref_name,
+                "commit_hash": commit_hash, "prev_hash": prev_hash, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitStorageExtend { repo_id, owner, cids, keep_until_epoch, fee, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_STORAGE_EXTEND",
+                "repo_id": repo_id, "owner": owner, "cids": cids,
+                "keep_until_epoch": keep_until_epoch, "fee": fee, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitAccessGrant { repo_id, grantor, grantee, encrypted_key, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ACCESS_GRANT",
+                "repo_id": repo_id, "grantor": grantor, "grantee": grantee,
+                "encrypted_key": encrypted_key, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitAccessRevoke { repo_id, grantor, grantee, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ACCESS_REVOKE",
+                "repo_id": repo_id, "grantor": grantor, "grantee": grantee, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPruneProof { repo_id, node_id, pruned_root, bytes_freed, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PRUNE_PROOF",
+                "repo_id": repo_id, "node_id": node_id, "pruned_root": pruned_root,
+                "bytes_freed": bytes_freed, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrMerge { repo_id, pr_id, merge_commit, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_MERGE",
+                "repo_id": repo_id, "pr_id": pr_id, "merge_commit": merge_commit,
+                "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrClose { repo_id, pr_id, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_CLOSE",
+                "repo_id": repo_id, "pr_id": pr_id, "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueClose { repo_id, issue_id, actor, resolution, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_CLOSE",
+                "repo_id": repo_id, "issue_id": issue_id, "actor": actor,
+                "resolution": resolution, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueReopen { repo_id, issue_id, actor, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_REOPEN",
+                "repo_id": repo_id, "issue_id": issue_id, "actor": actor, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueCreate { repo_id, issue_id, title, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_CREATE",
+                "repo_id": repo_id, "issue_id": issue_id, "title": title,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitIssueComment { repo_id, issue_id, comment_id, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_ISSUE_COMMENT",
+                "repo_id": repo_id, "issue_id": issue_id, "comment_id": comment_id,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrCreate { repo_id, pr_id, title, source_branch, target_branch, head_commit, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_CREATE",
+                "repo_id": repo_id, "pr_id": pr_id, "title": title,
+                "source_branch": source_branch, "target_branch": target_branch,
+                "head_commit": head_commit, "author": author, "signed_by": signed_by,
+            }),
+        LedgerEntry::LinkGitPrComment { repo_id, pr_id, comment_id, body, author, signed_by, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id, "type": "LINKGIT_PR_COMMENT",
+                "repo_id": repo_id, "pr_id": pr_id, "comment_id": comment_id,
+                "body": body, "author": author, "signed_by": signed_by,
+            }),
+
         LedgerEntry::AccountUpdateKey { account, role, new_public_key, .. } =>
             serde_json::json!({
                 "chain_id": chain_id,
@@ -2737,5 +3095,369 @@ mod tests {
         let wrong_sk = SigningKey::from_bytes(&[99; 32]);
         let bad_sig = sign(&wrong_sk, &entry);
         assert!(validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err());
+    }
+
+    // ── Sensor entry authentication (PR #7 / Phase 1.1a security fix) ─────────
+    // These prove the theft-of-funds fix actually works: a reading naming an
+    // account with a registered posting key must carry that account's
+    // signature, so a third party can no longer forge readings/rewards for
+    // someone else. Keyless (fresh) accounts still bootstrap unsigned.
+
+    fn sensor_reading(owner: &str, signed_by: &str) -> LedgerEntry {
+        LedgerEntry::SensorReading {
+            sensor_id: "sensor-1".into(),
+            owner: owner.into(),
+            epoch: 0,
+            value: 42.0,
+            data_hash: "ab".repeat(32),
+            metadata: None,
+            signed_by: signed_by.into(),
+        }
+    }
+
+    /// Create + fund an account WITHOUT registering any key (keyless owner).
+    /// Balance is needed because SensorReading costs an epoch-bandwidth fee.
+    fn fund_keyless(chain: &Chain, account: &str, amount: u64) {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.into(), keys: Default::default(),
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).ok();
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.into(), amount, token: NATIVE_TOKEN.into(),
+        }).unwrap();
+    }
+
+    #[test]
+    fn sensor_reading_keyless_owner_applies_unsigned() {
+        // Bootstrap case: a fresh account with no posting key can still submit
+        // unsigned, matching check_signature's existing "key not set yet" skip.
+        // signed_by = owner so the owner pays the entry fee; no posting key is
+        // registered, so the signature requirement is skipped (bootstrap).
+        let (chain, _dir) = make_chain();
+        fund_keyless(&chain, "fresh", 1_000_000_000_000);
+        let entry = sensor_reading("fresh", "fresh");
+        validate_and_apply(&chain, &entry, None)
+            .expect("unsigned reading for a keyless owner must still apply (bootstrap)");
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_rejects_unsigned() {
+        // The theft vector: once the owner has a posting key, an unsigned
+        // reading naming that owner must be rejected.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000); // fund() registers a posting key for alice
+        let entry = sensor_reading("alice", "alice");
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned reading for a keyed owner must be rejected"
+        );
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_rejects_wrong_signature() {
+        let (chain, _dir) = make_chain();
+        // alice's posting key seed is first byte of "alice" == b'a' (97).
+        fund(&chain, "alice", 1_000_000_000_000);
+        let entry = sensor_reading("alice", "alice");
+        let attacker = SigningKey::from_bytes(&[99; 32]); // not alice's posting key
+        let bad_sig = sign(&attacker, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err(),
+            "reading with a signature not from the owner's posting key must be rejected"
+        );
+    }
+
+    #[test]
+    fn sensor_reading_keyed_owner_applies_with_correct_signature() {
+        // The case the broken canonical_signing_message previously made
+        // impossible (it signed the server-set epoch): a correctly-signed
+        // reading from a keyed owner applies.
+        let (chain, _dir) = make_chain();
+        // fund() registered alice's posting key from seed b'a'; reconstruct it.
+        fund(&chain, "alice", 1_000_000_000_000);
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let entry = sensor_reading("alice", "alice");
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("reading correctly signed by the owner's posting key must apply");
+    }
+
+    #[test]
+    fn sensor_reading_forge_for_other_account_rejected() {
+        // End-to-end statement of the fix: attacker tries to submit a reading
+        // naming victim (who has a key) and pay themselves the reward. Even
+        // signing with the attacker's own key, it must fail because the
+        // signature is checked against the *named owner's* posting key.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000); // victim has a posting key
+        let attacker = SigningKey::from_bytes(&[123; 32]);
+        let entry = sensor_reading("victim", "victim");
+        let attacker_sig = sign(&attacker, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&attacker_sig)).is_err(),
+            "attacker must not be able to forge a signed reading naming the victim"
+        );
+    }
+
+    #[test]
+    fn sensor_register_keyed_owner_requires_signature() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let entry = LedgerEntry::SensorRegister {
+            sensor_id: "s1".into(), owner: "alice".into(),
+            sensor_type: "gnss".into(), location: None, metadata: None,
+            epoch: 0, signed_by: "alice".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned SensorRegister for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed SensorRegister must apply");
+    }
+
+    #[test]
+    fn gateway_heartbeat_keyed_owner_requires_signature() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let entry = LedgerEntry::GatewayHeartbeat {
+            gateway_id: "g1".into(), owner: "alice".into(),
+            epoch: 0, signed_by: "alice".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned GatewayHeartbeat for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed GatewayHeartbeat must apply");
+    }
+
+    // ── Phase 1.2 pass-through auth audit — money/escrow theft vectors ────────
+
+    #[test]
+    fn tracker_found_confirm_cannot_be_forged_by_third_party() {
+        // The critical bug: an attacker names themselves `finder` and releases
+        // a victim's escrowed bounty. Fix binds signed_by == claimer (the bounty
+        // owner) — so a third party (attacker) cannot submit a confirm at all.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000); // claimer/bounty owner, has a key
+        let entry = LedgerEntry::TrackerFoundConfirm {
+            serial_commitment: "tag-abc".into(),
+            finder: "attacker".into(),   // attacker names self as finder
+            claimer: "victim".into(),
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(), // attacker tries to sign as themselves
+        };
+        // signed_by (attacker) != claimer (victim) → rejected before any escrow release.
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "third party must not be able to confirm a find and release the victim's bounty"
+        );
+        // Even with a valid signature over their OWN key, still rejected (binding fails).
+        let attacker_key = SigningKey::from_bytes(&[200; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "a validly-signed confirm from a non-claimer must still be rejected"
+        );
+    }
+
+    #[test]
+    fn tracker_found_confirm_applies_when_signed_by_claimer() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::TrackerFoundConfirm {
+            serial_commitment: "tag-abc".into(),
+            finder: "finder-acct".into(),
+            claimer: "victim".into(),
+            epoch: 0, nonce: 1,
+            signed_by: "victim".into(), // the bounty owner confirms
+        };
+        let victim_posting = SigningKey::from_bytes(&[b'v'; 32]);
+        let sig = sign(&victim_posting, &entry);
+        // Applies (no escrow exists in this minimal setup, but validation+apply succeed).
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("claimer-signed found-confirm must apply");
+    }
+
+    #[test]
+    fn tracker_lost_mode_cannot_escrow_from_another_account() {
+        // Attacker tries to force a victim to escrow a bounty. Fix: signed_by
+        // must == claimer (whose balance is debited).
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::TrackerLostMode {
+            serial_commitment: "tag-1".into(),
+            claimer: "victim".into(),
+            bounty_dreams: 500_000_000_000,
+            expires_epoch: 100,
+            contact_encrypted: None,
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not force a victim into a bounty escrow"
+        );
+    }
+
+    #[test]
+    fn device_yield_unstake_cannot_be_forced_by_third_party() {
+        // Attacker tries to force-unstake a victim's yield position. Fix:
+        // signed_by must == staker.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "victim", 1_000_000_000_000);
+        let entry = LedgerEntry::DeviceYieldUnstake {
+            device_serial: "dev-1".into(),
+            staker: "victim".into(),
+            amount: 1_000,
+            epoch: 0, nonce: 1,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not force-unstake a victim's yield position"
+        );
+    }
+
+    #[test]
+    fn sensor_data_commit_requires_signature_from_keyed_owner() {
+        // SensorDataCommit drives SensorReward at epoch end — same class as the
+        // original PR #7 bug. A keyed owner's commit must be signed.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "alice", 1_000_000_000_000);
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "s1".into(), owner: "alice".into(),
+            batch_hash: "bh".into(), reading_count: 100,
+            sensor_type: "gnss".into(), epoch: 0,
+            signed_by: "alice".into(), gateway_account: None,
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "unsigned SensorDataCommit for a keyed owner must be rejected"
+        );
+        let alice_posting = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&alice_posting, &entry);
+        validate_and_apply(&chain, &entry, Some(&sig))
+            .expect("correctly-signed SensorDataCommit must apply");
+    }
+
+    // ── Phase 1.2 follow-up: LinkGit repo-control forgery rejection ───────────
+
+    #[test]
+    fn linkgit_access_revoke_cannot_be_forged() {
+        // Attacker forges a revoke to lock a repo owner out of their own repo.
+        // Fix binds signed_by == grantor.
+        let (chain, _dir) = make_chain();
+        fund(&chain, "owner", 1_000_000_000_000);
+        let entry = LedgerEntry::LinkGitAccessRevoke {
+            repo_id: "repo-1".into(),
+            grantor: "owner".into(),   // claims to act as the owner
+            grantee: "collaborator".into(),
+            epoch: 0,
+            signed_by: "attacker".into(),
+        };
+        assert!(
+            validate_and_apply(&chain, &entry, None).is_err(),
+            "attacker must not forge an access revoke as the repo owner"
+        );
+    }
+
+    #[test]
+    fn linkgit_pr_merge_cannot_be_forged_then_applies_when_signed() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "maintainer", 1_000_000_000_000);
+        let forged = LedgerEntry::LinkGitPrMerge {
+            repo_id: "repo-1".into(), pr_id: "pr-9".into(),
+            merge_commit: "deadbeef".into(),
+            actor: "maintainer".into(),   // names the maintainer
+            epoch: 0,
+            signed_by: "attacker".into(), // but attacker signs
+        };
+        assert!(
+            validate_and_apply(&chain, &forged, None).is_err(),
+            "attacker must not force-merge a PR as the maintainer"
+        );
+        // Legit: the actual maintainer signs their own merge.
+        let signed = LedgerEntry::LinkGitPrMerge {
+            repo_id: "repo-1".into(), pr_id: "pr-9".into(),
+            merge_commit: "deadbeef".into(),
+            actor: "maintainer".into(),
+            epoch: 0,
+            signed_by: "maintainer".into(),
+        };
+        let maint_key = SigningKey::from_bytes(&[b'm'; 32]);
+        let sig = sign(&maint_key, &signed);
+        validate_and_apply(&chain, &signed, Some(&sig))
+            .expect("maintainer-signed PR merge must apply");
+    }
+
+    // ── Adversarial-review finding: signed-by-attacker, owner-is-someone-else.
+    // A keyed attacker must not be able to farm reward-bearing state naming a
+    // DIFFERENT account as owner. This is the gap a signature-only check missed.
+
+    #[test]
+    fn sensor_data_commit_cannot_be_farmed_with_mismatched_owner() {
+        let (chain, _dir) = make_chain();
+        // Attacker has a real, registered posting key (seed b'a').
+        fund(&chain, "attacker", 1_000_000_000_000);
+        // Commit naming a different owner (reward would attribute to `victim`
+        // or, if owner==attacker but signed_by==victim, impersonation). Here:
+        // attacker signs with their own key but names `victim` as owner to farm
+        // reward attribution — must be rejected because signed_by != owner.
+        let entry = LedgerEntry::SensorDataCommit {
+            sensor_id: "unregistered-sensor".into(),
+            owner: "victim".into(),
+            batch_hash: "bh".into(), reading_count: 9999,
+            sensor_type: "gnss".into(), epoch: 0,
+            signed_by: "attacker".into(), gateway_account: None,
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal owner — cannot commit reward-bearing data for another account"
+        );
+    }
+
+    #[test]
+    fn storage_heartbeat_requires_signed_by_node_id() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "attacker", 1_000_000_000_000);
+        let entry = LedgerEntry::StorageHeartbeat {
+            node_id: "victim".into(), epoch: 0,
+            bytes_proven: 1_000_000, query_count: 0,
+            challenge_response: None, tier: None,
+            signed_by: "attacker".into(),
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal node_id — cannot claim storage reward for another node"
+        );
+    }
+
+    #[test]
+    fn product_create_cannot_be_forged_for_another_seller() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "attacker", 1_000_000_000_000);
+        let entry = LedgerEntry::ProductCreate {
+            seller: "victim-store".into(), product_id: "p1".into(),
+            store_id: "s1".into(), title: "fake".into(),
+            price: 1, token: NATIVE_TOKEN.into(), product_type: "digital".into(),
+            delivery_cid: None, stock: None, metadata: None, epoch: 0,
+            signed_by: "attacker".into(),
+        };
+        let attacker_key = SigningKey::from_bytes(&[b'a'; 32]);
+        let sig = sign(&attacker_key, &entry);
+        assert!(
+            validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
+            "signed_by must equal seller — cannot list products under another seller"
+        );
     }
 }
