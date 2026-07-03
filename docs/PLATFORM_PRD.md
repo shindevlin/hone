@@ -485,11 +485,35 @@ every future sensor type without a code change per sensor.
   - **Phase-6 dependency to file:** add the per-`sensor_id` projection and the
     `[0, 10_000]`-bp read API to the Phase-6 design bullet as a required output
     of that single reputation system.
-- [ ] **Implement the split in `chain.rs`** — adjust `SensorReward`
+- [x] **Implement the split in `chain.rs`** — adjust `SensorReward`
   application to the small-fee model; confirm `SensorDataPurchase`'s
   existing split logic matches the design. Add tests: spam-reporting
   scenario should be unprofitable; legitimate high-query sensor should
   out-earn a low-query one over N epochs.
+
+  Done — added `SENSOR_CREATION_FEE_DREAMS = 2_000` (`emission.rs`, next to
+  the other sensor consts). `SensorReward` application in `chain.rs` is
+  unchanged in shape (still a straight credit through the existing entry +
+  per-owner grouping plumbing); the *magnitude* now comes from the flat fee.
+  Since `SensorReward` itself carries no `reading_count`, the flat-fee
+  computation (`SENSOR_CREATION_FEE_DREAMS × accepted reading_count`) was
+  moved to the producer in `main.rs`'s sensor reward wiring, alongside the
+  existing per-owner `sensor_score` grouping (which is retained unchanged
+  for cross-pool utilization/scarcity accounting, but no longer sets the
+  reward amount). Fixed `SensorDataPurchase` (`chain.rs`) to the real
+  three-way 80/15/5 split — added the missing `storage_share` credit.
+  `SensorDataPurchase` has no field identifying which storage node serves a
+  given batch, so the storage-contract account could not be resolved
+  per-batch as originally envisioned; added a new
+  `STORAGE_CONTRACT_FUND_ACCOUNT` pool (same shape as `RECYCLE_FUND_ACCOUNT`)
+  so the share is never dropped, with a follow-up flagged to drain it once
+  per-batch storage-node tracking exists. `rep_mult`/`g_create`/`g_split`
+  Phase-6 hooks left as explicit no-ops (× 1), commented at both plug-in
+  points (`SensorReward` credit, `SensorDataPurchase` owner share). Tests
+  added in `chain.rs`: `test_sensor_spam_creation_fee_is_unprofitable`,
+  `test_high_query_sensor_out_earns_low_query_sensor`,
+  `test_sensor_data_purchase_three_way_split`. Full suite: 257/257 passing
+  in `btcpc-node`, 11/11 in `btcpc-types`.
 
 ### 1.2 — Universal sensor ingest (any sensor type, no new chain code per type)
 

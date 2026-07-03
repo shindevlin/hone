@@ -114,6 +114,19 @@ pub const RECYCLE_ERA: u64 = 5;
 /// Drained by: era-5 block rewards (recycle_reward_at).
 pub const RECYCLE_FUND_ACCOUNT: &str = "__recycle_fund__";
 
+/// System account that accumulates the storage-contract share of `SensorDataPurchase` fees
+/// (Phase 1.1 "make the comment true" decision, docs/PLATFORM_PRD.md).
+///
+/// `SensorDataPurchase` has no field identifying which specific storage node is serving a
+/// given `batch_hash` at purchase time (no `storage_node_id`, and `BlobStore`'s `cid` is not
+/// linked to sensor `batch_hash`), so a genuine per-batch "storage-contract account" cannot be
+/// resolved from the entry alone — `StorageReward` itself pays whichever node(s) submit a
+/// `StorageHeartbeat` that epoch, not a fixed contract account. Until storage-node-per-batch
+/// tracking exists (tracked as a follow-up), the 15% storage_share is pooled here rather than
+/// dropped; a future item should drain this pool proportionally to storage nodes actually
+/// serving sensor-data queries, the same way `StorageReward` is distributed.
+pub const STORAGE_CONTRACT_FUND_ACCOUNT: &str = "__storage_contract_fund__";
+
 /// LinkGit serve pool calibration — total serve-events (unique remote fetchers) per epoch.
 /// ≈ 100 fetch events across all repos = healthy early network.
 pub const CALIBRATION_LINKGIT: u64 = 100;
@@ -577,6 +590,19 @@ pub const SENSOR_LOCATION_BOOST_BPS: u64 = 13_000;
 /// First epoch at which a sensor commit lacking a location registration is rejected (T4-3).
 /// 0 = disabled (soft boost only). Governance sets this before mainnet month 3.
 pub const SENSOR_LOCATION_REQUIRED_EPOCH: u64 = 0;
+
+/// Flat, per-accepted-`SensorReading` cost-recovery fee minted via `SensorReward` (Phase 1.1
+/// decision, docs/PLATFORM_PRD.md "creation-fee vs. usage-payment split").
+/// 2_000 dreams = 0.0000002 BTCPC — deliberately below the real-world cost of fabricating and
+/// signing a reading, so spamming readings to farm creation fees is strictly unprofitable.
+/// Bulk sensor-owner earnings are expected to come from `SensorDataPurchase` usage payments
+/// over the data's lifetime, not from this creation fee. Replaces the old score-weighted pool
+/// slice as the reward *magnitude*; `sensor_score`/location boost still order relative payout
+/// but no longer set the absolute amount.
+/// Phase-6 reputation hook: effective credit will become `SENSOR_CREATION_FEE_DREAMS ×
+/// g_create(r)` once Phase 6 ships (see chain.rs `LedgerEntry::SensorReward` handling) — that
+/// multiplier is a no-op (× 1) until then.
+pub const SENSOR_CREATION_FEE_DREAMS: u64 = 2_000;
 
 /// Maximum total BLE sightings (all tag types summed) a single observer may report per epoch
 /// (T4-3). Overridable at runtime via chain_param:max_sightings_per_observer.

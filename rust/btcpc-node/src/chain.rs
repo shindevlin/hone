@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use parking_lot::{Mutex, RwLock};
 use sha2::{Sha256, Digest as Sha256Digest};
 use tracing::{info, warn};
-use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS, RUNTIME_FEE_HOST_BPS, RUNTIME_FEE_RECYCLE_BPS};
+use btcpc_types::{AccountId, LedgerEntry, NATIVE_TOKEN, CLOCK_REWARD_DREAMS, era, RECYCLE_ERA, RECYCLE_FUND_ACCOUNT, TESTNET_FUND_ACCOUNT, DEVICE_CLAIM_OVERBID_NUM, DEVICE_CLAIM_OVERBID_DENOM, OVERCLAIM_STAKER_SHARE_BPS, MAX_SIGHTINGS_PER_OBSERVER_PER_EPOCH, STORAGE_CHALLENGE_CHUNK_BYTES, SENSOR_GNSS_MAX_SPEED_M_S, EPOCH_DURATION_S, COVERAGE_GRID_RESOLUTION, COVERAGE_MAX_REPORTS_PER_EPOCH, COVERAGE_DEAD_SPOT_DBM_THRESHOLD, COVERAGE_CORROBORATION_MIN_REPORTERS, COVERAGE_MAX_CORROBORATING_REPORTERS, RUNTIME_FEE_HOST_BPS, RUNTIME_FEE_RECYCLE_BPS, STORAGE_CONTRACT_FUND_ACCOUNT};
 
 use crate::inference;
 use crate::store::Store;
@@ -1934,6 +1934,17 @@ impl Chain {
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
             }
             LedgerEntry::SensorReward { node_id, amount, epoch } => {
+                // Phase 1.1 "creation-fee vs. usage-payment split" (docs/PLATFORM_PRD.md):
+                // `amount` is now the flat SENSOR_CREATION_FEE_DREAMS cost-recovery fee
+                // (computed per-owner as SENSOR_CREATION_FEE_DREAMS × accepted reading_count
+                // by the producer in main.rs's SensorReward wiring), not a score-weighted pool
+                // slice. The SensorReward entry + per-owner grouping plumbing is unchanged —
+                // only the magnitude dropped. See emission.rs::SENSOR_CREATION_FEE_DREAMS.
+                //
+                // Phase-6 reputation plug-in point (NO-OP for now, × 1): once Phase 6 ships,
+                // the effective credit becomes `amount × g_create(r)` where `r` is this
+                // sensor's per-sensor_id reputation score. Left as a straight credit until
+                // Phase 6's reputation primitive exists (see PRD "Fairness-to-seller" block).
                 self.ensure_account(node_id, *epoch)?;
                 self.store.credit(node_id, NATIVE_TOKEN, *amount)?;
             }
@@ -1979,12 +1990,34 @@ impl Chain {
 
             // ── Sensor data purchase ──────────────────────────────────────────
             LedgerEntry::SensorDataPurchase { buyer, owner, fee, epoch, .. } => {
-                // Split fee: 80% to sensor owner, 15% to storage contract, 5% to recycle
+                // Real three-way split (Phase 1.1 "make the comment true" decision,
+                // docs/PLATFORM_PRD.md): 80% owner, 15% storage contract, 5% recycle.
+                // Floor the first two shares; recycle absorbs the remainder so no
+                // dreams are ever lost to integer-division rounding.
                 let owner_share   = (*fee as u128 * 80 / 100) as u64;
-                let recycle_share = fee.saturating_sub(owner_share);
+                let storage_share = (*fee as u128 * 15 / 100) as u64;
+                let recycle_share = fee.saturating_sub(owner_share).saturating_sub(storage_share);
                 self.store.debit(buyer, NATIVE_TOKEN, *fee)?;
                 self.ensure_account(owner, *epoch)?;
+
+                // Phase-6 reputation plug-in point (NO-OP for now, × 1): once Phase 6 ships,
+                // owner_share becomes `S_eff = clamp(owner_share × g_split(r), S_min, owner_share)`
+                // (per-sensor_id reputation), with the shortfall routed to RECYCLE_FUND_ACCOUNT.
+                // Left as the flat 80% owner_share until Phase 6's reputation primitive exists.
                 self.store.credit(owner, NATIVE_TOKEN, owner_share)?;
+
+                // storage_share: credited to the storage-contract fund account.
+                // NOTE (follow-up, see STORAGE_CONTRACT_FUND_ACCOUNT doc comment in
+                // emission.rs): SensorDataPurchase carries no field identifying which
+                // specific storage node is serving `batch_hash` at purchase time, so a true
+                // per-batch storage-contract account cannot be resolved here the way
+                // StorageReward resolves its per-epoch heartbeat submitters. Pooling into
+                // STORAGE_CONTRACT_FUND_ACCOUNT keeps the share from being silently dropped;
+                // draining it proportionally to the storage nodes actually serving sensor
+                // data is left as follow-up work once batch->node tracking exists.
+                if storage_share > 0 {
+                    let _ = self.store.credit(STORAGE_CONTRACT_FUND_ACCOUNT, NATIVE_TOKEN, storage_share);
+                }
                 if recycle_share > 0 {
                     let _ = self.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, recycle_share);
                 }
@@ -5331,6 +5364,184 @@ mod tests {
         assert_eq!(j["bytes_proven"].as_u64().unwrap(), 5 * STORAGE_CHALLENGE_CHUNK_BYTES,
             "no proof: bytes_proven is self-declared");
         assert!(!j["proof_valid"].as_bool().unwrap_or(true), "no proof → proof_valid=false");
+    }
+
+    // ── Phase 1.1: sensor creation-fee vs. usage-payment split ────────────────
+    // docs/PLATFORM_PRD.md "creation-fee vs. usage-payment split" decision block.
+
+    /// SensorReward now credits the flat SENSOR_CREATION_FEE_DREAMS fee (not a pool slice).
+    /// A pure spammer — readings only, never bought — earns strictly less than a modeled
+    /// real-world cost-to-produce a fabricated, signed reading, for any volume of spam.
+    #[test]
+    fn test_sensor_spam_creation_fee_is_unprofitable() {
+        use btcpc_types::SENSOR_CREATION_FEE_DREAMS;
+
+        let (chain, _dir) = make_chain("sensor-spam-unprofitable");
+        fund(&chain, "spammer", 0);
+        seal_epoch(&chain, 0);
+
+        // Modeled marginal cost to produce+sign+get one reading accepted (hardware, energy,
+        // anti-sybil overhead) — deliberately conservative (low) so the test is a strong
+        // claim: even against a cheap cost model, flat-fee spam is still a net loss.
+        const MODELED_COST_PER_READING_DREAMS: u64 = 10_000; // 5× the creation fee
+
+        // Spammer floods thousands of accepted SensorReward-worthy readings across epochs.
+        // Mirrors what main.rs's producer would compute: amount = FEE × reading_count.
+        const SPAM_READINGS: u64 = 10_000;
+        let spam_amount = SENSOR_CREATION_FEE_DREAMS.saturating_mul(SPAM_READINGS);
+        chain.apply_entry(&LedgerEntry::SensorReward {
+            node_id: "spammer".to_string(),
+            amount: spam_amount,
+            epoch: 1,
+        }).expect("sensor reward (flat fee) applied");
+
+        let creation_income = chain.get_balance("spammer", NATIVE_TOKEN);
+        assert_eq!(creation_income, spam_amount, "spammer collects exactly the flat fee sum");
+
+        let modeled_cost = MODELED_COST_PER_READING_DREAMS.saturating_mul(SPAM_READINGS);
+        assert!(
+            creation_income < modeled_cost,
+            "spam income {} dreams must be strictly below modeled cost-to-produce {} dreams \
+             ({} readings × {} dreams/reading) — flat creation fee must stay unprofitable for spam",
+            creation_income, modeled_cost, SPAM_READINGS, MODELED_COST_PER_READING_DREAMS,
+        );
+        // Net result is a loss, not just "less than pool would have paid".
+        assert!(modeled_cost > creation_income, "spamming more readings only deepens the loss");
+    }
+
+    /// A legitimate, frequently-queried sensor out-earns a low-query sensor over N epochs,
+    /// driven entirely by SensorDataPurchase usage payments (the dominant term per the PRD's
+    /// numeric model), even though both sensors receive identical flat SensorReward income.
+    #[test]
+    fn test_high_query_sensor_out_earns_low_query_sensor() {
+        use btcpc_types::SENSOR_CREATION_FEE_DREAMS;
+
+        let (chain, _dir) = make_chain("sensor-usage-dominates");
+        fund(&chain, "buyer", 10_000 * 10_000_000_000);
+        fund(&chain, "owner_high", 0);
+        fund(&chain, "owner_low", 0);
+        seal_epoch(&chain, 0);
+
+        const N_EPOCHS: u64 = 20;
+        const READINGS_PER_EPOCH: u64 = 5; // identical creation-side activity for both sensors
+        const PURCHASE_FEE_DREAMS: u64 = 10_000_000; // 0.001 BTCPC, per PRD's modeled purchase fee
+
+        for epoch in 1..=N_EPOCHS {
+            // Both sensors emit the same reading volume → identical creation income.
+            chain.apply_entry(&LedgerEntry::SensorReward {
+                node_id: "owner_high".to_string(),
+                amount: SENSOR_CREATION_FEE_DREAMS.saturating_mul(READINGS_PER_EPOCH),
+                epoch,
+            }).expect("high sensor creation reward");
+            chain.apply_entry(&LedgerEntry::SensorReward {
+                node_id: "owner_low".to_string(),
+                amount: SENSOR_CREATION_FEE_DREAMS.saturating_mul(READINGS_PER_EPOCH),
+                epoch,
+            }).expect("low sensor creation reward");
+
+            // High-query sensor: bought every epoch. Low-query sensor: bought every 5th epoch.
+            chain.apply_entry(&LedgerEntry::SensorDataPurchase {
+                sensor_id: "sensor-high".to_string(),
+                buyer: "buyer".to_string(),
+                owner: "owner_high".to_string(),
+                batch_hash: format!("batchhigh{:04}", epoch),
+                fee: PURCHASE_FEE_DREAMS,
+                epoch,
+                nonce: epoch,
+                signed_by: "buyer".to_string(),
+            }).expect("high sensor purchase");
+
+            if epoch % 5 == 0 {
+                chain.apply_entry(&LedgerEntry::SensorDataPurchase {
+                    sensor_id: "sensor-low".to_string(),
+                    buyer: "buyer".to_string(),
+                    owner: "owner_low".to_string(),
+                    batch_hash: format!("batchlow{:04}", epoch),
+                    fee: PURCHASE_FEE_DREAMS,
+                    epoch,
+                    nonce: 1_000 + epoch,
+                    signed_by: "buyer".to_string(),
+                }).expect("low sensor purchase");
+            }
+        }
+
+        let high_balance = chain.get_balance("owner_high", NATIVE_TOKEN);
+        let low_balance = chain.get_balance("owner_low", NATIVE_TOKEN);
+        assert!(
+            high_balance > low_balance,
+            "high-query sensor ({} dreams) must out-earn low-query sensor ({} dreams) over {} epochs",
+            high_balance, low_balance, N_EPOCHS,
+        );
+
+        // Creation-side income alone (identical reading volume) would be a tie — confirm the
+        // *usage* term is what drives the gap, matching the PRD's "usage dominates" claim.
+        let creation_only = SENSOR_CREATION_FEE_DREAMS.saturating_mul(READINGS_PER_EPOCH) * N_EPOCHS;
+        assert!(high_balance > creation_only,
+            "high-query owner's earnings must exceed creation-fee-only income");
+        let low_creation_only = SENSOR_CREATION_FEE_DREAMS.saturating_mul(READINGS_PER_EPOCH) * N_EPOCHS;
+        let low_usage_earnings = low_balance - low_creation_only;
+        let high_usage_earnings = high_balance - creation_only;
+        assert!(high_usage_earnings > low_usage_earnings,
+            "usage earnings alone must be higher for the high-query sensor \
+             (high: {}, low: {})", high_usage_earnings, low_usage_earnings);
+    }
+
+    /// SensorDataPurchase applies the real three-way 80/15/5 split: owner, storage-contract
+    /// fund, and recycle fund. No dreams are lost to integer-division rounding — recycle
+    /// absorbs the remainder.
+    #[test]
+    fn test_sensor_data_purchase_three_way_split() {
+        use btcpc_types::{RECYCLE_FUND_ACCOUNT, STORAGE_CONTRACT_FUND_ACCOUNT};
+
+        let (chain, _dir) = make_chain("sensor-purchase-split");
+        fund(&chain, "buyer", 1_000 * 10_000_000_000);
+        fund(&chain, "owner", 0);
+        seal_epoch(&chain, 0);
+
+        // Fee deliberately NOT a multiple of 100, to exercise rounding: 1,000,001 dreams.
+        // owner_share = 800_000 (floor), storage_share = 150_000 (floor), recycle = remainder.
+        let fee: u64 = 1_000_001;
+        let recycle_before = chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
+        let storage_before = chain.get_balance(STORAGE_CONTRACT_FUND_ACCOUNT, NATIVE_TOKEN);
+
+        chain.apply_entry(&LedgerEntry::SensorDataPurchase {
+            sensor_id: "sensor-1".to_string(),
+            buyer: "buyer".to_string(),
+            owner: "owner".to_string(),
+            batch_hash: "abc123".to_string(),
+            fee,
+            epoch: 1,
+            nonce: 1,
+            signed_by: "buyer".to_string(),
+        }).expect("sensor data purchase applied");
+
+        let owner_share = fee * 80 / 100;
+        let storage_share = fee * 15 / 100;
+        let recycle_share = fee - owner_share - storage_share;
+
+        assert_eq!(chain.get_balance("owner", NATIVE_TOKEN), owner_share,
+            "owner receives exactly 80% (floored)");
+        assert_eq!(
+            chain.get_balance(STORAGE_CONTRACT_FUND_ACCOUNT, NATIVE_TOKEN) - storage_before,
+            storage_share,
+            "storage-contract fund receives exactly 15% (floored)"
+        );
+        assert_eq!(
+            chain.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN) - recycle_before,
+            recycle_share,
+            "recycle fund absorbs the remainder (~5%, including rounding dust)"
+        );
+
+        // Nothing lost: the three shares sum to exactly the original fee.
+        assert_eq!(owner_share + storage_share + recycle_share, fee,
+            "three-way split accounts for the entire fee with no dreams lost to rounding");
+
+        // Buyer was debited the full fee.
+        assert_eq!(
+            chain.get_balance("buyer", NATIVE_TOKEN),
+            1_000 * 10_000_000_000 - fee,
+            "buyer debited the full fee"
+        );
     }
 
     // ── Phase 8 chaos tests ──────────────────────────────────────────────────

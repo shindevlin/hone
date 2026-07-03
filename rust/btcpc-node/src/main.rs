@@ -109,7 +109,7 @@ use btcpc_types::{
     LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
     RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT, TREASURY_ACCOUNT,
     inference_score, clock_reward_at, testnet_reward_at,
-    sensor_score, stake_weight, mempool_relay_score,
+    sensor_score, stake_weight, mempool_relay_score, SENSOR_CREATION_FEE_DREAMS,
     ACTIVITY_RATIO_DENOM, MIN_ACTIVITY_RATIO_NUM,
     CALIBRATION_INFERENCE, CALIBRATION_STORAGE, CALIBRATION_SENSOR,
     CALIBRATION_VERIFIER, CALIBRATION_SERVICE, CALIBRATION_MEMPOOL,
@@ -1640,7 +1640,17 @@ async fn emit_epoch_rewards(
     // Sensors with a registered location earn a 1.3× boost (T4-3, SENSOR_LOCATION_BOOST_BPS).
     // After SENSOR_LOCATION_REQUIRED_EPOCH, unlocated sensors are skipped entirely.
     // gateway_map: sensor_account → gateway_account (for 60/40 split)
+    //
+    // Phase 1.1 (docs/PLATFORM_PRD.md "creation-fee vs. usage-payment split"): the actual
+    // SensorReward *amount* paid below is no longer this score-weighted pool slice — it's the
+    // flat SENSOR_CREATION_FEE_DREAMS fee × accepted reading_count (sensor_reading_counts).
+    // `sensor_nodes`'s score is retained unchanged because it still drives sensor_pool
+    // utilization/scarcity accounting shared with other reward pools (not removed, just no
+    // longer the source of the SensorReward magnitude); CoverageReport scores stay merged into
+    // it for that utilization bookkeeping, but coverage reports carry no reading_count and so
+    // do not contribute to the flat creation fee.
     let mut sensor_gateway_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut sensor_reading_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     let sensor_nodes: Vec<(String, u64)> = {
         let mut by_owner: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
         for (_, v) in chain.store.state_scan_prefix(&format!("sensor_commit:{}:", epoch)) {
@@ -1661,6 +1671,7 @@ async fn emit_epoch_rewards(
                 (base as u128 * SENSOR_LOCATION_BOOST_BPS as u128 / 10_000) as u64
             } else { base };
             *by_owner.entry(owner.to_owned()).or_default() += score;
+            *sensor_reading_counts.entry(owner.to_owned()).or_default() += reading_count;
             // Record gateway association for reward split
             if let Some(gw) = j["gateway_account"].as_str() {
                 sensor_gateway_map.insert(owner.to_string(), gw.to_string());
@@ -1934,11 +1945,19 @@ async fn emit_epoch_rewards(
         LedgerEntry::StorageReward { node_id, amount, epoch: ep }
     }).await;
     // Sensor rewards: split 60/40 when gateway is registered, plain SensorReward otherwise.
+    //
+    // Phase 1.1 (docs/PLATFORM_PRD.md "creation-fee vs. usage-payment split"): amount is the
+    // flat SENSOR_CREATION_FEE_DREAMS cost-recovery fee × this owner's accepted reading_count
+    // this epoch — NOT a score-weighted slice of sensor_pool. sensor_pool/total_score/scarcity
+    // gating is retained unchanged for cross-pool utilization accounting (see sensor_nodes
+    // comment above) but no longer sets the SensorReward magnitude. Score is still used here
+    // only to decide which owners are eligible (score == 0 → no accepted readings this epoch).
     {
         let total_score: u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
         for (node_id, score) in &sensor_nodes {
             if total_score == 0 || *score == 0 { continue; }
-            let amount = (sensor_pool as u128 * *score as u128 / total_score as u128) as u64;
+            let reading_count = sensor_reading_counts.get(node_id).copied().unwrap_or(0);
+            let amount = SENSOR_CREATION_FEE_DREAMS.saturating_mul(reading_count);
             if amount == 0 { continue; }
             let entry = if let Some(gateway) = sensor_gateway_map.get(node_id) {
                 const SENSOR_BPS: u128 = 6_000;
