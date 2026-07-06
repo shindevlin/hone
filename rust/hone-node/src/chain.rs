@@ -1902,7 +1902,48 @@ impl Chain {
                 self.ensure_account(node_id, *epoch)?;
                 let _ = CLOCK_REWARD_HUNITS;
                 let node_credit = self.distribute_role_backer_reward("clock", node_id, *amount)?;
-                self.store.credit(node_id, NATIVE_TOKEN, node_credit)?;
+
+                // Bootstrap grace (POW genesis fix): during the grace window, a clock
+                // that registered under the minimum stake accumulates its stake from
+                // its own rewards instead of receiving them as spendable balance —
+                // until it reaches the minimum, after which rewards flow to balance
+                // as usual. The auto-build applies ONLY inside the window and ONLY
+                // while under the minimum. See docs/CLOCK_BOOTSTRAP_GRACE.md.
+                let to_balance = if *epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH {
+                    let reg_key = format!("clock_reg:{}", node_id);
+                    if let Some(raw) = self.store.state_get(&reg_key) {
+                        if let Ok(mut reg) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                            let cur_stake = reg["stake"].as_u64().unwrap_or(0);
+                            let min: u64 = self.store.state_get("chain_param:clock_min_stake")
+                                .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+                                .unwrap_or(5 * 10_000_000_000); // 5 HONE default
+                            if cur_stake < min {
+                                let need = min - cur_stake;
+                                let into_stake = node_credit.min(need);
+                                let new_stake = cur_stake + into_stake;
+                                reg["stake"] = serde_json::json!(new_stake);
+                                self.store.state_set(&reg_key, &serde_json::to_vec(&reg)?)?;
+                                info!(
+                                    "[clock] bootstrap: '{}' stake {} -> {} hunits (min {}) at epoch {}",
+                                    node_id, cur_stake, new_stake, min, epoch
+                                );
+                                node_credit - into_stake // spillover above the minimum → balance
+                            } else {
+                                node_credit
+                            }
+                        } else {
+                            node_credit
+                        }
+                    } else {
+                        node_credit // no registration record → nothing to build into; pay balance
+                    }
+                } else {
+                    node_credit
+                };
+
+                if to_balance > 0 {
+                    self.store.credit(node_id, NATIVE_TOKEN, to_balance)?;
+                }
             }
 
             // ── Testnet ────────────────────────────────────────────────────────
@@ -2665,17 +2706,37 @@ impl Chain {
 
                 let existing_stake = prev["stake"].as_u64().unwrap_or(0);
                 let recorded_stake = if existing_stake == 0 {
-                    // First registration: enforce minimum and deduct balance.
-                    let min: u64 = self.store.state_get("chain_param:clock_min_stake")
-                        .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
-                        .unwrap_or(5 * 10_000_000_000); // 5 HONE default
-                    anyhow::ensure!(
-                        *stake >= min,
-                        "ClockNodeRegister: stake {} hunits is below minimum {} hunits",
-                        stake, min
-                    );
-                    self.store.debit(node_id, NATIVE_TOKEN, *stake)?;
-                    *stake
+                    // First registration.
+                    //
+                    // Bootstrap grace (POW genesis fix): during the first
+                    // CLOCK_BOOTSTRAP_GRACE_END_EPOCH epochs no account is funded, so
+                    // no clock could post the minimum stake and the chain would
+                    // deadlock at block 0. Within the window we accept the offered
+                    // stake as-is (typically 0) with no minimum and no debit; the
+                    // clock then auto-accumulates its stake from ClockReward (see the
+                    // ClockReward arm). After the window the normal rule applies:
+                    // enforce the minimum and debit the balance.
+                    // See docs/CLOCK_BOOTSTRAP_GRACE.md — consensus-critical.
+                    if *epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH {
+                        // Accept at the offered stake (usually 0); no debit. A node
+                        // that *can* post stake during grace still may — we only
+                        // debit what it actually offered and can pay.
+                        if *stake > 0 {
+                            self.store.debit(node_id, NATIVE_TOKEN, *stake)?;
+                        }
+                        *stake
+                    } else {
+                        let min: u64 = self.store.state_get("chain_param:clock_min_stake")
+                            .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
+                            .unwrap_or(5 * 10_000_000_000); // 5 HONE default
+                        anyhow::ensure!(
+                            *stake >= min,
+                            "ClockNodeRegister: stake {} hunits is below minimum {} hunits",
+                            stake, min
+                        );
+                        self.store.debit(node_id, NATIVE_TOKEN, *stake)?;
+                        *stake
+                    }
                 } else {
                     existing_stake // re-registration: keep slash-readable stake intact
                 };
@@ -3946,22 +4007,25 @@ mod tests {
     // ── Phase 2: Consensus and Finality ──────────────────────────────────────
 
     /// ClockNodeRegister: stake deducted, sled key written, minimum enforced.
+    /// Uses a POST-grace epoch so the normal minimum-stake rule applies (see
+    /// test_clock_bootstrap_grace for the in-window behavior).
     #[test]
     fn test_clock_node_register() {
         let (chain, _dir) = make_chain("clock-reg");
         let min_stake = 5u64 * 10_000_000_000; // 5 HONE default (matches chain.rs fallback)
+        let post_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
         fund(&chain, "clock1", min_stake + 50 * 10_000_000_000);
         seal_epoch(&chain, 0);
 
-        // Below minimum must fail.
+        // Below minimum must fail (post-grace).
         let r = chain.apply_entry(&LedgerEntry::ClockNodeRegister {
             node_id: "clock1".to_string(),
             stake: min_stake - 1,
-            epoch: 1,
+            epoch: post_grace,
             pubkey: None,
             signature: None,
         });
-        assert!(r.is_err(), "stake below minimum must be rejected");
+        assert!(r.is_err(), "stake below minimum must be rejected post-grace");
         assert_eq!(chain.get_balance("clock1", NATIVE_TOKEN), min_stake + 50 * 10_000_000_000,
             "balance unchanged after rejected registration");
 
@@ -3969,7 +4033,7 @@ mod tests {
         chain.apply_entry(&LedgerEntry::ClockNodeRegister {
             node_id: "clock1".to_string(),
             stake: min_stake,
-            epoch: 1,
+            epoch: post_grace,
             pubkey: None,
             signature: None,
         }).expect("register at minimum stake");
@@ -3980,6 +4044,84 @@ mod tests {
         let j: serde_json::Value = serde_json::from_slice(&reg).unwrap();
         assert_eq!(j["stake"].as_u64().unwrap(), min_stake, "stake recorded in sled");
         assert_eq!(j["node_id"].as_str().unwrap(), "clock1");
+    }
+
+    /// Clock bootstrap grace (POW genesis fix): within the grace window a clock
+    /// registers at zero stake with no funding and no debit, then auto-accumulates
+    /// its stake from ClockReward until it reaches the minimum, after which rewards
+    /// spill to balance. See docs/CLOCK_BOOTSTRAP_GRACE.md.
+    #[test]
+    fn test_clock_bootstrap_grace() {
+        let (chain, _dir) = make_chain("clock-grace");
+        let min_stake = 5u64 * 10_000_000_000; // 5 HONE default
+        seal_epoch(&chain, 0);
+
+        // Register at ZERO stake inside the window, unfunded — must succeed with no debit.
+        chain.apply_entry(&LedgerEntry::ClockNodeRegister {
+            node_id: "boot".to_string(),
+            stake: 0,
+            epoch: 1,
+            pubkey: None,
+            signature: None,
+        }).expect("register at zero stake during grace");
+        assert_eq!(chain.get_balance("boot", NATIVE_TOKEN), 0, "no debit at zero stake");
+        let reg = chain.store.state_get("clock_reg:boot").expect("reg key exists");
+        let j: serde_json::Value = serde_json::from_slice(&reg).unwrap();
+        assert_eq!(j["stake"].as_u64().unwrap(), 0, "stake recorded as 0");
+
+        // First reward (below min) builds stake, credits NO balance.
+        let r1 = 2u64 * 10_000_000_000; // 2 HONE
+        chain.apply_entry(&LedgerEntry::ClockReward {
+            node_id: "boot".to_string(), amount: r1, epoch: 2,
+        }).expect("clock reward during grace");
+        let stake_now = |c: &Chain| -> u64 {
+            let raw = c.store.state_get("clock_reg:boot").unwrap();
+            serde_json::from_slice::<serde_json::Value>(&raw).unwrap()["stake"].as_u64().unwrap()
+        };
+        assert_eq!(stake_now(&chain), r1, "reward built into stake");
+        assert_eq!(chain.get_balance("boot", NATIVE_TOKEN), 0, "no balance credited while under min");
+
+        // A reward that overshoots the minimum: fills stake to exactly min, spills the rest to balance.
+        let r2 = 4u64 * 10_000_000_000; // 4 HONE; stake was 2, need 3 more → 1 HONE spills
+        chain.apply_entry(&LedgerEntry::ClockReward {
+            node_id: "boot".to_string(), amount: r2, epoch: 3,
+        }).expect("clock reward overshoot");
+        assert_eq!(stake_now(&chain), min_stake, "stake capped at minimum");
+        assert_eq!(chain.get_balance("boot", NATIVE_TOKEN), (r1 + r2) - min_stake,
+            "overshoot spilled to balance");
+
+        // Once at minimum, further rewards go entirely to balance, stake unchanged.
+        let bal_before = chain.get_balance("boot", NATIVE_TOKEN);
+        let r3 = 3u64 * 10_000_000_000;
+        chain.apply_entry(&LedgerEntry::ClockReward {
+            node_id: "boot".to_string(), amount: r3, epoch: 4,
+        }).expect("clock reward at min");
+        assert_eq!(stake_now(&chain), min_stake, "stake stays at minimum");
+        assert_eq!(chain.get_balance("boot", NATIVE_TOKEN), bal_before + r3,
+            "reward fully to balance once staked");
+    }
+
+    /// After the grace window, a reward to an under-staked clock does NOT build
+    /// stake — it flows to balance normally (auto-build is grace-only).
+    #[test]
+    fn test_clock_reward_post_grace_no_autostake() {
+        let (chain, _dir) = make_chain("clock-postgrace");
+        seal_epoch(&chain, 0);
+        // Simulate a clock recorded with under-min stake (e.g. registered during grace).
+        let reg_key = "clock_reg:late";
+        chain.store.state_set(reg_key, &serde_json::to_vec(&serde_json::json!({
+            "node_id": "late", "stake": 1u64 * 10_000_000_000, "registered_epoch": 1u64, "pubkey": null,
+        })).unwrap()).unwrap();
+
+        let post = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 5;
+        let reward = 2u64 * 10_000_000_000;
+        chain.apply_entry(&LedgerEntry::ClockReward {
+            node_id: "late".to_string(), amount: reward, epoch: post,
+        }).expect("post-grace clock reward");
+        let raw = chain.store.state_get(reg_key).unwrap();
+        let stake = serde_json::from_slice::<serde_json::Value>(&raw).unwrap()["stake"].as_u64().unwrap();
+        assert_eq!(stake, 1 * 10_000_000_000, "stake unchanged post-grace");
+        assert_eq!(chain.get_balance("late", NATIVE_TOKEN), reward, "reward to balance post-grace");
     }
 
     /// ClockDoubleSignEvidence: correct slash distribution, replay guard.

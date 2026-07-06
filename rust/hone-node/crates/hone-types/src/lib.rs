@@ -29,6 +29,21 @@ pub const NAME_REGISTRATION_STAKE: u64 = 10 * HUNITS_PER_HONE;
 /// shindevlin's reserved namespace). These are created at genesis or via GenesisAlloc.
 pub const STAKE_EXEMPT_ACCOUNTS: &[&str] = &["shindevlin", "__testnet_fund__", "__recycle__", "treasury"];
 
+/// Clock bootstrap grace window: the last epoch (inclusive, counted from genesis
+/// epoch 0) during which clock nodes may register at zero stake and auto-accumulate
+/// their `clock_min_stake` from ClockReward instead of paying it up front.
+///
+/// HONE funds no account at genesis (pure POW), so at launch nobody can post the
+/// clock minimum stake — without this window, no clock could register, no epoch
+/// could seal, and the chain would deadlock at block 0. During the first 100,000
+/// epochs (≈34.7 days at 30 s/epoch, "the first 100k blocks") `ClockNodeRegister`
+/// is accepted at stake 0 with no debit, and each `ClockReward` earned by an
+/// under-staked clock is routed into its stake (capped at the minimum) until the
+/// minimum is reached. After this epoch, the normal minimum-stake rule applies and
+/// the auto-build stops. Consensus-critical: every node MUST use this exact value.
+/// See docs/CLOCK_BOOTSTRAP_GRACE.md.
+pub const CLOCK_BOOTSTRAP_GRACE_END_EPOCH: u64 = 100_000;
+
 // ── Liveness / dead-man's-switch ─────────────────────────────────────────────
 
 /// Epochs of silence before the liveness countdown begins.
