@@ -29,8 +29,8 @@ POSTING_KEY   = ""  # set via env var or prompt — do not hardcode
 # Update this list whenever bootstrap node addresses change.
 # Format: libp2p multiaddr strings.
 BTCPC_PEERS = [
-    "/dns4/bootstrap1.btcpc.net/tcp/6942",
-    "/dns4/bootstrap2.btcpc.net/tcp/6942",
+    "/dns4/bootstrap1.honemesh.net/tcp/6942",
+    "/dns4/bootstrap2.honemesh.net/tcp/6942",
     # Add more as the network grows:
     # "/ip4/1.2.3.4/tcp/6942",
 ]
@@ -53,7 +53,7 @@ def main():
     except Exception:
         existing = {}
 
-    existing["btcpc_peers"] = BTCPC_PEERS
+    existing["hone_peers"] = BTCPC_PEERS
     new_meta = json.dumps(existing, separators=(",", ":"))
 
     print(f"Updating @{HIVE_ACCOUNT} json_metadata:")

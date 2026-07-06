@@ -1,0 +1,37 @@
+# Canonical required accounts for HONE Genesis (July 4 2026, chain "hone").
+#
+# This is the authoritative list of accounts that genesis.json MUST contain.
+# `hone wallet verify-vault --genesis genesis.json --require-accounts <this file>`
+# fails if ANY account listed here is missing from genesis — closing the gap
+# where an operated account is simply left off the list entirely (the failure
+# that was caught by human review, not by tooling).
+#
+# One account name per line. Blank lines and #-comments are ignored.
+# System funds (__treasury__ etc.) are NOT listed here — they are created by
+# genesis directly and have no recoverable keystore by design.
+#
+# Keep this in sync with genesis.json and docs/GENESIS_JULY4_2026.md §4.
+# Account NAMES are stake-backed claimed identities (ENS-like), permanent at
+# genesis. The btcpc-* service accounts were renamed to hone-* for the HONE
+# re-genesis; the SAME existing keypairs claim the new names (no new keys).
+
+# Founder / root owner — owns freeport, verasens, linkgit (highest value to recover).
+shindevlin
+
+# Node / founder operating accounts.
+natoshisakamoto
+josh
+
+# Bullship inference billing.
+bullship
+
+# Vertical service accounts (owned by shindevlin).
+freeport
+linkgit
+verasens
+
+# Service accounts (renamed btcpc-* -> hone-* for re-genesis; same keys).
+hone-market
+hone-relay
+honebot
+honewalletbot

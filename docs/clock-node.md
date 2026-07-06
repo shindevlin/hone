@@ -25,8 +25,8 @@ A clock node participates in BTCPC epoch consensus without mining. No GPU, no Mo
 cd ~/repos/btcpc
 npm install --production
 
-BTCPC_CLOCK_ACCOUNT=josh \
-BTCPC_SEED_PEERS=ws://100.122.145.60:6942 \
+HONE_CLOCK_ACCOUNT=josh \
+HONE_SEED_PEERS=ws://100.122.145.60:6942 \
 P2P_PORT=6943 \
 node bin/btcpc-clock
 ```
@@ -49,10 +49,10 @@ npm install --production
 
 # Create environment file
 cat > .env.clock << 'EOF'
-BTCPC_CLOCK_ACCOUNT=josh
-BTCPC_SEED_PEERS=ws://100.122.145.60:6942
+HONE_CLOCK_ACCOUNT=josh
+HONE_SEED_PEERS=ws://100.122.145.60:6942
 P2P_PORT=6943
-BTCPC_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws
+HONE_RELAY_URL=wss://btcpc-relay.shindevlin.workers.dev/ws
 EOF
 
 # Run the clock node
@@ -96,8 +96,8 @@ No single point of failure. If shindevlin goes offline, other clock nodes keep t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BTCPC_CLOCK_ACCOUNT` | `clock-<random>` | Account name for this clock node |
+| `HONE_CLOCK_ACCOUNT` | `clock-<random>` | Account name for this clock node |
 | `P2P_PORT` | `6943` | WebSocket server port |
-| `BTCPC_SEED_PEERS` | (none) | Comma-separated seed peer addresses |
-| `BTCPC_RELAY_URL` | Cloudflare relay | NAT traversal relay |
-| `BTCPC_NODE_ID` | (auto-generated) | Persistent node identity |
+| `HONE_SEED_PEERS` | (none) | Comma-separated seed peer addresses |
+| `HONE_RELAY_URL` | Cloudflare relay | NAT traversal relay |
+| `HONE_NODE_ID` | (auto-generated) | Persistent node identity |

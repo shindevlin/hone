@@ -2,7 +2,7 @@
   "version": "2026-04-24-v7",
   "route": "/start",
   "legacy_alias": "/agent",
-  "goal": "Install BTCPC, save the wallet export to disk, open inference, and start node roles with the least possible ambiguity.",
+  "goal": "Install HONE, save the wallet export to disk, open inference, and start node roles with the least possible ambiguity.",
   "audiences": {
     "human": {
       "goal": "Find one obvious next step at a time.",
@@ -21,7 +21,7 @@
     {
       "id": "choose-username",
       "title": "Choose your on-chain username",
-      "instruction": "Ask the user which BTCPC username they want, then check whether it is available on chain before continuing.",
+      "instruction": "Ask the user which HONE username they want, then check whether it is available on chain before continuing.",
       "why": "The username is the on-chain identity and should be confirmed before account creation.",
       "primary_action": {
         "label": "Check username availability",
@@ -36,7 +36,7 @@
     {
       "id": "create-or-import",
       "title": "Create or import an account",
-      "instruction": "Open /setup and create or import the BTCPC account that will control this machine.",
+      "instruction": "Open /setup and create or import the HONE account that will control this machine.",
       "why": "You need a wallet before inference or node roles can be used safely.",
       "primary_action": {
         "label": "Open /setup",
@@ -53,7 +53,7 @@
     {
       "id": "save-export",
       "title": "Save the wallet export to disk",
-      "instruction": "Download the BTCPC wallet export and confirm it exists on local disk before continuing.",
+      "instruction": "Download the HONE wallet export and confirm it exists on local disk before continuing.",
       "why": "The export is the recovery path if the browser session is lost.",
       "primary_action": {
         "label": "Open /setup export section",
@@ -70,7 +70,7 @@
     },
     {
       "id": "open-inference",
-      "title": "Open BTCPC inference",
+      "title": "Open HONE inference",
       "instruction": "Open the browser app and send one prompt so the inference surface is proven live.",
       "why": "Inference is the main user-facing runtime, so this should work before node roles are added.",
       "primary_action": {
@@ -88,7 +88,7 @@
       "id": "choose-roles",
       "title": "Start node roles",
       "instruction": "Choose the node roles you want this machine to run, then start them from the node page.",
-      "why": "Clock, miner, storage, gateway, and sensor roles are the core ways BTCPC earns and contributes.",
+      "why": "Clock, miner, storage, gateway, and sensor roles are the core ways HONE earns and contributes.",
       "primary_action": {
         "label": "Open /run-a-node",
         "href": "/run-a-node",
@@ -102,8 +102,8 @@
     {
       "id": "controller-opt-in",
       "title": "Optional: controller mode",
-      "instruction": "If you want external-chain control, open the controller page and approve the BTCPC spend policy with your linked wallet.",
-      "why": "Controller mode lets an external chain act as the spend approval layer instead of the BTCPC active key alone.",
+      "instruction": "If you want external-chain control, open the controller page and approve the HONE spend policy with your linked wallet.",
+      "why": "Controller mode lets an external chain act as the spend approval layer instead of the HONE active key alone.",
       "primary_action": {
         "label": "Open controller page",
         "href": "/controller.html",
@@ -111,7 +111,7 @@
       },
       "done_when": [
         "controller wallet is connected",
-        "BTCPC spend challenge is signed",
+        "HONE spend challenge is signed",
         "approval is submitted"
       ]
     }

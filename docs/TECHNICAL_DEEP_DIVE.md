@@ -21,8 +21,8 @@ Those mechanisms are the chain's proof of compute. They are not side features.
 
 ### Start flow
 
-The public onboarding flow lives at [`/start`](https://btcpc.net/start) and is
-described by [`/start.json`](https://btcpc.net/start.json). The manifest is the
+The public onboarding flow lives at [`/start`](https://honemesh.net/start) and is
+described by [`/start.json`](https://honemesh.net/start.json). The manifest is the
 machine-readable source of truth for the onboarding sequence.
 
 ### Username availability
@@ -69,6 +69,6 @@ worth discussing.
 Recommended order:
 
 1. [`START_HERE`](START_HERE.md)
-2. [`BTCPC_WHITEPAPER`](BTCPC_WHITEPAPER.md)
+2. [`HONE_WHITEPAPER`](HONE_WHITEPAPER.md)
 3. [`ROADMAP`](ROADMAP.md)
 4. [`contributing`](contributing.md)

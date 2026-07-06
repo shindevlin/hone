@@ -1,46 +1,51 @@
-# BTCPC — Sovereign Chain Node
+# HONE — Sovereign Chain Node
+
+> **Naming (BTCPC → HONE rebrand, locked):** brand/network = **HONE**, token/ticker = **HONE**,
+> base unit = **hunit** (1 HONE = 10^10 hunits), chain_id = **hone** (mainnet) / **hone-testnet**,
+> crates = `hone-*`, CLI binary = `hone`, env vars = `HONE_*`, domain = **honemesh.net**.
+> Treat any remaining "BTCPC/btcpc/dream" as a not-yet-migrated tail, not the current name.
 
 > **THE ACTIVE IMPLEMENTATION IS RUST. DO NOT REFERENCE OR MODIFY NODE.JS CODE.**
 >
 > `src/`, `bin/`, `package.json`, `node_modules/` — these are the **deprecated** Node.js prototype.
-> They are kept only for historical reference. All active development happens in `rust/btcpc-node/`.
+> They are kept only for historical reference. All active development happens in `rust/hone-node/`.
 
 ## Active Stack
 
-- **Rust** — single binary, `rust/btcpc-node/src/main.rs`
+- **Rust** — single binary, `rust/hone-node/src/main.rs`
 - **libp2p** — gossipsub P2P networking (port 6942)
 - **RocksDB** — chain state (not MongoDB)
 - **Axum** — HTTP API (port 4242)
-- **Ollama** — inference for miners/workers (model-agnostic)
+- **Embedded candle GGUF inference** — `inference_engine::chat` (external OpenAI/Ollama-compatible server optional via `INFERENCE_URL`); see docs/INFERENCE_INTEGRATION_FOR_CONSUMERS.md
 - Git author: Shin Devlin <shindevlin@proton.me> (NO AI attribution ever)
 
 ## Key Files (Rust)
 
-- `rust/btcpc-node/src/main.rs` — node entry point, epoch seal handler, reward wiring
-- `rust/btcpc-node/src/chain.rs` — state machine, apply_entry, pending pool
-- `rust/btcpc-node/src/clock.rs` — clock consensus, epoch sealing, quorum
-- `rust/btcpc-node/src/tx.rs` — validate_and_apply, is_system_entry
-- `rust/btcpc-node/src/api.rs` — Axum HTTP API routes
-- `rust/btcpc-node/src/hardware.rs` — GPU serial / machine-id anti-sybil
-- `rust/btcpc-node/crates/btcpc-types/src/entry.rs` — LedgerEntry enum (canonical)
-- `rust/btcpc-node/crates/btcpc-types/src/emission.rs` — supply/reward schedule
-- `rust/btcpc-node/genesis.json` — mainnet genesis block
+- `rust/hone-node/src/main.rs` — node entry point, epoch seal handler, reward wiring
+- `rust/hone-node/src/chain.rs` — state machine, apply_entry, pending pool
+- `rust/hone-node/src/clock.rs` — clock consensus, epoch sealing, quorum
+- `rust/hone-node/src/tx.rs` — validate_and_apply, is_system_entry
+- `rust/hone-node/src/api.rs` — Axum HTTP API routes
+- `rust/hone-node/src/hardware.rs` — GPU serial / machine-id anti-sybil
+- `rust/hone-node/crates/hone-types/src/entry.rs` — LedgerEntry enum (canonical)
+- `rust/hone-node/crates/hone-types/src/emission.rs` — supply/reward schedule
+- `rust/hone-node/genesis.json` — mainnet genesis block
 - `website/` — landing page
 
 ## Run
 
 ```bash
-systemctl --user status btcpc-node      # check Rust node
-systemctl --user restart btcpc-node     # restart after binary update
+systemctl --user status hone-node      # check Rust node
+systemctl --user restart hone-node     # restart after binary update
 curl http://localhost:4242/api/node/info
 ```
 
 ## Key Specs
 
-- Supply: 42,000,000 BTCPC (1 BTCPC = 10,000,000,000 dreams; canonical constant `DREAMS_PER_BTCPC` in `crates/btcpc-types/src/lib.rs`)
+- Supply: 42,000,000 HONE (1 HONE = 10,000,000,000 hunits; canonical constant `HUNITS_PER_HONE` in `crates/hone-types/src/lib.rs`)
 - Epoch duration: 30 seconds
-- Genesis timestamp: 1777633200000 (2026-05-01 noon Ireland, UTC+1). Do not change.
-- Chain ID: btcpc-satoshi (testnet), btcpc-1 (mainnet)
+- Genesis timestamp: 1783191600000 (2026-07-04 noon Los Angeles, PDT). Do not change.
+- Chain ID: hone-testnet (testnet), hone (mainnet)
 - Explorer: port 4242, P2P: port 6942
 
 ## Architecture
@@ -68,26 +73,26 @@ This applies to ALL entry types: stakes, transfers, registrations, sensor data, 
 ## Monorepo Structure
 
 ```
-btcpc/
+btcpc/                   (repo dir name predates the HONE rebrand)
   rust/
-    btcpc-node/          ← chain node (canonical)
-    btcpc-node/crates/btcpc-types/
-    btcpc-p2p/           ← libp2p DHT sidecar
-    btcpc-market/        ← commerce HTTP service
-    btcpc-gnss-capture/  ← GNSS RTCM3 capture
-  ludicrous/             ← Warp fork (BTCPC terminal)
+    hone-node/       ← chain node (canonical)
+    hone-node/crates/hone-types/
+    hone-p2p/        ← libp2p DHT sidecar
+    hone-market/     ← commerce HTTP service
+    hone-gnss-capture/ ← GNSS RTCM3 capture
+  ludicrous/             ← Warp fork (HONE terminal)
     plugins/ludicrous/   ← Claude Code plugin
   clients/
-    btcpc-desktop/       ← Electron/Tauri desktop app
-    btcpc-android/       ← Capacitor Android client
-    btcpc-flipper/       ← Flipper Zero firmware
+    btcpc-desktop/       ← Electron/Tauri desktop app (dir not yet renamed)
+    btcpc-android/       ← Capacitor Android client (dir not yet renamed)
+    btcpc-flipper/       ← Flipper Zero firmware (dir not yet renamed)
   bots/
-    btcpcbot/            ← Telegram chain bot
-    btcpcwalletbot/      ← Telegram wallet bot
+    btcpcbot/            ← Telegram chain bot (@btcpcbot; rename pending)
+    btcpcwalletbot/      ← Telegram wallet bot (rename pending)
   services/
-    btcpc-relay/         ← Cloudflare Workers relay
+    btcpc-relay/         ← Cloudflare Workers relay (dir not yet renamed)
   marketing/             ← Open-source marketing
-  website/               ← btcpc.net landing page
+  website/               ← honemesh.net landing page
   verasens/              ← Sensor verification protocol
   linkgit/               ← Ed25519 Git-native identity layer
   freeport/              ← NAT-traversal P2P port router

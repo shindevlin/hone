@@ -55,7 +55,7 @@ The `bin/btcpc-meshtastic` daemon connects to any Meshtastic device over USB ser
 - Submits readings via `POST /api/sensors/:id/readings`
 - Reports its own GPS, battery, and signal strength as sensor data
 - Reconnects automatically on disconnect
-- Setup: `curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash`
+- Setup: `curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash`
 
 ## Suggested first purchase bundle
 

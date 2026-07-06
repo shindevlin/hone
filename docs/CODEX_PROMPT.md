@@ -33,10 +33,10 @@ The explorer runs at localhost:4242. Set up a permanent Cloudflare tunnel:
 
 ```bash
 cloudflared tunnel create btcpcscan
-cloudflared tunnel route dns btcpcscan scan.btcpc.network
+cloudflared tunnel route dns btcpcscan scan.honemesh.network
 ```
 
-If `scan.btcpc.network` DNS isn't available, use the auto-generated trycloudflare.com URL and document it.
+If `scan.honemesh.network` DNS isn't available, use the auto-generated trycloudflare.com URL and document it.
 
 Create a systemd service: `systemd/btcpcscan-tunnel.service` that keeps the tunnel alive.
 

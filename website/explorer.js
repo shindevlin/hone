@@ -1,4 +1,4 @@
-/* btcpcscan — blockchain explorer logic */
+/* honescan — blockchain explorer logic */
 /* Rewired for Rust node on port 4242 — May 2026 */
 "use strict";
 
@@ -158,7 +158,7 @@ async function refreshHome() {
 function renderStats(s) {
   // Rust node /api/explorer/status fields:
   //   chain_height, current_epoch, epoch_ms, accounts,
-  //   circulating_btcpc, max_supply_btcpc,
+  //   circulating_hone, max_supply_hone,
   //   active_nodes_last_100, miners, clock_nodes, storage_nodes
   const epochSecs = ((s.epoch_ms || 30000) / 1000).toFixed(0);
   setHTML("stats-grid", `
@@ -181,19 +181,19 @@ function renderStats(s) {
     </div>
     <div class="stat-card">
       <div class="stat-label">Circulating Supply</div>
-      <div class="stat-value mono">${fmt(s.circulating_btcpc, 2)}</div>
-      <div class="stat-sub">of ${fmtInt(s.max_supply_btcpc || 42000000)} BTCPC max</div>
+      <div class="stat-value mono">${fmt(s.circulating_hone, 2)}</div>
+      <div class="stat-sub">of ${fmtInt(s.max_supply_hone || 42000000)} HONE max</div>
     </div>
   `);
 
-  const circ = s.circulating_btcpc || 0;
-  const maxS = s.max_supply_btcpc || 42000000;
+  const circ = s.circulating_hone || 0;
+  const maxS = s.max_supply_hone || 42000000;
   setHTML("supply-bar-section", `
     <div class="card">
       <div class="card-title">Supply Distribution</div>
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
-        <span>Circulating: <strong>${fmt(circ, 4)} BTCPC</strong></span>
-        <span style="color:var(--text-dim)">Max: ${fmtInt(maxS)} BTCPC</span>
+        <span>Circulating: <strong>${fmt(circ, 4)} HONE</strong></span>
+        <span style="color:var(--text-dim)">Max: ${fmtInt(maxS)} HONE</span>
       </div>
       <div class="supply-bar-wrap">
         <div class="supply-bar" id="supply-bar" style="width:${Math.min(100, (circ / maxS) * 100).toFixed(3)}%"></div>
@@ -243,7 +243,7 @@ function renderRecentActivity(entries) {
             <td><a class="link" onclick="navigate('#block/${epoch}')">${fmtInt(epoch)}</a></td>
             <td>${entryTypeBadge(e.type)}</td>
             <td><a class="link" onclick="navigate('#account/${escHtml(acct)}')">${escHtml(acct)}</a></td>
-            <td>${e.amount != null ? fmt(e.amount, 4) + " BTCPC" : "—"}</td>
+            <td>${e.amount != null ? fmt(e.amount, 4) + " HONE" : "—"}</td>
           </tr>`;
   }).join("")}
         </tbody>
@@ -334,7 +334,7 @@ async function loadBlockDetail(num) {
                 <td>${entryTypeBadge(e.type)}</td>
                 <td>${e.from ? `<a class="link" onclick="navigate('#account/${escHtml(e.from)}')">${escHtml(e.from)}</a>` : "—"}</td>
                 <td>${(e.to || e.account) ? `<a class="link" onclick="navigate('#account/${escHtml(e.to || e.account)}')">${escHtml(e.to || e.account)}</a>` : "—"}</td>
-                <td>${e.amount != null ? fmt(e.amount, 8) + " BTCPC" : "—"}</td>
+                <td>${e.amount != null ? fmt(e.amount, 8) + " HONE" : "—"}</td>
                 <td style="color:var(--text-dim);font-size:11px">${escHtml(e.memo || "")}</td>
               </tr>`).join("")}
             </tbody>
@@ -357,7 +357,7 @@ async function loadAccount(name) {
     // Rust: GET /api/account/:account/history
     // Returns: { account, count, entries: [{type, from/to/account, amount, memo, _epoch, _role}] }
     // Rust: GET /api/balance/:account
-    // Returns: { account, balance (float), dreams, token }
+    // Returns: { account, balance (float), hunits, token }
     const [acct, hist, balResp] = await Promise.all([
       apiFetch(`/api/account/${encodeURIComponent(name)}`),
       apiFetch(`/api/account/${encodeURIComponent(name)}/history?limit=50`),
@@ -377,12 +377,12 @@ async function loadAccount(name) {
         <div class="stat-card">
           <div class="stat-label">Balance</div>
           <div class="stat-value orange">${fmt(balance, 4)}</div>
-          <div class="stat-sub">BTCPC</div>
+          <div class="stat-sub">HONE</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Staked</div>
           <div class="stat-value">${fmt(stake, 4)}</div>
-          <div class="stat-sub">BTCPC</div>
+          <div class="stat-sub">HONE</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Nonce</div>
@@ -405,7 +405,7 @@ async function loadAccount(name) {
           <span class="dk">Created Epoch</span>
           <span class="dv"><a class="link" onclick="navigate('#block/${acct.created_epoch}')">${fmtInt(acct.created_epoch)}</a></span>
           <span class="dk">Stake</span>
-          <span class="dv">${fmt(stake, 4)} BTCPC</span>
+          <span class="dv">${fmt(stake, 4)} HONE</span>
           ${(acct.chains_proven || []).length ? `
           <span class="dk">Proven Chains</span>
           <span class="dv">${(acct.chains_proven || []).map(c => escHtml(c.chain || c)).join(", ")}</span>
@@ -427,7 +427,7 @@ async function loadAccount(name) {
                 <td>${entryTypeBadge(e.type)}</td>
                 <td>${e.from ? `<a class="link" onclick="navigate('#account/${escHtml(e.from)}')">${escHtml(e.from)}</a>` : "—"}</td>
                 <td>${(e.to || e.account) ? `<a class="link" onclick="navigate('#account/${escHtml(e.to || e.account)}')">${escHtml(e.to || e.account)}</a>` : "—"}</td>
-                <td>${e.amount != null ? fmt(e.amount, 8) + " BTCPC" : "—"}</td>
+                <td>${e.amount != null ? fmt(e.amount, 8) + " HONE" : "—"}</td>
               </tr>`;
   }).join("")}
             </tbody>
@@ -446,20 +446,20 @@ async function loadAccounts() {
   loading("accounts-table");
   try {
     // Rust: GET /api/accounts
-    // Returns: { count, accounts: [{account, keys, balances: {BTCPC: dreams_int}}] }
+    // Returns: { count, accounts: [{account, keys, balances: {HONE: hunits_int}}] }
     const data = await apiFetch("/api/accounts");
     const accounts = data.accounts || [];
     if (!accounts.length) { empty("accounts-table", "No accounts found."); return; }
 
-    // Convert dreams integer to BTCPC float (1 BTCPC = 10,000,000,000 dreams)
-    const DREAMS_PER_BTCPC = 10_000_000_000;
+    // Convert hunits integer to HONE float (1 HONE = 10,000,000,000 hunits)
+    const HUNITS_PER_HONE = 10_000_000_000;
     const rows = accounts.map((a, i) => {
-      const dreamsRaw = (a.balances && a.balances.BTCPC) ? Number(a.balances.BTCPC) : 0;
-      const btcpc = dreamsRaw / DREAMS_PER_BTCPC;
-      return { account: a.account, btcpc, i };
+      const hunitsRaw = (a.balances && a.balances.HONE) ? Number(a.balances.HONE) : 0;
+      const hone = hunitsRaw / HUNITS_PER_HONE;
+      return { account: a.account, hone, i };
     });
     // Sort by balance descending
-    rows.sort((a, b) => b.btcpc - a.btcpc);
+    rows.sort((a, b) => b.hone - a.hone);
 
     setHTML("accounts-table", `
       <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
@@ -468,13 +468,13 @@ async function loadAccounts() {
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>#</th><th>Account</th><th>Balance (BTCPC)</th>
+            <th>#</th><th>Account</th><th>Balance (HONE)</th>
           </tr></thead>
           <tbody>${rows.map((a, i) => `
             <tr>
               <td style="color:var(--text-dim)">${i + 1}</td>
               <td><a class="link" onclick="navigate('#account/${escHtml(a.account)}')">${escHtml(a.account)}</a></td>
-              <td class="mono">${fmt(a.btcpc, 4)}</td>
+              <td class="mono">${fmt(a.hone, 4)}</td>
             </tr>`).join("")}
           </tbody>
         </table>

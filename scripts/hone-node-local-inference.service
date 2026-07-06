@@ -1,0 +1,43 @@
+[Unit]
+# Standalone local-inference HONE node for a workstation (e.g. driving Bullship
+# on the same machine). Runs the node's embedded candle backend against an
+# operator-selected model from the central model store. NOT a mesh/consensus
+# node — bootstrap is empty and mining/clock are off; it exists to serve the
+# native /v1/chat/completions inference gateway locally.
+#
+# Install under WSL (systemd must be enabled: /etc/wsl.conf [boot] systemd=true):
+#   cp scripts/hone-node-local-inference.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hone-node-local-inference
+#   systemctl --user status hone-node-local-inference
+#   journalctl --user -u hone-node-local-inference -f
+Description=HONE Node — local embedded-candle inference (standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust to the built binary + store paths for this machine.
+ExecStart=%h/honemesh-check/rust/target/release/hone-node
+
+Environment="HONE_CHAIN_ID=hone"
+Environment="HONE_DATA_DIR=%h/.hone-standalone"
+Environment="HONE_API_PORT=4242"
+Environment="HONE_MINER=false"
+Environment="HONE_CLOCK=false"
+# Standalone: no mesh. Empty bootstrap + isolation so it never joins a network.
+Environment="HONE_BOOTSTRAP_PEERS="
+Environment="HONE_BOOTSTRAP_ISOLATION=1"
+# Native embedded inference only — NO external engine. Operator selects the
+# model from the central store (a llama-architecture GGUF today).
+Environment="HONE_MODEL_DIR=/mnt/x/hone-models/gguf"
+Environment="HONE_MODEL=llama2-uncensored.gguf"
+Environment="HONE_ACCOUNT=local-render"
+Environment="HONE_LOG_LEVEL=hone_node=info"
+
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=hone-node-local-inference
+
+[Install]
+WantedBy=default.target

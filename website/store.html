@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TechSurplus — BTCPC Market</title>
+  <title>TechSurplus — HONE Market</title>
   <link rel="icon" href="/favicon-32.png" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -334,8 +334,8 @@
       transition: background 0.15s;
     }
     .btn-buy:hover { background: #f7ca00; }
-    .btcpc-tag { font-size: 10px; color: var(--sub); text-align: center; margin-top: 2px; }
-    .btcpc-tag span { color: var(--orange-d); font-weight: 700; }
+    .hone-tag { font-size: 10px; color: var(--sub); text-align: center; margin-top: 2px; }
+    .hone-tag span { color: var(--orange-d); font-weight: 700; }
 
     /* ── CART DRAWER ── */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
@@ -782,9 +782,9 @@
 <header>
   <div class="nav-top">
     <a href="/" class="nav-logo" style="text-decoration:none">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC" />
+      <img src="/hone-logo.jpeg" alt="HONE" />
       <div>
-        <div>BTCPC</div>
+        <div>HONE</div>
         <span class="market-sub">Market</span>
       </div>
     </a>
@@ -798,7 +798,7 @@
         <option value="Ham">Ham Radio</option>
         <option value="Storage">Storage</option>
       </select>
-      <input class="search-input" id="search-input" type="text" placeholder="Search BTCPC Market…"
+      <input class="search-input" id="search-input" type="text" placeholder="Search HONE Market…"
              onkeydown="if(event.key==='Enter')filterProducts()" />
       <button class="search-btn" onclick="filterProducts()">🔍</button>
     </div>
@@ -810,7 +810,7 @@
       </button>
       <button class="nav-btn" onclick="location.href='/vendor'">
         <div class="line1">Sell on</div>
-        <div class="line2">BTCPC ▾</div>
+        <div class="line2">HONE ▾</div>
       </button>
       <button class="nav-btn" onclick="openOrdersPanel()">
         <div class="line1">Returns</div>
@@ -818,9 +818,9 @@
       </button>
       <button class="nav-btn" style="color:var(--orange)">
         <div class="line1" style="color:#ccc">Balance</div>
-        <div class="line2">1,204.8 ₿PC</div>
+        <div class="line2">1,204.8 HONE</div>
       </button>
-      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch BTCPC node">
+      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch HONE node">
         <span class="node-dot local" id="node-dot"></span>
         <span id="node-label">Local</span>
       </button>
@@ -834,9 +834,9 @@
   <!-- Node selector modal -->
   <div id="node-modal-overlay" onclick="if(event.target===this)closeNodeModal()">
     <div id="node-modal">
-      <h3>BTCPC Node</h3>
-      <p>Enter the base URL of any public BTCPC gateway node. Leave blank to use the local node (same origin).</p>
-      <input id="node-input" type="url" placeholder="https://node.btcpc.network" />
+      <h3>HONE Node</h3>
+      <p>Enter the base URL of any public HONE gateway node. Leave blank to use the local node (same origin).</p>
+      <input id="node-input" type="url" placeholder="https://node.honemesh.net" />
       <div class="node-modal-actions">
         <button class="btn-node-cancel" onclick="closeNodeModal()">Cancel</button>
         <button class="btn-node-clear" onclick="clearNode()">Use Local</button>
@@ -848,10 +848,10 @@
   <!-- Buyer auth modal -->
   <div id="auth-modal-overlay" onclick="if(event.target===this)closeAuthModal()">
     <div id="auth-modal">
-      <h3>Sign in to BTCPC Market</h3>
-      <p>Enter your BTCPC account name and posting key to place orders and track purchases.</p>
+      <h3>Sign in to HONE Market</h3>
+      <p>Enter your HONE account name and posting key to place orders and track purchases.</p>
       <div class="auth-field">
-        <label>BTCPC Username</label>
+        <label>HONE Username</label>
         <input id="auth-username" type="text" placeholder="e.g. natoshisakamoto" autocomplete="username" />
       </div>
       <div class="auth-field">
@@ -920,11 +920,11 @@
     </div>
 
     <div class="sidebar-section">
-      <h4>Price (BTCPC)</h4>
-      <div class="filter-item"><input type="checkbox" id="p1"><label for="p1">Under 10 BTCPC</label></div>
-      <div class="filter-item"><input type="checkbox" id="p2"><label for="p2">10 – 50 BTCPC</label></div>
-      <div class="filter-item"><input type="checkbox" id="p3"><label for="p3">50 – 200 BTCPC</label></div>
-      <div class="filter-item"><input type="checkbox" id="p4"><label for="p4">200 BTCPC &amp; Above</label></div>
+      <h4>Price (HONE)</h4>
+      <div class="filter-item"><input type="checkbox" id="p1"><label for="p1">Under 10 HONE</label></div>
+      <div class="filter-item"><input type="checkbox" id="p2"><label for="p2">10 – 50 HONE</label></div>
+      <div class="filter-item"><input type="checkbox" id="p3"><label for="p3">50 – 200 HONE</label></div>
+      <div class="filter-item"><input type="checkbox" id="p4"><label for="p4">200 HONE &amp; Above</label></div>
       <div class="filter-group">
         <div class="price-inputs">
           <input type="number" placeholder="Min" id="price-min" />
@@ -937,7 +937,7 @@
 
     <div class="sidebar-section">
       <h4>Payment</h4>
-      <div class="filter-item"><input type="checkbox" id="t1" checked><label for="t1">BTCPC</label></div>
+      <div class="filter-item"><input type="checkbox" id="t1" checked><label for="t1">HONE</label></div>
       <div class="filter-item"><input type="checkbox" id="t2" checked><label for="t2">wUSDC</label></div>
       <div class="filter-item"><input type="checkbox" id="t3" checked><label for="t3">wUSDT</label></div>
     </div>
@@ -950,7 +950,7 @@
         99.2% fulfilled<br/>
         On-chain escrow on all orders.<br/><br/>
         <span style="color:var(--green)">✔ Chain-verified seller</span><br/>
-        Stake: <b style="color:var(--orange-d)">120 BTCPC bonded</b>
+        Stake: <b style="color:var(--orange-d)">120 HONE bonded</b>
       </div>
     </div>
   </aside>
@@ -985,17 +985,17 @@
     <div style="background:var(--white);border:1px solid var(--border);border-radius:4px;padding:12px 18px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <span style="font-size:18px;">&#127978;</span>
       <div style="flex:1;min-width:200px;">
-        <span style="font-weight:700;color:var(--text);font-size:13px;">This marketplace runs on Freeport &mdash; a native BTCPC protocol, active since genesis.</span>
+        <span style="font-weight:700;color:var(--text);font-size:13px;">This marketplace runs on Freeport &mdash; a native HONE protocol, active since genesis.</span>
         <span style="color:var(--sub);font-size:12px;margin-left:6px;">No platform fees. Escrow-protected. Digital goods auto-deliver encrypted to your key. Tor routing optional.</span>
       </div>
-      <a href="/" style="font-size:12px;color:var(--link);white-space:nowrap;flex-shrink:0;">About BTCPC ›</a>
+      <a href="/" style="font-size:12px;color:var(--link);white-space:nowrap;flex-shrink:0;">About HONE ›</a>
     </div>
 
     <!-- AMAZON IMPORT PROMO -->
     <div class="import-promo">
       <div style="font-size:36px">📦</div>
       <div class="import-promo-text">
-        <h3>Selling on Amazon? Bring your store to BTCPC.</h3>
+        <h3>Selling on Amazon? Bring your store to HONE.</h3>
         <p>Import your Amazon inventory CSV in seconds — products, prices, and descriptions migrate automatically. Keep selling while earning on a chain you own.</p>
       </div>
       <button class="import-promo-btn" onclick="openImport()">Import Amazon Store →</button>
@@ -1051,16 +1051,16 @@
           <span class="deal-ribbon">-18% Deal</span>
         </div>
         <div class="product-body">
-          <div class="product-title">RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h, Ollama Compatible</div>
+          <div class="product-title">RTX 3080 Recertified — 10GB VRAM, HONE Mine-Tested 500h, Ollama Compatible</div>
           <div class="product-stars">
             <span class="stars">★★★★★</span>
             <span class="review-count">94</span>
           </div>
           <div class="product-price-row">
             <div class="price-deal">Limited time deal</div>
-            <div class="price-main"><span class="sym">₿PC </span>480</div>
+            <div class="price-main"><span class="sym">HONE </span>480</div>
             <div class="price-usd">≈ $398 USD</div>
-            <div class="price-was">Was: <span style="text-decoration:line-through">₿PC 585</span></div>
+            <div class="price-was">Was: <span style="text-decoration:line-through">HONE 585</span></div>
           </div>
           <div class="shipping-line">FREE delivery</div>
           <div class="sold-count">94 sold this month</div>
@@ -1068,7 +1068,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'RTX 3080 Recertified','480','🖥️','rtx3080')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('rtx3080',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
@@ -1078,13 +1078,13 @@
           <span class="new-ribbon">New</span>
         </div>
         <div class="product-body">
-          <div class="product-title">Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware, GPS+WiFi+BLE</div>
+          <div class="product-title">Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed HONE Firmware, GPS+WiFi+BLE</div>
           <div class="product-stars">
             <span class="stars">★★★★★</span>
             <span class="review-count">41</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>22</div>
+            <div class="price-main"><span class="sym">HONE </span>22</div>
             <div class="price-usd">≈ $18 USD</div>
           </div>
           <div class="shipping-line">FREE delivery</div>
@@ -1093,23 +1093,23 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'Meshtastic T-Beam v1.1','22','📡','tbeam')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('tbeam',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
       <div class="product-card" data-price="5" data-rating="4.8" data-epoch="2510" data-cat="digital" onclick="openProduct('qwen25')">
         <div class="product-img" style="background:#f5f0ff">
           🧠
-          <span class="btcfs-ribbon">BTCPC-FS</span>
+          <span class="btcfs-ribbon">HONE-FS</span>
         </div>
         <div class="product-body">
-          <div class="product-title">Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via BTCPC-FS</div>
+          <div class="product-title">Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via HONE-FS</div>
           <div class="product-stars">
             <span class="stars">★★★★☆</span>
             <span class="review-count">212</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>5</div>
+            <div class="price-main"><span class="sym">HONE </span>5</div>
             <div class="price-usd">≈ $4 USD</div>
           </div>
           <div class="shipping-line">Instant digital delivery</div>
@@ -1118,7 +1118,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'Qwen2.5-7B GGUF Q5_K_M','5','🧠','qwen25')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('qwen25',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Instant CID delivery</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Instant CID delivery</div>
         </div>
       </div>
 
@@ -1133,7 +1133,7 @@
             <span class="review-count">7</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>310</div>
+            <div class="price-main"><span class="sym">HONE </span>310</div>
             <div class="price-usd">≈ $257 USD</div>
           </div>
           <div class="shipping-line">FREE delivery</div>
@@ -1142,7 +1142,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'Icom IC-7300 HF Transceiver','310','📻','ic7300')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('ic7300',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
@@ -1158,7 +1158,7 @@
             <span class="review-count">29</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>38</div>
+            <div class="price-main"><span class="sym">HONE </span>38</div>
             <div class="price-usd">≈ $32 USD</div>
           </div>
           <div class="shipping-line">FREE delivery</div>
@@ -1167,23 +1167,23 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'4TB NVMe SSD WD Black','38','💾','ssd4tb')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('ssd4tb',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
       <div class="product-card" data-price="2" data-rating="5.0" data-epoch="2600" data-cat="digital" onclick="openProduct('guide')">
         <div class="product-img" style="background:#fffff0">
           📜
-          <span class="btcfs-ribbon">BTCPC-FS</span>
+          <span class="btcfs-ribbon">HONE-FS</span>
         </div>
         <div class="product-body">
-          <div class="product-title">BTCPC Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy</div>
+          <div class="product-title">HONE Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy</div>
           <div class="product-stars">
             <span class="stars">★★★★★</span>
             <span class="review-count">503</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>2</div>
+            <div class="price-main"><span class="sym">HONE </span>2</div>
             <div class="price-usd">≈ $1.66 USD</div>
           </div>
           <div class="shipping-line">Instant digital delivery</div>
@@ -1192,7 +1192,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'Mining Optimization Guide v3','2','📜','guide')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('guide',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Instant CID delivery</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Instant CID delivery</div>
         </div>
       </div>
 
@@ -1201,13 +1201,13 @@
           📶
         </div>
         <div class="product-body">
-          <div class="product-title">RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, BTCPC Mesh Sensor Ready</div>
+          <div class="product-title">RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, HONE Mesh Sensor Ready</div>
           <div class="product-stars">
             <span class="stars">★★★★☆</span>
             <span class="review-count">18</span>
           </div>
           <div class="product-price-row">
-            <div class="price-main"><span class="sym">₿PC </span>14</div>
+            <div class="price-main"><span class="sym">HONE </span>14</div>
             <div class="price-usd">≈ $12 USD</div>
           </div>
           <div class="shipping-line">FREE delivery</div>
@@ -1216,7 +1216,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'RAK WisBlock LoRa Dev Kit','14','📶','rakwis')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('rakwis',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
@@ -1233,9 +1233,9 @@
           </div>
           <div class="product-price-row">
             <div class="price-deal">Limited time deal</div>
-            <div class="price-main"><span class="sym">₿PC </span>920</div>
+            <div class="price-main"><span class="sym">HONE </span>920</div>
             <div class="price-usd">≈ $764 USD</div>
-            <div class="price-was">Was: <span style="text-decoration:line-through">₿PC 1,045</span></div>
+            <div class="price-was">Was: <span style="text-decoration:line-through">HONE 1,045</span></div>
           </div>
           <div class="shipping-line">FREE delivery</div>
           <div class="sold-count">14 sold</div>
@@ -1243,7 +1243,7 @@
         <div class="product-footer">
           <button class="btn-cart" onclick="addToCart(event,'RTX 4090 Founders Edition','920','⚡','rtx4090')">Add to Cart</button>
           <button class="btn-buy" onclick="openProduct('rtx4090',true);event.stopPropagation()">Buy Now</button>
-          <div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>
+          <div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>
         </div>
       </div>
 
@@ -1265,16 +1265,16 @@
     </div>
   </div>
   <div class="cart-foot" id="cart-foot" style="display:none">
-    <div class="cart-total-line"><span>Subtotal</span><span id="cart-sub">₿PC 0</span></div>
-    <div class="cart-total-line"><span>Platform fee (1%)</span><span id="cart-fee">₿PC 0</span></div>
-    <div class="cart-total-line grand"><span>Order Total</span><span id="cart-total">₿PC 0</span></div>
+    <div class="cart-total-line"><span>Subtotal</span><span id="cart-sub">HONE 0</span></div>
+    <div class="cart-total-line"><span>Platform fee (1%)</span><span id="cart-fee">HONE 0</span></div>
+    <div class="cart-total-line grand"><span>Order Total</span><span id="cart-total">HONE 0</span></div>
     <div class="cart-ship-wrap" id="cart-ship-wrap" style="display:none">
       <label for="cart-ship-addr">Shipping address</label>
       <textarea class="cart-ship-input" id="cart-ship-addr" rows="2" placeholder="Street, City, State, ZIP, Country"></textarea>
       <span class="cart-ship-note">Required for physical items. Skip for digital orders.</span>
     </div>
     <button class="buy-now-checkout">Proceed to checkout</button>
-    <button class="checkout-btn" onclick="doCheckout()">Pay with BTCPC →</button>
+    <button class="checkout-btn" onclick="doCheckout()">Pay with HONE →</button>
     <div class="escrow-note">Payment locks in <b>escrow</b>. Released when you confirm delivery.</div>
   </div>
 </div>
@@ -1300,11 +1300,11 @@
         </div>
         <div class="pd-price-block">
           <div class="pd-deal-badge" id="pd-deal-badge" style="display:none">Limited time deal</div>
-          <div class="pd-price-main"><span class="sym">₿PC </span><span id="pd-price">0</span></div>
+          <div class="pd-price-main"><span class="sym">HONE </span><span id="pd-price">0</span></div>
           <div class="pd-price-usd" id="pd-price-usd"></div>
           <div class="pd-price-was" id="pd-price-was" style="display:none"></div>
           <div class="pd-free-ship" id="pd-ship">FREE delivery</div>
-          <div class="pd-escrow-note">Secured by <b>BTCPC Escrow</b> — funds locked until delivery confirmed</div>
+          <div class="pd-escrow-note">Secured by <b>HONE Escrow</b> — funds locked until delivery confirmed</div>
         </div>
         <div class="pd-desc" id="pd-desc"></div>
         <div class="pd-qty-row">
@@ -1323,7 +1323,7 @@
         </div>
         <div class="pd-chain-info">
           <span id="pd-epoch-tag">Epoch: —</span>
-          <span id="pd-token-tag">Token: BTCPC</span>
+          <span id="pd-token-tag">Token: HONE</span>
           <span>Escrow: on-chain</span>
           <span id="pd-inventory-tag"></span>
         </div>
@@ -1357,7 +1357,7 @@
 <div class="modal-overlay" id="import-modal">
   <div class="import-modal">
     <div class="modal-head">
-      <h2>📦 Import Your Amazon Store to BTCPC</h2>
+      <h2>📦 Import Your Amazon Store to HONE</h2>
       <button class="modal-close" onclick="closeImport()">✕</button>
     </div>
     <div class="modal-body">
@@ -1370,7 +1370,7 @@
 
       <!-- STEP 1 -->
       <div id="panel-1">
-        <p style="margin-bottom:16px;color:var(--sub);font-size:13px">Select how you want to bring your inventory to BTCPC Market.</p>
+        <p style="margin-bottom:16px;color:var(--sub);font-size:13px">Select how you want to bring your inventory to HONE Market.</p>
         <div class="source-cards">
           <div class="source-card selected" onclick="selectSource(this,'url')">
             <div class="icon">🔗</div>
@@ -1440,15 +1440,15 @@
       <!-- STEP 3 -->
       <div id="panel-3" style="display:none">
         <div class="price-adjust">
-          <label>BTCPC rate:</label>
+          <label>HONE rate:</label>
           <span style="font-size:11px;color:var(--muted)">1 USD =</span>
           <input type="number" id="rate-input" value="1.207" step="0.001" oninput="recalcPrices()" />
-          <span style="font-size:11px;color:var(--muted)">BTCPC</span>
+          <span style="font-size:11px;color:var(--muted)">HONE</span>
           <div class="rate-note">Adjust the exchange rate. All USD prices will be converted automatically.</div>
         </div>
         <div class="preview-table-wrap">
           <table class="preview-table" id="preview-table">
-            <thead><tr><th>Product Title</th><th>Category</th><th>USD Price</th><th>BTCPC Price</th><th>Qty</th></tr></thead>
+            <thead><tr><th>Product Title</th><th>Category</th><th>USD Price</th><th>HONE Price</th><th>Qty</th></tr></thead>
             <tbody id="preview-body"></tbody>
           </table>
         </div>
@@ -1459,7 +1459,7 @@
       <div id="panel-4" style="display:none;text-align:center;padding:32px 0">
         <div style="font-size:64px;margin-bottom:16px">🎉</div>
         <h3 style="font-size:20px;margin-bottom:8px">Store imported successfully!</h3>
-        <p style="color:var(--sub);font-size:14px;margin-bottom:20px">Your products are now live on BTCPC Market. Buyers can find them immediately.</p>
+        <p style="color:var(--sub);font-size:14px;margin-bottom:20px">Your products are now live on HONE Market. Buyers can find them immediately.</p>
         <div style="background:var(--green-bg);border:1px solid var(--green);border-radius:6px;padding:16px;display:inline-block;text-align:left;font-size:13px;margin-bottom:20px">
           <div id="final-summary"></div>
         </div>
@@ -1479,13 +1479,13 @@
 
 <script>
 // ── NODE CONFIGURATION ───────────────────────────────────────────────────────
-// BTCPC_NODE is the base URL of the BTCPC node serving the API.
+// HONE_NODE is the base URL of the HONE node serving the API.
 // Defaults to '' (same origin) for local users, but can be pointed at any
-// public BTCPC gateway via ?node= query param or the node selector below.
-var BTCPC_NODE = (function() {
+// public HONE gateway via ?node= query param or the node selector below.
+var HONE_NODE = (function() {
   var p = new URLSearchParams(window.location.search).get('node');
-  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('btcpc_node', n); return n; }
-  return (localStorage.getItem('btcpc_node') || '').replace(/\/$/, '');
+  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('hone_node', n); return n; }
+  return (localStorage.getItem('hone_node') || '').replace(/\/$/, '');
 })();
 
 // ── NODE SELECTOR ────────────────────────────────────────────────────
@@ -1493,17 +1493,17 @@ function updateNodeIndicator() {
   var dot   = document.getElementById('node-dot');
   var label = document.getElementById('node-label');
   if (!dot || !label) return;
-  if (!BTCPC_NODE) {
+  if (!HONE_NODE) {
     dot.className = 'node-dot local';
     label.textContent = 'Local';
   } else {
     dot.className = 'node-dot remote';
-    try { label.textContent = new URL(BTCPC_NODE).hostname; }
-    catch(_) { label.textContent = BTCPC_NODE.slice(0, 20); }
+    try { label.textContent = new URL(HONE_NODE).hostname; }
+    catch(_) { label.textContent = HONE_NODE.slice(0, 20); }
   }
 }
 function openNodeModal() {
-  document.getElementById('node-input').value = BTCPC_NODE;
+  document.getElementById('node-input').value = HONE_NODE;
   document.getElementById('node-modal-overlay').classList.add('open');
   document.getElementById('node-input').focus();
 }
@@ -1512,14 +1512,14 @@ function closeNodeModal() {
 }
 function saveNode() {
   var val = (document.getElementById('node-input').value || '').trim().replace(/\/$/, '');
-  localStorage.setItem('btcpc_node', val);
-  BTCPC_NODE = val;
+  localStorage.setItem('hone_node', val);
+  HONE_NODE = val;
   updateNodeIndicator();
   closeNodeModal();
 }
 function clearNode() {
-  localStorage.removeItem('btcpc_node');
-  BTCPC_NODE = '';
+  localStorage.removeItem('hone_node');
+  HONE_NODE = '';
   updateNodeIndicator();
   closeNodeModal();
 }
@@ -1539,8 +1539,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ── BUYER AUTH ───────────────────────────────────────────────────────
-var _buyerToken    = localStorage.getItem('btcpc_token') || '';
-var _buyerUsername = localStorage.getItem('btcpc_username') || '';
+var _buyerToken    = localStorage.getItem('hone_token') || '';
+var _buyerUsername = localStorage.getItem('hone_username') || '';
 
 function updateAccountNav() {
   var l1 = document.getElementById('nav-account-line1');
@@ -1560,8 +1560,8 @@ function openAuthModal() {
     // Already signed in — show sign-out option via toast
     if (confirm('Signed in as ' + _buyerUsername + '. Sign out?')) {
       _buyerToken = ''; _buyerUsername = '';
-      localStorage.removeItem('btcpc_token');
-      localStorage.removeItem('btcpc_username');
+      localStorage.removeItem('hone_token');
+      localStorage.removeItem('hone_username');
       updateAccountNav();
       toast('Signed out');
     }
@@ -1593,7 +1593,7 @@ async function submitBuyerLogin() {
   if (postingKey.length !== 64) { errEl.textContent = 'Posting key must be 64 hex characters.'; errEl.style.display=''; return; }
 
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/auth/login', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, posting_key: postingKey }),
@@ -1606,8 +1606,8 @@ async function submitBuyerLogin() {
     }
     _buyerToken    = data.token;
     _buyerUsername = data.username;
-    localStorage.setItem('btcpc_token',    _buyerToken);
-    localStorage.setItem('btcpc_username', _buyerUsername);
+    localStorage.setItem('hone_token',    _buyerToken);
+    localStorage.setItem('hone_username', _buyerUsername);
     closeAuthModal();
     updateAccountNav();
     toast('Signed in as ' + _buyerUsername, 'green');
@@ -1645,12 +1645,12 @@ async function loadOrders() {
   }
   body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">Loading…</div>';
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/my', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/my', {
       headers: { 'Authorization': 'Bearer ' + _buyerToken }
     });
     if (resp.status === 401) {
       _buyerToken = ''; _buyerUsername = '';
-      localStorage.removeItem('btcpc_token'); localStorage.removeItem('btcpc_username');
+      localStorage.removeItem('hone_token'); localStorage.removeItem('hone_username');
       updateAccountNav();
       body.innerHTML = '<div class="om-sign-in"><div>Session expired. Please sign in again.</div>' +
         '<button onclick="closeOrdersPanel();openAuthModal()">Sign In</button></div>';
@@ -1668,12 +1668,12 @@ async function loadOrders() {
 
 var DEMO_MY_ORDERS = [
   { order_id:'ord-demo000000000000000001', product_id:'demovendor/tbeam-mesh-kit',
-    seller:'demovendor', quantity:1, total:24, token:'BTCPC', status:'fulfilled',
+    seller:'demovendor', quantity:1, total:24, token:'HONE', status:'fulfilled',
     placed_epoch:34000, escrow_id:'esc-demo0001',
     carrier:'usps', tracking_number:'9400111899223456789012', shipping_service:'ground',
     shipping_note:'Ships in bubble wrap.' },
   { order_id:'ord-demo000000000000000002', product_id:'demovendor/mining-starter-guide',
-    seller:'demovendor', quantity:1, total:1, token:'BTCPC', status:'delivered',
+    seller:'demovendor', quantity:1, total:1, token:'HONE', status:'delivered',
     placed_epoch:33800, escrow_id:'esc-demo0002',
     fulfillment_cid:'sha256:0000000000000000000000000000000000000000000000000000000000000001' },
 ];
@@ -1710,7 +1710,7 @@ function renderOrders(orders) {
           '<div class="order-card-id">' + o.order_id + '</div>' +
           '<div class="order-card-product">' + escHtml(o.product_id) + '</div>' +
           '<div class="order-card-meta">Seller: ' + escHtml(o.seller) + ' · Qty: ' + o.quantity +
-            ' · Total: ₿PC ' + o.total + ' · Epoch: ' + o.placed_epoch + '</div>' +
+            ' · Total: HONE ' + o.total + ' · Epoch: ' + o.placed_epoch + '</div>' +
         '</div>' +
         statusBadge(o.status) +
       '</div>' +
@@ -1723,7 +1723,7 @@ function renderOrders(orders) {
 async function confirmDelivery(orderId) {
   if (!confirm('Confirm delivery of order ' + orderId + '? This releases escrow to the seller.')) return;
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/deliver', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/deliver', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + _buyerToken }
     });
     if (resp.ok) { toast('Delivery confirmed — escrow released', 'green'); loadOrders(); return; }
@@ -1735,7 +1735,7 @@ async function confirmDelivery(orderId) {
 async function cancelOrder(orderId) {
   if (!confirm('Cancel order ' + orderId + '?')) return;
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/cancel', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/cancel', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + _buyerToken }
     });
     if (resp.ok) { toast('Order cancelled', 'green'); loadOrders(); return; }
@@ -1748,7 +1748,7 @@ async function disputeOrder(orderId) {
   var memo = prompt('Briefly describe the issue:');
   if (!memo) return;
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/dispute', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/dispute', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + _buyerToken, 'Content-Type': 'application/json' },
       body: JSON.stringify({ memo })
@@ -1805,7 +1805,7 @@ function renderCart() {
     d.innerHTML = '<div class="cart-item-icon">' + item.icon + '</div>' +
       '<div class="cart-item-info">' +
         '<div class="cart-item-name">' + item.name + '</div>' +
-        '<div class="cart-item-price">₿PC ' + (item.price * item.qty) + '</div>' +
+        '<div class="cart-item-price">HONE ' + (item.price * item.qty) + '</div>' +
         '<div class="cart-item-qty">Qty: ' + item.qty + '</div>' +
       '</div>' +
       '<button class="cart-remove" onclick="removeFromCart(' + idx + ')">✕</button>';
@@ -1814,9 +1814,9 @@ function renderCart() {
 
   var fee = Math.round(sub * 0.01 * 100) / 100;
   var total = Math.round((sub + fee) * 100) / 100;
-  document.getElementById('cart-sub').textContent = '₿PC ' + sub;
-  document.getElementById('cart-fee').textContent = '₿PC ' + fee;
-  document.getElementById('cart-total').textContent = '₿PC ' + total;
+  document.getElementById('cart-sub').textContent = 'HONE ' + sub;
+  document.getElementById('cart-fee').textContent = 'HONE ' + fee;
+  document.getElementById('cart-total').textContent = 'HONE ' + total;
 
   // Show shipping address field if any physical item in cart
   var hasPhysical = cart.some(function(item) {
@@ -1839,7 +1839,7 @@ function closeCart() {
 async function doCheckout() {
   if (!cart.length) return;
 
-  var token = localStorage.getItem('btcpc_token') || '';
+  var token = localStorage.getItem('hone_token') || '';
   var shippingAddr = (document.getElementById('cart-ship-addr').value || '').trim();
   var btn = document.querySelector('.checkout-btn');
   btn.disabled = true;
@@ -1853,14 +1853,14 @@ async function doCheckout() {
     var item = cart[i];
     var p = null;
     if (item.productKey) {
-      p = PRODUCTS[item.productKey] || { productId: item.productKey, token: 'BTCPC' };
+      p = PRODUCTS[item.productKey] || { productId: item.productKey, token:'HONE' };
     }
     if (!p) continue;
     var isDigital = p.digital === true || (p.inventory === null || p.inventory === undefined);
     var orderBody = { product_id: p.productId, quantity: item.qty, token: p.token };
     if (!isDigital && shippingAddr) orderBody.shipping_address = shippingAddr;
     try {
-      var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
+      var resp = await fetch(HONE_NODE + '/api/commerce/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1878,7 +1878,7 @@ async function doCheckout() {
   }
 
   btn.disabled = false;
-  btn.textContent = 'Pay with BTCPC →';
+  btn.textContent = 'Pay with HONE →';
 
   if (authFailed) {
     toast('Sign in to place an order — click Account & Lists', 'green');
@@ -2006,7 +2006,7 @@ function renderStep() {
   } else if (importStep === 3) {
     footer.style.display = '';
     nextBtn.className = 'btn-import-final';
-    nextBtn.textContent = '🚀 Publish ' + parsedProducts.length + ' Products to BTCPC';
+    nextBtn.textContent = '🚀 Publish ' + parsedProducts.length + ' Products to HONE';
     nextBtn.onclick = doImport;
     nextBtn.disabled = false;
   } else if (importStep === 2 && selectedSource === 'url') {
@@ -2062,7 +2062,7 @@ async function fetchAmazonUrl() {
   document.getElementById('url-fallback').style.display = 'none';
 
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/import/amazon', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/import/amazon', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: url }),
@@ -2142,21 +2142,21 @@ function renderPreview() {
   tbody.innerHTML = '';
   var total = 0;
   parsedProducts.forEach(function(p, i) {
-    var btcpc = Math.ceil(p.price * rate * 100) / 100;
-    total += btcpc * p.qty;
+    var hone = Math.ceil(p.price * rate * 100) / 100;
+    total += hone * p.qty;
     var tr = document.createElement('tr');
     tr.innerHTML = '<td>' + p.title.slice(0, 60) + (p.title.length > 60 ? '…' : '') + '</td>' +
       '<td>' + (p.category || '—') + '</td>' +
       '<td>$' + (p.price || 0).toFixed(2) + '</td>' +
-      '<td class="price-cell">₿PC ' + btcpc.toFixed(2) + '</td>' +
+      '<td class="price-cell">HONE ' + hone.toFixed(2) + '</td>' +
       '<td>' + (p.qty || 1) + '</td>';
     tbody.appendChild(tr);
-    p._btcpc = btcpc;
+    p._hone = hone;
   });
   document.getElementById('import-summary').innerHTML =
     '<b>✔ Ready to publish:</b> ' + parsedProducts.length + ' products · ' +
-    'Total inventory value: <b>₿PC ' + total.toFixed(2) + '</b> · ' +
-    'Estimated bonding curve stake needed: <b>₿PC ' + Math.ceil(parsedProducts.length * 0.8) + '</b>';
+    'Total inventory value: <b>HONE ' + total.toFixed(2) + '</b> · ' +
+    'Estimated bonding curve stake needed: <b>HONE ' + Math.ceil(parsedProducts.length * 0.8) + '</b>';
 }
 
 function doImport() {
@@ -2169,13 +2169,13 @@ function doImport() {
     importStep = 4;
     renderStep();
     document.getElementById('final-summary').innerHTML =
-      '✅ <b>' + count + ' products</b> published to BTCPC Market<br/>' +
+      '✅ <b>' + count + ' products</b> published to HONE Market<br/>' +
       '🔐 Escrow enabled on all listings<br/>' +
       '📊 Reputation tracking active<br/>' +
       '⛓ All listings recorded on-chain<br/>';
     // Reload the grid with imported products added
     addImportedCards(parsedProducts.slice(0,4));
-    toast('✅ ' + count + ' products live on BTCPC Market!', 'green');
+    toast('✅ ' + count + ' products live on HONE Market!', 'green');
   }, 1800);
 }
 
@@ -2185,7 +2185,7 @@ function addImportedCards(products) {
   products.forEach(function(p, i) {
     var card = document.createElement('div');
     card.className = 'product-card';
-    card.dataset.price = p._btcpc;
+    card.dataset.price = p._hone;
     card.dataset.rating = '4.5';
     card.dataset.epoch = '37800';
     card.dataset.cat = 'imported';
@@ -2197,15 +2197,15 @@ function addImportedCards(products) {
         '<div class="product-title">' + p.title + '</div>' +
         '<div class="product-stars"><span class="stars">★★★★☆</span><span class="review-count">0</span></div>' +
         '<div class="product-price-row">' +
-          '<div class="price-main"><span class="sym">₿PC </span>' + p._btcpc.toFixed(2) + '</div>' +
+          '<div class="price-main"><span class="sym">HONE </span>' + p._hone.toFixed(2) + '</div>' +
           '<div class="price-usd">≈ $' + p.price.toFixed(2) + ' USD</div>' +
         '</div>' +
         '<div class="shipping-line">FREE delivery</div>' +
       '</div>' +
       '<div class="product-footer">' +
-        '<button class="btn-cart" onclick="addToCart(event,\'' + p.title.replace(/'/g,"\\'").slice(0,30) + '\',' + p._btcpc + ',\'' + (emojis[i]||'📦') + '\',' + (p.product_id ? '\'' + p.product_id + '\'' : 'null') + ')">Add to Cart</button>' +
+        '<button class="btn-cart" onclick="addToCart(event,\'' + p.title.replace(/'/g,"\\'").slice(0,30) + '\',' + p._hone + ',\'' + (emojis[i]||'📦') + '\',' + (p.product_id ? '\'' + p.product_id + '\'' : 'null') + ')">Add to Cart</button>' +
         '<button class="btn-buy" onclick="event.stopPropagation()">Buy Now</button>' +
-        '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
+        '<div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>' +
       '</div>';
     grid.appendChild(card);
   });
@@ -2274,7 +2274,7 @@ function catKey(categories) {
 }
 
 function effectivePrice(p) {
-  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
+  var epoch = Math.floor((Date.now() - 1783191600000) / 30000);
   if (p.sale_price != null && p.sale_ends_epoch != null && p.sale_ends_epoch > epoch) return p.sale_price;
   return p.price;
 }
@@ -2283,10 +2283,10 @@ function buildCard(p) {
   var key = p.product_id || (p.seller + '/' + p.slug);
   var ep  = effectivePrice(p);
   var hasSale = p.sale_price != null && p.sale_ends_epoch != null;
-  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
+  var epoch = Math.floor((Date.now() - 1783191600000) / 30000);
   var saleActive = hasSale && p.sale_ends_epoch > epoch;
   var imgSrc = p.image_cid
-    ? (BTCPC_NODE + '/api/commerce/media/' + p.image_cid.replace('sha256:',''))
+    ? (HONE_NODE + '/api/commerce/media/' + p.image_cid.replace('sha256:',''))
     : null;
 
   var badge = '';
@@ -2294,7 +2294,7 @@ function buildCard(p) {
     var pct = p.price > 0 ? Math.round((1 - p.sale_price / p.price) * 100) : 0;
     badge = '<span class="deal-ribbon">-' + pct + '% Deal</span>';
   } else if (p.auto_deliver) {
-    badge = '<span class="btcfs-ribbon">BTCPC-FS</span>';
+    badge = '<span class="btcfs-ribbon">HONE-FS</span>';
   }
 
   var imgHtml = imgSrc
@@ -2305,7 +2305,7 @@ function buildCard(p) {
   var shipLine = p.auto_deliver
     ? '<div class="shipping-line">Instant digital delivery</div>'
     : '<div class="shipping-line">FREE delivery</div>';
-  var saleWas = saleActive ? '<div class="price-was">Was: <span style="text-decoration:line-through">₿PC ' + p.price + '</span></div>' : '';
+  var saleWas = saleActive ? '<div class="price-was">Was: <span style="text-decoration:line-through">HONE ' + p.price + '</span></div>' : '';
   var dealLabel = saleActive ? '<div class="price-deal">Limited time deal</div>' : '';
   var saleTimer = saleActive ? '<div class="flash-countdown" data-sale-key="' + key + '"></div>' : '';
 
@@ -2320,8 +2320,8 @@ function buildCard(p) {
     price: ep, was: saleActive ? p.price : null,
     stars: storeScore > 0 ? parseFloat(ratingVal) : 4.5, reviews: 0,
     inventory: p.inventory, digital: !!p.auto_deliver,
-    ship: p.auto_deliver ? 'Instant digital delivery via BTCPC-FS' : 'FREE delivery',
-    desc: p.description || '', token: p.token || 'BTCPC',
+    ship: p.auto_deliver ? 'Instant digital delivery via HONE-FS' : 'FREE delivery',
+    desc: p.description || '', token: p.token || 'HONE',
     questions: (p.questions || []).map(function(q) { return {
       qa_id: q.qa_id, asker: q.asker, question: q.question, answer: q.answer
     }; }),
@@ -2370,7 +2370,7 @@ function buildCard(p) {
       '<div class="product-stars"><span class="stars">' + starsHtml + '</span><span class="review-count">' + (storeScore > 0 ? ratingVal : '') + '</span></div>' +
       '<div class="product-price-row">' +
         dealLabel +
-        '<div class="price-main"><span class="sym">₿PC </span>' + ep + '</div>' +
+        '<div class="price-main"><span class="sym">HONE </span>' + ep + '</div>' +
         saleWas +
       '</div>' +
       shipLine + invLine + saleTimer + condBadge +
@@ -2378,7 +2378,7 @@ function buildCard(p) {
     '<div class="product-footer">' +
       '<button class="btn-cart" onclick="addToCart(event,\'' + safeTitle + '\',' + ep + ',\'' + catEmoji(p.categories) + '\',\'' + safeKey + '\');event.stopPropagation()">Add to Cart</button>' +
       '<button class="btn-buy" onclick="openProduct(\'' + safeKey + '\',true);event.stopPropagation()">Buy Now</button>' +
-      '<div class="btcpc-tag">Pay with <span>BTCPC</span> · Escrow protected</div>' +
+      '<div class="hone-tag">Pay with <span>HONE</span> · Escrow protected</div>' +
     '</div>';
   return card;
 }
@@ -2387,11 +2387,11 @@ function buildCard(p) {
 var _storeScores = {};
 
 async function loadFeaturedStores() {
-  if (!BTCPC_NODE) return;
+  if (!HONE_NODE) return;
   var band = document.getElementById('featured-stores-band');
   var row  = document.getElementById('featured-stores-row');
   try {
-    var r = await fetch(BTCPC_NODE + '/api/commerce/stores?limit=20');
+    var r = await fetch(HONE_NODE + '/api/commerce/stores?limit=20');
     if (!r.ok) return;
     var data = await r.json();
     var stores = (data.stores || []).filter(function(s) { return s.status === 'active'; });
@@ -2463,10 +2463,10 @@ function starsFromScore(score) {
 }
 
 async function loadProducts() {
-  if (!BTCPC_NODE) return;
+  if (!HONE_NODE) return;
   var grid = document.getElementById('product-grid');
   try {
-    var r = await fetch(BTCPC_NODE + '/api/commerce/products?limit=100');
+    var r = await fetch(HONE_NODE + '/api/commerce/products?limit=100');
     if (!r.ok) return;
     var data = await r.json();
     var products = data.products || [];
@@ -2488,39 +2488,39 @@ async function loadProducts() {
 }
 
 // ── PRODUCT CATALOG ─────────────────────────────────────────────────
-var _nowEpoch = Math.floor((Date.now() - 1777633200000) / 30000);
+var _nowEpoch = Math.floor((Date.now() - 1783191600000) / 30000);
 var PRODUCTS = {
   rtx3080: {
     key:'rtx3080', icon:'🖥️', bg:'#f0f4f8',
-    title:'RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h, Ollama Compatible',
+    title:'RTX 3080 Recertified — 10GB VRAM, HONE Mine-Tested 500h, Ollama Compatible',
     seller:'shindevlin', productId:'shindevlin/rtx-3080-recertified',
     price:480, priceUsd:398, was:585, badge:'deal', badgeLabel:'-18% Deal', badgeColor:'var(--badge-deal)',
     saleEndsEpoch: _nowEpoch + 1440,
     stars:4.9, reviews:94, inventory:3, digital:false,
     ship:'FREE delivery — 2–3 days',
-    desc:'Professionally recertified RTX 3080 10GB. Burn-tested for 500 hours on BTCPC Ollama mining workload before listing — GPU is confirmed stable at full inference load. Compatible with all major Ollama models up to 7B without quantization. Includes 90-day BTCPC Escrow buyer protection and a verified compute-hours certificate on-chain. Original cooler, replaced thermal paste, custom VBIOS for quiet mining. PCIe 4.0 slot required.',
-    token:'BTCPC',
+    desc:'Professionally recertified RTX 3080 10GB. Burn-tested for 500 hours on HONE Ollama mining workload before listing — GPU is confirmed stable at full inference load. Compatible with all major Ollama models up to 7B without quantization. Includes 90-day HONE Escrow buyer protection and a verified compute-hours certificate on-chain. Original cooler, replaced thermal paste, custom VBIOS for quiet mining. PCIe 4.0 slot required.',
+    token:'HONE',
     questions:[
       {qa_id:'q1', asker:'loravan_king', question:'Does it work with PCIe 3.0 slots?', answer:'Yes — PCIe 3.0 ×16 works fine, you lose about 2% bandwidth vs 4.0. All Ollama models run at full speed.'},
-      {qa_id:'q2', asker:'btcpc_miner_77', question:'Is the thermal paste pre-applied?', answer:'Yes, replaced with Thermal Grizzly Kryonaut before shipping. Re-paste not needed.'},
+      {qa_id:'q2', asker:'hone_miner_77', question:'Is the thermal paste pre-applied?', answer:'Yes, replaced with Thermal Grizzly Kryonaut before shipping. Re-paste not needed.'},
     ],
     reviews_data:[
       {user:'natoshisakamoto', stars:5, date:'2 weeks ago', text:'Flawless. Running qwen2.5:7b at full speed, no crashes in 3 weeks. Comes with a printed test certificate.', verified:true},
       {user:'mesh_relay_99', stars:5, date:'1 month ago', text:'Bought this for my validator node. Way cheaper than new and performs identically on Ollama benchmarks. Seller was fast.', verified:true},
-      {user:'btcpc_miner_77', stars:4, date:'3 weeks ago', text:'Good card. Ran hot the first day but thermal paste settled and now sits at 72°C under full load. Happy overall.', verified:true},
+      {user:'hone_miner_77', stars:4, date:'3 weeks ago', text:'Good card. Ran hot the first day but thermal paste settled and now sits at 72°C under full load. Happy overall.', verified:true},
     ]
   },
   tbeam: {
     key:'tbeam', icon:'📡', bg:'#f0f8ff',
-    title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware, GPS+WiFi+BLE',
-    seller:'shindevlin', productId:'shindevlin/tbeam-v11-btcpc',
+    title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed HONE Firmware, GPS+WiFi+BLE',
+    seller:'shindevlin', productId:'shindevlin/tbeam-v11-hone',
     price:22, priceUsd:18, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
     stars:5.0, reviews:41, inventory:50, digital:false,
     ship:'FREE delivery — 3–5 days',
-    desc:'T-Beam v1.1 pre-configured as a BTCPC mesh relay node. Comes with BTCPC sensor firmware, LoRa 915MHz (US) or 868MHz (EU — specify in notes), integrated GPS for GNSS sensor proofs, WiFi for local API, and BLE for phone pairing. Just plug in and your node starts earning sensor relay rewards. Includes USB-C cable and 3dBi antenna. IP65 enclosure optional (+₿PC 4).',
-    token:'BTCPC',
+    desc:'T-Beam v1.1 pre-configured as a HONE mesh relay node. Comes with HONE sensor firmware, LoRa 915MHz (US) or 868MHz (EU — specify in notes), integrated GPS for GNSS sensor proofs, WiFi for local API, and BLE for phone pairing. Just plug in and your node starts earning sensor relay rewards. Includes USB-C cable and 3dBi antenna. IP65 enclosure optional (+HONE 4).',
+    token:'HONE',
     questions:[
-      {qa_id:'q3', asker:'hamradio_btcpc', question:'Does it work with the 868MHz EU band?', answer:'Yes — specify "EU 868" in the order notes. We flash the correct firmware before shipping.'},
+      {qa_id:'q3', asker:'hamradio_hone', question:'Does it work with the 868MHz EU band?', answer:'Yes — specify "EU 868" in the order notes. We flash the correct firmware before shipping.'},
     ],
     reviews_data:[
       {user:'loravan_king', stars:5, date:'1 week ago', text:'Set up in 10 minutes. Already accumulating sensor relay rewards. The pre-flash saves hours of setup.', verified:true},
@@ -2529,13 +2529,13 @@ var PRODUCTS = {
   },
   qwen25: {
     key:'qwen25', icon:'🧠', bg:'#f5f0ff',
-    title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via BTCPC-FS',
+    title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready, 5GB via HONE-FS',
     seller:'shindevlin', productId:'shindevlin/qwen25-7b-q5km',
-    price:5, priceUsd:4, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
+    price:5, priceUsd:4, badge:'btcfs', badgeLabel:'HONE-FS', badgeColor:'var(--badge-btcfs)',
     stars:4.8, reviews:212, inventory:null, digital:true,
-    ship:'Instant digital delivery via BTCPC-FS',
-    desc:'Qwen2.5-7B in GGUF Q5_K_M quantization — best quality-per-GB for 7B inference. Delivered as a BTCPC-FS content-addressed blob (CID included in order confirmation). Pull directly with Ollama: "ollama pull <cid>". Validated against the Qwen2.5 official weights hash. Includes a model card with prompt templates, system prompts tuned for BTCPC mining tasks, and benchmark results on RTX 3080/4090.',
-    token:'BTCPC',
+    ship:'Instant digital delivery via HONE-FS',
+    desc:'Qwen2.5-7B in GGUF Q5_K_M quantization — best quality-per-GB for 7B inference. Delivered as a HONE-FS content-addressed blob (CID included in order confirmation). Pull directly with Ollama: "ollama pull <cid>". Validated against the Qwen2.5 official weights hash. Includes a model card with prompt templates, system prompts tuned for HONE mining tasks, and benchmark results on RTX 3080/4090.',
+    token:'HONE',
     questions:[
       {qa_id:'q4', asker:'ai_farm_hale', question:'Is a 13B version available?', answer:null},
       {qa_id:'q5', asker:'vera_sensor', question:'Can I use this with llama.cpp directly?', answer:'Yes — the GGUF format works with llama.cpp, Ollama, LM Studio, and anything GGUF-compatible.'},
@@ -2543,7 +2543,7 @@ var PRODUCTS = {
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'Exactly what it says. CID in the order, pulled with Ollama in 2 minutes, runs great.', verified:true},
       {user:'natoshisakamoto', stars:5, date:'1 week ago', text:'Best Q5_K_M I\'ve used. Prompt templates are a huge bonus.', verified:true},
-      {user:'btcpc_miner_77', stars:4, date:'2 weeks ago', text:'Good model, solid quantization. Wish it came with a 13B option too.', verified:false},
+      {user:'hone_miner_77', stars:4, date:'2 weeks ago', text:'Good model, solid quantization. Wish it came with a 13B option too.', verified:false},
     ]
   },
   ic7300: {
@@ -2553,10 +2553,10 @@ var PRODUCTS = {
     price:310, priceUsd:257, badge:null,
     stars:4.7, reviews:7, inventory:2, digital:false,
     ship:'FREE delivery — 5–7 days (large item)',
-    desc:'Icom IC-7300 direct-sampling SDR HF transceiver. 100W output, 0.5–30MHz coverage. Professionally calibrated at 1, 7, 14, 21, 28MHz reference frequencies — calibration printout included. Paired with VARA HF modem for BTCPC emergency mesh comms. Minor cosmetic marks on front panel (pictured). Comes with power cable, mic, and IC-7300 manual. 30-day escrow protection — no questions asked returns.',
-    token:'BTCPC', questions:[],
+    desc:'Icom IC-7300 direct-sampling SDR HF transceiver. 100W output, 0.5–30MHz coverage. Professionally calibrated at 1, 7, 14, 21, 28MHz reference frequencies — calibration printout included. Paired with VARA HF modem for HONE emergency mesh comms. Minor cosmetic marks on front panel (pictured). Comes with power cable, mic, and IC-7300 manual. 30-day escrow protection — no questions asked returns.',
+    token:'HONE', questions:[],
     reviews_data:[
-      {user:'hamradio_btcpc', stars:5, date:'1 month ago', text:'Calibration is real — checked on my own equipment. Great value.', verified:true},
+      {user:'hamradio_hone', stars:5, date:'1 month ago', text:'Calibration is real — checked on my own equipment. Great value.', verified:true},
       {user:'vara_relay', stars:4, date:'3 weeks ago', text:'Works perfectly with VARA HF. The cosmetic marks are barely visible.', verified:true},
     ]
   },
@@ -2567,43 +2567,43 @@ var PRODUCTS = {
     price:38, priceUsd:32, badge:'new', badgeLabel:'New', badgeColor:'var(--badge-new)',
     stars:4.9, reviews:29, inventory:18, digital:false,
     ship:'FREE delivery — 2–3 days',
-    desc:'Western Digital WD Black SN850X 4TB NVMe SSD. Factory sealed, full 5-year manufacturer warranty. PCIe Gen 4 x4, sequential read 7300MB/s, write 6600MB/s. M.2 2280 form factor. Perfect for BTCPC-FS node storage — a single drive holds over 80,000 sensor data blobs at typical sizes. The SN850X has no DRAM-less cache stutter; sustained write performance is consistent across the full 4TB.',
-    token:'BTCPC', questions:[],
+    desc:'Western Digital WD Black SN850X 4TB NVMe SSD. Factory sealed, full 5-year manufacturer warranty. PCIe Gen 4 x4, sequential read 7300MB/s, write 6600MB/s. M.2 2280 form factor. Perfect for HONE-FS node storage — a single drive holds over 80,000 sensor data blobs at typical sizes. The SN850X has no DRAM-less cache stutter; sustained write performance is consistent across the full 4TB.',
+    token:'HONE', questions:[],
     reviews_data:[
-      {user:'storage_relay', stars:5, date:'5 days ago', text:'Sealed as advertised. Running it as my BTCPC-FS blob store. Zero issues.', verified:true},
+      {user:'storage_relay', stars:5, date:'5 days ago', text:'Sealed as advertised. Running it as my HONE-FS blob store. Zero issues.', verified:true},
       {user:'loravan_king', stars:5, date:'2 weeks ago', text:'Great price. Faster than my old Samsung 980 Pro at sustained writes.', verified:true},
     ]
   },
   guide: {
     key:'guide', icon:'📜', bg:'#fffff0',
-    title:'BTCPC Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy',
+    title:'HONE Mining Optimization Guide v3 — 38 Pages, Model Tuning, Stake Strategy',
     seller:'natoshisakamoto', productId:'natoshisakamoto/mining-guide-v3',
-    price:2, priceUsd:1.66, badge:'btcfs', badgeLabel:'BTCPC-FS', badgeColor:'var(--badge-btcfs)',
+    price:2, priceUsd:1.66, badge:'btcfs', badgeLabel:'HONE-FS', badgeColor:'var(--badge-btcfs)',
     stars:5.0, reviews:503, inventory:null, digital:true,
-    ship:'Instant digital delivery via BTCPC-FS',
-    desc:'The definitive BTCPC miner\'s handbook (v3). 38 pages covering: model selection for maximum work-value, epoch bandwidth optimization, stake curve theory with worked examples, multi-GPU setups, clock node co-location, validator reward splits, and self-heal automation patterns. Includes a spreadsheet template for tracking reward ROI. Written by natoshisakamoto — author of the BTCPC Whitepaper appendices.',
-    token:'BTCPC',
+    ship:'Instant digital delivery via HONE-FS',
+    desc:'The definitive HONE miner\'s handbook (v3). 38 pages covering: model selection for maximum work-value, epoch bandwidth optimization, stake curve theory with worked examples, multi-GPU setups, clock node co-location, validator reward splits, and self-heal automation patterns. Includes a spreadsheet template for tracking reward ROI. Written by natoshisakamoto — author of the HONE Whitepaper appendices.',
+    token:'HONE',
     questions:[
-      {qa_id:'q7', asker:'btcpc_miner_77', question:'Is there a v4 planned?', answer:'Yes, targeting v4 after the Phase G validator upgrade. Buyers of v3 get it free.'},
+      {qa_id:'q7', asker:'hone_miner_77', question:'Is there a v4 planned?', answer:'Yes, targeting v4 after the Phase G validator upgrade. Buyers of v3 get it free.'},
     ],
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'1 day ago', text:'Increased my daily rewards 40% after following the model selection guide. 10/10.', verified:true},
-      {user:'btcpc_miner_77', stars:5, date:'1 week ago', text:'The stake curve math alone is worth the 2 BTCPC. Read it twice.', verified:true},
+      {user:'hone_miner_77', stars:5, date:'1 week ago', text:'The stake curve math alone is worth the 2 HONE. Read it twice.', verified:true},
       {user:'mesh_relay_99', stars:5, date:'2 weeks ago', text:'natoshi explains epoch bandwidth better than the whitepaper. Required reading.', verified:true},
     ]
   },
   rakwis: {
     key:'rakwis', icon:'📶', bg:'#f0f8ff',
-    title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, BTCPC Mesh Sensor Ready',
+    title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262, HONE Mesh Sensor Ready',
     seller:'shindevlin', productId:'shindevlin/rak-wisblock-sensor-kit',
     price:14, priceUsd:12, badge:null,
     stars:4.6, reviews:18, inventory:30, digital:false,
     ship:'FREE delivery — 3–5 days',
-    desc:'RAK WisBlock Starter Kit with nRF52840 CPU and SX1262 LoRa module. Pre-configured as a BTCPC environment sensor node — temperature, humidity, light, and air quality sensors included. Ships with BTCPC sensor firmware flashed and pre-paired to the BTCPC mesh. Just power on and the node begins publishing readings to the chain. Great for earning sensor relay income at low cost.',
-    token:'BTCPC', questions:[],
+    desc:'RAK WisBlock Starter Kit with nRF52840 CPU and SX1262 LoRa module. Pre-configured as a HONE environment sensor node — temperature, humidity, light, and air quality sensors included. Ships with HONE sensor firmware flashed and pre-paired to the HONE mesh. Just power on and the node begins publishing readings to the chain. Great for earning sensor relay income at low cost.',
+    token:'HONE', questions:[],
     reviews_data:[
       {user:'vera_sensor', stars:5, date:'2 weeks ago', text:'Running 6 of these. All earning. Setup is legitimately 5 minutes.', verified:true},
-      {user:'hamradio_btcpc', stars:4, date:'1 month ago', text:'Solid kit. Air quality sensor needed calibration but LoRa is rock solid.', verified:true},
+      {user:'hamradio_hone', stars:4, date:'1 month ago', text:'Solid kit. Air quality sensor needed calibration but LoRa is rock solid.', verified:true},
     ]
   },
   rtx4090: {
@@ -2614,10 +2614,10 @@ var PRODUCTS = {
     saleEndsEpoch: _nowEpoch + 720,
     stars:4.9, reviews:14, inventory:1, digital:false,
     ship:'FREE delivery — 2–3 days (insured shipment)',
-    desc:'RTX 4090 Founder\'s Edition, single owner, purchased new 8 months ago. Used exclusively for BTCPC Ollama inference — no gaming, no overclocking. BIOS never modified. Verified 9.4× work multiplier on Qwen2.5:14B vs baseline (test results on-chain, CID in listing). Comes with original box, GPU removal tool, and power adapters. BTCPC-verified compute history included — transparent provenance.',
-    token:'BTCPC',
+    desc:'RTX 4090 Founder\'s Edition, single owner, purchased new 8 months ago. Used exclusively for HONE Ollama inference — no gaming, no overclocking. BIOS never modified. Verified 9.4× work multiplier on Qwen2.5:14B vs baseline (test results on-chain, CID in listing). Comes with original box, GPU removal tool, and power adapters. HONE-verified compute history included — transparent provenance.',
+    token:'HONE',
     questions:[
-      {qa_id:'q6', asker:'mesh_relay_99', question:'Any warranty left on this?', answer:'Manufacturer warranty expired but we offer 30-day BTCPC escrow buyer protection — full refund if not as described.'},
+      {qa_id:'q6', asker:'mesh_relay_99', question:'Any warranty left on this?', answer:'Manufacturer warranty expired but we offer 30-day HONE escrow buyer protection — full refund if not as described.'},
     ],
     reviews_data:[
       {user:'ai_farm_hale', stars:5, date:'3 days ago', text:'The on-chain work proof was the deciding factor. Legitimate history, no games. It\'s a beast.', verified:true},
@@ -2639,7 +2639,7 @@ function epochsToHms(epochs) {
 }
 
 function renderFlashCountdowns() {
-  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
+  var epoch = Math.floor((Date.now() - 1783191600000) / 30000);
   document.querySelectorAll('[data-sale-key]').forEach(function(el) {
     var key = el.dataset.saleKey;
     var p = PRODUCTS[key];
@@ -2701,13 +2701,13 @@ async function submitQuestion() {
   var input = document.getElementById('qa-ask-input');
   var q = input.value.trim();
   if (!q) return;
-  var token = localStorage.getItem('btcpc_token') || '';
+  var token = localStorage.getItem('hone_token') || '';
   if (!token) { toast('Sign in to ask a question — click Account & Lists'); return; }
 
   var parts = _pdCurrent.productId.split('/');
   var seller = parts[0], slug = parts.slice(1).join('/');
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(seller) + '/' + encodeURIComponent(slug) + '/qa', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/products/' + encodeURIComponent(seller) + '/' + encodeURIComponent(slug) + '/qa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ question: q }),
@@ -2744,7 +2744,7 @@ function openProduct(key, buyIntent) {
   // ── Main image / multi-image gallery
   var imgColEl = document.getElementById('pd-img');
   if (p.image_cids && p.image_cids.length > 0) {
-    var mainSrc = BTCPC_NODE + '/api/commerce/media/' + p.image_cids[0].replace('sha256:','');
+    var mainSrc = HONE_NODE + '/api/commerce/media/' + p.image_cids[0].replace('sha256:','');
     var mainImg = '<img id="pd-main-img" src="' + mainSrc + '" style="width:100%;height:100%;object-fit:cover" />';
     imgColEl.innerHTML = mainImg + (p.badge ? '<div class="pd-badge" style="background:'+p.badgeColor+'">'+p.badgeLabel+'</div>' : '');
     // Thumbnails rendered below separately
@@ -2762,7 +2762,7 @@ function openProduct(key, buyIntent) {
     galleryDiv.id = 'pd-gallery';
     galleryDiv.className = 'pd-gallery-thumbs';
     p.image_cids.forEach(function(cid, idx) {
-      var src = BTCPC_NODE + '/api/commerce/media/' + cid.replace('sha256:','');
+      var src = HONE_NODE + '/api/commerce/media/' + cid.replace('sha256:','');
       var thumb = document.createElement('img');
       thumb.src = src;
       thumb.className = 'pd-thumb' + (idx === 0 ? ' active' : '');
@@ -2807,7 +2807,7 @@ function openProduct(key, buyIntent) {
     pwywWrap.className = 'pd-pwyw-section';
     pwywWrap.innerHTML =
       '<input class="pd-pwyw-input" id="pd-pwyw-val" type="number" min="' + p.min_price + '" step="0.01" value="' + p.suggested_price + '" />' +
-      '<div class="pd-pwyw-label">Minimum: ₿PC ' + p.min_price + ' — pay more to support the creator</div>';
+      '<div class="pd-pwyw-label">Minimum: HONE ' + p.min_price + ' — pay more to support the creator</div>';
     priceEl.closest('.pd-price-block').appendChild(pwywWrap);
   } else {
     priceEl.textContent = p.price;
@@ -2834,7 +2834,7 @@ function openProduct(key, buyIntent) {
     offerWrap.innerHTML =
       '<h5>Make an offer</h5>' +
       '<div class="pd-offer-row">' +
-        '<input class="pd-offer-input" id="pd-offer-val" type="number" min="0" step="0.01" placeholder="Your offer in BTCPC" />' +
+        '<input class="pd-offer-input" id="pd-offer-val" type="number" min="0" step="0.01" placeholder="Your offer in HONE" />' +
         '<button class="pd-offer-btn" onclick="submitOffer()">Submit offer</button>' +
       '</div>' +
       '<div class="pd-offer-msg" id="pd-offer-msg"></div>';
@@ -2848,7 +2848,7 @@ function openProduct(key, buyIntent) {
   dealBadge.style.display = p.badge === 'deal' ? '' : 'none';
 
   var wasEl = document.getElementById('pd-price-was');
-  if (p.was) { wasEl.style.display=''; wasEl.textContent='Was: ₿PC ' + p.was; }
+  if (p.was) { wasEl.style.display=''; wasEl.textContent='Was: HONE ' + p.was; }
   else { wasEl.style.display='none'; }
 
   var invNote = document.getElementById('pd-inv-note');
@@ -2870,7 +2870,7 @@ function openProduct(key, buyIntent) {
   // Flash sale countdown in drawer
   var pdDealBadge = document.getElementById('pd-deal-badge');
   if (p.saleEndsEpoch) {
-    var epochNow = Math.floor((Date.now() - 1777633200000) / 30000);
+    var epochNow = Math.floor((Date.now() - 1783191600000) / 30000);
     var left = p.saleEndsEpoch - epochNow;
     if (left > 0) {
       pdDealBadge.style.display = '';
@@ -2883,7 +2883,7 @@ function openProduct(key, buyIntent) {
   var existEA = document.getElementById('pd-early-access-note');
   if (existEA) existEA.remove();
   if (p.expected_delivery_epoch) {
-    var epochNow2 = Math.floor((Date.now() - 1777633200000) / 30000);
+    var epochNow2 = Math.floor((Date.now() - 1783191600000) / 30000);
     if (p.expected_delivery_epoch > epochNow2) {
       var eanEl = document.createElement('div');
       eanEl.id = 'pd-early-access-note';
@@ -2965,7 +2965,7 @@ async function pdBuyNow() {
 
   // Try real API first
   try {
-    var token = localStorage.getItem('btcpc_token') || '';
+    var token = localStorage.getItem('hone_token') || '';
     var orderPayload = {
       product_id: _pdCurrent.productId,
       quantity: _pdQty,
@@ -2976,7 +2976,7 @@ async function pdBuyNow() {
     };
     var tipAmt = getPdTip();
     if (tipAmt > 0) orderPayload.tip_amount = tipAmt;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3048,7 +3048,7 @@ function renderReviews(reviews) {
         '<span class="pd-review-date">' + r.date + '</span>' +
       '</div>' +
       '<div class="pd-review-text">' + r.text + '</div>' +
-      (r.verified ? '<div class="pd-review-verify">✔ Verified BTCPC purchase</div>' : '') +
+      (r.verified ? '<div class="pd-review-verify">✔ Verified HONE purchase</div>' : '') +
     '</div>';
   }).join('');
 }
@@ -3058,13 +3058,13 @@ var _wishlistSet = {}; // pid → true/false
 
 async function toggleWishlist(e, btn, pid) {
   e.stopPropagation();
-  var token = localStorage.getItem('btcpc_token') || '';
+  var token = localStorage.getItem('hone_token') || '';
   if (!token) { toast('Sign in to save to wishlist — click Account & Lists'); return; }
   var isWishlisted = btn.dataset.wishlisted === '1';
   var method = isWishlisted ? 'DELETE' : 'POST';
   var label = isWishlisted ? '♡' : '♥';
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/wishlist/' + encodeURIComponent(pid), {
+    var resp = await fetch(HONE_NODE + '/api/commerce/wishlist/' + encodeURIComponent(pid), {
       method: method,
       headers: { 'Authorization': 'Bearer ' + token }
     });
@@ -3083,12 +3083,12 @@ async function toggleWishlist(e, btn, pid) {
 }
 
 async function loadWishlistCounts(pids) {
-  if (!BTCPC_NODE || !pids || !pids.length) return;
+  if (!HONE_NODE || !pids || !pids.length) return;
   // Fetch counts in parallel (fire-and-forget; no auth needed)
   pids.forEach(async function(pid) {
     if (!pid) return;
     try {
-      var r = await fetch(BTCPC_NODE + '/api/commerce/wishlist/count/' + encodeURIComponent(pid));
+      var r = await fetch(HONE_NODE + '/api/commerce/wishlist/count/' + encodeURIComponent(pid));
       if (!r.ok) return;
       var d = await r.json();
       var count = d.count || 0;
@@ -3106,7 +3106,7 @@ async function loadWishlistCounts(pids) {
 // ── MAKE AN OFFER ────────────────────────────────────────────────────
 async function submitOffer() {
   if (!_pdCurrent) return;
-  var token = localStorage.getItem('btcpc_token') || '';
+  var token = localStorage.getItem('hone_token') || '';
   var msgEl = document.getElementById('pd-offer-msg');
   if (!token) {
     msgEl.textContent = 'Sign in to make an offer.';
@@ -3123,7 +3123,7 @@ async function submitOffer() {
   msgEl.textContent = 'Submitting…';
   msgEl.style.color = 'var(--sub)';
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/offers', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3132,12 +3132,12 @@ async function submitOffer() {
       body: JSON.stringify({
         product_id: _pdCurrent.productId,
         amount: amount,
-        token: _pdCurrent.token || 'BTCPC',
+        token: _pdCurrent.token || 'HONE',
         expires_epochs: 2880
       })
     });
     if (resp.ok) {
-      msgEl.textContent = '✔ Offer of ₿PC ' + amount + ' submitted! The seller will be notified.';
+      msgEl.textContent = '✔ Offer of HONE ' + amount + ' submitted! The seller will be notified.';
       msgEl.style.color = 'var(--green)';
       amtEl.value = '';
       return;
@@ -3147,7 +3147,7 @@ async function submitOffer() {
     msgEl.style.color = 'var(--red)';
   } catch(_) {
     // Demo fallback
-    msgEl.textContent = '✔ Offer submitted (demo mode) — ₿PC ' + amount;
+    msgEl.textContent = '✔ Offer submitted (demo mode) — HONE ' + amount;
     msgEl.style.color = 'var(--green)';
     amtEl.value = '';
   }
@@ -3161,7 +3161,7 @@ function getPdEffectivePrice() {
     if (val < _pdCurrent.min_price) {
       val = _pdCurrent.min_price;
       pwywEl.value = val;
-      toast('Minimum price is ₿PC ' + val);
+      toast('Minimum price is HONE ' + val);
     }
     return val;
   }
@@ -3175,12 +3175,12 @@ function getPdTip() {
 
 // ── FOLLOW STORE ─────────────────────────────────────────────────────
 async function toggleFollowStore(btn, seller) {
-  var token = localStorage.getItem('btcpc_token') || '';
+  var token = localStorage.getItem('hone_token') || '';
   if (!token) { toast('Sign in to follow stores — click Account & Lists'); return; }
   var isFollowing = btn.dataset.following === '1';
   var method = isFollowing ? 'DELETE' : 'POST';
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/follow', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/follow', {
       method: method,
       headers: { 'Authorization': 'Bearer ' + token }
     });
@@ -3206,10 +3206,10 @@ async function loadPriceGuide(p, containerEl) {
   var isHw = hwCats.some(function(c){ return cat.includes(c); });
   var itemModel = p.specs && p.specs.item_model ? p.specs.item_model : null;
   if (!itemModel && !isHw) { containerEl.remove(); return; }
-  if (!BTCPC_NODE) { containerEl.remove(); return; }
+  if (!HONE_NODE) { containerEl.remove(); return; }
 
   var q = itemModel || p.title.split(' ').slice(0,3).join(' ');
-  var url = BTCPC_NODE + '/api/commerce/products?q=' + encodeURIComponent(q) +
+  var url = HONE_NODE + '/api/commerce/products?q=' + encodeURIComponent(q) +
     (p.categories && p.categories[0] ? '&category=' + encodeURIComponent(p.categories[0]) : '') +
     '&limit=200';
   try {
@@ -3227,7 +3227,7 @@ async function loadPriceGuide(p, containerEl) {
       ? (prices[prices.length/2 - 1] + prices[prices.length/2]) / 2
       : prices[Math.floor(prices.length/2)];
     containerEl.innerHTML = '<b>Market price guide</b> (' + comps.length + ' listings): ' +
-      'Low <b>₿PC ' + low + '</b> · Median <b>₿PC ' + mid.toFixed(2) + '</b> · High <b>₿PC ' + high + '</b>';
+      'Low <b>HONE ' + low + '</b> · Median <b>HONE ' + mid.toFixed(2) + '</b> · High <b>HONE ' + high + '</b>';
     containerEl.classList.add('loaded');
   } catch(_) { containerEl.remove(); }
 }
@@ -3250,10 +3250,10 @@ addImportedCards = function(products) {
         PRODUCTS[tempKey] = {
           key:tempKey, icon:['⌨️','🔌','🖱️','📷','💻','🔋','💽','📦'][i%8], bg:'#f7f9f9',
           title:p.title, seller:'you', productId:'',
-          price:p._btcpc, priceUsd:p.price, badge:'new', badgeLabel:'Imported', badgeColor:'#555',
+          price:p._hone, priceUsd:p.price, badge:'new', badgeLabel:'Imported', badgeColor:'#555',
           stars:4.5, reviews:0, inventory:p.qty||null,
           ship:'FREE delivery', desc:'Imported from your store. Edit this listing in your Vendor Dashboard before publishing.',
-          token:'BTCPC', reviews_data:[]
+          token:'HONE', reviews_data:[]
         };
         openProduct(tempKey);
       });

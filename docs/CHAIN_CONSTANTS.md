@@ -10,9 +10,9 @@ drifts from the value in source code.
 
 | Constant | Value | Source |
 |----------|-------|--------|
-| Mainnet chain ID | `btcpc-1` | `btcpc-types/src/lib.rs:MAINNET_CHAIN_ID` |
-| Testnet chain ID | `btcpc-satoshi` | `btcpc-types/src/lib.rs:TESTNET_CHAIN_ID` |
-| Native token symbol | `BTCPC` | `btcpc-types/src/lib.rs:NATIVE_TOKEN` |
+| Mainnet chain ID | `hone` | `hone-types/src/lib.rs:MAINNET_CHAIN_ID` |
+| Testnet chain ID | `hone-testnet` | `hone-types/src/lib.rs:TESTNET_CHAIN_ID` |
+| Native token symbol | `BTCPC` | `hone-types/src/lib.rs:NATIVE_TOKEN` |
 | HTTP API port | `4242` | `src/config.rs` default |
 | P2P port | `6942` | `src/config.rs` default |
 
@@ -22,15 +22,15 @@ drifts from the value in source code.
 
 | Constant | Value | Notes | Source |
 |----------|-------|-------|--------|
-| Total supply cap | 42,000,000 BTCPC | Hard maximum, never burned | `emission.rs:SUPPLY_CAP_DREAMS` |
-| Smallest unit | 1 dream | | `lib.rs:DREAMS_PER_BTCPC` |
-| Dreams per BTCPC | 10,000,000,000 | 10^10 | `lib.rs:DREAMS_PER_BTCPC` |
-| Block reward (era 0) | 2 BTCPC per epoch | Constant within era | `emission.rs:BLOCK_REWARD_DREAMS` |
+| Total supply cap | 42,000,000 BTCPC | Hard maximum, never burned | `emission.rs:SUPPLY_CAP_HUNITS` |
+| Smallest unit | 1 hunit | | `lib.rs:HUNITS_PER_HONE` |
+| Dreams per BTCPC | 10,000,000,000 | 10^10 | `lib.rs:HUNITS_PER_HONE` |
+| Block reward (era 0) | 2 BTCPC per epoch | Constant within era | `emission.rs:BLOCK_REWARD_HUNITS` |
 | Era 0 epoch duration | 30 seconds | | `emission.rs:INITIAL_EPOCH_MS` |
 | Doubling interval | 4,200,000 epochs | Epoch duration doubles per era | `emission.rs:DOUBLING_INTERVAL` |
 | Recycle-only era | Era 5 | No new supply after this | `emission.rs:RECYCLE_ERA` |
 | Supply exhaustion | ~124 years from genesis | ~2150 | derived |
-| Genesis timestamp | 1777633200000 ms | 2026-05-01 noon Ireland (UTC+1) | `src/config.rs` default |
+| Genesis timestamp | 1783191600000 ms | 2026-07-04 noon Los Angeles (PDT, UTC-7) | `src/config.rs` default |
 
 ---
 
@@ -65,7 +65,7 @@ drifts from the value in source code.
 
 | Constant | Value | Source |
 |----------|-------|--------|
-| Clock reward base (era 0) | 0.001 BTCPC / epoch | `emission.rs:CLOCK_REWARD_DREAMS` |
+| Clock reward base (era 0) | 0.001 HONE / epoch | `emission.rs:CLOCK_REWARD_HUNITS` |
 | Clock reward scaling | Doubles each era (constant daily income) | `emission.rs:clock_reward_at()` |
 | Active clock nodes | Top 25 by stake | Phase 2 — D6 |
 | Standby pool | Nodes 26–100 | Phase 2 — D6 |
@@ -128,7 +128,7 @@ Disabled until website and whitepaper documentation ships (`LIVENESS_REWARDS_ENA
 
 | Parameter | Value |
 |-----------|-------|
-| Bootstrap peers | `bootstrap1.btcpc.net:6942`, `bootstrap2.btcpc.net:6942` |
+| Bootstrap peers | `bootstrap1.honemesh.net:6942`, `bootstrap2.honemesh.net:6942` |
 | Bootstrap master | shindevlin node — seal always accepted during bootstrap |
 | BFT activation | Via governance vote when node count warrants |
 | Grace period (mining) | 90 days — unlinked Mine = 20% reward. After: 0% |

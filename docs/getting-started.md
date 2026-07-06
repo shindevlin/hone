@@ -76,5 +76,5 @@ Cost: 0.001 BTCPC per completion token.
 
 - [Mining Guide](install-miner.md) — earn BTCPC with your GPU
 - [API Reference](api.md) — full endpoint docs
-- [Whitepaper](BTCPC_WHITEPAPER.md) — how Proof of Compute works
+- [Whitepaper](HONE_WHITEPAPER.md) — how Proof of Compute works
 - [FAQ](faq.md) — common issues

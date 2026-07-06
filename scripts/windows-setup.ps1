@@ -1,4 +1,4 @@
-# BTCPC Node — Windows Native Setup Script
+# HONE Node — Windows Native Setup Script
 # Run as Administrator in PowerShell
 # Works for both native Windows installs and WSL2 setups
 
@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "BTCPC Node — Windows Setup" -ForegroundColor Cyan
+Write-Host "HONE Node — Windows Setup" -ForegroundColor Cyan
 Write-Host "==========================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -58,12 +58,12 @@ if ($WSL) {
 Write-Host "Adding Windows Firewall rules for P2P port $Port..."
 
 # Remove existing rules with same name to avoid duplicates
-Remove-NetFirewallRule -DisplayName "BTCPC P2P $Port" -ErrorAction SilentlyContinue
-Remove-NetFirewallRule -DisplayName "BTCPC P2P $TestnetPort" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName "HONE P2P $Port" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName "HONE P2P $TestnetPort" -ErrorAction SilentlyContinue
 
-New-NetFirewallRule -DisplayName "BTCPC P2P $Port" `
+New-NetFirewallRule -DisplayName "HONE P2P $Port" `
     -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
-New-NetFirewallRule -DisplayName "BTCPC P2P $TestnetPort" `
+New-NetFirewallRule -DisplayName "HONE P2P $TestnetPort" `
     -Direction Inbound -Protocol TCP -LocalPort $TestnetPort -Action Allow | Out-Null
 
 Write-Host "Firewall rules added." -ForegroundColor Green

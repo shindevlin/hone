@@ -30,9 +30,9 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/services/accountCreation.js` — dedicated account provisioning service
 
 **Rust has:**
-- `rust/btcpc-node/src/tx.rs` — ed25519 signature validation for Transfer, Stake, Unstake, AccountUpdateKey, EpochSeal, and all inference entries
-- `rust/btcpc-node/src/api.rs` — `/api/transfer`, `/api/stake`, `/api/unstake`, `/api/account/create`, `/api/account/update-key`
-- `rust/btcpc-cli/src/key.rs` — local keypair generation
+- `rust/hone-node/src/tx.rs` — ed25519 signature validation for Transfer, Stake, Unstake, AccountUpdateKey, EpochSeal, and all inference entries
+- `rust/hone-node/src/api.rs` — `/api/transfer`, `/api/stake`, `/api/unstake`, `/api/account/create`, `/api/account/update-key`
+- `rust/hone-cli/src/key.rs` — local keypair generation
 
 **Gap / What's missing:**
 - Zero JWT/session-based authentication — the Rust API accepts unsigned entry submissions with no auth gate
@@ -58,8 +58,8 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/p2p/mempool.js` — per-account pendingDebit tracking, double-spend prevention, MAX_MEMPOOL_SIZE cap
 
 **Rust has:**
-- `rust/btcpc-node/src/tx.rs` — strong validation for Transfer, Stake, Unstake, AccountCreate, AccountUpdateKey, EpochSeal, and all inference entries
-- `rust/btcpc-types/src/entry.rs` — LedgerEntry enum with ~50 variants including commerce, sensors, LinkGit, testnet, inference
+- `rust/hone-node/src/tx.rs` — strong validation for Transfer, Stake, Unstake, AccountCreate, AccountUpdateKey, EpochSeal, and all inference entries
+- `rust/hone-types/src/entry.rs` — LedgerEntry enum with ~50 variants including commerce, sensors, LinkGit, testnet, inference
 - nonce-check + bump on Transfer/Stake/Unstake
 - No dedicated mempool module
 
@@ -93,9 +93,9 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/chain/epochFinalizer.js` — applies winning proposal to ledger + stateStore + block files, writes finality snapshot every FINALITY_INTERVAL epochs, rolling commitment hash, finalityAnchoring, LucidPruning of old block files, mempool clearance
 
 **Rust has:**
-- `rust/btcpc-node/src/chain.rs` — `apply_entry()` for all entry types, `apply_block_entries()`, `current_epoch()` tracking via RocksDB meta
-- `rust/btcpc-node/src/finalize.rs` — `run_finalizer()`, `finalize_epoch()`, proxy state root (SHA-256 of block hash + epoch bytes), `redirect_unearned_rewards()` to recycle fund
-- `rust/btcpc-types/src/block.rs` — Block struct with binary header encoding
+- `rust/hone-node/src/chain.rs` — `apply_entry()` for all entry types, `apply_block_entries()`, `current_epoch()` tracking via RocksDB meta
+- `rust/hone-node/src/finalize.rs` — `run_finalizer()`, `finalize_epoch()`, proxy state root (SHA-256 of block hash + epoch bytes), `redirect_unearned_rewards()` to recycle fund
+- `rust/hone-types/src/block.rs` — Block struct with binary header encoding
 
 **Gap / What's missing:**
 - **No full validateChain() walk** — no end-to-end chain integrity verification from genesis to tip
@@ -124,14 +124,14 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/chain/computeVerifier.js` — validates account balances against known-good state
 
 **Rust has:**
-- `rust/btcpc-node/src/clock.rs` — quorum-based seal collection: receives EpochSeal gossip, applies timestamp median filtering, outlier rejection, 51% quorum, observer mode, clock reputation scoring
+- `rust/hone-node/src/clock.rs` — quorum-based seal collection: receives EpochSeal gossip, applies timestamp median filtering, outlier rejection, 51% quorum, observer mode, clock reputation scoring
 - Clock module properly handles single-seal isolated mode
 
 **Gap / What's missing:**
 - **No reward-proposal consensus** — the clock quorum in Rust only decides *whether* an epoch sealed, not *what the rewards are*. There is no equivalent to `finalizationConsensus.js` that collects multiple proposers' reward splits, groups by consensus_hash, and picks the majority.
 - **No verifierEngine** — no module cross-checks compute proofs against claimed work values and issues verification gossip
 - **No computeVerifier** — no tool to validate account balances against expected state from block data
-- **No peer-source count guard** — Node.js `MIN_CONSENSUS_SOURCES` prevents a single isolated node from self-finalizing on mainnet; Rust `BTCPC_CLOCK_QUORUM` is separate from reward-proposal consensus which is entirely absent.
+- **No peer-source count guard** — Node.js `MIN_CONSENSUS_SOURCES` prevents a single isolated node from self-finalizing on mainnet; Rust `HONE_CLOCK_QUORUM` is separate from reward-proposal consensus which is entirely absent.
 
 **Severity: HIGH**
 
@@ -166,8 +166,8 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/services/sensorDataBilling.js` — purchase-triggered sensor rewards
 
 **Rust has:**
-- `rust/btcpc-node/src/main.rs` `emit_epoch_rewards()` function: collects Mine entries for the epoch from RocksDB, computes `inference_score()` per miner, distributes `MineReward` proportionally; emits `ClockReward` equally to all signing clocks; emits `StorageReward` proportional to `bytes_proven`, `SensorReward` proportional to `reading_count`, `VerifierReward` proportional to verifications
-- `rust/btcpc-types/src/emission.rs` — `inference_score()`, `hw_tier_weight()`, `model_weight()`, `clock_reward_at()` era scaling
+- `rust/hone-node/src/main.rs` `emit_epoch_rewards()` function: collects Mine entries for the epoch from RocksDB, computes `inference_score()` per miner, distributes `MineReward` proportionally; emits `ClockReward` equally to all signing clocks; emits `StorageReward` proportional to `bytes_proven`, `SensorReward` proportional to `reading_count`, `VerifierReward` proportional to verifications
+- `rust/hone-types/src/emission.rs` — `inference_score()`, `hw_tier_weight()`, `model_weight()`, `clock_reward_at()` era scaling
 
 **Gap / What's missing:**
 - **No activity-gated emission** — Rust always distributes `block_reward_at(epoch)` in full regardless of network activity. Node.js scales actual emission down to 1% when the network is idle.
@@ -203,8 +203,8 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `src/services/reviewerSelection.js` — selects human reviewers for disputed jobs
 
 **Rust has:**
-- `rust/btcpc-node/src/inference.rs` — full on-chain state machine: Posted → Awarded → Completed → Verified → Paid, with Disputed → Claimed → Reviewed → Paid path, `NodeReputation` (jobs_accepted/completed/failed, avg latency, score 0-10000), `jobs_ready_to_award()`, `jobs_claim_expired()`, `jobs_past_deadline()`, `select_best_bid()`, `build_pay_entry_happy()`, `build_pay_entry_disputed()`, `build_pay_entry_nofee()`
-- `rust/btcpc-node/src/inference_daemon.rs` — background daemon that processes job state transitions (award, pay, expire)
+- `rust/hone-node/src/inference.rs` — full on-chain state machine: Posted → Awarded → Completed → Verified → Paid, with Disputed → Claimed → Reviewed → Paid path, `NodeReputation` (jobs_accepted/completed/failed, avg latency, score 0-10000), `jobs_ready_to_award()`, `jobs_claim_expired()`, `jobs_past_deadline()`, `select_best_bid()`, `build_pay_entry_happy()`, `build_pay_entry_disputed()`, `build_pay_entry_nofee()`
+- `rust/hone-node/src/inference_daemon.rs` — background daemon that processes job state transitions (award, pay, expire)
 
 **Gap / What's missing:**
 - **No ensemble/Mode A** — `ensembleCoordinator.js` with consensus bonuses and partial multipliers has no Rust equivalent. The Rust `InferenceJobPost.mode` field accepts "ensemble" but no ensemble coordinator exists.
@@ -223,7 +223,7 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 
 **Node.js had:**
 - `src/p2p/network.js` — WebSocket P2P with Noise_XX handshake for direct peers, plain JSON for relay connections, up to 50 peers, exponential backoff reconnect (max 60s), ping/pong keep-alive with zombie detection, Cloudflare relay fallback
-- Multiple relay URL support (`BTCPC_RELAY_URLS`), hardcoded bootstrap peers for eclipse protection
+- Multiple relay URL support (`HONE_RELAY_URLS`), hardcoded bootstrap peers for eclipse protection
 - `src/p2p/protocol.js` — message types: HANDSHAKE, BLOCK_PROPOSAL, MINING_PROOF, INFERENCE_REVEAL, VERIFY_RESPONSE, CLOCK_HEARTBEAT, EPOCH_SEAL, BLOCK_ANNOUNCE, CHAIN_SYNC_REQUEST/RESPONSE, MEMPOOL_ENTRY, PEER_ANNOUNCE, FINALIZATION_PROPOSAL, EPOCH_FINALIZED, STORAGE_HEARTBEAT, SENSOR_READING, etc.
 - `src/p2p/encryptedTransport.js` — Noise_XX protocol implementation with static keypair generation and pinning
 - `src/p2p/messageAuth.js` — per-message authentication
@@ -232,8 +232,8 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - Seen-message deduplication via seenMessages Set, flushed to disk on SIGTERM
 
 **Rust has:**
-- `rust/btcpc-node/src/net.rs` — libp2p 0.55: TCP + QUIC transport, gossipsub topics (btcpc/blocks, btcpc/entries, btcpc/seals, btcpc/sync), Kademlia DHT, Identify, Ping; peer store persisted to RocksDB; Kademlia re-bootstrap every 5 minutes when < 3 peers; block sync request/response via btcpc/sync topic
-- `rust/btcpc-node/src/discovery.rs` — Hive + TON registry peer discovery, self-announce
+- `rust/hone-node/src/net.rs` — libp2p 0.55: TCP + QUIC transport, gossipsub topics (btcpc/blocks, btcpc/entries, btcpc/seals, btcpc/sync), Kademlia DHT, Identify, Ping; peer store persisted to RocksDB; Kademlia re-bootstrap every 5 minutes when < 3 peers; block sync request/response via btcpc/sync topic
+- `rust/hone-node/src/discovery.rs` — Hive + TON registry peer discovery, self-announce
 
 **Gap / What's missing:**
 - **No Cloudflare relay** — the Rust node has no fallback relay for NAT-punching. Node.js falls back to `wss://btcpc-relay.shindevlin.workers.dev/ws` when no direct peers are reachable.
@@ -252,7 +252,7 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 `amberPillRoutes`, `appealRoutes`, `auctionRoutes`, `blobRoutes`, `blobServeProofRoutes`, `botRoutes`, `bridgeRoutes`, `commerceRoutes`, `computerUseRoutes`, `delegationRoutes`, `dreamRoutes`, `explorerRoutes`, `faucetRoutes`, `finetuneRoutes`, `inferenceMarketRoutes`, `memoryRoutes`, `modelRoutes`, `nodeRoutes`, `oracleRoutes`, `peerCommerceRoutes`, `phoneMiningRoutes`, `phoneStorageRoutes`, `projectRoutes`, `publicRoutes`, `purchaseRoutes`, `recoveryRoutes`, `sensorDataRoutes`, `sensorRoutes`, `serviceRoutes`, `sessionMarketRoutes`, `sessionRoutes`, `stakingRoutes`, `storageRoutes`, `streamingRoutes`, `toolRegistryRoutes`, `toolRoutes`, `totpRoutes`, `userRoutes`
 
 **Rust has:**
-- `rust/btcpc-node/src/api.rs` (~1100 lines): GET `/api/balance`, `/api/balances`, `/api/account`, `/api/block`, `/api/latest`, `/api/stake`, `/api/epoch`, `/health`; POST `/api/transfer`, `/api/stake`, `/api/unstake`, `/api/account/create`, `/api/account/update-key`, `/api/contract/deploy`, `/api/contract/call`, `/api/contract/view`, `/api/inference/*` (7 endpoints), `/api/faucet/claim`, `/api/linkgit/*` (5 endpoints)
+- `rust/hone-node/src/api.rs` (~1100 lines): GET `/api/balance`, `/api/balances`, `/api/account`, `/api/block`, `/api/latest`, `/api/stake`, `/api/epoch`, `/health`; POST `/api/transfer`, `/api/stake`, `/api/unstake`, `/api/account/create`, `/api/account/update-key`, `/api/contract/deploy`, `/api/contract/call`, `/api/contract/view`, `/api/inference/*` (7 endpoints), `/api/faucet/claim`, `/api/linkgit/*` (5 endpoints)
 
 **Gap / What's missing:** ~25 of 35+ Node.js route files have no Rust equivalent. Entirely absent:
 - Blob storage API (upload, download, CID proof)
@@ -364,7 +364,7 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - `rust/btcpc-contract-sdk/` — SDK for writing contracts: collections, events, promises, storage, types, mock test harness
 - `rust/btcpc-contract-sdk/examples/ft/` — fungible token example
 - `rust/btcpc-contract-sdk/examples/nft/` — NFT example
-- `rust/btcpc-node/src/contracts.rs` — `ContractEngine` integrated into the node
+- `rust/hone-node/src/contracts.rs` — `ContractEngine` integrated into the node
 
 **Gap / What's missing:**
 - This is an area where Rust **exceeds** Node.js — the contract runtime didn't exist in Node.js.
@@ -480,7 +480,7 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 ### 18. MCP (Machine Compute Protocol)
 
 **Node.js had:**
-- `src/mcp/btcpcMcpServer.js` — full MCP JSON-RPC server (port 3101) with built-in tools: calculator, hash, btcpc_fs_read, epoch_info, send_btcpc, get_balance, sensor_read, web_fetch (with SSRF guard), generate_text, commit_cid; non-deterministic tools auto-commit output to BTCPC-FS and return trace_cid for verifier checks; CLI passthrough tools via BTCPC_MCP_CLI_TOOLS
+- `src/mcp/btcpcMcpServer.js` — full MCP JSON-RPC server (port 3101) with built-in tools: calculator, hash, btcpc_fs_read, epoch_info, send_btcpc, get_balance, sensor_read, web_fetch (with SSRF guard), generate_text, commit_cid; non-deterministic tools auto-commit output to BTCPC-FS and return trace_cid for verifier checks; CLI passthrough tools via HONE_MCP_CLI_TOOLS
 - `src/mcp/toolRegistry.js` — tool registration with `computeToolMultiplier()` (mining reward multiplier for tool use)
 - `src/mcp/toolExecutor.js` — tool execution engine
 - `src/routes/toolRoutes.js`, `toolRegistryRoutes.js`
@@ -506,7 +506,7 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 
 **Rust has:**
 - No installer — node configured via environment variables and `genesis.json`
-- `rust/btcpc-node/src/config.rs` — `Config::from_env()` reads all settings from env
+- `rust/hone-node/src/config.rs` — `Config::from_env()` reads all settings from env
 
 **Gap / What's missing:** No guided installer, no GPU detection, no Ollama installation helper, no skill system.
 
@@ -521,9 +521,9 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - Various client libraries inlined in routes
 
 **Rust has:**
-- `rust/btcpc-sdk/src/lib.rs` — thin HTTP client SDK: `BtcpcClient` with transfer(), get_balance(), get_account(), create_account(), submit_entry(); ed25519 signing built in
-- `rust/chain-core/src/lib.rs` — re-exports of btcpc-types
-- `rust/btcpc-cli/src/` — full CLI: balance, transfer, stake, unstake, inference post/bid/complete, contract deploy/call/view, account create/update-key, chain info
+- `rust/hone-sdk/src/lib.rs` — thin HTTP client SDK: `BtcpcClient` with transfer(), get_balance(), get_account(), create_account(), submit_entry(); ed25519 signing built in
+- `rust/chain-core/src/lib.rs` — re-exports of hone-types
+- `rust/hone-cli/src/` — full CLI: balance, transfer, stake, unstake, inference post/bid/complete, contract deploy/call/view, account create/update-key, chain info
 
 **Gap / What's missing:**
 - No JavaScript/TypeScript SDK (all client apps currently depend on hand-rolled fetch calls to the Node.js API)
@@ -589,17 +589,17 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 **Node.js had:**
 - `src/index.js` — 15.5KB main entry that wires all subsystems: MongoDB, P2P, miner, clock, explorer, gateway, inference, sensors, MCP, all routes
 - dotenv-based config with 40+ environment variables documented
-- Per-role startup flags: `BTCPC_MINER_CLOCK`, `BTCPC_USE_RUST_P2P`, `BTCPC_MONGO_MODE`
+- Per-role startup flags: `HONE_MINER_CLOCK`, `HONE_USE_RUST_P2P`, `HONE_MONGO_MODE`
 - Genesis timestamp: 1776236400000 hardcoded
 
 **Rust has:**
-- `rust/btcpc-node/src/config.rs` — `Config::from_env()`: BTCPC_DATA_DIR, BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_API_PORT, BTCPC_P2P_PORT, BTCPC_MINER, BTCPC_CLOCK, BTCPC_GENESIS_FILE, BTCPC_GENESIS_TIMESTAMP, BTCPC_LOG_LEVEL, BTCPC_BOOTSTRAP_PEERS, BTCPC_CHAIN_ID, BTCPC_CLOCK_QUORUM, BTCPC_FINALITY_INTERVAL, BTCPC_FULL_ACTIVITY_SCORE (referenced but not implemented)
+- `rust/hone-node/src/config.rs` — `Config::from_env()`: HONE_DATA_DIR, HONE_ACCOUNT, HONE_NODE_ID, HONE_API_PORT, HONE_P2P_PORT, HONE_MINER, HONE_CLOCK, HONE_GENESIS_FILE, HONE_GENESIS_TIMESTAMP, HONE_LOG_LEVEL, HONE_BOOTSTRAP_PEERS, HONE_CHAIN_ID, HONE_CLOCK_QUORUM, HONE_FINALITY_INTERVAL, HONE_FULL_ACTIVITY_SCORE (referenced but not implemented)
 
 **Gap / What's missing:**
-- Genesis timestamp mismatch: CLAUDE.md specifies `1776236400000` (2026-04-15). The Rust node reads `BTCPC_GENESIS_TIMESTAMP` from env with no hardcoded fallback — it will panic if not set rather than defaulting to the canonical value.
-- No `BTCPC_RELAY_URL` / `BTCPC_RELAY_URLS` config (no relay support in Rust)
-- No `BTCPC_MIN_CLOCK_STAKE` / `BTCPC_MIN_MINER_STAKE` stake threshold configuration
-- `BTCPC_FULL_ACTIVITY_SCORE` is read but the activity-gated emission it controls is not implemented
+- Genesis timestamp mismatch: CLAUDE.md specifies `1776236400000` (2026-04-15). The Rust node reads `HONE_GENESIS_TIMESTAMP` from env with no hardcoded fallback — it will panic if not set rather than defaulting to the canonical value.
+- No `HONE_RELAY_URL` / `HONE_RELAY_URLS` config (no relay support in Rust)
+- No `HONE_MIN_CLOCK_STAKE` / `HONE_MIN_MINER_STAKE` stake threshold configuration
+- `HONE_FULL_ACTIVITY_SCORE` is read but the activity-gated emission it controls is not implemented
 
 **Severity: MEDIUM**
 
@@ -611,11 +611,11 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 - Jest test suite across multiple modules
 - `stateStore.resetAll()` for test isolation
 - `blockchain.reset()` for test isolation
-- `BTCPC_DATA_DIR` env var used throughout for test isolation
+- `HONE_DATA_DIR` env var used throughout for test isolation
 - Tests in CI
 
 **Rust has:**
-- `rust/btcpc-types/src/emission.rs` — 5 unit tests: `era_boundaries`, `epoch_durations`, `supply_exhausted_after_5_eras`, `total_supply_correct`, `genesis_to_cap_duration`
+- `rust/hone-types/src/emission.rs` — 5 unit tests: `era_boundaries`, `epoch_durations`, `supply_exhausted_after_5_eras`, `total_supply_correct`, `genesis_to_cap_duration`
 - `rust/btcpc-contract-sdk/sdk/src/mock.rs` — contract test harness
 - Contract example tests (ft, nft)
 
@@ -632,11 +632,11 @@ The most critical incompatibility: **Node.js and Rust produce fundamentally diff
 
 ## ARCHITECTURAL DIFFERENCES
 
-1. **Emission model divergence (CRITICAL)**: Node.js uses an 11-period doubling-allotment model (`emissionSchedule.js`: GENESIS_ALLOTMENT × GROWTH_RATIO, period durations doubling from 1 to 345 months, `reward_per_epoch` varies per period). Rust uses `BLOCK_REWARD_DREAMS = 2 BTCPC` constant for era-0 epochs, with epoch *duration* doubling per era. These produce **different per-epoch reward amounts** (approximately 12x apart). A mixed Node.js/Rust network will immediately diverge.
+1. **Emission model divergence (CRITICAL)**: Node.js uses an 11-period doubling-allotment model (`emissionSchedule.js`: GENESIS_ALLOTMENT × GROWTH_RATIO, period durations doubling from 1 to 345 months, `reward_per_epoch` varies per period). Rust uses `BLOCK_REWARD_HUNITS = 2 BTCPC` constant for era-0 epochs, with epoch *duration* doubling per era. These produce **different per-epoch reward amounts** (approximately 12x apart). A mixed Node.js/Rust network will immediately diverge.
 
 2. **Persistence layer**: Node.js uses in-memory Maps rebuilt from block files on startup, with optional MongoDB cache. Rust uses RocksDB column families. No defined migration path.
 
-3. **Role separation**: Node.js separates miner/clock/verifier as distinct processes. Rust integrates all roles into a single binary with feature flags (`BTCPC_MINER=true`, `BTCPC_CLOCK=true`). Cleaner architecture but means Node.js-style separate clock process cannot clock a Rust node.
+3. **Role separation**: Node.js separates miner/clock/verifier as distinct processes. Rust integrates all roles into a single binary with feature flags (`HONE_MINER=true`, `HONE_CLOCK=true`). Cleaner architecture but means Node.js-style separate clock process cannot clock a Rust node.
 
 4. **State root quality**: Node.js produces a cryptographic Sparse Merkle Tree root over all account states. Rust produces `SHA256(latest_block_hash || epoch)` — a weak proxy that cannot be used for light-client proofs.
 
@@ -680,7 +680,7 @@ Ordered by chain-correctness impact first, ecosystem value second:
 
 **Emission model divergence:**
 - Node.js epoch 0 reward (from `emissionSchedule.js`): `2,100,000 BTCPC / 86,400 epochs ≈ 24.306 BTCPC/epoch`
-- Rust epoch 0 reward (from `emission.rs`): `BLOCK_REWARD_DREAMS = 2 × 10^10 dreams = 2.0 BTCPC/epoch`
+- Rust epoch 0 reward (from `emission.rs`): `BLOCK_REWARD_HUNITS = 2 × 10^10 dreams = 2.0 BTCPC/epoch`
 - These are ~12x apart; any mixed network immediately diverges.
 
 **Missing activity gate** (`src/chain/blockProposal.js`):

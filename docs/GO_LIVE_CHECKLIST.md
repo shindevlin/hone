@@ -3,7 +3,7 @@
 Use this checklist before expanding the public testnet surface or asking new users to rely on it.
 
 ## Public Surface
-- [ ] `https://btcpc.net/testnet` loads
+- [ ] `https://honemesh.net/testnet` loads
 - [ ] `GET /health` returns `OK` on repeated reads
 - [ ] `GET /public/machine-status` reports truth-bearing status on repeated reads
 - [ ] `GET /public/network` reports connected peers and truth-bearing status on repeated reads

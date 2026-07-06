@@ -15,7 +15,7 @@ User must be able to delete or encrypt secrets with their own passphrase. A DB-o
 
 ## Spec
 - File format: AES-256-GCM encrypted JSON, key from hw fingerprint by default.
-- If `BTCPC_SECRETS_PASSPHRASE` env is set: use that instead — node prompts at startup.
+- If `HONE_SECRETS_PASSPHRASE` env is set: use that instead — node prompts at startup.
 - Delete the file → secrets gone (clean slate on next start).
 - RocksDB prefix `secret:{key}` populated from file at boot, kept in sync on every write.
 - Methods: `get(key)`, `set(key, val)`, `delete(key)`, `scan_prefix(pfx)`.

@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meshtastic + BTCPC — Earn with Your Mesh Radio</title>
-  <meta name="description" content="Already have a Meshtastic device? Start earning BTCPC by relaying sensor data over mesh radio. One command setup.">
-  <meta property="og:title" content="Meshtastic + BTCPC">
-  <meta property="og:description" content="Turn your Meshtastic radio into a BTCPC sensor relay. Earn from the IoT pool.">
-  <meta property="og:url" content="https://btcpc.net/meshtastic">
+  <title>Meshtastic + HONE — Earn with Your Mesh Radio</title>
+  <meta name="description" content="Already have a Meshtastic device? Start earning HONE by relaying sensor data over mesh radio. One command setup.">
+  <meta property="og:title" content="Meshtastic + HONE">
+  <meta property="og:description" content="Turn your Meshtastic radio into a HONE sensor relay. Earn from the IoT pool.">
+  <meta property="og:url" content="https://honemesh.net/meshtastic">
   <link rel="stylesheet" href="style.css">
   <style>
     body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
@@ -170,8 +170,8 @@
 <script src="/nav.js?v=2"></script>
 <!-- Hero -->
   <section class="mesh-hero">
-    <h1>Meshtastic + <span>BTCPC</span></h1>
-    <p>Already have a Meshtastic device? Start earning BTCPC by relaying sensor data over mesh radio. No internet required at the edge. One command to set up.</p>
+    <h1>Meshtastic + <span>HONE</span></h1>
+    <p>Already have a Meshtastic device? Start earning HONE by relaying sensor data over mesh radio. No internet required at the edge. One command to set up.</p>
     <div class="mesh-badge">Millions of devices already in the field</div>
   </section>
 
@@ -180,8 +180,8 @@
     <h2>One-Command Setup</h2>
     <p>Connect your Meshtastic device via USB and run:</p>
     <div class="code-block">
-      <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash')">Copy</button>
-      curl -fsSL https://btcpc.net/meshtastic-setup.sh | bash
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash')">Copy</button>
+      curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash
     </div>
     <p>This adds the <strong style="color:#f7931a;">btcpc</strong> channel to your device. Then start the bridge:</p>
     <div class="code-block">
@@ -198,21 +198,21 @@
       <div class="how-card">
         <div class="step-num">1</div>
         <h3>Device joins mesh</h3>
-        <p>Your Meshtastic radio joins the "btcpc" channel on the mesh network. Any device in range can send BTCPC sensor packets.</p>
+        <p>Your Meshtastic radio joins the "btcpc" channel on the mesh network. Any device in range can send HONE sensor packets.</p>
       </div>
       <div class="how-card">
         <div class="step-num">2</div>
         <h3>Bridge relays data</h3>
-        <p>The bridge daemon reads packets from your device over USB and submits sensor readings to the BTCPC chain via the local node API.</p>
+        <p>The bridge daemon reads packets from your device over USB and submits sensor readings to the HONE chain via the local node API.</p>
       </div>
       <div class="how-card">
         <div class="step-num">3</div>
         <h3>Chain records it</h3>
-        <p>Each reading is recorded on the BTCPC blockchain with the relay node credited. Verifiable, permanent, and useful data.</p>
+        <p>Each reading is recorded on the HONE blockchain with the relay node credited. Verifiable, permanent, and useful data.</p>
       </div>
       <div class="how-card">
         <div class="step-num">4</div>
-        <h3>You earn BTCPC</h3>
+        <h3>You earn HONE</h3>
         <p>Relay operators earn a share of the IoT sensor pool every epoch. More data relayed means more earned. No mining rig needed.</p>
       </div>
     </div>
@@ -221,7 +221,7 @@
   <!-- What you earn -->
   <section class="earn-section">
     <h2>What You Earn</h2>
-    <p>BTCPC rewards come from the IoT sensor pool. Every epoch, active relay nodes receive a share proportional to the data they contributed.</p>
+    <p>HONE rewards come from the IoT sensor pool. Every epoch, active relay nodes receive a share proportional to the data they contributed.</p>
     <div class="earn-grid">
       <div class="earn-card">
         <h4>Relay Fees</h4>
@@ -306,9 +306,9 @@
     </table>
   </section>
 
-  <!-- BTCPC packet format -->
+  <!-- HONE packet format -->
   <section class="setup-box" style="max-width:700px;margin:60px auto;padding:28px;">
-    <h2>BTCPC Mesh Packet Format</h2>
+    <h2>HONE Mesh Packet Format</h2>
     <p>Devices send JSON text messages on the "btcpc" channel:</p>
     <div class="code-block" style="color:#e2e8f0;">
       <span class="comment">// Sensor reading packet</span><br>
@@ -316,7 +316,7 @@
     </div>
     <p style="margin-top:16px;">Fields:</p>
     <div style="font-size:14px;color:#94a3b8;line-height:2;">
-      <strong style="color:#f7931a;">btcpc</strong> — must be 1 (identifies as BTCPC packet)<br>
+      <strong style="color:#f7931a;">btcpc</strong> — must be 1 (identifies as HONE packet)<br>
       <strong style="color:#f7931a;">sensor</strong> — sensor ID in account/name format<br>
       <strong style="color:#f7931a;">value</strong> — numeric reading value<br>
       <strong style="color:#f7931a;">meta</strong> — optional metadata object<br>
@@ -329,14 +329,14 @@
     <h2 style="color:#e2e8f0;font-size:32px;margin:0 0 16px;">Ready to bridge the mesh?</h2>
     <p style="color:#94a3b8;font-size:16px;margin:0 0 28px;">Plug in your Meshtastic device and start earning.</p>
     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-      <a href="/install" style="background:#f7931a;color:#000;padding:14px 32px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;">Install BTCPC</a>
+      <a href="/install" style="background:#f7931a;color:#000;padding:14px 32px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;">Install HONE</a>
       <a href="https://meshtastic.org/docs/hardware/devices/" style="background:rgba(34,197,94,0.15);color:#22c55e;padding:14px 32px;border-radius:8px;font-weight:700;text-decoration:none;font-size:16px;border:1px solid #22c55e;" target="_blank">Buy a Device</a>
     </div>
   </section>
 
   <div class="footer">
-    <a href="/">btcpc.net</a> &mdash; Bitcoin Proof of Compute<br>
-    42,000,000 BTCPC. Every token earned.
+    <a href="/">honemesh.net</a> &mdash; Bitcoin Proof of Compute<br>
+    42,000,000 HONE. Every token earned.
   </div>
 
 </body>

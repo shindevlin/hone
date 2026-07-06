@@ -7,7 +7,7 @@ App(
     # 8 KB — ed25519 sign via TweetNaCl needs ~2 KB stack for SHA-512 + field math
     stack_size=8 * 1024,
     fap_category="Tools",
-    fap_version="0.1.0",
+    fap_version="0.2.0",
     fap_icon="btcpc_wallet.png",
     fap_description="BTCPC chain identity node — ed25519 signing, BLE sensor relay, Sub-GHz/NFC/RFID collection",
     fap_author="Shin Devlin",
@@ -15,11 +15,15 @@ App(
     fap_icon_assets="images",
     sources=[
         "btcpc.c",
+        "btcpc_ble.c",
+        "btcpc_scheduler.c",
         "crypto/ed25519.c",
         "crypto/tweetnacl.c",
         "protocol/btcpc_protocol.c",
         "scenes/btcpc_scene_main.c",
         "scenes/btcpc_scene_identity.c",
         "scenes/btcpc_scene_ble.c",
+        "scenes/btcpc_scene_subghz.c",
+        "scenes/btcpc_scene_rotate.c",
     ],
 )

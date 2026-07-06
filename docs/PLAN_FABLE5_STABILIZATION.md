@@ -42,7 +42,7 @@
    needs.
 
 4. **The 100× dreams-constant discrepancy is a real bug surfaced.** Code is
-   canonical (`DREAMS_PER_BTCPC = 10_000_000_000`, `lib.rs:12`); CLAUDE.md and
+   canonical (`HUNITS_PER_HONE = 10_000_000_000`, `lib.rs:12`); CLAUDE.md and
    the settlement design say `100,000,000`. That it *reappears inside the new
    PRD's own settlement math* is itself evidence the PRD was written faster
    than checked.
@@ -136,7 +136,7 @@ claim on a Rust item since the ICE commit is unverifiable.
   — it is a transport-cascade dependency (Matrix alt-transport), used in exactly
   one file (`src/matrix_transport.rs`, wired at `main.rs:99,1117`), not
   consensus-critical — so `btcpc-node` core builds without it and off a lower
-  rustc; **(c)** last resort, split the workspace so `crates/btcpc-types` + core
+  rustc; **(c)** last resort, split the workspace so `crates/hone-types` + core
   chain crates build on a stable toolchain independent of the transport crates.
   **Acceptance:** `cargo test -p btcpc-node` runs to completion from a clean
   checkout, producing a pass/fail count.
@@ -147,7 +147,7 @@ claim on a Rust item since the ICE commit is unverifiable.
   "PR #7 was committed untested."
 - [x] **0.3 Reconcile the dreams constant everywhere. DONE.** Fixed the 6
   factual occurrences of the wrong `1 BTCPC = 100,000,000 dreams` →
-  `10,000,000,000` (canonical `DREAMS_PER_BTCPC`): `CLAUDE.md`,
+  `10,000,000,000` (canonical `HUNITS_PER_HONE`): `CLAUDE.md`,
   `docs/MINER_GUIDE.md`, `docs/PLATFORM_PRD.md` (settlement seam),
   `marketing/FAQ.md`, `marketing/GLOSSARY.md`. Confirmed NO code used the wrong
   value (money math was already safe — this was docs only). Acceptance met:

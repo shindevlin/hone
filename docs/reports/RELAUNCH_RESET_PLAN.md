@@ -71,7 +71,7 @@ The relaunch may choose a slower recycle cadence than the current chain if that 
 
 Update these surfaces together:
 
-- `docs/BTCPC_WHITEPAPER.md`
+- `docs/HONE_WHITEPAPER.md`
 - `README.md`
 - `website/index.html`
 - `website/app.html`

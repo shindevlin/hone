@@ -13,10 +13,10 @@ runtime behavior.
   - `follow-redirects@1.15.11` leaked auth headers across cross-domain redirects.
   - Updated to `follow-redirects@1.16.0`.
 - JWT persistence bug fixed:
-  - Server self-heal wrote `BTCPC_JWT_SECRET` to `.env` but only read `JWT_SECRET` on restart.
-  - `src/index.js` now accepts `BTCPC_JWT_SECRET` as an alias and writes both names on self-heal.
+  - Server self-heal wrote `HONE_JWT_SECRET` to `.env` but only read `JWT_SECRET` on restart.
+  - `src/index.js` now accepts `HONE_JWT_SECRET` as an alias and writes both names on self-heal.
   - Public/bot token signing no longer uses weak hardcoded fallback secrets.
-  - Auth middleware verifies against `JWT_SECRET || BTCPC_JWT_SECRET`.
+  - Auth middleware verifies against `JWT_SECRET || HONE_JWT_SECRET`.
 - Website globe privacy hardening:
   - `website/globe.html` now maps accounts to broad metro buckets and deterministic 15-50km sector placement.
   - Users physically next door should not render as neighboring points.
@@ -57,7 +57,7 @@ No non-breaking fix is currently available for that chain. Do not force-downgrad
 
 ## Notes For Next LLM
 
-- ~~Do not change `src/services/epochManager.js` genesis timestamp. It is correctly set to `1776236400000`.~~ **Superseded:** genesis was moved to `1777633200000` (2026-05-01 noon Ireland, UTC+1). The whole codebase was swept to this value; `1776236400000` is now stale. See CLAUDE.md.
+- ~~Do not change `src/services/epochManager.js` genesis timestamp. It is correctly set to `1776236400000`.~~ **Superseded:** genesis was moved to `1783191600000` (2026-05-01 noon Ireland, UTC+1). The whole codebase was swept to this value; `1776236400000` is now stale. See CLAUDE.md.
 - Package metadata mismatch was fixed in the working tree: `package.json`, `package-lock.json`, and lock root now report `3.0.87`.
 - Future version bumps must update `package.json` and `package-lock.json` together.
 - `bin/btcpc-chain-monitor` and several timeout constants use `300000` for monitor/backoff/timeouts, not epoch length.

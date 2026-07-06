@@ -461,7 +461,7 @@ for node in all_rewarded_nodes:
 ```
 // src/services/emissionSchedule.js
 TOTAL_SUPPLY_BTCPC = 42_000_000
-DREAMS_PER_BTCPC = 100_000_000
+HUNITS_PER_HONE = 100_000_000
 EPOCH_DURATION_MS = 5 * 60 * 1000
 GENESIS_REWARD_BTCPC_PER_EPOCH = 243.06
 

@@ -347,7 +347,57 @@ public class FlipperFragment extends Fragment {
         refreshPairingUI();
         appendLog("Paired with " + name + " (" + mac + ")");
         Toast.makeText(requireContext(), "Paired with " + name, Toast.LENGTH_LONG).show();
-        // Restart relay service so it picks up the new MAC and connects via BLE
+        // Capture the Flipper's device public key so signed sensor frames can be
+        // verified. Without it, received frames are dropped by the native verifier.
+        promptForFlipperPubkey(mac, name);
+    }
+
+    /**
+     * Prompt for the Flipper's ed25519 device public key (64 hex chars), shown
+     * on the Flipper's "Identity / Key" screen. Required to verify the signed
+     * sensor frames the Flipper relays over BLE. The relay service (re)starts
+     * once this step completes (with or without a key).
+     */
+    private void promptForFlipperPubkey(String mac, String name) {
+        if (!isAdded()) return;
+        String existing = prefs.getFlipperPubkey();
+
+        android.widget.EditText input = new android.widget.EditText(requireContext());
+        input.setHint("64 hex characters");
+        input.setText(existing);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        int pad = (int) (16 * requireContext().getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad, pad, pad);
+
+        new android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Flipper Device Key")
+                .setMessage("On your Flipper, open the BTCPC app -> Identity / Key and enter "
+                        + "the 64-character public key shown. This verifies that sensor data "
+                        + "really comes from your Flipper.")
+                .setView(input)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String pk = input.getText() != null
+                            ? input.getText().toString().trim().toLowerCase() : "";
+                    if (!pk.matches("[0-9a-f]{64}")) {
+                        Toast.makeText(requireContext(),
+                                "Enter the 64-hex-character device key", Toast.LENGTH_LONG).show();
+                        promptForFlipperPubkey(mac, name); // re-prompt
+                        return;
+                    }
+                    prefs.setFlipperPubkey(pk);
+                    appendLog("Flipper device key saved (" + pk.substring(0, 8) + "...)");
+                    restartRelayService();
+                })
+                .setNegativeButton("Skip for now", (d, w) -> {
+                    appendLog("No device key entered - sensor frames will be dropped "
+                            + "until you add it.");
+                    restartRelayService();
+                })
+                .show();
+    }
+
+    private void restartRelayService() {
+        // Restart relay service so it picks up the new MAC/key and connects via BLE.
         requireContext().stopService(new Intent(requireContext(), LocalRelayService.class));
         requireContext().startService(new Intent(requireContext(), LocalRelayService.class));
     }

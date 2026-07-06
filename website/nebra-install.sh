@@ -1,27 +1,27 @@
 #!/bin/bash
-# Install BTCPC on a Nebra Helium Hotspot
-# Usage: curl -fsSL https://btcpc.net/nebra-install.sh | bash
+# Install HONE on a Nebra Helium Hotspot
+# Usage: curl -fsSL https://honemesh.net/nebra-install.sh | bash
 #
-# Shin Devlin — BTCPC Project
-# https://btcpc.net
+# Shin Devlin — HONE Project
+# https://honemesh.net
 #
 # This script:
 #   1. Detects ARM architecture + Nebra-specific files
 #   2. Installs Node.js via nvm (ARM build)
 #   3. Clones the btcpc repo
 #   4. npm install
-#   5. Prompts for BTCPC account name (or defaults to gateway-<random>)
+#   5. Prompts for HONE account name (or defaults to gateway-<random>)
 #   6. Auto-detects LoRa region from Nebra's existing config
-#   7. Registers as a BTCPC gateway
-#   8. Installs systemd service: btcpc-nebra.service
+#   7. Registers as a HONE gateway
+#   8. Installs systemd service: hone-nebra.service
 #   9. Starts and enables
 
 set -e
 
-BTCPC_REPO="https://github.com/btcpc-network/btcpc.git"
-BTCPC_BRANCH="main"
-BTCPC_DIR="$HOME/btcpc"
-SERVICE_NAME="btcpc-nebra"
+HONE_REPO="https://github.com/btcpc-network/btcpc.git"
+HONE_BRANCH="main"
+HONE_DIR="$HOME/btcpc"
+SERVICE_NAME="hone-nebra"
 NVM_VERSION="v0.39.7"
 NODE_VERSION="20"
 
@@ -32,10 +32,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-info()    { echo -e "${BLUE}[btcpc]${NC} $1"; }
-success() { echo -e "${GREEN}[btcpc]${NC} $1"; }
-warn()    { echo -e "${YELLOW}[btcpc]${NC} $1"; }
-error()   { echo -e "${RED}[btcpc]${NC} $1" >&2; }
+info()    { echo -e "${BLUE}[hone]${NC} $1"; }
+success() { echo -e "${GREEN}[hone]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[hone]${NC} $1"; }
+error()   { echo -e "${RED}[hone]${NC} $1" >&2; }
 
 # ─── Architecture check ──────────────────────────────────────────
 ARCH=$(uname -m)
@@ -87,24 +87,24 @@ info "LoRa region: $LORA_REGION"
 RANDOM_SUFFIX=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 4 | head -n 1 2>/dev/null || echo "0001")
 DEFAULT_ACCOUNT="gateway-${RANDOM_SUFFIX}"
 if [[ -t 0 ]]; then
-  read -p "$(echo -e "${YELLOW}Enter your BTCPC account name [${DEFAULT_ACCOUNT}]:${NC} ")" BTCPC_ACCOUNT
-  BTCPC_ACCOUNT="${BTCPC_ACCOUNT:-$DEFAULT_ACCOUNT}"
+  read -p "$(echo -e "${YELLOW}Enter your HONE account name [${DEFAULT_ACCOUNT}]:${NC} ")" HONE_ACCOUNT
+  HONE_ACCOUNT="${HONE_ACCOUNT:-$DEFAULT_ACCOUNT}"
 else
-  BTCPC_ACCOUNT="$DEFAULT_ACCOUNT"
-  info "Non-interactive mode. Using account: $BTCPC_ACCOUNT"
+  HONE_ACCOUNT="$DEFAULT_ACCOUNT"
+  info "Non-interactive mode. Using account: $HONE_ACCOUNT"
 fi
-info "BTCPC account: $BTCPC_ACCOUNT"
+info "HONE account: $HONE_ACCOUNT"
 
-GATEWAY_NAME="${BTCPC_ACCOUNT}-nebra"
+GATEWAY_NAME="${HONE_ACCOUNT}-nebra"
 
 # ─── GPS coordinates (optional) ──────────────────────────────────
-BTCPC_LAT="0"
-BTCPC_LON="0"
+HONE_LAT="0"
+HONE_LON="0"
 if [[ -t 0 ]]; then
-  read -p "$(echo -e "${YELLOW}Enter GPS latitude (optional, press Enter to skip):${NC} ")" BTCPC_LAT_INPUT
-  read -p "$(echo -e "${YELLOW}Enter GPS longitude (optional, press Enter to skip):${NC} ")" BTCPC_LON_INPUT
-  BTCPC_LAT="${BTCPC_LAT_INPUT:-0}"
-  BTCPC_LON="${BTCPC_LON_INPUT:-0}"
+  read -p "$(echo -e "${YELLOW}Enter GPS latitude (optional, press Enter to skip):${NC} ")" HONE_LAT_INPUT
+  read -p "$(echo -e "${YELLOW}Enter GPS longitude (optional, press Enter to skip):${NC} ")" HONE_LON_INPUT
+  HONE_LAT="${HONE_LAT_INPUT:-0}"
+  HONE_LON="${HONE_LON_INPUT:-0}"
 fi
 
 # ─── Node.js via nvm ─────────────────────────────────────────────
@@ -128,7 +128,7 @@ fi
 if ! grep -q 'nvm.sh' "$HOME/.bashrc" 2>/dev/null; then
   cat >> "$HOME/.bashrc" << 'NVMEOF'
 
-# nvm (added by btcpc-nebra installer)
+# nvm (added by hone-nebra installer)
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
@@ -136,33 +136,33 @@ NVMEOF
 fi
 
 # ─── Clone/update repo ──────────────────────────────────────────
-if [[ -d "$BTCPC_DIR/.git" ]]; then
-  info "Updating existing btcpc repo at $BTCPC_DIR..."
-  git -C "$BTCPC_DIR" fetch origin "$BTCPC_BRANCH" --quiet
-  git -C "$BTCPC_DIR" reset --hard "origin/$BTCPC_BRANCH" --quiet
+if [[ -d "$HONE_DIR/.git" ]]; then
+  info "Updating existing hone repo at $HONE_DIR..."
+  git -C "$HONE_DIR" fetch origin "$HONE_BRANCH" --quiet
+  git -C "$HONE_DIR" reset --hard "origin/$HONE_BRANCH" --quiet
 else
-  info "Cloning btcpc repo to $BTCPC_DIR..."
-  git clone --branch "$BTCPC_BRANCH" --depth 1 "$BTCPC_REPO" "$BTCPC_DIR"
+  info "Cloning hone repo to $HONE_DIR..."
+  git clone --branch "$HONE_BRANCH" --depth 1 "$HONE_REPO" "$HONE_DIR"
 fi
-success "Repo ready at $BTCPC_DIR"
+success "Repo ready at $HONE_DIR"
 
 # ─── npm install ────────────────────────────────────────────────
 info "Installing npm dependencies..."
-cd "$BTCPC_DIR"
+cd "$HONE_DIR"
 npm install --omit=dev --quiet
 success "Dependencies installed."
 
 # ─── .env configuration ─────────────────────────────────────────
-ENV_FILE="$BTCPC_DIR/.env"
+ENV_FILE="$HONE_DIR/.env"
 info "Writing $ENV_FILE..."
 cat > "$ENV_FILE" << ENVEOF
-BTCPC_MINER=$BTCPC_ACCOUNT
-BTCPC_GATEWAY_NAME=$GATEWAY_NAME
-BTCPC_LORA_REGION=$LORA_REGION
-BTCPC_LAT=$BTCPC_LAT
-BTCPC_LON=$BTCPC_LON
-BTCPC_NODE_URL=https://btcpc.net/testnet
-BTCPC_ROLES=gateway,clock
+HONE_MINER=$HONE_ACCOUNT
+HONE_GATEWAY_NAME=$GATEWAY_NAME
+HONE_LORA_REGION=$LORA_REGION
+HONE_LAT=$HONE_LAT
+HONE_LON=$HONE_LON
+HONE_NODE_URL=https://honemesh.net/testnet
+HONE_ROLES=gateway,clock
 ENVEOF
 success ".env written."
 
@@ -174,20 +174,20 @@ mkdir -p "$(dirname "$SERVICE_FILE")"
 info "Writing systemd service: $SERVICE_FILE"
 cat > "$SERVICE_FILE" << SVCEOF
 [Unit]
-Description=BTCPC Nebra LoRa Gateway Daemon
+Description=HONE Nebra LoRa Gateway Daemon
 After=network.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${BTCPC_DIR}
+WorkingDirectory=${HONE_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${NODE_BIN} ${BTCPC_DIR}/bin/btcpc-nebra --account ${BTCPC_ACCOUNT} --gateway ${GATEWAY_NAME} --region ${LORA_REGION} --lat ${BTCPC_LAT} --lon ${BTCPC_LON}
+ExecStart=${NODE_BIN} ${HONE_DIR}/bin/btcpc-nebra --account ${HONE_ACCOUNT} --gateway ${GATEWAY_NAME} --region ${LORA_REGION} --lat ${HONE_LAT} --lon ${HONE_LON}
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=btcpc-nebra
+SyslogIdentifier=hone-nebra
 
 [Install]
 WantedBy=default.target
@@ -203,9 +203,9 @@ sleep 2
 systemctl --user status "${SERVICE_NAME}" --no-pager || true
 
 success ""
-success "BTCPC Nebra gateway installed and running!"
+success "HONE Nebra gateway installed and running!"
 success ""
-success "Account:  $BTCPC_ACCOUNT"
+success "Account:  $HONE_ACCOUNT"
 success "Gateway:  $GATEWAY_NAME"
 success "Region:   $LORA_REGION"
 success ""
@@ -214,4 +214,4 @@ info "  systemctl --user status $SERVICE_NAME"
 info "  journalctl --user -u $SERVICE_NAME -f"
 info "  systemctl --user restart $SERVICE_NAME"
 info ""
-info "View the network map: https://btcpc.net/map.html"
+info "View the network map: https://honemesh.net/map.html"

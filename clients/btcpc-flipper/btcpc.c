@@ -7,9 +7,12 @@
  */
 
 #include "btcpc.h"
+#include "btcpc_ble.h"
 #include "scenes/btcpc_scene_main.h"
 #include "scenes/btcpc_scene_identity.h"
 #include "scenes/btcpc_scene_ble.h"
+#include "scenes/btcpc_scene_subghz.h"
+#include "scenes/btcpc_scene_rotate.h"
 
 #include <furi.h>
 #include <furi_hal_random.h>
@@ -24,16 +27,22 @@ static const SceneManagerHandlers btcpc_scene_handlers = {
         [BtcpcSceneMain]     = btcpc_scene_main_on_enter,
         [BtcpcSceneIdentity] = btcpc_scene_identity_on_enter,
         [BtcpcSceneBle]      = btcpc_scene_ble_on_enter,
+        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_enter,
+        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_enter,
     },
     .on_event_handlers = {
         [BtcpcSceneMain]     = btcpc_scene_main_on_event,
         [BtcpcSceneIdentity] = btcpc_scene_identity_on_event,
         [BtcpcSceneBle]      = btcpc_scene_ble_on_event,
+        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_event,
+        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_event,
     },
     .on_exit_handlers = {
         [BtcpcSceneMain]     = btcpc_scene_main_on_exit,
         [BtcpcSceneIdentity] = btcpc_scene_identity_on_exit,
         [BtcpcSceneBle]      = btcpc_scene_ble_on_exit,
+        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_exit,
+        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_exit,
     },
     .scene_num = BtcpcSceneCount,
 };
@@ -96,6 +105,12 @@ void btcpc_app_free(BtcpcApp* app) {
 
     scene_manager_free(app->scene_manager);
     view_dispatcher_free(app->view_dispatcher);
+
+    /* Close the BT record if btcpc_ble_start opened it. */
+    if(app->bt) {
+        furi_record_close(RECORD_BT);
+        app->bt = NULL;
+    }
 
     furi_record_close(RECORD_GUI);
     free(app);
@@ -182,9 +197,15 @@ int32_t btcpc_app(void* p) {
     btcpc_identity_load_or_create(app);
     btcpc_pub_to_hex(app->pk, app->pub_hex);
 
+    /* Start the Serial BLE profile so capture scenes can relay signed frames
+     * to the paired phone. Non-fatal if it fails — the app still runs and the
+     * frames still build/sign; they just won't transmit. */
+    btcpc_ble_start(app);
+
     scene_manager_next_scene(app->scene_manager, BtcpcSceneMain);
     view_dispatcher_run(app->view_dispatcher);
 
+    btcpc_ble_stop(app);
     btcpc_app_free(app);
     return 0;
 }

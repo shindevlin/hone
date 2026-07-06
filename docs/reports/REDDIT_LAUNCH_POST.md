@@ -50,11 +50,11 @@ These three are why the token has a reason to exist beyond speculation.
 
 ```bash
 # GPU mining (install Ollama first)
-curl -fsSL https://btcpc.net/install.sh | sudo bash
-BTCPC_ACCOUNT=yourname btcpc-node
+curl -fsSL https://honemesh.net/install.sh | sudo bash
+HONE_ACCOUNT=yourname btcpc-node
 
 # Or just open the browser clock right now
-# btcpc.net/clock
+# honemesh.net/clock
 ```
 
 Telegram wallet (no install): message @btcpcbot `/create yourname`

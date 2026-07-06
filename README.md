@@ -22,12 +22,12 @@ These are native ledger entry types, not smart contracts deployed after the fact
 
 ## Stack
 
-- **Rust** — `rust/btcpc-node` — single binary: libp2p networking, sled state, clock consensus, inference mining, Axum HTTP API (port 4242)
+- **Rust** — `rust/hone-node` — single binary: libp2p networking, sled state, clock consensus, inference mining, Axum HTTP API (port 4242)
 - **Rust** — `rust/btcpc-android` — standalone Android micronode (libp2p + sled + Candle inference, fully self-contained)
 - **Ollama** — AI inference backend, model-agnostic (qwen, llama, mistral, gemma, deepseek, etc.)
 - **libp2p** — gossipsub P2P mesh, port 6942
 
-> `src/` (Node.js) is kept for historical reference only. The canonical chain is `rust/btcpc-node`.
+> `src/` (Node.js) is kept for historical reference only. The canonical chain is `rust/hone-node`.
 
 ---
 
@@ -60,7 +60,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full hardening plan.
 One command installs both `btcpc-node` (the chain node) and `btcpc` (the CLI):
 
 ```bash
-curl -fsSL https://btcpc.net/install.sh | sudo bash
+curl -fsSL https://honemesh.net/install.sh | sudo bash
 ```
 
 Requires Ubuntu/Debian x86-64. Installs binaries to `/usr/local/bin`, creates the `btcpc` system user, and enables daily auto-update.
@@ -84,7 +84,7 @@ git push -u origin main
 
 ```bash
 sudo nano /etc/systemd/system/btcpc-node.service
-# Set: BTCPC_ACCOUNT, BTCPC_NODE_ID, BTCPC_GENESIS_TIMESTAMP=1777633200000, BTCPC_CHAIN_ID=btcpc-1
+# Set: HONE_ACCOUNT, HONE_NODE_ID, HONE_GENESIS_TIMESTAMP=1783191600000, HONE_CHAIN_ID=hone
 systemctl enable --now btcpc-node
 ```
 
@@ -99,17 +99,17 @@ curl http://localhost:4242/api/node/info
 
 ```bash
 git clone https://github.com/shindevlin/btcpc
-cd btcpc/rust/btcpc-cli && cargo build --release
+cd btcpc/rust/hone-cli && cargo build --release
 cd ../btcpc-node && cargo build --release
-sudo cp rust/btcpc-cli/target/release/btcpc /usr/local/bin/
-sudo cp rust/btcpc-node/target/release/btcpc-node /usr/local/bin/
+sudo cp rust/hone-cli/target/release/btcpc /usr/local/bin/
+sudo cp rust/hone-node/target/release/btcpc-node /usr/local/bin/
 ```
 
 ### Docker
 
 ```bash
 docker run -d \
-  -e BTCPC_ACCOUNT=yourname \
+  -e HONE_ACCOUNT=yourname \
   -p 4242:4242 -p 6942:6942 \
   btcpc/node
 ```
@@ -118,7 +118,7 @@ docker run -d \
 
 ```ini
 # In /etc/systemd/system/btcpc-node.service
-Environment="BTCPC_P2P_ANNOUNCE_ADDR=/ip4/10.x.x.x/tcp/6942"
+Environment="HONE_P2P_ANNOUNCE_ADDR=/ip4/10.x.x.x/tcp/6942"
 ```
 
 ---
@@ -142,14 +142,14 @@ Multiple roles stack. A Raspberry Pi running BLE scanning + clock earns from two
 ```bash
 curl -fsSL https://ollama.ai/install.sh | sh
 ollama pull qwen2.5:7b
-BTCPC_ACCOUNT=yourname btcpc-node
+HONE_ACCOUNT=yourname btcpc-node
 ```
 
 ### Raspberry Pi (BLE Tracker + Clock)
 
 ```bash
-BTCPC_ACCOUNT=yourname \
-BTCPC_BLE_TRACKER=true \
+HONE_ACCOUNT=yourname \
+HONE_BLE_TRACKER=true \
 btcpc-node
 ```
 
@@ -157,7 +157,7 @@ The Pi passively scans for AirTags, Android Find My, Tile, and Samsung SmartTags
 
 ### Phone
 
-Download the [Android APK](https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk) or open [btcpc.net/app](https://btcpc.net/app). Enable sensors and clock from the app UI. First epoch reward within 30 seconds.
+Download the [Android APK](https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk) or open [honemesh.net/app](https://honemesh.net/app). Enable sensors and clock from the app UI. First epoch reward within 30 seconds.
 
 ### Telegram Wallet
 
@@ -176,8 +176,8 @@ Drop-in replace for OpenAI:
 ```javascript
 const OpenAI = require('openai');
 const client = new OpenAI({
-  baseURL: 'https://btcpc.net/v1',
-  apiKey: process.env.BTCPC_API_KEY
+  baseURL: 'https://honemesh.net/v1',
+  apiKey: process.env.HONE_API_KEY
 });
 
 const response = await client.chat.completions.create({
@@ -189,7 +189,7 @@ const response = await client.chat.completions.create({
 Or curl:
 
 ```bash
-curl -X POST https://btcpc.net/v1/chat/completions \
+curl -X POST https://honemesh.net/v1/chat/completions \
   -H "Authorization: Bearer btcpc_your_key" \
   -H "Content-Type: application/json" \
   -d '{"model": "auto", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -205,13 +205,13 @@ Get an API key: create an account via [@btcpcbot](https://t.me/btcpcbot), then `
 |-----------|-------|
 | Total supply | 42,000,000 BTCPC |
 | Smallest unit | 1 dream (1 BTCPC = 10,000,000,000 dreams) |
-| Genesis timestamp | 1777633200000 ms (2026-05-01, noon Ireland, UTC+1) |
+| Genesis timestamp | 1783191600000 ms (2026-05-01, noon Ireland, UTC+1) |
 | Era 0 epoch duration | 30 seconds |
 | Era 0 block reward | 2 BTCPC per epoch |
 | Emission model | Epoch duration doubles every 4,200,000 epochs |
 | Supply exhaustion | ~124 years from genesis (~2150) |
-| Chain ID (mainnet) | btcpc-1 |
-| Chain ID (testnet) | btcpc-satoshi |
+| Chain ID (mainnet) | hone |
+| Chain ID (testnet) | hone-testnet |
 | HTTP API port | 4242 |
 | P2P port | 6942 |
 
@@ -260,7 +260,7 @@ Agent onboarding prompt:
 ```
 You are working on BTCPC (Bitcoin Proof of Compute). Read AGENTS.md,
 CLAUDE.md, and README.md first. Use the code-review-graph MCP tools
-before Grep or file scanning. The canonical chain is rust/btcpc-node
+before Grep or file scanning. The canonical chain is rust/hone-node
 (port 4242). Do not reference or modify the Node.js src/ directory.
 Do not change genesis constants, token economics, or security-sensitive
 flows unless explicitly asked.
@@ -280,10 +280,10 @@ BTCPC nodes are built for non-technical operators: every failure path recovers a
 
 ## Links
 
-- **Website:** [btcpc.net](https://btcpc.net)
+- **Website:** [honemesh.net](https://honemesh.net)
 - **Telegram:** [@btcpcbot](https://t.me/btcpcbot)
-- **Explorer:** [btcpc.net/dashboard](https://btcpc.net/dashboard)
-- **Whitepaper:** [docs/BTCPC_WHITEPAPER.md](docs/BTCPC_WHITEPAPER.md)
+- **Explorer:** [honemesh.net/dashboard](https://honemesh.net/dashboard)
+- **Whitepaper:** [docs/HONE_WHITEPAPER.md](docs/HONE_WHITEPAPER.md)
 - **Roadmap:** [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Reddit:** [r/btcpc](https://reddit.com/r/btcpc)
 - **Substack:** [btcpc.substack.com](https://btcpc.substack.com)

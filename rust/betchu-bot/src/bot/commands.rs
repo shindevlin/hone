@@ -21,7 +21,7 @@ pub enum BetchuCommand {
     Wallet(String),
     #[command(description = "Open the BetChu Mini App")]
     App,
-    #[command(description = "Current BTCPC network status")]
+    #[command(description = "Current HONE network status")]
     Network,
     #[command(description = "Latest college football/basketball scores")]
     Scores,

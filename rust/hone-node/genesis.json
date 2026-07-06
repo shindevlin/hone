@@ -1,0 +1,20 @@
+{
+  "genesis_timestamp": 1783191600000,
+  "chain_id": "hone",
+  "accounts": {
+    "shindevlin":      { "keys": { "posting": "c97a9f209e465c1593d2783e85d1cbf7ddf00c8097ee4259eef88aee55d85bd6" } },
+    "natoshisakamoto": { "keys": { "posting": "29e22bbd0253cbc792ef186708e38c99e6b866782daf2f85901f1e967a5e63f9" } },
+    "josh":            { "keys": { "posting": "bcc9d57d3d166dea85d1111844994d7f0ef302c1ca144c5d81de1060cbafa08a" } },
+    "bullship":        { "keys": { "posting": "bc52f8fdd3915ecda5f9cfa9d1d4eccd381d570dbf1a5c331eda47a8663ee5e0" } },
+    "freeport":        { "keys": { "posting": "2217a5a65c0d472f12afe3f4084b73593ed6105545532a2476b65b73f6025abc" } },
+    "linkgit":         { "keys": { "posting": "fc9db435fd42d74d4d2e98a2d613f80da52b772ee38769c10895e8dc9f39590b" } },
+    "verasens":        { "keys": { "posting": "f47a74d669cbbf17147ca391f8e7b659f41721d44efb83b66bf27ac3d7769603" } },
+    "hone-market":     { "keys": { "posting": "c234269668fcfcb164353ffa6a531202dc9d0c2108313b8c505355c624b7ba08" } },
+    "hone-relay":      { "keys": { "posting": "38326e6e89d3e40a3c99d3a4a4593c0db784e18449dfbbd658ede682633e072d" } },
+    "honebot":         { "keys": { "posting": "a7b7af870e4626cc7474a81a3fe4f338c80fe1bfc6b2c9607730663b6a38cf46" } },
+    "honewalletbot":   { "keys": { "posting": "5b8092193aabd0b77175333ba803044ba370d878bc70e1bc33a4e31da018d1d7" } },
+    "__treasury__":    {},
+    "__recycle_fund__": {},
+    "__testnet_fund__": {}
+  }
+}

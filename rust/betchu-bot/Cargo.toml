@@ -3,8 +3,11 @@ name = "betchu-bot"
 version = "1.0.0"
 edition = "2021"
 authors = ["natoshisakamoto"]
-description = "BTCPC-compliant P2P sports betting Telegram bot"
+description = "HONE-compliant P2P sports betting Telegram bot"
 
+
+# Standalone crate — not a member of rust/Cargo.toml workspace.
+[workspace]
 [dependencies]
 # Telegram bot framework
 teloxide = { version = "0.13", features = ["macros"] }
@@ -12,11 +15,11 @@ teloxide = { version = "0.13", features = ["macros"] }
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# HTTP server — BTCPC service compliance (health endpoint + heartbeat receiver)
+# HTTP server — HONE service compliance (health endpoint + heartbeat receiver)
 axum = { version = "0.7", features = ["json"] }
 tower-http = { version = "0.5", features = ["cors"] }
 
-# HTTP client — ESPN, BTCPC inference, EVM RPC
+# HTTP client — ESPN, HONE inference, EVM RPC
 reqwest = { version = "0.12", features = ["json"] }
 
 # Serialization
@@ -37,14 +40,14 @@ mongodb = { version = "3", features = ["dns-resolver"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Env loading (.envbtcpc + .env)
+# Env loading (.envhone + .env)
 dotenvy = "0.15"
 
 # Time & scheduling
 chrono = { version = "0.4", features = ["serde"] }
 tokio-cron-scheduler = "0.13"
 
-# Ed25519 signing for BTCPC transactions
+# Ed25519 signing for HONE transactions
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 hex = "0.4"

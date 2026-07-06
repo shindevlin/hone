@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>BTCPC for Android — Install in 3 Taps</title>
-  <meta name="description" content="Mine BTCPC clock rewards on Android. Install in 3 taps via Termux.">
+  <title>HONE for Android — Install in 3 Taps</title>
+  <meta name="description" content="Mine HONE clock rewards on Android. Install in 3 taps via Termux.">
   <link rel="manifest" href="/android-manifest.json">
   <meta name="theme-color" content="#0a0e17">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="BTCPC">
-  <link rel="apple-touch-icon" href="/btcpc-icon-180.png">
+  <meta name="apple-mobile-web-app-title" content="HONE">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
@@ -146,7 +146,7 @@
 <script src="/nav.js?v=2"></script>
 
   <div class="container">
-    <div class="logo">⚡ BTCPC</div>
+    <div class="logo">⚡ HONE</div>
     <p class="tagline">Mine clock rewards from your Android phone</p>
 
     <div class="pwa-prompt" id="pwa-prompt" style="display:none;">
@@ -168,31 +168,31 @@
       </div>
       <button class="btn" id="copy-big" onclick="copyCmdBig()">📋 Copy Install Command</button>
       <div class="code-box" id="cmd">
-        curl https://btcpc.net/android.sh | bash
+        curl https://honemesh.net/android.sh | bash
       </div>
     </div>
 
     <div class="step">
       <div class="step-title"><span class="step-num">3</span>Switch to Termux & Paste</div>
       <div class="step-body">
-        Open the Termux app (from your apps drawer or recent apps). Long-press inside Termux → tap "Paste" → press Enter. It will ask for your BTCPC username. If you don't have one, message <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram first.
+        Open the Termux app (from your apps drawer or recent apps). Long-press inside Termux → tap "Paste" → press Enter. It will ask for your HONE username. If you don't have one, message <a href="https://t.me/btcpcbot" style="color:#f7931a;">@btcpcbot</a> on Telegram first.
       </div>
     </div>
 
     <div class="step">
       <div class="step-title">Done</div>
       <div class="step-body">
-        Your clock node runs in the background, auto-updates every hour, and survives reboots. View your stats at <a href="/clock" style="color:#f7931a;">btcpc.net/clock</a>.
+        Your clock node runs in the background, auto-updates every hour, and survives reboots. View your stats at <a href="/clock" style="color:#f7931a;">honemesh.net/clock</a>.
       </div>
     </div>
 
     <div class="footer">
-      <a href="/install">Other install options</a> · <a href="/">btcpc.net</a> · <a href="https://btcpc.substack.com">Substack</a>
+      <a href="/install">Other install options</a> · <a href="/">honemesh.net</a> · <a href="https://btcpc.substack.com">Substack</a>
     </div>
   </div>
 
   <script>
-    var INSTALL_CMD = "curl https://btcpc.net/android.sh | bash";
+    var INSTALL_CMD = "curl https://honemesh.net/android.sh | bash";
 
     function doCopy(text) {
       // Try modern clipboard API first
@@ -251,7 +251,7 @@
       deferredPrompt = e;
       document.getElementById("pwa-prompt").style.display = "block";
       document.getElementById("pwa-prompt").innerHTML =
-        '<button class="btn" onclick="installPWA()">📲 Add BTCPC to Home Screen</button>';
+        '<button class="btn" onclick="installPWA()">📲 Add HONE to Home Screen</button>';
     });
 
     function installPWA() {

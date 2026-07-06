@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Install BTCPC — Pick Your Path</title>
-  <meta name="description" content="Install BTCPC any way you want — desktop app, Docker, terminal, browser, or Telegram. Mining the network has never been easier.">
-  <meta property="og:title" content="Install BTCPC">
-  <meta property="og:description" content="Five ways to join the BTCPC network. Click the one that fits.">
-  <meta property="og:url" content="https://btcpc.net/install">
+  <title>Install HONE — Pick Your Path</title>
+  <meta name="description" content="Install HONE any way you want — desktop app, Docker, terminal, browser, or Telegram. Mining the network has never been easier.">
+  <meta property="og:title" content="Install HONE">
+  <meta property="og:description" content="Five ways to join the HONE network. Click the one that fits.">
+  <meta property="og:url" content="https://honemesh.net/install">
   <link rel="stylesheet" href="style.css">
   <style>
     body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; }
@@ -194,7 +194,7 @@
 </div>
 
   <section class="install-hero">
-    <h1>Install <span>BTCPC</span></h1>
+    <h1>Install <span>HONE</span></h1>
     <p>Five ways to join the network. Pick the one that fits — from one-click desktop apps to terminal one-liners. All paths produce a working node.</p>
     <div id="os-detected" class="os-detected" style="display:none;"></div>
   </section>
@@ -233,10 +233,10 @@
       <span class="card-icon">🐳</span>
       <div class="card-title">Docker</div>
       <div class="card-subtitle">Mac · Linux · Windows (Docker Desktop)</div>
-      <p class="card-description">The easiest path on Windows. Pre-built image on GHCR. The image bundles BTCPC; mongo and ollama come from official images. Peers with the live chain automatically — your rewards land on-chain.</p>
+      <p class="card-description">The easiest path on Windows. Pre-built image on GHCR. The image bundles HONE; mongo and ollama come from official images. Peers with the live chain automatically — your rewards land on-chain.</p>
       <ul class="card-features">
         <li>Works on Windows, Mac, and Linux</li>
-        <li>Auto-peers with the live BTCPC network</li>
+        <li>Auto-peers with the live HONE network</li>
         <li>Fully isolated, easy to remove</li>
         <li>Auto-restart on crash</li>
       </ul>
@@ -245,10 +245,10 @@
       <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.4);border-radius:10px;padding:16px;margin:16px 0;">
         <div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:6px;">💥 Windows one-click path</div>
         <p class="card-description" style="margin-bottom:10px;">After Docker Desktop is installed and running, open <strong>PowerShell</strong> (Start menu → type "PowerShell" → Enter) and paste this one line:</p>
-        <div class="card-code"><button type="button" class="copy-btn" data-copy="irm https://btcpc.net/btcpc-start.ps1 | iex">copy</button><pre>irm https://btcpc.net/btcpc-start.ps1 | iex</pre></div>
-        <p class="card-description" style="margin:10px 0 0 0;font-size:12px;color:#e2e8f0;">That downloads and runs the starter script. It checks Docker, downloads the ~200 MB image, asks for your BTCPC username, and starts the node. Every step prints what's happening.</p>
+        <div class="card-code"><button type="button" class="copy-btn" data-copy="irm https://honemesh.net/hone-start.ps1 | iex">copy</button><pre>irm https://honemesh.net/hone-start.ps1 | iex</pre></div>
+        <p class="card-description" style="margin:10px 0 0 0;font-size:12px;color:#e2e8f0;">That downloads and runs the starter script. It checks Docker, downloads the ~200 MB image, asks for your HONE username, and starts the node. Every step prints what's happening.</p>
         <p class="card-description" style="margin:16px 0 6px 0;font-size:13px;"><strong>Alternative if you prefer a .bat:</strong></p>
-        <p style="margin:0;"><a href="/btcpc-start.bat" download="btcpc-start.bat" style="display:inline-block;background:#22c55e;color:#0a0e17;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;">⬇ Download btcpc-start.bat</a></p>
+        <p style="margin:0;"><a href="/hone-start.bat" download="hone-start.bat" style="display:inline-block;background:#22c55e;color:#0a0e17;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;">⬇ Download hone-start.bat</a></p>
         <p class="card-description" style="margin:10px 0 0 0;font-size:12px;color:#64748b;">Save into an empty folder, double-click. If the window opens and closes instantly, use the PowerShell one-liner above instead — it's more robust.</p>
       </div>
 
@@ -256,18 +256,18 @@
       <p class="card-description" style="margin-bottom:8px;"><strong>Step 2 — Grab the compose file.</strong> The easiest way on any OS: just click this link and save the file into a new folder:</p>
       <p class="card-description" style="margin:0 0 12px 0;"><a href="/docker-compose.yml" download="docker-compose.yml" style="display:inline-block;background:#f7931a;color:#0a0e17;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;">⬇ Download docker-compose.yml</a></p>
       <p class="card-description" style="margin-bottom:4px;font-size:12px;"><em>Or from Mac / Linux / WSL terminal:</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl -O https://btcpc.net/docker-compose.yml">copy</button><pre>curl -O https://btcpc.net/docker-compose.yml</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl -O https://honemesh.net/docker-compose.yml">copy</button><pre>curl -O https://honemesh.net/docker-compose.yml</pre></div>
       <p class="card-description" style="margin:8px 0 4px 0;font-size:12px;"><em>Or from Windows PowerShell (do NOT use plain <code>curl -O</code> — that's an alias to Invoke-WebRequest with different flag semantics and will error "the input object cannot be bound" or ask for a URI):</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy='Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml'>copy</button><pre>Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy='Invoke-WebRequest -Uri https://honemesh.net/docker-compose.yml -OutFile docker-compose.yml'>copy</button><pre>Invoke-WebRequest -Uri https://honemesh.net/docker-compose.yml -OutFile docker-compose.yml</pre></div>
       <p class="card-description" style="margin:8px 0 4px 0;font-size:12px;"><em>Or from Windows Command Prompt (<code>cmd.exe</code>, NOT PowerShell — Windows 10/11 ships with real curl.exe):</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl.exe -O https://btcpc.net/docker-compose.yml">copy</button><pre>curl.exe -O https://btcpc.net/docker-compose.yml</pre></div>
-      <p class="card-description" style="margin-bottom:8px;"><strong>Step 3 — Start mining</strong> (replace <code>YOUR_USERNAME</code> with your Telegram BTCPC username, lowercase)</p>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl.exe -O https://honemesh.net/docker-compose.yml">copy</button><pre>curl.exe -O https://honemesh.net/docker-compose.yml</pre></div>
+      <p class="card-description" style="margin-bottom:8px;"><strong>Step 3 — Start mining</strong> (replace <code>YOUR_USERNAME</code> with your Telegram HONE username, lowercase)</p>
       <p class="card-description" style="margin-bottom:4px;font-size:12px;"><em>Mac / Linux / WSL:</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy="BTCPC_MINER=YOUR_USERNAME docker compose up -d">copy</button><pre>BTCPC_MINER=YOUR_USERNAME docker compose up -d</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="HONE_MINER=YOUR_USERNAME docker compose up -d">copy</button><pre>HONE_MINER=YOUR_USERNAME docker compose up -d</pre></div>
       <p class="card-description" style="margin-bottom:4px;font-size:12px;"><em>Windows PowerShell:</em></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy='$env:BTCPC_MINER="YOUR_USERNAME"; docker compose up -d'>copy</button><pre>$env:BTCPC_MINER="YOUR_USERNAME"; docker compose up -d</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy='$env:HONE_MINER="YOUR_USERNAME"; docker compose up -d'>copy</button><pre>$env:HONE_MINER="YOUR_USERNAME"; docker compose up -d</pre></div>
       <p class="card-description" style="margin-bottom:8px;"><strong>Step 4 — Verify it's working</strong></p>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy="docker logs -f btcpc-node">copy</button><pre>docker logs -f btcpc-node</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="docker logs -f hone-node">copy</button><pre>docker logs -f hone-node</pre></div>
       <p class="card-description" style="margin-top:8px;">You should see "Connected to wss://btcpc-relay..." and "Block request..." within a minute. After 5-10 minutes, check your Telegram <code>/balance</code> — new rewards will appear.</p>
       <p class="card-description" style="margin-top:8px;"><strong>No username yet?</strong> Message <a href="/app" style="color:#c8ccd4;text-decoration:none;">Start</a>
   <a href="https://t.me/btcpcbot" target="_blank" style="color:#f7931a;">@btcpcbot</a> on Telegram first and run <code>/create your_name</code>. Save the 12-word phrase it gives you — that's your backup key.</p>
@@ -285,7 +285,7 @@
         <li>Configures systemd service</li>
         <li>No GUI dependencies</li>
       </ul>
-      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl https://btcpc.net/install.sh | bash">copy</button><pre>curl https://btcpc.net/install.sh | bash</pre></div>
+      <div class="card-code"><button type="button" class="copy-btn" data-copy="curl https://honemesh.net/install.sh | bash">copy</button><pre>curl https://honemesh.net/install.sh | bash</pre></div>
     </div>
 
     <!-- Android Native App (Signed Release APK) -->
@@ -301,7 +301,7 @@
         <li>Persistent foreground service, survives screen-off</li>
         <li>Enable "Install from unknown sources" in settings once</li>
       </ul>
-      <a href="/BTCPC-android-release.apk" download="BTCPC-android-release.apk" style="display:inline-block;background:#f7931a;color:#000;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;margin-top:12px;">&#8659; Download BTCPC-android-release.apk</a>
+      <a href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk" download="HONE-android-release.apk" style="display:inline-block;background:#f7931a;color:#000;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;margin-top:12px;">&#8659; Download HONE-android-release.apk</a>
     </div>
 
     <!-- Android (Termux) -->
@@ -337,7 +337,7 @@
       <span class="card-icon">💬</span>
       <div class="card-title">Telegram Wallet</div>
       <div class="card-subtitle">No installation needed</div>
-      <p class="card-description">Just want a wallet? Message @btcpcbot on Telegram. Send commands like <code>/create</code>, <code>/balance</code>, <code>/transfer</code>. No mining, just holding and sending BTCPC.</p>
+      <p class="card-description">Just want a wallet? Message @btcpcbot on Telegram. Send commands like <code>/create</code>, <code>/balance</code>, <code>/transfer</code>. No mining, just holding and sending HONE.</p>
       <ul class="card-features">
         <li>Wallet only — no mining</li>
         <li>Receive cross-chain claims</li>
@@ -352,10 +352,10 @@
   <div style="max-width:900px;margin:0 auto 60px;padding:0 24px;">
     <div style="background:#0d1117;border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:28px;">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#22c55e;font-weight:700;margin-bottom:14px;">For AI agents — read before running anything</div>
-      <p style="font-size:14px;color:#94a3b8;margin:0 0 20px;line-height:1.7;">If you are an AI agent installing BTCPC on a machine, use the decision tree below to pick the right path and verify success. Do not guess — check first.</p>
+      <p style="font-size:14px;color:#94a3b8;margin:0 0 20px;line-height:1.7;">If you are an AI agent installing HONE on a machine, use the decision tree below to pick the right path and verify success. Do not guess — check first.</p>
 
       <div style="background:#050908;border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:16px 18px;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:12px;color:#86efac;white-space:pre;overflow-x:auto;line-height:1.8;margin-bottom:16px;">## STEP 0 — Check if already installed
-btcpc --version
+hone --version
 # IF prints a version → already installed. Skip to STEP 4 (verify).
 # IF command not found → continue to STEP 1.
 
@@ -373,39 +373,39 @@ which docker 2>/dev/null &amp;&amp; echo DOCKER_AVAILABLE
 # No shell at all → use Telegram bot @btcpcbot for wallet only
 
 ## STEP 3A — Terminal install (macOS / Linux / WSL)
-curl https://btcpc.net/install.sh | bash
-# Expected: script prints progress, ends with "BTCPC node is running"
+curl https://honemesh.net/install.sh | bash
+# Expected: script prints progress, ends with "HONE node is running"
 # IF error "ollama not found" → install Ollama first: https://ollama.ai/download
-# IF error "permission denied" → run: chmod +x ~/.btcpc/btcpc
+# IF error "permission denied" → run: chmod +x ~/.hone/hone
 
 ## STEP 3B — Docker install (Windows / any platform with Docker)
 # Requires: Docker Desktop running (whale icon in tray)
 #
 # Mac / Linux:
-curl -O https://btcpc.net/docker-compose.yml
-BTCPC_MINER=&lt;your-username&gt; docker compose up -d
+curl -O https://honemesh.net/docker-compose.yml
+HONE_MINER=&lt;your-username&gt; docker compose up -d
 #
 # Windows PowerShell:
-Invoke-WebRequest -Uri https://btcpc.net/docker-compose.yml -OutFile docker-compose.yml
-$env:BTCPC_MINER="&lt;your-username&gt;"; docker compose up -d
+Invoke-WebRequest -Uri https://honemesh.net/docker-compose.yml -OutFile docker-compose.yml
+$env:HONE_MINER="&lt;your-username&gt;"; docker compose up -d
 
 ## STEP 4 — Verify installation
-btcpc --version
-# Expected: btcpc X.Y.Z
+hone --version
+# Expected: hone X.Y.Z
 curl http://localhost:4242/api/node/info
-# Expected: {"chain_id":"btcpc-1","account":"...","epoch":...}
-docker logs btcpc-node 2&gt;&amp;1 | tail -5   # if using Docker
+# Expected: {"chain_id":"hone","account":"...","epoch":...}
+docker logs hone-node 2&gt;&amp;1 | tail -5   # if using Docker
 # Expected: "Registered tunnel connection" or "Epoch sealed"</div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
         <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#f7931a;font-weight:700;margin-bottom:10px;">Rules for agents</div>
           <ul style="margin:0;padding-left:18px;font-size:13px;color:#94a3b8;line-height:1.9;">
-            <li>Run <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc --version</code> first — skip install if already done</li>
-            <li>Never pipe curl to bash without confirming the URL is <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">btcpc.net</code></li>
+            <li>Run <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">hone --version</code> first — skip install if already done</li>
+            <li>Never pipe curl to bash without confirming the URL is <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">honemesh.net</code></li>
             <li>Use Docker path on Windows — the bash one-liner fails in PowerShell</li>
             <li>After install, confirm with <code style="background:#111;padding:1px 5px;border-radius:3px;color:#a3e635;font-size:11px;">localhost:4242/api/node/info</code> before proceeding</li>
-            <li>Then go to <a href="/integrate" style="color:#f7931a;">btcpc.net/integrate</a> to set up your wallet and API key</li>
+            <li>Then go to <a href="/integrate" style="color:#f7931a;">honemesh.net/integrate</a> to set up your wallet and API key</li>
           </ul>
         </div>
         <div style="background:#0a0e17;border:1px solid #1e2a3a;border-radius:8px;padding:14px;">

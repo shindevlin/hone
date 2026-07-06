@@ -13,6 +13,12 @@
  * No other dependencies. SHA-512 is embedded below.
  */
 
+/* Public-domain C89 code — suppress GCC pedantic warnings */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+#pragma GCC diagnostic ignored "-Wmisleading-indentation"
+
 #include "tweetnacl.h"
 #include <string.h>
 
@@ -163,6 +169,9 @@ static void M(gf o, const gf a, const gf b) {
     i64 c = 1;
     for(int i=0;i<16;i++) { c += 65535 + o[i]; o[i] = c&65535; c >>= 16; }
     o[0] += c-1+37*(c-1);
+    c = 1;
+    for(int i=0;i<16;i++) { c += 65535 + o[i]; o[i] = c&65535; c >>= 16; }
+    o[0] += c-1+37*(c-1);
 }
 
 static void S(gf o, const gf a) { M(o, a, a); }
@@ -189,22 +198,38 @@ static int vn(const u8 *x, const u8 *y, int n) {
 
 static int crypto_verify_32(const u8 *x, const u8 *y) { return vn(x,y,32); }
 
+static void car25519(gf o) {
+    i64 c;
+    for(int i=0;i<16;i++) {
+        o[i] += (1LL<<16);
+        c = o[i] >> 16;
+        o[(i+1)*(i<15)] += c-1+37*(i==15)*(c-1);
+        o[i] -= c << 16;
+    }
+}
+
+static void sel25519(gf p, gf q, int b) {
+    i64 t, c = ~(b-1);
+    for(int i=0;i<16;i++) { t=c&(p[i]^q[i]); p[i]^=t; q[i]^=t; }
+}
+
 static void pack25519(u8 *o, const gf n) {
+    int j, b;
     gf m, t;
     for(int i=0;i<16;i++) t[i]=n[i];
-    for(int j=0;j<3;j++) {
-        i64 c = 1;
-        for(int i=0;i<16;i++) { c+=65535+t[i]; t[i]=c&65535; c>>=16; }
-        t[0]+=c-1+37*(c-1);
+    car25519(t); car25519(t); car25519(t);
+    for(j=0;j<2;j++) {
+        m[0] = t[0] - 0xffed;
+        for(int i=1;i<15;i++) {
+            m[i] = t[i] - 0xffff - ((m[i-1]>>16)&1);
+            m[i-1] &= 0xffff;
+        }
+        m[15] = t[15] - 0x7fff - ((m[14]>>16)&1);
+        b = (m[15]>>16)&1;
+        m[14] &= 0xffff;
+        sel25519(t, m, 1-b);
     }
-    i64 c=-1;
-    for(int i=0;i<16;i++) { c+=65535+t[i]; t[i]=c&65535; c>>=16; }
-    t[0]+=c+37*c; t[1]-=c<<16;
-    for(int i=0;i<16;i++) { o[2*i]=(u8)t[i]; o[2*i+1]=(u8)(t[i]>>8); }
-    memcpy(m,t,sizeof(t)); m[0]-=0xed;
-    i64 b=-(m[0]>>15);
-    for(int i=0;i<16;i++) m[i]&=b; m[0]+=(1-b)*0xed;
-    for(int i=0;i<16;i++) { o[2*i]=(u8)m[i]; o[2*i+1]=(u8)(m[i]>>8); }
+    for(int i=0;i<16;i++) { o[2*i]=(u8)(t[i]&0xff); o[2*i+1]=(u8)(t[i]>>8); }
 }
 
 static int neq25519(const gf a, const gf b) {
@@ -241,39 +266,26 @@ static void pack(u8 *r, gf p[4]) {
     pack25519(r,ty); r[31] ^= par25519(tx)<<7;
 }
 
+static void add(gf p[4], gf q[4]) {
+    gf a,b,c,d,e,f,g,h,t;
+    Z(a,p[1],p[0]); Z(t,q[1],q[0]); M(a,a,t);
+    A(b,p[0],p[1]); A(t,q[0],q[1]); M(b,b,t);
+    M(c,p[3],q[3]); M(c,c,D2);
+    M(d,p[2],q[2]); A(d,d,d);
+    Z(e,b,a); Z(f,d,c); A(g,d,c); A(h,b,a);
+    M(p[0],e,f); M(p[1],h,g); M(p[2],g,f); M(p[3],e,h);
+}
+
 static void scalarmult(gf p[4], gf q[4], const u8 *s) {
     gf_0(p[0]); gf_1(p[1]); gf_1(p[2]); gf_0(p[3]);
     for(int i=255;i>=0;i--) {
-        u8 b = (s[i/8] >> (i&7)) & 1;
-        gf a[4],r[4],t[4];
-        /* cswap */
+        u8 b = 1&(s[i/8]>>(i&7));
         for(int k=0;k<4;k++) for(int j=0;j<16;j++) {
             i64 u0=p[k][j], u1=q[k][j];
             i64 v = b*(u0-u1); p[k][j]=u0-v; q[k][j]=u1+v;
         }
-        /* add */
-        A(a[0],p[1],p[0]); Z(a[1],p[1],p[0]);
-        A(a[2],q[1],q[0]); Z(a[3],q[1],q[0]);
-        M(r[0],a[1],a[2]); M(r[1],a[0],a[3]);
-        A(a[0],r[1],r[0]); Z(a[1],r[1],r[0]);
-        S(r[2],a[0]); S(r[3],a[1]);
-        Z(a[0],p[2],p[3]); A(a[1],p[2],p[3]);
-        M(r[0],a[1],a[0]); S(a[0],r[0]);
-        A(r[1],q[2],q[3]); Z(a[2],q[2],q[3]);
-        M(r[2],r[1],a[0]); M(a[0],a[2],r[0]);
-        Z(t[0],r[2],a[0]); A(t[1],r[2],a[0]);
-        M(t[2],p[3],q[3]); M(t[2],t[2],D2);
-        M(t[3],p[0],q[0]); M(t[3],t[3],r[2]);
-        /* copy back */
-        for(int k=0;k<4;k++) for(int j=0;j<16;j++) {
-            gf u; (void)u;
-        }
-        /* re-use add result from above directly into p and q */
-        M(p[0],r[2],t[0]); M(p[1],r[3],t[1]);
-        M(p[2],t[1],t[0]); M(p[3],r[3],r[2]);
-        M(q[0],a[0],t[2]); M(q[1],t[3],t[1]);
-        M(q[2],t[2],t[0]); M(q[3],t[3],r[2]);
-        /* cswap back */
+        add(q,p);
+        add(p,p);
         for(int k=0;k<4;k++) for(int j=0;j<16;j++) {
             i64 u0=p[k][j], u1=q[k][j];
             i64 v = b*(u0-u1); p[k][j]=u0-v; q[k][j]=u1+v;
@@ -383,27 +395,8 @@ int crypto_sign_open(u8 *m, u64 *mlen, const u8 *sm, u64 smlen, const u8 *pk) {
     scalarmult(p, q, h);
 
     scalarbase(q, sm+32);
-    /* q = q + p */
-    {
-        gf r[4];
-        gf a[4],b[4];
-        A(a[0],q[1],q[0]); Z(a[1],q[1],q[0]);
-        A(a[2],p[1],p[0]); Z(a[3],p[1],p[0]);
-        M(b[0],a[1],a[2]); M(b[1],a[0],a[3]);
-        A(r[0],b[1],b[0]); Z(r[1],b[1],b[0]);
-        S(b[0],r[0]); S(b[1],r[1]);
-        Z(a[0],q[2],q[3]); A(a[1],q[2],q[3]);
-        M(b[2],a[1],a[0]); S(a[0],b[2]);
-        A(r[2],p[2],p[3]); Z(a[2],p[2],p[3]);
-        M(b[3],r[2],a[0]); M(a[0],a[2],b[2]);
-        Z(r[0],b[3],a[0]); A(r[1],b[3],a[0]);
-        M(r[2],q[3],p[3]); M(r[2],r[2],D2);
-        M(r[3],q[0],p[0]); M(r[3],r[3],b[2]);
-        M(q[0],b[0],r[0]); M(q[1],b[1],r[1]);
-        M(q[2],r[1],r[0]); M(q[3],b[1],b[0]);
-        (void)r; /* suppress unused */
-    }
-    pack(t, q);
+    add(p, q);
+    pack(t, p);
 
     smlen -= 64;
     if(crypto_verify_32(sm, t)) {
@@ -415,3 +408,5 @@ int crypto_sign_open(u8 *m, u64 *mlen, const u8 *sm, u64 smlen, const u8 *pk) {
     *mlen = smlen;
     return 0;
 }
+
+#pragma GCC diagnostic pop

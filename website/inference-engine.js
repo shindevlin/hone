@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * BTCPC Inference Engine (Browser) -- WebLLM wrapper
+ * HONE Inference Engine (Browser) -- WebLLM wrapper
  * Shin Devlin
  *
  * Runs LLM inference directly in the browser using WebGPU + WebLLM.
@@ -48,7 +48,7 @@
     }
 
     if (engine && loadedModel === modelId) {
-      console.log("[BTCPC Engine] Model " + modelId + " already loaded");
+      console.log("[HONE Engine] Model " + modelId + " already loaded");
       return;
     }
 
@@ -62,10 +62,10 @@
     try {
       // Lazy-load WebLLM from CDN
       if (!webllm) {
-        console.log("[BTCPC Engine] Loading WebLLM runtime...");
+        console.log("[HONE Engine] Loading WebLLM runtime...");
         emitProgress("loading_runtime", 0);
         webllm = await import(WEBLLM_CDN);
-        console.log("[BTCPC Engine] WebLLM runtime loaded");
+        console.log("[HONE Engine] WebLLM runtime loaded");
       }
 
       // Destroy previous engine if switching models
@@ -79,7 +79,7 @@
         loadedModel = null;
       }
 
-      console.log("[BTCPC Engine] Initializing model: " + modelId);
+      console.log("[HONE Engine] Initializing model: " + modelId);
       emitProgress("downloading", 0);
 
       // Create engine with progress callback
@@ -91,7 +91,7 @@
           emitProgress(phase, downloadProgress, report.text);
 
           if (report.progress >= 1) {
-            console.log("[BTCPC Engine] Model ready: " + modelId);
+            console.log("[HONE Engine] Model ready: " + modelId);
           }
         },
       });
@@ -99,9 +99,9 @@
       loadedModel = modelId;
       downloadProgress = 100;
       emitProgress("ready", 100);
-      console.log("[BTCPC Engine] Engine initialized with " + modelId);
+      console.log("[HONE Engine] Engine initialized with " + modelId);
     } catch (err) {
-      console.error("[BTCPC Engine] Init failed:", err.message || err);
+      console.error("[HONE Engine] Init failed:", err.message || err);
       emitProgress("error", 0, err.message || String(err));
       throw err;
     } finally {
@@ -206,7 +206,7 @@
   // Public API
   // ---------------------------------------------------------------------------
 
-  window.btcpcEngine = {
+  window.honeEngine = {
     initEngine: initEngine,
     runInference: runInference,
     isWebGPUSupported: isWebGPUSupported,
@@ -217,5 +217,5 @@
     },
   };
 
-  console.log("[BTCPC Engine] Browser inference engine ready (WebGPU: " + isWebGPUSupported() + ")");
+  console.log("[HONE Engine] Browser inference engine ready (WebGPU: " + isWebGPUSupported() + ")");
 })();

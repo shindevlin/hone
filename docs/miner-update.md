@@ -56,8 +56,8 @@ Make sure your `.env` has:
 ```
 OLLAMA_URL=http://localhost:11434      # Ollama running locally on this machine
 P2P_PORT=6942                          # P2P server port
-BTCPC_MODEL=qwen3.5:27b               # Default mining model
-BTCPC_WORK_PER_EPOCH=3                 # Work items per epoch
+HONE_MODEL=qwen3.5:27b               # Default mining model
+HONE_WORK_PER_EPOCH=3                 # Work items per epoch
 ```
 
 The miner automatically:

@@ -1,7 +1,7 @@
 # Website API Audit — Rust Node Rewiring
 
 **Date**: 2026-05-05  
-**Audited against**: Rust node API routes in `rust/btcpc-node/src/api.rs`  
+**Audited against**: Rust node API routes in `rust/hone-node/src/api.rs`  
 **Node base**: `http://localhost:4242`
 
 ---

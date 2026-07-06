@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC — Profile</title>
-  <meta name="description" content="Your BTCPC account: balance, earnings, active roles, and transaction history.">
+  <title>HONE — Profile</title>
+  <meta name="description" content="Your HONE account: balance, earnings, active roles, and transaction history.">
   <meta name="theme-color" content="#f7931a">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <style>
@@ -150,7 +150,7 @@
 <script src="/nav.js?v=2"></script>
 
 <nav id="nav">
-  <a href="/" class="nav-brand">BTCPC</a>
+  <a href="/" class="nav-brand">HONE</a>
   <div class="nav-links">
     <a href="/">Home</a>
     <a href="/app.html">App</a>
@@ -188,7 +188,7 @@
         <li>Your memo key signs a one-time challenge — nothing is sent to the server</li>
         <li>The server checks the signature against your public key on-chain</li>
         <li>No password is stored or transmitted</li>
-        <li>No account? Create one at <a href="/app.html">btcpc.net/app</a></li>
+        <li>No account? Create one at <a href="/app.html">honemesh.net/app</a></li>
       </ul>
     </div>
   </div>
@@ -219,7 +219,7 @@
     </div>
     <div class="hero-balance">
       <div class="bal-num" id="hero-balance">—</div>
-      <div class="bal-lbl">BTCPC</div>
+      <div class="bal-lbl">HONE</div>
       <div class="bal-stake" id="hero-stake" style="display:none"></div>
       <div id="faucet-wrap">
         <button id="btn-faucet">Claim faucet</button>
@@ -292,7 +292,7 @@ function bytesToHex(bytes) {
 
 <script>
 (function() {
-  var GENESIS_TS = 1777633200000;
+  var GENESIS_TS = 1783191600000;
   var EPOCH_MS   = 30000;
   var API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     ? 'http://localhost:3000'
@@ -303,8 +303,8 @@ function bytesToHex(bytes) {
 
   // ── Auth helpers ───────────────────────────────────────────────────────────
   function signOut() {
-    localStorage.removeItem('btcpc-jwt');
-    localStorage.removeItem('btcpc-sensor-account');
+    localStorage.removeItem('hone-jwt');
+    localStorage.removeItem('hone-sensor-account');
     jwt = null; account = null;
     showGate();
   }
@@ -356,7 +356,7 @@ function bytesToHex(bytes) {
       var secp;
       try { secp = await loadSecp(); } catch(e) { throw new Error('Could not load crypto library. Check your connection.'); }
 
-      var msgBytes = new TextEncoder().encode('btcpc-auth:' + nonce);
+      var msgBytes = new TextEncoder().encode('hone-auth:' + nonce);
       var msgHash  = await sha256Bytes(msgBytes);
       var privBytes = hexToBytes(privKeyHex);
       var sig = secp.sign(msgHash, privBytes);
@@ -373,8 +373,8 @@ function bytesToHex(bytes) {
       if (ad.success && ad.token) {
         jwt = ad.token;
         account = ad.username || user;
-        localStorage.setItem('btcpc-jwt', jwt);
-        localStorage.setItem('btcpc-sensor-account', account);
+        localStorage.setItem('hone-jwt', jwt);
+        localStorage.setItem('hone-sensor-account', account);
         showProfile(account);
         loadAll();
       } else {
@@ -440,14 +440,14 @@ function bytesToHex(bytes) {
       var r = await fetch(API_BASE + '/api/wallet/balance', { headers: { 'Authorization': 'Bearer ' + jwt } });
       var d = await r.json();
       if (d.success || d.balance !== undefined) {
-        var bal = d.balance && typeof d.balance === 'object' ? d.balance.BTCPC : d.balance;
+        var bal = d.balance && typeof d.balance === 'object' ? d.balance.HONE : d.balance;
         bal = Number(bal || 0);
         document.getElementById('hero-balance').textContent = fmt(bal);
         if (d.address) document.getElementById('hero-addr').textContent = d.address;
         document.getElementById('faucet-wrap').style.display = bal < 0.0001 ? 'block' : 'none';
         var del = Number(d.delegated_balance || 0);
         var stakeEl = document.getElementById('hero-stake');
-        if (del > 0) { stakeEl.textContent = fmt(del) + ' BTCPC staked'; stakeEl.style.display = 'block'; }
+        if (del > 0) { stakeEl.textContent = fmt(del) + ' HONE staked'; stakeEl.style.display = 'block'; }
       }
     } catch(e) {}
   }
@@ -465,7 +465,7 @@ function bytesToHex(bytes) {
         var isIn = tx.type === 'receive' || (tx.to === account && tx.type !== 'send');
         var peer = tx.counterpart || (isIn ? tx.from : tx.to) || 'network';
         var ts = tx.timestamp || tx.created_at || tx.time;
-        return '<div class="tx-item"><div class="tx-icon '+(isIn?'in':'out')+'">'+(isIn?'↓':'↑')+'</div><div class="tx-body"><div class="tx-peer">'+(peer.length>24?peer.slice(0,20)+'…':peer)+'</div><div class="tx-time">'+(ts?relTime(ts):'—')+'</div></div><div class="tx-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+fmt(tx.amount)+' BTCPC</div></div>';
+        return '<div class="tx-item"><div class="tx-icon '+(isIn?'in':'out')+'">'+(isIn?'↓':'↑')+'</div><div class="tx-body"><div class="tx-peer">'+(peer.length>24?peer.slice(0,20)+'…':peer)+'</div><div class="tx-time">'+(ts?relTime(ts):'—')+'</div></div><div class="tx-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+fmt(tx.amount)+' HONE</div></div>';
       }).join('');
     } catch(e) { el.innerHTML = '<div class="empty">Could not load transactions.</div>'; }
   }
@@ -480,7 +480,7 @@ function bytesToHex(bytes) {
       var name = e[0], val = Number(e[1])||0;
       var col = POOL_COLORS[name.toLowerCase()] || '#f7931a';
       var pct = Math.round((val/maxVal)*100);
-      return '<div class="pool-row"><div class="pool-header"><span class="pool-name" style="color:'+col+'">'+name+'</span><span style="color:var(--muted)">'+fmt(val)+(labelSuffix||' BTCPC')+'</span></div><div class="pool-bar-bg"><div class="pool-bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div></div>';
+      return '<div class="pool-row"><div class="pool-header"><span class="pool-name" style="color:'+col+'">'+name+'</span><span style="color:var(--muted)">'+fmt(val)+(labelSuffix||' HONE')+'</span></div><div class="pool-bar-bg"><div class="pool-bar-fill" style="width:'+pct+'%;background:'+col+'"></div></div></div>';
     }).join('');
   }
 
@@ -549,7 +549,7 @@ function bytesToHex(bytes) {
       var nr = await fetch(API_BASE + '/api/staking/network');
       var nd = await nr.json();
       if (nd.success && nd.network) {
-        rows.push({ key:'Total staked', val: fmt(nd.network.total_staked)+' BTCPC' });
+        rows.push({ key:'Total staked', val: fmt(nd.network.total_staked)+' HONE' });
         rows.push({ key:'Stakers',      val: nd.network.staker_count || '0' });
       }
     } catch(e) {}
@@ -559,7 +559,7 @@ function bytesToHex(bytes) {
         var sd = await sr.json();
         if (sd.success && sd.staking) {
           var s = sd.staking;
-          rows.push({ key:'My stake', val: fmt(s.staked_amount||0)+' BTCPC', cls: Number(s.staked_amount||0)>0?'green':'muted' });
+          rows.push({ key:'My stake', val: fmt(s.staked_amount||0)+' HONE', cls: Number(s.staked_amount||0)>0?'green':'muted' });
           rows.push({ key:'Status',   val: s.status||'active', cls: s.status==='unstaking'?'':'green' });
           if (s.unlock_available_at) rows.push({ key:'Unlocks', val: new Date(s.unlock_available_at).toLocaleDateString(), cls:'muted' });
         } else {
@@ -604,8 +604,8 @@ function bytesToHex(bytes) {
   function loadAll() { loadBalance(); loadTransactions(); loadNetwork(); loadStaking(); loadDevices(); }
 
   // ── Boot ───────────────────────────────────────────────────────────────────
-  jwt = localStorage.getItem('btcpc-jwt');
-  account = localStorage.getItem('btcpc-sensor-account');
+  jwt = localStorage.getItem('hone-jwt');
+  account = localStorage.getItem('hone-sensor-account');
 
   if (jwt && account) {
     showProfile(account);

@@ -40,7 +40,7 @@ This plan assumes the stack contract is the source of truth and focuses on compl
 
 The code path is intentionally staged off by default.
 
-- `BTCPC_PRIVATE_AUTH_ENABLED=false` keeps the approval flow discoverable in code without activating it.
+- `HONE_PRIVATE_AUTH_ENABLED=false` keeps the approval flow discoverable in code without activating it.
 - The future update should turn that flag on only after the chain adapters and UI are approved for release.
 
 ## Wave 0 — Policy Core and API Contract

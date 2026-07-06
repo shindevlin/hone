@@ -188,7 +188,7 @@ All routes follow `projectRoutes.js` conventions: `sanitizeString`, `sanitizeAmo
 - `src/chain/stateManager.js` — include `blobs` in `generateFinalitySnapshot().extended_state`.
 - `src/p2p/protocol.js` — add `MESSAGE_TYPES.BLOB_CHALLENGE`, `BLOB_CHALLENGE_RESPONSE`, `BLOB_ANNOUNCE` and their handlers.
 - `src/services/slashing.js` — add offense type constants `BLOB_SERVE_FAILED`, `BLOB_COMMIT_UNHOSTED`.
-- `src/mining/miner.js` — if `process.env.BTCPC_STORAGE_HOST=true`, start `hostRunner` alongside the inference handler.
+- `src/mining/miner.js` — if `process.env.HONE_STORAGE_HOST=true`, start `hostRunner` alongside the inference handler.
 - `src/index.js` — mount `blobRoutes` at `/api/blobs`.
 
 **New ledger entry types**:
@@ -247,7 +247,7 @@ Dispatcher cases in `applyEntry`:
 - `services/slashing.js` `executeSlash` + `recordOffense`.
 - `inference/verifier.js` pattern for verifier panel selection (same 3-of-N logic).
 - `p2p/protocol.js` `createMessage` + existing broadcast fan-out.
-- `mining/miner.js` startup sequence (same `if (BTCPC_MINER) startInferenceHandler(); if (BTCPC_STORAGE_HOST) hostRunner.start();`).
+- `mining/miner.js` startup sequence (same `if (HONE_MINER) startInferenceHandler(); if (HONE_STORAGE_HOST) hostRunner.start();`).
 
 **Tests to write** (`tests/btcpcfs.test.js`):
 - CID is deterministic (same bytes → same CID)
@@ -264,7 +264,7 @@ Dispatcher cases in `applyEntry`:
 
 **Verification steps**:
 - `npm test` green
-- Run two nodes locally, one with `BTCPC_STORAGE_HOST=true`, upload a 1MB file, commit for 10 epochs, confirm blob is served from both sides, kill the host mid-commitment, confirm slashing within 3 epochs.
+- Run two nodes locally, one with `HONE_STORAGE_HOST=true`, upload a 1MB file, commit for 10 epochs, confirm blob is served from both sides, kill the host mid-commitment, confirm slashing within 3 epochs.
 
 **Rough effort**: large. (Biggest piece after v2.14.)
 
@@ -352,7 +352,7 @@ Dispatcher cases in `applyEntry`:
 - `src/chain/stateManager.js` — include `services`, `sessions` in finality snapshot.
 - `src/p2p/protocol.js` — `SERVICE_HEARTBEAT`, `SERVICE_PROBE`, `SERVICE_PROBE_RESPONSE` message types.
 - `src/services/slashing.js` — add `SERVICE_DOWNTIME` offense type.
-- `src/mining/miner.js` — if `process.env.BTCPC_COMPUTE_HOST=true`, start `serviceHost` loop.
+- `src/mining/miner.js` — if `process.env.HONE_COMPUTE_HOST=true`, start `serviceHost` loop.
 - `src/index.js` — mount `serviceRoutes`.
 
 **New ledger entry types**:
@@ -429,7 +429,7 @@ Dispatcher cases: straightforward writes; `SESSION_END` updates the service's `a
 - Uptime probe path: mock verifier panel, simulate success + failure, assert reputation delta.
 
 **Verification steps**:
-- Start 3 nodes: deployer, host (with `BTCPC_COMPUTE_HOST=true`), user.
+- Start 3 nodes: deployer, host (with `HONE_COMPUTE_HOST=true`), user.
 - Deployer uploads a simple HTTP echo binary to BTCPC-FS, commits 100 epochs.
 - Deployer calls `POST /api/services` with the CID.
 - Host calls `POST /api/services/:id/offer`.
@@ -567,7 +567,7 @@ Running chain is v2.10.0 with live commerce state. Migration rules:
 
 - v2.10.1: pure additive (new routes, finality snapshot fix, wrapper functions). Zero migration. Fix in finality snapshot is backward-compatible since `hydrateFromFinality` already guarded with `if (ext.stores)`.
 - v2.11.0: additive. New ledger types are skipped by older nodes (`default` case in dispatcher). Older nodes would miss blob events until upgraded — document as a soft fork: all nodes must upgrade to v2.11 before any BLOB entries are emitted on the live chain. The chain will converge regardless but blob state won't be visible on pre-v2.11 nodes.
-- v2.12.0: **semi-breaking**. Adds 1 MB cap to `writeBlock`. Any node emitting a block > 1 MB will fail to write. Ship v2.12 as "soft-disabled" at first: `writeBlock` logs a warning if payload > 1 MB but only throws when `BTCPC_ENFORCE_BLOCK_CAP=true`. Flip the default to strict in v2.12.1 after observation period.
+- v2.12.0: **semi-breaking**. Adds 1 MB cap to `writeBlock`. Any node emitting a block > 1 MB will fail to write. Ship v2.12 as "soft-disabled" at first: `writeBlock` logs a warning if payload > 1 MB but only throws when `HONE_ENFORCE_BLOCK_CAP=true`. Flip the default to strict in v2.12.1 after observation period.
 - v2.13, v2.14: additive, same soft-fork pattern.
 - **Never reintroduce Mongo writes for chain state**. The v2.10.1 routes must use `stateStore.get*` for reads and `ledger.recordX` for writes, never `new Project(...)`-style Mongoose writes for commerce entities. Mongoose is still used for auth (`User`, `Wallet.address` for lookup) — that's fine, those aren't chain state.
 - Finality snapshot format change in v2.10.1 requires a one-time replay to repopulate `extended_state.stores` etc. on nodes that started from a v2.10.0 finality block. Document as "stop miner, delete `data/blocks/finality-*.bin` newer than the commerce-using epoch, restart, replay from blocks." Alternative: stateStore also reads from in-between block files so this happens automatically — verify by running `replay.js` on a v2.10.0 snapshot.
@@ -687,15 +687,15 @@ Secondary but load-bearing:
 Inserted between v2.10.1 and v2.11.x on user approval (2026-04-10). Answers the question "how does anyone actually reach a store or a hosted service?" Without this phase, everything on chain is reachable only via direct API calls with full CIDs.
 
 ## Goal
-`btcpc.net/stores/<seller>/<slug>` and `btcpc.net/s/<slug>` render real pages from stateStore. Same gateway codebase grows to handle `/fs/<cid>` (v2.11) and `/service/<slug>` (v2.13) as those phases land.
+`honemesh.net/stores/<seller>/<slug>` and `honemesh.net/s/<slug>` render real pages from stateStore. Same gateway codebase grows to handle `/fs/<cid>` (v2.11) and `/service/<slug>` (v2.13) as those phases land.
 
 ## New files
 
-- `src/gateway/server.js` — HTTP server, route registration, starts on GATEWAY_PORT (default 4343, falls back if taken). Optional; not started in the default node process unless `BTCPC_GATEWAY_ENABLED=true` or explicitly required.
+- `src/gateway/server.js` — HTTP server, route registration, starts on GATEWAY_PORT (default 4343, falls back if taken). Optional; not started in the default node process unless `HONE_GATEWAY_ENABLED=true` or explicitly required.
 - `src/gateway/routes.js` — gateway-specific routes (kept separate from `src/routes/commerceRoutes.js` which is the API)
 - `src/gateway/storefront.js` — server-side HTML rendering for stores and products. Template-literal based, no framework dep. Reads from stateStore.
 - `src/gateway/resolver.js` — turns a path (`/stores/<seller>/<slug>`) into a stateStore lookup. Single source of resolution logic, reused across storefront + future blob + service routes.
-- `src/gateway/remoteClient.js` — optional lightweight mode: query a remote BTCPC node via JSON-RPC instead of local stateStore. Gated on `BTCPC_GATEWAY_REMOTE_RPC_URL` env var.
+- `src/gateway/remoteClient.js` — optional lightweight mode: query a remote BTCPC node via JSON-RPC instead of local stateStore. Gated on `HONE_GATEWAY_REMOTE_RPC_URL` env var.
 - `tests/gateway.test.js` — unit tests for resolver, routes, storefront rendering
 
 ## Modified files
@@ -750,7 +750,7 @@ None (routes are read-only). The slug format invariant lands in v2.10.1 alongsid
 
 ## Verification steps
 
-1. `BTCPC_GATEWAY_ENABLED=true node src/index.js` starts both API (3000) and gateway (4343)
+1. `HONE_GATEWAY_ENABLED=true node src/index.js` starts both API (3000) and gateway (4343)
 2. `curl http://localhost:4343/stores` returns HTML with alice's store
 3. `curl http://localhost:4343/stores/alice/widget` returns HTML product page
 4. `curl http://localhost:4343/api/resolve/stores/alice/widget` returns JSON
@@ -771,7 +771,7 @@ Small — this is ~400 lines of gateway code + tests. All business logic already
 ## Gateway trust model
 
 - **Local mode** (default): gateway runs in the same process or on the same machine as a full BTCPC node, reads stateStore directly. Zero-trust wrt chain data — the reader IS the chain.
-- **Remote mode** (opt-in via `BTCPC_GATEWAY_REMOTE_RPC_URL`): gateway is a lightweight HTTP server that queries a remote BTCPC node via a new `/api/rpc` JSON-RPC endpoint. Trust the node it queries. Good for phones, browser extensions, kiosks.
+- **Remote mode** (opt-in via `HONE_GATEWAY_REMOTE_RPC_URL`): gateway is a lightweight HTTP server that queries a remote BTCPC node via a new `/api/rpc` JSON-RPC endpoint. Trust the node it queries. Good for phones, browser extensions, kiosks.
 
 Both modes share the same routes and rendering code. `resolver.js` abstracts the data source.
 

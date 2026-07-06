@@ -440,8 +440,8 @@ Type=simple
 User=btcpc
 ExecStart=/usr/local/bin/btcpc-gnss-capture
 Environment="SENSOR_ID=gnss-base-001"
-Environment="BTCPC_ACCOUNT=alice"
-Environment="BTCPC_NODE_URL=http://localhost:4242"
+Environment="HONE_ACCOUNT=alice"
+Environment="HONE_NODE_URL=http://localhost:4242"
 Environment="RTCM3_LISTEN_PORT=2201"
 Environment="CHAIN_INTERVAL=30"
 Nice=-10

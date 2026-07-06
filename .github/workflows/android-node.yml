@@ -4,8 +4,8 @@ on:
   push:
     branches: [main, stable]
     paths:
-      - 'rust/btcpc-android/**'
-      - 'rust/btcpc-node/crates/**'
+      - 'rust/hone-android/**'
+      - 'rust/hone-node/crates/**'
       - '.github/workflows/android-node.yml'
   workflow_dispatch:
 
@@ -27,8 +27,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust/btcpc-android/target
-          key: ${{ runner.os }}-android-cargo-${{ hashFiles('rust/btcpc-android/Cargo.lock') }}
+            rust/hone-android/target
+          key: ${{ runner.os }}-android-cargo-${{ hashFiles('rust/hone-android/Cargo.lock') }}
 
       - name: Install native build deps
         run: sudo apt-get install -y libonig-dev
@@ -51,15 +51,15 @@ jobs:
             (echo "aarch64 clang not found in NDK bin: $BIN"; ls "$BIN" | grep clang | head -5; exit 1)
 
       - name: Build arm64-v8a (phones)
-        working-directory: rust/btcpc-android
+        working-directory: rust/hone-android
         run: cargo ndk -t arm64-v8a -o jniLibs build --release
 
       - name: Build armeabi-v7a (older phones)
-        working-directory: rust/btcpc-android
+        working-directory: rust/hone-android
         run: cargo ndk -t armeabi-v7a -o jniLibs build --release
 
       - name: Build x86_64 (emulator)
-        working-directory: rust/btcpc-android
+        working-directory: rust/hone-android
         run: cargo ndk -t x86_64 -o jniLibs build --release
 
       - name: Copy .so files into Android jniLibs
@@ -67,9 +67,9 @@ jobs:
           mkdir -p android/app/src/main/jniLibs/arm64-v8a
           mkdir -p android/app/src/main/jniLibs/armeabi-v7a
           mkdir -p android/app/src/main/jniLibs/x86_64
-          cp rust/btcpc-android/jniLibs/arm64-v8a/libbtcpc_miner.so   android/app/src/main/jniLibs/arm64-v8a/
-          cp rust/btcpc-android/jniLibs/armeabi-v7a/libbtcpc_miner.so android/app/src/main/jniLibs/armeabi-v7a/
-          cp rust/btcpc-android/jniLibs/x86_64/libbtcpc_miner.so       android/app/src/main/jniLibs/x86_64/
+          cp rust/hone-android/jniLibs/arm64-v8a/libhone_miner.so   android/app/src/main/jniLibs/arm64-v8a/
+          cp rust/hone-android/jniLibs/armeabi-v7a/libhone_miner.so android/app/src/main/jniLibs/armeabi-v7a/
+          cp rust/hone-android/jniLibs/x86_64/libhone_miner.so       android/app/src/main/jniLibs/x86_64/
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -84,6 +84,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: btcpc-android-${{ github.sha }}
+          name: hone-android-${{ github.sha }}
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30

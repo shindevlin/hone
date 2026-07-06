@@ -19,7 +19,7 @@ pub async fn run(client: Client, owner: String, repo: String) -> Result<()> {
             writeln!(out, "")?;
             out.flush()?;
         } else if line == "list" || line == "list for-push" {
-            // Fetch refs from BTCPC chain
+            // Fetch refs from HONE chain
             let refs = client.get_refs(&repo_id).await.unwrap_or_default();
             for (refname, hash) in &refs {
                 writeln!(out, "{} {}", hash, refname)?;
@@ -39,7 +39,7 @@ pub async fn run(client: Client, owner: String, repo: String) -> Result<()> {
             let parts: Vec<&str> = line.splitn(3, ' ').collect();
             if parts.len() >= 2 {
                 let _sha = parts[1];
-                // Phase 2: retrieve pack data from btcpc-fs by CID and write to .git/objects
+                // Phase 2: retrieve pack data from hone-fs by CID and write to .git/objects
             }
             writeln!(out, "")?;
             out.flush()?;

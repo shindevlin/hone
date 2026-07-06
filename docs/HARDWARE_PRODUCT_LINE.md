@@ -298,7 +298,7 @@ A BTCPC network of 170k devices with 10 sensor categories, a sovereign chain, cr
 - BTCPC token rewards as the primary acquisition incentive
 
 **Phase 2 — Consumer retail**
-- Finished retail units on btcpc.network/shop
+- Finished retail units on honemesh.network/shop
 - Amazon listing for Micro and General
 - Bundle: "BTCPC Starter Pack" — 1 General + 3 Micros for $450
 

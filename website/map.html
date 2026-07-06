@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BTCPC Network Map</title>
+  <title>HONE Network Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -177,7 +177,7 @@
   // ── Config ──────────────────────────────────────────────────────
   var API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:4242'
-    : 'https://btcpc.net';
+    : 'https://honemesh.net';
   var REFRESH_INTERVAL_MS = 60000; // 60 seconds
 
   // ── Map init ────────────────────────────────────────────────────
@@ -321,7 +321,7 @@
         return active;
       })
       .catch(function (err) {
-        console.warn('[btcpc-map] gateways fetch failed:', err.message);
+        console.warn('[hone-map] gateways fetch failed:', err.message);
         return 0;
       });
   }
@@ -358,7 +358,7 @@
         return active;
       })
       .catch(function (err) {
-        console.warn('[btcpc-map] sensors fetch failed:', err.message);
+        console.warn('[hone-map] sensors fetch failed:', err.message);
         return 0;
       });
   }
@@ -385,7 +385,7 @@
         badge.className = 'refresh-badge active';
       })
       .catch(function (err) {
-        console.error('[btcpc-map] refresh error:', err);
+        console.error('[hone-map] refresh error:', err);
         badge.textContent = 'Refresh failed';
         badge.className = 'refresh-badge';
       });

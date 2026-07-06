@@ -1,5 +1,5 @@
-// BTCPC Sensor — Service Worker
-const CACHE_NAME = 'btcpc-node-v15';
+// HONE Sensor — Service Worker
+const CACHE_NAME = 'hone-node-v15';
 const ASSETS = ['/app', '/app.html', '/inference-crypto.js', '/inference-engine.js', '/miner.js', '/nav.js'];
 
 self.addEventListener('install', e => {
@@ -37,7 +37,7 @@ self.addEventListener('fetch', e => {
 
 // Background sync for buffered readings
 self.addEventListener('sync', e => {
-  if (e.tag === 'btcpc-sensor-sync') {
+  if (e.tag === 'hone-sensor-sync') {
     e.waitUntil(syncReadings());
   }
 });
@@ -84,7 +84,7 @@ async function syncReadings() {
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('btcpc-sensor', 1);
+    const req = indexedDB.open('hone-sensor', 1);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('readings')) {

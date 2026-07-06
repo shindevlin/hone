@@ -91,7 +91,7 @@ If you have a GPU, install Ollama, pull a model, and point the node at your acco
 
 If you have a Pi, enable BLE scanning and watch it start detecting trackers in your neighborhood. When those trackers' owners subscribe to sighting data, you start earning from their subscription.
 
-If you have nothing but a browser, open btcpc.net/clock and run the browser clock. The clock pool pays for keeping the network's epoch timing alive. Any device qualifies.
+If you have nothing but a browser, open honemesh.net/clock and run the browser clock. The clock pool pays for keeping the network's epoch timing alive. Any device qualifies.
 
 ---
 
@@ -109,4 +109,4 @@ Pick your hardware. Start earning.
 
 ---
 
-*btcpc.net — Telegram: @btcpcbot — GitHub: shindevlin/btcpc*
+*honemesh.net — Telegram: @btcpcbot — GitHub: shindevlin/btcpc*

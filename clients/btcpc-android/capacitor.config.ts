@@ -6,8 +6,11 @@ const config: CapacitorConfig = {
   webDir: 'www',
   server: {
     url: 'https://btcpc.net/app',
-    cleartext: false,
-    allowNavigation: ['btcpc.net', '*.btcpc.net'],
+    // cleartext: true is required so the webview can reach local LAN nodes
+    // over HTTP (192.168.68.72:4242, 192.168.68.75:4242) without being
+    // blocked by Android's cleartext traffic policy.
+    cleartext: true,
+    allowNavigation: ['btcpc.net', '*.btcpc.net', '192.168.68.72', '192.168.68.75'],
   },
   plugins: {
     StatusBar: {

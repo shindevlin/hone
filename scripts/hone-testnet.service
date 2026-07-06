@@ -1,0 +1,36 @@
+[Unit]
+Description=HONE Testnet Node (hone-testnet)
+After=network-online.target hone-node.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hone
+WorkingDirectory=/var/lib/hone-testnet
+
+ExecStart=/usr/local/bin/hone-node
+
+Environment="HONE_CHAIN_ID=hone-testnet"
+Environment="HONE_DATA_DIR=/var/lib/hone-testnet"
+Environment="HONE_GENESIS_FILE=/var/lib/hone-testnet/genesis.json"
+Environment="HONE_GENESIS_TIMESTAMP=1783191600000"
+Environment="HONE_API_PORT=4343"
+Environment="HONE_P2P_PORT=6943"
+Environment="HONE_MINER=true"
+Environment="HONE_CLOCK=true"
+Environment="HONE_LOG_LEVEL=hone_node=info"
+# Required — set these before enabling the service:
+Environment="HONE_ACCOUNT=your-account-name"
+Environment="HONE_NODE_ID=MachineName(your-account-name)-testnet"
+# Testnet bootstrap peers (separate from mainnet — port 6943)
+# Bootstrap: Grouchly(shindevlin) — LAN: 192.168.68.72, VPN: 100.90.146.17
+Environment="HONE_BOOTSTRAP_PEERS=/dns4/bootstrap1.honemesh.net/tcp/6943"
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hone-testnet
+
+[Install]
+WantedBy=multi-user.target

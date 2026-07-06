@@ -55,7 +55,7 @@ The `btcpc` CLI handles on-chain registration, key management, and git remote wi
 **Install on Linux/macOS (one line)**
 
 ```bash
-curl -fsSL https://btcpc.net/install.sh | sudo bash
+curl -fsSL https://honemesh.net/install.sh | sudo bash
 ```
 
 This installs both `btcpc-node` and the `btcpc` CLI to `/usr/local/bin`.
@@ -64,7 +64,7 @@ This installs both `btcpc-node` and the `btcpc` CLI to `/usr/local/bin`.
 
 ```bash
 git clone https://github.com/shindevlin/btcpc
-cd btcpc/rust/btcpc-cli
+cd btcpc/rust/hone-cli
 cargo build --release
 sudo cp target/release/btcpc /usr/local/bin/
 ```
@@ -86,7 +86,7 @@ git commit -m "initial commit"
 git push -u origin main
 ```
 
-That's the complete flow. `btcpc repo init` does three things atomically:
+That's the complete flow. `hone repo init` does three things atomically:
 1. Registers the repository on-chain (owner account + visibility)
 2. Creates a per-repo on-chain wallet for earning serve rewards
 3. Runs `git init` if needed and wires `origin` to `http://<node>/git/<owner>/<name>`

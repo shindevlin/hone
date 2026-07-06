@@ -137,7 +137,7 @@ The Satoshi arc: Shin builds in public, hands off, disappears. Josh inherits the
 >
 > Happy to answer questions about the consensus model, the inference routing, or the reward math.
 >
-> [btcpc.net] [whitepaper] [github]
+> [honemesh.net] [whitepaper] [github]
 
 ---
 
@@ -171,7 +171,7 @@ btcpc-marketing/
     posted.json        — tracks what's been posted (no repeats)
 ```
 
-Inference runs through BTCPC at https://btcpc.net/testnet (qwen3:4b or qwen3.5:9b).
+Inference runs through BTCPC at https://honemesh.net/testnet (qwen3:4b or qwen3.5:9b).
 Model for draft generation: qwen3.5:9b (better writing quality for Shin's technical voice).
 
 ---

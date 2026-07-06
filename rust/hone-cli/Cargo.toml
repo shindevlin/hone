@@ -1,0 +1,28 @@
+[package]
+name = "hone-cli"
+version = "1.2.2"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "HONE chain CLI"
+
+[[bin]]
+name = "hone"
+path = "src/main.rs"
+
+
+# Standalone crate — not a member of rust/Cargo.toml workspace.
+[workspace]
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+colored = "2"
+tabled = "0.15"
+base64 = "0.22"
+hone-sdk = { path = "../hone-sdk" }
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"

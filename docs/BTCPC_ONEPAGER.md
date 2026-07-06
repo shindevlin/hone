@@ -84,16 +84,16 @@ The question isn't "why another blockchain?" The question is: "why are we still 
 
 ```bash
 # Clock node (any device, earns 5% of rewards)
-BTCPC_MINER=yourname BTCPC_ROLES=clock node bin/btcpc-all
+HONE_MINER=yourname HONE_ROLES=clock node bin/btcpc-all
 
 # Full node (GPU required for mining)
-BTCPC_MINER=yourname node bin/btcpc-all
+HONE_MINER=yourname node bin/btcpc-all
 
 # Docker (Windows/Mac)
-irm https://btcpc.net/btcpc-start.ps1 | iex
+irm https://honemesh.net/btcpc-start.ps1 | iex
 ```
 
-**Website:** https://btcpc.net
+**Website:** https://honemesh.net
 **Telegram:** @btcpcbot
 **GitHub:** https://github.com/shindevlin/btcpc
 **License:** AGPL-3.0

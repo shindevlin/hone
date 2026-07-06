@@ -22,8 +22,8 @@ const fs = require('fs');
 const path = require('path');
 
 const WEBSITE = path.resolve(__dirname, '../website');
-const BAT  = path.join(WEBSITE, 'btcpc-start.bat');
-const PS1  = path.join(WEBSITE, 'btcpc-start.ps1');
+const BAT  = path.join(WEBSITE, 'hone-start.bat');
+const PS1  = path.join(WEBSITE, 'hone-start.ps1');
 const SH   = path.join(WEBSITE, 'install.sh');
 
 describe('installer scripts — encoding', () => {
@@ -224,8 +224,8 @@ describe('installer scripts — self-heal behaviors present', () => {
     expect(shText).toMatch(/ollama\.com\/install\.sh.*\|\s*sh/);
   });
 
-  test('install.sh wraps btcpc-setup in a restart loop', () => {
-    expect(shText).toMatch(/while\s+true[\s\S]*?btcpc-setup[\s\S]*?done/);
+  test('install.sh wraps hone-setup in a restart loop', () => {
+    expect(shText).toMatch(/while\s+true[\s\S]*?hone-setup[\s\S]*?done/);
   });
 
   test('install.sh handles private repo gracefully (no exit 1)', () => {

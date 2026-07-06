@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Download BTCPC Node</title>
-  <meta name="description" content="Download the BTCPC node binary for Linux, macOS, Windows, or Android. Free. No sign-up.">
+  <title>Download HONE Node</title>
+  <meta name="description" content="Download the HONE node binary for Linux, macOS, Windows, or Android. Free. No sign-up.">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="stylesheet" href="style.css">
   <style>
@@ -163,13 +163,13 @@
 <script src="/nav.js?v=2"></script>
 
 <section class="hero">
-  <h1>Download <span>BTCPC</span> Node</h1>
+  <h1>Download <span>HONE</span> Node</h1>
   <p>Free to download. Free to run. No GPU required to get started.</p>
 
   <div class="quick-install">
     <div>
       <div class="qi-label">Quickest install — Mac &amp; Linux</div>
-      <div class="qi-cmd">curl -fsSL https://btcpc.net/install.sh | bash</div>
+      <div class="qi-cmd">curl -fsSL https://honemesh.net/install.sh | bash</div>
     </div>
     <button class="qi-copy" onclick="copyInstall(this)">Copy</button>
   </div>
@@ -192,7 +192,7 @@
       </div>
       <div class="dl-note">Ubuntu 20.04+, Debian 10+, Fedora 35+, any 64-bit Linux.</div>
       <div class="dl-size">~40 MB · statically linked</div>
-      <a href="/downloads/btcpc-node-linux-amd64" class="dl-btn">
+      <a href="/downloads/hone-node-linux-amd64" class="dl-btn">
         <span>&#8595;</span> Download binary
       </a>
     </div>
@@ -260,9 +260,9 @@
   <p class="sub">Downloaded the binary directly? Three steps.</p>
   <div class="manual-steps">
     <ol>
-      <li>Make it executable: <code>chmod +x btcpc-node-linux-amd64</code></li>
-      <li>Move it to your PATH: <code>sudo mv btcpc-node-linux-amd64 /usr/local/bin/btcpc-node</code></li>
-      <li>Run it: <code>BTCPC_ACCOUNT=yourname btcpc-node</code></li>
+      <li>Make it executable: <code>chmod +x hone-node-linux-amd64</code></li>
+      <li>Move it to your PATH: <code>sudo mv hone-node-linux-amd64 /usr/local/bin/hone-node</code></li>
+      <li>Run it: <code>HONE_ACCOUNT=yourname hone-node</code></li>
     </ol>
     <p style="margin:16px 0 0;font-size:13px;color:#64748b;">
       For a persistent background service (auto-starts on boot), use the <a href="/run" style="color:#f7931a;">one-line installer</a> instead — it sets up systemd automatically.
@@ -276,11 +276,11 @@
   <p class="sub">Check the binary runs before you install it.</p>
   <div class="verify-box">
     <span class="comment"># After downloading to ~/Downloads/</span><br>
-    <span class="cmd">chmod +x ~/Downloads/btcpc-node-linux-amd64</span><br>
-    <span class="cmd">~/Downloads/btcpc-node-linux-amd64 --version</span><br>
+    <span class="cmd">chmod +x ~/Downloads/hone-node-linux-amd64</span><br>
+    <span class="cmd">~/Downloads/hone-node-linux-amd64 --version</span><br>
     <br>
     <span class="comment"># Expected output:</span><br>
-    btcpc-node 0.1.0
+    hone-node 0.1.0
   </div>
 </div>
 
@@ -294,11 +294,11 @@
     <br>
     <span class="comment"># Clone and build</span><br>
     <span class="cmd">git clone https://github.com/btcpc-network/btcpc</span><br>
-    <span class="cmd">cd btcpc/rust/btcpc-node</span><br>
+    <span class="cmd">cd btcpc/rust/hone-node</span><br>
     <span class="cmd">cargo build --release</span><br>
     <br>
-    <span class="comment"># Binary at target/release/btcpc-node</span><br>
-    <span class="cmd">./target/release/btcpc-node --version</span>
+    <span class="comment"># Binary at target/release/hone-node</span><br>
+    <span class="cmd">./target/release/hone-node --version</span>
   </div>
 </div>
 
@@ -312,7 +312,7 @@
 
 <script>
 function copyInstall(btn) {
-  navigator.clipboard.writeText('curl -fsSL https://btcpc.net/install.sh | bash').then(() => {
+  navigator.clipboard.writeText('curl -fsSL https://honemesh.net/install.sh | bash').then(() => {
     btn.textContent = 'Copied!';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);

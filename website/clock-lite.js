@@ -2,11 +2,11 @@
 "use strict";
 
 /**
- * btcpc-clock-lite — Zero-dependency clock node
+ * hone-clock-lite — Zero-dependency clock node
  * Works on Node.js 14+. No npm install needed.
  * Uses built-in http/crypto modules for WebSocket.
  *
- * Usage: node btcpc-clock-lite.js
+ * Usage: node hone-clock-lite.js
  */
 
 var http = require("http");
@@ -16,18 +16,18 @@ var net = require("net");
 var tls = require("tls");
 var url = require("url");
 
-var ACCOUNT = process.env.BTCPC_CLOCK_ACCOUNT || "josh";
+var ACCOUNT = process.env.HONE_CLOCK_ACCOUNT || "josh";
 var PORT = parseInt(process.env.P2P_PORT) || 6946;
 var NODE_ID = crypto.randomBytes(16).toString("hex");
 var RELAY = "wss://btcpc-relay.shindevlin.workers.dev/ws";
-var SEEDS = (process.env.BTCPC_SEED_PEERS || "").split(",").filter(Boolean);
+var SEEDS = (process.env.HONE_SEED_PEERS || "").split(",").filter(Boolean);
 
 var currentEpoch = -1;
 var connections = [];
 var seen = new Set();
 
 console.log("");
-console.log("  btcpc-clock-lite");
+console.log("  hone-clock-lite");
 console.log("  Account: " + ACCOUNT);
 console.log("  Node: " + NODE_ID.slice(0, 12));
 console.log("  Port: " + PORT);
@@ -251,7 +251,7 @@ function handleMessage(msg, from) {
     case "BLOCK_PROPOSAL":
       var ep = (msg.data || {}).epoch_number;
       var rw = ((msg.data || {}).block_reward || 0).toFixed(2);
-      console.log("[CLOCK] Block " + ep + " | " + rw + " BTCPC");
+      console.log("[CLOCK] Block " + ep + " | " + rw + " HONE");
       if (ep > currentEpoch) currentEpoch = ep;
       broadcast(msg, from);
       break;
@@ -332,7 +332,7 @@ SEEDS.forEach(connectPeer);
 // HTTP heartbeat fallback — POSTs to /public/clock-heartbeat so the API server's
 // browser-clock tracker counts this node even if its P2P relay isn't connected.
 var CLIENT_ID = crypto.randomBytes(16).toString("hex");
-var HEARTBEAT_URL = process.env.BTCPC_HEARTBEAT_URL || "https://btcpc.net/public/clock-heartbeat";
+var HEARTBEAT_URL = process.env.HONE_HEARTBEAT_URL || "https://honemesh.net/public/clock-heartbeat";
 
 function httpHeartbeat() {
   try {
@@ -383,10 +383,10 @@ setInterval(function () {
 setTimeout(httpHeartbeat, 5000);
 
 // ── Auto-updater ──
-// Check btcpc.net every hour for a newer clock-lite.js. If the SHA256 differs,
+// Check honemesh.net every hour for a newer clock-lite.js. If the SHA256 differs,
 // download it to disk and exit (runit/systemd will restart the service).
-var UPDATE_URL = process.env.BTCPC_UPDATE_URL || "https://btcpc.net/clock-lite.js";
-var UPDATE_INTERVAL_MS = parseInt(process.env.BTCPC_UPDATE_INTERVAL_MS, 10) || 60 * 60 * 1000;
+var UPDATE_URL = process.env.HONE_UPDATE_URL || "https://honemesh.net/clock-lite.js";
+var UPDATE_INTERVAL_MS = parseInt(process.env.HONE_UPDATE_INTERVAL_MS, 10) || 60 * 60 * 1000;
 var SCRIPT_PATH = process.argv[1]; // path to this script
 
 function selfHash() {

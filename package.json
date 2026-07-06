@@ -9,6 +9,7 @@
     "test": "jest --coverage",
     "lint": "eslint src/**/*.js",
     "test:watch": "jest --watch",
+    "mcp:hone": "node src/mcp/honeMcpServer.js",
     "cli": "node bin/btcpc-cli",
     "setup": "node bin/btcpc-setup",
     "install:user": "bash scripts/install-user.sh",
@@ -88,6 +89,12 @@
       "<rootDir>/btcpc/",
       "<rootDir>/\\.claude/",
       "<rootDir>/camofox-browser/"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/\\.claude/"
+    ],
+    "watchPathIgnorePatterns": [
+      "<rootDir>/\\.claude/"
     ]
   },
   "keywords": [

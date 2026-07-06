@@ -1,4 +1,4 @@
-const DEFAULT_STORAGE_KEY = 'btcpc-start-state';
+const DEFAULT_STORAGE_KEY = 'hone-start-state';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => {
@@ -71,19 +71,19 @@ function doneWhenHtml(step) {
 function renderStepSummary(step) {
   if (!step) {
     return {
-      title: 'BTCPC Start',
-      instruction: 'Loading the BTCPC start manifest…',
+      title: 'HONE Start',
+      instruction: 'Loading the HONE start manifest…',
       doneWhen: '',
-      currentMarkup: '<strong>Loading manifest…</strong><div class="start-rail-meta">The next BTCPC step will appear here once /start.json loads.</div>',
+      currentMarkup: '<strong>Loading manifest…</strong><div class="start-rail-meta">The next HONE step will appear here once /start.json loads.</div>',
     };
   }
   return {
-    title: step.title || 'BTCPC Start',
-    instruction: step.instruction || 'Continue the BTCPC start wizard.',
+    title: step.title || 'HONE Start',
+    instruction: step.instruction || 'Continue the HONE start wizard.',
     doneWhen: doneWhenHtml(step),
     currentMarkup: `
-      <strong>Current BTCPC step: ${escapeHtml(step.title || 'BTCPC Start')}</strong>
-      <div class="start-rail-meta">${escapeHtml(step.instruction || 'Continue the BTCPC start wizard.')}</div>
+      <strong>Current HONE step: ${escapeHtml(step.title || 'HONE Start')}</strong>
+      <div class="start-rail-meta">${escapeHtml(step.instruction || 'Continue the HONE start wizard.')}</div>
       <strong style="margin-top:8px;display:block;">Done when:</strong>
       <ul>${doneWhenHtml(step)}</ul>
     `.trim(),
@@ -118,7 +118,7 @@ function renderStepRail({ container, steps, currentIndex, storageKey = DEFAULT_S
       return `
         <button type="button" class="${classes.join(' ')}" data-step-index="${idx}">
           <span class="start-order-title">${idx + 1}. ${escapeHtml(step.title || 'Start step')}</span>
-          <span class="start-order-meta">${escapeHtml(step.instruction || step.why || 'Continue the BTCPC start wizard.')}</span>
+          <span class="start-order-meta">${escapeHtml(step.instruction || step.why || 'Continue the HONE start wizard.')}</span>
         </button>
       `.trim();
     })
@@ -132,7 +132,7 @@ function renderStepRail({ container, steps, currentIndex, storageKey = DEFAULT_S
 }
 
 function attachStartStateApi(target = window) {
-  target.BTCPCStartState = {
+  target.HoneStartState = {
     DEFAULT_STORAGE_KEY,
     escapeHtml,
     fetchStartManifest,

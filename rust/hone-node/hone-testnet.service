@@ -1,0 +1,34 @@
+[Unit]
+Description=HONE Testnet Node (hone-testnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hone
+WorkingDirectory=/home/hone
+
+ExecStart=/usr/local/bin/hone-node
+
+Environment="HONE_CHAIN_ID=hone-testnet"
+Environment="HONE_DATA_DIR=/var/lib/hone-testnet"
+Environment="HONE_ACCOUNT=satoshi-node"
+Environment="HONE_NODE_ID=satoshi-node-1"
+Environment="HONE_API_PORT=4243"
+Environment="HONE_P2P_PORT=6943"
+Environment="HONE_MINER=true"
+Environment="HONE_CLOCK=true"
+Environment="HONE_LOG_LEVEL=hone_node=info"
+# Bootstrap against other testnet nodes:
+# Environment="HONE_BOOTSTRAP_PEERS=/dns4/testnet1.honemesh.net/tcp/6943"
+# Optional genesis file:
+# Environment="HONE_GENESIS_FILE=/etc/hone/testnet-genesis.json"
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hone-testnet
+
+[Install]
+WantedBy=multi-user.target

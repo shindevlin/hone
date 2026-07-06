@@ -62,4 +62,4 @@ Both accounts are seeded at genesis block 0 with zero balance. They cannot be re
 
 ---
 
-*See also: [[BTCPC_WHITEPAPER#Appendix M: Decentralized Commerce Layer]], [[FREEPORT_PROTOCOL_WHITEPAPER]]*
+*See also: [[HONE_WHITEPAPER#Appendix M: Decentralized Commerce Layer]], [[FREEPORT_PROTOCOL_WHITEPAPER]]*

@@ -1,0 +1,14 @@
+# Dependencies
+.venv/
+__pycache__/
+*.pyc
+
+# Data and runtime outputs
+data/
+output/
+*.db
+*.jsonl
+*.log
+
+# Environment
+.env

@@ -63,7 +63,7 @@ const wallets = await keyManager.deriveChainWallets(mnemonic);
 
 ### Via CLI
 ```bash
-BTCPC_MINER=<username> BTCPC_ACTIVE_KEY=<active_private_key> \
+HONE_MINER=<username> HONE_ACTIVE_KEY=<active_private_key> \
   node bin/btcpc-cli wallet send <recipient> <amount>
 ```
 
@@ -98,10 +98,10 @@ curl -X POST http://localhost:3000/api/wallet/transfer \
 
 ```bash
 # Genesis miner (shindevlin)
-BTCPC_MNEMONIC=<12 words>          # Used by createGenesisBlock
-BTCPC_POSTING_KEY=<hex>             # For claim signing
+HONE_MNEMONIC=<12 words>          # Used by createGenesisBlock
+HONE_POSTING_KEY=<hex>             # For claim signing
 
 # Any miner
-BTCPC_MINER=<username>              # Which account to mine as
-BTCPC_ACTIVE_KEY=<hex>              # For signing transactions
+HONE_MINER=<username>              # Which account to mine as
+HONE_ACTIVE_KEY=<hex>              # For signing transactions
 ```

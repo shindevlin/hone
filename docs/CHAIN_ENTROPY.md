@@ -148,5 +148,5 @@ See `D2` in `docs/ROADMAP.md` for the locked design decision.
 ## Related
 
 - `docs/ROADMAP.md` — D2 (Liveness Rewards), T6-4 (docs required before enable)
-- `rust/btcpc-node/crates/btcpc-types/src/emission.rs` — `LIVENESS_REWARDS_ENABLED`, `ENTROPY_DECAY_ENABLED`
-- `rust/btcpc-node/crates/btcpc-types/src/entry.rs` — `LivenessProof`, `EntropyWitness`
+- `rust/hone-node/crates/hone-types/src/emission.rs` — `LIVENESS_REWARDS_ENABLED`, `ENTROPY_DECAY_ENABLED`
+- `rust/hone-node/crates/hone-types/src/entry.rs` — `LivenessProof`, `EntropyWitness`

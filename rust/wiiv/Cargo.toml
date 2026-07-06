@@ -1,0 +1,30 @@
+[package]
+name = "wiiv"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "Wiiv — HONE decentralized rendering platform (image/3D/audio/video)"
+
+# Standalone crate — deliberately NOT a member of rust/Cargo.toml's workspace, so
+# it can be built / vendored independently of the node build (matches the other
+# peripheral crates).
+[workspace]
+
+[lib]
+name = "wiiv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wiiv"
+path = "src/main.rs"
+
+[dependencies]
+# Wiiv render workers are one consumer of the node-wide capability provisioner.
+hone-provision = { path = "../hone-provision" }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+hex = "0.4"
+sha2 = "0.10"

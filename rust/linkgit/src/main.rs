@@ -18,10 +18,10 @@ async fn main() -> Result<()> {
     let url = args.get(2).cloned().unwrap_or_default();
     let (owner, repo) = parse_url(&url)?;
 
-    let api_base = std::env::var("BTCPC_API")
+    let api_base = std::env::var("HONE_API")
         .unwrap_or_else(|_| "http://localhost:4242".to_string());
-    let account = std::env::var("BTCPC_ACCOUNT").unwrap_or_default();
-    let posting_key = std::env::var("BTCPC_POSTING_KEY").unwrap_or_default();
+    let account = std::env::var("HONE_ACCOUNT").unwrap_or_default();
+    let posting_key = std::env::var("HONE_POSTING_KEY").unwrap_or_default();
 
     let client = api::Client::new(api_base, account, posting_key);
     remote::run(client, owner, repo).await

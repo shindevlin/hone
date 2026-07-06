@@ -2,7 +2,7 @@
 "use strict";
 
 /**
- * Static file server for btcpc.net — serves the website/ directory on port 4243.
+ * Static file server for honemesh.net — serves the website/ directory on port 4243.
  * Supports extensionless URLs (/install → install.html, /clock → clock.html).
  */
 
@@ -13,7 +13,7 @@ const http = require("http");
 const app = express();
 const PORT = process.env.PORT || 4243;
 const ROOT = __dirname;
-const API_PORT = process.env.BTCPC_API_PORT || 3000;
+const API_PORT = process.env.HONE_API_PORT || 3000;
 
 // Permissions-Policy header for PWA sensor access on Android Chrome
 app.use((req, res, next) => {
@@ -24,7 +24,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Proxy /api/* to the BTCPC API for sensor nodes and bot endpoints
+// Proxy /api/* to the HONE API for sensor nodes and bot endpoints
 app.use("/api", (req, res) => {
   const options = {
     hostname: "127.0.0.1",
@@ -49,7 +49,7 @@ app.use("/api", (req, res) => {
   }
 });
 
-// Proxy /v1/* to the BTCPC inference API (pull-model, models, etc.)
+// Proxy /v1/* to the HONE inference API (pull-model, models, etc.)
 app.use("/v1", (req, res) => {
   const options = {
     hostname: "127.0.0.1",
@@ -69,7 +69,7 @@ app.use("/v1", (req, res) => {
   req.pipe(proxyReq);
 });
 
-// Proxy /node/* to the BTCPC API (epoch info, node list, etc.)
+// Proxy /node/* to the HONE API (epoch info, node list, etc.)
 app.use("/node", (req, res) => {
   const options = {
     hostname: "127.0.0.1",
@@ -88,7 +88,7 @@ app.use("/node", (req, res) => {
   req.pipe(proxyReq);
 });
 
-// Proxy /public/* to the BTCPC API for browser clock nodes
+// Proxy /public/* to the HONE API for browser clock nodes
 app.use("/public", (req, res) => {
   const options = {
     hostname: "127.0.0.1",

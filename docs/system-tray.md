@@ -75,10 +75,10 @@ All platforms open `http://localhost:4242/settings` which provides:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BTCPC_MAX_CPU` | `100` | Max CPU percentage for mining |
-| `BTCPC_MAX_GPU` | `100` | Max GPU percentage (0 = CPU only) |
-| `BTCPC_IDLE_THRESHOLD_MS` | `120000` | Idle time before full speed (2 min) |
-| `BTCPC_REDUCED_HOURS` | (none) | Reduced hours schedule, e.g. `09:00-17:00` |
+| `HONE_MAX_CPU` | `100` | Max CPU percentage for mining |
+| `HONE_MAX_GPU` | `100` | Max GPU percentage (0 = CPU only) |
+| `HONE_IDLE_THRESHOLD_MS` | `120000` | Idle time before full speed (2 min) |
+| `HONE_REDUCED_HOURS` | (none) | Reduced hours schedule, e.g. `09:00-17:00` |
 
 ## How Auto Mode Works
 

@@ -90,7 +90,7 @@ signatures, verified-work proofs, storage challenges, fee controls, and audit-re
 - [x] **T6-1** Constants conflict across docs, code, JS, and website. **Fixed: `docs/CHAIN_CONSTANTS.md` is now the canonical source; CI workflow fails on drift.**
 - [x] **T6-2** Node.js chain (port 3001) still serves public-looking API alongside Rust chain. **Fixed: `src/index.js` already carries DEPRECATED header.**
 - [x] **T6-3** WASM contract runtime: `btcpc-contract-runtime` (Wasmtime) is active and supported. `ContractDeploy`/`ContractCall` are live entry types. **Resolved: contracts are intentionally kept per D12 update.**
-- [x] **T6-4** Liveness rewards (long-dormant balance recycling) not yet documented on website or whitepaper. **Fixed: `docs/BTCPC_WHITEPAPER.md` §1.2.1 "Perpetual Tail Emission — The Recycle Era" added. Explains what fills the fund (fees, mandatory 1.5% reserve, surplus, slash proceeds, rounding remainders), the 0.001%/epoch draw rate, the self-correcting equilibrium equation, and why this is not new-supply inflation.**
+- [x] **T6-4** Liveness rewards (long-dormant balance recycling) not yet documented on website or whitepaper. **Fixed: `docs/HONE_WHITEPAPER.md` §1.2.1 "Perpetual Tail Emission — The Recycle Era" added. Explains what fills the fund (fees, mandatory 1.5% reserve, surplus, slash proceeds, rounding remainders), the 0.001%/epoch draw rate, the self-correcting equilibrium equation, and why this is not new-supply inflation.**
 - [x] **T6-5** Explorer shows no `pending | sealed | finalized | experimental` distinction. **Fixed: `epoch_status()` in `chain.rs`; `GET /api/chain/block/:epoch`, `/api/chain/latest`, `/api/chain/epoch/:epoch` all return `"status"` field. Explorer UI labels deferred (frontend work, not a chain gate).**
 - [x] **T6-6** No protocol primitives doc (account, entry, epoch, signing, reward model). **Fixed: `docs/PROTOCOL.md` — full reference covering account model, token units, entry format, signing spec, epoch lifecycle, reward model, emission schedule, staking/unbonding, consensus/finality, all proof models, replay protections, API summary.**
 
@@ -195,7 +195,7 @@ Walk through this together in the next session when ready. The math behind the �
 | Fork choice rule: highest epoch with quorum-threshold signatures from registered set | `clock.rs` | T1-8 |
 | ~~`EpochFinalize.state_root` = sorted-key SHA-256 accumulator over all balances~~ ✓ | `main.rs` | T1-9 |
 | ~~`ClockDoubleSignEvidence` entry type + slash handler (requester whole → legal 10% → recycle)~~ ✓ | `entry.rs`, `chain.rs` | T1-10 |
-| ~~Self-seal gated behind `BTCPC_BOOTSTRAP_ISOLATION=true` env flag~~ ✓ | `clock.rs` | T1-7 |
+| ~~Self-seal gated behind `HONE_BOOTSTRAP_ISOLATION=true` env flag~~ ✓ | `clock.rs` | T1-7 |
 | ~~`docs/CONSENSUS.md` — fork choice, finality, quorum, slashing, upgrade path~~ ✓ | new | T6-6 |
 
 **Done when:** Two finalized epochs at the same height cannot both be valid. Double-sign evidence triggers stake redistribution. A node can restart and converge to the same canonical chain as peers. Finality means something explicit in docs and explorer.

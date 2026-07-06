@@ -54,8 +54,8 @@ Edit `.env`:
 ```
 MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
 OLLAMA_URL=http://localhost:11434
-BTCPC_MODEL=qwen3.5:27b
-BTCPC_WORK_PER_EPOCH=3
+HONE_MODEL=qwen3.5:27b
+HONE_WORK_PER_EPOCH=3
 P2P_PORT=6942
 JWT_SECRET=<generate with: openssl rand -hex 32>
 ```
@@ -116,7 +116,7 @@ sudo systemctl start btcpc-mine
 
 Add seed peers to `.env`:
 ```
-BTCPC_SEED_PEERS=ws://100.90.146.17:6942
+HONE_SEED_PEERS=ws://100.90.146.17:6942
 ```
 
 Restart the miner to connect.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vendor Dashboard — BTCPC Market</title>
+  <title>Vendor Dashboard — HONE Market</title>
   <link rel="icon" href="/favicon-32.png" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -296,13 +296,13 @@
 <header>
   <div class="nav-top">
     <a href="/store" class="nav-logo" style="text-decoration:none">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC" />
-      <div><div>BTCPC</div><span class="sub">Market</span></div>
+      <img src="/hone-logo.jpeg" alt="HONE" />
+      <div><div>HONE</div><span class="sub">Market</span></div>
     </a>
     <span class="nav-sep">/</span>
     <span class="nav-title">Vendor Dashboard</span>
     <div class="nav-r">
-      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch BTCPC node">
+      <button class="node-sel-btn" id="node-sel-btn" onclick="openNodeModal()" title="Switch HONE node">
         <span class="node-dot local" id="node-dot"></span>
         <span id="node-label">Local</span>
       </button>
@@ -314,9 +314,9 @@
   <!-- Node selector modal -->
   <div id="node-modal-overlay" onclick="if(event.target===this)closeNodeModal()">
     <div id="node-modal">
-      <h3>BTCPC Node</h3>
-      <p>Enter the base URL of any public BTCPC gateway node. Leave blank to use the local node (same origin).</p>
-      <input id="node-input" type="url" placeholder="https://node.btcpc.network" />
+      <h3>HONE Node</h3>
+      <p>Enter the base URL of any public HONE gateway node. Leave blank to use the local node (same origin).</p>
+      <input id="node-input" type="url" placeholder="https://node.honemesh.net" />
       <div class="node-modal-actions">
         <button class="btn-node-cancel" onclick="closeNodeModal()">Cancel</button>
         <button class="btn-node-clear" onclick="clearNode()">Use Local</button>
@@ -387,13 +387,13 @@
     <div class="tab-panel active" id="panel-overview">
       <div class="page-header">
         <h1>Store Overview</h1>
-        <p>TechSurplus · epoch 36,207 · Balance: <b style="color:var(--orange)">1,204.8 ₿PC</b></p>
+        <p>TechSurplus · epoch 36,207 · Balance: <b style="color:var(--orange)">1,204.8 HONE</b></p>
       </div>
 
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-label">Total Revenue</div>
-          <div class="stat-val" id="stat-revenue">₿PC 0</div>
+          <div class="stat-val" id="stat-revenue">HONE 0</div>
           <div class="stat-sub"><span class="stat-up" id="stat-rev-pct">+0%</span> this epoch</div>
         </div>
         <div class="stat-card">
@@ -588,13 +588,13 @@
               <input type="text" id="s-name" value="TechSurplus" />
             </div>
             <div class="form-group">
-              <label>Store Slug (your BTCPC username)</label>
+              <label>Store Slug (your HONE username)</label>
               <input type="text" id="s-slug" value="shindevlin" readonly style="background:var(--bg2);color:var(--muted)" />
-              <span class="form-hint">Cannot be changed. Linked to your BTCPC account.</span>
+              <span class="form-hint">Cannot be changed. Linked to your HONE account.</span>
             </div>
             <div class="form-group form-full">
               <label>Store Description</label>
-              <textarea id="s-desc">Recertified GPU hardware, LoRa mesh devices, and digital AI resources. All products BTCPC-verified with on-chain provenance. Escrow protected.</textarea>
+              <textarea id="s-desc">Recertified GPU hardware, LoRa mesh devices, and digital AI resources. All products HONE-verified with on-chain provenance. Escrow protected.</textarea>
             </div>
             <div class="form-group form-full">
               <label>Categories (comma-separated)</label>
@@ -622,7 +622,7 @@
             </div>
             <div>
               <div style="font-size:11px;color:var(--muted)">Stake locked</div>
-              <div style="font-size:22px;font-weight:800">₿PC 20</div>
+              <div style="font-size:22px;font-weight:800">HONE 20</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:12px">
@@ -679,7 +679,7 @@
           <div style="margin-bottom:20px">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px">Catalog Distribution (always on)</div>
             <div style="font-size:13px;color:var(--sub);line-height:1.7;background:var(--bg2);border-radius:6px;padding:12px">
-              Your product listings are replicated across every BTCPC node that is online. Buyers
+              Your product listings are replicated across every HONE node that is online. Buyers
               can browse your store from any node in the mesh — no single IP is required.
               Your catalog is already censorship-resistant by default.
             </div>
@@ -764,8 +764,8 @@
           <input type="text" id="ship-tracking" placeholder="1Z999AA10123456784" autocomplete="off" />
         </div>
         <div class="form-group form-full" id="ship-cid-row" style="display:none">
-          <label>BTCPC-FS CID (digital delivery)</label>
-          <input type="text" id="ship-cid" placeholder="Qm… content ID from BTCPC-FS" />
+          <label>HONE-FS CID (digital delivery)</label>
+          <input type="text" id="ship-cid" placeholder="Qm… content ID from HONE-FS" />
         </div>
         <div class="form-group form-full">
           <label>Note to Buyer (optional)</label>
@@ -824,7 +824,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Price (BTCPC) *</label>
+          <label>Price (HONE) *</label>
           <input type="number" id="p-price" placeholder="0.00" min="0" step="0.01" />
         </div>
         <div class="form-group">
@@ -844,7 +844,7 @@
               <input type="file" id="p-img-file" accept="image/*" style="display:none" onchange="uploadProductImage()" />
             </label>
           </div>
-          <span class="form-hint" id="p-img-hint">Upload an image (max 8 MB) or paste an existing BTCPC-FS CID.</span>
+          <span class="form-hint" id="p-img-hint">Upload an image (max 8 MB) or paste an existing HONE-FS CID.</span>
         </div>
         <div class="form-group form-full" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -854,7 +854,7 @@
           <span class="form-hint">Buyer receives the file CID instantly after payment. No seller action needed.</span>
         </div>
         <div class="form-group form-full" id="p-delivery-cid-wrap" style="display:none">
-          <label>Delivery CID (BTCPC-FS blob hash of the file to deliver) *</label>
+          <label>Delivery CID (HONE-FS blob hash of the file to deliver) *</label>
           <input type="text" id="p-delivery-cid" placeholder="sha256:..." />
           <span class="form-hint">The buyer will receive this CID in their order confirmation.</span>
         </div>
@@ -862,7 +862,7 @@
           <label style="font-weight:700">Flash Sale (optional)</label>
           <div style="display:flex;gap:10px;margin-top:6px">
             <div style="flex:1">
-              <label style="font-size:12px;color:var(--sub)">Sale price (BTCPC)</label>
+              <label style="font-size:12px;color:var(--sub)">Sale price (HONE)</label>
               <input type="number" id="p-sale-price" placeholder="0.00" min="0" step="0.01" />
             </div>
             <div style="flex:1">
@@ -946,13 +946,13 @@
 <div id="login-wall">
   <div class="login-card">
     <div class="login-logo">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:32px;height:32px;border-radius:4px" />
-      <span>BTCPC <small>Vendor Dashboard</small></span>
+      <img src="/hone-logo.jpeg" alt="HONE" style="width:32px;height:32px;border-radius:4px" />
+      <span>HONE <small>Vendor Dashboard</small></span>
     </div>
     <h2>Sign in with your posting key</h2>
-    <p>Enter your BTCPC account name and posting key to manage your store.</p>
+    <p>Enter your HONE account name and posting key to manage your store.</p>
     <div class="login-field">
-      <label>BTCPC Username</label>
+      <label>HONE Username</label>
       <input id="login-username" type="text" placeholder="e.g. shindevlin" autocomplete="username" />
     </div>
     <div class="login-field">
@@ -971,10 +971,10 @@
 
 <script>
 // ── NODE CONFIGURATION ───────────────────────────────────────────────────────
-var BTCPC_NODE = (function() {
+var HONE_NODE = (function() {
   var p = new URLSearchParams(window.location.search).get('node');
-  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('btcpc_node', n); return n; }
-  return (localStorage.getItem('btcpc_node') || '').replace(/\/$/, '');
+  if (p) { var n = p.replace(/\/$/, ''); localStorage.setItem('hone_node', n); return n; }
+  return (localStorage.getItem('hone_node') || '').replace(/\/$/, '');
 })();
 
 // ── NODE SELECTOR ────────────────────────────────────────────────────────────
@@ -982,17 +982,17 @@ function updateNodeIndicator() {
   var dot   = document.getElementById('node-dot');
   var label = document.getElementById('node-label');
   if (!dot || !label) return;
-  if (!BTCPC_NODE) {
+  if (!HONE_NODE) {
     dot.className = 'node-dot local';
     label.textContent = 'Local';
   } else {
     dot.className = 'node-dot remote';
-    try { label.textContent = new URL(BTCPC_NODE).hostname; }
-    catch(_) { label.textContent = BTCPC_NODE.slice(0, 20); }
+    try { label.textContent = new URL(HONE_NODE).hostname; }
+    catch(_) { label.textContent = HONE_NODE.slice(0, 20); }
   }
 }
 function openNodeModal() {
-  document.getElementById('node-input').value = BTCPC_NODE;
+  document.getElementById('node-input').value = HONE_NODE;
   document.getElementById('node-modal-overlay').classList.add('open');
   document.getElementById('node-input').focus();
 }
@@ -1001,14 +1001,14 @@ function closeNodeModal() {
 }
 function saveNode() {
   var val = (document.getElementById('node-input').value || '').trim().replace(/\/$/, '');
-  localStorage.setItem('btcpc_node', val);
-  BTCPC_NODE = val;
+  localStorage.setItem('hone_node', val);
+  HONE_NODE = val;
   updateNodeIndicator();
   closeNodeModal();
 }
 function clearNode() {
-  localStorage.removeItem('btcpc_node');
-  BTCPC_NODE = '';
+  localStorage.removeItem('hone_node');
+  HONE_NODE = '';
   updateNodeIndicator();
   closeNodeModal();
 }
@@ -1028,7 +1028,7 @@ async function submitVendorLogin() {
   btn.disabled = true; btn.textContent = 'Signing in…';
 
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/auth/login', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, posting_key: postingKey }),
@@ -1040,8 +1040,8 @@ async function submitVendorLogin() {
       btn.disabled = false; btn.textContent = 'Sign In →';
       return;
     }
-    localStorage.setItem('btcpc_token', data.token);
-    localStorage.setItem('btcpc_username', data.username);
+    localStorage.setItem('hone_token', data.token);
+    localStorage.setItem('hone_username', data.username);
     authToken = data.token;
     seller    = data.username;
     document.getElementById('login-wall').classList.add('hidden');
@@ -1049,7 +1049,7 @@ async function submitVendorLogin() {
     await init();
     toast('Signed in as ' + seller, 'green');
   } catch(e) {
-    errEl.textContent = 'Could not reach node — check BTCPC_NODE setting.';
+    errEl.textContent = 'Could not reach node — check HONE_NODE setting.';
     errEl.style.display = '';
     btn.disabled = false; btn.textContent = 'Sign In →';
   }
@@ -1061,24 +1061,24 @@ function fillDemoCredentials() {
 }
 
 function signOut() {
-  localStorage.removeItem('btcpc_token');
-  localStorage.removeItem('btcpc_username');
+  localStorage.removeItem('hone_token');
+  localStorage.removeItem('hone_username');
   document.getElementById('login-wall').classList.remove('hidden');
   authToken = ''; seller = '';
 }
 
 // Show login wall if no token
 (function() {
-  var token    = localStorage.getItem('btcpc_token') || '';
-  var username = localStorage.getItem('btcpc_username') || '';
+  var token    = localStorage.getItem('hone_token') || '';
+  var username = localStorage.getItem('hone_username') || '';
   if (token && username) {
     document.getElementById('login-wall').classList.add('hidden');
   }
 })();
 
 // ── STATE ────────────────────────────────────────────────────────────────────
-var seller = localStorage.getItem('btcpc_username') || 'shindevlin';
-var authToken = localStorage.getItem('btcpc_token') || '';
+var seller = localStorage.getItem('hone_username') || 'shindevlin';
+var authToken = localStorage.getItem('hone_token') || '';
 var _listings = [];
 var _orders   = [];
 var _editingProduct = null;
@@ -1086,22 +1086,22 @@ var _linkedShippingAccounts = [];
 
 // Demo data (shown when API is unreachable)
 var DEMO_LISTINGS = [
-  { product_id:'shindevlin/rtx-3080-recertified', title:'RTX 3080 Recertified — 10GB VRAM, BTCPC Mine-Tested 500h', price:480, token:'BTCPC', inventory:3, status:'active', sold:94, revenue:45120, category:'GPU & Compute', icon:'🖥️' },
-  { product_id:'shindevlin/tbeam-v11-btcpc', title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed BTCPC Firmware', price:22, token:'BTCPC', inventory:50, status:'active', sold:41, revenue:902, category:'LoRa & Mesh', icon:'📡' },
-  { product_id:'shindevlin/qwen25-7b-q5km', title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready', price:5, token:'BTCPC', inventory:null, status:'active', sold:212, revenue:1060, category:'Digital Goods', icon:'🧠' },
-  { product_id:'shindevlin/wd-sn850x-4tb', title:'4TB NVMe SSD WD Black SN850X — PCIe 4.0, Sealed', price:38, token:'BTCPC', inventory:18, status:'active', sold:29, revenue:1102, category:'Storage', icon:'💾' },
-  { product_id:'shindevlin/rak-wisblock-sensor-kit', title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262', price:14, token:'BTCPC', inventory:30, status:'active', sold:18, revenue:252, category:'LoRa & Mesh', icon:'📶' },
-  { product_id:'shindevlin/rtx-4090-founders', title:'RTX 4090 Founder\'s Edition 24GB — 9.4× Work Multiplier', price:920, token:'BTCPC', inventory:1, status:'active', sold:14, revenue:12880, category:'GPU & Compute', icon:'⚡' },
-  { product_id:'shindevlin/icom-ic7300-hf', title:'Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible', price:310, token:'BTCPC', inventory:2, status:'active', sold:7, revenue:2170, category:'Ham Radio', icon:'📻' },
-  { product_id:'shindevlin/dj-controller-old', title:'Pioneer DJ DDJ-400 Controller (old listing)', price:80, token:'BTCPC', inventory:0, status:'delisted', sold:3, revenue:240, category:'Other', icon:'🎧' },
+  { product_id:'shindevlin/rtx-3080-recertified', title:'RTX 3080 Recertified — 10GB VRAM, HONE Mine-Tested 500h', price:480, token:'HONE', inventory:3, status:'active', sold:94, revenue:45120, category:'GPU & Compute', icon:'🖥️' },
+  { product_id:'shindevlin/tbeam-v11-hone', title:'Meshtastic T-Beam v1.1 — LoRa 915MHz, Pre-flashed HONE Firmware', price:22, token:'HONE', inventory:50, status:'active', sold:41, revenue:902, category:'LoRa & Mesh', icon:'📡' },
+  { product_id:'shindevlin/qwen25-7b-q5km', title:'Qwen2.5-7B GGUF Q5_K_M — Instant Download, Ollama Ready', price:5, token:'HONE', inventory:null, status:'active', sold:212, revenue:1060, category:'Digital Goods', icon:'🧠' },
+  { product_id:'shindevlin/wd-sn850x-4tb', title:'4TB NVMe SSD WD Black SN850X — PCIe 4.0, Sealed', price:38, token:'HONE', inventory:18, status:'active', sold:29, revenue:1102, category:'Storage', icon:'💾' },
+  { product_id:'shindevlin/rak-wisblock-sensor-kit', title:'RAK WisBlock LoRa Dev Kit — nRF52840 + SX1262', price:14, token:'HONE', inventory:30, status:'active', sold:18, revenue:252, category:'LoRa & Mesh', icon:'📶' },
+  { product_id:'shindevlin/rtx-4090-founders', title:'RTX 4090 Founder\'s Edition 24GB — 9.4× Work Multiplier', price:920, token:'HONE', inventory:1, status:'active', sold:14, revenue:12880, category:'GPU & Compute', icon:'⚡' },
+  { product_id:'shindevlin/icom-ic7300-hf', title:'Icom IC-7300 HF Transceiver — 100W, VARA HF Compatible', price:310, token:'HONE', inventory:2, status:'active', sold:7, revenue:2170, category:'Ham Radio', icon:'📻' },
+  { product_id:'shindevlin/dj-controller-old', title:'Pioneer DJ DDJ-400 Controller (old listing)', price:80, token:'HONE', inventory:0, status:'delisted', sold:3, revenue:240, category:'Other', icon:'🎧' },
 ];
 
 var DEMO_ORDERS = [
-  { order_id:'ord-a1b2c3d4e5f6789012345678', buyer:'natoshisakamoto', product_id:'shindevlin/rtx-3080-recertified', quantity:1, total:480, token:'BTCPC', status:'pending', placed_epoch:36200, escrow_id:'esc-abc123def456' },
-  { order_id:'ord-b2c3d4e5f6a7890123456789', buyer:'loravan_king',     product_id:'shindevlin/tbeam-v11-btcpc', quantity:4, total:88, token:'BTCPC', status:'pending', placed_epoch:36195, escrow_id:'esc-def456abc789' },
-  { order_id:'ord-c3d4e5f6a7b8901234567890', buyer:'mesh_relay_99',    product_id:'shindevlin/qwen25-7b-q5km', quantity:1, total:5, token:'BTCPC', status:'fulfilled', placed_epoch:36180, escrow_id:'esc-ghi789jkl012' },
-  { order_id:'ord-d4e5f6a7b8c9012345678901', buyer:'ai_farm_hale',     product_id:'shindevlin/wd-sn850x-4tb', quantity:2, total:76, token:'BTCPC', status:'delivered', placed_epoch:36150, escrow_id:'esc-jkl012mno345' },
-  { order_id:'ord-e5f6a7b8c9d0123456789012', buyer:'btcpc_miner_77',   product_id:'shindevlin/rtx-4090-founders', quantity:1, total:920, token:'BTCPC', status:'disputed', placed_epoch:36100, escrow_id:'esc-mno345pqr678' },
+  { order_id:'ord-a1b2c3d4e5f6789012345678', buyer:'natoshisakamoto', product_id:'shindevlin/rtx-3080-recertified', quantity:1, total:480, token:'HONE', status:'pending', placed_epoch:36200, escrow_id:'esc-abc123def456' },
+  { order_id:'ord-b2c3d4e5f6a7890123456789', buyer:'loravan_king',     product_id:'shindevlin/tbeam-v11-hone', quantity:4, total:88, token:'HONE', status:'pending', placed_epoch:36195, escrow_id:'esc-def456abc789' },
+  { order_id:'ord-c3d4e5f6a7b8901234567890', buyer:'mesh_relay_99',    product_id:'shindevlin/qwen25-7b-q5km', quantity:1, total:5, token:'HONE', status:'fulfilled', placed_epoch:36180, escrow_id:'esc-ghi789jkl012' },
+  { order_id:'ord-d4e5f6a7b8c9012345678901', buyer:'ai_farm_hale',     product_id:'shindevlin/wd-sn850x-4tb', quantity:2, total:76, token:'HONE', status:'delivered', placed_epoch:36150, escrow_id:'esc-jkl012mno345' },
+  { order_id:'ord-e5f6a7b8c9d0123456789012', buyer:'hone_miner_77',   product_id:'shindevlin/rtx-4090-founders', quantity:1, total:920, token:'HONE', status:'disputed', placed_epoch:36100, escrow_id:'esc-mno345pqr678' },
 ];
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
@@ -1117,7 +1117,7 @@ async function init() {
 
 async function loadListings() {
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/products?seller=' + encodeURIComponent(seller));
+    var resp = await fetch(HONE_NODE + '/api/commerce/products?seller=' + encodeURIComponent(seller));
     if (resp.ok) {
       var data = await resp.json();
       _listings = (data.products || []).map(function(p) {
@@ -1132,7 +1132,7 @@ async function loadListings() {
 async function loadOrders() {
   try {
     var headers = authToken ? { Authorization: 'Bearer ' + authToken } : {};
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/my', { headers: headers });
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/my', { headers: headers });
     if (resp.ok) {
       var data = await resp.json();
       _orders = (data.orders || []).filter(function(o) { return o.seller === seller; });
@@ -1144,7 +1144,7 @@ async function loadOrders() {
 
 async function loadStore() {
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
     if (resp.ok) {
       var store = await resp.json();
       if (store.name) document.getElementById('s-name').value = store.name;
@@ -1210,7 +1210,7 @@ async function submitLinkCarrier() {
   try {
     var headers = { 'Content-Type':'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping', {
       method:'POST', headers:headers,
       body: JSON.stringify({ carrier:carrier, account_id:accountId, default_service:service }),
     });
@@ -1244,7 +1244,7 @@ async function unlinkCarrier(carrier) {
   try {
     var headers = {};
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping/' + encodeURIComponent(carrier), {
+    await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/shipping/' + encodeURIComponent(carrier), {
       method:'DELETE', headers:headers,
     });
   } catch(e) {}
@@ -1259,7 +1259,7 @@ function renderOverview() {
   var pendingOrders  = _orders.filter(function(o){ return o.status === 'pending'; });
   var totalRevenue   = _listings.reduce(function(s, l){ return s + (l.revenue||0); }, 0);
 
-  document.getElementById('stat-revenue').textContent = '₿PC ' + totalRevenue.toLocaleString();
+  document.getElementById('stat-revenue').textContent = 'HONE ' + totalRevenue.toLocaleString();
   document.getElementById('stat-rev-pct').textContent = '+12%';
   document.getElementById('stat-listings').textContent = activeListings.length;
   document.getElementById('stat-listings-sub').textContent = 'of 20 capacity used';
@@ -1286,7 +1286,7 @@ function renderRevenueChart() {
   chart.innerHTML = vals.map(function(v, i) {
     var pct = Math.round((v / max) * 100);
     return '<div class="bar-wrap">' +
-      '<div class="bar-val">₿PC ' + v + '</div>' +
+      '<div class="bar-val">HONE ' + v + '</div>' +
       '<div class="bar" style="height:' + pct + '%"></div>' +
       '<div class="bar-label">' + labels[i] + '</div>' +
     '</div>';
@@ -1295,10 +1295,10 @@ function renderRevenueChart() {
 
 function renderActivity() {
   var rows = [
-    { event:'ORDER_PLACE',    item:'RTX 3080 Recertified',      amount:'₿PC 480',    epoch:36200, status:'pending' },
-    { event:'ORDER_PLACE',    item:'T-Beam v1.1 × 4',           amount:'₿PC 88',     epoch:36195, status:'pending' },
-    { event:'ORDER_FULFILLED',item:'Qwen2.5-7B GGUF',           amount:'₿PC 5',      epoch:36180, status:'fulfilled' },
-    { event:'ORDER_DELIVERED',item:'WD Black SN850X × 2',       amount:'₿PC 76',     epoch:36150, status:'delivered' },
+    { event:'ORDER_PLACE',    item:'RTX 3080 Recertified',      amount:'HONE 480',    epoch:36200, status:'pending' },
+    { event:'ORDER_PLACE',    item:'T-Beam v1.1 × 4',           amount:'HONE 88',     epoch:36195, status:'pending' },
+    { event:'ORDER_FULFILLED',item:'Qwen2.5-7B GGUF',           amount:'HONE 5',      epoch:36180, status:'fulfilled' },
+    { event:'ORDER_DELIVERED',item:'WD Black SN850X × 2',       amount:'HONE 76',     epoch:36150, status:'delivered' },
     { event:'REPUTATION_VOTE',item:'ai_farm_hale → ★★★★★',    amount:'+1 rep',     epoch:36140, status:'active' },
   ];
   var tbody = document.getElementById('activity-tbody');
@@ -1334,10 +1334,10 @@ function renderListings(filter) {
       '<td><div class="td-product"><span class="td-icon">' + (l.icon||'📦') + '</span>' +
         '<div><div class="td-product-name">' + l.title.slice(0,55) + (l.title.length>55?'…':'') + '</div>' +
         '<div class="td-product-id">' + (l.product_id||'—') + '</div></div></div></td>' +
-      '<td style="font-weight:700;white-space:nowrap">₿PC ' + l.price + '</td>' +
+      '<td style="font-weight:700;white-space:nowrap">HONE ' + l.price + '</td>' +
       '<td>' + invLabel + '</td>' +
       '<td>' + (l.sold||0) + '</td>' +
-      '<td style="color:var(--orange-d);font-weight:700">₿PC ' + (l.revenue||0).toLocaleString() + '</td>' +
+      '<td style="color:var(--orange-d);font-weight:700">HONE ' + (l.revenue||0).toLocaleString() + '</td>' +
       '<td><span class="badge-status badge-' + l.status + '">' + l.status + '</span></td>' +
       '<td><div class="action-grp">' +
         '<button class="action-btn btn-edit" onclick="editListing(' + JSON.stringify(l).split('"').join('&quot;') + ')">Edit</button>' +
@@ -1371,7 +1371,7 @@ function renderOrders(filter) {
       '<td><b>' + (o.buyer||'—') + '</b></td>' +
       '<td>' + productName + '</td>' +
       '<td>' + (o.quantity||1) + '</td>' +
-      '<td style="font-weight:700;color:var(--orange-d)">₿PC ' + (o.total||0) + '</td>' +
+      '<td style="font-weight:700;color:var(--orange-d)">HONE ' + (o.total||0) + '</td>' +
       '<td>' + (o.placed_epoch||'—') + '</td>' +
       '<td><span class="badge-status badge-' + (o.status||'pending') + '">' + (o.status||'pending') + '</span></td>' +
       '<td><div class="action-grp">' +
@@ -1396,7 +1396,7 @@ function openShipModal(orderId) {
     '<b>Order:</b> ' + o.order_id + '<br/>' +
     '<b>Buyer:</b> ' + o.buyer + '<br/>' +
     '<b>Product:</b> ' + o.product_id + '<br/>' +
-    '<b>Qty:</b> ' + o.quantity + ' · <b>Total:</b> ₿PC ' + o.total +
+    '<b>Qty:</b> ' + o.quantity + ' · <b>Total:</b> HONE ' + o.total +
     (o.shipping_address ? '<br/><b>Ship to:</b> ' + o.shipping_address : '');
 
   // Reset fields
@@ -1502,7 +1502,7 @@ async function submitShipOrder() {
   try {
     var headers = { 'Content-Type':'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/fulfill', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/orders/' + encodeURIComponent(orderId) + '/fulfill', {
       method:'POST', headers:headers, body: JSON.stringify(body),
     });
     if (resp.ok) {
@@ -1549,7 +1549,7 @@ function viewOrder(orderId) {
     ['Buyer', o.buyer],
     ['Product', o.product_id],
     ['Qty', o.quantity],
-    ['Total', '₿PC ' + o.total],
+    ['Total', 'HONE ' + o.total],
     ['Status', o.status],
     ['Escrow', o.escrow_id||'—'],
     ['Placed epoch', o.placed_epoch],
@@ -1601,7 +1601,7 @@ async function uploadProductImage() {
   try {
     var headers = {};
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/media/upload', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/media/upload', {
       method: 'POST', headers, body: form
     });
     if (resp.ok) {
@@ -1681,7 +1681,7 @@ function editListing(l) {
   document.getElementById('p-delivery-cid').value = l.delivery_cid || '';
   document.getElementById('p-sale-price').value = l.sale_price || '';
   if (l.sale_ends_epoch) {
-    var saleMs = 1777633200000 + l.sale_ends_epoch * 30000;
+    var saleMs = 1783191600000 + l.sale_ends_epoch * 30000;
     var dt = new Date(saleMs);
     document.getElementById('p-sale-ends').value = dt.toISOString().slice(0,16);
   } else {
@@ -1737,7 +1737,7 @@ async function saveProduct() {
   var saleEndsEpoch;
   if (saleEndsRaw) {
     var endsMs = new Date(saleEndsRaw).getTime();
-    saleEndsEpoch = Math.floor((endsMs - 1777633200000) / 30000);
+    saleEndsEpoch = Math.floor((endsMs - 1783191600000) / 30000);
   }
 
   // Collect extended fields
@@ -1776,7 +1776,7 @@ async function saveProduct() {
 
     var url, body, method;
     if (_editingProduct) {
-      url = BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(_editingProduct.product_id);
+      url = HONE_NODE + '/api/commerce/products/' + encodeURIComponent(_editingProduct.product_id);
       method = 'PATCH';
       body = { title, price, description: desc, image_cid: img || null,
                inventory: inv ? parseInt(inv) : -1,
@@ -1787,10 +1787,10 @@ async function saveProduct() {
                tip_enabled: tipEnabled, expected_delivery_epoch: expectedDeliveryEpoch,
                specs: specsObj, additional_images: additionalImagesVal };
     } else {
-      url = BTCPC_NODE + '/api/commerce/products';
+      url = HONE_NODE + '/api/commerce/products';
       method = 'POST';
       body = { slug, title, price, description: desc, image_cid: img || null,
-               inventory: inv ? parseInt(inv) : undefined, token: 'BTCPC',
+               inventory: inv ? parseInt(inv) : undefined, token:'HONE',
                categories: [document.getElementById('p-cat').value],
                auto_deliver: autoDeliver, delivery_cid: deliveryCid || undefined,
                sale_price: salePrice, sale_ends_epoch: saleEndsEpoch,
@@ -1831,7 +1831,7 @@ async function delistProduct(productId) {
   try {
     var headers = {};
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(productId), {
+    var resp = await fetch(HONE_NODE + '/api/commerce/products/' + encodeURIComponent(productId), {
       method: 'DELETE', headers
     });
     if (resp.ok) {
@@ -1860,7 +1860,7 @@ async function saveSettings() {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller), {
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller), {
       method: 'PATCH', headers,
       body: JSON.stringify({ name, description_cid: null, categories: cats }),
     });
@@ -1874,7 +1874,7 @@ async function saveSettings() {
 async function loadPrivacyStatus() {
   // Check peer node count
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/peer/commerce/health');
+    var resp = await fetch(HONE_NODE + '/api/peer/commerce/health');
     if (resp.ok) {
       var d = await resp.json();
       var el = document.getElementById('peer-node-count');
@@ -1883,12 +1883,12 @@ async function loadPrivacyStatus() {
     }
   } catch(e) {
     var el = document.getElementById('peer-node-count');
-    if (el) el.textContent = 'Node offline — start the BTCPC miner to enable peer relay.';
+    if (el) el.textContent = 'Node offline — start the HONE miner to enable peer relay.';
   }
 
   // Load current store Tor status
   try {
-    var resp2 = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    var resp2 = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
     if (resp2.ok) {
       var store = await resp2.json();
       var toggle = document.getElementById('tor-toggle');
@@ -1924,7 +1924,7 @@ async function setupTor() {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/tor/setup', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/tor/setup', {
       method: 'POST', headers: headers,
     });
     if (resp.ok) {
@@ -1946,7 +1946,7 @@ async function setupTor() {
       return;
     }
   } catch(e) {}
-  box.innerHTML = 'API offline — start the BTCPC miner and btcpc-market, then try again.';
+  box.innerHTML = 'API offline — start the HONE miner and hone-market, then try again.';
 }
 
 function showOnionAddress(onion) {
@@ -1962,11 +1962,11 @@ async function quoteCapacity() {
   var units = parseInt(document.getElementById('cap-add').value) || 0;
   if (!units) { toast('Enter number of slots'); return; }
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/quote/capacity?units=' + units);
+    var resp = await fetch(HONE_NODE + '/api/commerce/quote/capacity?units=' + units);
     if (resp.ok) {
       var d = await resp.json();
       document.getElementById('cap-quote').textContent =
-        units + ' slots → $' + d.cost_usd + ' USD + ₿PC ' + d.stake_btcpc_required + ' stake';
+        units + ' slots → $' + d.cost_usd + ' USD + HONE ' + d.stake_hone_required + ' stake';
       return;
     }
   } catch(e) {}
@@ -1976,7 +1976,7 @@ async function quoteCapacity() {
   var slice=((end-1)*end-(start-1)*start)/2;
   var cost=Math.round((base*units+slope*slice)*100)/100;
   document.getElementById('cap-quote').textContent =
-    units + ' slots → $' + cost + ' USD + ₿PC ' + units + ' stake';
+    units + ' slots → $' + cost + ' USD + HONE ' + units + ' stake';
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
@@ -2022,7 +2022,7 @@ document.getElementById('create-modal').addEventListener('click', function(e) {
 // ── PERFORMANCE SCORECARD ─────────────────────────────────────────────────────
 async function loadMetrics() {
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/metrics');
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller) + '/metrics');
     if (!resp.ok) return;
     var m = await resp.json();
     var lateRate = m.total_orders > 0
@@ -2055,7 +2055,7 @@ async function loadMetrics() {
 
 // ── BUMP CONTROL ──────────────────────────────────────────────────────────────
 function renderBumpControl(l) {
-  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
+  var epoch = Math.floor((Date.now() - 1783191600000) / 30000);
   if (l.status !== 'active') return '';
   var bumpedUntil = l.bumped_until_epoch;
   if (bumpedUntil && bumpedUntil > epoch) {
@@ -2088,7 +2088,7 @@ async function submitBump(productId, popoverEl) {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/products/' + encodeURIComponent(productId) + '/bump', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/products/' + encodeURIComponent(productId) + '/bump', {
       method: 'POST', headers, body: JSON.stringify({ epochs: epochs }),
     });
     if (resp.ok) {
@@ -2117,7 +2117,7 @@ var _offers = [];
 async function loadOffers() {
   try {
     var headers = authToken ? { Authorization: 'Bearer ' + authToken } : {};
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/my', { headers: headers });
+    var resp = await fetch(HONE_NODE + '/api/commerce/offers/my', { headers: headers });
     if (resp.ok) {
       var data = await resp.json();
       _offers = (data.offers || []).filter(function(o) {
@@ -2140,7 +2140,7 @@ function renderOffers() {
     tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="ico">🤝</div><p>No pending offers. When buyers make offers on your listings, they\'ll appear here.</p></div></td></tr>';
     return;
   }
-  var epoch = Math.floor((Date.now() - 1777633200000) / 30000);
+  var epoch = Math.floor((Date.now() - 1783191600000) / 30000);
   tbody.innerHTML = _offers.map(function(o) {
     var shortId = (o.offer_id||'').slice(0,14) + '…';
     var pid = (o.product_id||'').split('/')[1] || o.product_id || '—';
@@ -2149,7 +2149,7 @@ function renderOffers() {
       '<td style="font-family:monospace;font-size:12px;color:var(--link)">' + shortId + '</td>' +
       '<td><b>' + (o.buyer||'—') + '</b></td>' +
       '<td>' + pid + '</td>' +
-      '<td style="font-weight:700;color:var(--purple)">₿PC ' + (o.amount||0) + '</td>' +
+      '<td style="font-weight:700;color:var(--purple)">HONE ' + (o.amount||0) + '</td>' +
       '<td style="color:var(--muted)">' + (typeof expiresIn === 'number' ? expiresIn + ' epochs' : expiresIn) + '</td>' +
       '<td><div class="action-grp">' +
         '<button class="action-btn btn-accept" onclick="acceptOffer(\'' + o.offer_id + '\',this)">Accept</button>' +
@@ -2181,7 +2181,7 @@ async function acceptOffer(offerId, btn) {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/accept', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/accept', {
       method: 'POST', headers, body: '{}',
     });
     if (resp.ok) {
@@ -2202,7 +2202,7 @@ async function rejectOffer(offerId, btn) {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/reject', {
+    await fetch(HONE_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/reject', {
       method: 'POST', headers, body: '{}',
     });
   } catch(e) {}
@@ -2220,13 +2220,13 @@ async function submitCounter(offerId, btn) {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/counter', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/offers/' + encodeURIComponent(offerId) + '/counter', {
       method: 'POST', headers, body: JSON.stringify({ amount: amount }),
     });
     if (resp.ok) {
       _offers = _offers.filter(function(o){ return o.offer_id !== offerId; });
       renderOffers();
-      toast('Counter offer of ₿PC ' + amount + ' sent', 'green');
+      toast('Counter offer of HONE ' + amount + ' sent', 'green');
       return;
     }
   } catch(e) {}
@@ -2242,7 +2242,7 @@ async function loadReviews() {
   var el = document.getElementById('reviews-list');
   el.innerHTML = '<div class="empty-state"><div class="ico">⭐</div><p>Loading reviews…</p></div>';
   try {
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
+    var resp = await fetch(HONE_NODE + '/api/commerce/stores/' + encodeURIComponent(seller));
     if (resp.ok) {
       var store = await resp.json();
       _reviews = store.recent_votes || [];
@@ -2298,7 +2298,7 @@ async function submitReply(voteId) {
   try {
     var headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    var resp = await fetch(BTCPC_NODE + '/api/commerce/reputation/' + encodeURIComponent(voteId) + '/reply', {
+    var resp = await fetch(HONE_NODE + '/api/commerce/reputation/' + encodeURIComponent(voteId) + '/reply', {
       method: 'POST', headers, body: JSON.stringify({ reply_text: text }),
     });
     if (resp.ok) {

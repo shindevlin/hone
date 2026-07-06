@@ -1,0 +1,21 @@
+[package]
+name = "hone-wallet-create"
+version = "0.1.0"
+edition = "2021"
+authors = ["HONE contributors"]
+description = "Standalone HONE wallet and account creation app"
+
+[[bin]]
+name = "hone-wallet-create"
+path = "src/main.rs"
+
+
+# Standalone crate — not a member of rust/Cargo.toml workspace.
+[workspace]
+[dependencies]
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+egui = "0.34"
+anyhow = "1"
+serde_json = "1"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+hone-sdk = { path = "../hone-sdk" }

@@ -7,9 +7,9 @@
 ### 1.1 Container auto-update mechanism
 Docker containers don't auto-update. Nodes running old images (josh, shin, nick) are stuck on broken code.
 
-- Create `btcpc.net/btcpc-image-version.txt` — a tiny file with the current image sha256
+- Create `honemesh.net/btcpc-image-version.txt` — a tiny file with the current image sha256
 - Add `bin/btcpc-auto-update` — a script that runs inside the container every hour:
-  - Fetches the version file from btcpc.net
+  - Fetches the version file from honemesh.net
   - Compares to local image hash
   - If different: downloads new tarball, docker load, signals supervisor to restart children
 - Wire into `bin/btcpc-all` as a background loop (not a separate role — runs alongside all roles)
@@ -24,7 +24,7 @@ Per user feedback: installers must ask what roles to run. Clock is bare minimum.
   - [3] Clock + Storage (needs disk, earns storage + clock)
   - [4] Full node (all roles)
 - Only install Ollama if miner role selected
-- Set `BTCPC_ROLES` env var based on choice
+- Set `HONE_ROLES` env var based on choice
 - Build a `btcpc-clock:latest` mini Docker image (~50 MB) for clock-only users
 - Move `ollama` service in docker-compose.yml to `profiles: [miner]`
 - **Files**: `website/btcpc-start.bat`, `.ps1`, `install.sh`, `website/docker-compose.yml`, `Dockerfile.clock` (new)
@@ -144,7 +144,7 @@ The actual ERC20 contracts for the bridge.
 GitHub Actions for automated testing + Docker image builds.
 
 - `.github/workflows/test.yml` — run jest on every push
-- `.github/workflows/docker.yml` — build + push image to btcpc.net on tag
+- `.github/workflows/docker.yml` — build + push image to honemesh.net on tag
 - **Files**: new `.github/workflows/`
 
 ## Execution order

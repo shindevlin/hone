@@ -100,6 +100,13 @@ public class LocalRelayService extends Service {
             UUID.fromString("19ed82ae-ed21-4c9d-4145-228e62fe0000");
     private volatile BluetoothGattCharacteristic bleRxChar = null;
     private final StringBuilder bleResponseBuf = new StringBuilder();
+    // Binary reassembly buffer for signed Flipper frames (magic "BTPC"). BLE
+    // notifications are MTU-sized chunks, so a frame may span several; we
+    // accumulate here and extract complete frames by their header payload_len.
+    private final java.io.ByteArrayOutputStream bleBinaryBuf = new java.io.ByteArrayOutputStream();
+    private static final byte[] BTCPC_FRAME_MAGIC = { 'B', 'T', 'P', 'C' };
+    private static final int BTCPC_FRAME_HEADER_LEN = 71; // 4 magic + 1 type + 2 len + 64 sig
+    private static final int BTCPC_MAX_FRAME = 4096;       // sanity cap
     private static final long BLE_FLUSH_INTERVAL_MS = 30_000;
     private static final UUID CLIENT_CHARACTERISTIC_CONFIG =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
@@ -754,6 +761,19 @@ public class LocalRelayService extends Service {
             byte[] data = characteristic.getValue();
             if (data == null || data.length == 0) return;
 
+            // Binary signed-frame path (new firmware): if we're already
+            // reassembling a binary frame, or this chunk begins with the "BTPC"
+            // magic, treat it as binary and do NOT run it through the JSON path.
+            synchronized (bleBinaryBuf) {
+                boolean assembling = bleBinaryBuf.size() > 0;
+                boolean startsMagic = startsWithMagic(data);
+                if (assembling || startsMagic) {
+                    bleBinaryBuf.write(data, 0, data.length);
+                    drainBinaryFrames();
+                    return;
+                }
+            }
+
             String chunk = new String(data, StandardCharsets.UTF_8);
             Log.i(TAG, "BLE notify: " + data.length + "b: " + chunk.replaceAll("[\\x00-\\x1f]", "."));
 
@@ -764,6 +784,62 @@ public class LocalRelayService extends Service {
                     bleResponseBuf.setLength(0);
                     processBleResponse(json);
                 }
+            }
+        }
+
+        private boolean startsWithMagic(byte[] data) {
+            if (data.length < BTCPC_FRAME_MAGIC.length) return false;
+            for (int i = 0; i < BTCPC_FRAME_MAGIC.length; i++) {
+                if (data[i] != BTCPC_FRAME_MAGIC[i]) return false;
+            }
+            return true;
+        }
+
+        /**
+         * Extract every complete binary frame currently buffered and hand each to
+         * the native verifier. A frame's total length is header (71) +
+         * payload_len (little-endian u16 at offset 5). Leaves any trailing
+         * partial frame in the buffer for the next chunk. Resets the buffer if it
+         * grows past the sanity cap or loses magic sync.
+         */
+        private void drainBinaryFrames() {
+            byte[] buf = bleBinaryBuf.toByteArray();
+            int consumed = 0;
+
+            while (buf.length - consumed >= BTCPC_FRAME_HEADER_LEN) {
+                // Verify magic at the current offset; if lost, drop a byte and resync.
+                boolean magicOk = true;
+                for (int i = 0; i < BTCPC_FRAME_MAGIC.length; i++) {
+                    if (buf[consumed + i] != BTCPC_FRAME_MAGIC[i]) { magicOk = false; break; }
+                }
+                if (!magicOk) { consumed++; continue; }
+
+                int payloadLen = (buf[consumed + 5] & 0xFF) | ((buf[consumed + 6] & 0xFF) << 8);
+                int frameLen = BTCPC_FRAME_HEADER_LEN + payloadLen;
+                if (frameLen > BTCPC_MAX_FRAME) {
+                    // Bogus length — resync by dropping the magic and moving on.
+                    consumed += BTCPC_FRAME_MAGIC.length;
+                    continue;
+                }
+                if (buf.length - consumed < frameLen) break; // wait for more chunks
+
+                byte[] frame = new byte[frameLen];
+                System.arraycopy(buf, consumed, frame, 0, frameLen);
+                consumed += frameLen;
+
+                String pubkey = new AppPrefs(LocalRelayService.this).getFlipperPubkey();
+                NativeFlipperService.ingest(frame, pubkey);
+                Log.i(TAG, "Flipper binary frame (" + frameLen + "b) handed to native verifier");
+            }
+
+            // Retain the unconsumed tail.
+            bleBinaryBuf.reset();
+            if (consumed < buf.length) {
+                bleBinaryBuf.write(buf, consumed, buf.length - consumed);
+            }
+            if (bleBinaryBuf.size() > BTCPC_MAX_FRAME) {
+                Log.w(TAG, "Flipper binary buffer overflow — resetting");
+                bleBinaryBuf.reset();
             }
         }
 

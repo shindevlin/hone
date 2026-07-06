@@ -2,21 +2,21 @@
 # smoke-testnet.sh — run the go-live smoke test suite against the public testnet
 #
 # Usage:
-#   bash scripts/smoke-testnet.sh                    # targets https://btcpc.net
-#   bash scripts/smoke-testnet.sh https://btcpc.net  # explicit URL
+#   bash scripts/smoke-testnet.sh                    # targets https://honemesh.net
+#   bash scripts/smoke-testnet.sh https://honemesh.net  # explicit URL
 #   bash scripts/smoke-testnet.sh http://localhost:4242  # local node
 #
 # Optional env vars:
-#   BTCPC_SMOKE_API_KEY  — API key for authenticated inference test
+#   HONE_SMOKE_API_KEY  — API key for authenticated inference test
 
 set -euo pipefail
 
-TARGET="${1:-https://btcpc.net}"
+TARGET="${1:-https://honemesh.net}"
 
 echo "Running go-live smoke tests against: ${TARGET}"
 echo ""
 
-export BTCPC_SMOKE_URL="${TARGET}"
-export BTCPC_SMOKE_SKIP=0
+export HONE_SMOKE_URL="${TARGET}"
+export HONE_SMOKE_SKIP=0
 
 npm test -- --testPathPattern=smoke --forceExit

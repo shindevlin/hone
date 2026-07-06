@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BTCPC + OpenClaw / Hermes — Mine with Your AI Agent</title>
-    <meta name="description" content="Run BTCPC inside OpenClaw or Hermes. One command installs the skill. Ask your agent to check your balance, start mining, or send BTCPC — in plain English." />
-    <meta property="og:title" content="BTCPC + OpenClaw / Hermes" />
+    <title>HONE + OpenClaw / Hermes — Mine with Your AI Agent</title>
+    <meta name="description" content="Run HONE inside OpenClaw or Hermes. One command installs the skill. Ask your agent to check your balance, start mining, or send HONE — in plain English." />
+    <meta property="og:title" content="HONE + OpenClaw / Hermes" />
     <meta property="og:description" content="Mine Bitcoin Proof of Compute through your AI agent. Works with OpenClaw and Hermes." />
-    <meta property="og:url" content="https://btcpc.net/openclaw" />
+    <meta property="og:url" content="https://honemesh.net/openclaw" />
     <link rel="stylesheet" href="style.css" />
     <style>
       body {
@@ -344,21 +344,21 @@
 
     <!-- Nav -->
     <nav>
-      <a href="/" class="nav-logo">⛏ BTCPC</a>
+      <a href="/" class="nav-logo">⛏ HONE</a>
       <div class="nav-links">
         <a href="/install">Install</a>
         <a href="/run-a-node">Run a Node</a>
         <a href="/android-install">Android</a>
-        <a href="https://btcpc.net" class="nav-cta">Get Started →</a>
+        <a href="https://honemesh.net" class="nav-cta">Get Started →</a>
       </div>
     </nav>
 
     <!-- Hero -->
     <div class="hero">
       <div class="hero-badge">🤖 Agent Integration</div>
-      <h1>Mine BTCPC through<br/><span>your AI agent</span></h1>
+      <h1>Mine HONE through<br/><span>your AI agent</span></h1>
       <p>
-        Install the BTCPC skill into OpenClaw or Hermes. Then just ask —
+        Install the HONE skill into OpenClaw or Hermes. Then just ask —
         check your balance, start mining, send tokens — all in plain English,
         from inside your existing agent.
       </p>
@@ -389,21 +389,21 @@
     <div class="section" id="install">
       <div class="section-label">Installation</div>
       <h2>Two ways to get started</h2>
-      <p>If BTCPC is already installed on this machine, the skill install is one command. If you're starting fresh, run the full setup first.</p>
+      <p>If HONE is already installed on this machine, the skill install is one command. If you're starting fresh, run the full setup first.</p>
 
       <div class="steps">
 
-        <!-- Option A: Already have BTCPC -->
+        <!-- Option A: Already have HONE -->
         <div class="step">
           <div class="step-num">A</div>
           <div>
-            <h3>Already have BTCPC installed</h3>
+            <h3>Already have HONE installed</h3>
             <p>Drop the skill into your agent. Works for both OpenClaw and Hermes.</p>
             <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># OpenClaw</span>
-<span class="cmd">node ~/.btcpc/repo/bin/btcpc-setup --engine openclaw</span>
+<span class="cmd">node ~/.hone/repo/bin/btcpc-setup --engine openclaw</span>
 
 <span class="comment"># Hermes</span>
-<span class="cmd">node ~/.btcpc/repo/bin/btcpc-setup --engine hermes</span></div>
+<span class="cmd">node ~/.hone/repo/bin/btcpc-setup --engine hermes</span></div>
             <p style="margin-top:14px;">This copies <code>btcpc.md</code> into your agent's skills directory and verifies the node is reachable.</p>
           </div>
         </div>
@@ -412,9 +412,9 @@
         <div class="step">
           <div class="step-num">B</div>
           <div>
-            <h3>Fresh install — BTCPC + skill in one shot</h3>
-            <p>Installs BTCPC, creates your wallet, installs Hermes if not present, and drops in the skill.</p>
-            <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="cmd">curl -fsSL https://btcpc.net/install.sh | bash -s -- --engine hermes</span></div>
+            <h3>Fresh install — HONE + skill in one shot</h3>
+            <p>Installs HONE, creates your wallet, installs Hermes if not present, and drops in the skill.</p>
+            <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="cmd">curl -fsSL https://honemesh.net/install.sh | bash -s -- --engine hermes</span></div>
             <p style="margin-top:14px;">The installer detects OpenClaw or Hermes and skips any parts already done.</p>
           </div>
         </div>
@@ -426,10 +426,10 @@
             <h3>Manual skill install</h3>
             <p>Download the skill file and place it yourself if you prefer.</p>
             <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># OpenClaw</span>
-<span class="cmd">curl -fsSL https://btcpc.net/downloads/btcpc-skill.md -o ~/.openclaw/skills/btcpc.md</span>
+<span class="cmd">curl -fsSL https://honemesh.net/downloads/hone-skill.md -o ~/.openclaw/skills/hone.md</span>
 
 <span class="comment"># Hermes</span>
-<span class="cmd">curl -fsSL https://btcpc.net/downloads/btcpc-skill.md -o ~/.hermes/skills/btcpc.md</span></div>
+<span class="cmd">curl -fsSL https://honemesh.net/downloads/hone-skill.md -o ~/.hermes/skills/hone.md</span></div>
             <p style="margin-top:14px;">Restart your agent after placing the file.</p>
           </div>
         </div>
@@ -441,38 +441,38 @@
     <div class="section" id="commands">
       <div class="section-label">Natural Language Commands</div>
       <h2>Just ask your agent</h2>
-      <p>No commands to memorize. The skill maps plain English to the right BTCPC CLI calls.</p>
+      <p>No commands to memorize. The skill maps plain English to the right HONE CLI calls.</p>
 
       <div class="cmd-grid">
         <div class="cmd-item">
           <div class="say">Check balance</div>
-          <div class="phrase">what's my BTCPC balance</div>
-          <div class="action">btcpc-cli balance</div>
+          <div class="phrase">what's my HONE balance</div>
+          <div class="action">hone balance</div>
         </div>
         <div class="cmd-item">
           <div class="say">Start mining</div>
           <div class="phrase">start mining</div>
-          <div class="action">systemctl --user start btcpc-miner</div>
+          <div class="action">systemctl --user start hone-miner</div>
         </div>
         <div class="cmd-item">
           <div class="say">Stop mining</div>
           <div class="phrase">stop the miner</div>
-          <div class="action">systemctl --user stop btcpc-miner</div>
+          <div class="action">systemctl --user stop hone-miner</div>
         </div>
         <div class="cmd-item">
           <div class="say">Send tokens</div>
-          <div class="phrase">send 5 BTCPC to natoshisakamoto</div>
-          <div class="action">btcpc-cli transfer {to} {amount}</div>
+          <div class="phrase">send 5 HONE to natoshisakamoto</div>
+          <div class="action">hone transfer {to} {amount}</div>
         </div>
         <div class="cmd-item">
           <div class="say">Node status</div>
           <div class="phrase">is my node running</div>
-          <div class="action">btcpc-cli status</div>
+          <div class="action">hone status</div>
         </div>
         <div class="cmd-item">
           <div class="say">View logs</div>
           <div class="phrase">show me the miner logs</div>
-          <div class="action">journalctl --user -u btcpc-miner -n 50</div>
+          <div class="action">journalctl --user -u hone-miner -n 50</div>
         </div>
       </div>
 
@@ -482,11 +482,11 @@
         <div class="chat">
           <div class="msg user">
             <div class="avatar">🧑</div>
-            <div class="bubble">how much BTCPC do I have?</div>
+            <div class="bubble">how much HONE do I have?</div>
           </div>
           <div class="msg agent">
             <div class="avatar">🤖</div>
-            <div class="bubble"><strong>133.68 BTCPC</strong> — your node has been mining for ~314 hours. Want me to start a transfer or check the current epoch?</div>
+            <div class="bubble"><strong>133.68 HONE</strong> — your node has been mining for ~314 hours. Want me to start a transfer or check the current epoch?</div>
           </div>
           <div class="msg user">
             <div class="avatar">🧑</div>
@@ -495,7 +495,7 @@
           </div>
           <div class="msg agent">
             <div class="avatar">🤖</div>
-            <div class="bubble">Sent. <strong>10 BTCPC → natoshisakamoto</strong> at epoch 37691. Your new balance is 123.68 BTCPC.</div>
+            <div class="bubble">Sent. <strong>10 HONE → natoshisakamoto</strong> at epoch 37691. Your new balance is 123.68 HONE.</div>
           </div>
           <div class="msg user">
             <div class="avatar">🧑</div>
@@ -503,7 +503,7 @@
           </div>
           <div class="msg agent">
             <div class="avatar">🤖</div>
-            <div class="bubble"><strong>Yes — active</strong> since 13 days ago. Currently on epoch 37692, reward 0.243 BTCPC/epoch.</div>
+            <div class="bubble"><strong>Yes — active</strong> since 13 days ago. Currently on epoch 37692, reward 0.243 HONE/epoch.</div>
           </div>
         </div>
       </div>
@@ -518,7 +518,7 @@
       <div class="features">
         <div class="feature-pill"><span>✓</span> Natural language balance checks</div>
         <div class="feature-pill"><span>✓</span> Start / stop miner on demand</div>
-        <div class="feature-pill"><span>✓</span> Send BTCPC from conversation</div>
+        <div class="feature-pill"><span>✓</span> Send HONE from conversation</div>
         <div class="feature-pill"><span>✓</span> Live log tailing</div>
         <div class="feature-pill"><span>✓</span> Node status at a glance</div>
         <div class="feature-pill"><span>✓</span> Works while you're doing other things</div>
@@ -531,10 +531,10 @@
     <div class="section">
       <div class="skill-download">
         <div>
-          <h3>📄 btcpc-skill.md</h3>
+          <h3>📄 hone-skill.md</h3>
           <p>The raw skill file. Drop it into any OpenClaw-compatible agent manually.</p>
         </div>
-        <a href="/downloads/btcpc-skill.md" class="btn-primary" download>Download skill file</a>
+        <a href="/downloads/hone-skill.md" class="btn-primary" download>Download skill file</a>
       </div>
     </div>
 
@@ -542,7 +542,7 @@
     <div class="section">
       <div class="section-label">Migrating from OpenClaw to Hermes?</div>
       <h2>Your skill migrates automatically</h2>
-      <p>Hermes can import your OpenClaw memories, skills, and settings in one command. The BTCPC skill comes along for the ride.</p>
+      <p>Hermes can import your OpenClaw memories, skills, and settings in one command. The HONE skill comes along for the ride.</p>
       <div class="code-block"><button class="copy-btn" onclick="copy(this)">copy</button><span class="comment"># Migrate everything from OpenClaw → Hermes</span>
 <span class="cmd">hermes claw migrate</span>
 

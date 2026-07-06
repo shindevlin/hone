@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC — Live Network</title>
+  <title>HONE — Live Network</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{background:#050a10;overflow:hidden;font-family:'SF Mono','Fira Code','Cascadia Code',monospace}
@@ -84,7 +84,7 @@
 <div id="loading">Connecting to chain…</div>
 
 <div id="hud">
-  <div class="hud-brand">BTCPC</div>
+  <div class="hud-brand">HONE</div>
   <div class="hud-sep"></div>
   <div class="hud-epoch">
     <div>
@@ -139,7 +139,7 @@
 <script>
 (function(){
 'use strict';
-const GENESIS_TS = 1777633200000;
+const GENESIS_TS = 1783191600000;
 const EPOCH_MS   = 30000;
 const API = (location.hostname==='localhost'||location.hostname==='127.0.0.1')
   ? 'http://localhost:4242' : (location.protocol+'//'+location.hostname+(location.port?':'+location.port:''));

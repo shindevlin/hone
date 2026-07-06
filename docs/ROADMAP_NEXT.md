@@ -186,7 +186,7 @@ with ChaCha20-Poly1305 AEAD for all subsequent messages.
 
 ### Why now
 This is a prerequisite for operating on public infrastructure (non-VPN peers). The current
-deployment relies on Tailscale WireGuard (see BTCPC_SEED_PEERS in .env) as a stopgap.
+deployment relies on Tailscale WireGuard (see HONE_SEED_PEERS in .env) as a stopgap.
 Noise Protocol removes that dependency and allows any peer to connect securely without
 a pre-shared VPN.
 
@@ -219,7 +219,7 @@ a pre-shared VPN.
 - Record each peer's Noise static public key after successful handshake in a persistent
   peer key registry (flat JSON file in data/).
 - On reconnection, validate that the peer presents the same static key. A key change is
-  logged as a security event; with BTCPC_NOISE_STRICT_KEY_PIN=true, the connection is
+  logged as a security event; with HONE_NOISE_STRICT_KEY_PIN=true, the connection is
   rejected.
 - Export `/admin/peers/keys` endpoint listing known peer keys and their last-seen times.
 

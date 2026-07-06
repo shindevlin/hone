@@ -13,7 +13,7 @@ before the content can be finalized. Do not guess — flag to the operator.
 |--------|-------|
 | `website/index.html` countdown JS | `G=1776236400000` → **April 15, 2026, midnight California** |
 | `website/index.html` countdown text | "Midnight California · April 15, 2026" |
-| `README.md` | `BTCPC_GENESIS_TIMESTAMP=1777590000000` → **May 1, 2026, midnight Ireland** |
+| `README.md` | `HONE_GENESIS_TIMESTAMP=1777590000000` → **May 1, 2026, midnight Ireland** |
 | `CLAUDE.md` | `1776236400000 (2026-04-15T07:00:00.000Z). Do not change.` |
 | `memory/project_genesis_launch.md` | "Midnight Ireland genesis (1777590000000 ms)" |
 
@@ -34,7 +34,7 @@ but the embedded text "April 15" is still wrong if the canonical date is May 1.
 |--------|-------|
 | `README.md` | "6-pool rewards: 55% miners, 10% verifiers, 5% clocks, 12% storage, 8% services, 10% IoT" |
 | `website/index.html` | "No fixed % → demand drives the split" |
-| `rust/btcpc-node/src/main.rs` | Calibration-normalized utilization with dynamic allocation — no fixed percentages |
+| `rust/hone-node/src/main.rs` | Calibration-normalized utilization with dynamic allocation — no fixed percentages |
 
 **Resolution needed:** The README states fixed percentages that do not match the live
 Rust implementation. The homepage is correct. The README must be updated to remove
@@ -49,7 +49,7 @@ targets with plain-language explanation.
 
 | Source | Claim |
 |--------|-------|
-| `README.md` (top) | "⚠ Node.js layer deprecated — canonical chain is now `rust/btcpc-node`" |
+| `README.md` (top) | "⚠ Node.js layer deprecated — canonical chain is now `rust/hone-node`" |
 | `website/index.html` Get Started | Shows `node bin/btcpc-all` commands |
 | `website/index.html` Clock Node card | Shows `node bin/btcpc-all` |
 | `README.md` install section | Shows `curl ... install.sh | sudo bash` (installs Rust binary) |
@@ -66,8 +66,8 @@ supported path for new installs.
 
 | Source | Claim |
 |--------|-------|
-| `README.md` | Shows `require('@btcpc/sdk')` and OpenAI-compatible `baseURL: 'https://btcpc.net/v1'` |
-| `rust/btcpc-node/src/api.rs` | Rust Axum API — no `/v1/` route visible |
+| `README.md` | Shows `require('@btcpc/sdk')` and OpenAI-compatible `baseURL: 'https://honemesh.net/v1'` |
+| `rust/hone-node/src/api.rs` | Rust Axum API — no `/v1/` route visible |
 
 **Resolution needed:** Is `@btcpc/sdk` published on npm? Does `/v1/chat/completions`
 exist on the live node? If not, remove from README until implemented.
@@ -90,7 +90,7 @@ etc. Genesis has launched. Either:
 
 The homepage security section states: "TOTP (Google Authenticator compatible) enforced
 at the consensus level." This is a strong claim. Verify this is implemented in
-`rust/btcpc-node` and not planned/carried from a prior spec. If planned, change to
+`rust/hone-node` and not planned/carried from a prior spec. If planned, change to
 "planned" or remove until live.
 
 ---

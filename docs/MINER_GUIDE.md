@@ -25,16 +25,16 @@ its environment variable.
 
 | Role | Env var | What it does | Earns |
 |------|---------|--------------|-------|
-| Clock | `BTCPC_CLOCK=true` | Participates in epoch consensus — broadcasts a signed seal each epoch, counts toward quorum | `ClockReward` per epoch sealed |
-| Sensor | `BTCPC_SENSOR=true` | Submits `SensorDataCommit` each epoch (CPU temp, uptime, GNSS if present) | `SensorReward` per epoch |
-| Worker | `BTCPC_WORKER=true` | Watches the chain for posted inference jobs, bids, calls Ollama when awarded, submits `InferenceJobComplete` | Fee per completed job |
-| Storage | `BTCPC_STORAGE=true` | Emits `StorageHeartbeat` each epoch, proving bytes on disk | `StorageReward` per epoch |
-| Mempool | `BTCPC_MEMPOOL=true` | Reports gossip entries relayed per epoch | `MempoolReward` per epoch |
-| Miner (legacy) | `BTCPC_MINER=true` | Submits `Mine` entries each epoch via a direct Ollama call, bypassing the inference marketplace | `MineReward` per epoch (see note) |
+| Clock | `HONE_CLOCK=true` | Participates in epoch consensus — broadcasts a signed seal each epoch, counts toward quorum | `ClockReward` per epoch sealed |
+| Sensor | `HONE_SENSOR=true` | Submits `SensorDataCommit` each epoch (CPU temp, uptime, GNSS if present) | `SensorReward` per epoch |
+| Worker | `HONE_WORKER=true` | Watches the chain for posted inference jobs, bids, calls Ollama when awarded, submits `InferenceJobComplete` | Fee per completed job |
+| Storage | `HONE_STORAGE=true` | Emits `StorageHeartbeat` each epoch, proving bytes on disk | `StorageReward` per epoch |
+| Mempool | `HONE_MEMPOOL=true` | Reports gossip entries relayed per epoch | `MempoolReward` per epoch |
+| Miner (legacy) | `HONE_MINER=true` | Submits `Mine` entries each epoch via a direct Ollama call, bypassing the inference marketplace | `MineReward` per epoch (see note) |
 
-> **Note on Miner vs Worker:** `BTCPC_MINER` is the original inference path.
-> `BTCPC_WORKER` is the current path — it participates in the inference
-> marketplace and earns per-job fees. New operators should use `BTCPC_WORKER`.
+> **Note on Miner vs Worker:** `HONE_MINER` is the original inference path.
+> `HONE_WORKER` is the current path — it participates in the inference
+> marketplace and earns per-job fees. New operators should use `HONE_WORKER`.
 
 Clock registration requires a minimum stake. See the staking requirements
 endpoint: `GET /api/staking/requirements`.
@@ -68,7 +68,7 @@ endpoint: `GET /api/staking/requirements`.
   and may time out on larger models
 - 20 GB+ disk for model storage
 - `OLLAMA_URL` must point to the Ollama instance (default: `http://localhost:11434`)
-- Default model: `qwen2.5:0.5b`. Set `BTCPC_MODEL` to use a different model.
+- Default model: `qwen2.5:0.5b`. Set `HONE_MODEL` to use a different model.
 
 ---
 
@@ -106,19 +106,19 @@ btcpc-node --version
 mkdir -p ~/.btcpc
 ```
 
-The node defaults to `~/.btcpc` for chain state. Override with `BTCPC_DATA_DIR`.
+The node defaults to `~/.btcpc` for chain state. Override with `HONE_DATA_DIR`.
 
 ### Step 3: Get a posting key
 
 On first start, the node generates a fresh wallet and writes it to two files:
 
-- `$BTCPC_DATA_DIR/wallet.key` — full key material as JSON
+- `$HONE_DATA_DIR/wallet.key` — full key material as JSON
 - `~/.btcpc/{account}.txt` — human-readable backup including all role keys
 
 Run the node once to generate the wallet:
 
 ```bash
-BTCPC_ACCOUNT=mynode btcpc-node
+HONE_ACCOUNT=mynode btcpc-node
 ```
 
 Wait for the line:
@@ -138,10 +138,10 @@ Find the `posting` section:
 ```
   posting
     public   <hex public key>
-    private  <hex private key — this is BTCPC_POSTING_KEY>
+    private  <hex private key — this is HONE_POSTING_KEY>
 ```
 
-Copy the `private` hex value. This is your `BTCPC_POSTING_KEY`. It is the
+Copy the `private` hex value. This is your `HONE_POSTING_KEY`. It is the
 ed25519 seed for signing clock seals. Keep it private.
 
 To extract it without reading the full file:
@@ -157,29 +157,29 @@ Create `~/.btcpc/mynode.env`:
 
 ```bash
 # Required
-BTCPC_ACCOUNT=mynode
-BTCPC_POSTING_KEY=<hex from step 3>
-BTCPC_CHAIN_ID=btcpc-1
+HONE_ACCOUNT=mynode
+HONE_POSTING_KEY=<hex from step 3>
+HONE_CHAIN_ID=hone
 
 # Roles — enable what your hardware supports
-BTCPC_CLOCK=true
-BTCPC_SENSOR=true
-# BTCPC_WORKER=true   # uncomment if Ollama is installed
-# BTCPC_STORAGE=true  # uncomment to earn storage rewards
+HONE_CLOCK=true
+HONE_SENSOR=true
+# HONE_WORKER=true   # uncomment if Ollama is installed
+# HONE_STORAGE=true  # uncomment to earn storage rewards
 
 # Ports (defaults shown — change only if there is a conflict)
-BTCPC_API_PORT=4242
-BTCPC_P2P_PORT=6942
+HONE_API_PORT=4242
+HONE_P2P_PORT=6942
 
-# Leave BTCPC_BOOTSTRAP_PEERS unset to use the default DNS seeds:
-#   /dns4/bootstrap1.btcpc.net/tcp/6942
-#   /dns4/bootstrap2.btcpc.net/tcp/6942
+# Leave HONE_BOOTSTRAP_PEERS unset to use the default DNS seeds:
+#   /dns4/bootstrap1.honemesh.net/tcp/6942
+#   /dns4/bootstrap2.honemesh.net/tcp/6942
 # Only set this if you need to override the bootstrap nodes.
-# BTCPC_BOOTSTRAP_PEERS=/dns4/yourpeer.example.com/tcp/6942
+# HONE_BOOTSTRAP_PEERS=/dns4/yourpeer.example.com/tcp/6942
 
-# Worker only — required if BTCPC_WORKER=true
+# Worker only — required if HONE_WORKER=true
 # OLLAMA_URL=http://localhost:11434
-# BTCPC_MODEL=qwen2.5:0.5b
+# HONE_MODEL=qwen2.5:0.5b
 ```
 
 ### Step 5: Run the node
@@ -193,7 +193,7 @@ env $(cat ~/.btcpc/mynode.env | grep -v '^#' | xargs) btcpc-node
 Expected startup output:
 
 ```
-btcpc-node starting — account=mynode chain=btcpc-1 data="/home/user/.btcpc"
+btcpc-node starting — account=mynode chain=hone data="/home/user/.btcpc"
 chain state ready — latest epoch=1234
 roles — miner=false clock=true storage=true service=false sensor=true worker=false mempool=false
 ```
@@ -239,29 +239,29 @@ journalctl --user -u btcpc-node -f
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BTCPC_ACCOUNT` | `genesis` | Account name for this node. All rewards route here. |
-| `BTCPC_POSTING_KEY` | (none) | Hex 32-byte ed25519 seed. Required for clock seals. Auto-generated on first start if absent. |
-| `BTCPC_CHAIN_ID` | `btcpc-1` | `btcpc-1` = mainnet, `btcpc-satoshi` = testnet |
-| `BTCPC_DATA_DIR` | `~/.btcpc` | RocksDB chain state directory |
-| `BTCPC_API_PORT` | `4242` | HTTP API port |
-| `BTCPC_P2P_PORT` | `6942` | libp2p listen port |
-| `BTCPC_BOOTSTRAP_PEERS` | DNS seeds | Comma-separated multiaddrs. Leave unset to use `bootstrap1.btcpc.net` and `bootstrap2.btcpc.net`. If set, values must be valid multiaddrs starting with `/`. |
-| `BTCPC_CLOCK` | `false` | `true` to participate in epoch consensus |
-| `BTCPC_SENSOR` | auto | `true` to submit sensor data each epoch. Auto-enabled if GNSS is detected. |
-| `BTCPC_WORKER` | auto | `true` to bid on inference jobs. Auto-enabled if Ollama is detected. |
-| `BTCPC_STORAGE` | auto | `true` to emit storage heartbeats. Auto-enabled if disk >= 10 GB. |
-| `BTCPC_MEMPOOL` | `false` | `true` to report gossip relay counts |
-| `BTCPC_MINER` | `false` | `true` for legacy direct-inference mining (not recommended for new nodes) |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint. Required when `BTCPC_WORKER=true`. |
-| `BTCPC_MODEL` | `qwen2.5:0.5b` | Model hint for worker and verifier |
-| `BTCPC_GENESIS_TIMESTAMP` | `1777633200000` | Unix ms genesis timestamp. Do not change. Must match on all nodes. |
-| `BTCPC_LOG_LEVEL` | `btcpc_node=info` | Tracing filter. `btcpc_node=debug` for verbose output. |
-| `BTCPC_AUTO_UPDATE` | `0` | Set to `1` to enable automatic binary updates |
-| `BTCPC_UPDATE_URL` | (none) | URL to poll for binary updates. Requires `BTCPC_AUTO_UPDATE=1`. |
-| `BTCPC_TOR` | (disabled) | `true` to activate Tor hidden service. Also: `BTCPC_TOR_CONTROL_PORT` (default 9051), `BTCPC_TOR_CONTROL_PASSWORD`. |
-| `BTCPC_NOSTR` | (disabled) | `true` to propagate entries via Nostr relays. Also: `BTCPC_NOSTR_RELAYS` (comma-separated WSS URLs). |
-| `BTCPC_SECRETS_PASSPHRASE` | hw fingerprint | AES-256-GCM passphrase for the local secrets store |
-| `BTCPC_ALERT_WEBHOOK` | (none) | HTTP POST URL for health alert notifications |
+| `HONE_ACCOUNT` | `genesis` | Account name for this node. All rewards route here. |
+| `HONE_POSTING_KEY` | (none) | Hex 32-byte ed25519 seed. Required for clock seals. Auto-generated on first start if absent. |
+| `HONE_CHAIN_ID` | `hone` | `hone` = mainnet, `hone-testnet` = testnet |
+| `HONE_DATA_DIR` | `~/.btcpc` | RocksDB chain state directory |
+| `HONE_API_PORT` | `4242` | HTTP API port |
+| `HONE_P2P_PORT` | `6942` | libp2p listen port |
+| `HONE_BOOTSTRAP_PEERS` | DNS seeds | Comma-separated multiaddrs. Leave unset to use `bootstrap1.honemesh.net` and `bootstrap2.honemesh.net`. If set, values must be valid multiaddrs starting with `/`. |
+| `HONE_CLOCK` | `false` | `true` to participate in epoch consensus |
+| `HONE_SENSOR` | auto | `true` to submit sensor data each epoch. Auto-enabled if GNSS is detected. |
+| `HONE_WORKER` | auto | `true` to bid on inference jobs. Auto-enabled if Ollama is detected. |
+| `HONE_STORAGE` | auto | `true` to emit storage heartbeats. Auto-enabled if disk >= 10 GB. |
+| `HONE_MEMPOOL` | `false` | `true` to report gossip relay counts |
+| `HONE_MINER` | `false` | `true` for legacy direct-inference mining (not recommended for new nodes) |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint. Required when `HONE_WORKER=true`. |
+| `HONE_MODEL` | `qwen2.5:0.5b` | Model hint for worker and verifier |
+| `HONE_GENESIS_TIMESTAMP` | `1783191600000` | Unix ms genesis timestamp. Do not change. Must match on all nodes. |
+| `HONE_LOG_LEVEL` | `btcpc_node=info` | Tracing filter. `btcpc_node=debug` for verbose output. |
+| `HONE_AUTO_UPDATE` | `0` | Set to `1` to enable automatic binary updates |
+| `HONE_UPDATE_URL` | (none) | URL to poll for binary updates. Requires `HONE_AUTO_UPDATE=1`. |
+| `HONE_TOR` | (disabled) | `true` to activate Tor hidden service. Also: `HONE_TOR_CONTROL_PORT` (default 9051), `HONE_TOR_CONTROL_PASSWORD`. |
+| `HONE_NOSTR` | (disabled) | `true` to propagate entries via Nostr relays. Also: `HONE_NOSTR_RELAYS` (comma-separated WSS URLs). |
+| `HONE_SECRETS_PASSPHRASE` | hw fingerprint | AES-256-GCM passphrase for the local secrets store |
+| `HONE_ALERT_WEBHOOK` | (none) | HTTP POST URL for health alert notifications |
 
 ---
 
@@ -269,15 +269,15 @@ journalctl --user -u btcpc-node -f
 
 | | Mainnet | Testnet |
 |-|---------|---------|
-| Chain ID | `btcpc-1` | `btcpc-satoshi` |
+| Chain ID | `hone` | `hone-testnet` |
 | Genesis | 2026-05-01 00:00:00 IST | Separate genesis |
 | Faucet | No | `POST /api/faucet/claim` |
 | Status | Active | Active |
 
-The node defaults to `btcpc-1` (mainnet). To join testnet, set:
+The node defaults to `hone` (mainnet). To join testnet, set:
 
 ```bash
-BTCPC_CHAIN_ID=btcpc-satoshi
+HONE_CHAIN_ID=hone-testnet
 ```
 
 On testnet, the node runs a simulation daemon and the faucet endpoint is live.
@@ -306,7 +306,7 @@ Expected response fields:
 ```json
 {
   "account": "mynode",
-  "chain_id": "btcpc-1",
+  "chain_id": "hone",
   "epoch": 1234,
   "peer_count": 3,
   "is_clock": true,
@@ -386,16 +386,16 @@ journalctl --user -u btcpc-node --since "5 minutes ago" | grep -i "peer\|bootstr
 **Fix:**
 
 - Confirm port 6942 is open in your firewall
-- Confirm `BTCPC_P2P_PORT=6942` is set (or the port you chose is accessible)
-- If you set `BTCPC_BOOTSTRAP_PEERS`, confirm the values are valid multiaddrs
+- Confirm `HONE_P2P_PORT=6942` is set (or the port you chose is accessible)
+- If you set `HONE_BOOTSTRAP_PEERS`, confirm the values are valid multiaddrs
   starting with `/dns4/` or `/ip4/` — e.g. `/dns4/host.example.com/tcp/6942`
-- Leave `BTCPC_BOOTSTRAP_PEERS` unset to fall back to the DNS seed nodes
+- Leave `HONE_BOOTSTRAP_PEERS` unset to fall back to the DNS seed nodes
 
 ---
 
 ### 2. is\_sensor shows false despite BTCPC\_SENSOR=true
 
-**Symptom:** The node is running with `BTCPC_SENSOR=true` but
+**Symptom:** The node is running with `HONE_SENSOR=true` but
 `/api/node/info` returns `"is_sensor": false`.
 
 **Why this happens:** `is_sensor` is derived from chain state, not the env
@@ -423,7 +423,7 @@ curl -s http://localhost:4242/api/node/info | grep peer_count
 
 ### 3. Worker not picking up jobs
 
-**Symptom:** `BTCPC_WORKER=true` is set and Ollama is running, but the node
+**Symptom:** `HONE_WORKER=true` is set and Ollama is running, but the node
 is not bidding on or completing jobs.
 
 **How to diagnose:**
@@ -447,7 +447,7 @@ curl -s http://localhost:4242/api/task/jobs
 - Confirm `OLLAMA_URL` points to the correct Ollama instance
 - Pull at least one model: `ollama pull qwen2.5:0.5b`
 - Jobs are only posted when clients call `/api/task/post`. On a new network,
-  the job queue may simply be empty. Use `BTCPC_WORK_GENERATOR=true` on a
+  the job queue may simply be empty. Use `HONE_WORK_GENERATOR=true` on a
   test node to generate synthetic demand.
 - Confirm `peer_count > 0` — bids are gossip entries and are rejected without peers
 
@@ -455,7 +455,7 @@ curl -s http://localhost:4242/api/task/jobs
 
 ### 4. Clock not sealing (not appearing in /api/clock/registered)
 
-**Symptom:** `BTCPC_CLOCK=true` is set but the node does not appear in the
+**Symptom:** `HONE_CLOCK=true` is set but the node does not appear in the
 registered clock list. No `ClockReward` entries are appearing in account history.
 
 **How to diagnose:**
@@ -472,9 +472,9 @@ journalctl --user -u btcpc-node --since "10 minutes ago" | grep -i "clock\|regis
 
 - **Insufficient stake.** Clock registration requires a minimum stake balance.
   Check the requirement: `curl -s http://localhost:4242/api/staking/requirements`
-  and fund your account to meet the minimum before enabling `BTCPC_CLOCK`.
+  and fund your account to meet the minimum before enabling `HONE_CLOCK`.
 - **Missing or wrong posting key.** The clock auto-registration signs with
-  `BTCPC_POSTING_KEY`. If the key is absent or does not match the key
+  `HONE_POSTING_KEY`. If the key is absent or does not match the key
   registered on-chain for your account, auto-registration fails. Check logs
   for `[clock] auto-register failed`. You can also register manually:
   `POST /api/clock/self-register`
@@ -505,7 +505,7 @@ ss -tlnp | grep 4242
 rm ~/.btcpc/node.lock
 
 # If you need two nodes on the same machine, use different ports and data dirs:
-BTCPC_API_PORT=4243 BTCPC_P2P_PORT=6943 BTCPC_DATA_DIR=~/.btcpc-2 btcpc-node
+HONE_API_PORT=4243 HONE_P2P_PORT=6943 HONE_DATA_DIR=~/.hone btcpc-node
 ```
 
 ---
@@ -529,7 +529,7 @@ systemctl --user start btcpc-node
 systemctl --user status btcpc-node
 ```
 
-For automatic updates, set `BTCPC_AUTO_UPDATE=1` and `BTCPC_UPDATE_URL` in
+For automatic updates, set `HONE_AUTO_UPDATE=1` and `HONE_UPDATE_URL` in
 your environment file. The node will poll for and apply binary updates without
 manual intervention.
 

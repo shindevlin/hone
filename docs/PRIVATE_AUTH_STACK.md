@@ -246,17 +246,17 @@ UI should clearly show:
 
 Environment variables:
 
-- `BTCPC_PRIVATE_AUTH_ENABLED`
-- `BTCPC_LIGHTNING_PROVIDER_URL`
-- `BTCPC_LIGHTNING_PROVIDER_KEY`
-- `BTCPC_LIGHTNING_AUTH_SATS`
-- `BTCPC_ZK_VERIFIER_URL`
-- `BTCPC_ZK_VERIFIER_KEY`
-- `BTCPC_ZK_PROOF_BACKEND`
+- `HONE_PRIVATE_AUTH_ENABLED`
+- `HONE_LIGHTNING_PROVIDER_URL`
+- `HONE_LIGHTNING_PROVIDER_KEY`
+- `HONE_LIGHTNING_AUTH_SATS`
+- `HONE_ZK_VERIFIER_URL`
+- `HONE_ZK_VERIFIER_KEY`
+- `HONE_ZK_PROOF_BACKEND`
 
 Operational requirements:
 
-- leave `BTCPC_PRIVATE_AUTH_ENABLED` off by default until the future rollout is explicitly approved
+- leave `HONE_PRIVATE_AUTH_ENABLED` off by default until the future rollout is explicitly approved
 - keep read-only preview endpoints available so users can inspect the future approval shape without activating it
 - keep approval challenge TTL short
 - log only normalized receipt metadata

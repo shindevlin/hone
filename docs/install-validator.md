@@ -27,7 +27,7 @@ Edit `.env`:
 ```
 MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
 P2P_PORT=6942
-BTCPC_SEED_PEERS=ws://100.90.146.17:6942,ws://100.122.145.60:6942
+HONE_SEED_PEERS=ws://100.90.146.17:6942,ws://100.122.145.60:6942
 JWT_SECRET=<generate with: openssl rand -hex 32>
 PORT=3000
 ```

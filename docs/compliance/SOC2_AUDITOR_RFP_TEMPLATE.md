@@ -55,7 +55,7 @@ BTCPC is a decentralized blockchain protocol enabling Proof-of-Compute consensus
 - Timeline & resource allocation (20%)
 - Cost & reporting flexibility (15%)
 
-**Contact:** `compliance@btcpc.net` | `security@btcpc.net`
+**Contact:** `compliance@honemesh.net` | `security@honemesh.net`
 **Repo:** `https://github.com/shindevlin/btcpc`
 
 ---

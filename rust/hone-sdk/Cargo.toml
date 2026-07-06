@@ -1,0 +1,42 @@
+[package]
+name = "hone-sdk"
+autobins = false
+version = "1.0.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "HONE chain client SDK"
+
+# Standalone crate — deliberately NOT a member of rust/Cargo.toml's workspace, so
+# it can be published / vendored into consumer CI independently of the node build.
+[workspace]
+
+[[bin]]
+name = "hone"
+path = "src/bin/hone.rs"
+
+[[bin]]
+name = "hone-keycheck"
+path = "src/bin/keycheck.rs"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+base64 = "0.22"
+hex = "0.4"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+# Wallet / BIP39+BIP44+SLIP10 multi-chain key derivation
+bip39 = { version = "2", features = ["rand"] }
+k256 = { version = "0.13", features = ["arithmetic", "ecdsa"] }
+sha3 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+bs58 = "0.5"
+# Recoverable keystore: Argon2id password KDF + AES-256-GCM authenticated cipher.
+# Argon2id (memory-hard) is used for the human password — NOT the node's SHA-256
+# derive_key, which is only safe for high-entropy hardware-derived material.
+argon2 = "0.5"
+aes-gcm = "0.10"

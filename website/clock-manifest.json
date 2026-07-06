@@ -1,7 +1,7 @@
 {
-  "name": "BTCPC Clock",
-  "short_name": "BTCPC Clock",
-  "description": "Browser-based clock node for the BTCPC network",
+  "name": "HONE Clock",
+  "short_name": "HONE Clock",
+  "description": "Browser-based clock node for the HONE network",
   "start_url": "/clock",
   "display": "standalone",
   "background_color": "#0a0e17",

@@ -31,10 +31,10 @@ node -e "require('mongoose').connect('mongodb://localhost:27017/btcpc').then(asy
 ### 4. Start the miner
 
 ```bash
-set BTCPC_MODEL=qwen3.5:27b
-set BTCPC_WORK_PER_EPOCH=3
+set HONE_MODEL=qwen3.5:27b
+set HONE_WORK_PER_EPOCH=3
 set P2P_PORT=6942
-set BTCPC_MAX_MODEL_STORAGE_GB=100
+set HONE_MAX_MODEL_STORAGE_GB=100
 node bin/btcpc-mine
 ```
 
@@ -51,11 +51,11 @@ node bin/btcpc-mine
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| BTCPC_MODEL | qwen3.5:27b | Model to mine with |
-| BTCPC_WORK_PER_EPOCH | 3 | Synthetic work items per epoch |
+| HONE_MODEL | qwen3.5:27b | Model to mine with |
+| HONE_WORK_PER_EPOCH | 3 | Synthetic work items per epoch |
 | P2P_PORT | 6942 | P2P WebSocket port |
 | OLLAMA_URL | http://localhost:11434 | Ollama endpoint |
-| BTCPC_MAX_MODEL_STORAGE_GB | 50 | Disk budget for auto-pulled models |
+| HONE_MAX_MODEL_STORAGE_GB | 50 | Disk budget for auto-pulled models |
 | MONGODB_URI | mongodb://localhost:27017/btcpc | MongoDB connection |
 
 ---
@@ -73,11 +73,11 @@ git pull
 
 ```bash
 # Linux
-BTCPC_MINER=natoshisakamoto OLLAMA_URL=http://localhost:11434 BTCPC_MODEL=qwen3:4b BTCPC_WORK_PER_EPOCH=1 P2P_PORT=6944 node bin/btcpc-mine
+HONE_MINER=natoshisakamoto OLLAMA_URL=http://localhost:11434 HONE_MODEL=qwen3:4b HONE_WORK_PER_EPOCH=1 P2P_PORT=6944 node bin/btcpc-mine
 
 # Windows
-set BTCPC_MINER=natoshisakamoto
-set BTCPC_MODEL=qwen3:4b
+set HONE_MINER=natoshisakamoto
+set HONE_MODEL=qwen3:4b
 set P2P_PORT=6944
 node bin/btcpc-mine
 ```

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Device Dashboard — Register & Yield Staking</title>
+  <title>HONE Device Dashboard — Register & Yield Staking</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.6; }
@@ -61,13 +61,13 @@
   <!-- Navigation -->
   <div id="nav-bar">
     <a href="/" class="nav-logo">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">
-      BTCPC
+      <img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">
+      HONE
     </a>
     <a href="/#tutorial" class="nav-link">Get Started</a>
     <a href="/run-a-node" class="nav-link">Run a Node</a>
     <a href="/store" class="nav-link">Store</a>
-    <a href="/buy" class="nav-link">Buy BTCPC</a>
+    <a href="/buy" class="nav-link">Buy HONE</a>
     <a href="/dashboard" class="nav-link">Explorer</a>
     <a href="https://t.me/btcpcbot" class="nav-link" target="_blank">Telegram</a>
   </div>
@@ -88,7 +88,7 @@
           <label>Device ID (e.g. <span style="color:#f7931a;">josh/flipper-abc</span>)</label>
           <input type="text" id="reg-device-id" placeholder="owner/device-name">
           <label>Owner Account</label>
-          <input type="text" id="reg-owner" placeholder="your BTCPC account name">
+          <input type="text" id="reg-owner" placeholder="your HONE account name">
           <label>Device Public Key (hex)</label>
           <input type="text" id="reg-device-pubkey" placeholder="02abcd...">
           <label>Posting Key Signature (hex)</label>
@@ -102,8 +102,8 @@
           <label>Device ID to Claim</label>
           <input type="text" id="claim-device-id" placeholder="originalowner/device-name">
           <label>Claimant Account</label>
-          <input type="text" id="claim-account" placeholder="your BTCPC account name">
-          <label>Stake Amount (BTCPC)</label>
+          <input type="text" id="claim-account" placeholder="your HONE account name">
+          <label>Stake Amount (HONE)</label>
           <input type="number" id="claim-stake" placeholder="100" min="0" step="0.01">
           <button onclick="claimDevice()">Claim Device</button>
           <div id="claim-msg"></div>
@@ -172,9 +172,9 @@
       <div id="modal-device-info" style="color:#8892a0;font-size:12px;margin-bottom:4px;"></div>
 
       <label>Your Account</label>
-      <input type="text" id="modal-staker" placeholder="your BTCPC account">
+      <input type="text" id="modal-staker" placeholder="your HONE account">
 
-      <label>Stake Amount (BTCPC)</label>
+      <label>Stake Amount (HONE)</label>
       <input type="number" id="modal-stake-amount" placeholder="e.g. 500" min="0" step="0.01">
 
       <div class="tribute-info" id="tribute-info">
@@ -207,7 +207,7 @@
 
   function fmt(n) {
     if (n === null || n === undefined) return '—';
-    return parseFloat(n).toFixed(4) + ' BTCPC';
+    return parseFloat(n).toFixed(4) + ' HONE';
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@
         return '<tr>' +
           '<td style="font-family:monospace;"><a href="/device?id=' + encodeURIComponent(s.device_id) + '">' + s.device_id + '</a></td>' +
           '<td>#' + (s.slot||'—') + '</td>' +
-          '<td>' + parseFloat(s.stake_amount||0).toFixed(4) + ' BTCPC</td>' +
+          '<td>' + parseFloat(s.stake_amount||0).toFixed(4) + ' HONE</td>' +
           '<td>' + parseFloat(s.rent_bid||0).toFixed(8) + '</td>' +
           '<td>' + modeBadge + '</td>' +
           '<td><button class="danger" style="margin-top:0;padding:4px 12px;font-size:11px;" onclick="unstake(\'' + s.device_id + '\',\'' + account + '\')">Unstake</button></td>' +
@@ -418,9 +418,9 @@
     var isOwner = staker && staker === _modalOwner;
     var tribute = isOwner ? 0 : parseFloat((stakeAmt * 0.01).toFixed(10));
     var net = parseFloat((stakeAmt - tribute).toFixed(10));
-    document.getElementById('ti-stake').textContent = stakeAmt.toFixed(4) + ' BTCPC';
-    document.getElementById('ti-tribute').textContent = isOwner ? '0 (owner — no tribute)' : tribute.toFixed(4) + ' BTCPC';
-    document.getElementById('ti-net').textContent = net.toFixed(4) + ' BTCPC';
+    document.getElementById('ti-stake').textContent = stakeAmt.toFixed(4) + ' HONE';
+    document.getElementById('ti-tribute').textContent = isOwner ? '0 (owner — no tribute)' : tribute.toFixed(4) + ' HONE';
+    document.getElementById('ti-net').textContent = net.toFixed(4) + ' HONE';
   }
 
   async function submitStake() {
@@ -429,7 +429,7 @@
     if (!staker) { showMsg('modal-msg', 'Enter your account name.', 'err'); return; }
     if (!isFinite(stakeAmt) || stakeAmt <= 0) { showMsg('modal-msg', 'Enter a valid stake amount.', 'err'); return; }
     if (stakeAmt <= _currentTopStake) {
-      showMsg('modal-msg', 'Stake must exceed current top stake of ' + _currentTopStake.toFixed(4) + ' BTCPC.', 'err'); return;
+      showMsg('modal-msg', 'Stake must exceed current top stake of ' + _currentTopStake.toFixed(4) + ' HONE.', 'err'); return;
     }
     document.getElementById('stake-submit-btn').disabled = true;
     try {
@@ -440,7 +440,7 @@
       });
       var d = await r.json();
       if (r.ok && d.success) {
-        showMsg('modal-msg', 'Staked! Slot #' + d.slot + '. Tribute: ' + parseFloat(d.tribute_paid||0).toFixed(4) + ' BTCPC.', 'ok');
+        showMsg('modal-msg', 'Staked! Slot #' + d.slot + '. Tribute: ' + parseFloat(d.tribute_paid||0).toFixed(4) + ' HONE.', 'ok');
         setTimeout(function() { closeModal(); loadAllStakes(); }, 1800);
       } else {
         showMsg('modal-msg', (d.error && d.error.message) || d.error || 'Stake failed.', 'err');
@@ -464,7 +464,7 @@
       });
       var d = await r.json();
       if (r.ok && d.success) {
-        alert('Unstaked! Returned: ' + parseFloat(d.returned_amount||0).toFixed(4) + ' BTCPC');
+        alert('Unstaked! Returned: ' + parseFloat(d.returned_amount||0).toFixed(4) + ' HONE');
         loadMyStakes();
         loadAllStakes();
       } else {

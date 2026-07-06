@@ -30,6 +30,8 @@ typedef enum {
     BtcpcSceneMain,
     BtcpcSceneIdentity,
     BtcpcSceneBle,
+    BtcpcSceneSubGhz,
+    BtcpcSceneRotate,
     BtcpcSceneCount,
 } BtcpcScene;
 
@@ -45,9 +47,11 @@ typedef enum {
 typedef enum {
     BtcpcMenuIdentity = 0,
     BtcpcMenuBle      = 1,
+    BtcpcMenuSubGhz   = 2,
+    BtcpcMenuRotate   = 3,
 } BtcpcMenuItem;
 
-typedef struct {
+typedef struct BtcpcApp {
     /* GUI */
     Gui*              gui;
     ViewDispatcher*   view_dispatcher;

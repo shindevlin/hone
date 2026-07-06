@@ -6,9 +6,9 @@
 > Verasens, unified storage, Freeport, LinkGit, bots, and new verticals get
 > built out — with real code, real tests, on every part, every day.
 >
-> Ground truth as of 2026-07: the chain core (`rust/btcpc-node`) is solid —
+> Ground truth as of 2026-07: the chain core (`rust/hone-node`) is solid —
 > ~41k LOC, 226 tests, all entry types below already exist in
-> `crates/btcpc-types/src/entry.rs`. The verticals themselves (the products
+> `crates/hone-types/src/entry.rs`. The verticals themselves (the products
 > built ON TOP of those entry types) are thin-to-nonexistent. This PRD closes
 > that gap, in priority order.
 
@@ -22,7 +22,7 @@ A full review of every repo under `shindevlin` on GitHub (8 repos total:
 things worth acting on:
 
 1. **`btcpc-marketing`'s `INNOVATIONS.md` oversells several features as
-   built when they are not.** Verified by grep against `rust/btcpc-node`:
+   built when they are not.** Verified by grep against `rust/hone-node`:
    - **Lucid Pruning** (chain self-compression via AI inference) — **no
      code found.** Pure marketing copy.
    - **Genesis Dreams / on-chain inscriptions** — **no code found.**
@@ -30,7 +30,7 @@ things worth acting on:
      fixed-size regardless of account count") — **no SMT implementation
      found.** What DOES exist: `state_root`, `merkle_root_transactions`,
      `merkle_root_compute_proofs` as plain 32-byte fields in the block
-     header (`crates/btcpc-types/src/block.rs`) — a normal merkle-root
+     header (`crates/hone-types/src/block.rs`) — a normal merkle-root
      design, not a Sparse Merkle Tree, and no proof-generation code was
      found to back the "~1KB proof" claim.
    - **Resource-aware mining / auto-throttle** ("detects when user is at
@@ -74,7 +74,7 @@ things worth acting on:
 
 1. **Build AND test.** No item is done when the code compiles — it's done
    when there's a real test proving the behavior, same standard as
-   `rust/btcpc-node`'s existing 226 tests.
+   `rust/hone-node`'s existing 226 tests.
 2. **Every phase ends with something runnable**, not just a design doc.
    Design-only items exist (marked explicitly) but must produce a decision
    record other phases can build against — not open-ended musing.
@@ -139,12 +139,12 @@ every future sensor type without a code change per sensor.
 
   ##### Ground-truth read (verified in code, not assumed)
 
-  - **Units.** `crates/btcpc-types/src/lib.rs:12` defines
-    `DREAMS_PER_BTCPC = 10_000_000_000` (1e10). **This contradicts the
+  - **Units.** `crates/hone-types/src/lib.rs:12` defines
+    `HUNITS_PER_HONE = 10_000_000_000` (1e10). **This contradicts the
     "1 BTCPC = 100,000,000 dreams" figure used in some loose docs** (including
     the 1.4 settlement-seam record above) — the **code is canonical:
     1 BTCPC = 10,000,000,000 dreams**. All numbers below use the code value.
-    (`SUPPLY_CAP_DREAMS = 42_000_000 * 1e10`, `emission.rs:107`, confirms it.)
+    (`SUPPLY_CAP_HUNITS = 42_000_000 * 1e10`, `emission.rs:107`, confirms it.)
   - **`SensorReward` today** (`chain.rs:1936`): a straight
     `credit(node_id, NATIVE_TOKEN, *amount)` with no usage gating. `amount` is
     not a fixed per-reading fee — it is this owner's *slice of the Layer-B
@@ -165,7 +165,7 @@ every future sensor type without a code change per sensor.
   ##### (1) Creation fee — exact amount/formula per `SensorReading`
 
   **Decision: creation mints a flat, tiny, cost-recovery fee of
-  `SENSOR_CREATION_FEE_DREAMS = 2_000` dreams per accepted `SensorReading`
+  `SENSOR_CREATION_FEE_HUNITS = 2_000` dreams per accepted `SensorReading`
   (= 0.0000002 BTCPC), NOT the score-weighted pool slice it mints today.** The
   score-weighted `SensorReward` pool emission is retained ONLY as the wrapper
   the fee is paid through (existing `SensorReward` entry plumbing and per-owner
@@ -177,7 +177,7 @@ every future sensor type without a code change per sensor.
   will add):
 
   ```
-  creation_fee_dreams(reading) = SENSOR_CREATION_FEE_DREAMS   // = 2_000, flat
+  creation_fee_dreams(reading) = SENSOR_CREATION_FEE_HUNITS   // = 2_000, flat
   ```
 
   **Why 2,000 dreams and why flat.** The fee must *recover the marginal cost
@@ -198,7 +198,7 @@ every future sensor type without a code change per sensor.
   network's proven byte rate; the marginal chain cost of *accepting and
   indexing* one reading (a `data_hash` + metadata record, not the blob body,
   which lives in `BlobStore`) is a few hundred bytes of state. With the base
-  fee floor `BASE_FEE_MIN_DREAMS = 1_000` (`emission.rs:530`) being the
+  fee floor `BASE_FEE_MIN_HUNITS = 1_000` (`emission.rs:530`) being the
   smallest fee the chain charges for one weight unit, **2,000 dreams
   (2 × floor)** covers accept+index+one replica-epoch of the hash record with
   margin, and is ~4–6 orders of magnitude below the electricity+hardware+
@@ -280,7 +280,7 @@ every future sensor type without a code change per sensor.
 
   ##### Handoff to the implementation item ("Implement the split in `chain.rs`")
 
-  1. Add `SENSOR_CREATION_FEE_DREAMS = 2_000` to `emission.rs`; change the
+  1. Add `SENSOR_CREATION_FEE_HUNITS = 2_000` to `emission.rs`; change the
      `SensorReward` magnitude at `chain.rs:1936` to the flat fee (keep the
      entry + per-owner grouping plumbing).
   2. Fix `SensorDataPurchase` at `chain.rs:1981` to the real three-way 80/15/5
@@ -527,7 +527,7 @@ every future sensor type without a code change per sensor.
 
   **The vulnerability, confirmed by direct code read (not just the audit's
   description):**
-  - `rust/btcpc-node/src/tx.rs` lines ~465-490 put `SensorReading`,
+  - `rust/hone-node/src/tx.rs` lines ~465-490 put `SensorReading`,
     `SensorRegister`, and `GatewayHeartbeat` in a literal "Allowlisted
     pass-through" match arm with **zero signature verification** — entries
     go straight to `chain.apply_entry()`.
@@ -549,7 +549,7 @@ every future sensor type without a code change per sensor.
   design:**
   - `SensorRegister` and `GatewayHeartbeat` **already have a `signed_by:
     AccountId` field** in their struct definitions
-    (`crates/btcpc-types/src/entry.rs`) — the field exists, `check_signature`
+    (`crates/hone-types/src/entry.rs`) — the field exists, `check_signature`
     (the exact mechanism already used for `Stake` et al., see `tx.rs:2111`)
     is simply never called on them. Fixing these two is a small, non-breaking
     `tx.rs` change: move them out of the pass-through arm, call
@@ -563,9 +563,9 @@ every future sensor type without a code change per sensor.
     AND every producer of `SensorReading` must be updated to actually sign.
   - **Confirmed producers requiring updates**, found by grepping the whole
     repo for `LedgerEntry::SensorReading` construction:
-    - `rust/btcpc-node/src/sim.rs` — test/simulation harness. **Correction
+    - `rust/hone-node/src/sim.rs` — test/simulation harness. **Correction
       during implementation:** `main.rs` was initially believed to also
-      construct `SensorReading` (the `BTCPC_SENSOR` env var it documents is
+      construct `SensorReading` (the `HONE_SENSOR` env var it documents is
       real, but re-checked by direct grep during implementation — `main.rs`
       does not actually construct a `SensorReading` entry anywhere; only
       `sim.rs` and the Android client do). Removed from the producer list.
@@ -605,7 +605,7 @@ every future sensor type without a code change per sensor.
   **Rollout plan (why this can't be a silent merge-to-main):**
   1. **Schema change — corrected during implementation**: only
      `signed_by: AccountId` needs to be added to
-     `LedgerEntry::SensorReading` in `crates/btcpc-types/src/entry.rs`. The
+     `LedgerEntry::SensorReading` in `crates/hone-types/src/entry.rs`. The
      actual signature bytes do NOT need to live in the struct — confirmed
      by reading how `Stake` (which has `signed_by` but no in-struct
      signature field) actually gets verified: the signature travels
@@ -672,7 +672,7 @@ every future sensor type without a code change per sensor.
   — NOT by new chain code. Rationale and the one real gap follow.
 
   **Ground truth audited (files read, not assumed):**
-  - `crates/btcpc-types/src/entry.rs` — `SensorReading { sensor_id, owner,
+  - `crates/hone-types/src/entry.rs` — `SensorReading { sensor_id, owner,
     epoch, value: f64, data_hash, metadata: Option<serde_json::Value> }`
     (~L390). No `signed_by` field. `CoverageReport` (~L404) is the only
     typed sensor class and is cellular-specific (lat, lon, signal_dbm,
@@ -879,7 +879,7 @@ every future sensor type without a code change per sensor.
 
   **Mapping onto the generic `SensorReading` shape.**
   `SensorReading { sensor_id, owner, epoch, value: f64, data_hash, metadata }`
-  (`crates/btcpc-types/src/entry.rs`). Convention proposed here:
+  (`crates/hone-types/src/entry.rs`). Convention proposed here:
   - `sensor_id` = `"{device_pubkey_prefix}:{sensor_class}"` (e.g.
     `"a1b2c3…:subghz"`), so one registered Flipper device key can expose
     multiple sensor classes under stable per-class ids.
@@ -1110,7 +1110,7 @@ every future sensor type without a code change per sensor.
     chain_entry_hash, created_at, posted_at)`. `status`:
     `pending` → `posting` → `posted` | `failed`. `dreams_amount` is the
     BTCPC/dreams the owner must receive (1 BTCPC = 10,000,000,000 dreams,
-    canonical `DREAMS_PER_BTCPC`);
+    canonical `HUNITS_PER_HONE`);
     `fx_rate_id` pins the USD→BTCPC rate source/timestamp used, so the
     conversion is auditable and not re-derived later.
   - **Bridge interface (implemented by the separate "USD → BTCPC settlement
@@ -1383,7 +1383,7 @@ start code until the design item is done and reviewed.
 
 ## URGENT infrastructure blocker (found 2026-07-01, blocks ALL future Rust work)
 
-**`rust/btcpc-node` cannot currently be built from scratch with `cargo
+**`rust/hone-node` cannot currently be built from scratch with `cargo
 check`/`cargo test` on the Beastly WSL machine (Ubuntu, user `beastly`) —
 confirmed on UNMODIFIED `main`, not caused by any feature work.** This blocks
 every future Phase 1-8 item that touches Rust code from running its own
@@ -1404,14 +1404,14 @@ analysis of the `api` module — not a code error, a compiler crash.
 - **Net result: no rustc version currently on this machine, or installable
   via `rustup` at the time of this check, can both (a) satisfy the
   workspace's own dependency floor and (b) avoid the ICE.**
-- The narrower `crates/btcpc-types` package (a dependency of `btcpc-node`,
+- The narrower `crates/hone-types` package (a dependency of `btcpc-node`,
   not the full binary) DOES compile cleanly — the ICE is specific to
   building the full `btcpc-node` binary crate, not a fundamental problem
   with the workspace's Rust code in general.
 - Confirmed NOT a memory/resource issue (31GB RAM available, plenty free).
 - Confirmed this is a **known, pre-existing problem**, not new: found
   `build.err`/`build.first.err` log files already present in the deployment
-  checkout (`/home/beastly/btcpc-node/rust/btcpc-node/`) from a prior
+  checkout (`/home/beastly/btcpc-node/rust/hone-node/`) from a prior
   session's build attempts, plus a `howtoinstallandrun.md` "lessons
   learned" doc that recommends downloading a prebuilt release binary
   specifically because building from source on this machine is unreliable.

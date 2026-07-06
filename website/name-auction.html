@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Name Auction — BTCPC</title>
-  <meta name="description" content="Own a premium BTCPC name. Bid with USDC, USDT, or DAI on Ethereum, Solana, or TON.">
+  <title>Name Auction — HONE</title>
+  <meta name="description" content="Own a premium HONE name. Bid with USDC, USDT, or DAI on Ethereum, Solana, or TON.">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -178,11 +178,11 @@
 </head>
 <body>
 <script src="/nav.js?v=2"></script>
-  <a href="/" style="color:var(--orange);font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">BTCPC</a>
+  <a href="/" style="color:var(--orange);font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;"><img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">HONE</a>
   <a class="nav-link" href="/#tutorial">Get Started</a>
   <a class="nav-link" href="/run-a-node">Run a Node</a>
   <a class="nav-link" href="/store">Store</a>
-  <a class="nav-link" href="/buy">Buy BTCPC</a>
+  <a class="nav-link" href="/buy">Buy HONE</a>
   <a class="nav-link" href="/dashboard">Explorer</a>
   <a class="nav-link" href="https://t.me/btcpcbot" target="_blank">Telegram</a>
   <span style="margin-left:auto;color:var(--dim);font-size:11px" id="epoch-badge"></span>
@@ -191,7 +191,7 @@
 <div class="page">
   <div class="hero">
     <h1>Name Auction</h1>
-    <p>Own a premium BTCPC account name. Bid with USDC, USDT, or DAI on Ethereum, Solana, or TON. Names unlock as the network grows.</p>
+    <p>Own a premium HONE account name. Bid with USDC, USDT, or DAI on Ethereum, Solana, or TON. Names unlock as the network grows.</p>
   </div>
 
   <!-- Node count banner -->
@@ -392,7 +392,7 @@
         '<div class="name-detail-meta">Tier ' + n.tier + ' · unlocks at ' + n.min_nodes.toLocaleString() + ' nodes · currently ' + currentNodes.toLocaleString() + '</div>' +
         '<div class="locked-notice"><div class="lock-icon">🔒</div>' +
         '<strong>Not yet available</strong>' +
-        '<div>This name becomes auctionable when BTCPC reaches ' + n.min_nodes.toLocaleString() + ' active nodes.</div>' +
+        '<div>This name becomes auctionable when HONE reaches ' + n.min_nodes.toLocaleString() + ' active nodes.</div>' +
         '<div style="margin-top:8px;font-size:10px">' + (n.min_nodes - currentNodes).toLocaleString() + ' more nodes needed</div></div>';
       return;
     }
@@ -431,10 +431,10 @@
         '<label class="field-label">Your payment tx hash</label>' +
         '<input class="field-input" id="tx-hash" placeholder="0x...">' +
 
-        '<label class="field-label">Your BTCPC account name (will own this name)</label>' +
-        '<input class="field-input" id="btcpc-acct" placeholder="yourname">' +
+        '<label class="field-label">Your HONE account name (will own this name)</label>' +
+        '<input class="field-input" id="hone-acct" placeholder="yourname">' +
 
-        '<label class="field-label">Your BTCPC posting key (public)</label>' +
+        '<label class="field-label">Your HONE posting key (public)</label>' +
         '<input class="field-input" id="key-posting" placeholder="02...">' +
 
         '<button class="genkey-btn" onclick="genKeys()">Generate keys in browser</button>' +
@@ -479,13 +479,13 @@
   window.submitBid = function() {
     var bidUsd = parseFloat(document.getElementById('bid-usd').value);
     var txHash = (document.getElementById('tx-hash').value || '').trim();
-    var btcpcAcct = (document.getElementById('btcpc-acct').value || '').trim();
+    var honeAcct = (document.getElementById('hone-acct').value || '').trim();
     var posting = (document.getElementById('key-posting').value || '').trim();
 
     if (!bidUsd || bidUsd <= 0) { showBidMsg('Enter a valid bid amount.', true); return; }
     if (!txHash) { showBidMsg('Enter your payment transaction hash.', true); return; }
-    if (!btcpcAcct) { showBidMsg('Enter your desired BTCPC account name.', true); return; }
-    if (!posting) { showBidMsg('Enter your BTCPC public posting key.', true); return; }
+    if (!honeAcct) { showBidMsg('Enter your desired HONE account name.', true); return; }
+    if (!posting) { showBidMsg('Enter your HONE public posting key.', true); return; }
 
     var btn = document.getElementById('bid-submit');
     btn.disabled = true;
@@ -496,8 +496,8 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         bid_usd: bidUsd, chain: selectedChain, token: selectedToken,
-        tx_hash: txHash, btcpc_account: btcpcAcct,
-        btcpc_pubkeys: { posting: posting },
+        tx_hash: txHash, hone_account: honeAcct,
+        hone_pubkeys: { posting: posting },
       }),
     })
       .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })

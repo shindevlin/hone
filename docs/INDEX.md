@@ -8,7 +8,7 @@
 
 ## Architecture
 
-- [[BTCPC_WHITEPAPER]] — full whitepaper, Appendix M (Decentralized Commerce Layer), inscribed on Dream #0
+- [[HONE_WHITEPAPER]] — full whitepaper, Appendix M (Decentralized Commerce Layer), inscribed on Dream #0
 - [[TOKENOMICS]] — canonical economic model: 42M supply, No Burn All Recycle, fees, Area Pioneers
 - [[governance]] — sovereignty model, founder-irrelevance design
 - [[founders]] — what BTCPC is for and why
@@ -33,7 +33,7 @@
 
 ## Commerce
 
-- [[BTCPC_WHITEPAPER#Appendix M: Decentralized Commerce Layer]] — architecture, escrow mechanics, ledger entry types
+- [[HONE_WHITEPAPER#Appendix M: Decentralized Commerce Layer]] — architecture, escrow mechanics, ledger entry types
 - `website/store.html` — static store frontend; configurable `API_BASE` via `?node=` or `localStorage`
 - `website/vendor.html` — vendor control panel (same static file, accessed with signing key)
 - `btcpc-market` — Rust service (port 7042), optional vendor operations sidecar
@@ -73,7 +73,7 @@
 - Mongo: `mongodb://root:example@localhost:27017/btcpc?authSource=admin`
 - Explorer: `localhost:4242`
 - P2P: `localhost:6942`
-- Multi-role supervisor: `node bin/btcpc-all` (with `BTCPC_ROLES=all`)
+- Multi-role supervisor: `node bin/btcpc-all` (with `HONE_ROLES=all`)
 
 ## Specs
 

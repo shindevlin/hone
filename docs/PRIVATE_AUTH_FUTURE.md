@@ -4,7 +4,7 @@ This page documents the staged private-authorization system that exists in code 
 
 ## Status
 
-- Runtime feature flag: `BTCPC_PRIVATE_AUTH_ENABLED`
+- Runtime feature flag: `HONE_PRIVATE_AUTH_ENABLED`
 - Default state: off
 - Purpose: make the future approval flow discoverable in code and docs before it is ever turned on
 

@@ -14,12 +14,12 @@ BTCPC is an OpenAI-compatible inference API backed by a decentralized GPU mining
 
 ```bash
 # Login to get a JWT
-curl -X POST https://api.btcpc.network/api/user/login \
+curl -X POST https://api.honemesh.network/api/user/login \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com", "password": "your-password"}'
 
 # Register your GitHub repo
-curl -X POST https://api.btcpc.network/api/projects/register \
+curl -X POST https://api.honemesh.network/api/projects/register \
   -H "Authorization: Bearer YOUR_JWT" \
   -H "Content-Type: application/json" \
   -d '{"repoUrl": "https://github.com/you/your-project"}'
@@ -48,7 +48,7 @@ git add .btcpc && git commit -m "Add BTCPC project wallet" && git push
 
 Then verify:
 ```bash
-curl -X POST https://api.btcpc.network/api/projects/verify \
+curl -X POST https://api.honemesh.network/api/projects/verify \
   -H "Authorization: Bearer btcpc_your_key"
 ```
 
@@ -58,11 +58,11 @@ Get BTCPC tokens into your project wallet:
 
 ```bash
 # Claim faucet (1 BTCPC, one-time)
-curl -X POST https://api.btcpc.network/api/faucet/claim \
+curl -X POST https://api.honemesh.network/api/faucet/claim \
   -H "Authorization: Bearer YOUR_JWT"
 
 # Transfer from your personal wallet to project
-curl -X POST https://api.btcpc.network/api/projects/fund \
+curl -X POST https://api.honemesh.network/api/projects/fund \
   -H "Authorization: Bearer YOUR_JWT" \
   -H "Content-Type: application/json" \
   -d '{"walletAddress": "btcpc_proj_def456...", "amount": 10}'
@@ -82,8 +82,8 @@ npm install @btcpc/sdk
 const BTCPC = require('@btcpc/sdk');
 
 const ai = new BTCPC({
-  apiKey: process.env.BTCPC_API_KEY,
-  baseUrl: 'https://api.btcpc.network'  // or http://localhost:3000 for local
+  apiKey: process.env.HONE_API_KEY,
+  baseUrl: 'https://api.honemesh.network'  // or http://localhost:3000 for local
 });
 
 // Simple prompt → text
@@ -114,7 +114,7 @@ const { available, wanted } = await ai.networkModels();
 ```javascript
 const OpenAI = require('openai');
 const client = new OpenAI({
-  baseURL: 'https://api.btcpc.network/v1',
+  baseURL: 'https://api.honemesh.network/v1',
   apiKey: 'btcpc_your_key'
 });
 
@@ -128,7 +128,7 @@ const res = await client.chat.completions.create({
 ```python
 from openai import OpenAI
 client = OpenAI(
-    base_url="https://api.btcpc.network/v1",
+    base_url="https://api.honemesh.network/v1",
     api_key="btcpc_your_key"
 )
 
@@ -143,7 +143,7 @@ res = client.chat.completions.create(
 Set environment variables — no code changes needed:
 
 ```bash
-export OPENAI_BASE_URL=https://api.btcpc.network/v1
+export OPENAI_BASE_URL=https://api.honemesh.network/v1
 export OPENAI_API_KEY=btcpc_your_key
 ```
 
@@ -152,7 +152,7 @@ This works with: LangChain, AutoGPT, OpenClaw, Continue, Cursor, Aider, and any 
 ### With curl (any language)
 
 ```bash
-curl -X POST https://api.btcpc.network/v1/chat/completions \
+curl -X POST https://api.honemesh.network/v1/chat/completions \
   -H "Authorization: Bearer btcpc_your_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -165,7 +165,7 @@ curl -X POST https://api.btcpc.network/v1/chat/completions \
 
 Check what's available:
 ```bash
-curl https://api.btcpc.network/v1/network/models
+curl https://api.honemesh.network/v1/network/models
 ```
 
 Response:
@@ -195,7 +195,7 @@ Dynamic based on two factors:
 
 ```bash
 # Check rate for a specific model
-curl "https://api.btcpc.network/v1/pricing?model=qwen3.5:27b"
+curl "https://api.honemesh.network/v1/pricing?model=qwen3.5:27b"
 ```
 
 ```json
@@ -225,7 +225,7 @@ Every inference response includes billing:
 ## Check Your Balance
 
 ```bash
-curl https://api.btcpc.network/api/projects/me \
+curl https://api.honemesh.network/api/projects/me \
   -H "Authorization: Bearer btcpc_your_key"
 ```
 
@@ -243,7 +243,7 @@ curl https://api.btcpc.network/api/projects/me \
 
 ```javascript
 const BTCPC = require('@btcpc/sdk');
-const ai = new BTCPC({ apiKey: process.env.BTCPC_API_KEY });
+const ai = new BTCPC({ apiKey: process.env.HONE_API_KEY });
 
 async function generateLoop() {
   while (true) {

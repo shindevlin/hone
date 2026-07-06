@@ -2,7 +2,7 @@
   // Inject global nav styles
   const style = document.createElement('style');
   style.textContent = `
-    #btcpc-nav {
+    #hone-nav {
       position: fixed;
       top: 0; left: 0; right: 0;
       z-index: 9999;
@@ -20,9 +20,9 @@
       overflow-x: auto;
       scrollbar-width: none;
     }
-    #btcpc-nav::-webkit-scrollbar { display: none; }
+    #hone-nav::-webkit-scrollbar { display: none; }
 
-    #btcpc-nav-logo {
+    #hone-nav-logo {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -34,7 +34,7 @@
       margin-right: 18px;
       flex-shrink: 0;
     }
-    #btcpc-nav-logo img {
+    #hone-nav-logo img {
       width: 26px;
       height: 26px;
       border-radius: 7px;
@@ -42,11 +42,11 @@
       box-shadow: 0 0 14px rgba(247, 147, 26, 0.5), 0 0 28px rgba(247, 147, 26, 0.2);
       transition: box-shadow 0.3s;
     }
-    #btcpc-nav-logo:hover img {
+    #hone-nav-logo:hover img {
       box-shadow: 0 0 20px rgba(247, 147, 26, 0.75), 0 0 40px rgba(247, 147, 26, 0.35);
     }
 
-    .btcpc-nav-link {
+    .hone-nav-link {
       color: #8892a4;
       text-decoration: none;
       padding: 0 10px;
@@ -58,16 +58,16 @@
       border-bottom: 2px solid transparent;
       flex-shrink: 0;
     }
-    .btcpc-nav-link:hover { color: #c8ccd4; }
-    .btcpc-nav-link.active {
+    .hone-nav-link:hover { color: #c8ccd4; }
+    .hone-nav-link.active {
       color: #f7931a;
       border-bottom: 2px solid rgba(247, 147, 26, 0.6);
     }
 
-    #btcpc-nav-spacer { flex: 1; min-width: 12px; }
+    #hone-nav-spacer { flex: 1; min-width: 12px; }
 
     /* Live chain status pill */
-    #btcpc-nav-status {
+    #hone-nav-status {
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -82,32 +82,32 @@
       margin-right: 10px;
       cursor: default;
     }
-    #btcpc-nav-status.offline {
+    #hone-nav-status.offline {
       background: rgba(239, 68, 68, 0.08);
       border-color: rgba(239, 68, 68, 0.2);
       color: #ef4444;
     }
-    .btcpc-pulse-dot {
+    .hone-pulse-dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
       background: #22c55e;
       flex-shrink: 0;
-      animation: btcpc-pulse 2s ease-in-out infinite;
+      animation: hone-pulse 2s ease-in-out infinite;
     }
-    .btcpc-pulse-dot.offline { background: #ef4444; animation: none; }
-    @keyframes btcpc-pulse {
+    .hone-pulse-dot.offline { background: #ef4444; animation: none; }
+    @keyframes hone-pulse {
       0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
       50% { opacity: 0.85; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
     }
 
     /* Epoch counter */
-    #btcpc-nav-epoch {
+    #hone-nav-epoch {
       font-variant-numeric: tabular-nums;
     }
 
     /* My Node CTA */
-    #btcpc-nav-mynode {
+    #hone-nav-mynode {
       display: inline-flex;
       align-items: center;
       height: 30px;
@@ -123,13 +123,13 @@
       flex-shrink: 0;
       transition: background 0.15s, border-color 0.15s;
     }
-    #btcpc-nav-mynode:hover {
+    #hone-nav-mynode:hover {
       background: rgba(247, 147, 26, 0.2);
       border-color: rgba(247, 147, 26, 0.6);
     }
 
     /* Push page body down */
-    #btcpc-nav-spacer-block {
+    #hone-nav-spacer-block {
       height: 46px;
       display: block;
     }
@@ -150,21 +150,21 @@
   const path = window.location.pathname;
 
   const navEl = document.createElement('nav');
-  navEl.id = 'btcpc-nav';
-  navEl.setAttribute('aria-label', 'BTCPC main navigation');
+  navEl.id = 'hone-nav';
+  navEl.setAttribute('aria-label', 'HONE main navigation');
 
   // Logo
   navEl.innerHTML = `
-    <a href="/" id="btcpc-nav-logo">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC logo">
-      BTCPC
+    <a href="/" id="hone-nav-logo">
+      <img src="/hone-logo.jpeg" alt="HONE logo">
+      HONE
     </a>
   `;
 
   // Links
   for (const l of links) {
     const a = document.createElement('a');
-    a.className = 'btcpc-nav-link';
+    a.className = 'hone-nav-link';
     a.href = l.href;
     a.textContent = l.label;
     if (l.match && path.startsWith(l.match)) a.classList.add('active');
@@ -173,13 +173,13 @@
 
   // Spacer
   const spacer = document.createElement('div');
-  spacer.id = 'btcpc-nav-spacer';
+  spacer.id = 'hone-nav-spacer';
   navEl.appendChild(spacer);
 
   // Live status pill
   const statusEl = document.createElement('div');
-  statusEl.id = 'btcpc-nav-status';
-  statusEl.innerHTML = `<span class="btcpc-pulse-dot"></span><span id="btcpc-nav-epoch">...</span>`;
+  statusEl.id = 'hone-nav-status';
+  statusEl.innerHTML = `<span class="hone-pulse-dot"></span><span id="hone-nav-epoch">...</span>`;
   navEl.appendChild(statusEl);
 
   // Telegram icon
@@ -196,14 +196,14 @@
 
   // My Node CTA
   const mynode = document.createElement('a');
-  mynode.id = 'btcpc-nav-mynode';
+  mynode.id = 'hone-nav-mynode';
   mynode.href = '/node';
   mynode.textContent = 'My Node →';
   navEl.appendChild(mynode);
 
   // Spacer block to push page content below the fixed bar
   const spacerBlock = document.createElement('div');
-  spacerBlock.id = 'btcpc-nav-spacer-block';
+  spacerBlock.id = 'hone-nav-spacer-block';
 
   // Inject before the first child of body (or after current script)
   const body = document.body || document.documentElement;
@@ -215,8 +215,8 @@
     fetch('/public/network', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
-        const epochEl = document.getElementById('btcpc-nav-epoch');
-        const dot = statusEl.querySelector('.btcpc-pulse-dot');
+        const epochEl = document.getElementById('hone-nav-epoch');
+        const dot = statusEl.querySelector('.hone-pulse-dot');
         if (epochEl && d.epoch) {
           epochEl.textContent = `Epoch ${d.epoch.toLocaleString()}`;
         }
@@ -227,10 +227,10 @@
         if (dot) dot.classList.remove('offline');
       })
       .catch(() => {
-        const epochEl = document.getElementById('btcpc-nav-epoch');
+        const epochEl = document.getElementById('hone-nav-epoch');
         if (epochEl) epochEl.textContent = 'offline';
         statusEl.classList.add('offline');
-        const dot = statusEl.querySelector('.btcpc-pulse-dot');
+        const dot = statusEl.querySelector('.hone-pulse-dot');
         if (dot) dot.classList.add('offline');
       });
   }

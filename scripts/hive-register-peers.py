@@ -10,8 +10,8 @@ Reads BTCPC_HIVE_POSTING_KEY from env if --key is not given.
 
 json_metadata structure:
   {
-    "btcpc_peers":         [...mainnet multiaddrs...],
-    "btcpc_satoshi_peers": [...testnet multiaddrs...]
+    "hone_peers":         [...mainnet multiaddrs...],
+    "hone_testnet_peers": [...testnet multiaddrs...]
   }
 """
 
@@ -22,13 +22,13 @@ def main():
     parser.add_argument("--key", default=os.environ.get("BTCPC_HIVE_POSTING_KEY", ""),
                         help="WIF posting key for @btcpc Hive account")
     parser.add_argument("--mainnet-peers", nargs="*", default=[
-        "/dns4/bootstrap1.btcpc.net/tcp/6942",
-        "/dns4/bootstrap2.btcpc.net/tcp/6942",
+        "/dns4/bootstrap1.honemesh.net/tcp/6942",
+        "/dns4/bootstrap2.honemesh.net/tcp/6942",
     ], help="Mainnet multiaddrs")
     parser.add_argument("--testnet-peers", nargs="*", default=[
         "/ip4/192.168.68.72/tcp/6943",
         "/ip4/100.90.146.17/tcp/6943",
-    ], help="Testnet (btcpc-satoshi) multiaddrs")
+    ], help="Testnet (hone-testnet) multiaddrs")
     parser.add_argument("--dry-run", action="store_true", help="Print metadata without posting")
     args = parser.parse_args()
 
@@ -37,8 +37,8 @@ def main():
         sys.exit(1)
 
     metadata = {
-        "btcpc_peers": args.mainnet_peers,
-        "btcpc_satoshi_peers": args.testnet_peers,
+        "hone_peers": args.mainnet_peers,
+        "hone_testnet_peers": args.testnet_peers,
     }
 
     print("json_metadata to post:")
@@ -52,7 +52,7 @@ def main():
         from beem import Hive
         from beem.account import Account
     except ImportError:
-        print("beem not installed. Run: uv pip install beem --python /tmp/btcpc-hive-venv", file=sys.stderr)
+        print("beem not installed. Run: uv pip install beem --python /tmp/hone-hive-venv", file=sys.stderr)
         sys.exit(1)
 
     hive = Hive(keys=[args.key])

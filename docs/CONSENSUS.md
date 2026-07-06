@@ -32,12 +32,12 @@ Clock nodes must register on-chain before their seals count toward quorum.
 When the registered set is non-empty, quorum requires **>51% of registered nodes**
 to produce inlier seals with matching seal hashes.
 
-When the registered set is empty (bootstrap), the `BTCPC_BOOTSTRAP_ISOLATION=true`
+When the registered set is empty (bootstrap), the `HONE_BOOTSTRAP_ISOLATION=true`
 rule applies: shindevlin's seal is accepted as the sole quorum.
 
 | Condition | Quorum denominator |
 |---|---|
-| `registered_clocks.is_empty()` OR `BTCPC_BOOTSTRAP_ISOLATION=true` | bootstrap master |
+| `registered_clocks.is_empty()` OR `HONE_BOOTSTRAP_ISOLATION=true` | bootstrap master |
 | Registered set non-empty | `registered_clocks.len()` |
 
 Quorum threshold: `ceil(denominator × 0.51)`, minimum 1.
@@ -52,7 +52,7 @@ During bootstrap or when no registered nodes exist yet, `shindevlin`'s seal is a
 accepted as the single quorum. This allows the network to launch without a chicken-and-egg
 problem where you can't register clock nodes because no blocks are being produced.
 
-To enable bootstrap isolation explicitly: `BTCPC_BOOTSTRAP_ISOLATION=true`.
+To enable bootstrap isolation explicitly: `HONE_BOOTSTRAP_ISOLATION=true`.
 
 ---
 

@@ -6,11 +6,11 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>BTCPC — Turn Any Device Into a Node</title>
+  <title>HONE — Turn Any Device Into a Node</title>
   <!-- iPad/Apple fullscreen -->
-  <meta name="apple-mobile-web-app-title" content="BTCPC">
+  <meta name="apple-mobile-web-app-title" content="HONE">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <meta name="description" content="Earn BTCPC by sharing sensor data from your device. GPS, motion, orientation, battery, network — every reading pays.">
+  <meta name="description" content="Earn HONE by sharing sensor data from your device. GPS, motion, orientation, battery, network — every reading pays.">
   <meta name="theme-color" content="#f7931a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <script>
     (function() {
-      if (localStorage.getItem('btcpc-sensor-account')) {
+      if (localStorage.getItem('hone-sensor-account')) {
         document.documentElement.setAttribute('data-autologin', '1');
       }
       if (new URLSearchParams(location.search).get('desktop') === '1' ||
@@ -438,7 +438,7 @@
 
   <!-- Navigation -->
   <div id="nav-bar">
-    <a href="/" class="nav-brand"><img src="/btcpc-logo.jpeg" alt="" class="brand-mark">BTCPC</a>
+    <a href="/" class="nav-brand"><img src="/hone-logo.jpeg" alt="" class="brand-mark">HONE</a>
     <a href="/globe">Globe</a>
     <a href="/dashboard">Dashboard</a>
     <a href="/map">Map</a>
@@ -451,13 +451,13 @@
   <!-- Desktop sidebar — only visible when data-desktop is set -->
   <div id="desktop-sidebar">
     <div class="sb-logo">
-      <img src="/btcpc-logo.jpeg" alt="BTCPC">
-      <span>BTCPC</span>
+      <img src="/hone-logo.jpeg" alt="HONE">
+      <span>HONE</span>
     </div>
     <div class="sb-account">
       <div class="sb-name" id="sb-account-name">—</div>
       <div class="sb-bal" id="sb-balance">—</div>
-      <div class="sb-bal-lbl">BTCPC balance</div>
+      <div class="sb-bal-lbl">HONE balance</div>
       <div class="sb-roles" id="sb-roles" style="margin-top:8px;"></div>
     </div>
     <nav class="sb-nav" id="sb-nav">
@@ -483,7 +483,7 @@
         <span id="sb-epoch-remain">—</span>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:4px;">
-        reward <span id="sb-reward" style="color:var(--orange);">—</span> BTCPC
+        reward <span id="sb-reward" style="color:var(--orange);">—</span> HONE
       </div>
     </div>
     <div class="sb-version" id="sb-version">v3.1</div>
@@ -503,12 +503,12 @@
   <!-- Screen: Setup -->
   <div id="screen-setup" class="screen active">
     <div class="setup-hero">
-      <img class="setup-hex" src="/btcpc-logo.jpeg" alt="BTCPC">
-      <h1>BTCPC Sensor Node</h1>
-      <p>Turn your device into a BTCPC sensor node. Share GPS, motion, orientation, and device data to earn from the IoT pool.</p>
+      <img class="setup-hex" src="/hone-logo.jpeg" alt="HONE">
+      <h1>HONE Sensor Node</h1>
+      <p>Turn your device into a HONE sensor node. Share GPS, motion, orientation, and device data to earn from the IoT pool.</p>
     </div>
     <div class="input-group">
-      <label>BTCPC Username</label>
+      <label>HONE Username</label>
       <input type="text" id="input-account" placeholder="e.g. daniel" autocomplete="off" autocapitalize="none" spellcheck="false">
       <div style="color:#94a3b8;font-size:12px;line-height:1.5;margin-top:6px;">Create a wallet with an available name now. Premium names can be assigned later as public name assets on the same wallet.</div>
     </div>
@@ -520,7 +520,7 @@
     <button class="btn btn-primary" id="btn-start">Login / Create Account</button>
     <div class="app-footer">
       Your device sensors = your mining rig.<br>
-      Every reading earns BTCPC from the IoT pool.
+      Every reading earns HONE from the IoT pool.
     </div>
   </div>
 
@@ -530,7 +530,7 @@
       <h2 style="color:#f7931a;text-align:center;margin-bottom:16px;">Your Wallet</h2>
       <div style="background:#1a0a00;border:2px solid #f7931a;border-radius:8px;padding:16px;margin-bottom:16px;">
         <div style="color:#ef4444;font-weight:bold;font-size:14px;margin-bottom:8px;">&#x26A0; SAVE THESE 12 WORDS — SHOWN ONLY ONCE</div>
-        <div style="color:#94a3b8;font-size:11px;margin-bottom:12px;">This is your recovery phrase. Write it on paper. Never share it. If you lose it, your BTCPC is gone forever.</div>
+        <div style="color:#94a3b8;font-size:11px;margin-bottom:12px;">This is your recovery phrase. Write it on paper. Never share it. If you lose it, your HONE is gone forever.</div>
         <div id="mnemonic-words" style="font-size:16px;line-height:2;color:#f7931a;font-weight:bold;letter-spacing:1px;word-spacing:8px;text-align:center;padding:12px;background:#0a0e17;border-radius:4px;"></div>
       </div>
       <div style="margin-bottom:16px;">
@@ -546,7 +546,7 @@
       <!-- Key file download -->
       <div style="background:#0d1a0a;border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
         <div style="color:#22c55e;font-size:12px;font-weight:700;margin-bottom:6px;">&#x1F511; Download Your Key Files</div>
-        <div style="color:#94a3b8;font-size:11px;margin-bottom:10px;">Each role has its own .key file. Use posting.key to log into btcpc.net. Keep owner.key offline. The ZIP contains all keys — store it somewhere safe.</div>
+        <div style="color:#94a3b8;font-size:11px;margin-bottom:10px;">Each role has its own .key file. Use posting.key to log into honemesh.net. Keep owner.key offline. The ZIP contains all keys — store it somewhere safe.</div>
         <button class="btn btn-secondary" id="btn-download-keys" style="margin-top:0;font-size:13px;">Download keys.zip</button>
         <div id="keys-download-status" style="font-size:11px;color:#64748b;margin-top:6px;"></div>
       </div>
@@ -561,18 +561,18 @@
   <!-- Screen: Dashboard -->
   <div id="screen-dash" class="screen">
     <div class="dash-header">
-      <h2>=== BTCPC Mobile Node ===</h2>
+      <h2>=== HONE Mobile Node ===</h2>
     </div>
     <!-- Chrome recommendation for non-Chrome Android -->
     <div id="chrome-banner" style="display:none;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#f7931a;">
-      For the best experience with all sensors, use <strong>Chrome</strong> on Android. <a href="javascript:void(0)" onclick="this.parentElement.style.display='none';localStorage.setItem('btcpc-chrome-dismissed','1')" style="color:#64748b;margin-left:8px;">dismiss</a>
+      For the best experience with all sensors, use <strong>Chrome</strong> on Android. <a href="javascript:void(0)" onclick="this.parentElement.style.display='none';localStorage.setItem('hone-chrome-dismissed','1')" style="color:#64748b;margin-left:8px;">dismiss</a>
     </div>
     <script>
       (function() {
         var ua = navigator.userAgent || '';
         var isAndroid = /android/i.test(ua);
         var isChrome = /chrome/i.test(ua) && !/edg|brave|opr|firefox/i.test(ua);
-        var dismissed = localStorage.getItem('btcpc-chrome-dismissed');
+        var dismissed = localStorage.getItem('hone-chrome-dismissed');
         if (isAndroid && !isChrome && !dismissed) {
           document.getElementById('chrome-banner').style.display = 'block';
         }
@@ -609,7 +609,7 @@
       </div>
       <div class="stat-box">
         <div class="val" id="stat-earnings">0.00</div>
-        <div class="lbl">BTCPC Today</div>
+        <div class="lbl">HONE Today</div>
       </div>
     </div>
 
@@ -619,9 +619,9 @@
       <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px;text-align:center;">
         <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Your Balance</div>
         <div id="home-balance" style="font-size:32px;font-weight:700;color:var(--orange);">—</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">BTCPC</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">HONE</div>
         <div id="home-faucet-wrap" style="display:none;margin-top:12px;">
-          <button id="home-faucet-btn" class="btn btn-primary" style="font-size:13px;padding:8px 20px;">Claim Faucet (free BTCPC)</button>
+          <button id="home-faucet-btn" class="btn btn-primary" style="font-size:13px;padding:8px 20px;">Claim Faucet (free HONE)</button>
         </div>
       </div>
 
@@ -636,7 +636,7 @@
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);">
           <span id="home-epoch-elapsed">—</span>
-          <span>Reward: <span id="home-reward" style="color:var(--orange);">—</span> BTCPC</span>
+          <span>Reward: <span id="home-reward" style="color:var(--orange);">—</span> HONE</span>
           <span id="home-epoch-remain">—</span>
         </div>
       </div>
@@ -693,7 +693,7 @@
         <div id="home-step-faucet" class="home-step" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
           <span class="home-step-icon" style="font-size:16px;" id="home-step-faucet-icon">⬜</span>
           <div>
-            <div style="font-size:13px;color:var(--text);">Claim your first BTCPC</div>
+            <div style="font-size:13px;color:var(--text);">Claim your first HONE</div>
             <div style="font-size:11px;color:var(--muted);">Use the faucet above to get started</div>
           </div>
         </div>
@@ -744,7 +744,7 @@
       <div class="sync-bar" id="sync-bar">
         <div class="row"><span>Next reading in</span><span id="sync-countdown">30s</span></div>
         <div class="row"><span>Sync status</span><span id="sync-status">Waiting</span></div>
-        <div class="row"><span>Estimated/hr</span><span id="sync-rate">~0.00 BTCPC</span></div>
+        <div class="row"><span>Estimated/hr</span><span id="sync-rate">~0.00 HONE</span></div>
       </div>
     </div>
 
@@ -781,7 +781,7 @@
         </div>
         <div class="stat-box">
           <div class="val" id="mine-stat-earned">0.00</div>
-          <div class="lbl">BTCPC Earned</div>
+          <div class="lbl">HONE Earned</div>
         </div>
       </div>
 
@@ -837,7 +837,7 @@
           { id: 'CodeLlama-13B-Instruct-q4f16_1-MLC', name: 'CodeLlama 13B', size: '7.4GB', ram: 10, tier: 'gpu16', desc: 'Code specialist', earning: '6x' },
           { id: 'Qwen3.5-9B-Instruct-q4f16_1-MLC', name: 'Qwen 3.5 9B', size: '5.5GB', ram: 7, tier: 'gpu8', desc: 'Latest Qwen, balanced', earning: '5x' },
           // ── Desktop GPU 24GB (3090/4090) ──
-          { id: 'Qwen3.5-27B-Instruct-q4f16_1-MLC', name: 'Qwen 3.5 27B', size: '16GB', ram: 20, tier: 'gpu24', desc: 'Default BTCPC model, highest demand', earning: '10x' },
+          { id: 'Qwen3.5-27B-Instruct-q4f16_1-MLC', name: 'Qwen 3.5 27B', size: '16GB', ram: 20, tier: 'gpu24', desc: 'Default HONE model, highest demand', earning: '10x' },
           { id: 'Dolphin-Mixtral-8x7B-q4f16_1-MLC', name: 'Dolphin Mixtral 8x7B', size: '26GB', ram: 22, tier: 'gpu24', desc: 'Uncensored MoE, heavy', earning: '12x' },
           // ── Data center 48GB+ ──
           { id: 'Llama-3.1-70B-Instruct-q4f16_1-MLC', name: 'Llama 3.1 70B', size: '40GB', ram: 48, tier: 'gpu48', desc: 'Maximum quality, multi-GPU', earning: '17x' },
@@ -866,11 +866,11 @@
             (hasWebGPU
               ? ' • <span style="color:#22c55e;">WebGPU ✓</span>'
               : ' • <span style="color:#f7931a;">CPU inference via WASM ✓</span>') +
-            '<br><span style="color:var(--muted);">Models served from BTCPC network. Download once, mine forever.</span>';
+            '<br><span style="color:var(--muted);">Models served from HONE network. Download once, mine forever.</span>';
         }
 
         // Desktop uses Ollama model IDs; PWA uses WebLLM/MLC model IDs
-        // BTCPC is model-agnostic — work value scales with verified parameter count.
+        // HONE is model-agnostic — work value scales with verified parameter count.
         var ollamaModels = [
           // ── Sub-2GB (any hardware) ──────────────────────────────────────────
           { id: 'qwen3:0.6b',       name: 'Qwen3 0.6B',        size: '523MB',  ram: 1,  tier: 'any',    desc: 'Alibaba — fastest, any device',               earning: '1x' },
@@ -890,11 +890,11 @@
           { id: 'deepseek-r1:7b',   name: 'DeepSeek-R1 7B',    size: '4.7GB',  ram: 6,  tier: 'laptop', desc: 'Reasoning specialist — chain of thought',       earning: '4x' },
           { id: 'mistral:7b',       name: 'Mistral 7B',        size: '4.1GB',  ram: 6,  tier: 'laptop', desc: 'Mistral — reliable classic, fast inference',    earning: '4x' },
           { id: 'llama3.2:3b',      name: 'Llama 3.2 3B',      size: '2GB',    ram: 4,  tier: 'laptop', desc: 'Meta — solid small model',                      earning: '2x' },
-          { id: 'dirty-muse-writer:latest', name: 'Dirty Muse Writer 9B',  size: '5.8GB',  ram: 8,  tier: 'gpu8',  desc: 'Uncensored creative writing — GGUF from BTCPC chain',            earning: '4x',  gguf: true, chain_id: 'dirty-muse-writer' },
-          { id: 'mythomax-l2:13b',          name: 'MythoMax L2 13B',       size: '8.1GB',  ram: 10, tier: 'gpu16', desc: 'Classic uncensored — strong creative/roleplay, BTCPC chain',    earning: '5x',  gguf: true, chain_id: 'mythomax-l2-13b' },
-          { id: 'dolphin-mixtral:8x7b',     name: 'Dolphin Mixtral 8x7B',  size: '26GB',   ram: 24, tier: 'gpu24', desc: 'Uncensored MoE — 141B total / 12B active, BTCPC chain',          earning: '12x', gguf: true, chain_id: 'dolphin-mixtral-8x7b' },
+          { id: 'dirty-muse-writer:latest', name: 'Dirty Muse Writer 9B',  size: '5.8GB',  ram: 8,  tier: 'gpu8',  desc: 'Uncensored creative writing — GGUF from HONE chain',            earning: '4x',  gguf: true, chain_id: 'dirty-muse-writer' },
+          { id: 'mythomax-l2:13b',          name: 'MythoMax L2 13B',       size: '8.1GB',  ram: 10, tier: 'gpu16', desc: 'Classic uncensored — strong creative/roleplay, HONE chain',    earning: '5x',  gguf: true, chain_id: 'mythomax-l2-13b' },
+          { id: 'dolphin-mixtral:8x7b',     name: 'Dolphin Mixtral 8x7B',  size: '26GB',   ram: 24, tier: 'gpu24', desc: 'Uncensored MoE — 141B total / 12B active, HONE chain',          earning: '12x', gguf: true, chain_id: 'dolphin-mixtral-8x7b' },
           { id: 'wizardlm2:8x22b',          name: 'WizardLM-2 8x22B',      size: '76GB',   ram: 80, tier: 'gpu80', desc: 'Microsoft uncensored MoE — 141B total, top open instruct model', earning: '28x', gguf: true, chain_id: 'wizardlm-2-8x22b' },
-          { id: 'goliath:120b',             name: 'Goliath 120B',          size: '49.6GB', ram: 64, tier: 'gpu80', desc: 'Merged monster — 120B uncensored, BTCPC chain Q2_K',              earning: '28x', gguf: true, chain_id: 'goliath-120b' },
+          { id: 'goliath:120b',             name: 'Goliath 120B',          size: '49.6GB', ram: 64, tier: 'gpu80', desc: 'Merged monster — 120B uncensored, HONE chain Q2_K',              earning: '28x', gguf: true, chain_id: 'goliath-120b' },
           // ── 8–24GB (GPU 8–16GB VRAM) ───────────────────────────────────────
           { id: 'qwen3:14b',        name: 'Qwen3 14B',         size: '9.3GB',  ram: 12, tier: 'gpu16',  desc: 'Alibaba — excellent balance of speed/quality',  earning: '6x' },
           { id: 'qwen3.5:27b',      name: 'Qwen3.5 27B',       size: '17GB',   ram: 20, tier: 'gpu24',  desc: 'Alibaba latest — large multimodal',             earning: '9x' },
@@ -911,7 +911,7 @@
           { id: 'qwen3.5:122b',     name: 'Qwen3.5 122B',      size: '74GB',   ram: 80, tier: 'gpu80',  desc: 'Alibaba — massive multimodal, top quality',     earning: '28x' },
         ];
 
-        // CPU models — served from BTCPC chain, no WebGPU required
+        // CPU models — served from HONE chain, no WebGPU required
         var cpuModels = [
           { id: 'smollm2-360m',    name: 'SmolLM2 360M',      size: '~220MB',  ram: 0.5, tier: 'phone',  desc: 'Fast, runs on any phone',         earning: '1x',   chain_id: 'smollm2-360m' },
           { id: 'qwen2.5-0.5b',   name: 'Qwen2.5 0.5B',      size: '~380MB',  ram: 0.8, tier: 'phone',  desc: 'Best quality, small phones',      earning: '1.2x', chain_id: 'qwen2.5-0.5b' },
@@ -965,18 +965,18 @@
         })();
         if (!desktopMode && hasWebGPU) {
           activeModels.forEach(function(m) {
-            // WebGPU models: served from BTCPC chain under /api/models/<chain_id>/
+            // WebGPU models: served from HONE chain under /api/models/<chain_id>/
             if (!m.chain_id) m.chain_id = m.id.replace(/-MLC$/, '').toLowerCase();
           });
         }
 
-        // Static fallback: params_in_billions BTCPC per 1K tokens (BASE_TOKENS_PER_BTCPC=1000, load=1)
+        // Static fallback: params_in_billions HONE per 1K tokens (BASE_TOKENS_PER_HONE=1000, load=1)
         function modelCostLabel(modelId) {
           var m = modelId.match(/:(\d+(?:\.\d+)?)b/i) || modelId.match(/[\-_](\d+(?:\.\d+)?)b/i);
           if (!m) return null;
           var params = parseFloat(m[1]);
           var per1k = (params).toFixed(params < 1 ? 2 : 1);
-          return per1k + ' BTCPC / 1K tokens';
+          return per1k + ' HONE / 1K tokens';
         }
 
         // After list renders, fetch live pricing (bonding curve + network load) and update each row
@@ -990,7 +990,7 @@
               .then(function(data) {
                 if (!data || !data.cost_per_token) return;
                 var per1k = (data.cost_per_token * 1000).toFixed(4).replace(/\.?0+$/, '');
-                el.textContent = '~' + per1k + ' BTCPC / 1K tokens';
+                el.textContent = '~' + per1k + ' HONE / 1K tokens';
                 el.title = 'load×' + (data.load_multiplier || '?') + '  model×' + (data.model_weight || '?');
               })
               .catch(function() { /* keep static fallback */ });
@@ -1120,7 +1120,7 @@
               }
             } catch(_) {}
           }
-          pullStatus.innerHTML = '<div style="color:#ef4444;">Ollama is not running.<br><span style="color:var(--muted);font-size:11px;">Install BTCPC Desktop to manage Ollama automatically.</span></div>';
+          pullStatus.innerHTML = '<div style="color:#ef4444;">Ollama is not running.<br><span style="color:var(--muted);font-size:11px;">Install HONE Desktop to manage Ollama automatically.</span></div>';
           return false;
         }
 
@@ -1130,7 +1130,7 @@
           var resp = null;
           var ollamaFallback = false;
 
-          // 1. Try BTCPC node (port 3000 direct, then /v1 through serve.js proxy)
+          // 1. Try HONE node (port 3000 direct, then /v1 through serve.js proxy)
           var endpoints = [
             { url: 'http://localhost:3000/v1/node/pull-model', auth: true },
             { url: '/v1/node/pull-model', auth: true },
@@ -1307,7 +1307,7 @@
             var modelIds = Array.from(checked).map(function(c) { return c.dataset.id; });
             var firstModel = modelIds[0];
             var rest = modelIds.slice(1);
-            var jwt = localStorage.getItem('btcpc-jwt');
+            var jwt = localStorage.getItem('hone-jwt');
 
             dlBtn.disabled = true;
             dlBtn.textContent = 'Starting...';
@@ -1365,8 +1365,8 @@
             if (!hasWebGPU) {
               dlBtn.textContent = 'WebGPU not available on this device';
               setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 4000);
-            } else if (window.btcpcEngine && window.btcpcEngine.preload) {
-              Array.from(checked).forEach(function(cb) { window.btcpcEngine.preload(cb.dataset.id); });
+            } else if (window.honeEngine && window.honeEngine.preload) {
+              Array.from(checked).forEach(function(cb) { window.honeEngine.preload(cb.dataset.id); });
               dlBtn.textContent = 'Caching ' + checked.length + ' model(s)...';
               setTimeout(function() { dlBtn.textContent = 'Download Selected'; }, 3000);
             } else {
@@ -1420,7 +1420,7 @@
             </div>
             <div style="text-align:center;">
               <div id="st-earned" style="font-size:16px;font-weight:700;color:#22c55e;">0.00</div>
-              <div style="font-size:9px;color:var(--muted);">BTCPC</div>
+              <div style="font-size:9px;color:var(--muted);">HONE</div>
             </div>
           </div>
         </div>
@@ -1470,20 +1470,20 @@
         <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;">
           <div style="font-size:10px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">Wallet</div>
           <div style="font-size:22px;font-weight:700;color:var(--orange);margin-bottom:2px;" id="st-wallet-bal">—</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:10px;">BTCPC balance</div>
-          <button id="st-delegate-btn" style="width:100%;padding:8px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:6px;">Delegate BTCPC</button>
-          <button id="st-send-btn" style="width:100%;padding:8px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.25);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Send BTCPC</button>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:10px;">HONE balance</div>
+          <button id="st-delegate-btn" style="width:100%;padding:8px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;margin-bottom:6px;">Delegate HONE</button>
+          <button id="st-send-btn" style="width:100%;padding:8px;background:rgba(247,147,26,0.1);border:1px solid rgba(247,147,26,0.25);color:#f7931a;border-radius:6px;font-family:inherit;font-size:11px;cursor:pointer;">Send HONE</button>
         </div>
       </div>
 
       <!-- Delegate modal -->
       <div id="st-delegate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
         <div style="background:#0d1120;border:1px solid rgba(247,147,26,0.35);border-radius:12px;padding:24px;max-width:360px;width:90%;margin:auto;">
-          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Delegate BTCPC</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Delegate to a miner to earn a share of their rewards. Delegated BTCPC stays in your wallet — you can undelegate any time.</div>
+          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Delegate HONE</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Delegate to a miner to earn a share of their rewards. Delegated HONE stays in your wallet — you can undelegate any time.</div>
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Miner account</label>
           <input type="text" id="st-del-to" placeholder="e.g. shindevlin" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (HONE)</label>
           <input type="number" id="st-del-amount" placeholder="0.00" min="0.01" step="0.01" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Purpose</label>
           <select id="st-del-purpose" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(10,14,23,0.95);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:14px;">
@@ -1502,10 +1502,10 @@
       <!-- Send modal -->
       <div id="st-send-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;align-items:center;justify-content:center;">
         <div style="background:#0d1120;border:1px solid rgba(247,147,26,0.35);border-radius:12px;padding:24px;max-width:360px;width:90%;margin:auto;">
-          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Send BTCPC</div>
+          <div style="color:#f7931a;font-size:15px;font-weight:700;margin-bottom:14px;">Send HONE</div>
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">To account</label>
           <input type="text" id="st-send-to" placeholder="e.g. natoshisakamoto" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (HONE)</label>
           <input type="number" id="st-send-amount" placeholder="0.00" min="0.001" step="0.001" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px;">
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Memo (optional)</label>
           <input type="text" id="st-send-memo" placeholder="optional note" style="width:100%;box-sizing:border-box;padding:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(247,147,26,0.25);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:14px;">
@@ -1521,8 +1521,8 @@
       // ── Network Status Tab ─────────────────────────────────────────────────────
       (function() {
         var EPOCH_MS = 30000;
-        var GENESIS_TS = 1777633200000;
-        var earningsHistory = JSON.parse(localStorage.getItem('btcpc-earnings-history') || '[]');
+        var GENESIS_TS = 1783191600000;
+        var earningsHistory = JSON.parse(localStorage.getItem('hone-earnings-history') || '[]');
         while (earningsHistory.length < 10) earningsHistory.unshift(0);
         earningsHistory = earningsHistory.slice(-10);
 
@@ -1680,8 +1680,8 @@
             }
           } catch (_) {}
 
-          // Wallet balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
-          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          // Wallet balance — Rust: GET /api/balance/:account → { account, balance (float), hunits, token }
+          var acct = localStorage.getItem('hone-sensor-account') || localStorage.getItem('hone-account');
           if (acct) {
             try {
               var br = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct));
@@ -1711,7 +1711,7 @@
           if ((stats.jobsCompleted || 0) > 0) {
             earningsHistory.push(stats.earnings || 0);
             earningsHistory = earningsHistory.slice(-10);
-            localStorage.setItem('btcpc-earnings-history', JSON.stringify(earningsHistory));
+            localStorage.setItem('hone-earnings-history', JSON.stringify(earningsHistory));
             drawEarningsChart(earningsHistory);
           }
           var pct = Math.min(1, (stats.jobsCompleted || 0) / 10);
@@ -1732,8 +1732,8 @@
           var purpose = document.getElementById('st-del-purpose').value;
           var msg = document.getElementById('st-del-msg');
           if (!to || !amount || amount <= 0) { msg.textContent = 'Enter a miner and amount.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
-          var jwt = localStorage.getItem('btcpc-jwt');
-          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          var jwt = localStorage.getItem('hone-jwt');
+          var acct = localStorage.getItem('hone-sensor-account') || localStorage.getItem('hone-account');
           if (!jwt) { msg.textContent = 'Not logged in.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
           try {
             var r = await fetch(API_BASE + '/api/delegation/delegate', {
@@ -1743,7 +1743,7 @@
             });
             var d = await r.json();
             if (r.ok && (d.success || d.ok)) {
-              msg.textContent = 'Delegated ' + amount + ' BTCPC to ' + to + '.';
+              msg.textContent = 'Delegated ' + amount + ' HONE to ' + to + '.';
               msg.style.color = '#22c55e'; msg.style.display = 'block';
               setTimeout(function() { hideModal('st-delegate-modal'); refreshStatus(); }, 1800);
             } else {
@@ -1764,18 +1764,18 @@
           var memo = document.getElementById('st-send-memo').value.trim();
           var msg = document.getElementById('st-send-msg');
           if (!to || !amount || amount <= 0) { msg.textContent = 'Enter recipient and amount.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
-          var jwt = localStorage.getItem('btcpc-jwt');
-          var acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account');
+          var jwt = localStorage.getItem('hone-jwt');
+          var acct = localStorage.getItem('hone-sensor-account') || localStorage.getItem('hone-account');
           if (!jwt) { msg.textContent = 'Not logged in.'; msg.style.color='#ef4444'; msg.style.display='block'; return; }
           try {
             var r = await fetch(API_BASE + '/api/wallet/transfer', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-              body: JSON.stringify({ from: acct, to: to, amount: amount, token: 'BTCPC', memo: memo }),
+              body: JSON.stringify({ from: acct, to: to, amount: amount, token:'HONE', memo: memo }),
             });
             var d = await r.json();
             if (r.ok && (d.success || d.ok)) {
-              msg.textContent = 'Sent ' + amount + ' BTCPC to ' + to + '.';
+              msg.textContent = 'Sent ' + amount + ' HONE to ' + to + '.';
               msg.style.color = '#22c55e'; msg.style.display = 'block';
               setTimeout(function() { hideModal('st-send-modal'); refreshStatus(); }, 1800);
             } else {
@@ -1799,8 +1799,8 @@
             if (btn && btn.dataset.tab === 'status') {
               refreshStatus();
               // Sync mining stats from miner if available
-              if (window.btcpcMiner) {
-                var s = window.btcpcMiner.getStats();
+              if (window.honeMiner) {
+                var s = window.honeMiner.getStats();
                 window._updateStatusMining && window._updateStatusMining(s);
               }
             }
@@ -1809,8 +1809,8 @@
 
         // Update mine ring periodically when mining
         setInterval(function() {
-          if (typeof miningActive !== 'undefined' && miningActive && window.btcpcMiner) {
-            var s = window.btcpcMiner.getStats();
+          if (typeof miningActive !== 'undefined' && miningActive && window.honeMiner) {
+            var s = window.honeMiner.getStats();
             var pct = Math.min(1, (s.jobsCompleted || 0) / 10);
             updateMineRing(true, pct);
             document.getElementById('st-jobs').textContent = s.jobsCompleted || 0;
@@ -1900,11 +1900,11 @@
         <span id="chat-parallel-hint" style="font-size:10px;color:var(--muted);margin-left:4px;"></span>
       </div>
       <div class="chat-input-row">
-        <textarea id="chat-input" rows="1" placeholder="Ask the BTCPC network anything..."></textarea>
+        <textarea id="chat-input" rows="1" placeholder="Ask the HONE network anything..."></textarea>
         <button id="chat-send">Send</button>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;">
-        Inference powered by BTCPC miners. Cost per token varies by model and network load.
+        Inference powered by HONE miners. Cost per token varies by model and network load.
       </div>
 
       <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
@@ -1920,7 +1920,7 @@
     <!-- Tab: Data marketplace -->
     <div id="panel-data" class="tab-panel">
       <div style="padding:12px 0 4px;font-size:13px;font-weight:600;color:var(--text);">Sensor Data Marketplace</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Query live sensor readings from the BTCPC network. Pay per reading — earnings go directly to sensor operators.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Query live sensor readings from the HONE network. Pay per reading — earnings go directly to sensor operators.</div>
 
       <!-- Query builder -->
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
@@ -1931,7 +1931,7 @@
             <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Sensor Type</label>
             <select id="data-type" style="width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
               <option value="">All types</option>
-              <option value="gps">GPS (0.004 BTCPC/reading)</option>
+              <option value="gps">GPS (0.004 HONE/reading)</option>
               <option value="heart_rate">Heart Rate (0.0035)</option>
               <option value="barometer">Barometer (0.0025)</option>
               <option value="magnetometer">Magnetometer (0.0025)</option>
@@ -2058,10 +2058,10 @@
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Available Balance</div>
         <div style="display:flex;align-items:baseline;gap:8px;">
           <span id="wallet-balance-main" style="font-size:28px;font-weight:700;color:var(--orange);">—</span>
-          <span style="font-size:13px;color:var(--muted);">BTCPC</span>
+          <span style="font-size:13px;color:var(--muted);">HONE</span>
         </div>
         <div id="wallet-delegated-row" style="margin-top:6px;font-size:11px;color:var(--muted);display:none;">
-          Delegated: <span id="wallet-balance-delegated" style="color:var(--text);">0</span> BTCPC
+          Delegated: <span id="wallet-balance-delegated" style="color:var(--text);">0</span> HONE
           <span style="color:var(--muted);"> (services-only, non-transferable)</span>
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--muted);">
@@ -2081,7 +2081,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (HONE)</label>
             <input type="number" id="wallet-send-amount" min="0.00000001" step="0.0001" placeholder="0.0000"
               style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
           </div>
@@ -2099,7 +2099,7 @@
         <div id="wallet-send-status" style="font-size:11px;margin-bottom:8px;display:none;"></div>
         <button id="wallet-send-btn" onclick="window._walletSend && window._walletSend()"
           style="width:100%;padding:9px;background:var(--orange);border:none;color:#000;font-family:inherit;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;">
-          Send BTCPC
+          Send HONE
         </button>
       </div>
 
@@ -2121,7 +2121,7 @@
           <div>
             <div style="font-size:10px;color:var(--muted);">Staked</div>
             <div id="staking-my-amount" style="font-size:20px;font-weight:700;color:var(--orange);">—</div>
-            <div style="font-size:10px;color:var(--muted);">BTCPC</div>
+            <div style="font-size:10px;color:var(--muted);">HONE</div>
           </div>
           <div>
             <div style="font-size:10px;color:var(--muted);">Status</div>
@@ -2153,7 +2153,7 @@
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Stake / Unstake</div>
         <div style="margin-bottom:8px;">
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (BTCPC)</label>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Amount (HONE)</label>
           <input type="number" id="staking-amount" min="0" step="1" placeholder="0"
             style="width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;">
         </div>
@@ -2179,7 +2179,7 @@
       <div style="background:rgba(247,147,26,0.06);border:1px solid rgba(247,147,26,0.15);border-radius:10px;padding:12px;">
         <div style="font-size:11px;font-weight:600;color:var(--orange);margin-bottom:6px;">Why Stake?</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.6;">
-          Staking BTCPC locks tokens in the network pool, grants elevated trust for job bidding, and earns you a share of protocol fees proportional to your stake weight. A 14-day unbonding period applies when unstaking.
+          Staking HONE locks tokens in the network pool, grants elevated trust for job bidding, and earns you a share of protocol fees proportional to your stake weight. A 14-day unbonding period applies when unstaking.
         </div>
       </div>
     </div>
@@ -2215,7 +2215,7 @@
         <div class="setting-row">
           <div>
             <span>Run testnet on this device</span>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Earn BTCPC from the testnet fund each epoch. Same keys — no new wallet needed.</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Earn HONE from the testnet fund each epoch. Same keys — no new wallet needed.</div>
           </div>
           <label class="sensor-toggle">
             <input type="checkbox" id="toggle-testnet">
@@ -2265,7 +2265,7 @@
       <div class="settings-section" style="background:rgba(247,147,26,0.05);border:1px solid rgba(247,147,26,0.2);border-radius:8px;padding:12px;">
         <h3 style="color:var(--orange);">Want to earn more?</h3>
         <div style="font-size:12px;color:var(--text);margin-bottom:8px;">
-          This browser app is easy mode. For maximum earnings, install BTCPC on your computer:
+          This browser app is easy mode. For maximum earnings, install HONE on your computer:
         </div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">
           &#x2713; Run larger AI models (27B+ params = 10x more earnings)<br>
@@ -2275,13 +2275,13 @@
           &#x2713; Connect sensors — USB, GPIO, I2C, LoRa
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;font-family:monospace;color:var(--green);word-break:break-all;margin-bottom:8px;">
-          curl -fsSL https://btcpc.net/install.sh | bash
+          curl -fsSL https://honemesh.net/install.sh | bash
         </div>
         <div style="font-size:10px;color:var(--muted);">
           Works on Linux, Mac, Windows WSL, Raspberry Pi. Or <a href="/install" style="color:var(--orange);">see all install options</a>.
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-          <a href="/btcpc.apk" style="display:inline-block;padding:8px 16px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;text-decoration:none;">Download Android APK</a>
+          <a href="https://github.com/shindevlin/btcpc/releases/latest/download/BTCPC-android-release.apk" style="display:inline-block;padding:8px 16px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:6px;font-family:inherit;font-size:11px;text-decoration:none;">Download Android APK</a>
           <div style="font-size:10px;color:var(--muted);margin-top:4px;">Native app with full sensor access. Sideload on any Android device.</div>
         </div>
       </div>
@@ -2309,7 +2309,7 @@
           <span id="node-epoch-remain">—s remaining</span>
         </div>
         <div style="margin-top:6px;font-size:11px;color:var(--muted);">
-          Block reward: <span id="node-block-reward" style="color:var(--orange);">—</span> BTCPC &nbsp;·&nbsp;
+          Block reward: <span id="node-block-reward" style="color:var(--orange);">—</span> HONE &nbsp;·&nbsp;
           Status: <span id="node-epoch-status">—</span>
         </div>
       </div>
@@ -2395,14 +2395,14 @@
     // ── Node Dashboard ──────────────────────────────────────────────────────
     (function() {
       var EPOCH_MS = 30000;
-      var GENESIS_TS = 1777633200000;
+      var GENESIS_TS = 1783191600000;
       var refreshInterval = null;
 
       async function refreshNode() {
         try {
           // 1. Network stats — Rust: GET /api/explorer/status
           // Returns: { chain_height, current_epoch, epoch_ms, accounts,
-          //   circulating_btcpc, max_supply_btcpc, active_nodes_last_100,
+          //   circulating_hone, max_supply_hone, active_nodes_last_100,
           //   miners, clock_nodes, storage_nodes }
           var netResp = await fetch(API_BASE + '/api/explorer/status');
           var net = await netResp.json();
@@ -2446,15 +2446,15 @@
           }
 
           // 3. My node — balance (Rust: GET /api/balance/:account)
-          var account = localStorage.getItem('btcpc-account') || localStorage.getItem('btcpc-sensor-account');
+          var account = localStorage.getItem('hone-account') || localStorage.getItem('hone-sensor-account');
           if (account) {
             document.getElementById('node-my-stats').style.display = 'block';
             try {
-              // Rust: GET /api/balance/:account → { account, balance (float BTCPC), dreams, token }
+              // Rust: GET /api/balance/:account → { account, balance (float HONE), hunits, token }
               var balResp = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(account));
               var bal = await balResp.json();
-              var btcpcBal = (bal && bal.balance != null) ? bal.balance : 0;
-              document.getElementById('node-my-balance').textContent = parseFloat(btcpcBal).toFixed(4) + ' BTCPC';
+              var honeBal = (bal && bal.balance != null) ? bal.balance : 0;
+              document.getElementById('node-my-balance').textContent = parseFloat(honeBal).toFixed(4) + ' HONE';
             } catch(_) {}
             try {
               // Ollama local model list (localhost:11434) — not a node endpoint
@@ -2620,7 +2620,7 @@
     })();
     </script>
 
-    <div class="app-footer">BTCPC Node v3.0 &mdash; btcpc.net</div>
+    <div class="app-footer">HONE Node v3.0 &mdash; honemesh.net</div>
   </div>
 
   <script>
@@ -2719,11 +2719,11 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
     _tm.type = 'module';
     _tm.textContent = [
       'import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.2/dist/transformers.min.js";',
-      'env.remoteHost = "' + (IS_NATIVE ? 'https://btcpc.net' : location.origin) + '/api/models/";',
+      'env.remoteHost = "' + (IS_NATIVE ? 'https://honemesh.net' : location.origin) + '/api/models/";',
       'env.remotePathTemplate = "{model}/";',
       'env.allowLocalModels = false;',
-      'window.btcpcCPUInference = { pipeline, env, ready: true };',
-      'console.log("[BTCPC] transformers.js loaded, routing models from BTCPC chain");',
+      'window.honeCPUInference = { pipeline, env, ready: true };',
+      'console.log("[HONE] transformers.js loaded, routing models from HONE chain");',
     ].join('\n');
     document.head.appendChild(_tm);
   }
@@ -2736,22 +2736,22 @@ if (!document.documentElement.hasAttribute('data-desktop')) {
 // Capacitor Android serves from https://localhost — no node runs there.
 // Use protocol+hostname: always reliable regardless of Capacitor bridge timing.
 const IS_NATIVE = (location.protocol === 'https:' && location.hostname === 'localhost');
-const REMOTE_BASE = 'https://btcpc.net';
-const BTCPC_APP_VERSION = '3.1.117';
+const REMOTE_BASE = 'https://honemesh.net';
+const HONE_APP_VERSION = '3.1.117';
 const API_BASE = IS_NATIVE ? REMOTE_BASE : location.origin;
 const EPOCH_INTERVAL = 30000; // 30 seconds
-const BTCPC_PER_READING = 0.000042; // estimated per sensor per epoch
+const HONE_PER_READING = 0.000042; // estimated per sensor per epoch
 
 // ─── State ───
-let account = localStorage.getItem('btcpc-sensor-account') || '';
+let account = localStorage.getItem('hone-sensor-account') || '';
 let db = null;
 let epochTimer = null;
 let countdownTimer = null;
 let countdown = 30;
 let totalBuffered = 0;
 let totalSynced = 0;
-let todayEarnings = parseFloat(localStorage.getItem('btcpc-sensor-earnings-today') || '0');
-let sensorStates = JSON.parse(localStorage.getItem('btcpc-sensor-states') || '{}');
+let todayEarnings = parseFloat(localStorage.getItem('hone-sensor-earnings-today') || '0');
+let sensorStates = JSON.parse(localStorage.getItem('hone-sensor-states') || '{}');
 let liveValues = {};
 let sensorWatchers = {};
 
@@ -2759,47 +2759,47 @@ let sensorWatchers = {};
 const SENSORS = [
   {
     id: 'gps', name: 'GPS', icon: '\u{1F4CD}',
-    desc: 'BTCPC needs your location to report GPS coordinates to the network. You earn from the IoT pool for each reading.',
+    desc: 'HONE needs your location to report GPS coordinates to the network. You earn from the IoT pool for each reading.',
     check: () => 'geolocation' in navigator,
   },
   {
     id: 'motion', name: 'Motion', icon: '\u{1F4F1}',
-    desc: 'Share accelerometer data (device motion) to earn BTCPC. Used for movement pattern analysis on the network.',
+    desc: 'Share accelerometer data (device motion) to earn HONE. Used for movement pattern analysis on the network.',
     check: () => typeof DeviceMotionEvent !== 'undefined',
   },
   {
     id: 'orientation', name: 'Orientation', icon: '\u{1F9ED}',
-    desc: 'Share gyroscope/orientation data to earn BTCPC. Reports device tilt and rotation to the network.',
+    desc: 'Share gyroscope/orientation data to earn HONE. Reports device tilt and rotation to the network.',
     check: () => typeof DeviceOrientationEvent !== 'undefined',
   },
   {
     id: 'light', name: 'Ambient Light', icon: '\u{2600}\u{FE0F}',
-    desc: 'Share ambient light readings to earn BTCPC. Reports environmental brightness to the sensor network.',
+    desc: 'Share ambient light readings to earn HONE. Reports environmental brightness to the sensor network.',
     check: () => 'AmbientLightSensor' in window,
   },
   {
     id: 'magnetometer', name: 'Magnetometer', icon: '\u{1F9F2}',
-    desc: 'Share magnetic field data to earn BTCPC. Reports compass/magnetic readings to the network.',
+    desc: 'Share magnetic field data to earn HONE. Reports compass/magnetic readings to the network.',
     check: () => 'Magnetometer' in window,
   },
   {
     id: 'barometer', name: 'Barometer', icon: '\u{1F321}\u{FE0F}',
-    desc: 'Share barometric pressure data to earn BTCPC. Reports atmospheric pressure for weather data on the network.',
+    desc: 'Share barometric pressure data to earn HONE. Reports atmospheric pressure for weather data on the network.',
     check: () => 'PressureSensor' in window || 'Barometer' in window,
   },
   {
     id: 'proximity', name: 'Proximity', icon: '\u{1F91A}',
-    desc: 'Share proximity sensor data to earn BTCPC. Reports near/far object detection to the network.',
+    desc: 'Share proximity sensor data to earn HONE. Reports near/far object detection to the network.',
     check: () => 'ProximitySensor' in window,
   },
   {
     id: 'battery', name: 'Battery', icon: '\u{1F50B}',
-    desc: 'Share battery status to earn BTCPC. Reports charge level and charging state to the network.',
+    desc: 'Share battery status to earn HONE. Reports charge level and charging state to the network.',
     check: () => 'getBattery' in navigator,
   },
   {
     id: 'network', name: 'Network', icon: '\u{1F4F6}',
-    desc: 'Share network connection info to earn BTCPC. Reports connection type, speed, and latency to the network.',
+    desc: 'Share network connection info to earn HONE. Reports connection type, speed, and latency to the network.',
     check: () => 'connection' in navigator || 'mozConnection' in navigator || 'webkitConnection' in navigator,
   },
   {
@@ -2827,7 +2827,7 @@ const SENSORS = [
 // ─── IndexedDB ───
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('btcpc-sensor', 1);
+    const req = indexedDB.open('hone-sensor', 1);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('readings')) d.createObjectStore('readings', { keyPath: 'id', autoIncrement: true });
@@ -2913,8 +2913,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     if (loginData.success || loginData.token) {
       // Login success — existing account
       account = val;
-      localStorage.setItem('btcpc-sensor-account', account);
-      if (loginData.token) localStorage.setItem('btcpc-jwt', loginData.token);
+      localStorage.setItem('hone-sensor-account', account);
+      if (loginData.token) localStorage.setItem('hone-jwt', loginData.token);
       saveAccountToDB();
       initDashboard();
     } else if (loginData.error && /not found|no account|unknown/i.test(loginData.error)) {
@@ -2930,13 +2930,13 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       if (createData.mnemonic) {
         // New account — show mnemonic
         account = val;
-        localStorage.setItem('btcpc-sensor-account', account);
-        if (createData.token) localStorage.setItem('btcpc-jwt', createData.token);
+        localStorage.setItem('hone-sensor-account', account);
+        if (createData.token) localStorage.setItem('hone-jwt', createData.token);
         saveAccountToDB();
 
         // Store signup data for key file download
-        window._btcpcSignupData = createData;
-        window._btcpcSignupAccount = val;
+        window._honeSignupData = createData;
+        window._honeSignupAccount = val;
 
         document.getElementById('mnemonic-words').textContent = createData.mnemonic;
         document.getElementById('mnemonic-account').textContent = val;
@@ -2945,15 +2945,15 @@ document.getElementById('btn-start').addEventListener('click', async () => {
         var walletBalance = Number(createData.wallet_balance || createData.balance || 0);
         var delegatedBalance = Number(createData.delegated_balance || 0);
         if (delegatedBalance > 0) {
-          document.getElementById('mnemonic-balance').textContent = walletBalance + ' BTCPC wallet balance, ' + delegatedBalance + ' delegated for network services';
+          document.getElementById('mnemonic-balance').textContent = walletBalance + ' HONE wallet balance, ' + delegatedBalance + ' delegated for network services';
         } else {
-          document.getElementById('mnemonic-balance').textContent = walletBalance + ' BTCPC wallet balance';
+          document.getElementById('mnemonic-balance').textContent = walletBalance + ' HONE wallet balance';
         }
 
         showScreen('screen-mnemonic');
       } else {
         if (createData.reserved || /reserved/i.test(createData.error || '')) {
-          errEl.textContent = 'That name is reserved. Create an available wallet name now; BTCPC HQ can assign the reserved name to this wallet later.';
+          errEl.textContent = 'That name is reserved. Create an available wallet name now; HONE HQ can assign the reserved name to this wallet later.';
         } else {
           errEl.textContent = createData.error || 'Account creation failed';
         }
@@ -2982,7 +2982,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
   function makeKeyFile(account, role, privateKey, publicKey, description) {
     return JSON.stringify({
-      btcpc_keyfile: '1.0',
+      hone_keyfile: '1.0',
       account: account,
       role: role,
       description: description,
@@ -2993,12 +2993,12 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
   function makeReadme(account) {
     return [
-      'BTCPC Key Files — ' + account,
+      'HONE Key Files — ' + account,
       '='.repeat(40),
       '',
-      'Each file contains one role key for your BTCPC account.',
+      'Each file contains one role key for your HONE account.',
       '',
-      'posting.key  — Use this to log into btcpc.net/profile.html and the inference API.',
+      'posting.key  — Use this to log into honemesh.net/profile.html and the inference API.',
       '               Safe for daily use. Cannot move funds.',
       'active.key   — Authorizes token transfers and staking. Keep this private.',
       'memo.key     — For encrypted messages and future message features.',
@@ -3006,8 +3006,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       'mnemonic.txt — Your 12-word recovery phrase. Regenerates all keys above.',
       '               STORE THIS LIKE CASH. Anyone with these words owns your wallet.',
       '',
-      'To log into btcpc.net/profile.html:',
-      '  1. Go to btcpc.net/profile.html',
+      'To log into honemesh.net/profile.html:',
+      '  1. Go to honemesh.net/profile.html',
       '  2. Drop your posting.key file into the login area',
       '  3. Done — no password required',
       '',
@@ -3048,7 +3048,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
 
     if (data.mnemonic) {
       zip.file('mnemonic.txt', [
-        'BTCPC Recovery Mnemonic — ' + accountName,
+        'HONE Recovery Mnemonic — ' + accountName,
         'STORE OFFLINE. Anyone with these words owns your wallet.',
         '',
         data.mnemonic,
@@ -3063,8 +3063,8 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   }
 
   dlBtn.addEventListener('click', async function() {
-    var data = window._btcpcSignupData;
-    var acct = window._btcpcSignupAccount || localStorage.getItem('btcpc-sensor-account') || 'btcpc';
+    var data = window._honeSignupData;
+    var acct = window._honeSignupAccount || localStorage.getItem('hone-sensor-account') || 'hone';
     var statusEl = document.getElementById('keys-download-status');
 
     if (!data || !data.role_private_keys) {
@@ -3082,7 +3082,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = 'btcpc-keys-' + acct + '.zip';
+      a.download = 'hone-keys-' + acct + '.zip';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -3196,7 +3196,7 @@ function renderSensors() {
         } else {
           stopSensor(s.id);
           sensorStates[s.id] = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           renderSensors();
           updateDashStatus();
         }
@@ -3234,7 +3234,7 @@ function showPermissionModal(sensor) {
 // ─── GPS Privacy ───
 const GPS_GRID_SIZE = 0.005; // ~500m grid snapping
 const GPS_TIME_FUZZ_MS = 300000; // ±5 min timestamp fuzz
-let gpsHomeZoneNetworks = JSON.parse(localStorage.getItem('btcpc-gps-exclusions') || '[]');
+let gpsHomeZoneNetworks = JSON.parse(localStorage.getItem('hone-gps-exclusions') || '[]');
 let gpsMinMovement = 0.005; // ~500m minimum movement to report
 let lastReportedGPS = null;
 
@@ -3248,7 +3248,7 @@ function isOnExcludedNetwork() {
     if (conn && conn.type === 'wifi') {
       // SSID not directly available in most browsers for privacy
       // Fall back to checking if on ANY wifi (user can disable GPS on wifi in settings)
-      const excludeOnWifi = localStorage.getItem('btcpc-gps-exclude-wifi') !== 'false';
+      const excludeOnWifi = localStorage.getItem('hone-gps-exclude-wifi') !== 'false';
       if (excludeOnWifi) return true;
     }
   } catch (_) {}
@@ -3276,7 +3276,7 @@ function privacyFilterGPS(lat, lon) {
 // ─── Sensor Start/Stop ───
 async function startSensor(id, silent) {
   sensorStates[id] = true;
-  localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+  localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
 
   switch (id) {
     case 'gps':
@@ -3294,7 +3294,7 @@ async function startSensor(id, silent) {
           },
           err => {
             liveValues.gps = 'permission denied';
-            if (!silent) { sensorStates.gps = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); }
+            if (!silent) { sensorStates.gps = false; localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates)); }
             updateSensorUI('gps');
           },
           { enableHighAccuracy: true, maximumAge: 10000 }
@@ -3309,7 +3309,7 @@ async function startSensor(id, silent) {
         if (typeof DeviceMotionEvent.requestPermission === 'function' && !silent) {
           DeviceMotionEvent.requestPermission().then(state => {
             if (state === 'granted') bindMotion();
-            else { sensorStates.motion = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
+            else { sensorStates.motion = false; localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
           }).catch(() => { bindMotion(); }); // non-iOS, just bind
         } else {
           bindMotion();
@@ -3322,7 +3322,7 @@ async function startSensor(id, silent) {
         if (typeof DeviceOrientationEvent.requestPermission === 'function' && !silent) {
           DeviceOrientationEvent.requestPermission().then(state => {
             if (state === 'granted') bindOrientation();
-            else { sensorStates.orientation = false; localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
+            else { sensorStates.orientation = false; localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates)); renderSensors(); }
           }).catch(() => { bindOrientation(); });
         } else {
           bindOrientation();
@@ -3334,7 +3334,7 @@ async function startSensor(id, silent) {
       if (!window.AmbientLightSensor) {
         liveValues.light = 'Not available on this device';
         sensorStates.light = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('light');
         break;
       }
@@ -3353,7 +3353,7 @@ async function startSensor(id, silent) {
             liveValues.light = 'Not available on this device';
           }
           sensorStates.light = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('light');
         });
         lightSensor.start();
@@ -3361,7 +3361,7 @@ async function startSensor(id, silent) {
       } catch (_) {
         liveValues.light = 'Not available on this device';
         sensorStates.light = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('light');
       }
       break;
@@ -3370,7 +3370,7 @@ async function startSensor(id, silent) {
       if (!window.Magnetometer) {
         liveValues.magnetometer = 'Not available on this device';
         sensorStates.magnetometer = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('magnetometer');
         break;
       }
@@ -3387,7 +3387,7 @@ async function startSensor(id, silent) {
             liveValues.magnetometer = 'Not available on this device';
           }
           sensorStates.magnetometer = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('magnetometer');
         });
         magSensor.start();
@@ -3395,7 +3395,7 @@ async function startSensor(id, silent) {
       } catch (_) {
         liveValues.magnetometer = 'Not available on this device';
         sensorStates.magnetometer = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('magnetometer');
       }
       break;
@@ -3405,7 +3405,7 @@ async function startSensor(id, silent) {
       if (!window.PressureSensor && !window.Barometer) {
         liveValues.barometer = 'Not available on this device';
         sensorStates.barometer = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('barometer');
         break;
       }
@@ -3419,7 +3419,7 @@ async function startSensor(id, silent) {
         baroSensor.addEventListener('error', (e) => {
           liveValues.barometer = 'Not available on this device';
           sensorStates.barometer = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('barometer');
         });
         baroSensor.start();
@@ -3427,7 +3427,7 @@ async function startSensor(id, silent) {
       } catch (_) {
         liveValues.barometer = 'Not available on this device';
         sensorStates.barometer = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('barometer');
       }
       break;
@@ -3437,7 +3437,7 @@ async function startSensor(id, silent) {
       if (!window.ProximitySensor) {
         liveValues.proximity = 'Not available on this device';
         sensorStates.proximity = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('proximity');
         break;
       }
@@ -3450,7 +3450,7 @@ async function startSensor(id, silent) {
         proxSensor.addEventListener('error', (e) => {
           liveValues.proximity = 'Not available on this device';
           sensorStates.proximity = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('proximity');
         });
         proxSensor.start();
@@ -3458,7 +3458,7 @@ async function startSensor(id, silent) {
       } catch (_) {
         liveValues.proximity = 'Not available on this device';
         sensorStates.proximity = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('proximity');
       }
       break;
@@ -3532,10 +3532,10 @@ async function startSensor(id, silent) {
       } catch (e) {
         const nativeApp = (location.protocol === 'https:' && location.hostname === 'localhost');
         liveValues.noise = e.name === 'NotAllowedError'
-          ? (nativeApp ? 'Tap Allow when Android asks for Microphone — or go to Settings > Apps > BTCPC > Permissions' : 'Microphone permission denied')
+          ? (nativeApp ? 'Tap Allow when Android asks for Microphone — or go to Settings > Apps > HONE > Permissions' : 'Microphone permission denied')
           : 'Microphone not available on this device';
         sensorStates.noise = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('noise');
       }
       break;
@@ -3551,7 +3551,7 @@ async function startSensor(id, silent) {
           stepper.addEventListener('error', () => {
             liveValues.steps = 'Not available on this device';
             sensorStates.steps = false;
-            localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+            localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
             updateSensorUI('steps');
           });
           stepper.start();
@@ -3559,13 +3559,13 @@ async function startSensor(id, silent) {
         } else {
           liveValues.steps = 'Coming soon \u2014 not supported in this browser';
           sensorStates.steps = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('steps');
         }
       } catch (_) {
         liveValues.steps = 'Coming soon \u2014 not supported in this browser';
         sensorStates.steps = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('steps');
       }
       break;
@@ -3586,7 +3586,7 @@ async function startSensor(id, silent) {
           ori.addEventListener('error', () => {
             liveValues.heading = 'Not available on this device';
             sensorStates.heading = false;
-            localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+            localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
             updateSensorUI('heading');
           });
           ori.start();
@@ -3617,7 +3617,7 @@ async function startSensor(id, silent) {
       } catch (_) {
         liveValues.heading = 'Not available on this device';
         sensorStates.heading = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('heading');
       }
       break;
@@ -3649,13 +3649,13 @@ async function startSensor(id, silent) {
         } else {
           liveValues.nfc = 'Not available \u2014 requires Chrome on Android';
           sensorStates.nfc = false;
-          localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+          localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
           updateSensorUI('nfc');
         }
       } catch (e) {
         liveValues.nfc = e.name === 'NotAllowedError' ? 'Permission denied' : 'Not available on this device';
         sensorStates.nfc = false;
-        localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+        localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
         updateSensorUI('nfc');
       }
       break;
@@ -3755,8 +3755,8 @@ async function collectAndBuffer() {
   }
 
   totalBuffered += activeSensors.length;
-  todayEarnings += activeSensors.length * BTCPC_PER_READING;
-  localStorage.setItem('btcpc-sensor-earnings-today', todayEarnings.toString());
+  todayEarnings += activeSensors.length * HONE_PER_READING;
+  localStorage.setItem('hone-sensor-earnings-today', todayEarnings.toString());
   countdown = 30;
   updateStats();
 
@@ -3840,7 +3840,7 @@ async function syncReadings() {
     // Register background sync if available
     if ('serviceWorker' in navigator && 'SyncManager' in window) {
       const reg = await navigator.serviceWorker.ready;
-      try { await reg.sync.register('btcpc-sensor-sync'); } catch (_) {}
+      try { await reg.sync.register('hone-sensor-sync'); } catch (_) {}
     }
 
   } catch (err) {
@@ -3854,8 +3854,8 @@ async function updateStats() {
   document.getElementById('stat-earnings').textContent = todayEarnings.toFixed(todayEarnings >= 1 ? 2 : 4);
 
   const activeCount = SENSORS.filter(s => sensorStates[s.id] && s.check()).length;
-  const perHour = activeCount * BTCPC_PER_READING * (3600 / 30);
-  document.getElementById('sync-rate').textContent = `~${perHour.toFixed(4)} BTCPC`;
+  const perHour = activeCount * HONE_PER_READING * (3600 / 30);
+  document.getElementById('sync-rate').textContent = `~${perHour.toFixed(4)} HONE`;
 
   // Update buffered count from DB
   if (db) {
@@ -3872,9 +3872,9 @@ async function updateStats() {
 // GPS WiFi exclusion toggle
 const gpsExcludeEl = document.getElementById('gps-exclude-wifi');
 if (gpsExcludeEl) {
-  gpsExcludeEl.checked = localStorage.getItem('btcpc-gps-exclude-wifi') !== 'false';
+  gpsExcludeEl.checked = localStorage.getItem('hone-gps-exclude-wifi') !== 'false';
   gpsExcludeEl.addEventListener('change', () => {
-    localStorage.setItem('btcpc-gps-exclude-wifi', gpsExcludeEl.checked ? 'true' : 'false');
+    localStorage.setItem('hone-gps-exclude-wifi', gpsExcludeEl.checked ? 'true' : 'false');
   });
 }
 
@@ -3953,7 +3953,7 @@ document.getElementById('btn-stop').addEventListener('click', () => {
     sensorStates[id] = false;
   }
   sensorStates = {};
-  localStorage.setItem('btcpc-sensor-states', JSON.stringify(sensorStates));
+  localStorage.setItem('hone-sensor-states', JSON.stringify(sensorStates));
   // Update all UI elements
   SENSORS.forEach(s => {
     const card = document.getElementById('sensor-' + s.id);
@@ -3978,7 +3978,7 @@ function stopAll() {
 }
 
 // ─── Model download + file load buttons ───
-// All model files are served from the BTCPC chain — never from external sites.
+// All model files are served from the HONE chain — never from external sites.
 var modelDownloadURLs = {
   'smollm2-360m':  API_BASE + '/api/models/smollm2-360m/',
   'qwen2.5-0.5b':  API_BASE + '/api/models/qwen2.5-0.5b/',
@@ -3992,7 +3992,7 @@ var fileInput = document.getElementById('mine-file-input');
 
 if (dlBtn) {
   dlBtn.addEventListener('click', function() {
-    // On-chain model distribution is coming — models will be served via BTCPC-FS.
+    // On-chain model distribution is coming — models will be served via HONE-FS.
     // Never open external sites from the app.
     dlBtn.textContent = 'On-device mining requires WebGPU (not available in app)';
     setTimeout(function() { dlBtn.textContent = 'Download Model File'; }, 4000);
@@ -4009,8 +4009,8 @@ if (loadBtn && fileInput) {
     loadBtn.textContent = 'Loading ' + file.name + '...';
     try {
       // Read file and pass to WebLLM engine if available
-      if (window.btcpcEngine && window.btcpcEngine.loadFromFile) {
-        await window.btcpcEngine.loadFromFile(file);
+      if (window.honeEngine && window.honeEngine.loadFromFile) {
+        await window.honeEngine.loadFromFile(file);
         loadBtn.textContent = 'Model loaded from file!';
         loadBtn.style.borderColor = '#22c55e';
       } else {
@@ -4018,7 +4018,7 @@ if (loadBtn && fileInput) {
         var reader = new FileReader();
         reader.onload = function(e) {
           var data = e.target.result;
-          var request = indexedDB.open('btcpc-model-cache', 1);
+          var request = indexedDB.open('hone-model-cache', 1);
           request.onupgradeneeded = function(ev) {
             ev.target.result.createObjectStore('models');
           };
@@ -4041,10 +4041,10 @@ if (loadBtn && fileInput) {
 }
 
 // ─── Device heartbeat + My Devices ───
-var deviceId = localStorage.getItem('btcpc-device-id');
+var deviceId = localStorage.getItem('hone-device-id');
 if (!deviceId) {
   deviceId = 'dev-' + Math.random().toString(36).slice(2, 10);
-  localStorage.setItem('btcpc-device-id', deviceId);
+  localStorage.setItem('hone-device-id', deviceId);
 }
 
 function getDeviceType() {
@@ -4120,11 +4120,11 @@ setTimeout(function() { sendDeviceHeartbeat(); loadMyDevices(); }, 2000);
 // ─── Reset daily earnings at midnight ───
 function checkDayReset() {
   const today = new Date().toDateString();
-  const saved = localStorage.getItem('btcpc-sensor-earnings-date');
+  const saved = localStorage.getItem('hone-sensor-earnings-date');
   if (saved !== today) {
     todayEarnings = 0;
-    localStorage.setItem('btcpc-sensor-earnings-today', '0');
-    localStorage.setItem('btcpc-sensor-earnings-date', today);
+    localStorage.setItem('hone-sensor-earnings-today', '0');
+    localStorage.setItem('hone-sensor-earnings-date', today);
   }
 }
 checkDayReset();
@@ -4137,7 +4137,7 @@ if ('serviceWorker' in navigator) {
   });
   navigator.serviceWorker.register('/app-sw.js').then(reg => {
     reg.update(); // force check for new version
-    console.log('BTCPC SW registered', reg.scope);
+    console.log('HONE SW registered', reg.scope);
   }).catch(err => {
     console.log('SW registration failed', err);
   });
@@ -4161,7 +4161,7 @@ try {
         // Always refresh account display when settings tab opens
         if (tab === 'settings') {
           const sa = document.getElementById('settings-account');
-          if (sa) sa.textContent = account || localStorage.getItem('btcpc-sensor-account') || '';
+          if (sa) sa.textContent = account || localStorage.getItem('hone-sensor-account') || '';
         }
         // Trigger Node tab refresh when Node tab is opened
         if (tab === 'node' && typeof window._nodeRefresh === 'function') {
@@ -4184,7 +4184,7 @@ try {
     };
   }
 } catch (e) {
-  console.error('[BTCPC] Tab bar init error:', e);
+  console.error('[HONE] Tab bar init error:', e);
 }
 
 // ─── Testnet Toggle ───
@@ -4200,10 +4200,10 @@ try {
     const r = await fetch(LOCAL_NODE + '/api/node/info', { signal: AbortSignal.timeout(1200) });
     if (r.ok) localBase = LOCAL_NODE;
   } catch (_) {}
-  // Fallback to API_BASE if same-origin node (served via btcpc.net proxy)
+  // Fallback to API_BASE if same-origin node (served via honemesh.net proxy)
   if (!localBase) localBase = API_BASE;
 
-  const acct = localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account') || '';
+  const acct = localStorage.getItem('hone-sensor-account') || localStorage.getItem('hone-account') || '';
 
   async function refreshTestnetStatus() {
     if (!acct) return;
@@ -4248,7 +4248,7 @@ try {
         toggle.checked = !enabled; // revert
       }
     } catch (e) {
-      note.textContent = 'Could not reach local node. Start BTCPC to use this setting.';
+      note.textContent = 'Could not reach local node. Start HONE to use this setting.';
       note.style.color = '#ef4444';
       toggle.checked = !enabled;
     }
@@ -4259,10 +4259,10 @@ try {
 const ondeviceToggle = document.getElementById('toggle-ondevice-ai');
 const ondeviceNote = document.getElementById('ondevice-ai-note');
 if (ondeviceToggle) {
-  ondeviceToggle.checked = localStorage.getItem('btcpc-ondevice-ai') === 'true';
+  ondeviceToggle.checked = localStorage.getItem('hone-ondevice-ai') === 'true';
   ondeviceNote.style.display = ondeviceToggle.checked ? 'block' : 'none';
   ondeviceToggle.addEventListener('change', () => {
-    localStorage.setItem('btcpc-ondevice-ai', ondeviceToggle.checked ? 'true' : 'false');
+    localStorage.setItem('hone-ondevice-ai', ondeviceToggle.checked ? 'true' : 'false');
     ondeviceNote.style.display = ondeviceToggle.checked ? 'block' : 'none';
   });
 }
@@ -4271,7 +4271,7 @@ if (ondeviceToggle) {
 let chatDB = null;
 function openChatDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('btcpc-chat', 1);
+    const req = indexedDB.open('hone-chat', 1);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('messages')) {
@@ -4310,7 +4310,7 @@ function appendChatBubble(role, content, cost) {
   div.className = 'chat-msg ' + role;
   let html = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   if (cost && role === 'assistant') {
-    html += `<span class="chat-cost">${cost} BTCPC</span>`;
+    html += `<span class="chat-cost">${cost} HONE</span>`;
   }
   div.innerHTML = html;
   container.appendChild(div);
@@ -4353,9 +4353,9 @@ async function sendChat() {
   const text = chatInput.value.trim();
   if (!text) return;
 
-  const jwt = localStorage.getItem('btcpc-jwt');
+  const jwt = localStorage.getItem('hone-jwt');
   if (!jwt) {
-    appendChatBubble('assistant', 'Please log in first to use BTCPC inference.', null);
+    appendChatBubble('assistant', 'Please log in first to use HONE inference.', null);
     return;
   }
 
@@ -4404,7 +4404,7 @@ async function sendChat() {
       if (!resp.ok) {
         const errData = await resp.json().catch(function() { return {}; });
         if (resp.status === 401) {
-          localStorage.removeItem('btcpc-jwt');
+          localStorage.removeItem('hone-jwt');
           const notice = document.createElement('div');
           notice.className = 'chat-msg assistant';
           notice.innerHTML = 'Session expired. <a href="#" style="color:#f7931a" onclick="showReauth();return false;">Tap here to re-login</a>.';
@@ -4424,7 +4424,7 @@ async function sendChat() {
       const tokens = data.usage?.total_tokens || data.usage?.completion_tokens || 0;
       const costPerToken = data.usage?.cost_per_token || 0;
       const totalCost = data.usage?.cost || (tokens * costPerToken) || null;
-      const costLabel = (totalCost ? totalCost + ' BTCPC · ' : '') + (tokens ? tokens + ' tokens' : null);
+      const costLabel = (totalCost ? totalCost + ' HONE · ' : '') + (tokens ? tokens + ' tokens' : null);
       const labelledReply = parallelCount > 1 ? '[' + (data.model || modelId) + ']\n' + reply : reply;
       appendChatBubble('assistant', labelledReply, costLabel || null);
       await saveChatMessage('assistant', labelledReply, data.model || modelId, null);
@@ -4472,7 +4472,7 @@ initDashboard = async function() {
     reqBtn.textContent = 'Submitting...';
     reqStatus.style.display = 'none';
     try {
-      var acct = localStorage.getItem('btcpc-account') || 'anonymous';
+      var acct = localStorage.getItem('hone-account') || 'anonymous';
       var resp = await fetch(API_BASE + '/public/model-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4562,39 +4562,39 @@ const mineWifiOnly = document.getElementById('mine-wifi-only');
 const DEFAULT_MINE_MODEL = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 
 // Restore saved preferences
-mineBattSlider.value = localStorage.getItem('btcpc-mine-batt') || '20';
+mineBattSlider.value = localStorage.getItem('hone-mine-batt') || '20';
 mineBattVal.textContent = mineBattSlider.value;
-mineWifiOnly.checked = localStorage.getItem('btcpc-mine-wifi-only') !== 'false';
+mineWifiOnly.checked = localStorage.getItem('hone-mine-wifi-only') !== 'false';
 
 mineBattSlider.addEventListener('input', () => {
   mineBattVal.textContent = mineBattSlider.value;
-  localStorage.setItem('btcpc-mine-batt', mineBattSlider.value);
+  localStorage.setItem('hone-mine-batt', mineBattSlider.value);
 });
 mineWifiOnly.addEventListener('change', () => {
-  localStorage.setItem('btcpc-mine-wifi-only', mineWifiOnly.checked ? 'true' : 'false');
+  localStorage.setItem('hone-mine-wifi-only', mineWifiOnly.checked ? 'true' : 'false');
 });
 
 // Restore last-used chat model
 const chatModelInput = document.getElementById('chat-model-input');
 if (chatModelInput) {
-  const saved = localStorage.getItem('btcpc-chat-model');
+  const saved = localStorage.getItem('hone-chat-model');
   if (saved) chatModelInput.value = saved;
   chatModelInput.addEventListener('change', () => {
-    localStorage.setItem('btcpc-chat-model', chatModelInput.value.trim());
+    localStorage.setItem('hone-chat-model', chatModelInput.value.trim());
   });
 }
 
 function updateMineStats() {
-  if (!window.btcpcMiner) return;
-  const s = window.btcpcMiner.getStats();
+  if (!window.honeMiner) return;
+  const s = window.honeMiner.getStats();
   document.getElementById('mine-stat-jobs').textContent = s.jobsCompleted;
   document.getElementById('mine-stat-tokens').textContent = s.tokensGenerated;
   document.getElementById('mine-stat-earned').textContent = s.earnings.toFixed(s.earnings >= 1 ? 2 : 4);
 }
 
 // Wire miner status updates
-if (window.btcpcMiner) {
-  window.btcpcMiner.onStatusChange(function(ev) {
+if (window.honeMiner) {
+  window.honeMiner.onStatusChange(function(ev) {
     var status = (ev && ev.status) ? ev.status : ev;
     var data = (ev && ev.detail) ? ev.detail : null;
     var minerStats = (ev && ev.stats) ? ev.stats : null;
@@ -4630,8 +4630,8 @@ if (window.btcpcMiner) {
 }
 
 // Wire engine progress updates
-if (window.btcpcEngine) {
-  window.btcpcEngine.onProgress(function(progress) {
+if (window.honeEngine) {
+  window.honeEngine.onProgress(function(progress) {
     if (progress && progress.progress !== undefined) {
       const pct = Math.round(progress.progress * 100);
       mineProgressWrap.style.display = 'block';
@@ -4681,7 +4681,7 @@ mineToggleBtn.addEventListener('click', async () => {
     mineToggleBtn.textContent = 'Start Mining';
     mineToggleBtn.className = 'mine-toggle-btn start';
     mineJobText.textContent = 'Idle';
-    if (window.btcpcMiner) window.btcpcMiner.disconnect();
+    if (window.honeMiner) window.honeMiner.disconnect();
     return;
   }
 
@@ -4692,21 +4692,21 @@ mineToggleBtn.addEventListener('click', async () => {
   try {
     // 1. PWA with no WebGPU → use transformers.js CPU inference
     if (!isDesktop && !navigator.gpu) {
-      if (!window.btcpcCPUInference || !window.btcpcCPUInference.ready) {
+      if (!window.honeCPUInference || !window.honeCPUInference.ready) {
         mineModelText.textContent = 'Loading CPU inference engine...';
         await new Promise(function(resolve) { setTimeout(resolve, 1500); });
-        if (!window.btcpcCPUInference) {
+        if (!window.honeCPUInference) {
           mineModelText.textContent = 'CPU inference engine failed to load';
           mineToggleBtn.textContent = 'Start Mining'; mineToggleBtn.disabled = false; return;
         }
       }
       const selectedModel = document.querySelector('.model-cb:checked');
       const cpuModelId = selectedModel ? selectedModel.dataset.chainId || selectedModel.dataset.id : 'smollm2-360m';
-      mineModelText.textContent = 'Downloading model from BTCPC network...';
+      mineModelText.textContent = 'Downloading model from HONE network...';
       mineProgressWrap.style.display = 'block';
       try {
-        const pipelineFn = window.btcpcCPUInference.pipeline;
-        window._btcpcCPUPipeline = await pipelineFn('text-generation', cpuModelId, {
+        const pipelineFn = window.honeCPUInference.pipeline;
+        window._honeCPUPipeline = await pipelineFn('text-generation', cpuModelId, {
           progress_callback: function(p) {
             if (p.status === 'progress' && p.progress != null) {
               mineProgressFill.style.width = p.progress.toFixed(0) + '%';
@@ -4717,12 +4717,12 @@ mineToggleBtn.addEventListener('click', async () => {
         mineProgressWrap.style.display = 'none';
         mineModelText.textContent = cpuModelId + ' ready (CPU)';
         mineModelLoaded = true;
-        // Expose CPU pipeline as btcpcEngine shim so miner.js relay can use it
-        window.btcpcEngine = {
+        // Expose CPU pipeline as honeEngine shim so miner.js relay can use it
+        window.honeEngine = {
           getLoadedModels: function() { return [cpuModelId]; },
           runInference: async function(prompt, opts) {
             var t0 = Date.now();
-            var res = await window._btcpcCPUPipeline(prompt, {
+            var res = await window._honeCPUPipeline(prompt, {
               max_new_tokens: opts.max_tokens || 128,
               temperature: opts.temperature || 0.7,
               do_sample: true,
@@ -4735,7 +4735,7 @@ mineToggleBtn.addEventListener('click', async () => {
           onProgress: function() {},
           initEngine: function() { return Promise.resolve(); },
         };
-        console.log('[BTCPC] CPU inference shim ready for relay miner');
+        console.log('[HONE] CPU inference shim ready for relay miner');
       } catch (cpuErr) {
         mineProgressWrap.style.display = 'none';
         mineModelText.textContent = 'Model download failed: ' + cpuErr.message;
@@ -4753,7 +4753,7 @@ mineToggleBtn.addEventListener('click', async () => {
     }
 
     // 3. Load WebLLM model if needed (PWA only — desktop uses Ollama, already running)
-    if (!isDesktop && !mineModelLoaded && window.btcpcEngine) {
+    if (!isDesktop && !mineModelLoaded && window.honeEngine) {
       if (!checkWifiForDownload()) {
         mineModelText.textContent = 'Waiting for WiFi to download model';
         mineToggleBtn.textContent = 'Start Mining';
@@ -4763,7 +4763,7 @@ mineToggleBtn.addEventListener('click', async () => {
       mineModelText.textContent = 'Loading model...';
       mineProgressWrap.style.display = 'block';
       mineProgressFill.style.width = '0%';
-      await window.btcpcEngine.initEngine(DEFAULT_MINE_MODEL);
+      await window.honeEngine.initEngine(DEFAULT_MINE_MODEL);
       mineModelLoaded = true;
       mineProgressWrap.style.display = 'none';
       const modelName = DEFAULT_MINE_MODEL.split('-q')[0].replace(/-/g, ' ');
@@ -4774,9 +4774,9 @@ mineToggleBtn.addEventListener('click', async () => {
     }
 
     // 4. Connect to relay
-    if (window.btcpcMiner) {
-      const jwt = localStorage.getItem('btcpc-jwt');
-      window.btcpcMiner.connect({ account: account, token: jwt });
+    if (window.honeMiner) {
+      const jwt = localStorage.getItem('hone-jwt');
+      window.honeMiner.connect({ account: account, token: jwt });
     }
 
     miningActive = true;
@@ -4786,7 +4786,7 @@ mineToggleBtn.addEventListener('click', async () => {
   } catch (e) {
     var errMsg = e.message || 'failed to start';
     if (/cache|storage|quota|internal/i.test(errMsg)) {
-      mineModelText.textContent = 'Storage error — try Chrome instead of Brave (Brave blocks large model downloads). Or go to brave://settings/shields and disable shields for btcpc.net';
+      mineModelText.textContent = 'Storage error — try Chrome instead of Brave (Brave blocks large model downloads). Or go to brave://settings/shields and disable shields for honemesh.net';
     } else if (!isDesktop && /webgpu|gpu/i.test(errMsg)) {
       mineModelText.textContent = 'WebGPU not supported on this browser. Try Chrome 121+';
     } else {
@@ -4808,7 +4808,7 @@ setInterval(async () => {
     mineToggleBtn.textContent = 'Start Mining';
     mineToggleBtn.className = 'mine-toggle-btn start';
     mineJobText.textContent = 'Stopped \u2014 battery low';
-    if (window.btcpcMiner) window.btcpcMiner.disconnect();
+    if (window.honeMiner) window.honeMiner.disconnect();
   }
 }, 30000);
 
@@ -4840,8 +4840,8 @@ if (account) {
 (function() {
   var rateCard = null;
 
-  function getJwt() { return localStorage.getItem('btcpc-jwt'); }
-  function getAccount() { return localStorage.getItem('btcpc-sensor-account'); }
+  function getJwt() { return localStorage.getItem('hone-jwt'); }
+  function getAccount() { return localStorage.getItem('hone-sensor-account'); }
 
   function buildQueryBody() {
     var type = document.getElementById('data-type').value;
@@ -4883,9 +4883,9 @@ if (account) {
       if (data.success && data.quote) {
         var q = data.quote;
         var bar = document.getElementById('data-quote-bar');
-        document.getElementById('data-quote-cost').textContent = q.max_cost.toFixed(6) + ' BTCPC';
+        document.getElementById('data-quote-cost').textContent = q.max_cost.toFixed(6) + ' HONE';
         document.getElementById('data-quote-detail').textContent =
-          q.price_per_reading.toFixed(8) + ' BTCPC/reading · ' +
+          q.price_per_reading.toFixed(8) + ' HONE/reading · ' +
           q.estimated_readings + ' estimated · type: ' + (q.type || 'any') + ' · ' + q.resolution;
         bar.style.display = 'block';
       } else {
@@ -4910,11 +4910,11 @@ if (account) {
 
   function renderReceipt(payment) {
     if (!payment) return '';
-    var lines = ['Paid: ' + payment.total_fee.toFixed(8) + ' BTCPC (query: ' + payment.query_id.slice(0, 12) + '...)'];
+    var lines = ['Paid: ' + payment.total_fee.toFixed(8) + ' HONE (query: ' + payment.query_id.slice(0, 12) + '...)'];
     if (payment.per_sensor && payment.per_sensor.length) {
       lines.push('Sensor operators:');
       payment.per_sensor.forEach(function(p) {
-        if (p.amount > 0) lines.push('  ' + p.owner + ' — ' + p.amount.toFixed(8) + ' BTCPC (' + p.readings + ' readings)');
+        if (p.amount > 0) lines.push('  ' + p.owner + ' — ' + p.amount.toFixed(8) + ' HONE (' + p.readings + ' readings)');
       });
     }
     if (payment.protocol && payment.protocol.length) {
@@ -4958,7 +4958,7 @@ if (account) {
       });
       var data = await resp.json();
       if (resp.status === 401) {
-        localStorage.removeItem('btcpc-jwt');
+        localStorage.removeItem('hone-jwt');
         showStatus('Session expired — please log in again');
         btn.disabled = false; btn.textContent = 'Query Network'; return;
       }
@@ -4998,7 +4998,7 @@ if (account) {
   if (!document.documentElement.hasAttribute('data-desktop')) return;
 
   var EPOCH_MS = 30000;
-  var GENESIS_TS = 1777633200000;
+  var GENESIS_TS = 1783191600000;
 
   // ── Wire sidebar nav to main tab bar ──────────────────────────────────────
   var sbNav = document.getElementById('sb-nav');
@@ -5030,18 +5030,18 @@ if (account) {
 
   // ── Populate account + balance ────────────────────────────────────────────
   function updateAccount() {
-    var acct = window.account || localStorage.getItem('btcpc-sensor-account') || '';
+    var acct = window.account || localStorage.getItem('hone-sensor-account') || '';
     var nameEl = document.getElementById('sb-account-name');
     if (nameEl && acct) nameEl.textContent = acct;
 
-    // Try to load balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
+    // Try to load balance — Rust: GET /api/balance/:account → { account, balance (float), hunits, token }
     if (acct) {
       fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct))
         .then(function(r) { return r.json(); })
         .then(function(d) {
           var bal = (d && d.balance != null) ? d.balance : null;
           var el = document.getElementById('sb-balance');
-          if (el && bal !== null) el.textContent = parseFloat(bal).toFixed(4) + ' BTCPC';
+          if (el && bal !== null) el.textContent = parseFloat(bal).toFixed(4) + ' HONE';
           // Mirror to home panel balance
           var hb = document.getElementById('home-balance');
           if (hb && bal !== null) {
@@ -5124,7 +5124,7 @@ if (account) {
   fetch(API_BASE + '/api/latest').then(function(r) { return r.json(); }).then(function(d) {
     var el = document.getElementById('sb-version');
     var ep = d.current_epoch || d.epoch;
-    if (el && ep) el.textContent = 'epoch ' + ep + ' · v' + (window.BTCPC_VERSION || '3.1');
+    if (el && ep) el.textContent = 'epoch ' + ep + ' · v' + (window.HONE_VERSION || '3.1');
   }).catch(function() {});
 
   // ── Init + periodic updates ────────────────────────────────────────────────
@@ -5156,7 +5156,7 @@ if (account) {
 
 // ── Tauri desktop integration ─────────────────────────────────────────────────
 // Wire up events emitted from the Rust backend (tauri-plugin events).
-// window.__TAURI__ is only present inside BTCPC Desktop (Tauri).
+// window.__TAURI__ is only present inside HONE Desktop (Tauri).
 (function() {
   if (typeof window.__TAURI__ === 'undefined') return;
 
@@ -5211,7 +5211,7 @@ if (account) {
         .then(function(data) {
           var tag = (data.tag_name || '').replace(/^v/, '');
           if (!tag) return;
-          var current = BTCPC_APP_VERSION.split('.').map(Number);
+          var current = HONE_APP_VERSION.split('.').map(Number);
           var latest  = tag.split('.').map(Number);
           var isNewer = false;
           for (var i = 0; i < 3; i++) {
@@ -5227,7 +5227,7 @@ if (account) {
           banner.id = 'android-update-banner';
           banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#f7931a;color:#000;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;font-family:monospace;font-size:13px;font-weight:700;';
           banner.innerHTML =
-            '<span>BTCPC v' + tag + ' available</span>' +
+            '<span>HONE v' + tag + ' available</span>' +
             '<div style="display:flex;gap:8px;">' +
             '<a id="android-update-dl" href="' + apkUrl + '" target="_blank" style="background:#000;color:#f7931a;border:none;padding:6px 14px;border-radius:4px;font-weight:700;font-size:13px;text-decoration:none;">Download</a>' +
             '<button id="android-update-dismiss" style="background:rgba(0,0,0,0.2);color:#000;border:none;padding:6px 10px;border-radius:4px;font-weight:700;font-size:13px;cursor:pointer;">✕</button>' +
@@ -5235,7 +5235,7 @@ if (account) {
           document.body.prepend(banner);
           document.getElementById('android-update-dismiss').addEventListener('click', function() {
             banner.remove();
-            sessionStorage.setItem('btcpc-update-dismissed', tag);
+            sessionStorage.setItem('hone-update-dismissed', tag);
           });
         })
         .catch(function() {}); // silently ignore if offline
@@ -5248,14 +5248,14 @@ if (account) {
 
     async function loadWallet() {
       // Rust node: no JWT for reads — use account name with /api/balance/:account
-      var acct = window.account || localStorage.getItem('btcpc-sensor-account') || localStorage.getItem('btcpc-account') || '';
+      var acct = window.account || localStorage.getItem('hone-sensor-account') || localStorage.getItem('hone-account') || '';
       if (!acct) {
         document.getElementById('wallet-tx-list').textContent = 'Set up your account to view wallet.';
         document.getElementById('wallet-balance-main').textContent = '—';
         return;
       }
       try {
-        // Rust: GET /api/balance/:account → { account, balance (float BTCPC), dreams, token }
+        // Rust: GET /api/balance/:account → { account, balance (float HONE), hunits, token }
         var r = await fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct));
         var d = await r.json();
         var bal = (d && d.balance != null) ? d.balance : 0;
@@ -5278,7 +5278,7 @@ if (account) {
             var counterpart = isReceive ? (tx.from || 'network') : (tx.to || tx.account || 'network');
             return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">' +
               '<span style="color:var(--muted);">' + counterpart + '</span>' +
-              '<span style="color:' + col + ';font-weight:600;">' + sign + fmt6(tx.amount) + ' BTCPC</span>' +
+              '<span style="color:' + col + ';font-weight:600;">' + sign + fmt6(tx.amount) + ' HONE</span>' +
               '</div>';
           }).join('');
         }
@@ -5292,10 +5292,10 @@ if (account) {
     // ── Home Panel ──────────────────────────────────────────────────────────
     (function() {
       function loadHome() {
-        var jwt = localStorage.getItem('btcpc-jwt');
-        var acct = window.account || localStorage.getItem('btcpc-sensor-account') || '';
+        var jwt = localStorage.getItem('hone-jwt');
+        var acct = window.account || localStorage.getItem('hone-sensor-account') || '';
 
-        // Balance — Rust: GET /api/balance/:account → { account, balance (float), dreams, token }
+        // Balance — Rust: GET /api/balance/:account → { account, balance (float), hunits, token }
         if (acct) {
           fetch(API_BASE + '/api/balance/' + encodeURIComponent(acct))
             .then(function(r) { return r.json(); })
@@ -5359,7 +5359,7 @@ if (account) {
       var faucetBtn = document.getElementById('home-faucet-btn');
       if (faucetBtn) {
         faucetBtn.addEventListener('click', function() {
-          var jwt = localStorage.getItem('btcpc-jwt');
+          var jwt = localStorage.getItem('hone-jwt');
           if (!jwt) return;
           faucetBtn.disabled = true;
           faucetBtn.textContent = 'Claiming...';
@@ -5373,7 +5373,7 @@ if (account) {
               if (d.success) setTimeout(loadHome, 1500);
             })
             .catch(function() { faucetBtn.textContent = 'Network error'; })
-            .finally(function() { setTimeout(function() { faucetBtn.disabled = false; faucetBtn.textContent = 'Claim Faucet (free BTCPC)'; }, 4000); });
+            .finally(function() { setTimeout(function() { faucetBtn.disabled = false; faucetBtn.textContent = 'Claim Faucet (free HONE)'; }, 4000); });
         });
       }
 
@@ -5381,7 +5381,7 @@ if (account) {
     })();
 
     window._walletSend = async function() {
-      var jwt = localStorage.getItem('btcpc-jwt');
+      var jwt = localStorage.getItem('hone-jwt');
       if (!jwt) { alert('You must be logged in to send.'); return; }
       var to = (document.getElementById('wallet-send-to').value || '').trim();
       var amount = parseFloat(document.getElementById('wallet-send-amount').value);
@@ -5417,7 +5417,7 @@ if (account) {
         status.style.display = ''; status.style.color = '#ef4444';
         status.textContent = 'Network error.';
       }
-      btn.disabled = false; btn.textContent = 'Send BTCPC';
+      btn.disabled = false; btn.textContent = 'Send HONE';
     };
 
     // Load wallet when tab is opened
@@ -5435,7 +5435,7 @@ if (account) {
     function fmt4(n) { return Number(n || 0).toFixed(4).replace(/\.?0+$/, '') || '0'; }
 
     async function loadStaking() {
-      var jwt = localStorage.getItem('btcpc-jwt');
+      var jwt = localStorage.getItem('hone-jwt');
 
       // Network stats (public)
       try {
@@ -5482,7 +5482,7 @@ if (account) {
     }
 
     async function stakingAction(action) {
-      var jwt = localStorage.getItem('btcpc-jwt');
+      var jwt = localStorage.getItem('hone-jwt');
       if (!jwt) { alert('Log in first.'); return; }
       var amount = parseFloat(document.getElementById('staking-amount').value);
       var pass = document.getElementById('staking-pass').value;
@@ -5538,7 +5538,7 @@ if (account) {
     var banner = document.createElement('div');
     banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#f7931a;color:#000;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:monospace;font-size:13px;font-weight:700;';
     banner.innerHTML =
-      '<span>BTCPC Desktop ' + version + ' is available.</span>' +
+      '<span>HONE Desktop ' + version + ' is available.</span>' +
       '<button id="tauri-update-btn" style="background:#000;color:#f7931a;border:none;padding:6px 16px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;">Update Now</button>';
     document.body.prepend(banner);
 
@@ -5547,7 +5547,7 @@ if (account) {
         var { invoke } = window.__TAURI__.core;
         await invoke('tauri', { cmd: 'install_update' });
       } catch(_) {
-        window.open('https://btcpc.net/install', '_blank');
+        window.open('https://honemesh.net/install', '_blank');
       }
     });
   });

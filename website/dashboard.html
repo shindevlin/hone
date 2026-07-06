@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Reward Dashboard</title>
-  <meta name="description" content="Live BTCPC network stats, top earners leaderboard, and recent block rewards.">
+  <title>HONE Reward Dashboard</title>
+  <meta name="description" content="Live HONE network stats, top earners leaderboard, and recent block rewards.">
   <meta name="theme-color" content="#0a0e17">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -202,7 +202,7 @@
 
 <div class="container">
   <div class="header">
-    <h1>BTCPC Dashboard</h1>
+    <h1>HONE Dashboard</h1>
     <p>Network rewards and leaderboard</p>
   </div>
 
@@ -276,7 +276,7 @@
   function fetchNetwork() {
     // Rust node: GET /api/explorer/status
     // Returns: { chain_height, current_epoch, epoch_ms, accounts,
-    //   circulating_btcpc, active_nodes_last_100, miners, clock_nodes, storage_nodes }
+    //   circulating_hone, active_nodes_last_100, miners, clock_nodes, storage_nodes }
     fetch(API_BASE + '/api/explorer/status')
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -302,9 +302,9 @@
 
   function fetchLeaderboard() {
     // Rust node: GET /api/accounts
-    // Returns: { count, accounts: [{account, keys, balances: {BTCPC: dreams_int}}] }
+    // Returns: { count, accounts: [{account, keys, balances: {HONE: hunits_int}}] }
     // No dedicated leaderboard endpoint — derive from accounts list.
-    var DREAMS_PER_BTCPC = 10000000000;
+    var HUNITS_PER_HONE = 10000000000;
     fetch(API_BASE + '/api/accounts')
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -317,14 +317,14 @@
 
         // Sort by balance descending
         accounts = accounts.map(function(a) {
-          var dreams = (a.balances && a.balances.BTCPC) ? Number(a.balances.BTCPC) : 0;
-          return { account: a.account, balance: dreams / DREAMS_PER_BTCPC };
+          var hunits = (a.balances && a.balances.HONE) ? Number(a.balances.HONE) : 0;
+          return { account: a.account, balance: hunits / HUNITS_PER_HONE };
         });
         accounts.sort(function(a, b) { return b.balance - a.balance; });
         var top = accounts.slice(0, 20);
 
         var html = '<table><thead><tr>'
-          + '<th>#</th><th>Account</th><th style="text-align:right">Balance (BTCPC)</th>'
+          + '<th>#</th><th>Account</th><th style="text-align:right">Balance (HONE)</th>'
           + '</tr></thead><tbody>';
 
         top.forEach(function(entry, i) {

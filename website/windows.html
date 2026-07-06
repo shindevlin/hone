@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC on Windows — One Command Install</title>
-  <meta name="description" content="Install BTCPC on Windows in one command. No git, no WSL, no bash required.">
+  <title>HONE on Windows — One Command Install</title>
+  <meta name="description" content="Install HONE on Windows in one command. No git, no WSL, no bash required.">
   <link rel="stylesheet" href="style.css">
   <style>
     body { background: #0a0e17; color: #e2e8f0; font-family: -apple-system, system-ui, sans-serif; margin: 0; min-height: 100vh; }
@@ -107,13 +107,13 @@
 <body>
   <div class="wrap">
     <a href="/install" class="back">← All install options</a>
-    <h1>BTCPC on <span>Windows</span></h1>
+    <h1>HONE on <span>Windows</span></h1>
     <p class="sub">One PowerShell command. No git clone, no WSL, no bash, no curl alias tricks.</p>
 
     <div class="step">
       <div><span class="step-num">1</span><span class="step-title">Install Docker Desktop (optional — the script does it for you)</span></div>
       <p class="step-body">
-        You do not need to install Docker Desktop manually. The BTCPC starter script checks for Docker automatically and will download and install it silently if it is missing. If Docker Desktop is already installed but not running, the script will launch it for you and wait up to 10 minutes for it to be ready.
+        You do not need to install Docker Desktop manually. The HONE starter script checks for Docker automatically and will download and install it silently if it is missing. If Docker Desktop is already installed but not running, the script will launch it for you and wait up to 10 minutes for it to be ready.
       </p>
       <div class="ok">
         <strong>Nothing to do here.</strong> Just run the command in Step 3 and the script handles everything — Docker install, Docker startup, image download, and mining launch — without asking you to do anything.
@@ -134,30 +134,30 @@
       <div><span class="step-num">3</span><span class="step-title">Paste this command and press Enter</span></div>
       <p class="step-body">Click the orange button to copy, then right-click in PowerShell to paste, then press Enter. The first line forces TLS 1.2 (older PowerShell defaults to TLS 1.0/1.1, which Cloudflare refuses — that's the most common cause of "connection error").</p>
       <div class="command-box">
-        <button type="button" class="big-copy-btn" id="copy-btn" data-copy="[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://btcpc.net/btcpc-start.ps1 | iex">COPY</button>
-        <pre class="command-text">[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://btcpc.net/btcpc-start.ps1 | iex</pre>
+        <button type="button" class="big-copy-btn" id="copy-btn" data-copy="[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://honemesh.net/hone-start.ps1 | iex">COPY</button>
+        <pre class="command-text">[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://honemesh.net/hone-start.ps1 | iex</pre>
       </div>
-      <p class="step-body" style="margin-top:8px;font-size:12px;color:#94a3b8;">The shorter <code>irm https://btcpc.net/btcpc-start.ps1 | iex</code> works on PowerShell 7+, but the version above is bulletproof on every Windows since 7.</p>
+      <p class="step-body" style="margin-top:8px;font-size:12px;color:#94a3b8;">The shorter <code>irm https://honemesh.net/hone-start.ps1 | iex</code> works on PowerShell 7+, but the version above is bulletproof on every Windows since 7.</p>
       <p class="step-body">
-        That downloads the BTCPC starter script and runs it. The script will:
+        That downloads the HONE starter script and runs it. The script will:
       </p>
       <ul class="step-body" style="padding-left:20px;">
         <li>Verify Docker is installed and running</li>
-        <li>Create <code>C:\Users\you\btcpc</code> as the working folder</li>
-        <li>Download <code>docker-compose.yml</code> and the ~200 MB BTCPC image tarball</li>
+        <li>Create <code>C:\Users\you\hone</code> as the working folder</li>
+        <li>Download <code>docker-compose.yml</code> and the ~200 MB HONE image tarball</li>
         <li>Load the image into Docker</li>
-        <li>Ask for your BTCPC username (create one via <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a> on Telegram if you don't have one)</li>
+        <li>Ask for your HONE username (create one via <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a> on Telegram if you don't have one)</li>
         <li>Start mining</li>
       </ul>
       <div class="ok">
-        <strong>Success looks like:</strong> green <code>[OK]</code> lines for each step, then <code>BTCPC is running as yourname</code> at the end with a list of running containers. Check your balance in Telegram with <code>@btcpcbot /balance</code> after a few minutes.
+        <strong>Success looks like:</strong> green <code>[OK]</code> lines for each step, then <code>HONE is running as yourname</code> at the end with a list of running containers. Check your balance in Telegram with <code>@btcpcbot /balance</code> after a few minutes.
       </div>
     </div>
 
     <div class="step">
       <div><span class="step-num">4</span><span class="step-title">Troubleshooting</span></div>
       <p class="step-body">
-        The BTCPC installer is designed to fix problems automatically without asking you to do anything. Here is what it handles on its own — just keep the window open and wait:
+        The HONE installer is designed to fix problems automatically without asking you to do anything. Here is what it handles on its own — just keep the window open and wait:
       </p>
       <ul class="step-body" style="padding-left:20px;">
         <li><strong>TLS / connection errors</strong> — the installer already forces TLS 1.2 at startup. It handles this automatically.</li>
@@ -169,17 +169,17 @@
         <li><strong>No username entered</strong> — the installer generates a guest name like <code>guest-a1b2c3d4</code> and continues. You can link it to your real account later via <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a>.</li>
       </ul>
       <div class="ok">
-        <strong>In short:</strong> if the window is open and showing <code>[BTCPC] Working...</code> messages, it is fixing itself. Just wait. Do not close it.
+        <strong>In short:</strong> if the window is open and showing <code>[HONE] Working...</code> messages, it is fixing itself. Just wait. Do not close it.
       </div>
       <p class="step-body" style="margin-top:16px;"><strong>Still stuck after 30+ minutes with no progress?</strong> Run these diagnostic commands in a new PowerShell window and share the output with Shin on Telegram:</p>
       <div class="command-box">
-        <button type="button" class="big-copy-btn" data-copy="docker --version; docker info; docker images btcpc; Get-Content $HOME\btcpc\docker-compose.yml">COPY</button>
-        <pre class="command-text">docker --version; docker info; docker images btcpc; Get-Content $HOME\btcpc\docker-compose.yml</pre>
+        <button type="button" class="big-copy-btn" data-copy="docker --version; docker info; docker images hone; Get-Content $HOME\hone\docker-compose.yml">COPY</button>
+        <pre class="command-text">docker --version; docker info; docker images hone; Get-Content $HOME\hone\docker-compose.yml</pre>
       </div>
     </div>
 
     <div class="footer">
-      <a href="/install">All install options</a> · <a href="/">btcpc.net</a> · <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a>
+      <a href="/install">All install options</a> · <a href="/">honemesh.net</a> · <a href="https://t.me/btcpcbot" target="_blank">@btcpcbot</a>
     </div>
   </div>
 

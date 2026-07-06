@@ -118,7 +118,7 @@ The `linkgit mirror apply` command writes the mirror URLs as `url.<url>.pushInst
 
 ### 2.3 Private Repository Encryption
 
-Private repos use the owner's hide key, a secp256k1 keypair derived from the BIP-39 seed at path `m/44'/8888'/0'/4/0`. The hide key is designed specifically for content encryption — its private key never leaves the owner's device, and its public key is published on-chain.
+Private repos use the owner's hide key, an ed25519 keypair derived from the BIP-39 seed at the SLIP-10 hardened path `m/44'/6942'/4'/0'` (role index 4 = hide). The hide key is designed specifically for content encryption — its private key never leaves the owner's device, and its public key is published on-chain.
 
 **Write path (owner pushes to private repo):**
 1. Owner generates a repo symmetric key (AES-256-GCM, 32 bytes random).
@@ -373,16 +373,18 @@ The `linkgit` protocol account earns a small fee on each `LinkGitStorageExtend` 
 
 ### 6.2 Hide Key Architecture
 
-The hide key is one of six role keys in the BTCPC key hierarchy:
+The hide key is one of six role keys in the HONE key hierarchy. HONE role keys
+are **ed25519** on the SLIP-10 hardened path `m/44'/6942'/role'/0'` (6942 is HONE's
+coin index; `role` selects the key):
 
-| Role | Path | Purpose |
-|---|---|---|
-| owner | `m/44'/8888'/0'/0/0` | Key rotation, account recovery |
-| active | `m/44'/8888'/0'/1/0` | Token transfers, escrow |
-| posting | `m/44'/8888'/0'/2/0` | Chain entries, storefront, git push |
-| memo | `m/44'/8888'/0'/3/0` | Purchase initiation, encrypted messages |
-| **hide** | `m/44'/8888'/0'/4/0` | **Decrypt inbound encrypted content** |
-| seek | `m/44'/8888'/0'/5/0` | Auto-deliver encrypted content outbound |
+| Role | role index | Path | Purpose |
+|---|---|---|---|
+| owner | 0 | `m/44'/6942'/0'/0'` | Key rotation, account recovery |
+| active | 1 | `m/44'/6942'/1'/0'` | Token transfers, escrow |
+| posting | 2 | `m/44'/6942'/2'/0'` | Chain entries, storefront, git push |
+| memo | 3 | `m/44'/6942'/3'/0'` | Purchase initiation, encrypted messages |
+| **hide** | 4 | `m/44'/6942'/4'/0'` | **Decrypt inbound encrypted content** |
+| seek | 5 | `m/44'/6942'/5'/0'` | Auto-deliver encrypted content outbound |
 
 The hide private key is specifically designed for asymmetric encryption of inbound content. When another party wants to share a secret with you (a repo symmetric key, a digital product, an encrypted message), they encrypt it to your hide public key. Only your hide private key can decrypt it. The hide private key never leaves your device and is never submitted to the chain.
 

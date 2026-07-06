@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Buy BTCPC — Stablecoin Purchase</title>
-  <meta name="description" content="Buy BTCPC with USDC, USDT, or DAI on Ethereum, Solana, or TON. Instant settlement on the BTCPC chain.">
+  <title>Buy HONE — Stablecoin Purchase</title>
+  <meta name="description" content="Buy HONE with USDC, USDT, or DAI on Ethereum, Solana, or TON. Instant settlement on the HONE chain.">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <style>
@@ -101,7 +101,7 @@
       background: var(--bg3); border: 1px solid var(--green); border-radius: 10px;
       padding: 20px; text-align: center; margin-top: 20px;
     }
-    .quote-btcpc { font-size: 36px; font-weight: 900; color: var(--green); }
+    .quote-hone { font-size: 36px; font-weight: 900; color: var(--green); }
     .quote-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
     /* Address display */
@@ -202,11 +202,11 @@
 <script src="/nav.js?v=2"></script>
 
 <!-- Nav -->
-  <a href="/"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">BTCPC</a>
+  <a href="/"><img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;box-shadow:0 0 14px rgba(247,147,26,0.35);">HONE</a>
   <a href="/#tutorial">Get Started</a>
   <a href="/run-a-node">Run a Node</a>
   <a href="/store">Store</a>
-  <a href="/buy" style="color:#f7931a;font-weight:bold;">Buy BTCPC</a>
+  <a href="/buy" style="color:#f7931a;font-weight:bold;">Buy HONE</a>
   <a href="/dashboard">Explorer</a>
   <a href="https://t.me/btcpcbot" target="_blank">Telegram</a>
 </div>
@@ -216,9 +216,9 @@
   <!-- Hero -->
   <div class="hero">
     <div style="font-size:11px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px;">Stablecoin Purchase</div>
-    <h1>Buy <span>BTCPC</span></h1>
-    <p class="sub">Send USDC, USDT, or DAI on Ethereum, Solana, or TON.<br>BTCPC credited to your account within minutes.</p>
-    <div id="hero-price" class="price-badge">$0.001 / BTCPC</div>
+    <h1>Buy <span>HONE</span></h1>
+    <p class="sub">Send USDC, USDT, or DAI on Ethereum, Solana, or TON.<br>HONE credited to your account within minutes.</p>
+    <div id="hero-price" class="price-badge">$0.001 / HONE</div>
   </div>
 
   <div class="section">
@@ -246,8 +246,8 @@
       <div class="quote-output">
         <div id="quote-loading" style="display:none;"><span class="spinner"></span>Getting quote...</div>
         <div id="quote-result">
-          <div class="quote-btcpc" id="quote-btcpc">100,000 BTCPC</div>
-          <div class="quote-sub" id="quote-sub">$0.001 per BTCPC</div>
+          <div class="quote-hone" id="quote-hone">100,000 HONE</div>
+          <div class="quote-sub" id="quote-sub">$0.001 per HONE</div>
         </div>
       </div>
 
@@ -267,10 +267,10 @@
     <!-- 2. Purchase Form -->
     <div class="card">
       <div class="card-title">02 — Purchase Form</div>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:20px;">Enter your desired BTCPC account name and public keys, then get payment instructions.</p>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:20px;">Enter your desired HONE account name and public keys, then get payment instructions.</p>
 
-      <label>BTCPC Account Name</label>
-      <input type="text" id="btcpc-account" placeholder="e.g. yourname" autocomplete="off">
+      <label>HONE Account Name</label>
+      <input type="text" id="hone-account" placeholder="e.g. yourname" autocomplete="off">
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Lowercase letters, numbers, hyphens. 3–16 characters.</div>
 
       <div style="margin-top:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
@@ -322,7 +322,7 @@
         <div class="step-card">
           <div class="step-num">1</div>
           <div class="step-title">Get a Quote</div>
-          <div class="step-desc">Enter your USD amount and choose a chain. See exactly how many BTCPC you'll receive at the current price.</div>
+          <div class="step-desc">Enter your USD amount and choose a chain. See exactly how many HONE you'll receive at the current price.</div>
         </div>
         <div class="step-card">
           <div class="step-num">2</div>
@@ -331,8 +331,8 @@
         </div>
         <div class="step-card">
           <div class="step-num">3</div>
-          <div class="step-title">Receive BTCPC</div>
-          <div class="step-desc">Once confirmed (3 blocks on ETH, 1 on SOL, 5 on TON), BTCPC is credited to your account automatically.</div>
+          <div class="step-title">Receive HONE</div>
+          <div class="step-desc">Once confirmed (3 blocks on ETH, 1 on SOL, 5 on TON), HONE is credited to your account automatically.</div>
         </div>
       </div>
     </div>
@@ -371,13 +371,13 @@ async function fetchQuote() {
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
 
-    document.getElementById('quote-btcpc').textContent = formatBtcpc(data.btcpc_amount) + ' BTCPC';
-    document.getElementById('quote-sub').textContent = `$${data.price_per_btcpc_usd} per BTCPC`;
-    document.getElementById('hero-price').textContent = `$${data.price_per_btcpc_usd} / BTCPC`;
+    document.getElementById('quote-hone').textContent = formatHone(data.hone_amount) + ' HONE';
+    document.getElementById('quote-sub').textContent = `$${data.price_per_hone_usd} per HONE`;
+    document.getElementById('hero-price').textContent = `$${data.price_per_hone_usd} / HONE`;
     document.getElementById('pay-addr').textContent = data.payment_address || 'Not configured';
     document.getElementById('token-contract').textContent = data.token_contract || 'N/A';
   } catch (err) {
-    document.getElementById('quote-btcpc').textContent = '—';
+    document.getElementById('quote-hone').textContent = '—';
     document.getElementById('quote-sub').textContent = 'Error: ' + err.message;
   } finally {
     document.getElementById('quote-loading').style.display = 'none';
@@ -390,7 +390,7 @@ function debouncedFetch() {
   quoteTimer = setTimeout(fetchQuote, 300);
 }
 
-function formatBtcpc(n) {
+function formatHone(n) {
   return Math.floor(n).toLocaleString();
 }
 
@@ -460,7 +460,7 @@ async function generateKeys() {
   for (const name of KEY_NAMES) {
     // Generate secp256k1 key pair using SubtleCrypto ECDH (P-256 as secp256k1 substitute in browser)
     // Note: browsers expose P-256 (secp256r1). We use it here for key generation UX;
-    // real BTCPC uses secp256k1 — for production, user should generate keys with btcpc-cli.
+    // real HONE uses secp256k1 — for production, user should generate keys with the hone CLI.
     const kp = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },
       true,
@@ -494,7 +494,7 @@ async function generateKeys() {
 
 // ── Submit purchase ───────────────────────────────────────────────────────────
 async function submitPurchase() {
-  const account = document.getElementById('btcpc-account').value.trim();
+  const account = document.getElementById('hone-account').value.trim();
   const owner = document.getElementById('key-owner').value.trim();
   const active = document.getElementById('key-active').value.trim();
   const posting = document.getElementById('key-posting').value.trim();
@@ -504,7 +504,7 @@ async function submitPurchase() {
   const errEl = document.getElementById('submit-error');
   errEl.style.display = 'none';
 
-  if (!account) { errEl.textContent = 'BTCPC account name is required.'; errEl.style.display = 'block'; return; }
+  if (!account) { errEl.textContent = 'HONE account name is required.'; errEl.style.display = 'block'; return; }
   if (!owner || !active || !posting || !memo) { errEl.textContent = 'All four public keys are required.'; errEl.style.display = 'block'; return; }
 
   const btn = document.getElementById('submit-btn');
@@ -516,8 +516,8 @@ async function submitPurchase() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        btcpc_account: account,
-        btcpc_pubkeys: { owner, active, posting, memo },
+        hone_account: account,
+        hone_pubkeys: { owner, active, posting, memo },
         usd_amount: usdAmount,
         chain: selectedChain,
         token: selectedToken,
@@ -587,7 +587,7 @@ function showInstructions(data) {
     </div>
 
     <div style="margin-top:16px;font-size:12px;color:var(--text-muted);">
-      You will receive <strong style="color:var(--green)">${formatBtcpc(data.btcpc_amount)} BTCPC</strong> to account <code>${data.btcpc_account || document.getElementById('btcpc-account').value}</code>.
+      You will receive <strong style="color:var(--green)">${formatHone(data.hone_amount)} HONE</strong> to account <code>${data.hone_account || document.getElementById('hone-account').value}</code>.
       Order expires at ${new Date(data.expires_at).toLocaleTimeString()}.
     </div>
 
@@ -637,8 +637,8 @@ async function fetchStatus(pid) {
     if (data.status === 'fulfilled') {
       html += `
         <div class="success">
-          <strong>Payment confirmed. BTCPC delivered.</strong><br>
-          Amount: ${formatBtcpc(data.btcpc_amount)} BTCPC<br>
+          <strong>Payment confirmed. HONE delivered.</strong><br>
+          Amount: ${formatHone(data.hone_amount)} HONE<br>
           Epoch: ${data.fulfilled_epoch}<br>
           Tx: <code>${data.tx_hash}</code>
         </div>

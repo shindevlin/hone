@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Integrate — BTCPC</title>
-  <meta name="description" content="Connect any project or AI agent to BTCPC: AI inference, git hosting, storage, and a token balance.">
+  <title>Integrate — HONE</title>
+  <meta name="description" content="Connect any project or AI agent to HONE: AI inference, git hosting, storage, and a token balance.">
   <style>
     html,body{margin:0;padding:0;background:#0a0a0a;color:#e2e8f0;font-family:'SF Mono','Fira Code','Cascadia Code',Consolas,monospace;line-height:1.6;}
     *{box-sizing:border-box;}
@@ -89,9 +89,9 @@
 <script src="/nav.js?v=2"></script>
 
 <nav class="nav">
-  <a href="/" class="brand">BTCPC</a>
+  <a href="/" class="brand">HONE</a>
   <a href="/install">Install</a>
-  <a href="/buy">Buy BTCPC</a>
+  <a href="/buy">Buy HONE</a>
   <a href="/dashboard">Explorer</a>
   <a href="/integrate" class="active">Integrate</a>
   <a href="/app">Inference</a>
@@ -104,8 +104,8 @@
 
   <section>
     <div class="eyebrow">Developer reference</div>
-    <h1>Integrate with <span>BTCPC</span></h1>
-    <p class="lead">Connect any project or AI agent to the BTCPC chain — AI inference, git hosting, storage, and a token balance — all from one sovereign account.</p>
+    <h1>Integrate with <span>HONE</span></h1>
+    <p class="lead">Connect any project or AI agent to the HONE chain — AI inference, git hosting, storage, and a token balance — all from one sovereign account.</p>
     <div class="badges">
       <span class="badge">Wallet</span>
       <span class="badge">Inference API</span>
@@ -122,63 +122,63 @@
   <section>
     <div class="eyebrow" style="color:#22c55e;">For AI agents</div>
     <h2>Read this before <span>running anything</span></h2>
-    <p class="lead">If you are an AI agent integrating a project with BTCPC, follow this section exactly. It gives you the decision logic, expected outputs, and failure branches for every step. The detailed commands are in the sections below — come back here first.</p>
+    <p class="lead">If you are an AI agent integrating a project with HONE, follow this section exactly. It gives you the decision logic, expected outputs, and failure branches for every step. The detailed commands are in the sections below — come back here first.</p>
 
     <div class="card" style="border-color:rgba(34,197,94,0.2);">
       <div class="card-label" style="color:#22c55e;">Decision tree — run once per project</div>
 
       <div class="code" style="border-color:rgba(34,197,94,0.2);color:#86efac;">## STEP A — Check for existing wallet (ALWAYS do this first)
-ls ~/.btcpc/wallet.json 2>/dev/null &amp;&amp; echo WALLET_EXISTS
-ls .btcpc/wallet.env   2>/dev/null &amp;&amp; echo WALLET_EXISTS
-echo $BTCPC_ACCOUNT
+ls ~/.hone/wallet.json 2>/dev/null &amp;&amp; echo WALLET_EXISTS
+ls .hone/wallet.env   2>/dev/null &amp;&amp; echo WALLET_EXISTS
+echo $HONE_ACCOUNT
 
 # IF any of the above prints a value → wallet exists. Jump to STEP E.
 # IF nothing prints → no wallet. Continue to STEP B.</div>
 
-      <div class="code" style="border-color:rgba(34,197,94,0.2);color:#86efac;" id="agent-decision-tree">## STEP B — Install CLI (skip if `btcpc --version` already works)
-curl -fsSL https://btcpc.net/install | bash
-btcpc --version
-# Expected: btcpc X.Y.Z
+      <div class="code" style="border-color:rgba(34,197,94,0.2);color:#86efac;" id="agent-decision-tree">## STEP B — Install CLI (skip if `hone --version` already works)
+curl -fsSL https://honemesh.net/install | bash
+hone --version
+# Expected: hone X.Y.Z
 
 ## STEP C — Create account (only if STEP A found nothing)
-btcpc wallet create --account &lt;choose-a-username&gt;
+hone wallet create --account &lt;choose-a-username&gt;
 # Expected: mnemonic printed once. Write it down. It is never stored.
 # Save the output — you cannot recover it later.
 
 ## STEP D — Register signing key (only after STEP C)
-btcpc key generate
-btcpc key register --account &lt;username&gt; --role posting
-# Expected: {"status":"ok"} or similar. Key saved to ~/.btcpc/key.json.
+hone key generate
+hone key register --account &lt;username&gt; --role posting
+# Expected: {"status":"ok"} or similar. Key saved to ~/.hone/key.json.
 
 ## STEP E — Check balance
-curl https://btcpc.net/api/balance/&lt;username&gt;
-# Expected: {"balance":10.0,"dreams":1000000000,...}
+curl https://honemesh.net/api/balance/&lt;username&gt;
+# Expected: {"balance":10.0,"hunits":1000000000,...}
 # IF balance is 0 → run STEP F. Otherwise skip to STEP G.
 
 ## STEP F — Claim faucet (only if balance is 0)
-btcpc faucet claim &lt;username&gt;
+hone faucet claim &lt;username&gt;
 # Expected: {"status":"ok","amount":10,...}
-# Gives 10 BTCPC = 1,000,000,000 dreams ≈ 100,000 inference calls.
+# Gives 10 HONE = 1,000,000,000 hunits ≈ 100,000 inference calls.
 
-## STEP G — Generate API key (skip if BTCPC_API_KEY already set)
-grep BTCPC_API_KEY .btcpc/wallet.env 2>/dev/null
+## STEP G — Generate API key (skip if HONE_API_KEY already set)
+grep HONE_API_KEY .hone/wallet.env 2>/dev/null
 # IF printed a value → already done. Skip to STEP H.
-btcpc wallet api-key-gen --mnemonic "word1 word2 ... word12"
-echo '.btcpc/wallet.env' &gt;&gt; .gitignore
-# Expected: .btcpc/wallet.env written with BTCPC_ACCOUNT and BTCPC_API_KEY.
+hone wallet api-key-gen --mnemonic "word1 word2 ... word12"
+echo '.hone/wallet.env' &gt;&gt; .gitignore
+# Expected: .hone/wallet.env written with HONE_ACCOUNT and HONE_API_KEY.
 
 ## STEP H — Export env vars
-export $(grep -v '^#' .btcpc/wallet.env | xargs)
+export $(grep -v '^#' .hone/wallet.env | xargs)
 # Required before making any API call. Verify:
-echo $BTCPC_ACCOUNT $BTCPC_API_KEY
+echo $HONE_ACCOUNT $HONE_API_KEY
 # Expected: &lt;username&gt; &lt;64-char hex&gt;
 
 ## STEP I — Verify with a test inference call
-curl -X POST https://btcpc.net/v1/chat/completions \
-  -H "Authorization: Bearer $BTCPC_API_KEY" \
+curl -X POST https://honemesh.net/v1/chat/completions \
+  -H "Authorization: Bearer $HONE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":"ping"}],"model":"dolphin-llama3"}'
-# Expected: {"choices":[{"message":{"content":"..."}}],"usage":{"fee_dreams":...}}
+# Expected: {"choices":[{"message":{"content":"..."}}],"usage":{"fee_hunits":...}}
 # 401 → API key wrong. Re-run STEP G.
 # 402 → Balance too low. Re-run STEP F then retry.
 # 503 → No miner online. Try model "llama3" or "mistral".</div>
@@ -190,10 +190,10 @@ curl -X POST https://btcpc.net/v1/chat/completions \
         <thead><tr><th>Rule</th><th>Reason</th></tr></thead>
         <tbody>
           <tr><td style="color:#fed7aa;">Never create a wallet without checking first</td><td>Creating a second wallet overwrites access to the first — tokens are unrecoverable</td></tr>
-          <tr><td style="color:#fed7aa;">Never hardcode BTCPC_API_URL</td><td>Always read from env — the URL changes between testnet and mainnet</td></tr>
+          <tr><td style="color:#fed7aa;">Never hardcode HONE_API_URL</td><td>Always read from env — the URL changes between testnet and mainnet</td></tr>
           <tr><td style="color:#fed7aa;">On 402, claim faucet once then retry</td><td>Do not retry more than once — multiple faucet claims in rapid succession are rate-limited</td></tr>
-          <tr><td style="color:#fed7aa;">Never commit .btcpc/wallet.env</td><td>Contains live signing keys — add to .gitignore immediately after creation</td></tr>
-          <tr><td style="color:#a3e635;">BTCPC_API_URL defaults to https://btcpc.net</td><td>Override to http://localhost:4242 to use a local node instead</td></tr>
+          <tr><td style="color:#fed7aa;">Never commit .hone/wallet.env</td><td>Contains live signing keys — add to .gitignore immediately after creation</td></tr>
+          <tr><td style="color:#a3e635;">HONE_API_URL defaults to https://honemesh.net</td><td>Override to http://localhost:4242 to use a local node instead</td></tr>
         </tbody>
       </table>
     </div>
@@ -213,8 +213,8 @@ curl -X POST https://btcpc.net/v1/chat/completions \
         <div class="step-n">1</div>
         <div class="step-body">
           <strong>Install the CLI</strong>
-          <div class="code">curl -fsSL https://btcpc.net/install | bash
-btcpc --version</div>
+          <div class="code">curl -fsSL https://honemesh.net/install | bash
+hone --version</div>
         </div>
       </div>
 
@@ -224,9 +224,9 @@ btcpc --version</div>
           <strong>Check for an existing wallet first</strong>
           <div class="warn"><strong>Do not create a new wallet if one already exists.</strong> You will lose access to your existing account and tokens.</div>
           <div class="code"># Any of these means you already have a wallet:
-ls ~/.btcpc/wallet.json 2>/dev/null &amp;&amp; echo EXISTS
-ls .btcpc/wallet.env   2>/dev/null &amp;&amp; echo EXISTS
-echo $BTCPC_ACCOUNT</div>
+ls ~/.hone/wallet.json 2>/dev/null &amp;&amp; echo EXISTS
+ls .hone/wallet.env   2>/dev/null &amp;&amp; echo EXISTS
+echo $HONE_ACCOUNT</div>
           <p>If a wallet exists, skip to step 5.</p>
         </div>
       </div>
@@ -235,7 +235,7 @@ echo $BTCPC_ACCOUNT</div>
         <div class="step-n">3</div>
         <div class="step-body">
           <strong>Create your account <span style="color:#64748b;font-weight:400;">(only if none exists)</span></strong>
-          <div class="code">btcpc wallet create --account myproject
+          <div class="code">hone wallet create --account myproject
 # Prints a 12-word mnemonic. Write it down — shown once, never stored.</div>
         </div>
       </div>
@@ -244,9 +244,9 @@ echo $BTCPC_ACCOUNT</div>
         <div class="step-n">4</div>
         <div class="step-body">
           <strong>Register your signing key <span style="color:#64748b;font-weight:400;">(only if new account)</span></strong>
-          <div class="code">btcpc key generate
-btcpc key register --account myproject --role posting</div>
-          <p>Generates <code>~/.btcpc/key.json</code> and registers its public key on-chain.</p>
+          <div class="code">hone key generate
+hone key register --account myproject --role posting</div>
+          <p>Generates <code>~/.hone/key.json</code> and registers its public key on-chain.</p>
         </div>
       </div>
 
@@ -254,11 +254,11 @@ btcpc key register --account myproject --role posting</div>
         <div class="step-n">5</div>
         <div class="step-body">
           <strong>Check balance and claim tokens</strong>
-          <div class="code">curl https://btcpc.net/api/balance/myproject</div>
+          <div class="code">curl https://honemesh.net/api/balance/myproject</div>
           <p>If balance is 0:</p>
-          <div class="code">btcpc faucet claim myproject
+          <div class="code">hone faucet claim myproject
 # Or via Telegram: message @btcpcbot with /faucet</div>
-          <div class="info">Faucet gives 10 BTCPC — covers ~100,000 average inference calls. 1 BTCPC = 100,000,000 dreams.</div>
+          <div class="info">Faucet gives 10 HONE — covers ~100,000 average inference calls. 1 HONE = 100,000,000 hunits.</div>
         </div>
       </div>
 
@@ -266,11 +266,11 @@ btcpc key register --account myproject --role posting</div>
         <div class="step-n">6</div>
         <div class="step-body">
           <strong>Generate an API key</strong>
-          <div class="code">grep BTCPC_API_KEY .btcpc/wallet.env 2>/dev/null
+          <div class="code">grep HONE_API_KEY .hone/wallet.env 2>/dev/null
 
 # If empty or missing:
-btcpc wallet api-key-gen --mnemonic "your twelve words here"
-echo '.btcpc/wallet.env' &gt;&gt; .gitignore</div>
+hone wallet api-key-gen --mnemonic "your twelve words here"
+echo '.hone/wallet.env' &gt;&gt; .gitignore</div>
         </div>
       </div>
 
@@ -278,11 +278,11 @@ echo '.btcpc/wallet.env' &gt;&gt; .gitignore</div>
         <div class="step-n">7</div>
         <div class="step-body">
           <strong>Set environment variables</strong>
-          <div class="code">BTCPC_ACCOUNT=myproject
-BTCPC_API_KEY=&lt;64-char hex from api-key-gen&gt;
-BTCPC_API_URL=https://btcpc.net
+          <div class="code">HONE_ACCOUNT=myproject
+HONE_API_KEY=&lt;64-char hex from api-key-gen&gt;
+HONE_API_URL=https://honemesh.net
 
-export $(grep -v '^#' .btcpc/wallet.env | xargs)</div>
+export $(grep -v '^#' .hone/wallet.env | xargs)</div>
         </div>
       </div>
 
@@ -295,7 +295,7 @@ export $(grep -v '^#' .btcpc/wallet.env | xargs)</div>
   <section>
     <div class="eyebrow">Inference</div>
     <h2>POST <span>/v1/chat/completions</span></h2>
-    <p class="lead">Auth required. <strong style="color:#e2e8f0;">100 dreams per token</strong>, minimum 1,000 per request. Fee is charged after the model responds from actual token counts.</p>
+    <p class="lead">Auth required. <strong style="color:#e2e8f0;">100 hunits per token</strong>, minimum 1,000 per request. Fee is charged after the model responds from actual token counts.</p>
 
     <div class="card">
       <div class="tabs">
@@ -304,19 +304,19 @@ export $(grep -v '^#' .btcpc/wallet.env | xargs)</div>
         <button class="tab" onclick="sw(this,'js')">JavaScript</button>
       </div>
       <div class="tab-panel on" id="t-curl">
-        <div class="code">curl -X POST https://btcpc.net/v1/chat/completions \
-  -H "Authorization: Bearer $BTCPC_API_KEY" \
+        <div class="code">curl -X POST https://honemesh.net/v1/chat/completions \
+  -H "Authorization: Bearer $HONE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role":"user","content":"What is 2+2?"}],
     "model": "dolphin-llama3"
   }'</div>
-        <p style="color:#64748b;font-size:13px;margin-top:10px;">Response includes <code>usage.fee_dreams</code> — the exact cost.</p>
+        <p style="color:#64748b;font-size:13px;margin-top:10px;">Response includes <code>usage.fee_hunits</code> — the exact cost.</p>
       </div>
       <div class="tab-panel" id="t-rust">
         <div class="code">// Cargo.toml
 btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/btcpc-sdk" }</div>
-        <div class="code">let client = BtcpcClient::from_env(); // reads env vars
+        <div class="code">let client = HoneClient::from_env(); // reads env vars
 
 let resp = client.chat_completions(
     vec![json!({"role":"user","content":"Summarise this PR."})],
@@ -326,10 +326,10 @@ let resp = client.chat_completions(
 let text = resp["choices"][0]["message"]["content"].as_str().unwrap_or("");</div>
       </div>
       <div class="tab-panel" id="t-js">
-        <div class="code">const res = await fetch(`${process.env.BTCPC_API_URL}/v1/chat/completions`, {
+        <div class="code">const res = await fetch(`${process.env.HONE_API_URL}/v1/chat/completions`, {
   method: 'POST',
   headers: {
-    'Authorization': `Bearer ${process.env.BTCPC_API_KEY}`,
+    'Authorization': `Bearer ${process.env.HONE_API_KEY}`,
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
@@ -347,7 +347,7 @@ const text = data.choices[0].message.content;</div>
       <table class="tbl">
         <thead><tr><th>Status</th><th>Meaning</th><th>Fix</th></tr></thead>
         <tbody>
-          <tr><td>401</td><td>Missing or invalid API key</td><td>Run <code>btcpc wallet api-key-gen</code></td></tr>
+          <tr><td>401</td><td>Missing or invalid API key</td><td>Run <code>hone wallet api-key-gen</code></td></tr>
           <tr><td>402</td><td>Insufficient balance</td><td>Claim faucet — see below</td></tr>
           <tr><td>429</td><td>Rate limited (60 req / 60 s per IP)</td><td>Back off and retry</td></tr>
           <tr><td>503</td><td>No miner available for this model</td><td>Try a different model</td></tr>
@@ -377,28 +377,28 @@ const text = data.choices[0].message.content;</div>
     <div class="grid">
       <div class="mini">
         <div class="mini-label">Balance</div>
-        <div class="code" style="margin:0">curl https://btcpc.net/api/balance/myproject</div>
+        <div class="code" style="margin:0">curl https://honemesh.net/api/balance/myproject</div>
         <div class="code">let bal = client.balance("myproject").await?;</div>
       </div>
 
       <div class="mini">
         <div class="mini-label">Available models</div>
-        <div class="code" style="margin:0">curl https://btcpc.net/api/node/models</div>
+        <div class="code" style="margin:0">curl https://honemesh.net/api/node/models</div>
         <p>Testnet: dolphin-llama3, llama3, mistral, qwen2.5, gemma2</p>
       </div>
 
       <div class="mini">
         <div class="mini-label">Git hosting — LinkGit</div>
-        <div class="code" style="margin:0">btcpc repo init myproject
-git remote add btcpc \
-  https://git.btcpc.net/myproject/myrepo
-git push btcpc main</div>
+        <div class="code" style="margin:0">hone repo init myproject
+git remote add hone \
+  https://git.honemesh.net/myproject/myrepo
+git push hone main</div>
       </div>
 
       <div class="mini">
         <div class="mini-label">Storage heartbeat</div>
         <p>Nodes that store data earn from the storage pool each epoch.</p>
-        <div class="code" style="margin:0">curl -X POST https://btcpc.net/api/entry \
+        <div class="code" style="margin:0">curl -X POST https://honemesh.net/api/entry \
   -d '{
     "type":"STORAGE_HEARTBEAT",
     "node_id":"myproject",
@@ -411,12 +411,12 @@ git push btcpc main</div>
       <div class="mini">
         <div class="mini-label">Async inference jobs</div>
         <p>For jobs over ~30 s. Lifecycle: Posted → Awarded → Completed → Paid</p>
-        <div class="code" style="margin:0">btcpc inference post \
+        <div class="code" style="margin:0">hone inference post \
   --account myproject \
   --model llama3:70b \
   --max-fee 100000
 
-btcpc inference job &lt;job_id&gt;</div>
+hone inference job &lt;job_id&gt;</div>
       </div>
     </div>
   </section>
@@ -428,21 +428,21 @@ btcpc inference job &lt;job_id&gt;</div>
     <div class="eyebrow green">Checklist</div>
     <h2>Ready to <span>go live?</span></h2>
     <div class="checklist" style="margin-top:24px;">[ ] Check for existing wallet before creating a new one
-[ ] btcpc wallet create --account &lt;name&gt;
-[ ] btcpc key generate
-[ ] btcpc key register --account &lt;name&gt; --role posting
-[ ] btcpc faucet claim &lt;name&gt;
-[ ] btcpc wallet api-key-gen --mnemonic "..."
-[ ] echo '.btcpc/wallet.env' >> .gitignore
-[ ] Set BTCPC_ACCOUNT, BTCPC_API_KEY, BTCPC_API_URL in env
+[ ] hone wallet create --account &lt;name&gt;
+[ ] hone key generate
+[ ] hone key register --account &lt;name&gt; --role posting
+[ ] hone faucet claim &lt;name&gt;
+[ ] hone wallet api-key-gen --mnemonic "..."
+[ ] echo '.hone/wallet.env' >> .gitignore
+[ ] Set HONE_ACCOUNT, HONE_API_KEY, HONE_API_URL in env
 [ ] Handle 402 by claiming faucet and retrying once
-[ ] Never hardcode BTCPC_API_URL — always read from env</div>
+[ ] Never hardcode HONE_API_URL — always read from env</div>
   </section>
 
 </div><!-- /page -->
 
 <footer>
-  <a href="/">BTCPC</a> &nbsp;&middot;&nbsp;
+  <a href="/">HONE</a> &nbsp;&middot;&nbsp;
   <a href="/install">Install</a> &nbsp;&middot;&nbsp;
   <a href="/app">Inference</a> &nbsp;&middot;&nbsp;
   <a href="/terms">Terms</a> &nbsp;&middot;&nbsp;

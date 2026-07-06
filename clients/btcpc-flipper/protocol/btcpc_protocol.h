@@ -108,3 +108,37 @@ typedef struct {
     BtcpcFrameHeader hdr;
     uint8_t          payload[BTCPC_MAX_PAYLOAD];
 } BtcpcFrame;
+
+/* ─── Public API (implemented in btcpc_protocol.c) ──────────────────────── */
+
+#include "../crypto/ed25519.h"  /* BTCPC_ED25519_SK_LEN / _PK_LEN */
+
+/*
+ * btcpc_build_*() — serialise a sensor observation into `frame`, sign the
+ * payload with the device secret key `sk`, and return the total framed byte
+ * count (header + payload) ready for BLE TX.
+ */
+size_t btcpc_build_subghz(BtcpcFrame* frame, const BtcpcSubGhzObs* obs,
+                          const uint8_t sk[BTCPC_ED25519_SK_LEN]);
+size_t btcpc_build_rfid(BtcpcFrame* frame, const BtcpcRfidScan* scan,
+                        const uint8_t sk[BTCPC_ED25519_SK_LEN]);
+size_t btcpc_build_nfc(BtcpcFrame* frame, const BtcpcNfcScan* scan,
+                       const uint8_t sk[BTCPC_ED25519_SK_LEN]);
+size_t btcpc_build_ibutton(BtcpcFrame* frame, const BtcpcIButton* btn,
+                           const uint8_t sk[BTCPC_ED25519_SK_LEN]);
+size_t btcpc_build_heartbeat(BtcpcFrame* frame, const BtcpcHeartbeat* hb,
+                             const uint8_t sk[BTCPC_ED25519_SK_LEN]);
+
+/* Verify a received frame's ed25519 signature against public key `pk`. */
+bool btcpc_frame_verify(const BtcpcFrameHeader* hdr, const uint8_t* payload,
+                        const uint8_t pk[BTCPC_ED25519_PK_LEN]);
+
+/* Parse a raw BLE buffer into a frame header + payload pointer. */
+bool btcpc_parse_frame(const uint8_t* buf, size_t buf_len,
+                       BtcpcFrameHeader* hdr_out, const uint8_t** payload_out);
+
+/* Phone → Flipper payload parsers. */
+bool btcpc_parse_clock_sync(const uint8_t* payload, uint16_t payload_len,
+                            uint64_t* unix_ms_out);
+bool btcpc_parse_gps(const uint8_t* payload, uint16_t payload_len,
+                     BtcpcGps* gps_out);

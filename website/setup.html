@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Setup Wizard</title>
+  <title>HONE Setup Wizard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -190,7 +190,7 @@
 
   <div class="wizard">
     <div class="wizard-header">
-      <h1>BTCPC Setup</h1>
+      <h1>HONE Setup</h1>
       <p>Get your node running in 2 minutes</p>
     </div>
     <div class="progress">
@@ -203,7 +203,7 @@
 
     <!-- Step 1: Welcome -->
     <div class="step active" id="step-1">
-      <h2>Welcome to BTCPC</h2>
+      <h2>Welcome to HONE</h2>
       <p>Bitcoin Proof of Compute is a blockchain where mining means useful AI inference. Every token is earned by real compute. This wizard will get you running in a few clicks.</p>
       <div class="hardware-info" id="hardware-summary">
         <div>Detecting hardware<span>...</span></div>
@@ -231,7 +231,7 @@
     <!-- Step 3: Account -->
     <div class="step" id="step-3">
       <h2>Account</h2>
-      <p>Pick how you want to set up your BTCPC account.</p>
+      <p>Pick how you want to set up your HONE account.</p>
       <label class="option option-recommended" data-account="create">
         <div class="option-title">Create New Account</div>
         <div class="option-desc">Generate a fresh account with a 12-word recovery phrase. Save it offline.</div>
@@ -256,10 +256,10 @@
       <div id="import-form" style="display:none;">
         <p>Mining requires the posting key only. Staking is done on the website.</p>
         <input type="text" id="existing-username" placeholder="existing username" maxlength="20" autocomplete="off">
-        <textarea id="posting-key-input" placeholder="BTCPC posting private key (64 hex chars)"></textarea>
+        <textarea id="posting-key-input" placeholder="HONE posting private key (64 hex chars)"></textarea>
       </div>
       <div id="telegram-form" style="display:none;">
-        <p>Enter your existing BTCPC username (you'll verify via Telegram).</p>
+        <p>Enter your existing HONE username (you'll verify via Telegram).</p>
         <input type="text" id="telegram-username" placeholder="username from @btcpcbot" maxlength="20">
       </div>
       <div id="mnemonic-display" style="display:none;">
@@ -280,7 +280,7 @@
       <div class="hardware-info">
         <div>Account: <span id="summary-account">--</span></div>
         <div>Mode: <span id="summary-mode">--</span></div>
-        <div>Network: <span>BTCPC mainnet</span></div>
+        <div>Network: <span>HONE mainnet</span></div>
       </div>
     </div>
 
@@ -416,7 +416,7 @@
             return;
           }
           if ((state.mode === 'miner' || state.mode === 'both') && !/^[0-9a-fA-F]{64}$/.test(postingKey)) {
-            alert('Mining nodes require a 64-character BTCPC posting private key.');
+            alert('Mining nodes require a 64-character HONE posting private key.');
             return;
           }
           state.username = existing;
@@ -442,7 +442,7 @@
             }),
           });
           if (res.ok) {
-            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Mining Started</h1><p style="margin-top:16px;color:#94a3b8;">Your node is connected to the BTCPC network. View your dashboard at <a href="http://localhost:4242/dashboard?account=' + state.username + '" style="color:#f7931a;">localhost:4242</a></p></div>';
+            document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Mining Started</h1><p style="margin-top:16px;color:#94a3b8;">Your node is connected to the HONE network. View your dashboard at <a href="http://localhost:4242/dashboard?account=' + state.username + '" style="color:#f7931a;">localhost:4242</a></p></div>';
           } else {
             // Even if the backend doesn't have the endpoint yet, succeed
             document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h1 style="color:#f7931a;">Setup Complete</h1><p style="margin-top:16px;color:#94a3b8;">Account: <strong>' + state.username + '</strong><br>Run <code>node bin/btcpc-mine</code> to start mining.</p></div>';

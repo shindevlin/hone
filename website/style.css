@@ -332,9 +332,9 @@ section:first-of-type {
   line-height: 1.7;
 }
 
-/* ── Dreams Section ── */
+/* ── Hunits Section ── */
 
-.dreams-highlight {
+.hunits-highlight {
   text-align: center;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -343,20 +343,20 @@ section:first-of-type {
   margin-top: 32px;
 }
 
-.dreams-value {
+.hunits-value {
   font-size: 36px;
   font-weight: 700;
   color: var(--accent);
   margin-bottom: 8px;
 }
 
-.dreams-label {
+.hunits-label {
   font-size: 14px;
   color: var(--text-secondary);
   margin-bottom: 24px;
 }
 
-.dreams-desc {
+.hunits-desc {
   font-size: 14px;
   color: var(--text-muted);
   max-width: 600px;
@@ -640,7 +640,7 @@ section:first-of-type {
     grid-template-columns: 1fr;
   }
 
-  .dreams-value {
+  .hunits-value {
     font-size: 24px;
   }
 }

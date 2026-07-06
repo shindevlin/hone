@@ -51,6 +51,9 @@ public class AppPrefs {
     // ---- Flipper Zero pairing (BLE MAC-based) ----
     public static final String KEY_FLIPPER_BLE_MAC  = "flipperBleMac";
     public static final String KEY_FLIPPER_BLE_NAME = "flipperBleName";
+    // The Flipper's ed25519 device public key (64 hex chars), shown on the
+    // Flipper's Identity screen. Required to verify signed sensor frames.
+    public static final String KEY_FLIPPER_PUBKEY   = "flipperPubkey";
 
     // ---- service status (written by background services) ----
     public static final String KEY_RELAY_STATE   = "relay_state";
@@ -304,8 +307,23 @@ public class AppPrefs {
              .apply();
     }
 
+    /** The paired Flipper's ed25519 device public key (64 hex chars), or "". */
+    public String getFlipperPubkey() {
+        return prefs.getString(KEY_FLIPPER_PUBKEY, "");
+    }
+
+    public void setFlipperPubkey(String pubkeyHex) {
+        prefs.edit()
+             .putString(KEY_FLIPPER_PUBKEY, pubkeyHex != null ? pubkeyHex.trim().toLowerCase() : "")
+             .apply();
+    }
+
     public void clearFlipperBle() {
-        prefs.edit().remove(KEY_FLIPPER_BLE_MAC).remove(KEY_FLIPPER_BLE_NAME).apply();
+        prefs.edit()
+             .remove(KEY_FLIPPER_BLE_MAC)
+             .remove(KEY_FLIPPER_BLE_NAME)
+             .remove(KEY_FLIPPER_PUBKEY)
+             .apply();
     }
 
     /** Bulk-save all user-facing settings in one edit. */

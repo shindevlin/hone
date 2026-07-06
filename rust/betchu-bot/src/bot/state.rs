@@ -12,7 +12,7 @@ pub enum BetState {
     // ── Create bet flow ──────────────────────────────────────────
     CreateDescription,
 
-    /// After BTCPC/fuzzy matched the user input to a real ESPN game,
+    /// After HONE/fuzzy matched the user input to a real ESPN game,
     /// show the normalized description and wait for confirm/retype.
     ConfirmGameMatch {
         normalized: String,

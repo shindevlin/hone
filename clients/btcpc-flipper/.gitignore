@@ -1,0 +1,13 @@
+# Build outputs
+dist/
+tests/
+*.o
+*.fap
+*.elf
+
+# IDE
+.vscode/
+
+# ufbt build cache
+.ufbt/
+build/

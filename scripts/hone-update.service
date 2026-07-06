@@ -1,0 +1,10 @@
+[Unit]
+Description=HONE node auto-update
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/hone/scripts/update.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hone-update

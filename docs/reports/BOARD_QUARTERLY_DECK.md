@@ -78,7 +78,7 @@ footer: "Confidential • DAO-Free Guardian Model • v0.9+ Testnet"
 - [ ] Review P2P encryption rollout timeline
 - [ ] Authorize mainnet penetration test procurement
 
-**Contacts:** `security@btcpc.net` | `compliance@btcpc.net` | `ops@btcpc.net`
+**Contacts:** `security@honemesh.net` | `compliance@honemesh.net` | `ops@honemesh.net`
 
 ---
 

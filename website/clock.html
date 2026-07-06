@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Browser Clock — Mine While You Browse</title>
-  <meta name="description" content="Run a BTCPC clock node in your browser. No installation. Earn clock rewards for keeping the network's epoch timing alive.">
-  <meta property="og:title" content="BTCPC Browser Clock">
-  <meta property="og:description" content="Zero install. Mine BTCPC clock rewards from any browser, including phones.">
+  <title>HONE Browser Clock — Mine While You Browse</title>
+  <meta name="description" content="Run a HONE clock node in your browser. No installation. Earn clock rewards for keeping the network's epoch timing alive.">
+  <meta property="og:title" content="HONE Browser Clock">
+  <meta property="og:description" content="Zero install. Mine HONE clock rewards from any browser, including phones.">
   <link rel="manifest" href="/clock-manifest.json">
   <meta name="theme-color" content="#0a0e17">
   <style>
@@ -174,7 +174,7 @@
 <body>
 <script src="/nav.js?v=2"></script>
 <div class="container">
-    <div class="logo">⏰ BTCPC Clock</div>
+    <div class="logo">⏰ HONE Clock</div>
     <p class="subtitle">Browser-based clock node. No installation.</p>
 
     <div class="pulse" id="pulse"></div>
@@ -208,7 +208,7 @@
         <button id="tab-signin" class="tab-btn" onclick="setMode('signin')">Sign In</button>
       </div>
       <div id="anon-form">
-        <label>Your BTCPC Username</label>
+        <label>Your HONE Username</label>
         <input type="text" id="account" placeholder="e.g. shindevlin" maxlength="20" autocomplete="off">
         <button class="btn" id="start" onclick="start()">Start Clock</button>
         <div class="reward-info">
@@ -234,7 +234,7 @@
     </div>
 
     <div class="footer">
-      <a href="/install">Other install options</a> · <a href="/">btcpc.net</a> · <a href="https://btcpc.substack.com">Substack</a>
+      <a href="/install">Other install options</a> · <a href="/">honemesh.net</a> · <a href="https://btcpc.substack.com">Substack</a>
     </div>
   </div>
 
@@ -254,8 +254,8 @@
 
     // Restore JWT from localStorage if present
     try {
-      var savedJwt = localStorage.getItem('btcpc_jwt');
-      var savedUser = localStorage.getItem('btcpc_jwt_user');
+      var savedJwt = localStorage.getItem('hone_jwt');
+      var savedUser = localStorage.getItem('hone_jwt_user');
       if (savedJwt && savedUser) {
         state.jwt = savedJwt;
         state.account = savedUser;
@@ -292,8 +292,8 @@
         state.account = account;
         state.verified = true;
         try {
-          localStorage.setItem('btcpc_jwt', data.token);
-          localStorage.setItem('btcpc_jwt_user', account);
+          localStorage.setItem('hone_jwt', data.token);
+          localStorage.setItem('hone_jwt_user', account);
         } catch (e) {}
         // Auto-start the clock
         document.getElementById('account').value = account;
@@ -338,13 +338,13 @@
 
     function getClientId() {
       var id = null;
-      try { id = localStorage.getItem('btcpc_clock_client_id'); } catch (e) {}
+      try { id = localStorage.getItem('hone_clock_client_id'); } catch (e) {}
       if (!id) {
         // Generate a 32-char hex client ID locally
         var bytes = new Uint8Array(16);
         (window.crypto || window.msCrypto).getRandomValues(bytes);
         id = Array.from(bytes).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-        try { localStorage.setItem('btcpc_clock_client_id', id); } catch (e) {}
+        try { localStorage.setItem('hone_clock_client_id', id); } catch (e) {}
       }
       return id;
     }
@@ -395,7 +395,7 @@
       sendHeartbeat();
       state.timer = setInterval(sendHeartbeat, 35000);
       state.networkTimer = setInterval(fetchNetwork, 15000);
-      try { localStorage.setItem('btcpc_clock_account', account); } catch (e) {}
+      try { localStorage.setItem('hone_clock_account', account); } catch (e) {}
     }
 
     function stop() {
@@ -406,14 +406,14 @@
       document.getElementById('running').style.display = 'none';
       setStatus('Idle', 'offline');
       logMsg('Clock stopped');
-      try { localStorage.removeItem('btcpc_clock_account'); } catch (e) {}
+      try { localStorage.removeItem('hone_clock_account'); } catch (e) {}
     }
 
     // Auto-restart from localStorage
     fetchNetwork();
     setInterval(fetchNetwork, 15000);
     try {
-      var saved = localStorage.getItem('btcpc_clock_account');
+      var saved = localStorage.getItem('hone_clock_account');
       if (saved) {
         document.getElementById('account').value = saved;
       }

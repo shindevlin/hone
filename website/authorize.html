@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize App - BTCPC</title>
+  <title>Authorize App - HONE</title>
   <link rel="stylesheet" href="style.css">
   <style>
     .auth-container {
@@ -150,27 +150,27 @@
 <body>
 
   <div id="nav-bar" style="position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;padding:6px 16px;background:rgba(10,14,23,0.95);border-bottom:1px solid rgba(247,147,26,0.3);font-size:12px;gap:20px;">
-    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;"><img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">BTCPC</a>
+    <a href="/" style="color:#f7931a;font-weight:bold;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;"><img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">HONE</a>
     <a href="/#tutorial" style="color:#c8ccd4;text-decoration:none;">Get Started</a>
     <a href="/run-a-node" style="color:#c8ccd4;text-decoration:none;">Run a Node</a>
     <a href="/store" style="color:#c8ccd4;text-decoration:none;">Store</a>
-    <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy BTCPC</a>
+    <a href="/buy" style="color:#c8ccd4;text-decoration:none;">Buy HONE</a>
     <a href="/dashboard" style="color:#c8ccd4;text-decoration:none;">Explorer</a>
     <a href="https://t.me/btcpcbot" style="color:#c8ccd4;text-decoration:none;" target="_blank">Telegram</a>
   </div>
 
   <div class="auth-container" id="authForm">
     <h1>Authorization Request</h1>
-    <p style="color:var(--text-secondary);font-size:13px;margin-top:4px;">A third-party app wants to use your BTCPC account for AI inference.</p>
+    <p style="color:var(--text-secondary);font-size:13px;margin-top:4px;">A third-party app wants to use your HONE account for AI inference.</p>
 
     <div class="auth-details">
       <div><span class="label">App: </span><span class="value auth-app-name" id="appName">--</span></div>
-      <div><span class="label">Spending limit: </span><span class="value" id="spendLimit">--</span> BTCPC</div>
+      <div><span class="label">Spending limit: </span><span class="value" id="spendLimit">--</span> HONE</div>
       <div><span class="label">Expires: </span><span class="value">24 hours</span></div>
     </div>
 
     <label class="auth-label">Username</label>
-    <input type="text" class="auth-field" id="username" placeholder="your BTCPC account name" autocomplete="username">
+    <input type="text" class="auth-field" id="username" placeholder="your HONE account name" autocomplete="username">
 
     <label class="auth-label">Password</label>
     <input type="password" class="auth-field" id="password" placeholder="account password" autocomplete="current-password">
@@ -186,7 +186,7 @@
   <div class="auth-container auth-success" id="authSuccess">
     <h3>Session Authorized</h3>
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">
-      <span id="successApp">--</span> can now spend up to <span id="successLimit">--</span> BTCPC on your behalf.
+      <span id="successApp">--</span> can now spend up to <span id="successLimit">--</span> HONE on your behalf.
     </p>
     <label class="auth-label">Session Token</label>
     <div class="token-display" id="tokenDisplay" onclick="copyToken()">--</div>

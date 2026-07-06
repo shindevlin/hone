@@ -574,7 +574,7 @@ natively compatible with hardware wallets:
 
 - **Ledger** — store BTCPC mnemonic on a Ledger device for cold storage. The
   owner key never touches a networked machine. Key rotation and recovery
-  operations are signed on the device and submitted via `btcpc.net/rotate`.
+  operations are signed on the device and submitted via `honemesh.net/rotate`.
 - **Flipper Zero** — a portable hardware wallet and mobile sensor node. Sub-GHz
   radio, NFC/RFID, BLE, and GPIO make it capable of both securing keys and
   relaying short-range sensor data in the field.
@@ -749,7 +749,7 @@ is: **earn where you are, not where we want you to be.**
 - A Flipper Zero in your bag earns from Sub-GHz, BLE, and NFC scanning everywhere
   you go. Sync when you get home.
 
-The browser PWA at btcpc.net/app is the easiest onramp: zero installation, works on
+The browser PWA at honemesh.net/app is the easiest onramp: zero installation, works on
 any device, earns from three pools simultaneously (clock 5%, sensors 10%, mining 55%).
 For users who want maximum earnings, the CLI provides full GPU access, larger models,
 and always-on operation.
@@ -1567,7 +1567,7 @@ Setup (vendor's device, once):
   generate fulfill_keypair (fulfill_privkey, fulfill_pubkey)
   shared_secret     = ECDH(fulfill_privkey, service_pubkey)
   encrypted_blob    = AES_256_GCM(key=shared_secret, plaintext=fulfill_privkey)
-  blob_cid          = BTCPC_FS.store(encrypted_blob)
+  blob_cid          = HONE_FS.store(encrypted_blob)
 
 FULFILL_KEY_REGISTER (signed by posting_key):
   fulfill_pubkey:           <pubkey>
@@ -1583,7 +1583,7 @@ Runtime (service node, no vendor device needed):
 
 ```
 shared_secret   = ECDH(service_privkey, fulfill_pubkey)
-fulfill_privkey = AES_256_GCM_decrypt(key=shared_secret, blob from BTCPC_FS)
+fulfill_privkey = AES_256_GCM_decrypt(key=shared_secret, blob from HONE_FS)
 ```
 
 The vendor's device is required only for the one-time setup. After that the service runs autonomously. If the service key is revoked, the encrypted blob becomes permanently unreadable — the new service key cannot decrypt a blob that was encrypted to the old one. The vendor re-encrypts to the new service key and posts a new `FULFILL_KEY_REGISTER`.
@@ -1603,7 +1603,7 @@ encrypted_delivery = AES_256_GCM(
   key  = ECDH(fulfill_privkey, buyer_delivery_pubkey),
   data = digital_good
 )
-cid = BTCPC_FS.store(encrypted_delivery)
+cid = HONE_FS.store(encrypted_delivery)
 ORDER_FULFILL includes: delivery_cid = cid
 ```
 
@@ -1819,4 +1819,4 @@ sure the dock is always open.
 *Native token: BTCPC*
 *License: AGPL-3.0*
 *GitHub: https://github.com/shindevlin/btcpc*
-*Website: https://btcpc.net*
+*Website: https://honemesh.net*

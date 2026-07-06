@@ -25,8 +25,8 @@ jobs:
 
       - name: Run testnet smoke
         env:
-          TESTNET_BASE_URL: ${{ secrets.BTCPC_TESTNET_URL || 'https://btcpc.net' }}
-          API_BASE_URL: ${{ secrets.BTCPC_API_URL || 'https://btcpc.net' }}
+          TESTNET_BASE_URL: ${{ secrets.HONE_TESTNET_URL || 'https://honemesh.net' }}
+          API_BASE_URL: ${{ secrets.HONE_API_URL || 'https://honemesh.net' }}
           BTCPC_SMOKE_API_KEY: ${{ secrets.BTCPC_SMOKE_API_KEY }}
           BTCPC_MODEL: ${{ secrets.BTCPC_SMOKE_MODEL || 'qwen3:4b' }}
         run: npm run smoke:testnet

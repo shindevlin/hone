@@ -27,7 +27,7 @@ TASKS:
 4. Run the job submitter on a cron (every 30 minutes) to keep fresh headlines flowing
 5. The game should display both real headlines (from news APIs) and BTCPC-generated fakes
 
-The project's BTCPC API key is in .envbtcpc (BTCPC_PROJECT_KEY).
+The project's BTCPC API key is in .envbtcpc (HONE_PROJECT_KEY).
 ```
 
 ---

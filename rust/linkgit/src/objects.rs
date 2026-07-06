@@ -1,5 +1,5 @@
 // Git object storage helpers — Phase 2 implementation
-// Objects are stored as BlobStore entries in btcpc-fs keyed by SHA-256
+// Objects are stored as BlobStore entries in hone-fs keyed by SHA-256
 
 use sha2::{Digest, Sha256};
 

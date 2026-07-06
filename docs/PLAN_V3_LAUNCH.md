@@ -43,7 +43,7 @@ update local projects, and anchor to external chains.
 - Same API surface: `getBalance`, `getAccount`, `applyEntry`, etc.
 - All 1,151+ tests pass without changes (same interface, different backend)
 - `resetAll()` clears the LevelDB instance
-- Data dir: `$BTCPC_DATA_DIR/statedb/` (alongside blocks/)
+- Data dir: `$HONE_DATA_DIR/statedb/` (alongside blocks/)
 - New node downloads statedb snapshot from any peer + verifies merkle root
 
 **Tests:** same existing tests work; add LevelDB-specific tests for persistence across restarts
@@ -112,7 +112,7 @@ update local projects, and anchor to external chains.
 
 ### Full whitepaper rewrite
 
-The current whitepaper (`docs/BTCPC_WHITEPAPER.md`, 821 lines) reflects v0.3 from before most of the system was built. The rewrite must reflect the full v3.0 reality:
+The current whitepaper (`docs/HONE_WHITEPAPER.md`, 821 lines) reflects v0.3 from before most of the system was built. The rewrite must reflect the full v3.0 reality:
 
 - Proof of Compute consensus (not PoW, not PoS — machines earn by doing useful work)
 - Five-pool emission model (60/10/5/15/10 split)
@@ -128,7 +128,7 @@ The current whitepaper (`docs/BTCPC_WHITEPAPER.md`, 821 lines) reflects v0.3 fro
 
 This whitepaper gets inscribed in Dream #0 of the new chain.
 
-### One-page whitepaper (DONE — `docs/BTCPC_ONEPAGER.md`)
+### One-page whitepaper (DONE — `docs/HONE_ONEPAGER.md`)
 
 ### Genesis migration tooling
 
@@ -157,21 +157,21 @@ This whitepaper gets inscribed in Dream #0 of the new chain.
 1. Detects hardware (ARM arch, LoRa concentrator chip)
 2. Installs Node.js if missing (via nvm)
 3. Clones btcpc repo (needs git + network)
-4. Configures as: `BTCPC_ROLES=clock,storage,sensor`
+4. Configures as: `HONE_ROLES=clock,storage,sensor`
 5. Sets up LoRa packet forwarder to listen for sensor packets
 6. Registers as gateway via `POST /api/gateways`
 7. Starts `bin/btcpc-all` as a systemd service
-8. First Nebra belongs to shin → `BTCPC_MINER=shindevlin`
+8. First Nebra belongs to shin → `HONE_MINER=shindevlin`
 
 **Setup instructions** (step-by-step for the user):
 1. SSH into the Nebra: `ssh root@<nebra-ip>`
-2. Run: `curl -fsSL https://btcpc.net/nebra-install.sh | bash`
+2. Run: `curl -fsSL https://honemesh.net/nebra-install.sh | bash`
 3. Enter your BTCPC username when prompted
 4. The script handles everything else (Node, git clone, LoRa config, systemd service)
 
 **`website/nebra-install.sh`:** hosted installer for Nebra, similar pattern to install.sh but ARM-specific.
 
-### Map function on btcpc.net
+### Map function on honemesh.net
 
 **`website/map.html`:**
 - Leaflet.js map showing all registered gateways + sensors
@@ -270,7 +270,7 @@ Estimated time to Step 10 (go public): 2-3 more sessions if we keep this pace.
 - Email GEODNET support → deregister previous owner → $96 GEOD/day potential
 - Optional: USB GNSS receiver ($30-150) for direct NTRIP without ARP spoofing
 
-### Paid data API (api.btcpc.net)
+### Paid data API (api.honemesh.net)
 - REST API selling sensor data to external consumers
 - Fiat (Stripe) + stablecoin + BTCPC payment options
 - Pricing tiers: free (100 calls/day), developer ($10/mo), enterprise (custom)

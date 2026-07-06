@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BTCPC Global Nervous System</title>
+<title>HONE Global Nervous System</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; }
@@ -811,7 +811,7 @@ function addEvent(type, msg) {
 const matrixCanvas = document.getElementById('matrix-canvas');
 const matrixCtx = matrixCanvas.getContext('2d');
 let matrixColumns = [];
-const matrixChars = 'BTCPC01ABCDEF';
+const matrixChars = 'HONE01ABCDEF';
 
 function initMatrix() {
   matrixCanvas.width = eventLog.clientWidth;
@@ -1150,7 +1150,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
       let bal = '--';
       if (leaderboardData && leaderboardData.leaderboard) {
         const entry = leaderboardData.leaderboard.find(e => e.account === ud.name);
-        if (entry && typeof entry.balance === 'number') bal = (entry.balance / 1e10).toFixed(4) + ' BTCPC';
+        if (entry && typeof entry.balance === 'number') bal = (entry.balance / 1e10).toFixed(4) + ' HONE';
       }
       tooltip.querySelector('.tt-balance').textContent = bal;
       hit = true;
@@ -1168,7 +1168,7 @@ setInterval(fetchData, 10000);
 
 // Initial events
 addEvent('SYNC', 'Globe visualizer initialized');
-addEvent('EPOCH', 'Connecting to BTCPC network...');
+addEvent('EPOCH', 'Connecting to HONE network...');
 
 animate();
 </script>

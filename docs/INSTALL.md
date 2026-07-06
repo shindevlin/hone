@@ -111,10 +111,10 @@ MONGODB_URI=mongodb://root:example@localhost:27017/btcpc?authSource=admin
 OLLAMA_URL=http://localhost:11434
 
 # Model to mine with (must be pulled in Ollama)
-BTCPC_MODEL=qwen3.5:27b
+HONE_MODEL=qwen3.5:27b
 
 # Inference tasks per epoch (default: 3)
-BTCPC_WORK_PER_EPOCH=3
+HONE_WORK_PER_EPOCH=3
 
 # P2P port for node discovery
 P2P_PORT=6942
@@ -249,7 +249,7 @@ sudo journalctl -u btcpc-miner -f   # watch logs
 | `MongoDB connection failed` | Ensure the `btcpc-mongo` container is running: `docker ps` |
 | `Ollama unreachable after 5 attempts` | Check Ollama is running: `ollama list`. Ensure `OLLAMA_URL` in `.env` is correct. |
 | `Genesis miner account not found` | The genesis block creates the `shindevlin` miner account automatically on first run. If the DB was wiped, drop the database and restart the daemon to re-create genesis. |
-| Slow epoch times | A 27B model on CPU can take 5+ minutes per work item. Use a GPU or switch to a smaller model (`BTCPC_MODEL=deepseek-r1:8b`). |
+| Slow epoch times | A 27B model on CPU can take 5+ minutes per work item. Use a GPU or switch to a smaller model (`HONE_MODEL=deepseek-r1:8b`). |
 | `Duplicate schema index` warning | Harmless Mongoose warning — does not affect operation. |
 
 ---

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BTCPC Device</title>
+  <title>HONE Device</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0a0e17; color: #c8ccd4; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.6; }
@@ -71,8 +71,8 @@
 
 <div id="nav-bar">
   <a href="/" class="nav-logo">
-    <img src="/btcpc-logo.jpeg" alt="BTCPC" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">
-    BTCPC
+    <img src="/hone-logo.jpeg" alt="HONE" style="width:24px;height:24px;border-radius:6px;object-fit:cover;">
+    HONE
   </a>
   <a href="/globe" class="nav-link">Globe</a>
   <a href="/dashboard" class="nav-link">Dashboard</a>
@@ -133,9 +133,9 @@
     <div class="section">
       <div class="two-col">
         <div>
-          <label>Stake Amount (BTCPC)</label>
+          <label>Stake Amount (HONE)</label>
           <input type="number" id="calc-stake" placeholder="e.g. 500" min="0.00000001" step="any">
-          <label>Rent Bid (BTCPC per epoch)</label>
+          <label>Rent Bid (HONE per epoch)</label>
           <input type="number" id="calc-rent" placeholder="e.g. 0.001" min="0" step="any">
           <div id="mode-toggle">
             <button id="btn-earnings" class="active" onclick="setMode('earnings')">Earnings First</button>
@@ -232,7 +232,7 @@ async function loadDevice() {
     document.getElementById('loading').textContent = 'No device id in URL (?id=owner/name)';
     return;
   }
-  document.title = 'BTCPC Device — ' + deviceId;
+  document.title = 'HONE Device — ' + deviceId;
 
   // Load sensor info
   var sensorRes = null;
@@ -286,14 +286,14 @@ async function loadDevice() {
     var bar = document.createElement('div');
     bar.className = 'bar';
     bar.style.height = h + 'px';
-    bar.innerHTML = '<div class="bar-tip">Day ' + (30 - i) + '<br>— BTCPC</div>';
+    bar.innerHTML = '<div class="bar-tip">Day ' + (30 - i) + '<br>— HONE</div>';
     chart.appendChild(bar);
   }
 
   // Rent floor
   var floorPerEpoch = (stakersRes && stakersRes.floor_rent_per_epoch) || (50 / 86400);
-  document.getElementById('rent-floor-display').textContent = fmt(floorPerEpoch, 8) + ' BTCPC/epoch';
-  document.getElementById('rent-floor-monthly').textContent = fmt(floorPerEpoch * 86400, 4) + ' BTCPC/month';
+  document.getElementById('rent-floor-display').textContent = fmt(floorPerEpoch, 8) + ' HONE/epoch';
+  document.getElementById('rent-floor-monthly').textContent = fmt(floorPerEpoch * 86400, 4) + ' HONE/month';
 
   // Staker table
   renderStakerTable(stakersRes);
@@ -356,7 +356,7 @@ function updateCalc() {
 
   var floorPerEpoch = (poolData && poolData.floor_rent_per_epoch) || (50 / 86400);
   if (rentVal < floorPerEpoch) {
-    errEl.textContent = 'Rent bid below floor (' + fmt(floorPerEpoch, 8) + ' BTCPC/epoch)';
+    errEl.textContent = 'Rent bid below floor (' + fmt(floorPerEpoch, 8) + ' HONE/epoch)';
     errEl.style.display = '';
     preview.style.display = 'none';
     return;
@@ -409,10 +409,10 @@ function updateCalc() {
 
   preview.style.display = '';
   document.getElementById('calc-slot').textContent = '#' + mySlot;
-  document.getElementById('calc-yield').textContent = fmt(myMonthlyYield, 4) + ' BTCPC/month';
-  document.getElementById('calc-rent-cost').textContent = fmt(myMonthlyRent, 4) + ' BTCPC/month';
+  document.getElementById('calc-yield').textContent = fmt(myMonthlyYield, 4) + ' HONE/month';
+  document.getElementById('calc-rent-cost').textContent = fmt(myMonthlyRent, 4) + ' HONE/month';
   document.getElementById('calc-net').textContent = netLabel;
-  document.getElementById('calc-tribute').textContent = fmt(stakeVal * 0.01, 4) + ' BTCPC (one-time)';
+  document.getElementById('calc-tribute').textContent = fmt(stakeVal * 0.01, 4) + ' HONE (one-time)';
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -443,7 +443,7 @@ async function submitStake() {
     var data = await r.json();
     if (r.ok && data.success) {
       msgEl.className = 'msg ok';
-      msgEl.textContent = 'Staked! Slot #' + data.slot + '. Tribute paid: ' + fmt(data.tribute_paid, 4) + ' BTCPC';
+      msgEl.textContent = 'Staked! Slot #' + data.slot + '. Tribute paid: ' + fmt(data.tribute_paid, 4) + ' HONE';
       loadDevice();
     } else {
       msgEl.className = 'msg err';
@@ -529,7 +529,7 @@ async function unstake() {
     });
     var data = await r.json();
     if (r.ok && data.success) {
-      msgEl.className = 'msg ok'; msgEl.textContent = 'Unstaked. ' + fmt(data.returned_amount, 4) + ' BTCPC returned.';
+      msgEl.className = 'msg ok'; msgEl.textContent = 'Unstaked. ' + fmt(data.returned_amount, 4) + ' HONE returned.';
       contentEl.style.display = 'none';
       loadDevice();
     } else {

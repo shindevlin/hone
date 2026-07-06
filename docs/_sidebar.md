@@ -29,7 +29,7 @@
 * [Verasens Whitepaper](VERASENS_PROTOCOL_WHITEPAPER.md)
 * [LinkGit Protocol](LINKGIT_PROTOCOL.md)
 * [LinkGit Whitepaper](LINKGIT_PROTOCOL_WHITEPAPER.md)
-* [Whitepaper](BTCPC_WHITEPAPER.md)
+* [Whitepaper](HONE_WHITEPAPER.md)
 * [Hive L2 Token Architecture](HIVE_L2_TOKEN_ARCHITECTURE.md)
 * [L2 Architecture](L2_ARCHITECTURE.md)
 * [L2 Analysis](L2_ANALYSIS.md)

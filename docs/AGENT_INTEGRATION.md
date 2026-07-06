@@ -3,7 +3,7 @@
 Connect any project or AI agent to the BTCPC chain: AI inference, git hosting,
 storage, and a token balance — all from one sovereign account.
 
-Web version: https://btcpc.net/integrate
+Web version: https://honemesh.net/integrate
 
 ---
 
@@ -12,7 +12,7 @@ Web version: https://btcpc.net/integrate
 ### Step 1 — Install the CLI
 
 ```bash
-curl -fsSL https://btcpc.net/install | bash
+curl -fsSL https://honemesh.net/install | bash
 btcpc --version
 ```
 
@@ -25,7 +25,7 @@ your existing account and any tokens in it.
 # Any of these means you already have a wallet:
 ls ~/.btcpc/wallet.json 2>/dev/null && echo EXISTS
 ls .btcpc/wallet.env   2>/dev/null && echo EXISTS
-echo $BTCPC_ACCOUNT
+echo $HONE_ACCOUNT
 ```
 
 If a wallet exists, skip to Step 5.
@@ -49,7 +49,7 @@ Generates `~/.btcpc/key.json` and registers its public key on-chain.
 ### Step 5 — Check balance and claim tokens
 
 ```bash
-curl https://btcpc.net/api/balance/myproject
+curl https://honemesh.net/api/balance/myproject
 # {"account":"myproject","balance":10.0,"dreams":100000000000,"token":"BTCPC"}
 # 1 BTCPC = 10,000,000,000 dreams
 ```
@@ -66,14 +66,14 @@ Faucet gives 10 BTCPC — covers ~100,000 average inference calls.
 
 Check first:
 ```bash
-grep BTCPC_API_KEY .btcpc/wallet.env 2>/dev/null
+grep HONE_API_KEY .btcpc/wallet.env 2>/dev/null
 ```
 
-If `BTCPC_API_KEY` is empty or missing:
+If `HONE_API_KEY` is empty or missing:
 ```bash
 btcpc wallet api-key-gen --mnemonic "your twelve words here"
 # Registers a random 256-bit key on-chain.
-# Writes BTCPC_ACCOUNT and BTCPC_API_KEY to .btcpc/wallet.env
+# Writes HONE_ACCOUNT and HONE_API_KEY to .btcpc/wallet.env
 ```
 
 ```bash
@@ -83,9 +83,9 @@ echo '.btcpc/wallet.env' >> .gitignore
 ### Step 7 — Set environment variables
 
 ```bash
-BTCPC_ACCOUNT=myproject
-BTCPC_API_KEY=<64-char hex from api-key-gen>
-BTCPC_API_URL=https://btcpc.net   # override to use a local node
+HONE_ACCOUNT=myproject
+HONE_API_KEY=<64-char hex from api-key-gen>
+HONE_API_URL=https://honemesh.net   # override to use a local node
 ```
 
 Load from `.btcpc/wallet.env`:
@@ -102,8 +102,8 @@ export $(grep -v '^#' .btcpc/wallet.env | xargs)
 ### curl
 
 ```bash
-curl -X POST https://btcpc.net/v1/chat/completions \
-  -H "Authorization: Bearer $BTCPC_API_KEY" \
+curl -X POST https://honemesh.net/v1/chat/completions \
+  -H "Authorization: Bearer $HONE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role": "user", "content": "What is 2+2?"}],
@@ -117,14 +117,14 @@ The response includes `usage.fee_dreams` showing exact cost.
 
 ```toml
 [dependencies]
-btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/btcpc-sdk" }
+btcpc-sdk = { git = "https://github.com/shindevlin/btcpc", subdirectory = "rust/hone-sdk" }
 ```
 
 ```rust
 use btcpc_sdk::BtcpcClient;
 use serde_json::json;
 
-let client = BtcpcClient::from_env(); // reads BTCPC_API_URL, BTCPC_API_KEY, BTCPC_ACCOUNT
+let client = BtcpcClient::from_env(); // reads HONE_API_URL, HONE_API_KEY, HONE_ACCOUNT
 
 let resp = client.chat_completions(
     vec![json!({"role": "user", "content": "Summarise this PR in one sentence."})],
@@ -137,10 +137,10 @@ let text = resp["choices"][0]["message"]["content"].as_str().unwrap_or("");
 ### JavaScript / any OpenAI-compatible client
 
 ```js
-const res = await fetch(`${process.env.BTCPC_API_URL}/v1/chat/completions`, {
+const res = await fetch(`${process.env.HONE_API_URL}/v1/chat/completions`, {
   method: 'POST',
   headers: {
-    'Authorization': `Bearer ${process.env.BTCPC_API_KEY}`,
+    'Authorization': `Bearer ${process.env.HONE_API_KEY}`,
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
@@ -156,7 +156,7 @@ const text = data.choices[0].message.content;
 
 | Status | Meaning | Fix |
 |--------|---------|-----|
-| `401` | Missing or invalid API key | Run `btcpc wallet api-key-gen` |
+| `401` | Missing or invalid API key | Run `hone wallet api-key-gen` |
 | `402` | Insufficient balance | Claim faucet — see below |
 | `429` | Rate limited (60 req/60s per IP) | Back off |
 | `503` | No miner available for this model | Try a different model |
@@ -178,7 +178,7 @@ match client.chat_completions(messages, None).await {
 ## Balance
 
 ```bash
-curl https://btcpc.net/api/balance/myproject
+curl https://honemesh.net/api/balance/myproject
 ```
 
 ```rust
@@ -192,15 +192,15 @@ println!("{} BTCPC ({} dreams)", bal.balance, bal.dreams);
 
 ```bash
 btcpc repo init myproject
-git remote add btcpc https://git.btcpc.net/myproject/myrepo
+git remote add btcpc https://git.honemesh.net/myproject/myrepo
 git push btcpc main
 
-git clone https://git.btcpc.net/myproject/myrepo
+git clone https://git.honemesh.net/myproject/myrepo
 ```
 
 Via API:
 ```bash
-curl -X POST https://btcpc.net/api/linkgit/repo/create \
+curl -X POST https://honemesh.net/api/linkgit/repo/create \
   -H "Content-Type: application/json" \
   -d '{"owner": "myproject", "name": "myrepo", "private": false}'
 ```
@@ -212,7 +212,7 @@ curl -X POST https://btcpc.net/api/linkgit/repo/create \
 Nodes that store and serve data earn from the storage pool each epoch:
 
 ```bash
-curl -X POST https://btcpc.net/api/entry \
+curl -X POST https://honemesh.net/api/entry \
   -H "Content-Type: application/json" \
   -d '{
     "type": "STORAGE_HEARTBEAT",
@@ -226,7 +226,7 @@ curl -X POST https://btcpc.net/api/entry \
 
 Get the current epoch:
 ```bash
-curl https://btcpc.net/api/latest
+curl https://honemesh.net/api/latest
 ```
 
 ---
@@ -253,7 +253,7 @@ Job lifecycle: `Posted → Awarded → Completed → Verified → Paid`
 ## Available models
 
 ```bash
-curl https://btcpc.net/api/node/models
+curl https://honemesh.net/api/node/models
 ```
 
 Common models on testnet: `dolphin-llama3`, `llama3`, `mistral`, `qwen2.5`, `gemma2`.
@@ -263,12 +263,12 @@ Common models on testnet: `dolphin-llama3`, `llama3`, `mistral`, `qwen2.5`, `gem
 ## Checklist
 
 - [ ] Check for existing wallet before creating a new one
-- [ ] `btcpc wallet create --account <name>`
+- [ ] `hone wallet create --account <name>`
 - [ ] `btcpc key generate`
 - [ ] `btcpc key register --account <name> --role posting`
-- [ ] `btcpc faucet claim <name>`
-- [ ] `btcpc wallet api-key-gen --mnemonic "..."`
+- [ ] `hone faucet claim <name>`
+- [ ] `hone wallet api-key-gen --mnemonic "..."`
 - [ ] `echo '.btcpc/wallet.env' >> .gitignore`
-- [ ] Set `BTCPC_ACCOUNT`, `BTCPC_API_KEY`, `BTCPC_API_URL` in your env
+- [ ] Set `HONE_ACCOUNT`, `HONE_API_KEY`, `HONE_API_URL` in your env
 - [ ] Handle `402` by claiming faucet and retrying once
-- [ ] Never hardcode `BTCPC_API_URL` — always read from env
+- [ ] Never hardcode `HONE_API_URL` — always read from env

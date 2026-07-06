@@ -29,7 +29,7 @@ it, test it, commit, and tick the box.
   standing up a live Gateway is folded into Phase 1's "Wire BTCPC as a provider"
   step, where it's needed for the real round-trip.) Commit on `main`.
 - [ ] **Confirm BTCPC's OpenAI-compatible endpoint works standalone** —
-  `curl -X POST https://btcpc.net/v1/chat/completions -H "Authorization:
+  `curl -X POST https://honemesh.net/v1/chat/completions -H "Authorization:
   Bearer btcpc_..." -d '{"model":"auto","messages":[...]}'`. If this endpoint
   is only documented and not live/tested, get a real API key via the faucet
   flow and prove one request round-trips.
@@ -49,9 +49,9 @@ onto whatever provider interface OpenClaw expects).
 - [ ] **Identify OpenClaw's provider/model config surface** — find where
   OpenClaw configures its LLM provider (likely an OpenAI-compatible
   `baseURL`/`apiKey` config, given it's TS). Confirm it accepts an arbitrary
-  `baseURL` like the existing btcpc.net `/v1` docs already assume.
+  `baseURL` like the existing honemesh.net `/v1` docs already assume.
 - [ ] **Wire BTCPC as a provider** — point OpenClaw's inference config at
-  `https://btcpc.net/v1` with a `btcpc_...` API key. Get one real
+  `https://honemesh.net/v1` with a `btcpc_...` API key. Get one real
   conversation turn to complete through BTCPC's mining pipeline.
 - [ ] **Verify the round trip on-chain** — confirm the request actually
   produced an `INFERENCE_CHARGE` entry and rewarded a miner (check via

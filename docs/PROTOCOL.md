@@ -1,7 +1,7 @@
 # BTCPC Protocol Primitives
 
 Reference document for external auditors, SDK authors, and integration developers.
-All values are canonical — they match `crates/btcpc-types/src/` exactly.
+All values are canonical — they match `crates/hone-types/src/` exactly.
 If this document conflicts with the code, the code wins.
 
 ---
@@ -55,7 +55,7 @@ debited from the funding account.
 All balances and fees in the protocol are denominated in **dreams** (u64). No floating
 point arithmetic is used in consensus paths.
 
-**Supply cap:** 42,000,000 BTCPC (= `SUPPLY_CAP_DREAMS = 420,000,000,000,000,000,000`
+**Supply cap:** 42,000,000 BTCPC (= `SUPPLY_CAP_HUNITS = 420,000,000,000,000,000,000`
 dreams). After the supply cap is reached (era 5+), rewards are paid from the
 `__recycle_fund__` account.
 
@@ -93,8 +93,8 @@ The `chain_id` is always included to prevent cross-chain replay.
 
 | Chain | `chain_id` |
 |-------|-----------|
-| Mainnet | `btcpc-1` |
-| Testnet | `btcpc-satoshi` |
+| Mainnet | `hone` |
+| Testnet | `hone-testnet` |
 
 ### Entry weights (fee basis)
 
@@ -141,9 +141,9 @@ epoch_ms(e) = INITIAL_EPOCH_MS << min(era(e), RECYCLE_ERA)
 
 ### Genesis
 
-- **Genesis timestamp:** `1777633200000` ms (2026-05-01 12:00:00 IST / 11:00:00 UTC)
-- **Chain ID:** `btcpc-1` (mainnet), `btcpc-satoshi` (testnet)
-- **Genesis block:** `rust/btcpc-node/genesis.json`
+- **Genesis timestamp:** `1783191600000` ms (2026-05-01 12:00:00 IST / 11:00:00 UTC)
+- **Chain ID:** `hone` (mainnet), `hone-testnet` (testnet)
+- **Genesis block:** `rust/hone-node/genesis.json`
 
 ---
 

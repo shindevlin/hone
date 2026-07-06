@@ -39,7 +39,7 @@ npm run setup
 ```bash
 cd ~/btcpc
 termux-wake-lock
-BTCPC_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock
+HONE_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock
 ```
 
 Or use the zero-dependency lite version:
@@ -52,7 +52,7 @@ node bin/btcpc-clock-lite.js
 
 ```bash
 # Start in background
-BTCPC_CLOCK_ACCOUNT=yourusername nohup node bin/btcpc-clock > clock.log 2>&1 &
+HONE_CLOCK_ACCOUNT=yourusername nohup node bin/btcpc-clock > clock.log 2>&1 &
 
 # Check it's running
 tail -f clock.log
@@ -75,7 +75,7 @@ cat > ~/.termux/boot/btcpc-clock.sh << 'EOF'
 termux-wake-lock
 cd ~/btcpc
 git pull origin main 2>/dev/null
-BTCPC_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock > ~/btcpc-clock.log 2>&1 &
+HONE_CLOCK_ACCOUNT=yourusername node bin/btcpc-clock > ~/btcpc-clock.log 2>&1 &
 EOF
 chmod +x ~/.termux/boot/btcpc-clock.sh
 ```

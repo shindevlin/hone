@@ -48,4 +48,4 @@ Both accounts are seeded at genesis block 0 with zero balance. They cannot be re
 
 ---
 
-*See also: [[BTCPC_WHITEPAPER]], [[PLAN_v2.10.1_to_v2.14]] §v2.15 (BTCPC-nano + LoRa sensor mesh)*
+*See also: [[HONE_WHITEPAPER]], [[PLAN_v2.10.1_to_v2.14]] §v2.15 (BTCPC-nano + LoRa sensor mesh)*

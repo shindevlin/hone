@@ -50,7 +50,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Still fails → iterate through `ollama list` and pick the first locally-available model that DOES verify
   - Still fails → pull a known-good fallback model from a small list (`qwen3:4b`, `llama3.2:1b`)
   - Still fails → log a warning, broadcast `MINER_IDLE` with `reason: 'no_verifiable_model'`, KEEP the node alive (don't crash, don't `process.exit`)
-  - When `BTCPC_MODEL` is unset → auto-pick the largest verified model from `ollama list`
+  - When `HONE_MODEL` is unset → auto-pick the largest verified model from `ollama list`
   - Done in commit: self-heal: model verification fallback chain + 21 tests (modelHealer.js)
 
 - [x] **`src/mining/miner.js` Ollama unreachable**
@@ -70,7 +70,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
   - Done in commit: self-heal: fix all five P1-P3 items (Ollama poll, secretStore backup, blobStore null-return, clock peer-zero, storage port retry)
 
 - [x] **`bin/btcpc-mine` Mongo connection**
-  - Was crashing with `users.findOne() buffering timed out` when BTCPC_MONGO_MODE unset but MONGODB_URI present
+  - Was crashing with `users.findOne() buffering timed out` when HONE_MONGO_MODE unset but MONGODB_URI present
   - Fix: `bufferCommands: false` set immediately when Mongo not enabled — any accidental model call fails fast instead of hanging
   - Fix: `genesisBlock.js` all `User.findOne()` / `user.save()` guarded by `mongoEnabled` check
   - Fix: `p2p/network.js` EADDRINUSE → auto-retries on next 5 ports instead of crashing
@@ -79,7 +79,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 ## P2 — Account / wallet self-heal
 
 - [x] **First-run account creation auto-heal**
-  - When the user starts a node with `BTCPC_MINER=somename` and `somename` doesn't exist on chain → auto-call `recordAccountCreate` via the cross-process queue + P2P gossip (already exists in `bin/btcpc-mine` lines 1074-1100, but needs to handle the empty-public-keys legacy case from `feedback_blockchain_source_of_truth.md`)
+  - When the user starts a node with `HONE_MINER=somename` and `somename` doesn't exist on chain → auto-call `recordAccountCreate` via the cross-process queue + P2P gossip (already exists in `bin/btcpc-mine` lines 1074-1100, but needs to handle the empty-public-keys legacy case from `feedback_blockchain_source_of_truth.md`)
   - The account auto-create today only happens if MongoDB has no existing User row. Should also fire if `stateStore.getAccount(name).public_keys.owner` is empty (legacy account with missing keys), and re-broadcast via mempool gossip
 
 - [x] **`bin/btcpc-rekey` non-interactive mode**
@@ -113,7 +113,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 
 - [x] **`src/p2p/network.js` relay communication**
   - Cloudflare relay speaks plain JSON but nodes sent Noise_XX encrypted binary — all relay messages silently dropped
-  - Added `isRelayAddress()` (matches `workers.dev` + `BTCPC_RELAY_URL`), `noiseEnabled` flag per peer
+  - Added `isRelayAddress()` (matches `workers.dev` + `HONE_RELAY_URL`), `noiseEnabled` flag per peer
   - Relay connections skip Noise handshake, send/receive plain JSON directly
   - Direct peer connections still use full Noise_XX
   - Done in commit: self-heal: relay connections bypass Noise_XX, use plain JSON (v3.1.60)
@@ -137,7 +137,7 @@ When the list is empty, BTCPC is fully self-healing for non-technical home users
 - [x] **`CLAUDE.md`** — audited: contains agent/developer ops instructions only, no end-user fail-path instructions to replace. (v3.1.157)
 - [ ] **`docs/INDEX.md`** — already a vault entry point, no changes needed
 - [x] **`bin/btcpc-setup`** — interactive wizard. Either auto-detect everything and skip prompts (preferred), or rewrite as a true non-interactive `--auto` mode
-  - Done: --auto flag + BTCPC_NONINTERACTIVE=1 (v3.1.129)
+  - Done: --auto flag + HONE_NONINTERACTIVE=1 (v3.1.129)
 
 ---
 
@@ -172,11 +172,11 @@ Items from code review of finalizationConsensus.js. Non-blocking for genesis but
 
 - [x] **Stake-weighted voting in consensus** — `checkConsensus()`/`resolve()` now sum registered stake per group (via `stateStore.getStake`); a group needs >50% of total submitted stake. Falls back to count-based voting when no proposer has stake (bootstrap). (v3.1.157)
 
-- [x] **Minimum proposal count for auto-resolve** — `BTCPC_MIN_CONSENSUS_PROPOSALS` env var (default 1); window expiry reschedules a 10s recheck until both the source and proposal-count floors are met. (v3.1.157)
+- [x] **Minimum proposal count for auto-resolve** — `HONE_MIN_CONSENSUS_PROPOSALS` env var (default 1); window expiry reschedules a 10s recheck until both the source and proposal-count floors are met. (v3.1.157)
 
 - [x] **Consensus state persistence** — `resolve()` writes a `FINALIZATION_CONSENSUS` ledger entry (block-only type, no mempool gossip); `stateStore.getFinalizedConsensus(epoch)` replays it, and `isResolved`/`getWinner`/`submitProposal` consult chain state so resolved epochs survive restarts. (v3.1.157)
 
-- [x] **Proposal validation against known work** — `validateProposal()` runs in `submitProposal()`: rejects non-finite/negative amounts and totals over `BTCPC_MAX_PROPOSAL_TOTAL` (default 500). `BTCPC_STRICT_PROPOSAL_VALIDATION=1` additionally requires reward recipients to appear in local mining/compute proofs (off by default — nodes legitimately see different proof subsets). (v3.1.157)
+- [x] **Proposal validation against known work** — `validateProposal()` runs in `submitProposal()`: rejects non-finite/negative amounts and totals over `HONE_MAX_PROPOSAL_TOTAL` (default 500). `HONE_STRICT_PROPOSAL_VALIDATION=1` additionally requires reward recipients to appear in local mining/compute proofs (off by default — nodes legitimately see different proof subsets). (v3.1.157)
 
 - [x] **finalizationConsensus test gap fill** — 23 tests: stake-weighted voting (Sybil swarm, stake split, count fallback), min-proposal floor, validation rejects, persistence + restart restore, replay across epochs, empty-epoch resolution, hash binding, 10-epoch memory cleanup, min source count. (v3.1.157)
 
@@ -186,7 +186,7 @@ Items from code review of finalizationConsensus.js. Non-blocking for genesis but
 
 **Repo**: `~/repos/warp` (warpdotdev/warp, AGPL, personal use only — never distributed)
 **Output**: `~/repos/btcpc-terminal-pro` (private, local only)
-**Full plan**: `~/repos/warp/BTCPC_FORK_PLAN.md`
+**Full plan**: `~/repos/warp/HONE_FORK_PLAN.md`
 **End-user terminal** (separate): `github.com/shindevlin/btcpc/tree/main/ludicrous` (Rio fork, MIT, ships to node operators)
 
 Agent picks one phase at a time. Each phase must leave the repo in a `cargo check`-passing state before committing.
@@ -212,7 +212,7 @@ Agent picks one phase at a time. Each phase must leave the repo in a `cargo chec
 
 - [ ] **Phase 3 — Rebrand to BTCPC Terminal**
   - Replace all `Warp` / `warp.dev` / `warpdotdev` strings in UI-visible locations (title bar, about screen, window title, `about.toml`)
-  - Replace with: name = `BTCPC Terminal`, author = `Shin Devlin`, url = `btcpc.network`
+  - Replace with: name = `BTCPC Terminal`, author = `Shin Devlin`, url = `honemesh.network`
   - Update app icon placeholder (can be a colored square for now)
   - Update `Cargo.toml` package name from `warp-terminal` to `btcpc-terminal-pro`
   - Run `cargo check` — must pass
@@ -221,7 +221,7 @@ Agent picks one phase at a time. Each phase must leave the repo in a `cargo chec
 - [ ] **Phase 4 — BTCPC node status panel**
   - Add a sidebar panel that polls `http://localhost:4242/api/status` every 5s
   - Display: epoch number, block height, peers connected, sync status, miner account
-  - Display: wallet balance for `BTCPC_MINER` account (poll `http://localhost:4242/api/wallet/:account`)
+  - Display: wallet balance for `HONE_MINER` account (poll `http://localhost:4242/api/wallet/:account`)
   - Panel is collapsible, off by default, toggled via keyboard shortcut `Ctrl+Shift+B`
   - Fails gracefully if node not running (shows "node offline" state, no crash)
   - Commit: `btcpc-terminal-pro: phase 4 — BTCPC node status panel`

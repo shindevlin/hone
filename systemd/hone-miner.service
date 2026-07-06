@@ -1,0 +1,27 @@
+[Unit]
+Description=HONE Miner — Proof of Compute (Rust node, miner role)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/repos/btcpc/rust/hone-node
+ExecStart=%h/repos/btcpc/rust/hone-node/target/release/hone-node
+Restart=always
+RestartSec=10
+
+Environment=HONE_MINER=true
+Environment=HONE_CLOCK=false
+Environment=HONE_DATA_DIR=%h/.hone
+Environment=HONE_API_PORT=4242
+Environment=HONE_P2P_PORT=6942
+Environment=HONE_GENESIS_FILE=%h/repos/btcpc/rust/hone-node/genesis.json
+Environment=HONE_LOG_LEVEL=hone_node=info
+EnvironmentFile=-%h/repos/btcpc/.env
+
+CPUQuota=80%
+MemoryMax=80%
+
+[Install]
+WantedBy=default.target

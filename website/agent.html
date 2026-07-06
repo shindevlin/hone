@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BTCPC Start</title>
+    <title>HONE Start</title>
     <meta
       name="description"
-      content="Deterministic BTCPC start wizard for AI agents and humans. Install BTCPC, save the wallet export to disk, and start inference and node roles."
+      content="Deterministic HONE start wizard for AI agents and humans. Install HONE, save the wallet export to disk, and start inference and node roles."
     />
-    <meta property="og:title" content="BTCPC Start" />
+    <meta property="og:title" content="HONE Start" />
     <meta
       property="og:description"
-      content="Deterministic install and startup path for BTCPC. Save the wallet export, start inference, and run node roles."
+      content="Deterministic install and startup path for HONE. Save the wallet export, start inference, and run node roles."
     />
-    <meta property="og:url" content="https://btcpc.net/start" />
+    <meta property="og:url" content="https://honemesh.net/start" />
     <link rel="stylesheet" href="style.css" />
     <style>
       :root {
@@ -395,7 +395,7 @@
   <body>
 <script src="/nav.js?v=2"></script>
     <div class="nav">
-      <a class="brand" href="/">BTCPC</a>
+      <a class="brand" href="/">HONE</a>
       <a href="/start">Start</a>
       <a href="/install">Install</a>
       <a href="/setup">Setup</a>
@@ -408,10 +408,10 @@
     <main class="page">
       <section class="hero">
         <div class="eyebrow">Deterministic wizard</div>
-        <h1>BTCPC <span>Start</span></h1>
+        <h1>HONE <span>Start</span></h1>
         <p>
           This page is the canonical path for a human or AI agent to install
-          BTCPC, create or import an account, save the wallet export to disk,
+          HONE, create or import an account, save the wallet export to disk,
           and start using inference plus node roles. Follow the steps in order.
         </p>
         <p>
@@ -420,14 +420,14 @@
           keeps the machine-readable manifest in sync for agents.
         </p>
         <p>
-          Success means the local machine has a BTCPC instance, a wallet export
+          Success means the local machine has a HONE instance, a wallet export
           saved on disk, and a clear path to run inference, clock, storage,
           gateway, or sensor roles.
         </p>
         <p>
-          If the user has the tokens, BTCPC can be used as a token-gated
-          sub-agent runtime (subagent runtime). The primary agent can use BTCPC
-          directly if it prefers, or stay in control while BTCPC handles bounded
+          If the user has the tokens, HONE can be used as a token-gated
+          sub-agent runtime (subagent runtime). The primary agent can use HONE
+          directly if it prefers, or stay in control while HONE handles bounded
           tasks, parallel checks, or a second opinion.
         </p>
         <span class="pill">Install</span>
@@ -473,7 +473,7 @@
           <ul id="wizard-fallbacks"></ul>
         </div>
         <div class="username-check" id="username-check">
-          <label for="username-input">BTCPC on-chain username</label>
+          <label for="username-input">HONE on-chain username</label>
           <div class="username-check-row">
             <input
               id="username-input"
@@ -515,12 +515,12 @@
         <section class="card success">
           <div class="label">What done looks like</div>
           <p>
-            After completion, the machine should have a BTCPC account, a
+            After completion, the machine should have a HONE account, a
             downloaded wallet export file, and a working entrypoint for
             inference and node operation.
           </p>
           <ul>
-            <li>BTCPC installed or reachable in the browser</li>
+            <li>HONE installed or reachable in the browser</li>
             <li>Wallet export saved to disk</li>
             <li><code>/app</code> opens inference</li>
             <li>
@@ -546,7 +546,7 @@
               <code>/app</code>.
             </div>
             <div class="code">
-              curl -fsSL https://btcpc.net/install.sh | bash
+              curl -fsSL https://honemesh.net/install.sh | bash
             </div>
           </div>
           <div class="step">
@@ -563,7 +563,7 @@
           <div class="label">Account</div>
           <p>
             Create a new account or import an existing one. When a new wallet is
-            created, BTCPC shows the recovery phrase and wallet export. Save
+            created, HONE shows the recovery phrase and wallet export. Save
             both.
           </p>
           <ol>
@@ -578,7 +578,7 @@
           <div class="label">Inference</div>
           <p>
             Use the browser app as the deterministic inference surface. It works
-            on desktop and phone, and it speaks directly to the BTCPC inference
+            on desktop and phone, and it speaks directly to the HONE inference
             API.
           </p>
           <ol>
@@ -595,22 +595,22 @@
           </summary>
           <div style="margin-top: 12px">
             <p>
-              BTCPC can also act as a second inference lane for an existing
+              HONE can also act as a second inference lane for an existing
               agent. Use it for parallel checks, alternate answers, or
-              sub-task execution. If the user has the tokens, treat BTCPC as a
+              sub-task execution. If the user has the tokens, treat HONE as a
               token-gated sub-agent runtime (subagent runtime). The primary
               agent can use it directly or delegate to it.
             </p>
             <p>
               For token-gated transfers, the website and desktop app can sign a
-              transfer challenge locally with the BTCPC active key. The wallet
+              transfer challenge locally with the HONE active key. The wallet
               export includes the active key, but the browser only submits the
               signature.
             </p>
             <p>
-              If the user opts into controller mode, BTCPC can require the
-              spend approval to come from the BTCPC mnemonic-linked chain
-              wallet instead of the BTCPC active key.
+              If the user opts into controller mode, HONE can require the
+              spend approval to come from the HONE mnemonic-linked chain
+              wallet instead of the HONE active key.
             </p>
             <ol>
               <li>Keep the primary agent on the host machine.</li>
@@ -618,7 +618,7 @@
                 Open <a href="/app">/app</a>, the desktop app, or any
                 Ollama-capable desktop client and send a second prompt.
               </li>
-              <li>Use BTCPC output to verify, compare, or decompose the task.</li>
+              <li>Use HONE output to verify, compare, or decompose the task.</li>
               <li>
                 Keep the chain as a secondary source of inference, not the only
                 one.
@@ -658,7 +658,7 @@
     </main>
     <script>
       (function () {
-        window.BTCPCStartState.fetchStartManifest()
+        window.HoneStartState.fetchStartManifest()
           .then(function (data) {
             renderWizard(data);
             document.getElementById("agent-checklist").textContent =
@@ -685,7 +685,7 @@
               }),
             };
             try {
-              var parsed = JSON.parse(localStorage.getItem("btcpc-start-state") || "{}");
+              var parsed = JSON.parse(localStorage.getItem("hone-start-state") || "{}");
               if (parsed && typeof parsed === "object") {
                 if (typeof parsed.current === "number" && isFinite(parsed.current)) {
                   defaults.current = parsed.current;
@@ -703,7 +703,7 @@
                 return !value;
               })
             ) {
-              var legacyCurrent = parseInt(localStorage.getItem("btcpc-start-step"), 10);
+              var legacyCurrent = parseInt(localStorage.getItem("hone-start-step"), 10);
               if (!isNaN(legacyCurrent) && legacyCurrent >= 0 && legacyCurrent < stepsList.length) {
                 defaults.current = legacyCurrent;
               }
@@ -722,8 +722,8 @@
           }
 
           function saveState() {
-            localStorage.setItem("btcpc-start-state", JSON.stringify(state));
-            localStorage.setItem("btcpc-start-step", String(state.current));
+            localStorage.setItem("hone-start-state", JSON.stringify(state));
+            localStorage.setItem("hone-start-step", String(state.current));
           }
 
           function firstIncomplete(completed) {
@@ -735,7 +735,7 @@
 
           function getSavedUsername() {
             try {
-              return String(localStorage.getItem("btcpc-start-username") || "").trim().toLowerCase();
+              return String(localStorage.getItem("hone-start-username") || "").trim().toLowerCase();
             } catch (err) {
               return "";
             }
@@ -743,7 +743,7 @@
 
           function setSavedUsername(username) {
             try {
-              localStorage.setItem("btcpc-start-username", String(username || "").trim().toLowerCase());
+              localStorage.setItem("hone-start-username", String(username || "").trim().toLowerCase());
             } catch (err) {}
           }
 
@@ -777,7 +777,7 @@
             if (!input) return false;
             var username = String(input.value || "").trim().toLowerCase();
             if (!username) {
-              setUsernameStatus("Enter the BTCPC username you want to use on chain.", "warn");
+              setUsernameStatus("Enter the HONE username you want to use on chain.", "warn");
               return false;
             }
             setUsernameStatus("Checking availability for " + username + "…", "warn");
@@ -915,14 +915,14 @@
             document.getElementById("wizard-step-title").textContent =
               step.title || "Step " + stepNumber;
             document.getElementById("wizard-step-meta").textContent =
-              "Step " + stepNumber + " of " + stepCount + " · " + (data.goal || "BTCPC start");
+              "Step " + stepNumber + " of " + stepCount + " · " + (data.goal || "HONE start");
             document.getElementById("wizard-step-heading").textContent =
               step.title || "Step " + stepNumber;
             document.getElementById("wizard-step-description").textContent =
               step.instruction ||
               "Follow this step and then continue. The manifest below is the machine-readable version.";
             document.getElementById("wizard-step-why").textContent =
-              step.why || "This step is part of the deterministic BTCPC startup path.";
+              step.why || "This step is part of the deterministic HONE startup path.";
 
             var usernameCheck = document.getElementById("username-check");
             var usernameInput = document.getElementById("username-input");
@@ -949,7 +949,7 @@
                   "ok",
                 );
               } else {
-                setUsernameStatus("Enter the BTCPC username you want to use on chain.", "warn");
+                setUsernameStatus("Enter the HONE username you want to use on chain.", "warn");
               }
               primary.textContent = "Check username";
               primary.onclick = advanceAfterUsernameCheck;

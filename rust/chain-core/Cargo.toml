@@ -1,10 +1,10 @@
 [package]
-name = "btcpc-chain-core"
+name = "hone-chain-core"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "btcpc_chain_core"
+name = "hone_chain_core"
 path = "src/lib.rs"
 
 [dependencies]

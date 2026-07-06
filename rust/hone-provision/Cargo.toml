@@ -1,0 +1,19 @@
+[package]
+name = "hone-provision"
+version = "0.1.0"
+edition = "2021"
+authors = ["Shin Devlin <shindevlin@proton.me>"]
+description = "HONE node-wide capability provisioning — autopilot enable/gate/pull/self-test/register across roles (inference, storage, sensor, render)"
+
+# Standalone crate — not a workspace member, so it builds independently and can be
+# consumed by both the node and peripheral crates (e.g. wiiv) without pulling the
+# node's heavy dependency tree.
+[workspace]
+
+[lib]
+name = "hone_provision"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -30,7 +30,7 @@ Visualizes storage and inference across the decentralized network.
 
 ## Current Implementation Notes
 
-- `website/globe.html` is the public btcpc.net globe.
+- `website/globe.html` is the public honemesh.net globe.
 - It currently uses Three.js, Natural Earth coastlines, bloom, 3D globe mode,
   2D command-map mode, glowing hex hubs, magenta inference arcs, cyan storage
   trails, amber sensor pulses, and a matrix-style event log.

@@ -11,12 +11,12 @@ import {
 
 const html = htm.bind(React.createElement);
 const STORAGE = {
-  appId: "btcpc-privy-app-id",
-  clientId: "btcpc-privy-client-id",
-  to: "btcpc-controller-to",
-  amount: "btcpc-controller-amount",
-  memo: "btcpc-controller-memo",
-  selectedWallet: "btcpc-controller-wallet",
+  appId: "hone-privy-app-id",
+  clientId: "hone-privy-client-id",
+  to: "hone-controller-to",
+  amount: "hone-controller-amount",
+  memo: "hone-controller-memo",
+  selectedWallet: "hone-controller-wallet",
 };
 
 function readStorage(key, fallback = "") {
@@ -34,7 +34,7 @@ function writeStorage(key, value) {
 }
 
 function apiHeaders() {
-  const jwt = readStorage("btcpc-jwt") || readStorage("btcpc-token");
+  const jwt = readStorage("hone-jwt") || readStorage("hone-token");
   const headers = { "Content-Type": "application/json" };
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
   return headers;
@@ -63,7 +63,7 @@ function App() {
   const [editingConfig, setEditingConfig] = useState(!appId);
 
   useEffect(() => {
-    document.title = "BTCPC Controller Wallet";
+    document.title = "HONE Controller Wallet";
   }, []);
 
   const saveConfig = () => {
@@ -106,12 +106,12 @@ function App() {
                 <span>Use the embedded wallet or link an existing EVM wallet.</span>
               </div>
               <div className="item">
-                <strong>2. Request a BTCPC challenge</strong>
-                <span>BTCPC returns the exact spend challenge that needs approval.</span>
+                <strong>2. Request a HONE challenge</strong>
+                <span>HONE returns the exact spend challenge that needs approval.</span>
               </div>
               <div className="item">
                 <strong>3. Sign and submit</strong>
-                <span>The controller wallet signs the challenge and BTCPC accepts it only if it matches the linked wallet.</span>
+                <span>The controller wallet signs the challenge and HONE accepts it only if it matches the linked wallet.</span>
               </div>
             </div>
           </div>
@@ -122,14 +122,14 @@ function App() {
     <div className="shell">
       <div className="topbar">
         <a className="brand" href="/">
-          <img src="/favicon-32.png" alt="BTCPC" />
-          <strong>BTCPC Controller Wallet</strong>
+          <img src="/favicon-32.png" alt="HONE" />
+          <strong>HONE Controller Wallet</strong>
         </a>
         <div className="navlinks">
           <a href="/start">Start</a>
           <a href="/install">Install</a>
           <a href="/app">App</a>
-          <a href="/docs/BTCPC_WHITEPAPER.md">Whitepaper</a>
+          <a href="/docs/HONE_WHITEPAPER.md">Whitepaper</a>
           <a href="/terms">Terms</a>
           <a href="/privacy">Privacy</a>
         </div>
@@ -139,14 +139,14 @@ function App() {
         <div className="panel">
           <div className="eyebrow">Privy-backed controller signing</div>
           <h1>
-            Sign BTCPC spends with the <em>same linked wallet</em>.
+            Sign HONE spends with the <em>same linked wallet</em>.
           </h1>
           <p className="lede">
-            This page is the first live controller lane for BTCPC. It uses a
-            Privy-connected wallet to sign the BTCPC transfer challenge from
-            the browser, then submits that approval back to BTCPC. The
-            controller wallet remains the BTCPC mnemonic-derived wallet on the
-            linked chain. Secondary approval stays separate. No BTCPC browser
+            This page is the first live controller lane for HONE. It uses a
+            Privy-connected wallet to sign the HONE transfer challenge from
+            the browser, then submits that approval back to HONE. The
+            controller wallet remains the HONE mnemonic-derived wallet on the
+            linked chain. Secondary approval stays separate. No HONE browser
             extension is required.
           </p>
         </div>
@@ -188,7 +188,7 @@ function App() {
 
           <div className="hint">
             Today’s live path is EVM controller signing through Privy. The same
-            BTCPC policy engine can later expand this page to other supported
+            HONE policy engine can later expand this page to other supported
             chains without changing the transfer flow.
           </div>
         </div>
@@ -240,9 +240,9 @@ function ControllerPanel() {
       `);
 
   useEffect(() => {
-    const jwt = readStorage("btcpc-jwt") || readStorage("btcpc-token");
+    const jwt = readStorage("hone-jwt") || readStorage("hone-token");
     if (!jwt) {
-      setStatus("Log in to BTCPC first so the controller page can request a spend challenge.");
+      setStatus("Log in to HONE first so the controller page can request a spend challenge.");
       setStatusKind("error");
       return;
     }
@@ -281,14 +281,14 @@ function ControllerPanel() {
     if (!to || !Number(amount) || Number(amount) <= 0) {
       throw new Error("Enter a recipient and a positive amount");
     }
-    setStatus("Requesting BTCPC controller challenge...");
+    setStatus("Requesting HONE controller challenge...");
     setStatusKind("");
     const data = await api("/api/wallet/transfer/challenge", {
       method: "POST",
       body: JSON.stringify({
         toAddress: to,
         amount: Number(amount),
-        token: "BTCPC",
+        token:"HONE",
         memo,
         approval_chain: controllerChain,
       }),
@@ -313,7 +313,7 @@ function ControllerPanel() {
       {
         address: activeWallet.address,
         uiOptions: {
-          title: "Sign BTCPC controller challenge",
+          title: "Sign HONE controller challenge",
         },
       },
     );
@@ -330,14 +330,14 @@ function ControllerPanel() {
     if (!challenge || !challenge.challengeId) {
       throw new Error("Request a challenge first");
     }
-    setStatus("Submitting controller approval to BTCPC...");
+    setStatus("Submitting controller approval to HONE...");
     setStatusKind("");
     const data = await api("/api/wallet/transfer", {
       method: "POST",
       body: JSON.stringify({
         toAddress: to,
         amount: Number(amount),
-        token: "BTCPC",
+        token:"HONE",
         memo,
         chain_auth: {
           chain: controllerChain,
@@ -390,7 +390,7 @@ function ControllerPanel() {
       <div className="grid">
         <div className="card">
           <h2>Wallets</h2>
-          <p>Select the controller wallet that matches the BTCPC mnemonic-derived wallet on the linked chain.</p>
+          <p>Select the controller wallet that matches the HONE mnemonic-derived wallet on the linked chain.</p>
           <div className="field" style={{ marginTop: "12px" }}>
             <label>Controller wallet</label>
             <select
@@ -403,7 +403,7 @@ function ControllerPanel() {
           <div className="list" style={{ marginTop: "12px" }}>
             <div className="item">
               <strong>Approval chain</strong>
-              <span>EVM controller signing is live. BTCPC verifies the connected wallet against the mnemonic-linked wallet.</span>
+              <span>EVM controller signing is live. HONE verifies the connected wallet against the mnemonic-linked wallet.</span>
             </div>
             <div className="item">
               <strong>Policy mode</strong>
@@ -417,7 +417,7 @@ function ControllerPanel() {
           <div className="grid" style={{ marginTop: "12px" }}>
             <div className="field">
               <label>Recipient</label>
-              <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="BTCPC username or address" />
+              <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="HONE username or address" />
             </div>
             <div className="field">
               <label>Amount</label>
@@ -430,7 +430,7 @@ function ControllerPanel() {
           </div>
           <div className="row" style={{ marginTop: "12px" }}>
             <button className="btn" onClick={() => requestChallenge().catch((err) => { setStatus(err.message); setStatusKind("error"); })}>
-              Request BTCPC challenge
+              Request HONE challenge
             </button>
             <button className="btn secondary" onClick={() => signChallenge().catch((err) => { setStatus(err.message); setStatusKind("error"); })} disabled={!challenge || !activeWallet}>
               Sign with Privy
@@ -445,12 +445,12 @@ function ControllerPanel() {
       <div className="grid">
         <div className="card">
           <h2>Challenge</h2>
-          <p>The challenge comes from BTCPC and is bound to the exact transfer.</p>
+          <p>The challenge comes from HONE and is bound to the exact transfer.</p>
           <textarea readOnly value={challenge ? challenge.challenge : ""} placeholder="Request a challenge first" />
         </div>
         <div className="card">
           <h2>Signature</h2>
-          <p>Privy signs the BTCPC challenge with the selected controller wallet.</p>
+          <p>Privy signs the HONE challenge with the selected controller wallet.</p>
           <textarea
             value={signature}
             onChange={(e) => setSignature(e.target.value)}

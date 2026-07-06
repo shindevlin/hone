@@ -1,7 +1,7 @@
 {
-  "name": "BTCPC Android",
-  "short_name": "BTCPC",
-  "description": "Mine BTCPC clock rewards from your Android phone",
+  "name": "HONE Android",
+  "short_name": "HONE",
+  "description": "Mine HONE clock rewards from your Android phone",
   "start_url": "/android-install",
   "scope": "/",
   "display": "standalone",
@@ -10,13 +10,13 @@
   "theme_color": "#f7931a",
   "icons": [
     {
-      "src": "/btcpc-icon-192.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/btcpc-icon-512.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

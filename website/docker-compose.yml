@@ -1,17 +1,17 @@
-# BTCPC Docker Compose — Standalone (no clone required)
+# HONE Docker Compose — Standalone (no clone required)
 # Usage:
 #   1. Download this file to an empty folder
-#   2. Download btcpc-image.tar.gz from btcpc.net to the same folder
-#   3. docker load -i btcpc-image.tar.gz
-#   4. BTCPC_MINER=yourname docker compose up -d
-# Or run btcpc-start.bat from btcpc.net/install which does all of this.
+#   2. Download hone-image.tar.gz from honemesh.net to the same folder
+#   3. docker load -i hone-image.tar.gz
+#   4. HONE_MINER=yourname docker compose up -d
+# Or run hone-start.bat from honemesh.net/install which does all of this.
 #
-# Phase F: MongoDB is optional. By default the btcpc node starts without it
-# (BTCPC_MONGO_MODE defaults to "disabled"). Chain state lives on-disk in
+# Phase F: MongoDB is optional. By default the hone node starts without it
+# (HONE_MONGO_MODE defaults to "disabled"). Chain state lives on-disk in
 # stateStore + blockStore. Auth uses secretStore (file-based).
 #
 # To re-enable MongoDB for legacy migration:
-#   BTCPC_MONGO_MODE=enabled MONGODB_URI=... docker compose --profile legacy up -d
+#   HONE_MONGO_MODE=enabled MONGODB_URI=... docker compose --profile legacy up -d
 #
 # The mongo service only starts when the "legacy" profile is requested:
 #   docker compose --profile legacy up -d
@@ -19,7 +19,7 @@
 services:
   mongo:
     image: mongo:7
-    container_name: btcpc-mongo
+    container_name: hone-mongo
     restart: unless-stopped
     profiles: [legacy]
     environment:
@@ -30,19 +30,19 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: btcpc-ollama
+    container_name: hone-ollama
     restart: unless-stopped
     volumes:
       - ollama_models:/root/.ollama
     ports:
       - "11434:11434"
 
-  btcpc:
+  hone:
     # Load this image locally first:
-    #   docker load -i btcpc-image.tar.gz
-    # btcpc-start.bat handles this for you automatically.
-    image: btcpc:latest
-    container_name: btcpc-node
+    #   docker load -i hone-image.tar.gz
+    # hone-start.bat handles this for you automatically.
+    image: hone:latest
+    container_name: hone-node
     restart: unless-stopped
     pull_policy: never
     depends_on:
@@ -51,42 +51,42 @@ services:
       NODE_ENV: production
       PORT: 3000
       # Phase F: MongoDB is disabled by default. Chain state lives in stateStore.
-      # Set BTCPC_MONGO_MODE=enabled and provide MONGODB_URI to opt back in.
-      BTCPC_MONGO_MODE: ${BTCPC_MONGO_MODE:-disabled}
+      # Set HONE_MONGO_MODE=enabled and provide MONGODB_URI to opt back in.
+      HONE_MONGO_MODE: ${HONE_MONGO_MODE:-disabled}
       MONGODB_URI: ${MONGODB_URI:-}
       OLLAMA_URL: http://ollama:11434
-      # JWT_SECRET is auto-generated on first run if not set. The btcpc-start
+      # JWT_SECRET is auto-generated on first run if not set. The hone-start
       # scripts generate a random 64-char hex secret and write it to .env in
-      # the compose directory. For manual setups, set BTCPC_JWT_SECRET yourself.
-      JWT_SECRET: ${BTCPC_JWT_SECRET:?Set BTCPC_JWT_SECRET in your environment}
+      # the compose directory. For manual setups, set HONE_JWT_SECRET yourself.
+      JWT_SECRET: ${HONE_JWT_SECRET:?Set HONE_JWT_SECRET in your environment}
       JWT_EXPIRES_IN: 7d
-      BTCPC_MINER: ${BTCPC_MINER:-}
-      BTCPC_MODEL: ${BTCPC_MODEL:-qwen3:4b}
+      HONE_MINER: ${HONE_MINER:-}
+      HONE_MODEL: ${HONE_MODEL:-qwen3:4b}
       # Multi-role supervisor: defaults to running every role the node
       # supports (api, miner, clock, storage). Override to a subset
       # like "miner,clock" to save resources, or "api" for an API-only
       # node that doesn't mine.
-      BTCPC_ROLES: ${BTCPC_ROLES:-all}
-      BTCPC_STORAGE_CAPACITY_GB: ${BTCPC_STORAGE_CAPACITY_GB:-10}
-      # Bootstrap peers so a fresh container joins the real BTCPC chain
+      HONE_ROLES: ${HONE_ROLES:-all}
+      HONE_STORAGE_CAPACITY_GB: ${HONE_STORAGE_CAPACITY_GB:-10}
+      # Bootstrap peers so a fresh container joins the real HONE chain
       # instead of starting a solo fork. The Cloudflare relay is a
       # public, always-on P2P gateway into the live network.
-      BTCPC_SEED_PEERS: ${BTCPC_SEED_PEERS:-wss://btcpc-relay.shindevlin.workers.dev/ws}
-      BTCPC_RELAY_URL: ${BTCPC_RELAY_URL:-wss://btcpc-relay.shindevlin.workers.dev/ws}
+      HONE_SEED_PEERS: ${HONE_SEED_PEERS:-wss://btcpc-relay.shindevlin.workers.dev/ws}
+      HONE_RELAY_URL: ${HONE_RELAY_URL:-wss://btcpc-relay.shindevlin.workers.dev/ws}
     ports:
       - "3000:3000"    # HTTP API (routes, wallet, commerce, services)
       - "4242:4242"    # Explorer
-      - "4243:4243"    # BTCPC-FS storage host HTTP
+      - "4243:4243"    # HONE-FS storage host HTTP
       - "6942:6942"    # P2P miner
       - "6943:6943"    # P2P clock
     volumes:
-      - btcpc_data:/app/data
-      - btcpc_blocks:/app/blocks
-      - btcpc_blobs:/root/.btcpc/blobs
+      - hone_data:/app/data
+      - hone_blocks:/app/blocks
+      - hone_blobs:/root/.hone/blobs
 
 volumes:
   mongo_data:
   ollama_models:
-  btcpc_data:
-  btcpc_blocks:
-  btcpc_blobs:
+  hone_data:
+  hone_blocks:
+  hone_blobs:
