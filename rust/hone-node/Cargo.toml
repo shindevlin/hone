@@ -64,7 +64,13 @@ rustls = { version = "0.23", features = ["ring"], default-features = false }
 # HTTP client (peer discovery — Hive + TON registry queries; streaming for agent chat)
 # Use rustls so cross-compilation (ARM64/Pi) works without system OpenSSL.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
-# Force vendored OpenSSL for any crates (wasmtime, libp2p transports) that still pull it in.
+# Force vendored OpenSSL. hone-node's own reqwest uses rustls above, but `hf-hub`
+# (Hugging Face client, pulled in by the `inference-embedded` default feature) drags
+# in an independent old reqwest 0.11 -> native-tls -> openssl-sys. Vendoring keeps
+# that build from depending on a system OpenSSL, which matters for cross-compiling to
+# aarch64 (Grouchly's Nebra) and Android NDK targets that don't reliably have one.
+# Do not remove without first patching hf-hub off native-tls — see the openssl
+# dependency investigation (2026-07-07) for the full trace.
 openssl = { version = "0.10", features = ["vendored"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
