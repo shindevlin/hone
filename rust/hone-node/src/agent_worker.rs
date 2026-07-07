@@ -1,4 +1,5 @@
-//! Agent worker daemon — polls for assigned tasks, executes via Ollama,
+//! Agent worker daemon — polls for assigned tasks, executes via the node's
+//! embedded inference engine (candle; external only via INFERENCE_URL),
 //! and handles verifier commit-reveal for tasks this node didn't author.
 //!
 //! Enabled with: HONE_AGENT_WORKER=true

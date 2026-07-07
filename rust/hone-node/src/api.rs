@@ -1439,30 +1439,37 @@ fn render_manifest_markdown(json: &str) -> String {
     s
 }
 
-// GET /api/node/models — list models available in the local Ollama instance
+// GET /api/node/models — report the inference model(s) this node serves.
+// Inference is the node's own embedded engine (candle GGUF selected by HONE_MODEL),
+// not an external Ollama daemon. If an external INFERENCE_URL is configured (the
+// sanctioned opt-out), its models are queried instead.
 async fn get_node_models() -> Json<serde_json::Value> {
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    match reqwest::Client::new()
-        .get(format!("{}/api/tags", ollama_url))
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(r) if r.status().is_success() => {
-            if let Ok(body) = r.json::<serde_json::Value>().await {
-                let names: Vec<String> = body["models"]
-                    .as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .filter_map(|m| m["name"].as_str().map(str::to_owned))
-                    .collect();
-                return Json(serde_json::json!({ "models": names }));
+    // External backend (opt-out): forward its model list if reachable.
+    if let Ok(base) = std::env::var("INFERENCE_URL") {
+        let base = base.trim_end_matches('/');
+        if let Ok(r) = reqwest::Client::new()
+            .get(format!("{}/v1/models", base))
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+        {
+            if r.status().is_success() {
+                if let Ok(body) = r.json::<serde_json::Value>().await {
+                    let names: Vec<String> = body["data"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|m| m["id"].as_str().map(str::to_owned))
+                        .collect();
+                    return Json(serde_json::json!({ "models": names, "backend": "external" }));
+                }
             }
         }
-        _ => {}
+        return Json(serde_json::json!({ "models": [], "backend": "external" }));
     }
-    Json(serde_json::json!({ "models": [] }))
+    // Embedded backend: the single GGUF the operator selected via HONE_MODEL.
+    let models: Vec<String> = std::env::var("HONE_MODEL").ok().into_iter().collect();
+    Json(serde_json::json!({ "models": models, "backend": "embedded" }))
 }
 
 #[derive(serde::Deserialize)]

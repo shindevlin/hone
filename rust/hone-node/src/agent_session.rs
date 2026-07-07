@@ -143,44 +143,33 @@ pub async fn execute_turn(
         "insufficient fee escrow for another turn"
     );
 
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
+    // Route through the node's own inference engine (embedded candle by default;
+    // external only via the sanctioned INFERENCE_URL opt-out). No Ollama shell-out —
+    // the trusted node binary does the compute itself (anti-cheat mandate).
+    use crate::inference_engine::{self, ChatRequest, Message};
 
-    // Build messages from rolling history + summary.
-    let mut messages: Vec<serde_json::Value> = vec![];
+    let mut messages: Vec<Message> = vec![];
     if let Some(sys) = &session.system_prompt {
-        messages.push(serde_json::json!({ "role": "system", "content": sys }));
+        messages.push(Message { role: "system".to_owned(), content: sys.clone() });
     }
     if let Some(summary) = &session.summary {
-        messages.push(serde_json::json!({
-            "role": "system",
-            "content": format!("[Conversation summary]: {}", summary)
-        }));
+        messages.push(Message {
+            role: "system".to_owned(),
+            content: format!("[Conversation summary]: {}", summary),
+        });
     }
     for turn in &session.history {
-        messages.push(serde_json::json!({ "role": turn.role, "content": turn.content }));
+        messages.push(Message { role: turn.role.clone(), content: turn.content.clone() });
     }
-    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+    messages.push(Message { role: "user".to_owned(), content: user_message.to_owned() });
 
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
-
-    let req_body = serde_json::json!({
-        "model": session.model,
-        "messages": messages,
-        "stream": false,
-    });
-
-    let response = http.post(format!("{}/api/chat", ollama_url))
-        .json(&req_body)
-        .send().await?
-        .json::<serde_json::Value>().await?;
-
-    let assistant_content = response["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .to_owned();
+    let assistant_content = inference_engine::chat(ChatRequest {
+        model: session.model.clone(),
+        messages,
+        max_tokens: 1024,
+    })
+    .await?
+    .content;
 
     // Append turns to rolling history.
     let turn_number = session.turn_count;
