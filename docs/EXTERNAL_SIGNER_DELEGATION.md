@@ -59,14 +59,32 @@ GrantExternalSigner {
   account:            String,        // the HONE account granting the capability
   external_chain:     String,        // "ton" (extensible to others later)
   external_pubkey:     Bytes,        // the TON wallet's Ed25519 pubkey
+  label:              Option<String>, // holder-chosen name, e.g. "Tonkeeper — daily driver"
+                                       // shown in every notification (§ Attribution)
   caps: {
-    per_tx_max_hunits:  Option<u64>, // null = no per-tx cap
-    daily_max_hunits:   Option<u64>, // null = no daily cap
-    allowlist:          Option<Vec<String>>, // null = any recipient
-    expires_at:         Option<u64>,          // null = no expiry
+    per_tx_max:   Option<Cap>,       // null = no per-tx cap
+    daily_max:    Option<Cap>,       // null = no daily cap
+    allowlist:    Option<Vec<String>>, // null = any recipient
+    expires_at:   Option<u64>,       // null = no expiry
   },
   nonce:              u64,           // replay guard, monotonic per (account, external_pubkey)
   signature:          Bytes,         // signed by the account's HONE `active` key
+}
+
+// A cap is denominated in EITHER hunits OR USD — the holder picks per cap,
+// at grant time. This is the honest tradeoff: HONE's price moves, so "50
+// HONE/day" and "$24/day" are NOT the same promise over time.
+enum Cap {
+  Hunits(u64),   // fixed HONE amount — no oracle dependency, but the real-value
+                 // risk drifts as HONE's price changes; holder re-grants to adjust.
+  Usd { cents: u64, max_staleness_s: u64 },
+                 // converted to hunits AT SIGNING TIME via HONE's existing
+                 // price-oracle path (the same BtcHeightReport-style oracle
+                 // median already on-chain — see CHAIN_CONSTANTS.md). Tracks
+                 // real risk as price moves, but the check now depends on
+                 // oracle freshness: if the most recent price sample is older
+                 // than max_staleness_s, the transfer is REJECTED (fail closed,
+                 // never fail open on a stale/missing price).
 }
 ```
 
@@ -79,6 +97,11 @@ GrantExternalSigner {
   made once, explicitly, by the key that already controls the account — not a
   platform-imposed limit and not something the external key can set for
   itself.
+- **Denomination is per-cap, chosen at grant time.** `Hunits` needs no oracle
+  and is the simpler, lower-trust-surface default. `Usd` is what a holder
+  reaches for when they want a durable "$24/day" promise that survives price
+  swings — it costs an oracle-freshness dependency on a security check, made
+  explicit and fail-closed (§ above) rather than silently trusted.
 - The node stores the grant keyed by `(account, external_chain, external_pubkey)`.
   A later grant for the same triple **replaces** the caps (still active-key
   authorized) — there is no way for the external key to modify its own caps.
@@ -105,10 +128,16 @@ ExternalSignerTransfer {
   foreign chain's signature envelope). Confirm it matches the granted
   `external_pubkey` for `account`. Then check, **in order**:
   1. grant exists, is not expired, is not revoked
-  2. `amount_hunits <= per_tx_max_hunits` (if set)
-  3. running daily total for this grant `+ amount_hunits <= daily_max_hunits` (if set)
-  4. `to` is in `allowlist` (if set)
-  5. `nonce` has not been used for this grant (replay guard)
+  2. for each cap that is `Usd`: fetch the current price-oracle median; if its
+     freshness exceeds `max_staleness_s`, **reject the entire transfer** —
+     stale/missing price never fails open into "treat as uncapped"
+  3. `amount_hunits <= per_tx_max` (converted to hunits at check time if `Usd`; if set)
+  4. running daily total for this grant `+ amount_hunits <= daily_max` (converted to
+     hunits at check time if `Usd`; if set — the running total accumulates in
+     hunits regardless of the cap's denomination, so a `Usd` cap's *hunit*
+     budget can drift intra-day with price; this is disclosed, not hidden)
+  5. `to` is in `allowlist` (if set)
+  6. `nonce` has not been used for this grant (replay guard)
 - Any failed check → entry rejected, same as any other invalid entry. No
   partial application.
 - This is the entry the Mini App (or any thin client) submits when the user
@@ -139,6 +168,54 @@ RevokeExternalSigner {
   which a revoked key still works. If the user wants a cool-down before a
   grant takes effect, that is a `caps.expires_at`/re-grant pattern on the way
   *in*, not a soft-revoke on the way *out*.
+
+---
+
+## Attribution & compromise notification
+
+A holder who sees an unexpected transfer needs to know **which key produced
+it** in seconds, not after digging through raw entries — that speed is what
+turns "a TON wallet got compromised" into "I revoked it before the second
+transfer went out" instead of a drained account.
+
+**On-chain: every transfer is unmistakably labeled.** `ExternalSignerTransfer`
+is a **distinct entry type** from a native HONE `Transfer` — it can never be
+confused with an active-key-signed send by anything reading chain history. The
+entry (and therefore every explorer, wallet, and notification built on it)
+always carries:
+- `external_chain` + `external_pubkey` (which grant authorized this)
+- the grant's `label`, if the holder set one (e.g. *"Tonkeeper — daily
+  driver"*) — carried through so a notification can say the *human* name, not
+  a raw pubkey the holder has to recognize under pressure
+- this is true for every `ExternalSignerTransfer`, not just anomalous ones —
+  attribution is not an incident-response feature bolted on after the fact, it
+  is a property of the entry type itself
+
+**Push: the holder is told immediately, not on next login.** Every applied
+`ExternalSignerTransfer` triggers a push notification (via the existing
+node → client channel — the same path the native app's `NodeService`
+foreground notification and the Telegram bot already use) to every surface the
+holder has registered, with:
+
+> **HONE sent via "Tonkeeper — daily driver"**
+> 12.5 HONE → @merchant · epoch 91442
+> Not you? [**Revoke this signer now**]
+
+- The **[Revoke this signer now]** action is a **pre-built, one-tap**
+  `RevokeExternalSigner` — the notification itself carries enough to construct
+  it (account, chain, pubkey), so revocation is one tap away from the alert
+  that prompted it, on whichever surface (native app, Mini App, Telegram bot)
+  the holder sees first. It still requires the `active` key to actually sign —
+  the notification shortcuts the *path* to revoking, it does not weaken *who*
+  can revoke (§3 still holds: only the active key, always).
+- This applies per-transfer, not just above some anomaly threshold — a holder
+  who granted a signer and expects regular small transfers still gets told
+  each time, so "this doesn't look like my usual pattern" is a judgment the
+  *holder* makes, not one the protocol tries to make for them by filtering
+  which transfers are worth mentioning.
+- Delivery is best-effort (push can fail, a client can be offline) — the
+  **on-chain label is the durable, always-available record**; push is the
+  fast path on top of it, not a replacement for it.
 
 ---
 
@@ -223,14 +300,28 @@ the result of that existing, compliant pattern as a valid HONE authorization.
    parse and verify a TON Connect `sign_data`/`transaction` envelope against a
    raw Ed25519 pubkey. Build and test this in isolation before wiring entries.
 2. **`GrantExternalSigner` / `RevokeExternalSigner`** entries — active-key
-   gated, straightforward given existing entry-signing infrastructure.
-3. **`ExternalSignerTransfer`** entry — the caps-checking path (per-tx, daily
-   running total, allowlist, expiry, nonce replay guard).
-4. **Mini App integration** — TON Connect wiring in the Telegram Mini App
+   gated, straightforward given existing entry-signing infrastructure. Ship
+   with `Hunits` caps only — no oracle dependency yet.
+3. **`ExternalSignerTransfer`** entry, `Hunits`-cap path — per-tx, daily
+   running total, allowlist, expiry, nonce replay guard, all in hunits.
+4. **On-chain attribution** (§ Attribution) — the entry-type distinction and
+   `label` field ship in step 3, not bolted on later; every transfer is
+   labeled from the first one that lands.
+5. **Push notification path** — wire the applied-`ExternalSignerTransfer` →
+   notification → one-tap-revoke flow across native app / Mini App / Telegram
+   bot. Depends on step 3's entry existing but is otherwise independent of the
+   `Usd`-cap work below.
+6. **`Usd`-denominated caps** — wires the existing price-oracle median into
+   the caps check, fail-closed on staleness (§2 verification order). Deferred
+   behind the `Hunits` path landing first since it adds a dependency
+   (oracle freshness) to a security-critical check; ship it once the simpler
+   path is proven in production.
+7. **Mini App integration** — TON Connect wiring in the Telegram Mini App
    (§7b), building unsigned `ExternalSignerTransfer`s and submitting the
    returned envelope.
-5. **Native app parity** — expose grant/revoke in the native Kotlin Wallet
-   screen (§4) so a holder can manage external signers from either surface.
+8. **Native app parity** — expose grant/revoke (with `label`) in the native
+   Kotlin Wallet screen (§4) so a holder can manage external signers from
+   either surface.
 
 No genesis change at any phase. No new HONE key material. No re-smoke.
 
