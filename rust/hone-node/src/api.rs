@@ -10607,3 +10607,419 @@ pub async fn serve(state: AppState, port: u16) -> anyhow::Result<()> {
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Partition / rejoin tests — the zero-peers-never-apply hardline
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Context (docs/CONTRACT_CONSENSUS_FIX.md): an adversarial review found that
+// contract-emitted token transfers were bypassing the `peer_count == 0` hardline
+// via a bare `apply_entry` call, and no test ever caught it. This module builds a
+// real (not reduced/mocked) `AppState` — the exact struct the HTTP handlers take —
+// so these tests call `apply_and_broadcast`, `post_contract_deploy`, and
+// `post_contract_call` as literal Rust functions, not reimplementations. If the
+// `peer_count == 0` guard is ever deleted from any of those three functions, the
+// corresponding test in this module goes red.
+//
+// This is Option A from the architect verdict that commissioned this suite:
+// AppState turned out to be mechanically constructible (every field needing "real"
+// wiring — ClockConsensus, ContractEngine, NodeCapabilities, SecretStore, etc. — has
+// either a trivial `::new()`/plain-struct-literal path or accepts `None` for optional
+// transport handles), so the reduced-harness fallback (Option B) was not needed.
+#[cfg(test)]
+mod partition_tests {
+    use super::*;
+    use crate::chain::Chain;
+    use crate::contracts::ContractEngine;
+    use ed25519_dalek::{SigningKey, Signer};
+    use hone_types::{LedgerEntry, NATIVE_TOKEN};
+    use std::sync::atomic::AtomicUsize;
+    use tempfile::TempDir;
+
+    // ── Harness: build a real AppState around a fresh temp-dir Chain ───────────
+
+    /// Everything a constructed `AppState` owns that must stay alive for the test's
+    /// duration (temp dirs get deleted on drop).
+    struct Harness {
+        state: AppState,
+        _chain_dir: TempDir,
+        _secrets_dir: TempDir,
+        /// Kept so tests can flip connectivity with `.store(N, ...)`.
+        peer_count: std::sync::Arc<AtomicUsize>,
+    }
+
+    fn build_harness(label: &str) -> Harness {
+        let chain_dir = tempfile::Builder::new()
+            .prefix(&format!("hone_partition_{}_", label))
+            .tempdir()
+            .expect("chain tempdir");
+        let store = crate::store::Store::open(chain_dir.path()).expect("store open");
+        let chain = std::sync::Arc::new(Chain::new(
+            store,
+            format!("node-{}", label),
+            "hone-testnet".to_string(),
+        ));
+
+        let secrets_dir = tempfile::Builder::new()
+            .prefix(&format!("hone_partition_secrets_{}_", label))
+            .tempdir()
+            .expect("secrets tempdir");
+        let secrets_store = crate::store::Store::open(secrets_dir.path()).expect("secrets store open");
+        let secret_store = crate::secret_store::SecretStore::open(
+            secrets_dir.path(), "test-fingerprint", secrets_store,
+        ).expect("secret store open");
+
+        let (tx_broadcast, _rx) = tokio::sync::broadcast::channel(64);
+        let peer_count = std::sync::Arc::new(AtomicUsize::new(0));
+        let contracts = std::sync::Arc::new(ContractEngine::new(chain.clone()));
+
+        let state = AppState {
+            chain: chain.clone(),
+            contracts,
+            tx_broadcast,
+            faucet_claims: std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            faucet_ip_claims: std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            agent_rate: std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            post_rate: std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            chain_challenges: std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            current_model: std::sync::Arc::new(tokio::sync::RwLock::new("test-model".to_string())),
+            hw_fingerprint: std::sync::Arc::new("test-fingerprint".to_string()),
+            hw_summary: std::sync::Arc::new("test-hw".to_string()),
+            peer_count: peer_count.clone(),
+            clock: std::sync::Arc::new(crate::clock::ClockConsensus::new()),
+            software_hash: std::sync::Arc::new("test-software-hash".to_string()),
+            git_serve_queries: std::sync::Arc::new(AtomicUsize::new(0)),
+            node_account: std::sync::Arc::new(format!("node-{}", label)),
+            signing_key: std::sync::Arc::new(None),
+            scientific: std::sync::Arc::new(crate::scientific::ScientificEngine::new(chain.clone())),
+            cross_chain: std::sync::Arc::new(crate::cross_chain_finality::CrossChainFinalityModule::new(
+                chain.clone(),
+                chain_dir.path().to_str().unwrap_or("."),
+            )),
+            secret_store: std::sync::Arc::new(secret_store),
+            health_monitor: std::sync::Arc::new(crate::monitor::HealthMonitor::new()),
+            blob_bandwidth: std::sync::Arc::new(crate::blob_bandwidth::BlobBandwidthMeter::new()),
+            capabilities: std::sync::Arc::new(crate::hardware_probe::NodeCapabilities {
+                has_ollama: false, has_gnss: false, has_gpu: false, disk_gb: 0,
+            }),
+            onion_address: std::sync::Arc::new(String::new()),
+            nostr_handle: None,
+            #[cfg(feature = "matrix")]
+            matrix_handle: None,
+            i2p_handle: None,
+            lorawan_handle: None,
+        };
+
+        Harness { state, _chain_dir: chain_dir, _secrets_dir: secrets_dir, peer_count }
+    }
+
+    impl Harness {
+        fn set_peers(&self, n: usize) {
+            self.peer_count.store(n, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Fund an account: create it, register a posting + active key from `seed`,
+    /// and give it a genesis balance. Returns the active-role signing key.
+    fn fund(chain: &Chain, account: &str, amount: u64, seed: u8) -> SigningKey {
+        chain.apply_entry(&LedgerEntry::AccountCreate {
+            account: account.into(), keys: Default::default(),
+            chain_proofs: vec![], epoch: 0, funded_by: None, machine_fingerprint: None,
+        }).ok();
+        let sk = SigningKey::from_bytes(&[seed; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        for role in ["posting", "active"] {
+            chain.apply_entry(&LedgerEntry::AccountUpdateKey {
+                account: account.into(), role: role.into(),
+                new_public_key: pk_hex.clone(), epoch: 0, signed_by: account.into(),
+            }).unwrap();
+        }
+        chain.apply_entry(&LedgerEntry::GenesisAlloc {
+            account: account.into(), amount, token: NATIVE_TOKEN.into(),
+        }).unwrap();
+        sk
+    }
+
+    fn seal_epoch(chain: &Chain, epoch: u64) {
+        chain.apply_entry(&LedgerEntry::EpochSeal {
+            node_id: "test-node".to_string(),
+            epoch,
+            timestamp: epoch * 30_000,
+            seal_hash: format!("seal-{:08x}", epoch),
+            signature: None,
+            node_version: None,
+        }).expect("epoch seal");
+        chain.drain_unbonding(epoch);
+        chain.drain_pending_params(epoch);
+    }
+
+    fn sign_transfer(sk: &SigningKey, entry: &LedgerEntry) -> String {
+        let msg = crate::tx::canonical_signing_message(entry, "hone-testnet").unwrap();
+        hex::encode(sk.sign(msg.as_bytes()).to_bytes())
+    }
+
+    // ── Test 1: apply_and_broadcast rejects when partitioned, accepts when not ──
+
+    /// The core hardline acceptance test: a node with zero peers must not admit a
+    /// plain Transfer via `apply_and_broadcast` (the real HTTP-handler function).
+    /// Comment out the `peer_count == 0` check in `apply_and_broadcast` and this
+    /// test goes red — that's the point.
+    #[tokio::test]
+    async fn test_zero_peer_partition_rejects_submission() {
+        let h = build_harness("txn");
+        let alice_sk = fund(&h.state.chain, "alice", 1_000 * 10_000_000_000, 1);
+        fund(&h.state.chain, "bob", 1_000 * 10_000_000_000, 2);
+        seal_epoch(&h.state.chain, 0);
+
+        let entry = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 10 * 10_000_000_000, token: NATIVE_TOKEN.into(),
+            memo: None, epoch: 1, signed_by: "alice".into(), nonce: 1, twofactor: None,
+        };
+        let sig = sign_transfer(&alice_sk, &entry);
+
+        // Partitioned: zero peers.
+        h.set_peers(0);
+        let resp = apply_and_broadcast(&h.state, entry.clone(), Some(&sig));
+        assert_eq!(resp.0["accepted"], serde_json::json!(false),
+            "a zero-peer node must reject a user submission");
+        assert_eq!(h.state.chain.get_balance("alice", NATIVE_TOKEN), 1_000 * 10_000_000_000,
+            "rejected entry must not mutate state");
+        assert_eq!(h.state.chain.pending_count(), 0,
+            "rejected entry must not enter the pending pool either");
+
+        // Rejoined: peers present. The *same* entry+sig must now be accepted.
+        h.set_peers(3);
+        let resp2 = apply_and_broadcast(&h.state, entry, Some(&sig));
+        assert_eq!(resp2.0["accepted"], serde_json::json!(true),
+            "a connected node must accept a valid user submission");
+    }
+
+    /// Same hardline, exercised through the §0 contract-replay handlers
+    /// (`post_contract_deploy` / `post_contract_call`) added by the
+    /// CONTRACT_CONSENSUS_FIX. These push into the pending pool rather than
+    /// applying synchronously, but the zero-peers guard must still block them.
+    #[tokio::test]
+    async fn test_zero_peer_partition_rejects_contract_submission() {
+        let h = build_harness("contract");
+        let shin_sk = fund(&h.state.chain, "shindevlin", 1_000 * 10_000_000_000, 10);
+        let alice_sk = fund(&h.state.chain, "alice", 1_000 * 10_000_000_000, 11);
+        seal_epoch(&h.state.chain, 0);
+
+        static REGISTRY_WASM: &[u8] = include_bytes!("../contracts/registry.wasm");
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+        let wasm_b64 = B64.encode(REGISTRY_WASM);
+
+        // The deployer must sign the ENTRY (not the request body) with their active
+        // key — post_contract_deploy verifies via check_signature_pub against the
+        // entry's canonical message, same as any other value-moving submission.
+        let deploy_epoch = h.state.chain.current_epoch();
+        let deploy_entry_for_sig = |nonce: u64| LedgerEntry::ContractDeploy {
+            deployer: "shindevlin".into(),
+            contract_id: hone_contract_runtime::derive_contract_address("shindevlin", deploy_epoch, nonce),
+            wasm_b64: wasm_b64.clone(),
+            init_method: Some("new".into()),
+            init_args: Some(serde_json::json!({})),
+            gas: 300_000_000_000,
+            epoch: deploy_epoch,
+            nonce,
+        };
+        let deploy_sig = sign_transfer(&shin_sk, &deploy_entry_for_sig(1));
+
+        // Deploy while partitioned — must be rejected, nothing pending.
+        h.set_peers(0);
+        let deploy_body = ContractDeployBody {
+            deployer: "shindevlin".into(),
+            wasm_b64: wasm_b64.clone(),
+            init_method: Some("new".into()),
+            init_args: Some(serde_json::json!({})),
+            gas: 300_000_000_000,
+            nonce: 1,
+            signature: deploy_sig.clone(),
+        };
+        let deploy_resp = post_contract_deploy(State(h.state.clone()), Json(deploy_body)).await;
+        assert_eq!(deploy_resp.0["ok"], serde_json::json!(false),
+            "partitioned node must reject contract deploy");
+        assert_eq!(h.state.chain.pending_count(), 0,
+            "rejected deploy must not enter the pending pool");
+
+        // Rejoin, deploy for real so we have a contract_id to call. Same nonce (1)
+        // as the rejected attempt above — it was never applied, so nonce 1 is still
+        // the deployer's next expected nonce, and the signature computed for it
+        // above remains valid.
+        h.set_peers(2);
+        let deploy_body2 = ContractDeployBody {
+            deployer: "shindevlin".into(),
+            wasm_b64,
+            init_method: Some("new".into()),
+            init_args: Some(serde_json::json!({})),
+            gas: 300_000_000_000,
+            nonce: 1,
+            signature: deploy_sig,
+        };
+        let deploy_resp2 = post_contract_deploy(State(h.state.clone()), Json(deploy_body2)).await;
+        assert_eq!(deploy_resp2.0["ok"], serde_json::json!(true), "connected deploy must be accepted into pending");
+        let contract_id = deploy_resp2.0["contract_id"].as_str().unwrap().to_string();
+
+        // Seal so the deploy actually lands (consensus replay at seal).
+        let pending = h.state.chain.drain_pending_sorted();
+        for (e, sig) in &pending {
+            crate::tx::validate_and_apply(&h.state.chain, e, sig.as_deref()).expect("deploy applies at seal");
+        }
+        seal_epoch(&h.state.chain, 1);
+
+        // Now partition again and attempt a contract call — must be rejected.
+        h.set_peers(0);
+        let call_entry_probe = LedgerEntry::ContractCall {
+            signer: "alice".into(), contract_id: contract_id.clone(),
+            method: "register".into(), args: serde_json::json!({"key":"k","value":"v"}),
+            deposit: 0, gas: 100_000_000, epoch: 2, nonce: 1,
+        };
+        let sig = sign_transfer(&alice_sk, &call_entry_probe);
+        let call_body = ContractCallBody {
+            contract_id: contract_id.clone(), method: "register".into(),
+            args: serde_json::json!({"key":"k","value":"v"}),
+            signer: "alice".into(), deposit: 0, gas: 100_000_000, nonce: 1,
+            signature: sig.clone(),
+        };
+        let call_resp = post_contract_call(State(h.state.clone()), Json(call_body)).await;
+        assert_eq!(call_resp.0["ok"], serde_json::json!(false),
+            "partitioned node must reject contract call submission");
+        assert_eq!(h.state.chain.pending_count(), 0,
+            "rejected contract call must not enter the pending pool");
+
+        // Rejoin: the identical call is now accepted into pending.
+        h.set_peers(1);
+        let call_body2 = ContractCallBody {
+            contract_id, method: "register".into(),
+            args: serde_json::json!({"key":"k","value":"v"}),
+            signer: "alice".into(), deposit: 0, gas: 100_000_000, nonce: 1,
+            signature: sig,
+        };
+        let call_resp2 = post_contract_call(State(h.state.clone()), Json(call_body2)).await;
+        assert_eq!(call_resp2.0["ok"], serde_json::json!(true),
+            "connected node must accept the contract call into pending");
+    }
+
+    // ── Test 2: divergent pending-pool order still converges post-seal ──────────
+
+    /// Two independent `Chain` instances receive the SAME set of entries (transfers,
+    /// a stake, and — once contract token transfers are enabled — a contract call)
+    /// via gossip in DIFFERENT arrival order, mimicking real partition-rejoin gossip
+    /// timing. Both must reach an identical state root after `drain_pending_sorted`
+    /// + seal. This extends `test_pending_sort_is_deterministic` (chain.rs) with a
+    /// fuller, multi-entry-type scenario exercised through the real seal path.
+    #[test]
+    fn test_gossip_reorder_converges_to_identical_state() {
+        let (node_x, _dx) = new_test_chain("reorder-x");
+        let (node_y, _dy) = new_test_chain("reorder-y");
+
+        // fund() registers a real posting+active key per account, so every entry
+        // below needs a real signature — validate_and_apply (the real seal-apply
+        // path) requires one whenever the signer has a registered key. Keys are
+        // deterministic (seed-derived), so node_x and node_y's copies verify
+        // identically even though they're separate Chain/keypair instances.
+        let (mut alice_sk, mut bob_sk, mut carol_sk, mut dave_sk) = (None, None, None, None);
+        for chain in [&node_x, &node_y] {
+            alice_sk = Some(fund(chain, "alice", 1_000 * 10_000_000_000, 21));
+            bob_sk   = Some(fund(chain, "bob",   1_000 * 10_000_000_000, 22));
+            carol_sk = Some(fund(chain, "carol", 1_000 * 10_000_000_000, 23));
+            dave_sk  = Some(fund(chain, "dave",  1_000 * 10_000_000_000, 24));
+            seal_epoch(chain, 0);
+        }
+        let (alice_sk, bob_sk, carol_sk, dave_sk) =
+            (alice_sk.unwrap(), bob_sk.unwrap(), carol_sk.unwrap(), dave_sk.unwrap());
+
+        // Four entries, four DISTINCT signers, one nonce each — deliberately so that
+        // no signer's nonce ordering depends on which relative order the sha256 sort
+        // (drain_pending_sorted) happens to place its own two entries in. This test's
+        // job is to prove ARRIVAL order doesn't matter, not to also encode a per-signer
+        // sequencing constraint that would make the very reordering it's testing invalid.
+        let t1 = LedgerEntry::Transfer {
+            from: "alice".into(), to: "bob".into(),
+            amount: 10 * 10_000_000_000, token: NATIVE_TOKEN.into(),
+            memo: None, epoch: 1, signed_by: "alice".into(), nonce: 1, twofactor: None,
+        };
+        let t2 = LedgerEntry::Transfer {
+            from: "bob".into(), to: "carol".into(),
+            amount: 5 * 10_000_000_000, token: NATIVE_TOKEN.into(),
+            memo: Some("gossip-reorder".into()), epoch: 1, signed_by: "bob".into(), nonce: 1, twofactor: None,
+        };
+        let t3 = LedgerEntry::Stake {
+            account: "carol".into(), amount: 20 * 10_000_000_000,
+            epoch: 1, signed_by: "carol".into(), nonce: 1,
+        };
+        let t4 = LedgerEntry::Transfer {
+            from: "dave".into(), to: "alice".into(),
+            amount: 3 * 10_000_000_000, token: NATIVE_TOKEN.into(),
+            memo: None, epoch: 1, signed_by: "dave".into(), nonce: 1, twofactor: None,
+        };
+
+        let sig1 = sign_transfer(&alice_sk, &t1);
+        let sig2 = sign_transfer(&bob_sk, &t2);
+        let sig3 = sign_transfer(&carol_sk, &t3);
+        let sig4 = sign_transfer(&dave_sk, &t4);
+
+        // node_x receives gossip in order t1, t2, t3, t4.
+        // node_y receives the SAME entries in a totally different arrival order,
+        // as would happen after a partition/rejoin with peers replaying at
+        // different speeds.
+        for (e, sig) in [(&t1, &sig1), (&t2, &sig2), (&t3, &sig3), (&t4, &sig4)] {
+            node_x.push_pending(e.clone(), Some(sig.clone()));
+        }
+        for (e, sig) in [(&t4, &sig4), (&t2, &sig2), (&t1, &sig1), (&t3, &sig3)] {
+            node_y.push_pending(e.clone(), Some(sig.clone()));
+        }
+
+        assert_ne!(
+            node_x.pending.lock().iter().map(|(e, _)| e.hash()).collect::<Vec<_>>(),
+            node_y.pending.lock().iter().map(|(e, _)| e.hash()).collect::<Vec<_>>(),
+            "sanity: the two nodes' raw gossip-arrival orders must actually differ \
+             going into this test, or it isn't testing anything"
+        );
+
+        // Drain (sorts by sha256(entry_bytes)) then apply in that order — mirrors
+        // the real seal path (main.rs: drain_pending_sorted → validate_and_apply loop).
+        let drained_x = node_x.drain_pending_sorted();
+        let drained_y = node_y.drain_pending_sorted();
+        let order_x: Vec<String> = drained_x.iter().map(|(e, _)| e.hash()).collect();
+        let order_y: Vec<String> = drained_y.iter().map(|(e, _)| e.hash()).collect();
+        assert_eq!(order_x, order_y,
+            "drain_pending_sorted must yield identical order regardless of gossip arrival order");
+
+        for (e, sig) in &drained_x {
+            crate::tx::validate_and_apply(&node_x, e, sig.as_deref()).expect("node_x applies");
+        }
+        for (e, sig) in &drained_y {
+            crate::tx::validate_and_apply(&node_y, e, sig.as_deref()).expect("node_y applies");
+        }
+        seal_epoch(&node_x, 1);
+        seal_epoch(&node_y, 1);
+
+        assert_eq!(
+            node_x.store.full_state_hash(), node_y.store.full_state_hash(),
+            "two nodes applying the same gossip set in different arrival order must \
+             converge to an identical state root after seal — this is the property \
+             that prevents partition/rejoin gossip timing from forking the chain"
+        );
+        // Spot-check actual balances agree too (belt-and-suspenders on top of the
+        // aggregate state-hash check).
+        for acc in ["alice", "bob", "carol", "dave"] {
+            assert_eq!(
+                node_x.get_balance(acc, NATIVE_TOKEN), node_y.get_balance(acc, NATIVE_TOKEN),
+                "balance for {} diverged between reorder-x and reorder-y", acc
+            );
+        }
+        assert_eq!(node_x.get_stake("carol"), node_y.get_stake("carol"));
+    }
+
+    fn new_test_chain(label: &str) -> (Chain, TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("hone_partition_chain_{}_", label))
+            .tempdir()
+            .expect("tempdir");
+        let store = crate::store::Store::open(dir.path()).expect("store open");
+        let chain = Chain::new(store, format!("node-{}", label), "hone-testnet".to_string());
+        (chain, dir)
+    }
+}
