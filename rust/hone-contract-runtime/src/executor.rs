@@ -102,6 +102,14 @@ fn run_wasm(wasm_bytes: Vec<u8>, method: String, ctx: Ctx, gas: u64) -> CallResu
     // consume_fuel must be enabled on the Engine before fuel can be set on the Store.
     let mut config = Config::new();
     config.consume_fuel(true);
+    // Determinism pins (architect verdict §1.2): if contract execution ever becomes
+    // consensus replay (every node re-executes on seal), byte-identical results across
+    // nodes/versions are required. NaN canonicalization removes the one documented
+    // source of cross-platform float non-determinism; pinning the Cranelift strategy
+    // guards against a future default change silently altering codegen. Cheap now,
+    // closes the surface before it can be exposed.
+    config.cranelift_nan_canonicalization(true);
+    config.strategy(wasmtime::Strategy::Cranelift);
     let engine = match Engine::new(&config) {
         Ok(e) => e,
         Err(e) => return error_result(format!("Engine init failed: {}", e)),
