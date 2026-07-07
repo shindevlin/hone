@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HONE launcher foreground: a bold "H" mark in the signature orange, centered
+     in the adaptive-icon safe zone. Placeholder for the commissioned brand mark
+     (Decision #3 — ship now, swap the vector later without code changes). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#F7931A"
+        android:pathData="M40,34 h8 v16 h12 v-16 h8 v40 h-8 v-16 h-12 v16 h-8 z" />
+</vector>

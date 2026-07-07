@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme for the pre-Compose window (splash/status bar). Compose owns
+         the real theming via HoneTheme; this just matches the dark background so
+         there's no white flash on launch. -->
+    <style name="Theme.HONE" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0A0E17</item>
+        <item name="android:navigationBarColor">#0A0E17</item>
+        <item name="android:windowBackground">#0A0E17</item>
+    </style>
+</resources>

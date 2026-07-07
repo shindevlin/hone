@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+/app/build
+# Never commit signing material
+*.jks
+*.keystore
+keystore.properties
+# Native libs are built by cargo-ndk into app/src/main/jniLibs (Phase 0b)
+/app/src/main/jniLibs
