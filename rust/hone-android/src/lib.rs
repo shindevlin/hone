@@ -1,3 +1,7 @@
+// uniffi scaffolding must live at the crate root (generates crate-root UniFfiTag).
+uniffi::setup_scaffolding!();
+
+mod bridge;   // uniffi typed interface (the NEW Kotlin surface)
 mod chain;
 mod clock;
 mod llm;

@@ -9,12 +9,22 @@ authors = ["Shin Devlin <shindevlin@proton.me>"]
 
 [lib]
 name = "hone_miner"
-crate-type = ["cdylib"]
+# cdylib: the .so loaded by Android. staticlib + lib: needed by uniffi's
+# bindgen + for host-target compile-checking the bridge without the NDK.
+crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
 hone-types = { path = "../hone-node/crates/hone-types" }
 
-# JNI bridge
+# uniffi — typed, auto-generated Kotlin bindings (replaces hand-written JNI).
+# See docs/ANDROID_WORLDCLASS_PLAN.md §3. The proc-macro path (#[uniffi::export])
+# means no external .udl file — the Rust source IS the interface definition.
+uniffi = { version = "0.28", features = ["cli"] }
+
+# JNI bridge — RETAINED transitionally. The uniffi path (bridge.rs) is the new
+# surface; the legacy JNI in lib.rs stays compilable until the Kotlin app is on
+# uniffi, then it is deleted. No live consumer depends on the JNI today (the
+# shipping webview APK calls the server HTTP API, not this .so).
 jni = { version = "0.21", default-features = false }
 
 # Async runtime
@@ -56,10 +66,22 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Utilities
 futures = "0.3"
 anyhow = "1"
+thiserror = "1"
 tracing = "0.1"
 tracing-android = "0.2"
 parking_lot = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
+
+[build-dependencies]
+# Generates the uniffi scaffolding at build time from the #[uniffi::export] macros.
+uniffi = { version = "0.28", features = ["build"] }
+
+# uniffi-bindgen binary target — `cargo run --bin uniffi-bindgen generate ...`
+# emits the Kotlin bindings for the Android module. Kept in-crate so the binding
+# generator version always matches the runtime version.
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
 
 [profile.release]
 opt-level = "z"
