@@ -10,6 +10,7 @@ mod helpers;
 mod inference;
 mod key;
 mod memory;
+mod model;
 mod oracle;
 mod private_auth;
 mod repo;
@@ -149,6 +150,12 @@ enum Commands {
     Inference {
         #[command(subcommand)]
         action: InferenceCommands,
+    },
+
+    /// Local embedded-inference model discovery and selection
+    Model {
+        #[command(subcommand)]
+        action: ModelCommands,
     },
 
     /// Scientific compute marketplace
@@ -527,6 +534,33 @@ enum InferenceCommands {
         /// Node account name (defaults to local HONE_ACCOUNT)
         node: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum ModelCommands {
+    /// List models in the local store, each gated against this machine's
+    /// detected hardware (VRAM/RAM/CPU). '*' marks the enabled model, '!'
+    /// marks one that doesn't fit.
+    List,
+    /// Show full detail for one model (architecture, quantization, context
+    /// length, hardware fit) by its filename in the store.
+    Show {
+        /// GGUF filename as it appears in `hone model list`
+        name: String,
+    },
+    /// Enable a model for the embedded inference engine to serve. Refuses if
+    /// it doesn't fit this machine's estimated requirements unless --force.
+    Enable {
+        /// GGUF filename as it appears in `hone model list`
+        name: String,
+        /// Enable even if the hardware-fit check fails
+        #[arg(long)]
+        force: bool,
+    },
+    /// Disable the currently enabled model (embedded inference goes unavailable).
+    Disable,
+    /// Print the currently enabled model's filename (or a message if none).
+    Current,
 }
 
 #[derive(Subcommand)]
@@ -1312,6 +1346,23 @@ fn run() -> Result<()> {
             }
             InferenceCommands::Reputation { node } => {
                 inference::cmd_reputation(node.as_deref())?;
+            }
+        },
+        Commands::Model { action } => match action {
+            ModelCommands::List => {
+                model::cmd_list()?;
+            }
+            ModelCommands::Show { name } => {
+                model::cmd_show(&name)?;
+            }
+            ModelCommands::Enable { name, force } => {
+                model::cmd_enable(&name, force)?;
+            }
+            ModelCommands::Disable => {
+                model::cmd_disable()?;
+            }
+            ModelCommands::Current => {
+                model::cmd_current()?;
             }
         },
         Commands::Key { action } => match action {
