@@ -285,16 +285,88 @@ mod candle_backend {
         }
     }
 
+    /// Resolve which candle `Device` to run inference on.
+    ///
+    /// Controlled by `HONE_INFER_DEVICE` (default `"cpu"` when unset):
+    ///   - `"cpu"` → `Device::Cpu`.
+    ///   - `"cuda"` or `"cuda:N"` → `Device::new_cuda(N)` (default ordinal 0).
+    ///
+    /// GPU is opt-in, not opt-out — this keeps CPU as the default for both the
+    /// chat-serving path and the mining/verification path (`miner.rs`'s
+    /// `run_inference_prompt`, which calls through `inference_engine::chat` and
+    /// therefore through here too). CPU vs CUDA floating-point results are not
+    /// guaranteed bit-identical (different reduction order / kernels), so this
+    /// module deliberately does NOT default mining inference to GPU — that
+    /// cross-node determinism question is a separate, still-open decision (see
+    /// docs/CONTRACT_CONSENSUS_FIX.md, "Coupled Decisions"). An operator who
+    /// wants GPU (for serving, or knowingly for mining on a homogeneous fleet)
+    /// opts in explicitly via the env var.
+    ///
+    /// If CUDA is requested but this binary wasn't built with the `cuda`
+    /// feature, or `Device::new_cuda` fails at runtime (no GPU / driver issue),
+    /// this logs a warning and falls back to `Device::Cpu` rather than
+    /// crashing the node.
+    fn resolve_device() -> candle_core::Device {
+        use candle_core::Device;
+
+        let raw = std::env::var("HONE_INFER_DEVICE").unwrap_or_else(|_| "cpu".to_string());
+        let raw = raw.trim();
+        if raw.is_empty() || raw.eq_ignore_ascii_case("cpu") {
+            return Device::Cpu;
+        }
+
+        let lower = raw.to_ascii_lowercase();
+        let requested_cuda = if let Some(idx) = lower.strip_prefix("cuda:") {
+            match idx.parse::<usize>() {
+                Ok(n) => Some(n),
+                Err(_) => {
+                    tracing::warn!(
+                        "inference-engine: HONE_INFER_DEVICE={raw:?} has an unparseable cuda \
+                         ordinal — falling back to cpu"
+                    );
+                    None
+                }
+            }
+        } else if lower == "cuda" {
+            Some(0)
+        } else {
+            tracing::warn!(
+                "inference-engine: HONE_INFER_DEVICE={raw:?} is not recognized (expected \
+                 \"cpu\", \"cuda\", or \"cuda:N\") — falling back to cpu"
+            );
+            None
+        };
+
+        match requested_cuda {
+            Some(ordinal) => match Device::new_cuda(ordinal) {
+                Ok(dev) => {
+                    tracing::info!("inference-engine: using CUDA device {ordinal} (HONE_INFER_DEVICE={raw:?})");
+                    dev
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "inference-engine: HONE_INFER_DEVICE={raw:?} requested but CUDA device \
+                         {ordinal} is unavailable ({e}) — falling back to cpu. Build with \
+                         `--features cuda` and ensure a working NVIDIA driver/toolkit if GPU \
+                         inference is desired."
+                    );
+                    Device::Cpu
+                }
+            },
+            None => Device::Cpu,
+        }
+    }
+
     /// The candle generate loop — ported from hone-android/src/llm.rs. Greedy.
     fn generate_sync(model_path: &Path, prompt: &str, max_tokens: usize) -> Result<String> {
         use candle_core::quantized::gguf_file;
-        use candle_core::{Device, Tensor};
+        use candle_core::Tensor;
         // Shared sequence-length cap. candle's Qwen loaders expose no MAX_SEQ_LEN
         // constant; llama's 4096 is a safe general bound across the families here.
         use candle_transformers::models::quantized_llama::MAX_SEQ_LEN;
         use tokenizers::Tokenizer;
 
-        let device = Device::Cpu;
+        let device = resolve_device();
 
         let mut file = std::fs::File::open(model_path)?;
         let gguf = gguf_file::Content::read(&mut file)?;

@@ -104,9 +104,18 @@ hf-hub = { version = "0.3", default-features = false, features = ["tokio", "onli
 # so a node serves inference without any external daemon (the non-fragile path).
 # Turn it off (--no-default-features) for a lean node that only relays or points
 # at an external INFERENCE_URL (e.g. a vLLM GPU node).
+#
+# `cuda` enables candle's CUDA backend (candle-core's own `cuda` feature, which
+# pulls in `cudarc` + `candle-kernels`). OFF by default — the CUDA toolkit isn't
+# always present, and enabling it must not change default node behavior. With
+# `cuda` compiled in, GPU is still opt-in at runtime via HONE_INFER_DEVICE=cuda
+# (see inference_engine::candle_backend::resolve_device); CPU stays the default
+# even in a cuda-enabled binary. Build with `--features hone-node/cuda` (or just
+# `--features cuda` from within this crate).
 default = ["inference-embedded"]
 matrix = ["dep:matrix-sdk"]
 inference-embedded = ["dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:tokenizers", "dep:hf-hub"]
+cuda = ["candle-core/cuda", "candle-transformers/cuda", "candle-nn/cuda"]
 
 [dev-dependencies]
 tempfile = "3"
