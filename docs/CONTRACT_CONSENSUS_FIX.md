@@ -38,98 +38,144 @@ This is the class of bug that broke prior launches by another name. It is a
 
 ---
 
-## The Decision
+## Why the Naive Fix Doesn't Work (what the code forced)
 
-**Contract-emitted balance effects ARE first-class consensus entries.** They must
-flow through the *same* path as every other value mutation: subject to the no-peers
-hardline, broadcast to the network, and sealed in an epoch. A contract's token
-movements are not private node-local bookkeeping; they change the balance state root,
-so the network must see and seal them like any Transfer.
+The obvious fix — "emit the contract's transfers as `LedgerEntry::Transfer`s into the
+pending pool" — is **impossible** in HONE's model, for two verified reasons:
 
-(Contract *storage* — `contract:{id}:{key}` in CF_META — is a separate question; it
-is **not** in the balance Merkle root today (single-executor, replay is a no-op —
-`chain.rs ~1112`). This fix is scoped to **balance** effects, which *are* in the
-state root. Whether storage/execution itself becomes replicated-deterministic is the
-coupled §1.2/wasmi + §4 decision, deferred — see "Coupled Decisions.")
+1. **A contract has no active key.** At seal, pending entries apply via
+   `tx::validate_and_apply`, and a `Transfer` requires an **active-key signature**
+   (`tx.rs:174–176`: `require_key` + `check_signature(..., "active")`). A
+   contract-emitted transfer is `signed_by: contract_id` with no signature — it would
+   be **rejected at seal.** Contracts are not signing accounts.
+
+2. **System entries can't be gossiped.** The forge-guard: gossip-received
+   `is_system_entry` entries are **silently dropped** (`main.rs:924–927`) — they only
+   ever originate *locally at seal* on each node, so no one can inject a fake reward
+   over the wire. A "`ContractEffect`" system entry that skipped signatures would
+   either be droppable (never propagates) or, if accepted from gossip, a **forgeable
+   mint/theft primitive** — a worse hole than the one we're closing.
+
+So there is no way to make a contract's balance effect a standalone sealed entry
+safely. The effect must be a **deterministic consequence** that *every node derives
+for itself*, from a trigger it can verify.
 
 ---
 
-## The Fix
+## The Decision — Contract Execution Becomes Consensus Replay
 
-`ContractEngine::call` must not mutate balances outside the guarded path. Concretely:
+**A `ContractCall` becomes a consensus-sealed unit, and every node re-executes the
+contract at seal to derive identical balance effects.** This mirrors how `Mine`
+already works (gossiped, applied on every node so the reward hash matches).
 
-1. **No bare balance mutation for consensus effects.** Replace the direct
-   `store.debit`/`store.credit` for the **deposit** and the bare `apply_entry` for
-   **transfers** with real ledger entries that go through validation + the no-peers
-   gate + broadcast + seal.
+- `ContractCall` (and `ContractDeploy`) stop being base-layer no-ops
+  (`chain.rs ~1112`). They are gossiped, enter the pending pool, are hardline-gated
+  and broadcast, and at **seal** each node **executes the WASM** and applies the
+  resulting balance effects (deposit + transfers) to its own state.
+- Because every node runs the same call against the same pre-seal state in the same
+  deterministic order (`drain_pending_sorted`), all nodes compute the **identical**
+  balance delta → the state root converges → **no fork.**
+- The call itself is authorized the normal way: the **signer** signs the
+  `CONTRACT_CALL` message with their key (already verified at submit,
+  `api.rs:2125–2138`), so the sealed unit is legitimately attributable — no forgeable
+  effect entry, no contract signature needed.
 
-2. **Model the effects as entries.** A contract call produces a set of balance
-   effects: the deposit (signer → contract), and zero or more transfers
-   (contract → recipient). Emit these as `LedgerEntry::Transfer`s (or a dedicated
-   `ContractEffect` entry batch) so they are:
-   - **validated** (`validate_and_apply` / `tx::` rules),
-   - **gated** by `peer_count == 0` → reject (the hardline, applied uniformly),
-   - **broadcast** via `tx_broadcast` for peers to re-verify,
-   - **sealed** in an epoch (drain_pending_sorted → apply in sha256 order), so all
-     nodes converge on identical post-state.
+This is the honest, permanent fix. It **necessarily** makes contract **execution**
+part of consensus — the coupled decision the earlier draft deferred is now **made:
+execution is replicated-deterministic.**
 
-3. **Atomicity across the call.** Today `call()` is atomic on one node (refund on any
-   failed transfer, storage written only after all transfers succeed). Under the fix,
-   the effect set must remain all-or-nothing at seal time: either the whole contract
-   call's balance effects seal together or none do. Options to preserve in the spec's
-   implementation:
-   - emit the effects as one **atomic batch entry** the seal applies transactionally, or
-   - keep execution local but only **stage** effects, committing them exclusively
-     through the sealed path (no store mutation until seal).
+### Consequences (accepted)
 
-4. **Determinism of the effect set.** The emitted effects must be a pure function of
-   (contract state, call args, epoch) so every node that re-applies at seal computes
-   the identical balance delta. Execution that yields the effect set stays
-   single-executor for now (§ coupled decision); only the **balance delta** it
-   produces must be deterministic and sealed.
+- **Determinism is now load-bearing.** Every node must produce byte-identical
+  execution results. The §1.2 pins (`cranelift_nan_canonicalization` + Cranelift
+  strategy) are no longer optional insurance — they are **required**, and the
+  `wasmi`-interpreter swap (verdict §1.1/§1.2) moves from "deferred" to "the correct
+  long-term engine" (native deterministic fuel, no per-version codegen drift).
+- **Contract storage joins consensus too.** If execution is replayed, storage writes
+  (`contract:{id}:{key}`) must be applied identically on every node at seal — storage
+  effectively enters consensus alongside balances. (Whether the storage root is folded
+  into the state Merkle root is a follow-up; at minimum every node must hold identical
+  storage after seal.)
+- **Non-determinism is now a consensus fault.** Any host function exposing time,
+  randomness, node-local state, or float non-determinism to contract WASM must be
+  audited and made deterministic or removed. This is a hard requirement, not a
+  nicety.
+- **Contracts stay gated/experimental until proven.** Ship this behind a flag; do not
+  enable contract token movement on mainnet until the partition test (§1.1) and a
+  determinism-replay test both pass.
+
+### The Fix, concretely
+
+1. **Submit path (`post_contract_call`, api.rs):** apply the `peer_count == 0`
+   hardline (reject if zero peers), verify the signer signature (already done), then
+   `push_pending(ContractCall{...})` + `tx_broadcast` — **do not** call
+   `s.contracts.call` synchronously for its balance effects. Return "accepted, pending
+   seal."
+2. **`ContractCall` at seal (`chain.rs` apply path):** execute the contract
+   deterministically and apply deposit + emitted transfers + storage writes to state.
+   This runs on **every** node from the sealed pending set, in `drain_pending_sorted`
+   order.
+3. **`ContractEngine::call` / `execute_call`:** no longer mutates balances via bare
+   `store.debit/credit` or `apply_entry` at HTTP time. Execution is invoked from the
+   seal path; its output is applied there. `view` (read-only) stays synchronous.
+4. **Gossip:** `ContractCall` is a **user** entry (not `is_system_entry`) so it
+   propagates and pending-pools like any transfer; the forge-guard doesn't drop it,
+   and it carries the signer's signature for attribution.
 
 ### What must NOT happen (guardrails)
-- Do **not** keep applying contract `Transfer`s via bare `apply_entry`.
+- Do **not** keep applying contract `Transfer`s or the deposit via bare `apply_entry`
+  / `store.debit/credit` at HTTP time.
 - Do **not** add a contract-specific bypass of the `peer_count == 0` hardline.
-- Do **not** mutate `store` balances for the deposit before the effect is on the
-  sealed path.
-- A zero-peer node calling a token-moving contract must be **rejected**, exactly as a
-  zero-peer `/api/transfer` is.
+- Do **not** expose non-deterministic host functions to contract WASM once execution
+  is replayed.
+- Do **not** enable contract token movement on mainnet before the §1.1 partition test
+  and a cross-node determinism test pass.
 
 ---
 
-## Coupled Decisions (from the architect verdict §0/§1.2/§4)
+## Coupled Decisions — now resolved
 
-This fix answers one question — *"are contract balance effects consensus state?"* —
-**yes.** It deliberately does **not** answer the larger coupled one: *"does contract
-execution (the WASM run itself) become consensus replay on every node?"* That governs:
+This fix answers **both** questions the verdict coupled:
 
-- **§1.2 / wasmi:** codegen determinism only matters if every node re-executes the
-  WASM on seal. Until that decision, take the free `cranelift_nan_canonicalization`
-  pin (separate task) and defer the wasmi swap.
+- *Are contract balance effects consensus state?* → **Yes.**
+- *Does contract execution become consensus replay on every node?* → **Yes** — forced
+  by the two constraints above (no contract key, no gossipable system entry). The only
+  safe way to move a contract's value is for every node to re-derive it.
+
+Therefore:
+
+- **§1.2 / wasmi:** determinism is now required, not optional. NaN-canonicalization pin
+  is landed; the `wasmi` swap is the correct long-term engine and should be scheduled
+  (a ~15% perf cost that now defends an *exposed* divergence, not a hypothetical one).
 - **§4 proof-of-inference:** the same "optimistic re-execution vs single-executor +
-  fraud proof" question, for inference instead of contracts.
+  fraud proof" question, for inference instead of contracts — still deferred, but now
+  has a precedent (contracts) for what "execution = consensus" looks like in HONE.
 
-The recommended sequence (verdict §3 method note): land THIS balance-effects fix +
-the NaN one-liner, build the partition test that proves the hardline now covers the
-contract path, then take the execution-replay decision as its own spec.
+Recommended sequence: land the NaN pin (done) → implement contract execution as
+seal-replay behind a flag → build the §1.1 partition test + a cross-node determinism
+test → only then consider enabling contract token movement, and schedule the wasmi
+swap for full cross-version determinism.
 
 ---
 
 ## Verification / Acceptance
 
-- **Partition test (task §1.1):** the deterministic partition/rejoin test must cover
-  the contract path — a zero-peer node calling a token-moving contract is rejected,
-  and the test **fails if the hardline is bypassed** (as it is today).
-- **Regression:** existing `contracts.rs` tests (atomic refund, storage-after-transfer)
-  still pass under the sealed-effect model.
-- **No new bare balance mutation:** grep guard — `store.debit`/`store.credit`/
-  `apply_entry` must not appear for consensus balance effects in `contracts.rs`
-  outside the sealed path.
-- **Block-0 unchanged:** this is apply/seal-path logic, not genesis — hash stays
-  `98e3c1b0`.
+- **Determinism test (new):** two independently-built nodes execute the same
+  `ContractCall` at seal and reach a **byte-identical state root**. This is the test
+  that justifies the whole replay decision — if it can't pass, contracts don't ship.
+- **Partition test (task §1.1):** the deterministic partition/rejoin test covers the
+  contract path — a zero-peer node's `ContractCall` is rejected at submit, and the
+  test **fails if the hardline is bypassed** (as it is today).
+- **No bare balance mutation at HTTP time:** grep guard — `store.debit`/`store.credit`/
+  `apply_entry` must not move contract balances outside the seal path.
+- **Regression:** existing `contracts.rs` behavior (atomic refund semantics,
+  storage-after-transfer ordering) preserved under seal-replay.
+- **Gated:** contract token movement stays flag-disabled on mainnet until both tests
+  pass.
+- **Block-0 unchanged:** apply/seal-path logic, not genesis — hash stays `98e3c1b0`.
 
 ---
 
-_A contract that moves value moves consensus state. It goes through the same gate,
-broadcast, and seal as every other Transfer — no exceptions, including this one._
+_A contract that moves value moves consensus state. There is no contract key to sign
+it and no gossipable entry to carry it — so every node re-executes the call at seal
+and derives the same result. Execution is consensus. No exceptions, including this one._
