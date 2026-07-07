@@ -185,14 +185,22 @@ JNI surface is small and the safety/velocity win compounds across the whole rebu
 
 ---
 
-## 7. Open decisions for Shin
+## 7. Decisions — LOCKED (Shin, 2026-07-07)
 
-1. **Module home:** new `clients/hone-android-native/` (Kotlin) vs. converting the existing
-   `clients/btcpc-android` dir. (Recommend: new module; retire old after parity.)
-2. **Icon system:** Material Symbols vs. a commissioned HONE icon set.
-3. **Crash/analytics:** self-hosted (privacy-preserving, on-brand) vs none at launch.
-4. **Beta channel:** Play internal testing vs. direct-APK for founders first.
-5. **Bridge:** confirm uniffi migration (recommended) vs. extend hand-written JNI.
+1. **Module home:** ✅ **new `clients/hone-android-native/`** (Kotlin/Compose). Keep the
+   old `clients/btcpc-android` webview buildable until the native app reaches parity, then
+   retire it. No risk to the currently-shipping APK.
+2. **Bridge:** ✅ **migrate to uniffi** — define the interface once in Rust, auto-generate
+   typed/null-safe Kotlin bindings. Migrate the ~10 existing JNI fns in `hone-android/lib.rs`.
+3. **Icon system:** ✅ **Material Symbols now, commissioned HONE set later** — ship with
+   Material Symbols to kill the emoji-icon problem immediately; commission a bespoke HONE
+   icon set post-launch and swap in without blocking the build.
+4. **Crash/analytics:** ✅ **self-hosted, privacy-preserving** — route crash reports to
+   HONE-controlled infra; NO third-party trackers (Firebase/Sentry). On-brand for a
+   sovereign/privacy chain; also keeps the Play data-safety listing clean.
+5. **Distribution:** ✅ **direct signed APK to founders/Grouchly devices first** (matches
+   how nodes are deployed today); stand up a Play internal-test track later. Fast iteration,
+   no store-review latency at the start.
 
 ---
 
