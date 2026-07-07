@@ -49,12 +49,13 @@ pub async fn run_miner(
         let next_epoch = last_produced + 1;
         tokio::time::sleep(wait_for_next_epoch(next_epoch, genesis_ts)).await;
 
-        let ollama_url = std::env::var("OLLAMA_URL")
-            .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-        let model_id = match detect_model(&ollama_url).await {
+        // Anti-cheat: the trusted node binary runs inference ITSELF via the
+        // embedded candle engine (or the one sanctioned external INFERENCE_URL
+        // opt-out) — never a separate Ollama daemon, which is a cheating surface.
+        let model_id = match detect_model().await {
             Some(m) => m,
             None => {
-                warn!("miner: no Ollama model available at {} — skipping epoch {}", ollama_url, next_epoch);
+                warn!("miner: no inference model available (set HONE_MODEL to a GGUF in the store) — skipping epoch {}", next_epoch);
                 last_produced = next_epoch;
                 continue;
             }
@@ -62,7 +63,9 @@ pub async fn run_miner(
         let hw_tier_val = std::env::var("HONE_HW_TIER")
             .ok().and_then(|v| v.parse::<u8>().ok())
             .unwrap_or(1);
-        let model_hash = fetch_model_digest(&ollama_url, &model_id).await;
+        // No external daemon to query for a content digest; bind the Mine record
+        // to the selected model id instead. Left None when unset.
+        let model_hash = fetch_model_digest(&model_id).await;
         let start_ms = now_ms();
 
         // Check for an awarded inference job. Jobs in the "awarded" state are ready
@@ -174,84 +177,61 @@ async fn run_inference(epoch: u64, miner: &str) -> (u64, u64, String) {
     run_inference_prompt(epoch, miner, &prompt).await
 }
 
-/// Returns whatever model Ollama has installed. Prefers HONE_MODEL env var;
-/// falls back to the first model reported by /api/tags.
-pub async fn detect_model(ollama_url: &str) -> Option<String> {
+/// The model this node serves inference with. HONE is model-agnostic: the
+/// operator selects a GGUF via HONE_MODEL (the embedded candle engine loads it),
+/// or points at an external server via INFERENCE_URL. No Ollama tag query.
+pub async fn detect_model() -> Option<String> {
     if let Ok(m) = std::env::var("HONE_MODEL") {
         if !m.trim().is_empty() { return Some(m.trim().to_owned()); }
     }
-    let client = reqwest::Client::new();
-    if let Ok(resp) = client
-        .get(format!("{}/api/tags", ollama_url))
-        .timeout(Duration::from_secs(5))
-        .send().await
-    {
-        if let Ok(body) = resp.json::<serde_json::Value>().await {
-            if let Some(name) = body["models"].as_array()
-                .and_then(|a| a.first())
-                .and_then(|m| m["name"].as_str().or(m["model"].as_str()))
-            {
-                return Some(name.to_owned());
-            }
-        }
+    // No HONE_MODEL, but an external inference server is configured — the model
+    // id is opaque to us; report a generic id so the Mine record still binds.
+    if std::env::var("INFERENCE_URL").is_ok() || std::env::var("OLLAMA_URL").is_ok() {
+        return Some("external".to_owned());
     }
     None
 }
 
-/// Fetch the SHA-256 digest Ollama assigned to a model via /api/show.
-/// Returns the digest string (e.g. "sha256:abc123...") or None.
-pub async fn fetch_model_digest(ollama_url: &str, model: &str) -> Option<String> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/api/show", ollama_url))
-        .timeout(Duration::from_secs(10))
-        .json(&serde_json::json!({ "name": model }))
-        .send().await.ok()?;
-    let body: serde_json::Value = resp.json().await.ok()?;
-    body["digest"].as_str().map(str::to_owned)
+/// A content digest for the selected model. There is no external daemon to query
+/// for a SHA-256 (that was the Ollama /api/show path); the model id itself is the
+/// binding identifier now. Returns None (no separate digest).
+pub async fn fetch_model_digest(_model: &str) -> Option<String> {
+    None
 }
 
 async fn run_inference_prompt(epoch: u64, miner: &str, prompt: &str) -> (u64, u64, String) {
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    let model = match detect_model(&ollama_url).await {
-        Some(m) => m,
-        None => {
-            warn!("miner: no Ollama model available — skipping epoch {} inference", epoch);
-            return (0, 0, String::new());
-        }
-    };
+    use crate::inference_engine::{self, ChatRequest, Message};
 
-    let client = reqwest::Client::new();
-    let result = client
-        .post(format!("{}/api/generate", ollama_url))
-        .timeout(Duration::from_secs(60))
-        .json(&serde_json::json!({
-            "model": model,
-            "prompt": prompt,
-            "stream": false,
-            "keep_alive": "0s",
-            "options": { "num_predict": 64, "temperature": 0.0 },
-        }))
-        .send()
-        .await;
-
-    match result {
-        Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                let text         = body["response"].as_str().unwrap_or("");
-                let output_toks  = body["eval_count"].as_u64().unwrap_or(0);
-                let input_toks   = body["prompt_eval_count"].as_u64().unwrap_or(0);
-                let proof        = hex::encode(Sha256::digest(text.as_bytes()));
-                info!("inference: epoch {} miner {} — in={} out={} tokens (model={})", epoch, miner, input_toks, output_toks, model);
-                return (input_toks, output_toks, proof);
-            }
-        }
-        Ok(resp) => warn!("inference: Ollama {} for epoch {}", resp.status(), epoch),
-        Err(e)   => warn!("inference: Ollama unreachable for epoch {}: {}", epoch, e),
+    if !inference_engine::available() {
+        warn!("miner: no inference backend available — skipping epoch {} inference", epoch);
+        return (0, 0, String::new());
     }
 
-    (0, 0, String::new())
+    let model = detect_model().await.unwrap_or_default();
+    // Greedy/deterministic per-epoch inference: the embedded engine is already
+    // greedy (argmax), and we cap at 64 tokens to match the old num_predict.
+    let req = ChatRequest {
+        model: model.clone(),
+        messages: vec![Message { role: "user".to_owned(), content: prompt.to_owned() }],
+        max_tokens: 64,
+    };
+
+    match inference_engine::chat(req).await {
+        Ok(resp) => {
+            let text = resp.content;
+            // The engine does not report token counts; approximate from
+            // whitespace (same convention as the OpenAI-compatible API path).
+            let output_toks = text.split_whitespace().count() as u64;
+            let input_toks  = prompt.split_whitespace().count() as u64;
+            let proof = hex::encode(Sha256::digest(text.as_bytes()));
+            info!("inference: epoch {} miner {} — in={} out={} tokens (model={})", epoch, miner, input_toks, output_toks, model);
+            (input_toks, output_toks, proof)
+        }
+        Err(e) => {
+            warn!("inference: embedded engine failed for epoch {}: {}", epoch, e);
+            (0, 0, String::new())
+        }
+    }
 }
 
 fn model_and_hw() -> (String, u8) {

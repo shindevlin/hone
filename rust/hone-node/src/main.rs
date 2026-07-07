@@ -62,7 +62,6 @@ mod ens;
 mod linkgit_server;
 mod storage_sync;
 mod secret_store;
-mod model_healer;
 mod monitor;
 mod updater;
 mod totp;
@@ -1056,21 +1055,11 @@ async fn main() -> Result<()> {
         });
     }
 
-    // ── Model healer (legacy Ollama helper — OFF by default) ────────────────────
-    // The healer polls an external Ollama daemon to keep a named model resident.
-    // HONE is model-agnostic and never chases a hardcoded model, so this only
-    // runs when the operator explicitly opts in with an external Ollama by setting
-    // HONE_MODEL_HEALER=1 AND OLLAMA_URL. Embedded candle inference does not use it.
-    if std::env::var("HONE_MODEL_HEALER").ok().as_deref() == Some("1") {
-        if let (Ok(ollama_url), Ok(pref_model)) =
-            (std::env::var("OLLAMA_URL"), std::env::var("HONE_MODEL"))
-        {
-            let chain_ref = chain.clone();
-            tokio::spawn(async move { model_healer::run(chain_ref, ollama_url, pref_model).await; });
-        } else {
-            tracing::warn!("model-healer: HONE_MODEL_HEALER=1 but OLLAMA_URL/HONE_MODEL unset — not started");
-        }
-    }
+    // ── Model healer: REMOVED ───────────────────────────────────────────────────
+    // The old healer polled an external Ollama daemon (pull/generate/tags) to keep
+    // a named model resident. Ollama has been retired as HONE's inference engine —
+    // the node runs the model itself via the embedded candle backend, which needs
+    // no daemon to heal. The module and its HONE_MODEL_HEALER wiring are gone.
 
     // ── Chain health monitor ──────────────────────────────────────────────────
     let health_monitor = Arc::new(monitor::HealthMonitor::new());
@@ -1087,10 +1076,9 @@ async fn main() -> Result<()> {
     }
 
     // ── HTTP API ──────────────────────────────────────────────────────────────
-    let ollama_url_for_model = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    let default_model = crate::miner::detect_model(&ollama_url_for_model).await
-        .unwrap_or_default();
+    // The active model is the one the embedded engine serves (HONE_MODEL), or the
+    // external INFERENCE_URL model — no Ollama tag query.
+    let default_model = crate::miner::detect_model().await.unwrap_or_default();
 
     tracing::info!("software_hash: {}", &software_hash[..software_hash.len().min(24)]);
 
@@ -1209,10 +1197,11 @@ async fn run_inference_verifier(
 ) {
     use std::time::Duration;
 
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    let local_model = std::env::var("HONE_MODEL")
-        .unwrap_or_else(|_| "qwen2.5:0.5b".to_owned());
+    // The verifier re-evaluates other nodes' inference work with THIS node's own
+    // embedded engine (or the sanctioned external INFERENCE_URL) — never a
+    // separate Ollama daemon. Only jobs matching the locally selected model are
+    // considered comparable.
+    let local_model = crate::miner::detect_model().await.unwrap_or_default();
 
     // Peers to try when IO text is not stored locally (worker node has the actual output).
     let peer_apis: Vec<String> = std::env::var("HONE_PEER_APIS")
@@ -1287,35 +1276,24 @@ async fn run_inference_verifier(
                 output_text.chars().take(512).collect::<String>(),
             );
 
-            let resp = http
-                .post(format!("{}/api/generate", ollama_url))
-                .timeout(Duration::from_secs(30))
-                .json(&serde_json::json!({
-                    "model":  local_model,
-                    "prompt": meta_prompt,
-                    "stream": false,
-                    "options": { "num_predict": 20, "temperature": 0.0 },
-                }))
-                .send()
-                .await;
-
-            let verdict = match resp {
-                Ok(r) if r.status().is_success() => {
-                    match r.json::<serde_json::Value>().await {
-                        Ok(body) => {
-                            let text = body["response"].as_str().unwrap_or("").to_uppercase();
-                            if text.contains("APPROVED") {
-                                "approved"
-                            } else if text.contains("REJECTED") || text.contains("REJECT") {
-                                "rejected"
-                            } else {
-                                "review_required"
-                            }
-                        }
-                        Err(_) => continue,
+            use crate::inference_engine::{self, ChatRequest, Message};
+            let eng_req = ChatRequest {
+                model: local_model.clone(),
+                messages: vec![Message { role: "user".to_owned(), content: meta_prompt }],
+                max_tokens: 20,
+            };
+            let verdict = match inference_engine::chat(eng_req).await {
+                Ok(resp) => {
+                    let text = resp.content.to_uppercase();
+                    if text.contains("APPROVED") {
+                        "approved"
+                    } else if text.contains("REJECTED") || text.contains("REJECT") {
+                        "rejected"
+                    } else {
+                        "review_required"
                     }
                 }
-                _ => continue,
+                Err(_) => continue,
             };
 
             // Estimate value_score from output length + model (true score comes via claim flow)

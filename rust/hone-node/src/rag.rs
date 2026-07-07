@@ -1,5 +1,16 @@
-//! RAG service — Ollama-based embedding, cosine ranking, 6k context injection.
+//! RAG service — embedding, cosine ranking, 6k context injection.
 //! P5-A: ~550 LOC
+//!
+//! Embeddings: the embedded candle engine (inference_engine.rs) does NOT yet
+//! expose an embeddings method — candle embedding support is a separate lift
+//! (embedding-model architecture + pooling + its own model file). Until it does,
+//! RAG embeddings go through the ONE sanctioned external opt-out: an
+//! OpenAI/Ollama-compatible embeddings server selected via HONE_EMBEDDINGS_URL
+//! (falling back to INFERENCE_URL, then the legacy OLLAMA_URL alias). This is the
+//! same external-server escape hatch inference_engine.rs honours — it is NOT a
+//! hardcoded Ollama daemon dependency. If none is configured, embedding fails
+//! cleanly and RAG indexing/query returns an error (metadata-only apply_index
+//! still works offline).
 
 #![allow(dead_code)]
 use anyhow::Result;
@@ -11,7 +22,18 @@ use crate::chain::Chain;
 const MAX_CONTEXT_CHARS: usize = 6_144; // ~6k characters injected into prompt
 const EMBEDDING_MODEL: &str = "nomic-embed-text";
 const TOP_K: usize = 5;
-const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
+
+/// Resolve the sanctioned external embeddings server base URL (no trailing
+/// slash), or None if the operator has not configured one. Priority:
+/// HONE_EMBEDDINGS_URL → INFERENCE_URL → legacy OLLAMA_URL alias.
+fn embeddings_base() -> Option<String> {
+    std::env::var("HONE_EMBEDDINGS_URL")
+        .ok()
+        .or_else(|| std::env::var("INFERENCE_URL").ok())
+        .or_else(|| std::env::var("OLLAMA_URL").ok())
+        .map(|u| u.trim_end_matches('/').to_owned())
+        .filter(|u| !u.is_empty())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RagDocument {
@@ -229,26 +251,38 @@ mod tests {
     }
 }
 
-/// Call Ollama /api/embeddings and return the embedding vector.
+/// Compute an embedding for `text` via the sanctioned external embeddings
+/// server (see the module header). Errors cleanly when none is configured, so
+/// RAG degrades gracefully rather than silently depending on a local daemon.
 async fn embed(text: &str) -> Result<Vec<f32>> {
+    let base = embeddings_base().ok_or_else(|| anyhow::anyhow!(
+        "no embeddings backend configured — set HONE_EMBEDDINGS_URL (or INFERENCE_URL) \
+         to an OpenAI/Ollama-compatible embeddings server; the embedded engine has no \
+         embeddings method yet"
+    ))?;
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": EMBEDDING_MODEL,
         "prompt": text,
+        // OpenAI-style servers use "input"; send both so either shape works.
+        "input": text,
     });
     let resp: serde_json::Value = client
-        .post(format!("{}/api/embeddings", OLLAMA_BASE))
+        .post(format!("{}/api/embeddings", base))
         .json(&body)
         .send()
         .await?
         .json()
         .await?;
-    let emb: Vec<f32> = resp["embedding"]
+    // Accept Ollama ("embedding") or OpenAI ("data[0].embedding") response shapes.
+    let arr = resp["embedding"]
         .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Ollama embeddings response missing 'embedding' field"))?
+        .or_else(|| resp["data"][0]["embedding"].as_array())
+        .ok_or_else(|| anyhow::anyhow!("embeddings response missing 'embedding' field"))?;
+    let emb: Vec<f32> = arr
         .iter()
         .filter_map(|v| v.as_f64().map(|f| f as f32))
         .collect();
-    anyhow::ensure!(!emb.is_empty(), "received empty embedding from Ollama");
+    anyhow::ensure!(!emb.is_empty(), "received empty embedding from embeddings server");
     Ok(emb)
 }
