@@ -228,27 +228,34 @@ confirmed 3-0/2-1) established about what a Mini App can actually DO:
 The wallet finding does **not** mean the Mini App is read-only. TON Connect's
 actual pattern is the model to copy: **the dApp (Mini App) never touches the
 private key — it requests a signature, and a separate wallet performs it and
-returns the result.** Applied to HONE:
+returns the result.** Two concrete paths, both compliant, both real:
 
-- The Mini App builds the transaction (recipient, amount, memo) and shows the
-  human-confirm UI — same "push button, no copy-paste" ethos as the native app.
-- Instead of signing locally, it issues a **sign-request** that is fulfilled by
-  the **native Kotlin app** (which holds the Rust keystore) via a **"HONE
-  Connect"** handshake — a HONE-native analogue of TON Connect: a deep-link /
-  QR / Telegram-bot-relayed handshake that hands the unsigned tx to the phone's
-  native app, gets it signed there (behind the SAME biometric gate as the
-  native Wallet screen — see §4), and returns the signed result to the Mini App
-  / chain. The private key and the signing operation NEVER execute inside
-  Telegram's webview.
-- This is fully compliant (Telegram's rule is about what executes in THEIR
-  webview, not about whether the user can transact) and it is the same
-  founder-safe pattern already mandated elsewhere in this codebase: signing is
-  never auto-performed by an untrusted surface, it is always a confirmed,
-  gated act by the key-holding app.
-- If no native app / HONE Connect peer is available (e.g. a brand-new user
-  with only Telegram), the Mini App falls back to **read-only** (balance,
-  history, sensor submission) and prompts the user to install the native app
-  to unlock sending — it does not fall back to holding a key itself.
+1. **TON wallet as a delegated external signer (primary path — spec'd).** A
+   holder can grant their own TON wallet direct, bounded spending power on
+   their HONE account — via the `active` key, with caps/allowlist/expiry the
+   holder sets and can revoke instantly. The Mini App builds an unsigned
+   transfer, hands it to TON Connect, the user's TON wallet app signs it (never
+   the webview), and the signed envelope is submitted as an
+   `ExternalSignerTransfer`. Full spec:
+   [EXTERNAL_SIGNER_DELEGATION.md](EXTERNAL_SIGNER_DELEGATION.md). This is the
+   "my TON wallet just works for HONE too" path, and it needs no native app to
+   be installed at all — TON Connect exists today.
+2. **Native-app handoff (secondary path, for holders without a TON wallet).**
+   The Mini App builds the transaction and hands it to the native Kotlin app
+   (which holds the Rust keystore) via a deep-link/QR handshake, signed there
+   behind the same biometric gate as the native Wallet screen (§4), never in
+   the webview.
+
+Either way: the Mini App always shows the human-confirm UI ("push button, no
+copy-paste" ethos), and the private key/signing operation never executes
+inside Telegram's webview — fully compliant, since Telegram's rule is about
+what executes in *their* webview, not about whether the user can transact.
+This is the same founder-safe pattern already mandated elsewhere in this
+codebase: signing is never auto-performed by an untrusted surface, it is
+always a confirmed, gated act by whichever key-holding surface the user chose
+to trust. If neither a granted TON signer nor a native-app peer is available,
+the Mini App falls back to **read-only** (balance, history, sensor submission)
+— it never falls back to holding a key itself.
 
 ### Always-on roles stay off the webview, by design
 
@@ -263,7 +270,9 @@ node — see "Hardline: No Local Submission Without Peers" in CLAUDE.md.
 
 Scope the Mini App build after the native app's Phase 2 (wallet/biometric
 patterns need to be settled first, since the Mini App's sign flow depends on
-them) and after a HONE Connect handshake spec exists.
+them) and after the TON signature-envelope verifier
+([EXTERNAL_SIGNER_DELEGATION.md](EXTERNAL_SIGNER_DELEGATION.md) build-phasing
+step 1) lands.
 
 ## 8. Cross-cutting constraints (must hold)
 
