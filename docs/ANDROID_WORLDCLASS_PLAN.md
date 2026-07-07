@@ -204,6 +204,67 @@ JNI surface is small and the safety/velocity win compounds across the whole rebu
 
 ---
 
+## 7b. Future track — HONE Telegram Mini App (planned, not yet built)
+
+Separate from the native Android app: build a **HONE Telegram Mini App** as a
+second distribution channel. Rationale — HONE already runs Telegram bots
+(`btcpcbot`/wallet bot → renaming to hone), so a Mini App meets users where they
+already are, with no install. Distinct codebase (web, inside Telegram); the
+native Kotlin app remains the flagship and does the heavy lifting.
+
+### What research (2026-07-07, 107-agent multi-source pass, 23/25 claims
+confirmed 3-0/2-1) established about what a Mini App can actually DO:
+
+| Role | Verdict | Why |
+|---|---|---|
+| Sensor (point-in-time) | ✅ FEASIBLE | Bot API 8.0+ exposes native `Accelerometer`/`Gyroscope`/`DeviceOrientation`/`LocationManager` as first-class SDK APIs. Foreground-only (fires while the app is open), not continuous background capture. |
+| Compute (on-device inference) | 🟡 PARTIAL, foreground-only | WebGPU + WASM SIMD gives real in-browser LLM inference (~71-80% of native for 3.8B-8B models) — but only on high-end hardware, and WebGPU exposure specifically inside Telegram's WKWebView/Android WebView is UNPROVEN. |
+| Miner / Clock | ❌ INFEASIBLE | Telegram's own lifecycle marks the app "deactivated" on minimize/background. No Service Worker, background sync, or background-task API — JS does not run persistently when the app is closed or backgrounded. An always-on role that dies on background isn't that role. |
+| P2P Relay | ❌ INFEASIBLE standalone | Browser js-libp2p can speak WebRTC/WebSocket/WebTransport, but browser-to-browser connections need external STUN + a Circuit Relay server to bootstrap — a webview cannot self-form a gossipsub mesh. Degrades to a relay-dependent client, not an autonomous peer. |
+| Wallet — key custody | 🔴 must NOT hold keys in-webview | `SecureStorage` (OS Keychain/Keystore) could technically hold a key safely, but Telegram's blockchain guidelines (effective Feb 2025) mandate that Mini Apps only interact with wallets via **TON Connect** and explicitly prohibit signing transactions on non-TON chains outside allowed bridging. Generating/holding a native HONE key and signing it in the Mini App's own JS is a **platform ToS violation**, not just a UX tradeoff — Telegram has already forced other projects off-chain on this exact rule. |
+
+### The corrected design: Mini App SENDS, it just never SIGNS locally
+
+The wallet finding does **not** mean the Mini App is read-only. TON Connect's
+actual pattern is the model to copy: **the dApp (Mini App) never touches the
+private key — it requests a signature, and a separate wallet performs it and
+returns the result.** Applied to HONE:
+
+- The Mini App builds the transaction (recipient, amount, memo) and shows the
+  human-confirm UI — same "push button, no copy-paste" ethos as the native app.
+- Instead of signing locally, it issues a **sign-request** that is fulfilled by
+  the **native Kotlin app** (which holds the Rust keystore) via a **"HONE
+  Connect"** handshake — a HONE-native analogue of TON Connect: a deep-link /
+  QR / Telegram-bot-relayed handshake that hands the unsigned tx to the phone's
+  native app, gets it signed there (behind the SAME biometric gate as the
+  native Wallet screen — see §4), and returns the signed result to the Mini App
+  / chain. The private key and the signing operation NEVER execute inside
+  Telegram's webview.
+- This is fully compliant (Telegram's rule is about what executes in THEIR
+  webview, not about whether the user can transact) and it is the same
+  founder-safe pattern already mandated elsewhere in this codebase: signing is
+  never auto-performed by an untrusted surface, it is always a confirmed,
+  gated act by the key-holding app.
+- If no native app / HONE Connect peer is available (e.g. a brand-new user
+  with only Telegram), the Mini App falls back to **read-only** (balance,
+  history, sensor submission) and prompts the user to install the native app
+  to unlock sending — it does not fall back to holding a key itself.
+
+### Always-on roles stay off the webview, by design
+
+Miner, Clock, and Relay belong to the **native Kotlin app** (foreground
+service, §2) full stop — this was already the plan, and the research confirms
+it's not just the better choice but close to the *only* choice: the platform
+gives no primitive for persistent background execution. The Mini App's job is
+reach (zero-install dashboard + sensor snapshots + a signed-send handshake to
+the real node), not node participation. This matches the existing hardline
+that a peerless/webview surface must never be treated as an authoritative
+node — see "Hardline: No Local Submission Without Peers" in CLAUDE.md.
+
+Scope the Mini App build after the native app's Phase 2 (wallet/biometric
+patterns need to be settled first, since the Mini App's sign flow depends on
+them) and after a HONE Connect handshake spec exists.
+
 ## 8. Cross-cutting constraints (must hold)
 
 - **Brand:** HONE everywhere (`network.hone.app` already used in the Rust JNI names — good).
