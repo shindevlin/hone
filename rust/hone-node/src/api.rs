@@ -2097,57 +2097,105 @@ struct ContractViewBody {
 fn default_gas() -> u64 { 300_000_000_000 }
 
 /// POST /api/contract/deploy
+///
+/// CONSENSUS REPLAY (docs/CONTRACT_CONSENSUS_FIX.md): deploy is NOT executed
+/// synchronously here. We build a ContractDeploy entry, enforce the no-peers
+/// hardline, verify the deployer's signature over the entry, then push it to the
+/// pending pool + broadcast. Every node executes the deploy at epoch seal.
 async fn post_contract_deploy(
     State(s): State<AppState>,
     Json(body): Json<ContractDeployBody>,
 ) -> Json<serde_json::Value> {
+    // HARDLINE: zero peers = silent fork. Same rule as apply_and_broadcast — a
+    // disconnected node must not admit a contract deploy the network never sees.
+    if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        return Json(serde_json::json!({
+            "contract_id": null, "ok": false, "pending_seal": false,
+            "error": "not connected to network — entry rejected to prevent local fork",
+        }));
+    }
+
     let epoch = s.chain.current_epoch();
+    let contract_id = hone_contract_runtime::derive_contract_address(&body.deployer, epoch, body.nonce);
 
-    // Verify deployer owns this request.
-    let msg = serde_json::json!({
-        "type": "CONTRACT_DEPLOY",
-        "deployer": &body.deployer,
-        "nonce": body.nonce,
-        "epoch": epoch,
-    });
-    if let Ok(msg_bytes) = serde_json::to_vec(&msg) {
-        if let Err(e) = tx::check_sig_raw(&s.chain, &body.deployer, &msg_bytes, non_empty(&body.signature)) {
-            return Json(serde_json::json!({ "contract_id": null, "ok": false, "error": e.to_string() }));
-        }
+    let entry = LedgerEntry::ContractDeploy {
+        deployer: body.deployer.clone(),
+        contract_id: contract_id.clone(),
+        wasm_b64: body.wasm_b64.clone(),
+        init_method: body.init_method.clone(),
+        init_args: body.init_args.clone(),
+        gas: body.gas,
+        epoch,
+        nonce: body.nonce,
+    };
+
+    // Verify the deployer authorizes this deploy — signature over the ENTRY's
+    // canonical message (re-verified identically at seal on every node).
+    let sig = non_empty(&body.signature);
+    if let Err(e) = tx::check_signature_pub(&s.chain, &body.deployer, &entry, sig, "active") {
+        return Json(serde_json::json!({ "contract_id": null, "ok": false, "pending_seal": false, "error": e.to_string() }));
     }
 
-    match s.contracts.deploy(&body.deployer, &body.wasm_b64, body.init_method, body.init_args, body.gas, epoch, body.nonce) {
-        Ok(contract_id) => Json(serde_json::json!({ "contract_id": contract_id, "ok": true, "error": null })),
-        Err(e) => Json(serde_json::json!({ "contract_id": null, "ok": false, "error": e.to_string() })),
-    }
+    s.chain.push_pending(entry.clone(), sig.map(str::to_owned));
+    let _ = s.tx_broadcast.send((entry, sig.map(str::to_owned)));
+
+    Json(serde_json::json!({
+        "contract_id": contract_id,
+        "ok": true,
+        "pending_seal": true,
+        "error": null,
+    }))
 }
 
 /// POST /api/contract/call
+///
+/// CONSENSUS REPLAY (docs/CONTRACT_CONSENSUS_FIX.md): the call is NOT executed
+/// synchronously here for its balance effects. We build a ContractCall entry,
+/// enforce the no-peers hardline, verify the signer's signature over the entry,
+/// then push it to the pending pool + broadcast. Every node re-executes the call
+/// at epoch seal and derives identical effects. Use /api/contract/view for
+/// read-only queries (still synchronous).
 async fn post_contract_call(
     State(s): State<AppState>,
     Json(body): Json<ContractCallBody>,
 ) -> Json<serde_json::Value> {
+    // HARDLINE: zero peers = silent fork. No contract-specific bypass.
+    if s.peer_count.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        return Json(serde_json::json!({
+            "result": null, "ok": false, "pending_seal": false,
+            "error": "not connected to network — entry rejected to prevent local fork",
+        }));
+    }
+
     let epoch = s.chain.current_epoch();
 
-    // Verify signer identity before execution.
-    let msg = serde_json::json!({
-        "type": "CONTRACT_CALL",
-        "signer": &body.signer,
-        "contract_id": &body.contract_id,
-        "method": &body.method,
-        "nonce": body.nonce,
-        "epoch": epoch,
-    });
-    if let Ok(msg_bytes) = serde_json::to_vec(&msg) {
-        if let Err(e) = tx::check_sig_raw(&s.chain, &body.signer, &msg_bytes, non_empty(&body.signature)) {
-            return Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() }));
-        }
+    let entry = LedgerEntry::ContractCall {
+        signer: body.signer.clone(),
+        contract_id: body.contract_id.clone(),
+        method: body.method.clone(),
+        args: body.args.clone(),
+        deposit: body.deposit,
+        gas: body.gas,
+        epoch,
+        nonce: body.nonce,
+    };
+
+    // Verify the signer authorizes this call — signature over the ENTRY's
+    // canonical message (re-verified identically at seal on every node).
+    let sig = non_empty(&body.signature);
+    if let Err(e) = tx::check_signature_pub(&s.chain, &body.signer, &entry, sig, "active") {
+        return Json(serde_json::json!({ "result": null, "ok": false, "pending_seal": false, "error": e.to_string() }));
     }
 
-    match s.contracts.call(&body.contract_id, &body.method, body.args, &body.signer, body.gas, body.deposit, epoch, body.nonce) {
-        Ok(result) => Json(serde_json::json!({ "result": result, "ok": true, "error": null })),
-        Err(e) => Json(serde_json::json!({ "result": null, "ok": false, "error": e.to_string() })),
-    }
+    s.chain.push_pending(entry.clone(), sig.map(str::to_owned));
+    let _ = s.tx_broadcast.send((entry, sig.map(str::to_owned)));
+
+    Json(serde_json::json!({
+        "result": null,
+        "ok": true,
+        "pending_seal": true,
+        "error": null,
+    }))
 }
 
 /// POST /api/contract/view
@@ -3866,16 +3914,19 @@ async fn post_pr_close(
 
 const AGENT_SYSTEM_PROMPT: &str = "\
 You are the HONE setup assistant on honemesh.net. HONE is a sovereign blockchain where \
-miners earn by running AI tasks via Ollama — no gatekeepers, no cloud.\n\n\
+miners earn by running AI tasks — the node runs the model itself, no external daemon, \
+no gatekeepers, no cloud.\n\n\
 Keep every reply under 3 sentences. Be direct and actionable. Give exact commands when asked.\n\n\
 Platform setup:\n\
-- Windows: download start-windows.bat from honemesh.net, double-click it. Handles Ollama binding and Docker automatically.\n\
+- Windows: download start-windows.bat from honemesh.net, double-click it. Sets up the node and its embedded inference engine automatically.\n\
 - Linux / Ubuntu / WSL: download start.sh from honemesh.net, run: bash start.sh\n\
-- Docker only (advanced): set OLLAMA_URL=http://host.docker.internal:11434 in .env, then: docker compose up -d\n\
+- Docker only (advanced): docker compose up -d\n\
 - Android: install the HONE app from honemesh.net/android\n\n\
-Requirements: Docker Desktop (Windows/Mac) or Docker Engine (Linux), plus Ollama on the host.\n\
-Recommended first model: qwen3:4b (run: ollama pull qwen3:4b)\n\n\
-Mining starts automatically once the node is running and a model is loaded.\n\
+Inference runs INSIDE the node via an embedded engine — there is no Ollama to install. \
+The operator selects a local GGUF model by setting HONE_MODEL to its filename in the \
+model store; advanced GPU operators can instead point INFERENCE_URL at their own \
+OpenAI-compatible server.\n\n\
+Mining starts automatically once the node is running and a model is enabled.\n\
 Explorer: honemesh.net/explorer — wallet: honemesh.net/app";
 
 const AGENT_RATE_LIMIT: usize = 12; // requests per 60-second window per IP
@@ -3924,65 +3975,39 @@ async fn post_agent_chat(
         format!("[User platform: {}]\n{}", platform, message)
     };
 
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    let model = std::env::var("HONE_MODEL")
-        .unwrap_or_else(|_| "qwen3:4b".to_owned());
-
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": AGENT_SYSTEM_PROMPT },
-            { "role": "user",   "content": user_content },
-        ],
-        "stream": true,
-    });
+    let model = std::env::var("HONE_MODEL").unwrap_or_default();
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(64);
 
+    // Route through the node's own inference engine (embedded candle GGUF by
+    // default, or the sanctioned external INFERENCE_URL) instead of a separate
+    // Ollama daemon. The engine is non-streaming, so we collect the full reply
+    // and emit it as a single SSE data chunk followed by [DONE] — the browser
+    // client already handles multi-chunk-then-[DONE].
     tokio::spawn(async move {
-        use tokio_stream::StreamExt as _;
-
         let done_event = || Ok(Event::default().data("[DONE]"));
 
-        let client = reqwest::Client::new();
-        let resp = match client
-            .post(format!("{}/api/chat", ollama_url))
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(_) => { let _ = tx.send(done_event()).await; return; }
+        let eng_req = crate::inference_engine::ChatRequest {
+            model,
+            messages: vec![
+                crate::inference_engine::Message {
+                    role: "system".to_owned(),
+                    content: AGENT_SYSTEM_PROMPT.to_owned(),
+                },
+                crate::inference_engine::Message {
+                    role: "user".to_owned(),
+                    content: user_content,
+                },
+            ],
+            max_tokens: 512,
         };
 
-        let mut stream = resp.bytes_stream();
-        let mut buf = String::new();
-
-        while let Some(chunk) = stream.next().await {
-            let Ok(bytes) = chunk else { break };
-            buf.push_str(&String::from_utf8_lossy(&bytes));
-
-            while let Some(pos) = buf.find('\n') {
-                let line = buf[..pos].trim().to_owned();
-                buf = buf[pos + 1..].to_owned();
-                if line.is_empty() { continue; }
-
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                    if let Some(token) = v["message"]["content"].as_str() {
-                        if !token.is_empty() {
-                            let payload = serde_json::to_string(token).unwrap_or_default();
-                            if tx.send(Ok(Event::default().data(payload))).await.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                    if v["done"].as_bool().unwrap_or(false) {
-                        let _ = tx.send(done_event()).await;
-                        return;
-                    }
-                }
+        match crate::inference_engine::chat(eng_req).await {
+            Ok(resp) if !resp.content.is_empty() => {
+                let payload = serde_json::to_string(&resp.content).unwrap_or_default();
+                let _ = tx.send(Ok(Event::default().data(payload))).await;
             }
+            _ => {}
         }
         let _ = tx.send(done_event()).await;
     });
@@ -8015,35 +8040,38 @@ async fn post_v1_chat_completions(
 // ── GET /v1/models — list models available on this node ──────────────────────
 
 async fn get_v1_models(State(s): State<AppState>) -> Json<serde_json::Value> {
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
-    let client = reqwest::Client::new();
-    let tags = match client.get(format!("{}/api/tags", ollama_url))
-        .timeout(std::time::Duration::from_secs(3))
-        .send().await
-    {
-        Ok(r) => r.json::<serde_json::Value>().await.unwrap_or_default(),
-        Err(_) => serde_json::Value::default(),
-    };
-
     let created = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
-    let data: Vec<serde_json::Value> = tags["models"].as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|m| {
-            let id = m["name"].as_str().unwrap_or("").to_owned();
-            serde_json::json!({ "id": id, "object": "model", "created": created, "owned_by": "hone" })
-        })
-        .collect();
+    // Inference is served by the node's own engine, not an external Ollama
+    // daemon. Mirror get_node_models: if the sanctioned external opt-out
+    // (INFERENCE_URL) is set, forward its /v1/models; otherwise the node serves
+    // the single embedded GGUF selected via HONE_MODEL.
+    let mut data: Vec<serde_json::Value> = Vec::new();
+    if let Ok(base) = std::env::var("INFERENCE_URL") {
+        let base = base.trim_end_matches('/');
+        if let Ok(r) = reqwest::Client::new()
+            .get(format!("{}/v1/models", base))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+        {
+            if let Ok(body) = r.json::<serde_json::Value>().await {
+                if let Some(arr) = body["data"].as_array() {
+                    for m in arr {
+                        if let Some(id) = m["id"].as_str() {
+                            data.push(serde_json::json!({ "id": id, "object": "model", "created": created, "owned_by": "hone" }));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-    // Always include the active model even if Ollama is unreachable.
+    // Always include the active/embedded model (the operator-selected GGUF).
     let active = s.current_model.read().await.clone();
-    let mut data = data;
     if !active.is_empty() && !data.iter().any(|m| m["id"].as_str() == Some(&active)) {
         data.push(serde_json::json!({ "id": active, "object": "model", "created": created, "owned_by": "hone" }));
     }
@@ -8188,7 +8216,6 @@ async fn post_inference_stream(
     Json(body): Json<InferenceStreamRequest>,
 ) -> impl axum::response::IntoResponse {
     use axum::response::sse::KeepAlive;
-    use tokio_stream::StreamExt;
 
     // AUTH: the caller must present a funded account (Bearer api-key/account).
     // The account is DEBITED, so it must be the caller's — never trust
@@ -8198,8 +8225,6 @@ async fn post_inference_stream(
         Err(resp) => return resp,
     };
 
-    let ollama_url = std::env::var("OLLAMA_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_owned());
     let model = body.model
         .unwrap_or_else(|| s.current_model.try_read().map(|m| m.clone()).unwrap_or_default());
 
@@ -8216,31 +8241,30 @@ async fn post_inference_stream(
     let _ = s.chain.store.credit("treasury", NATIVE_TOKEN, fee);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
-    let req_body = serde_json::json!({ "model": model, "prompt": body.prompt, "stream": true });
+    let prompt = body.prompt.clone();
 
+    // Route through the node's own inference engine (embedded candle GGUF by
+    // default, or the sanctioned external INFERENCE_URL). The engine is
+    // non-streaming, so we run it once and emit the full response as a single
+    // Ollama-shaped {"response":...,"done":true} chunk, then [DONE] — matching
+    // the wire shape the previous /api/generate stream produced.
     tokio::spawn(async move {
-        let http = reqwest::Client::new();
-        let resp = match http.post(format!("{}/api/generate", ollama_url))
-            .json(&req_body).send().await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = tx.send(Ok(Event::default().data(format!("{{\"error\":\"{}\"}}", e)))).await;
-                return;
-            }
+        let eng_req = crate::inference_engine::ChatRequest {
+            model,
+            messages: vec![crate::inference_engine::Message {
+                role: "user".to_owned(),
+                content: prompt,
+            }],
+            max_tokens: 1024,
         };
-        let mut byte_stream = resp.bytes_stream();
-        while let Some(chunk) = byte_stream.next().await {
-            match chunk {
-                Ok(bytes) => {
-                    if let Ok(text) = std::str::from_utf8(&bytes) {
-                        if tx.send(Ok(Event::default().data(text.trim_end().to_owned()))).await.is_err() { break; }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(Ok(Event::default().data(format!("{{\"error\":\"{}\"}}", e)))).await;
-                    break;
-                }
+        match crate::inference_engine::chat(eng_req).await {
+            Ok(resp) => {
+                let chunk = serde_json::json!({ "response": resp.content, "done": true });
+                let _ = tx.send(Ok(Event::default().data(chunk.to_string()))).await;
+            }
+            Err(e) => {
+                let err = serde_json::json!({ "error": e.to_string() });
+                let _ = tx.send(Ok(Event::default().data(err.to_string()))).await;
             }
         }
         let _ = tx.send(Ok(Event::default().data("[DONE]"))).await;

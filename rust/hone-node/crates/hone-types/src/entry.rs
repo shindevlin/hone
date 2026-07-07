@@ -369,21 +369,49 @@ pub enum LedgerEntry {
     },
 
     // ── Smart Contracts ───────────────────────────────────────────────────────
+    //
+    // CONSENSUS REPLAY (see docs/CONTRACT_CONSENSUS_FIX.md): contract execution is
+    // replicated-deterministic. A ContractDeploy / ContractCall is a sealed unit
+    // that EVERY node re-executes at epoch seal to derive identical balance +
+    // storage effects (the same way `Mine` is applied on every node). Therefore
+    // the entry must carry the FULL replay inputs — not just metadata — so all
+    // nodes execute the same WASM against the same pre-seal state.
+    //
+    // Authorization: the `deployer` / `signer` signs the CONTRACT_DEPLOY /
+    // CONTRACT_CALL message with their active key (verified at submit). The
+    // contract itself has no key; its balance effects are DERIVED at seal, never
+    // separately signed.
     ContractDeploy {
         deployer: AccountId,
+        /// Deterministic contract address = derive_contract_address(deployer, epoch, nonce).
         contract_id: String,
-        wasm_hash: String,
+        /// Base64-encoded WASM bytecode — the full input needed to replay the deploy.
+        wasm_b64: String,
+        /// Optional constructor method + args, replayed identically on every node.
+        #[serde(default)]
+        init_method: Option<String>,
+        #[serde(default)]
+        init_args: Option<serde_json::Value>,
+        gas: u64,
         epoch: Epoch,
-        gas_used: u64,
+        /// Deployer's nonce (replay-safe, same scheme as Transfer).
+        nonce: u64,
     },
     ContractCall {
-        caller: AccountId,
+        /// The account that signed CONTRACT_CALL and authorizes this execution.
+        signer: AccountId,
         contract_id: String,
         method: String,
+        /// Call arguments — canonical JSON, replayed identically on every node.
+        #[serde(default)]
+        args: serde_json::Value,
+        /// Tokens attached to the call: debited signer → contract before execution.
+        #[serde(default)]
+        deposit: u64,
+        gas: u64,
         epoch: Epoch,
-        gas_used: u64,
-        success: bool,
-        result_hash: Option<String>,
+        /// Signer's nonce (replay-safe, same scheme as Transfer).
+        nonce: u64,
     },
 
     // ── Sensors ───────────────────────────────────────────────────────────────

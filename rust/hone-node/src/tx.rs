@@ -628,8 +628,6 @@ pub fn validate_and_apply(
         // money/state effect until a separately-signed entry acts, or state is
         // managed by a sidecar that does its own auth). Audited Phase 1.2.
         LedgerEntry::BlobStore { .. }
-        | LedgerEntry::ContractDeploy { .. }
-        | LedgerEntry::ContractCall { .. }
         // Freeport orders/escrow — no on-chain balance movement; hone-market
         // sidecar manages the money (EscrowRelease apply is an empty no-op).
         | LedgerEntry::OrderPlace { .. }
@@ -650,6 +648,38 @@ pub fn validate_and_apply(
         | LedgerEntry::TrackerSightingData { .. }
         | LedgerEntry::TrackerHint { .. } => {
             chain.apply_entry(entry)?;
+        }
+
+        // ── Smart contracts — CONSENSUS REPLAY (docs/CONTRACT_CONSENSUS_FIX.md) ──
+        //
+        // These arms are reached at epoch seal (drain_pending_sorted →
+        // validate_and_apply) on EVERY node, and for gossip-received contract
+        // entries that were pending-pooled. Execution happens HERE, deterministically,
+        // so all nodes derive identical balance + storage effects → no fork.
+        //
+        // Auth model (judgment call — see report): the SIGNER authorizes the call
+        // by signing the CONTRACT_CALL / CONTRACT_DEPLOY canonical message with
+        // their ACTIVE key. That signature travels with the entry over gossip and
+        // is RE-VERIFIED here on every node (check_signature), so a peer cannot
+        // forge a call as another account. The contract itself has no key; its
+        // balance effects are derived at seal, never separately signed.
+        LedgerEntry::ContractDeploy { deployer, wasm_b64, init_method, init_args, gas, epoch, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, deployer)?;
+            check_signature(chain, deployer, entry, sig_hex, "active")?;
+            crate::contracts::apply_contract_deploy(
+                chain, deployer, wasm_b64, init_method.clone(), init_args.clone(),
+                *gas, *epoch, *nonce,
+            )?;
+        }
+        LedgerEntry::ContractCall { signer, contract_id, method, args, deposit, gas, epoch, nonce, .. } => {
+            let _guard = chain.write_lock.lock();
+            require_key(chain, signer)?;
+            check_signature(chain, signer, entry, sig_hex, "active")?;
+            crate::contracts::apply_contract_call(
+                chain, contract_id, method, args.clone(), signer,
+                *gas, *deposit, *epoch, *nonce,
+            )?;
         }
 
         // ── Inference marketplace (user-submitted) ────────────────────────────
@@ -2244,6 +2274,21 @@ fn check_account_create_signature(
 ///
 /// `role` selects which key from the account's `keys` map to verify against.
 /// Returns `Ok` when the account has no registered key for the role (grace period).
+/// Public wrapper over `check_signature` for callers outside this module (api.rs
+/// contract submit path). Verifies `sig_hex` over the entry's canonical signing
+/// message using `signed_by`'s key in the given `role` slot. Same semantics as
+/// the internal check used at seal, so submit-time and seal-time verification are
+/// identical.
+pub fn check_signature_pub(
+    chain: &Chain,
+    signed_by: &str,
+    entry: &LedgerEntry,
+    sig_hex: Option<&str>,
+    role: &str,
+) -> Result<()> {
+    check_signature(chain, signed_by, entry, sig_hex, role)
+}
+
 fn check_signature(
     chain: &Chain,
     signed_by: &str,
@@ -2783,6 +2828,37 @@ pub fn canonical_signing_message(entry: &LedgerEntry, chain_id: &str) -> Result<
                 "amount": amount,
                 "nonce": nonce,
             }),
+        // ── Smart contracts (consensus-replay: signer authorizes execution) ────
+        // The signer signs client-reproducible fields only. `epoch` is server-set
+        // (excluded per this fn's doc comment). For deploy, `contract_id` is
+        // derived from epoch+nonce so it is likewise excluded — the signer commits
+        // to the WASM + constructor inputs + nonce, which fully determine the
+        // deploy. `args`/`init_args` are canonicalized via to_string so map key
+        // ordering is stable across serde round-trips.
+        LedgerEntry::ContractDeploy { deployer, wasm_b64, init_method, init_args, gas, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "CONTRACT_DEPLOY",
+                "deployer": deployer,
+                "wasm_b64": wasm_b64,
+                "init_method": init_method,
+                "init_args": init_args.as_ref().map(|v| serde_json::to_string(v)).transpose()?,
+                "gas": gas,
+                "nonce": nonce,
+            }),
+        LedgerEntry::ContractCall { signer, contract_id, method, args, deposit, gas, nonce, .. } =>
+            serde_json::json!({
+                "chain_id": chain_id,
+                "type": "CONTRACT_CALL",
+                "signer": signer,
+                "contract_id": contract_id,
+                "method": method,
+                "args": serde_json::to_string(args)?,
+                "deposit": deposit,
+                "gas": gas,
+                "nonce": nonce,
+            }),
+
         // All other user-submitted entry types: include chain_id + full entry JSON so
         // testnet signatures cannot replay on mainnet (D3 — clean cutover).
         other => serde_json::json!({
@@ -3463,5 +3539,84 @@ mod tests {
             validate_and_apply(&chain, &entry, Some(&sig)).is_err(),
             "signed_by must equal seller — cannot list products under another seller"
         );
+    }
+
+    // ── Smart contracts: consensus-replay at seal (docs/CONTRACT_CONSENSUS_FIX.md) ──
+
+    static REGISTRY_WASM: &[u8] = include_bytes!("../contracts/registry.wasm");
+
+    /// Deploy the registry contract directly into `chain` (setup helper). Returns
+    /// the contract_id. Uses the seal-path free function under the write lock.
+    fn deploy_registry_into(chain: &Chain, deployer: &str) -> String {
+        use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+        let wasm_b64 = B64.encode(REGISTRY_WASM);
+        let _g = chain.write_lock.lock();
+        // deployer nonce starts at 0 → first deploy uses nonce 1.
+        crate::contracts::apply_contract_deploy(
+            chain, deployer, &wasm_b64, Some("new".into()),
+            Some(serde_json::json!({})), 300_000_000_000, 1, 1,
+        ).expect("deploy registry")
+    }
+
+    #[test]
+    fn sealed_contract_call_executes_with_valid_signature() {
+        let (chain, _dir) = make_chain();
+        // fund() registers a *posting* key; contract calls verify the *active* key.
+        fund(&chain, "shindevlin", 1_000_000_000_000);
+        fund(&chain, "alice", 1_000_000_000_000);
+        let alice_active = register_key(&chain, "alice", "active", b'A');
+
+        let contract_id = deploy_registry_into(&chain, "shindevlin");
+        chain.store.state_set(
+            crate::contracts::CONTRACT_TOKEN_TRANSFERS_PARAM, b"true").unwrap();
+
+        // alice's first contract call → nonce 1 (register post-deploy leaves alice at 0).
+        let entry = LedgerEntry::ContractCall {
+            signer: "alice".into(),
+            contract_id: contract_id.clone(),
+            method: "register".into(),
+            args: serde_json::json!({ "key": "profile", "value": "ipfs://Qmx" }),
+            deposit: 0,
+            gas: 100_000_000,
+            epoch: 1,
+            nonce: 1,
+        };
+        let msg = canonical_signing_message(&entry, "hone-testnet").unwrap();
+        let sig = hex::encode(alice_active.sign(msg.as_bytes()).to_bytes());
+
+        // This is the seal path: validate_and_apply must EXECUTE the contract.
+        validate_and_apply(&chain, &entry, Some(&sig)).expect("sealed call applies");
+
+        // Signer nonce bumped exactly once → proves execution ran, not a no-op.
+        let nonce = chain.store.get_account("alice").unwrap()
+            .and_then(|s| s.get("nonce").and_then(|v| v.as_u64())).unwrap_or(0);
+        assert_eq!(nonce, 1, "sealed contract call executed and bumped nonce");
+    }
+
+    #[test]
+    fn sealed_contract_call_rejected_with_wrong_signature() {
+        let (chain, _dir) = make_chain();
+        fund(&chain, "shindevlin", 1_000_000_000_000);
+        fund(&chain, "alice", 1_000_000_000_000);
+        let _alice_active = register_key(&chain, "alice", "active", b'A');
+        let contract_id = deploy_registry_into(&chain, "shindevlin");
+
+        let entry = LedgerEntry::ContractCall {
+            signer: "alice".into(),
+            contract_id,
+            method: "register".into(),
+            args: serde_json::json!({ "key": "k", "value": "v" }),
+            deposit: 0,
+            gas: 100_000_000,
+            epoch: 1,
+            nonce: 1,
+        };
+        // Sign with the WRONG key — a peer forging a call as alice.
+        let wrong = SigningKey::from_bytes(&[b'z'; 32]);
+        let msg = canonical_signing_message(&entry, "hone-testnet").unwrap();
+        let bad_sig = hex::encode(wrong.sign(msg.as_bytes()).to_bytes());
+
+        assert!(validate_and_apply(&chain, &entry, Some(&bad_sig)).is_err(),
+            "a forged-signature contract call must be rejected at seal");
     }
 }
