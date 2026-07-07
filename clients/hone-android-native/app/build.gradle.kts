@@ -54,6 +54,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended") // Material Symbols (Decision #3)
     implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.fragment:fragment-ktx:1.8.5") // FragmentActivity for BiometricPrompt
     implementation("androidx.navigation:navigation-compose:2.8.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
@@ -64,6 +65,9 @@ dependencies {
 
     // Biometric wallet unlock (Phase 2)
     implementation("androidx.biometric:biometric:1.1.0")
+
+    // QR generation for receive flow (Phase 2) — no copy-paste; show/scan a code.
+    implementation("com.google.zxing:core:3.5.3")
 
     // uniffi runtime dep for the generated bindings (JNA), added in Phase 0b:
     // implementation("net.java.dev.jna:jna:5.14.0@aar")

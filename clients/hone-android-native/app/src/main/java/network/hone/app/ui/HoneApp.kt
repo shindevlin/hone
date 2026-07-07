@@ -18,6 +18,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import network.hone.app.ui.screens.NodeScreen
 import network.hone.app.ui.screens.PlaceholderScreen
+import network.hone.app.ui.screens.SensorsScreen
+import network.hone.app.ui.screens.WalletScreen
 
 /** Bottom-nav destinations. Material Symbols icons (Decision #3 — no emoji). */
 private enum class Dest(val route: String, val label: String, val icon: ImageVector) {
@@ -60,12 +62,8 @@ fun HoneApp() {
             modifier = Modifier.padding(inner),
         ) {
             composable(Dest.Node.route) { NodeScreen() }
-            composable(Dest.Wallet.route) {
-                PlaceholderScreen("Wallet", "Biometric unlock, send/receive, tx history — Phase 2.")
-            }
-            composable(Dest.Sensors.route) {
-                PlaceholderScreen("Sensors", "GPS/motion permissions + live submission — Phase 2.")
-            }
+            composable(Dest.Wallet.route) { WalletScreen() }
+            composable(Dest.Sensors.route) { SensorsScreen() }
             composable(Dest.Settings.route) {
                 PlaceholderScreen("Settings", "Roles, battery rules, network, about — Phase 2/3.")
             }
