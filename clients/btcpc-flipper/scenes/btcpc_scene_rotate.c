@@ -78,7 +78,6 @@ static bool capture(BtcpcApp* app, BtcpcSensorKind kind, int* value, bool* sent)
     }
     case BtcpcSensorHeartbeat: {
         uint8_t batt = 0;
-        (void)furi_hal_power_get_battery_charge_voltage; /* keep include used */
         batt = (uint8_t)furi_hal_power_get_pct();
         BtcpcHeartbeat hb = { .battery_pct = batt, .uptime_s = 0, .fw_version = "0.2.0" };
         frame_len = btcpc_build_heartbeat(&frame, &hb, app->sk);

@@ -18,8 +18,7 @@
 #include "btcpc_ble.h"
 
 #include <furi_hal_bt.h>
-#include <furi_hal_bt_serial.h>
-#include <extra_profiles/serial_profile.h>
+#include <targets/f7/ble_glue/profiles/serial_profile.h>
 
 /* Serial TX buffer size the HAL exposes per notification. Frames larger than
  * this are sent in chunks. 244 = typical BLE 5 ATT payload after the 3-byte
@@ -82,7 +81,7 @@ bool btcpc_ble_send(BtcpcApp* app, const uint8_t* data, size_t len) {
         size_t chunk = len - offset;
         if(chunk > BTCPC_BLE_TX_CHUNK) chunk = BTCPC_BLE_TX_CHUNK;
 
-        if(!furi_hal_bt_serial_tx((uint8_t*)(data + offset), chunk)) {
+        if(!ble_profile_serial_tx(app->ble_profile, (uint8_t*)(data + offset), (uint16_t)chunk)) {
             return false;
         }
         offset += chunk;

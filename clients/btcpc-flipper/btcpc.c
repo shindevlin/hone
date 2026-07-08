@@ -22,29 +22,36 @@
 
 /* ─── Scene handlers table ─────────────────────────────────────────────── */
 
+/* Order must match BtcpcScene enum in btcpc.h */
+static const AppSceneOnEnterCallback btcpc_on_enter_handlers[] = {
+    btcpc_scene_main_on_enter,
+    btcpc_scene_identity_on_enter,
+    btcpc_scene_ble_on_enter,
+    btcpc_scene_subghz_on_enter,
+    btcpc_scene_rotate_on_enter,
+};
+
+static const AppSceneOnEventCallback btcpc_on_event_handlers[] = {
+    btcpc_scene_main_on_event,
+    btcpc_scene_identity_on_event,
+    btcpc_scene_ble_on_event,
+    btcpc_scene_subghz_on_event,
+    btcpc_scene_rotate_on_event,
+};
+
+static const AppSceneOnExitCallback btcpc_on_exit_handlers[] = {
+    btcpc_scene_main_on_exit,
+    btcpc_scene_identity_on_exit,
+    btcpc_scene_ble_on_exit,
+    btcpc_scene_subghz_on_exit,
+    btcpc_scene_rotate_on_exit,
+};
+
 static const SceneManagerHandlers btcpc_scene_handlers = {
-    .on_enter_handlers = {
-        [BtcpcSceneMain]     = btcpc_scene_main_on_enter,
-        [BtcpcSceneIdentity] = btcpc_scene_identity_on_enter,
-        [BtcpcSceneBle]      = btcpc_scene_ble_on_enter,
-        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_enter,
-        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_enter,
-    },
-    .on_event_handlers = {
-        [BtcpcSceneMain]     = btcpc_scene_main_on_event,
-        [BtcpcSceneIdentity] = btcpc_scene_identity_on_event,
-        [BtcpcSceneBle]      = btcpc_scene_ble_on_event,
-        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_event,
-        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_event,
-    },
-    .on_exit_handlers = {
-        [BtcpcSceneMain]     = btcpc_scene_main_on_exit,
-        [BtcpcSceneIdentity] = btcpc_scene_identity_on_exit,
-        [BtcpcSceneBle]      = btcpc_scene_ble_on_exit,
-        [BtcpcSceneSubGhz]   = btcpc_scene_subghz_on_exit,
-        [BtcpcSceneRotate]   = btcpc_scene_rotate_on_exit,
-    },
-    .scene_num = BtcpcSceneCount,
+    .on_enter_handlers = btcpc_on_enter_handlers,
+    .on_event_handlers = btcpc_on_event_handlers,
+    .on_exit_handlers  = btcpc_on_exit_handlers,
+    .scene_num         = BtcpcSceneCount,
 };
 
 /* ─── Custom event dispatcher ───────────────────────────────────────────── */
@@ -68,7 +75,6 @@ BtcpcApp* btcpc_app_alloc(void) {
     app->gui = furi_record_open(RECORD_GUI);
 
     app->view_dispatcher = view_dispatcher_alloc();
-    view_dispatcher_enable_queue(app->view_dispatcher);
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
     view_dispatcher_set_custom_event_callback(app->view_dispatcher, btcpc_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(app->view_dispatcher, btcpc_back_event_callback);

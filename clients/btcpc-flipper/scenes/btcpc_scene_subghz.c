@@ -43,7 +43,6 @@ int8_t btcpc_subghz_sample_rssi(uint32_t freq_hz, bool* ok) {
     /* Take ownership of the radio (releases any other subghz user). */
     furi_hal_subghz_reset();
     furi_hal_subghz_idle();
-    furi_hal_subghz_load_preset(FuriHalSubGhzPresetOok650Async);
 
     /* set_frequency_and_path returns the actually-tuned frequency; ignore it,
      * we only need RSSI at (approximately) freq_hz. Must be in idle first. */
