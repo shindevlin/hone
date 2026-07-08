@@ -18,6 +18,7 @@ mod science;
 mod session;
 mod sessions;
 mod slash;
+mod vault;
 mod totp;
 mod tx;
 mod vrf;
@@ -446,6 +447,47 @@ enum WalletCommands {
         /// Output path (default: .hone/wallet.env in CWD).
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Import a plaintext key export (a file with a `mnemonic: <phrase>` line —
+    /// e.g. legacy `wallet export-all` output) into an encrypted keystore.
+    /// Prompts for a new password interactively; never accepts one as an argument.
+    Import {
+        /// HONE account name this key belongs to.
+        #[arg(long)]
+        account: String,
+        /// Path to the plaintext key export file.
+        #[arg(long)]
+        input: PathBuf,
+        /// Vault directory to write <account>.keystore.json into (default: wallets).
+        #[arg(long)]
+        vault: Option<PathBuf>,
+    },
+    /// List every account genesis references and whether the vault has a
+    /// recoverable keystore for it. Does not decrypt anything (no password).
+    Index {
+        /// Vault directory to scan (default: wallets).
+        #[arg(long)]
+        vault: Option<PathBuf>,
+        /// Optional genesis.json — also lists accounts genesis expects that
+        /// have no keystore at all yet.
+        #[arg(long)]
+        genesis: Option<PathBuf>,
+    },
+    /// ★ THE LAUNCH GATE ★ — decrypt every required account's keystore and
+    /// confirm it re-derives the exact posting pubkey genesis.json has for that
+    /// account. Prompts for each account's password interactively. Exits
+    /// non-zero on any failure — do not launch until this passes.
+    #[command(name = "verify-vault")]
+    VerifyVault {
+        /// Vault directory containing <account>.keystore.json files.
+        #[arg(long)]
+        vault: Option<PathBuf>,
+        /// Path to genesis.json.
+        #[arg(long)]
+        genesis: PathBuf,
+        /// Path to the canonical required-accounts list (one name per line).
+        #[arg(long)]
+        require_accounts: PathBuf,
     },
 }
 
@@ -1391,6 +1433,18 @@ fn run() -> Result<()> {
             }
             WalletCommands::ApiKeyGen { mnemonic, wallet_file, output } => {
                 wallet::cmd_wallet_api_key_gen(wallet_file.as_deref(), &mnemonic, output.as_deref())?;
+            }
+            WalletCommands::Import { account, input, vault } => {
+                let vault_dir = vault::resolve_vault_dir(vault.as_ref());
+                vault::cmd_wallet_import(&account, &input, &vault_dir)?;
+            }
+            WalletCommands::Index { vault, genesis } => {
+                let vault_dir = vault::resolve_vault_dir(vault.as_ref());
+                vault::cmd_wallet_index(&vault_dir, genesis.as_deref())?;
+            }
+            WalletCommands::VerifyVault { vault, genesis, require_accounts } => {
+                let vault_dir = vault::resolve_vault_dir(vault.as_ref());
+                vault::cmd_verify_vault(&vault_dir, &genesis, &require_accounts)?;
             }
         },
 
