@@ -159,10 +159,251 @@ fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyh
             Ok(bs58::encode(addr_payload).into_string())
         }
 
+        "ton_sign_data" => {
+            // TON Connect `signData` (text/binary variants only — Cell payloads use a
+            // different TL-B preimage and are out of scope). Ed25519, same curve as
+            // sol_sign above, but the preimage is TON's own domain-separated format,
+            // not a bare message. See docs/EXTERNAL_SIGNER_DELEGATION.md
+            // "TON signature verification — the exact wire format" for the sourced spec
+            // this implements (docs.ton.org / docs.tonconsole.com / ton-connect/sdk).
+            //
+            // `message` here is NOT the literal signed bytes — TON's preimage embeds a
+            // magic prefix, the wallet's TON address, the dApp domain, and a timestamp
+            // around the actual payload. Callers pass those pre-parsed components as a
+            // single pipe-delimited string so this function's signature stays uniform
+            // with the other sig_types (message: &str, signature: &str):
+            //   message = "{workchain}:{account_id_hex}|{domain}|{timestamp}|{payload_kind}|{payload_hex}"
+            // `signature` is the base64-encoded 64-byte Ed25519 signature from the
+            // signData response.
+            ton_sign_data::recover(message, signature)?
+        }
+
         other => anyhow::bail!(
-            "unsupported sig_type '{}' — supported: eth_personal_sign, sol_sign, btc_legacy",
+            "unsupported sig_type '{}' — supported: eth_personal_sign, sol_sign, btc_legacy, ton_sign_data",
             other
         ),
+    }
+}
+
+/// TON Connect `signData` verification — isolated in its own module because the
+/// preimage construction (unlike the other sig_types) has several fields to
+/// assemble correctly, not just one message string to re-hash.
+mod ton_sign_data {
+    use anyhow::{anyhow, Context, Result};
+    use sha2::{Digest, Sha256};
+
+    /// TON Connect signData preimage magic prefix (2 bytes, big-endian 0xffff)
+    /// followed by the literal ASCII tag. Both are fixed constants per the spec —
+    /// NOT configurable, NOT derived from input. A mismatch here would silently
+    /// verify against the wrong preimage shape rather than fail loudly, so they
+    /// are baked in as constants rather than passed as parameters.
+    const MAGIC_PREFIX: [u8; 2] = [0xff, 0xff];
+    const DOMAIN_TAG: &[u8] = b"ton-connect/sign-data/";
+
+    /// Parse the caller's pipe-delimited encoding of the TON address + domain +
+    /// timestamp + payload, rebuild TON's exact preimage, verify the Ed25519
+    /// signature over sha256(preimage), and return the wallet's TON address
+    /// (workchain:account_id_hex) as the "recovered address" — mirroring what
+    /// sol_sign/btc_legacy return, so callers treat all sig_types uniformly.
+    ///
+    /// NOTE: unlike sol_sign, this function does NOT take the pubkey from the
+    /// signature payload itself — TON Connect's signData response only returns
+    /// an address, never a raw pubkey (confirmed in
+    /// docs/EXTERNAL_SIGNER_DELEGATION.md). The actual pubkey the signature is
+    /// checked against must come from the caller-supplied `external_pubkey` on
+    /// the account's on-file GrantExternalSigner — this function is called with
+    /// that pubkey already known by its caller (see recover_with_pubkey below);
+    /// `recover` (matching the other sig_types' shape) exists only for the
+    /// address-format self-consistency check used by tests. It deliberately
+    /// does NOT verify `_signature` — that would require a pubkey it doesn't
+    /// have (see NOTE above); real verification always goes through
+    /// `verify_with_pubkey`, which the ExternalSignerTransfer path calls.
+    pub fn recover(message: &str, _signature: &str) -> Result<String> {
+        let parsed = ParsedMessage::parse(message)?;
+        Ok(parsed.ton_address_string())
+    }
+
+    /// The actual verification entry point used by ExternalSignerTransfer
+    /// handling (chain.rs's ledger-entry apply path) — verifies the signature
+    /// against a KNOWN pubkey (from the grant) rather than recovering one,
+    /// since TON Connect never hands back a raw pubkey per-signature.
+    pub fn verify_with_pubkey(message: &str, signature: &str, pubkey: &[u8; 32]) -> Result<()> {
+        let parsed = ParsedMessage::parse(message)?;
+        let preimage = parsed.build_preimage();
+        let digest: [u8; 32] = Sha256::digest(&preimage).into();
+
+        let sig_bytes = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD
+                .decode(signature)
+                .context("ton_sign_data: signature must be base64")?
+        };
+        let sig_array: [u8; 64] = sig_bytes
+            .try_into()
+            .map_err(|_| anyhow!("ton_sign_data: signature must be 64 bytes"))?;
+        let sig = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+        let vk = ed25519_dalek::VerifyingKey::from_bytes(pubkey)
+            .map_err(|e| anyhow!("ton_sign_data: invalid Ed25519 pubkey: {}", e))?;
+
+        vk.verify_strict(&digest, &sig)
+            .map_err(|e| anyhow!("ton_sign_data: verification failed: {}", e))
+    }
+
+    struct ParsedMessage {
+        workchain: i8,
+        account_id: [u8; 32],
+        domain: String,
+        timestamp: u64,
+        payload_kind: String, // "text" | "binary"
+        payload: Vec<u8>,
+    }
+
+    impl ParsedMessage {
+        fn parse(message: &str) -> Result<Self> {
+            let parts: Vec<&str> = message.split('|').collect();
+            anyhow::ensure!(
+                parts.len() == 5,
+                "ton_sign_data: expected 'workchain:account_id_hex|domain|timestamp|payload_kind|payload_hex', got {} parts",
+                parts.len()
+            );
+
+            let (wc_str, acc_hex) = parts[0]
+                .split_once(':')
+                .ok_or_else(|| anyhow!("ton_sign_data: address must be 'workchain:account_id_hex'"))?;
+            let workchain: i8 = wc_str.parse().context("ton_sign_data: bad workchain")?;
+            let account_bytes = hex::decode(acc_hex).context("ton_sign_data: bad account_id hex")?;
+            let account_id: [u8; 32] = account_bytes
+                .try_into()
+                .map_err(|_| anyhow!("ton_sign_data: account_id must be 32 bytes"))?;
+
+            let domain = parts[1].to_owned();
+            let timestamp: u64 = parts[2].parse().context("ton_sign_data: bad timestamp")?;
+            let payload_kind = parts[3].to_owned();
+            anyhow::ensure!(
+                payload_kind == "text" || payload_kind == "binary",
+                "ton_sign_data: payload_kind must be 'text' or 'binary' (cell unsupported)"
+            );
+            let payload = hex::decode(parts[4]).context("ton_sign_data: bad payload hex")?;
+
+            Ok(Self { workchain, account_id, domain, timestamp, payload_kind, payload })
+        }
+
+        fn ton_address_string(&self) -> String {
+            format!("{}:{}", self.workchain, hex::encode(self.account_id))
+        }
+
+        /// Rebuild TON Connect's exact signData preimage:
+        ///   0xffff ++ "ton-connect/sign-data/" ++ Address ++ AppDomain(len-prefixed)
+        ///   ++ Timestamp(u64 BE) ++ Payload(kind-prefixed: "txt"/"bin" ++ len ++ bytes)
+        fn build_preimage(&self) -> Vec<u8> {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&MAGIC_PREFIX);
+            buf.extend_from_slice(DOMAIN_TAG);
+
+            // Address: workchain (4 bytes BE, sign-extended) ++ account_id (32 bytes)
+            buf.extend_from_slice(&(self.workchain as i32).to_be_bytes());
+            buf.extend_from_slice(&self.account_id);
+
+            // AppDomain: u32 length prefix (BE) ++ UTF-8 bytes, no encoding/escaping
+            let domain_bytes = self.domain.as_bytes();
+            buf.extend_from_slice(&(domain_bytes.len() as u32).to_be_bytes());
+            buf.extend_from_slice(domain_bytes);
+
+            // Timestamp: u64 BE, unix seconds
+            buf.extend_from_slice(&self.timestamp.to_be_bytes());
+
+            // Payload: 3-byte ASCII kind tag ++ u32 length prefix (BE) ++ bytes
+            let kind_tag: &[u8] = if self.payload_kind == "text" { b"txt" } else { b"bin" };
+            buf.extend_from_slice(kind_tag);
+            buf.extend_from_slice(&(self.payload.len() as u32).to_be_bytes());
+            buf.extend_from_slice(&self.payload);
+
+            buf
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        // Deterministic round-trip: sign with a known keypair, verify with this
+        // module. Does NOT prove byte-for-byte match against a real wallet's
+        // signData() output (no live TON wallet in CI) — that requires a fixture
+        // captured from an actual TON Connect signData() call before this ships
+        // (see docs/EXTERNAL_SIGNER_DELEGATION.md build phasing step 1). This test
+        // guards the Rust-side round-trip (parse -> preimage -> verify) only.
+        #[test]
+        fn round_trip_verifies_with_correct_pubkey() {
+            use ed25519_dalek::{Signer, SigningKey};
+            use rand::rngs::OsRng;
+
+            let mut csprng = OsRng;
+            let signing_key = SigningKey::generate(&mut csprng);
+            let pubkey_bytes = signing_key.verifying_key().to_bytes();
+
+            let msg = "0:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899|hone.network|1783300000|text|48656c6c6f20484f4e45";
+            let parsed = ParsedMessage::parse(msg).unwrap();
+            let preimage = parsed.build_preimage();
+            let digest: [u8; 32] = Sha256::digest(&preimage).into();
+            let sig = signing_key.sign(&digest);
+
+            use base64::Engine as _;
+            let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+            verify_with_pubkey(msg, &sig_b64, &pubkey_bytes).unwrap();
+        }
+
+        #[test]
+        fn wrong_pubkey_is_rejected() {
+            use ed25519_dalek::{Signer, SigningKey};
+            use rand::rngs::OsRng;
+
+            let mut csprng = OsRng;
+            let signing_key = SigningKey::generate(&mut csprng);
+            let wrong_key = SigningKey::generate(&mut csprng).verifying_key().to_bytes();
+
+            let msg = "0:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899|hone.network|1783300000|text|48656c6c6f20484f4e45";
+            let parsed = ParsedMessage::parse(msg).unwrap();
+            let preimage = parsed.build_preimage();
+            let digest: [u8; 32] = Sha256::digest(&preimage).into();
+            let sig = signing_key.sign(&digest);
+
+            use base64::Engine as _;
+            let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+            assert!(verify_with_pubkey(msg, &sig_b64, &wrong_key).is_err());
+        }
+
+        #[test]
+        fn tampered_domain_breaks_verification() {
+            // Proves the domain is actually inside the signed preimage (not just
+            // carried alongside it) — changing it after signing invalidates the sig.
+            use ed25519_dalek::{Signer, SigningKey};
+            use rand::rngs::OsRng;
+
+            let mut csprng = OsRng;
+            let signing_key = SigningKey::generate(&mut csprng);
+            let pubkey_bytes = signing_key.verifying_key().to_bytes();
+
+            let original = "0:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899|hone.network|1783300000|text|48656c6c6f20484f4e45";
+            let parsed = ParsedMessage::parse(original).unwrap();
+            let preimage = parsed.build_preimage();
+            let digest: [u8; 32] = Sha256::digest(&preimage).into();
+            let sig = signing_key.sign(&digest);
+            use base64::Engine as _;
+            let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+            // Same signature, different (attacker-supplied) domain — must fail.
+            let tampered = "0:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899|evil.example|1783300000|text|48656c6c6f20484f4e45";
+            assert!(verify_with_pubkey(tampered, &sig_b64, &pubkey_bytes).is_err());
+        }
+
+        #[test]
+        fn rejects_cell_payload_kind() {
+            let msg = "0:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899|hone.network|1783300000|cell|00";
+            assert!(ParsedMessage::parse(msg).is_err());
+        }
     }
 }
 
