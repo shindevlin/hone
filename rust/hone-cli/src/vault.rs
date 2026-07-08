@@ -89,7 +89,18 @@ fn extract_mnemonic_from_file(path: &Path) -> Result<String> {
     );
 }
 
+/// Reads HONE_VAULT_PASSWORD if set (so a whole vault can be sealed with one
+/// shared password across many accounts without retyping it per-account — a
+/// deliberate, explicit opt-in the operator sets in their own shell; this
+/// process never logs it or passes it as a CLI argument). Falls back to an
+/// interactive, hidden, confirmed prompt when unset.
 fn prompt_new_password(account: &str) -> Result<String> {
+    if let Ok(p) = std::env::var("HONE_VAULT_PASSWORD") {
+        if !p.is_empty() {
+            println!("  (using HONE_VAULT_PASSWORD from environment)");
+            return Ok(p);
+        }
+    }
     loop {
         let p1 = rpassword::prompt_password(format!("Keystore password for '{account}': "))
             .context("reading password")?;
@@ -106,6 +117,16 @@ fn prompt_new_password(account: &str) -> Result<String> {
     }
 }
 
+/// Same HONE_VAULT_PASSWORD fallback for unlocking during verify-vault.
+fn prompt_unlock_password(account: &str) -> Result<String> {
+    if let Ok(p) = std::env::var("HONE_VAULT_PASSWORD") {
+        if !p.is_empty() {
+            return Ok(p);
+        }
+    }
+    rpassword::prompt_password(format!("Vault password for '{account}': ")).context("reading password")
+}
+
 // ── hone wallet verify-vault ─────────────────────────────────────────────────
 
 /// The gate: for every account `--require-accounts` lists, its keystore must
@@ -113,15 +134,18 @@ fn prompt_new_password(account: &str) -> Result<String> {
 /// that account. Any mismatch is launch-blocking.
 ///
 /// Exit code convention (matches docs/GENESIS_LAUNCH_RUNBOOK.md): 0 = safe to
-/// launch, 2 = fail. The caller (main.rs) maps our `Err` to a process exit; we
-/// signal FAIL by returning an error whose message summarizes every problem
-/// found (not just the first), so the operator sees everything to fix in one
-/// pass rather than one-at-a-time.
+/// launch, 2 = fail. Returns `Ok(true)` on a clean pass, `Ok(true)`... no —
+/// returns `Ok(passed)`: `true` when every account verified (exit 0), `false`
+/// when verification RAN but found one or more failures (main.rs maps this to
+/// exit 2, distinct from `Err` which means the command itself couldn't run at
+/// all — bad path, unreadable genesis, etc. — and exits 1 via the normal error
+/// path). A mismatch is reported, never panics or aborts early, so every
+/// problem is visible in one pass rather than one-at-a-time.
 pub fn cmd_verify_vault(
     vault_dir: &Path,
     genesis_path: &Path,
     require_accounts_path: &Path,
-) -> Result<()> {
+) -> Result<bool> {
     let required = read_required_accounts(require_accounts_path)?;
     let genesis_keys = read_genesis_posting_keys(genesis_path)?;
 
@@ -155,14 +179,10 @@ pub fn cmd_verify_vault(
 
     if failures.is_empty() {
         println!("{}", "Safe to launch.".green().bold());
-        Ok(())
+        Ok(true)
     } else {
         println!("{}", "DO NOT LAUNCH — fix the failures above and re-run.".red().bold());
-        bail!(
-            "verify-vault FAILED for {} account(s):\n  {}",
-            failures.len(),
-            failures.join("\n  ")
-        );
+        Ok(false)
     }
 }
 
@@ -183,8 +203,7 @@ fn verify_one_account(
     }
     let ks = Keystore::load(&ks_path).context("keystore file is corrupt or wrong version")?;
 
-    let password = rpassword::prompt_password(format!("Vault password for '{account}': "))
-        .context("reading password")?;
+    let password = prompt_unlock_password(account)?;
     let mnemonic = ks
         .open(&password)
         .context("decrypt failed — wrong password, or the keystore doesn't match this account")?;

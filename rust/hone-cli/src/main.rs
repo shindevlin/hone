@@ -1444,7 +1444,13 @@ fn run() -> Result<()> {
             }
             WalletCommands::VerifyVault { vault, genesis, require_accounts } => {
                 let vault_dir = vault::resolve_vault_dir(vault.as_ref());
-                vault::cmd_verify_vault(&vault_dir, &genesis, &require_accounts)?;
+                let safe = vault::cmd_verify_vault(&vault_dir, &genesis, &require_accounts)?;
+                if !safe {
+                    // Distinct from a command error (exit 1): verification RAN
+                    // and found a real failure — docs/GENESIS_LAUNCH_RUNBOOK.md's
+                    // documented exit-2-fail contract for the launch gate.
+                    process::exit(2);
+                }
             }
         },
 
