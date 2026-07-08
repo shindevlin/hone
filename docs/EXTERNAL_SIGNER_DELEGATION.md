@@ -50,6 +50,51 @@ revoke**, with the `active` key as the only party that can grant or revoke.
 
 ---
 
+## TON signature verification — the exact wire format
+
+The one genuinely new crypto surface (build phasing step 1). Sourced from TON
+Connect's `signData` feature (`@tonconnect/sdk`) and the `ton_proof` connect
+item, docs.ton.org / docs.tonconsole.com.
+
+**Preimage (what actually gets hashed) for `text`/`binary` payloads:**
+```
+0xffff  ++  "ton-connect/sign-data/"  ++  Address  ++  AppDomain(len-prefixed)  ++  Timestamp(u64)  ++  Payload
+```
+where `Payload` is itself prefixed by kind: `"txt" ++ len ++ utf8_bytes` for
+text, `"bin" ++ len ++ raw_bytes` for binary. (`Cell` payloads use a different,
+TL-B-schema-based preimage — out of scope for v0.1; HONE's `payload_kind`
+below is `text` or `binary` only.)
+
+**Hash + sign:** `Ed25519.sign(sha256(preimage), wallet_private_key)` — SHA256
+is applied **once** to the full preimage, then the 32-byte digest is Ed25519-
+signed directly (not double-hashed, unlike `btc_legacy`'s existing
+`recover_chain_address` path in `chain.rs`). Output signature is base64.
+
+**Where the pubkey comes from — NOT parsed from the transfer.** TON Connect's
+`signData` response returns the wallet's **address**, not its raw Ed25519
+public key. The raw pubkey is instead delivered once, at **grant time**, by
+the `TonAddressItemReply` connect item from the initial TON Connect handshake
+(a distinct field, `publicKey`, alongside the address) — the same handshake
+the user already performs to connect their wallet to any TON Connect dApp.
+This confirms `GrantExternalSigner.external_pubkey` is populated from that
+one-time connect handshake, **not** re-derived from each transfer's address —
+`ExternalSignerTransfer` verification never needs to look anything up on the
+TON chain itself; it only needs the preimage + signature + the pubkey already
+on file from the grant. (Fallback, not needed for v0.1: TON wallet contracts
+v4/v5 also expose `public_key` via the on-chain `get_public_key` get-method,
+so a pubkey could in principle be independently re-derived from an address
+via a TON RPC call if the grant-time value were ever in question.)
+
+**Domain binding.** The preimage includes `AppDomain` — the dApp's origin —
+specifically so a signature obtained for one dApp cannot be replayed against
+another. HONE's verifier must check this against a HONE-controlled constant
+(the Mini App's own domain), not accept an arbitrary domain in the entry —
+otherwise a signature legitimately obtained for signing into some unrelated
+TON dApp could be replayed as a HONE authorization. This check is part of
+`ExternalSignerTransfer` verification step 1 (§ below), not optional.
+
+---
+
 ## The three entries
 
 ### 1. `GrantExternalSigner` (active-key authorized)
@@ -111,33 +156,52 @@ enum Cap {
 ```
 ExternalSignerTransfer {
   account:            String,        // must have an active, non-expired grant
-  external_chain:     String,        // must match a granted chain
+  external_chain:     String,        // must match a granted chain ("ton")
   to:                 String,        // recipient (hh1… or name)
   amount_hunits:      u64,
   memo:               Option<String>,
-  nonce:              u64,           // replay guard
-  ton_signature_envelope: Bytes,     // the TON Connect signature, in TON's native
-                                      // sign_data/transaction envelope format —
-                                      // NOT a bare HONE-canonical-message signature
+  nonce:              u64,           // HONE-side replay guard (distinct from TON's own)
+  // The TON Connect signData response, verbatim — NOT a bare HONE-canonical
+  // signature. See "TON signature verification" above for the exact preimage.
+  ton_domain:         String,        // AppDomain from the response — checked against
+                                      // a HONE-controlled allowlist (the Mini App's own
+                                      // origin), never trusted from the entry alone
+  ton_timestamp:      u64,           // Timestamp from the response (unix seconds)
+  ton_payload_kind:   String,        // "text" | "binary" — which preimage shape applies
+  ton_payload:        Bytes,         // the payload bytes that were signed (must encode
+                                      // the transfer intent — see payload-binding below)
+  ton_signature:      Bytes,         // base64-decoded Ed25519 signature (64 bytes)
 }
 ```
 
-- Verification path: recover the TON wallet's pubkey from
-  `ton_signature_envelope` per **TON's own signature format** (this is the one
-  genuinely new verifier the node needs — HONE does not otherwise parse a
-  foreign chain's signature envelope). Confirm it matches the granted
-  `external_pubkey` for `account`. Then check, **in order**:
-  1. grant exists, is not expired, is not revoked
-  2. for each cap that is `Usd`: fetch the current price-oracle median; if its
+- **Payload-binding requirement:** `ton_payload` is not free-form — it MUST be
+  the HONE-canonical encoding of this exact transfer (`account`, `to`,
+  `amount_hunits`, `memo`, `nonce`), so the user's TON wallet UI is literally
+  displaying (for `text` payloads) or carrying (for `binary`) the transfer
+  they are approving. A signature over a mismatched payload is rejected — this
+  is what makes "the user saw and approved this specific transfer" true, not
+  merely "the user signed something with TON Connect at some point."
+- Verification path (rebuilds the preimage per the exact format above, then
+  verifies `Ed25519.verify(sha256(preimage), ton_signature, external_pubkey)`
+  against the account's on-file granted pubkey — no TON RPC call needed).
+  Checks, **in order**:
+  1. grant exists for `(account, external_chain)`, is not expired, is not revoked
+  2. `ton_domain` matches the HONE-controlled expected domain (replay-across-dApps guard)
+  3. `ton_timestamp` is within an acceptable freshness window (replay-after-long-delay guard)
+  4. rebuild the preimage from `ton_domain`/`ton_timestamp`/`ton_payload_kind`/`ton_payload`
+     and the granted `external_pubkey`'s address; verify the Ed25519 signature
+  5. decode `ton_payload` and confirm it encodes exactly this transfer's
+     `(account, to, amount_hunits, memo, nonce)` — the payload-binding check above
+  6. for each cap that is `Usd`: fetch the current price-oracle median; if its
      freshness exceeds `max_staleness_s`, **reject the entire transfer** —
      stale/missing price never fails open into "treat as uncapped"
-  3. `amount_hunits <= per_tx_max` (converted to hunits at check time if `Usd`; if set)
-  4. running daily total for this grant `+ amount_hunits <= daily_max` (converted to
+  7. `amount_hunits <= per_tx_max` (converted to hunits at check time if `Usd`; if set)
+  8. running daily total for this grant `+ amount_hunits <= daily_max` (converted to
      hunits at check time if `Usd`; if set — the running total accumulates in
      hunits regardless of the cap's denomination, so a `Usd` cap's *hunit*
      budget can drift intra-day with price; this is disclosed, not hidden)
-  5. `to` is in `allowlist` (if set)
-  6. `nonce` has not been used for this grant (replay guard)
+  9. `to` is in `allowlist` (if set)
+  10. `nonce` (HONE-side) has not been used for this grant (replay guard)
 - Any failed check → entry rejected, same as any other invalid entry. No
   partial application.
 - This is the entry the Mini App (or any thin client) submits when the user
@@ -296,9 +360,15 @@ the result of that existing, compliant pattern as a valid HONE authorization.
 
 ## Build phasing
 
-1. **TON signature envelope verifier.** The one genuinely new crypto surface:
-   parse and verify a TON Connect `sign_data`/`transaction` envelope against a
-   raw Ed25519 pubkey. Build and test this in isolation before wiring entries.
+1. **TON `signData` verifier.** The one genuinely new crypto surface, format
+   confirmed against TON Connect's SDK/docs (§ TON signature verification
+   above): rebuild the `0xffff ++ "ton-connect/sign-data/" ++ ...` preimage,
+   `sha256` once, `Ed25519.verify` against the on-file granted pubkey. Extend
+   `chain.rs`'s existing `recover_chain_address`-style verifier module rather
+   than a bespoke path — `sol_sign` is already Ed25519 there, this is a
+   sibling case (`"ton_sign_data"`), not a new verification architecture.
+   Build and test in isolation (known preimage + known signature + expected
+   pubkey, from a real TON Connect `signData()` call) before wiring entries.
 2. **`GrantExternalSigner` / `RevokeExternalSigner`** entries — active-key
    gated, straightforward given existing entry-signing infrastructure. Ship
    with `Hunits` caps only — no oracle dependency yet.
