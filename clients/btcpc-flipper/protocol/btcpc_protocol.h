@@ -36,6 +36,14 @@ typedef enum {
     BTCPC_MSG_ENTRY_HASH = 0x10,  /* chain entry hash to rebroadcast via Sub-GHz */
     BTCPC_MSG_CLOCK_SYNC = 0x11,  /* unix timestamp in ms */
     BTCPC_MSG_GPS        = 0x12,  /* lat/lon from phone GPS */
+
+    /* OTA update (future — phone pushes new .fap over BLE):
+     *   0x20  BTCPC_MSG_OTA_BEGIN   — payload: { version[4], total_size[4], chunk_count[2] }
+     *   0x21  BTCPC_MSG_OTA_CHUNK   — payload: { chunk_index[2], data[...] }
+     *   0x22  BTCPC_MSG_OTA_COMMIT  — payload: { sha256[32] } → Flipper verifies, writes
+     *                                  .fap to SD/apps/Misc/btcpc.fap, calls loader_start
+     * Flipper acks each with BTCPC_MSG_OTA_ACK (0x23) or BTCPC_MSG_OTA_NAK (0x24).
+     * Android side: version-manifest check at launch, download, chunked BLE transfer. */
 } BtcpcMsgType;
 
 /*
