@@ -456,6 +456,24 @@ mod candle_backend {
             if tokens.len() >= MAX_SEQ_LEN {
                 break;
             }
+            // Resource throttling (crate::throttle): when the operator is
+            // actively using this PC, pace the generation loop instead of
+            // running flat-out. throttle_percent() is 100 (no-op sleep) unless
+            // the idle watcher has detected activity. A per-token sleep, not a
+            // reduced thread count, since candle's forward() here is already
+            // single-threaded per request — pacing wall-clock between tokens
+            // is the lever available at this call site.
+            let pct = crate::throttle::throttle_percent() as u64;
+            if pct < 100 {
+                // At pct% of full speed, insert a proportional delay so total
+                // throughput is roughly pct% of unthrottled. E.g. 30% target
+                // -> sleep ~2.33x the token's own compute time on average;
+                // approximated here as a fixed per-token delay scaled by how
+                // far below 100 we are, which is simple and good enough for
+                // "don't hog the CPU" rather than a precise duty cycle.
+                let sleep_ms = ((100 - pct) * 3).min(500);
+                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+            }
             // Feed only the new token at its position.
             let index_pos = tokens.len() - 1;
             let input = Tensor::new(&[next], &device)?.unsqueeze(0)?;

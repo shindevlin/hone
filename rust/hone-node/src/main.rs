@@ -58,6 +58,7 @@ mod wallet;
 mod scientific;
 mod cross_chain_finality;
 mod system_contracts;
+mod throttle;
 mod ens;
 mod linkgit_server;
 mod storage_sync;
@@ -226,6 +227,19 @@ async fn main() -> Result<()> {
     let hw = hardware::detect();
     let hw_fingerprint_for_seal = hw.fingerprint.clone();
     let hw_account_for_seal = cfg.account.clone();
+
+    // Resource throttling: automatically drop CPU/GPU usage when the operator
+    // is actively using this PC, so HONE never makes the machine feel
+    // unusable to its owner. HONE_THROTTLE_LOW_PERCENT sets the target
+    // (10-50, default 30); set HONE_THROTTLE_DISABLED=1 to opt out entirely
+    // (e.g. dedicated mining/server boxes with no interactive user).
+    if std::env::var("HONE_THROTTLE_DISABLED").ok().as_deref() != Some("1") {
+        let low_percent: u8 = std::env::var("HONE_THROTTLE_LOW_PERCENT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30);
+        throttle::spawn_watcher(low_percent);
+    }
 
     // Secret store: encrypted local file + RocksDB runtime index.
     let secret_store_arc: Arc<secret_store::SecretStore> = Arc::new(
