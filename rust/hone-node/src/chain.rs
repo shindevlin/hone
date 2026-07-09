@@ -175,7 +175,7 @@ fn recover_chain_address(sig_type: &str, message: &str, signature: &str) -> anyh
             //   message = "{workchain}:{account_id_hex}|{domain}|{timestamp}|{payload_kind}|{payload_hex}"
             // `signature` is the base64-encoded 64-byte Ed25519 signature from the
             // signData response.
-            ton_sign_data::recover(message, signature)?
+            Ok(ton_sign_data::recover(message, signature)?)
         }
 
         other => anyhow::bail!(
