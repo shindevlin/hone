@@ -807,7 +807,7 @@ Core rules: one machine may run **multiple** roles but **at most one instance** 
 | sensor — `SensorReward`/`SensorDataCommit` | Yes (GPS+IMU+mic) | Yes | If HW present | If HW present | Yes |
 | gateway — `GatewayRewardSplit` | No | Maybe | Maybe | Maybe | No |
 
-All seven role→pool mappings correspond to live entry variants in `entry.rs` [BUILT]. Notes: **Phone** is a full mobile node (wallet/UI + clock + small miner + sensor fusion), NOT a client-only stub. **Pi/Nebra** = lightweight edge roles. **Laptop/Desktop** = most flexible default (all roles as separate processes). **Flipper** = sensor-first, maybe clock, never a default miner/storage/verifier. Future server-farm miners are an explicit roadmap item, not the default [ASPIRATIONAL].
+**Six** distinct reward-entry types back these seven roles — `reviewer` earns via `InferenceJobPay` escrow (the dispute-review split), not a separate system reward pool; the other six map to live entry variants in `entry.rs` [BUILT]. Notes: **Phone** is a full mobile node (wallet/UI + clock + small miner + sensor fusion), NOT a client-only stub. **Pi/Nebra** = lightweight edge roles. **Laptop/Desktop** = most flexible default (all roles as separate processes). **Flipper** = sensor-first, maybe clock, never a default miner/storage/verifier. Future server-farm miners are an explicit roadmap item, not the default [ASPIRATIONAL].
 
 ### 2. Hardware Reference — devices already in the network [SPEC'D]
 
@@ -817,7 +817,7 @@ All seven role→pool mappings correspond to live entry variants in `entry.rs` [
 | **Flipper Zero** | STM32WB55, 256KB RAM | josh | sensor (memo-key signing) | Sub-GHz/BLE/NFC/ADC/temp → `SensorDataCommit` |
 | **Hyfix MobileCM MCMv3** GNSS base | UM980 triple-band GNSS | natoshisakamoto | sensor (RTK/RTCM3) | `SensorReward` (gnss-base); also cross-network on RTK Direct / GEODNET / onocoy |
 
-Key facts: **Nebra** — SX1302 LoRa concentrator, Semtech UDP 1700, Cayenne LPP, self-heal watchdog if chain stalls >10min, optional CC1101 to receive Flipper Sub-GHz directly. **Flipper** — single-FAP app (`hone_wallet.c`, renamed from `btcpc_wallet.c`), wallet + background sensor thread (Sub-GHz RSSI, BLE, NFC, GPIO ADC, temp) + USB-CDC JSON, readings buffered to `readings.jsonl`; fw 1.4.3 HAL quirks documented (GCM crashes → XOR for Phase 1). **Hyfix GNSS** — HTTP-polled by `hone-gnss-bridge` every 30s (the ARP-spoof `gnss-relay` is DEPRECATED); capture crate at `rust/hone-gnss-capture/` [BUILT]. [SPEC'D `docs/hardware/*`]
+Key facts: **Nebra** — SX1302 LoRa concentrator, Semtech UDP 1700, Cayenne LPP, self-heal watchdog if chain stalls >10min, optional CC1101 to receive Flipper Sub-GHz directly. **Flipper** — single-FAP app (active entry point `hone.c` at the crate root; the legacy `hone_wallet.c` is archived under `legacy/`), wallet + background sensor thread (Sub-GHz RSSI, BLE, NFC, GPIO ADC, temp) + USB-CDC JSON, readings buffered to `readings.jsonl`; fw 1.4.3 HAL quirks documented (GCM crashes → XOR for Phase 1). **Hyfix GNSS** — captured via the `rust/hone-gnss-capture/` crate [BUILT] (HTTP-polled ~30s; the standalone `hone-gnss-bridge` binary is archived and the ARP-spoof `gnss-relay` is DEPRECATED). [SPEC'D `docs/hardware/*`]
 
 ### 3. Hardware Product Line — three-tier family [SPEC'D `docs/HARDWARE_PRODUCT_LINE.md`]
 
@@ -844,7 +844,7 @@ Phase-ordered by data value; the Pi gateway already supports USB/serial/I2C/GPIO
 | 4 | ADXL345, Grove D7S, Raspberry Shake | vibration / seismic | sensor |
 | 5-7 | ultrasonic, soil moisture, INA219, PZEM-004T, ESP32/LoRa/GPS | flood, agriculture, energy, remote nodes | sensor / gateway |
 
-Meshtastic bridge (`bin/hone-meshtastic`) auto-detects `/dev/ttyUSB*`, joins a "hone" channel, relays signed packets; setup `curl -fsSL https://honemesh.net/meshtastic-setup.sh | bash`.
+Meshtastic bridge [ASPIRATIONAL] — the prior `btcpc-meshtastic` bridge binary and its setup script are **archived** (under `_archived/`), not in the current `bin/`/`scripts/`. A re-implemented Meshtastic on-ramp (auto-detect `/dev/ttyUSB*`, join a "hone" channel, relay signed packets) is a roadmap item, not live code.
 
 ### 5. Clients & Bots [BUILT/partial]
 
@@ -857,7 +857,7 @@ Meshtastic bridge (`bin/hone-meshtastic`) auto-detects `/dev/ttyUSB*`, joins a "
 | Ludicrous (Warp fork) | `ludicrous/` + `plugins/ludicrous/` | [BUILT-scaffold] |
 | Relay | `services/btcpc-relay/` (Cloudflare Workers) | live `wss://btcpc-relay.shindevlin.workers.dev/ws` [SPEC'D] |
 
-`flipper_rx.rs` (parse+verify+submit Flipper Sub-GHz/NFC) is BUILT in the Android miner crate but **not yet wired** into the running client — the gap is JNI wiring, not missing code; do NOT rewrite in TS.
+`flipper_rx.rs` (parse+verify+submit Flipper Sub-GHz/NFC) is BUILT **and JNI-wired** — `NativeFlipperService.nativeIngestFrame` (`android/rust/btcpc-miner/src/lib.rs`) calls `flipper_rx::handle_ble_frame`. The Flipper→chain path exists in native code; do NOT rewrite it in TS. (Remaining gap is client-side surfacing, not the native ingest.)
 
 ### 6. Consolidated Roadmap — everything we want to work towards
 
