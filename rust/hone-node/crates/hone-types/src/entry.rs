@@ -38,6 +38,41 @@ pub struct TwoFactor {
     pub signature: String,
 }
 
+/// Spending caps on a delegated external signer grant (see
+/// `LedgerEntry::GrantExternalSigner`). All fields optional; `None` = uncapped
+/// for that dimension. Denomination is per-cap, chosen by the granting holder
+/// at grant time — see docs/EXTERNAL_SIGNER_DELEGATION.md.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalSignerCaps {
+    /// Max hunits a single ExternalSignerTransfer may move. None = no per-tx cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_tx_max: Option<SignerCap>,
+    /// Max hunits this grant may move across a rolling 24h window. None = no daily cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_max: Option<SignerCap>,
+    /// Recipients this grant may pay. None = any recipient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowlist: Option<Vec<AccountId>>,
+    /// Unix epoch seconds after which this grant is no longer valid. None = no expiry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+}
+
+/// A single spending cap, denominated in HONE's own unit (no oracle dependency)
+/// or in USD (oracle-converted at check time — see docs/EXTERNAL_SIGNER_DELEGATION.md
+/// "TON signature verification" for the fail-closed staleness rule this implies).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SignerCap {
+    Hunits { amount: Hunits },
+    Usd {
+        cents: u64,
+        /// Reject the transfer if the freshest price sample is older than this.
+        /// Never treat a stale/missing price as "uncapped" — fail closed.
+        max_staleness_s: u64,
+    },
+}
+
 /// Compact Merkle range proof used to respond to per-epoch storage challenges (T4-1, D10).
 ///
 /// The chain verifies that `challenge_hash` matches what the clock derived from the previous
@@ -174,6 +209,95 @@ pub enum LedgerEntry {
         sig_type: String,
         epoch: Epoch,
         signed_by: AccountId,
+    },
+
+    /// Grant an external-chain wallet (e.g. a TON Connect wallet) direct,
+    /// bounded authority to sign HONE transfers on this account — see
+    /// docs/EXTERNAL_SIGNER_DELEGATION.md. The root of trust never moves: only
+    /// the account's `active` key can create or replace a grant; the external
+    /// key can never modify its own caps or self-grant. A later grant for the
+    /// same `(account, external_chain, external_pubkey)` replaces the caps.
+    GrantExternalSigner {
+        account: AccountId,
+        /// "ton" (extensible to other chains later; only "ton" is implemented).
+        external_chain: String,
+        /// The external wallet's raw public key (32 bytes for TON Ed25519).
+        external_pubkey: String,
+        /// The wallet's TON address, "{workchain}:{account_id_hex}", as returned
+        /// by the SAME TON Connect connect handshake that provided
+        /// `external_pubkey` (the `TonAddressItemReply`, which carries both
+        /// fields together). Deriving a TON address from a bare pubkey requires
+        /// replicating the wallet contract's StateInit hash (TL-B cell hashing,
+        /// version-dependent v3/v4/v5) — HONE does not do that math; it only
+        /// ever stores what the wallet's own connect handshake already computed
+        /// and reported. This address is the one used to rebuild the signData
+        /// preimage at verify time — see "TON signature verification" in
+        /// docs/EXTERNAL_SIGNER_DELEGATION.md.
+        external_address: String,
+        /// Holder-chosen label shown in every notification for transfers this
+        /// grant authorizes (e.g. "Tonkeeper — daily driver"). Never used for
+        /// any security check — display only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        caps: ExternalSignerCaps,
+        epoch: Epoch,
+        signed_by: AccountId,
+        nonce: u64,
+        /// ed25519 sig over the canonical grant message, from the account's `active` key.
+        signature: String,
+    },
+
+    /// A transfer authorized by a granted external signer (see
+    /// `GrantExternalSigner`) instead of a HONE-native key signature. The
+    /// external signature is verified INSIDE `apply_entry` (mirroring how
+    /// `VerifyChainLink`'s external signature is verified there, not at the
+    /// tx.rs submission-gate layer) against the caps on file for the grant.
+    /// See docs/EXTERNAL_SIGNER_DELEGATION.md "TON signature verification"
+    /// for the exact preimage this reconstructs and checks.
+    ExternalSignerTransfer {
+        account: AccountId,
+        external_chain: String,
+        to: AccountId,
+        amount: Hunits,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memo: Option<String>,
+        /// HONE-side replay guard, scoped to this grant (distinct from the
+        /// account's ordinary Transfer nonce and from TON's own timestamp check).
+        nonce: u64,
+        /// AppDomain from the TON Connect signData response — checked against a
+        /// HONE-controlled allowlist, never trusted from the entry alone.
+        ton_domain: String,
+        /// Timestamp from the signData response (unix seconds) — checked for freshness.
+        ton_timestamp: u64,
+        /// "text" | "binary" — which signData preimage shape applies (cell unsupported).
+        ton_payload_kind: String,
+        /// Hex-encoded payload bytes that were signed. Must decode to exactly this
+        /// transfer's (account, to, amount, memo, nonce) — see payload-binding in
+        /// docs/EXTERNAL_SIGNER_DELEGATION.md.
+        ton_payload: String,
+        /// Base64-encoded 64-byte Ed25519 signature from the signData response.
+        ton_signature: String,
+        epoch: Epoch,
+    },
+
+    /// Revoke a previously granted external signer. Only the account's `active`
+    /// key can produce this — there is no external-key path to revoke or modify
+    /// its own grant, by construction. Takes effect at the epoch it is sealed
+    /// in; immediate and total, no grace period.
+    RevokeExternalSigner {
+        account: AccountId,
+        external_chain: String,
+        external_pubkey: String,
+        /// Address of the grant being revoked — kept for symmetry with
+        /// GrantExternalSigner and so an observer can identify the grant without
+        /// re-deriving it; not itself security-relevant (pubkey is the real key).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external_address: Option<String>,
+        epoch: Epoch,
+        signed_by: AccountId,
+        nonce: u64,
+        /// ed25519 sig over the canonical revoke message, from the account's `active` key.
+        signature: String,
     },
 
     /// Configure the 2FA policy for a specific key slot on an account.
@@ -2684,6 +2808,9 @@ impl LedgerEntry {
             Self::ChainParameterSet { epoch, .. } => *epoch,
             Self::GenesisAlloc { .. } => 0,
             Self::VerifyChainLink { epoch, .. } => *epoch,
+            Self::GrantExternalSigner { epoch, .. } => *epoch,
+            Self::ExternalSignerTransfer { epoch, .. } => *epoch,
+            Self::RevokeExternalSigner { epoch, .. } => *epoch,
             Self::SetKeyPolicy { epoch, .. } => *epoch,
             Self::LivenessProof { epoch, .. } => *epoch,
             Self::EntropyWitness { epoch, .. } => *epoch,
@@ -2797,6 +2924,9 @@ pub fn entry_weight(entry: &LedgerEntry) -> u64 {
         | LedgerEntry::WalletFamilyAdd { .. }
         | LedgerEntry::AccountApiKeySet { .. }
         | LedgerEntry::VerifyChainLink { .. }
+        | LedgerEntry::GrantExternalSigner { .. }
+        | LedgerEntry::ExternalSignerTransfer { .. }
+        | LedgerEntry::RevokeExternalSigner { .. }
         | LedgerEntry::SetKeyPolicy { .. }
         | LedgerEntry::DelegationGrant { .. }
         | LedgerEntry::DelegationRevoke { .. }
