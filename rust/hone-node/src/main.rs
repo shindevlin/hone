@@ -105,7 +105,7 @@ mod lorawan;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use hone_types::{
     LedgerEntry, block_reward_at, era, RECYCLE_ERA, RECYCLE_REWARD_RATE, RECYCLE_REWARD_DENOM,
     RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, TESTNET_CHAIN_ID, TESTNET_FUND_ACCOUNT, TREASURY_ACCOUNT,
@@ -174,14 +174,12 @@ async fn main() -> Result<()> {
         lf // keep alive until process exits
     };
 
-    // Load posting key. node_id stays as the account name for reward routing;
-    // the derived pubkey goes into the seal's `pubkey` field for verification.
-    let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
-        cfg.posting_key.as_deref().and_then(load_signing_key)
-    );
-    let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
-        signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
-    );
+    // Signing key is derived from the wallet's posting role key below, AFTER
+    // wallet::init() — so the seal-signing identity is byte-identical to the
+    // posting key registered on-chain. (Historically this parsed HONE_POSTING_KEY
+    // as a raw ed25519 seed here, which produced a DIFFERENT key than the wallet's
+    // SLIP-10 m/44'/6942'/2'/0' posting key — seals signed by an identity that
+    // never matched genesis. See reports/DRYRUN_2CLOCK_2026-07-10.md, BUG 1.)
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -198,6 +196,30 @@ async fn main() -> Result<()> {
     wallet::ensure_ton_address(&cfg.data_dir, &mut wallet_keys).await;
     // Keep ~/.hone/{account}.wallet.key in sync so TUI/CLI can find keys without knowing data_dir.
     wallet::backup_to_home(&cfg.account, &wallet_keys);
+
+    // Seal-signing key = the wallet's posting role key (SLIP-10 m/44'/6942'/2'/0').
+    // This is the SAME key registered on-chain as the account's posting key, so
+    // seals and clock self-registration are signed by the on-chain identity —
+    // not a raw-seed reinterpretation of HONE_POSTING_KEY (BUG 1).
+    let signing_key: Arc<Option<ed25519_dalek::SigningKey>> = Arc::new(
+        load_signing_key(&wallet_keys.hone_private_key)
+    );
+    let signing_pubkey_hex: Arc<Option<String>> = Arc::new(
+        signing_key.as_ref().as_ref().map(|sk| hex::encode(sk.verifying_key().to_bytes()))
+    );
+
+    // A clock with no usable signing key can seal in-memory but can never
+    // self-register or produce verifiable seals matching its genesis identity.
+    // Fail loud instead of silently booting a useless clock (BUG 1).
+    if cfg.is_clock && signing_key.is_none() {
+        error!(
+            "[clock] no usable posting/signing key for account '{}' — refusing to start. \
+             The wallet's posting key (hone_private_key) did not parse as a 32-byte ed25519 seed. \
+             Check HONE_POSTING_KEY (12-word mnemonic or 64-char hex) and the wallet.key it produced.",
+            cfg.account
+        );
+        std::process::exit(1);
+    }
 
     // Open state database
     let db_path = cfg.data_dir.join("state");
@@ -555,12 +577,20 @@ async fn main() -> Result<()> {
                 .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
                 .unwrap_or(5 * 10_000_000_000);
             let balance = chain.store.get_balance(&cfg.node_id, hone_types::NATIVE_TOKEN);
-            if balance >= min_stake {
-                let epoch = chain.current_epoch();
+            let epoch = chain.current_epoch();
+            // During the bootstrap grace window the apply-layer (chain.rs) accepts a
+            // stake-0 clock registration with no minimum and no debit — the POW-genesis
+            // deadlock-breaker. The startup guard must honor grace too, or a fresh
+            // zero-balance founder clock bails here before ever submitting, and never
+            // registers ("0 registered clocks"). See DRYRUN_2CLOCK_2026-07-10.md, BUG 2.
+            let in_grace = epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
+            if in_grace || balance >= min_stake {
+                // In grace, offer whatever balance we have (may be 0); otherwise full min_stake.
+                let stake = if in_grace { balance.min(min_stake) } else { min_stake };
                 let pubkey = signing_pubkey_hex.as_deref().map(|s| s.to_owned());
                 let entry = hone_types::LedgerEntry::ClockNodeRegister {
                     node_id: cfg.node_id.clone(),
-                    stake: min_stake,
+                    stake,
                     epoch,
                     pubkey,
                     signature: None,
@@ -587,8 +617,10 @@ async fn main() -> Result<()> {
                     ),
                 }
             } else {
-                warn!("[clock] '{}' has {} hunits, needs {} to register as clock node",
-                    cfg.node_id, balance, min_stake);
+                warn!("[clock] '{}' has {} hunits, needs {} to register as clock node \
+                    (bootstrap grace ended at epoch {}, now epoch {})",
+                    cfg.node_id, balance, min_stake,
+                    hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH, epoch);
             }
         }
     }
