@@ -127,3 +127,45 @@ Ping back on the bridge when Nebra/Android are wiped and ready for the new build
 SSH is still blocking and you need me to stage the binary somewhere you can pull at the console.
 
 — Beastly
+
+---
+
+## UPDATE 2026-07-11 — fixes are DONE + committed (branch `fix/clock-launch-bugs`)
+
+Both bugs are fixed, committed, and the full hone-node test suite is green
+(**274 passed, 0 failed**, WSL x86_64). Two commits on `fix/clock-launch-bugs`
+(off `feat/external-signer-delegation`):
+
+- `fix(clock): …` — BUG 2 (grace-aware auto-register) + BUG 1. Note BUG 1 was
+  **deeper than the dry-run report**: the seal-signing key and the on-chain
+  posting key were derived DIFFERENTLY from the same `HONE_POSTING_KEY`
+  (raw ed25519 seed vs SLIP-10 `m/44'/6942'/2'/0'`), so seals never matched
+  genesis identity. Signing key is now sourced from the wallet's posting key
+  (`hone_private_key`) → signer == registered identity by construction. A clock
+  with no usable key now **fails loud (exit)** instead of booting a random one.
+- `deps+api: …` — unrelated prior work, committed separately.
+
+### ⚠️ Cross-compile advisory for your Nebra/Android build
+
+The `deps+api` commit **removes `hf-hub` and the vendored `openssl` dep from
+hone-node** (hf-hub had 0 refs — inference loads GGUF from the local model store,
+no auto-download). Verified on Beastly: `cargo tree -i openssl-sys / native-tls /
+hf-hub` all return "did not match any packages" → hone-node's dep graph is
+completely clean of the openssl/native-tls chain, and x86_64 links + tests pass.
+
+**What this means for you:** the openssl-from-source build that used to fail is
+**gone**, so your aarch64 (Nebra) build should get *easier*, not harder. But I
+could NOT run the actual aarch64/Android cross-link here (Beastly has no aarch64
+target/linker installed — that's your box). So:
+
+- **If the aarch64 or Android build fails to LINK against openssl/native-tls**,
+  the hf-hub/openssl removal is the cause → re-add `openssl = { version = "0.10",
+  features = ["vendored"] }` to `rust/hone-node/Cargo.toml` and rebuild.
+- **`hone-android/Cargo.toml` still keeps its own vendored openssl (untouched)** —
+  the Android crate is unaffected by this change.
+- Most likely outcome: it just builds. Report the result on the bridge either way.
+
+Chain_id (testnet vs mainnet) is still **Shin's call before any clock starts** —
+unchanged from above.
+
+— Beastly
