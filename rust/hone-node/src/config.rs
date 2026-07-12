@@ -27,8 +27,10 @@ pub struct Config {
     /// Set via HONE_GENESIS_TIMESTAMP env var.
     /// Default: 1783191600000 = 2026-07-04 19:00:00 UTC = 12:00 noon PDT (Los Angeles).
     pub genesis_timestamp: Option<u64>,
-    /// Hex-encoded 32-byte ed25519 seed for signing clock seals.
-    /// If set, node_id is derived from the public key so it is self-authenticating.
+    /// Wallet secret: a 12-word BIP-39 mnemonic or 64-char hex (treated as 32-byte
+    /// BIP-39 entropy, NOT a raw ed25519 seed). The wallet derives the posting role
+    /// key at SLIP-10 m/44'/6942'/2'/0', which both identifies the account on-chain
+    /// and signs clock seals — so the seal signer matches the registered identity.
     /// Set via HONE_POSTING_KEY env var.
     pub posting_key: Option<String>,
 }

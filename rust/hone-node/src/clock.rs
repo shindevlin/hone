@@ -616,10 +616,18 @@ pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
 /// `clock_reg:` entries are still respected for backward-compat and pubkey
 /// caching, but the authoritative eligibility signal is the live pool stake.
 /// Slashed nodes (pool zeroed via ClockDoubleSignEvidence) are excluded.
-pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
+pub fn registered_clock_nodes(store: &Store, current_epoch: u64) -> Vec<String> {
     let min_stake: u64 = store.state_get("chain_param:clock_min_stake")
         .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
         .unwrap_or(5 * 10_000_000_000);
+
+    // Bootstrap grace: during the first CLOCK_BOOTSTRAP_GRACE_END_EPOCH epochs a
+    // founder clock registers at stake 0 (the POW-genesis deadlock-breaker) and has
+    // no role_stake yet. The quorum denominator MUST include these grace clocks, or
+    // two founder clocks each stay a solo 1/1 quorum and the chain never advances
+    // past genesis with real 2-of-2 consensus. Outside grace the stake rules apply.
+    // See docs/CLOCK_BOOTSTRAP_GRACE.md + DRYRUN_2CLOCK — consensus-critical.
+    let in_grace = current_epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
 
     // Aggregate total stake per node across ALL stakers (self + backers).
     // Key format: role_stake:clock:{node}:{staker}
@@ -670,8 +678,11 @@ pub fn registered_clock_nodes(store: &Store) -> Vec<String> {
             Ok(v) => v,
             Err(_) => continue,
         };
-        // Legacy: non-zero stake = the stake was balance-deducted at registration time.
-        if j["stake"].as_u64().unwrap_or(0) > 0 {
+        // Non-zero stake = the stake was balance-deducted at registration time.
+        // During bootstrap grace we ALSO include stake-0 registrations, since grace
+        // clocks legitimately register at 0 (they build stake from ClockReward). This
+        // is what makes 2 grace-registered founder clocks count as a 2-of-2 quorum.
+        if j["stake"].as_u64().unwrap_or(0) > 0 || in_grace {
             nodes.push(node_id);
         }
     }
@@ -791,4 +802,59 @@ fn verify_seal_signature(seal: &EpochSeal, pubkey_hex: &str, sig_hex: &str) -> b
         seal.epoch_number, &seal.seal_hash, &seal.node_id, seal.timestamp,
         pubkey_hex, sig_hex,
     )
+}
+
+#[cfg(test)]
+mod registered_clock_nodes_tests {
+    use super::*;
+
+    fn store() -> (crate::store::Store, tempfile::TempDir) {
+        let dir = tempfile::Builder::new().prefix("hone_clock_reg_").tempdir().unwrap();
+        let s = crate::store::Store::open(dir.path()).unwrap();
+        (s, dir)
+    }
+
+    fn register(s: &crate::store::Store, node: &str, stake: u64) {
+        let rec = serde_json::json!({
+            "node_id": node, "stake": stake, "registered_epoch": 0, "pubkey": "aa"
+        });
+        s.state_set(&format!("clock_reg:{}", node), &serde_json::to_vec(&rec).unwrap()).unwrap();
+    }
+
+    // Bug 5 guard: during bootstrap grace, two stake-0 founder clocks must BOTH count
+    // toward quorum. Before the fix each stake-0 clock was excluded, so two clocks each
+    // computed a solo 1/1 quorum and the chain never advanced past genesis.
+    #[test]
+    fn grace_includes_stake_zero_clocks() {
+        let (s, _d) = store();
+        register(&s, "clocka", 0);
+        register(&s, "clockb", 0);
+        let in_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH; // last grace epoch
+        let nodes = registered_clock_nodes(&s, in_grace);
+        assert!(nodes.contains(&"clocka".to_string()), "clocka must count in grace");
+        assert!(nodes.contains(&"clockb".to_string()), "clockb must count in grace");
+        assert_eq!(nodes.len(), 2, "both grace clocks form a 2-of-2 quorum");
+    }
+
+    // After grace, a stake-0 registration with no role_stake is NOT quorum-eligible —
+    // the normal minimum-stake rule applies. (Prevents free post-grace quorum seats.)
+    #[test]
+    fn post_grace_excludes_stake_zero_clocks() {
+        let (s, _d) = store();
+        register(&s, "clocka", 0);
+        let after_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        let nodes = registered_clock_nodes(&s, after_grace);
+        assert!(!nodes.contains(&"clocka".to_string()),
+            "a stake-0 clock must NOT count once grace has ended");
+    }
+
+    // A non-zero legacy clock_reg stake counts regardless of grace (unchanged behavior).
+    #[test]
+    fn nonzero_stake_counts_regardless_of_grace() {
+        let (s, _d) = store();
+        register(&s, "clocka", 50_000_000_000);
+        let after_grace = hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH + 1;
+        let nodes = registered_clock_nodes(&s, after_grace);
+        assert!(nodes.contains(&"clocka".to_string()));
+    }
 }

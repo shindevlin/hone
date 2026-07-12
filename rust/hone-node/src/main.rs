@@ -18,8 +18,10 @@ state machine, block production, contract execution, and HTTP API.
     HONE_LOG_LEVEL           — tracing filter (default: hone_node=info)
     HONE_BOOTSTRAP_PEERS     — comma-separated multiaddrs for DHT bootstrap
     HONE_CHAIN_ID            — "hone" (mainnet) or "hone-testnet" (testnet)
-    HONE_POSTING_KEY         — hex-encoded 32-byte ed25519 seed; node_id is derived from
-                                the public key and all clock seals are signed with it
+    HONE_POSTING_KEY         — wallet secret: 12-word BIP-39 mnemonic OR 64-char hex (treated
+                                as 32-byte BIP-39 entropy, NOT a raw ed25519 seed). The wallet
+                                derives the posting role key at SLIP-10 m/44'/6942'/2'/0'; that
+                                same key signs all clock seals, so signer == on-chain identity
     HONE_STORAGE             — "true" to emit StorageHeartbeat each epoch (earns StorageReward)
     HONE_ETH_RPC             — Ethereum JSON-RPC endpoint for ENS resolution (default: cloudflare-eth.com)
     HONE_SERVICE             — "true" to emit ServiceHeartbeat each epoch (earns ServiceReward)
@@ -317,7 +319,7 @@ async fn main() -> Result<()> {
     // ── Clock consensus ───────────────────────────────────────────────────────
     let clock = Arc::new(clock::ClockConsensus::new());
     // Populate registered_clocks immediately from store so quorum is correct from epoch 1.
-    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store));
+    clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store, chain.current_epoch()));
     {
         let clock_ref = clock.clone();
         tokio::spawn(async move {
@@ -470,7 +472,7 @@ async fn main() -> Result<()> {
                         }
 
                         // Refresh the registered clock node set so quorum uses the live list.
-                        let reg_clocks = clock::registered_clock_nodes(&chain_ref.store);
+                        let reg_clocks = clock::registered_clock_nodes(&chain_ref.store, sealed_epoch);
                         // Persist the validator snapshot for this epoch — used by fork choice
                         // and external auditors to verify quorum claims against the registered set.
                         let _ = chain_ref.store.state_set(
@@ -569,9 +571,15 @@ async fn main() -> Result<()> {
     }
 
     // Auto-register as a clock node on startup if not already registered.
+    // Holds this clock's own signed ClockNodeRegister envelope so the seal loop can
+    // re-announce it to peers that connect AFTER the one-shot boot broadcast (which
+    // hits an empty gossip mesh and is dropped, never retried). Populated on a
+    // successful auto-register below. See DRYRUN_2CLOCK — registration propagation.
+    let self_register_envelope: Arc<Option<Vec<u8>>>;
     if cfg.is_clock {
         let reg_key = format!("clock_reg:{}", cfg.node_id);
         let already_registered = chain.store.state_get(&reg_key).is_some();
+        let mut captured_envelope: Option<Vec<u8>> = None;
         if !already_registered {
             let min_stake: u64 = chain.store.state_get("chain_param:clock_min_stake")
                 .and_then(|b| serde_json::from_slice::<u64>(&b).ok())
@@ -606,7 +614,11 @@ async fn main() -> Result<()> {
                 match crate::tx::validate_and_apply(&chain, &entry, sig_ref) {
                     Ok(hash) => {
                         info!("[clock] auto-registered '{}' as clock node (hash {})", cfg.node_id, hash);
-                        broadcast_entry_desktop(&entry, &net_handle.cmd_tx).await;
+                        // Broadcast WITH signature so peers can validate + apply it
+                        // (a sig-less ClockNodeRegister is rejected on the receive side).
+                        broadcast_signed_entry(&entry, sig_ref, &net_handle.cmd_tx).await;
+                        // Capture for periodic re-announce to late-joining peers.
+                        captured_envelope = signed_entry_envelope(&entry, sig_ref);
                     },
                     Err(e)   => warn!(
                         "[clock] auto-register failed for '{}': {} — \
@@ -622,7 +634,31 @@ async fn main() -> Result<()> {
                     cfg.node_id, balance, min_stake,
                     hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH, epoch);
             }
+        } else {
+            // Already registered on-chain (e.g. relaunch on an existing data dir).
+            // Re-sign a ClockNodeRegister from the stored record so we can still
+            // re-announce ourselves to peers that have never seen our registration.
+            if let Some(sk) = signing_key.as_ref().as_ref() {
+                if let Some(rec) = chain.store.state_get(&reg_key)
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                {
+                    let entry = hone_types::LedgerEntry::ClockNodeRegister {
+                        node_id: cfg.node_id.clone(),
+                        stake:   rec["stake"].as_u64().unwrap_or(0),
+                        epoch:   rec["registered_epoch"].as_u64().unwrap_or(0),
+                        pubkey:  rec["pubkey"].as_str().map(|s| s.to_owned()),
+                        signature: None,
+                    };
+                    let sig_hex = crate::tx::canonical_signing_message(&entry, &chain.chain_id)
+                        .ok()
+                        .map(|msg| { use ed25519_dalek::Signer; hex::encode(sk.sign(msg.as_bytes()).to_bytes()) });
+                    captured_envelope = signed_entry_envelope(&entry, sig_hex.as_deref());
+                }
+            }
         }
+        self_register_envelope = Arc::new(captured_envelope);
+    } else {
+        self_register_envelope = Arc::new(None);
     }
 
     // Emit seals when this node is running as a clock peer
@@ -632,11 +668,13 @@ async fn main() -> Result<()> {
         let node_id_c = cfg.node_id.clone();
         let signing_key_c = Arc::clone(&signing_key);
         let signing_pubkey_c = Arc::clone(&signing_pubkey_hex);
+        let self_reg_c = Arc::clone(&self_register_envelope);
         // Epoch is relative to genesis, not Unix epoch.
         // genesis_ts is guaranteed set (init_genesis would have errored otherwise).
         let genesis_ts = cfg.genesis_timestamp.unwrap_or(0);
         tokio::spawn(async move {
             let mut last_sent: u64 = 0;
+            let mut announced: u64 = 0; // epochs in which we re-announced our registration
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 let now = now_ms();
@@ -644,6 +682,24 @@ async fn main() -> Result<()> {
                 let epoch = elapsed / hone_types::EPOCH_MS;
                 if epoch > last_sent {
                     last_sent = epoch;
+
+                    // Re-announce our own ClockNodeRegister so peers that connected
+                    // AFTER our one-shot boot broadcast still learn we are a clock.
+                    // The boot broadcast hits an empty gossip mesh (NoPeersSubscribed)
+                    // and gossipsub does not replay it to late joiners. Without this,
+                    // two founder clocks each stay registered_count:1 and never form a
+                    // real 2-of-2 quorum. Announce aggressively for the first ~20 epochs
+                    // (covers mesh formation) then as a periodic heartbeat every 20.
+                    if let Some(reg_data) = self_reg_c.as_ref().as_ref() {
+                        if announced < 20 || epoch % 20 == 0 {
+                            announced += 1;
+                            let _ = cmd_tx.send(NetCmd::Broadcast {
+                                topic: "hone/entries",
+                                data: reg_data.clone(),
+                            }).await;
+                        }
+                    }
+
                     let seal_hash = {
                         use sha2::Digest;
                         let mut h = sha2::Sha256::new();
@@ -1030,11 +1086,21 @@ async fn main() -> Result<()> {
     system_contracts::ensure_system_contracts(&chain, &contracts);
 
     // ── Testnet sim daemon ────────────────────────────────────────────────────
-    if cfg.chain_id == TESTNET_CHAIN_ID {
+    // Runs on testnet by default (synthetic traffic for demos). MUST be disable-able:
+    // it seeds balances and posts transfers independently on each node, which forks
+    // state between two clocks and makes a real 2-clock consensus dry-run impossible
+    // (see reports/DRYRUN_2CLOCK_2026-07-10.md fork observation). Set HONE_SIM=false
+    // on any testnet node used to validate the actual clock/consensus path.
+    let sim_enabled = std::env::var("HONE_SIM")
+        .map(|v| !(v == "false" || v == "0"))
+        .unwrap_or(true);
+    if cfg.chain_id == TESTNET_CHAIN_ID && sim_enabled {
         let chain_ref = chain.clone();
         tokio::spawn(async move {
             sim::run(chain_ref).await;
         });
+    } else if cfg.chain_id == TESTNET_CHAIN_ID {
+        info!("[sim] disabled via HONE_SIM=false — no synthetic testnet traffic");
     }
 
     // ── Inference verifier ────────────────────────────────────────────────────
@@ -2183,6 +2249,35 @@ async fn broadcast_entry_desktop(
 ) {
     let envelope = serde_json::json!({"entry": entry});
     if let Ok(data) = serde_json::to_vec(&envelope) {
+        let _ = cmd_tx.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
+    }
+}
+
+/// Broadcast an entry WITH its signature attached in the gossip envelope.
+///
+/// The plain `broadcast_entry_desktop` above sends `{"entry": ...}` with no `sig`.
+/// That is fine for entries a peer will re-validate against on-chain keys, but
+/// `ClockNodeRegister` from a key-less/self-auth account (or verified against the
+/// account's posting key) REQUIRES the signature to be present in the envelope's
+/// `"sig"` field — the receive path (main.rs NetworkEvent::Entry) pulls `sig` from
+/// there and `validate_and_apply` rejects a ClockNodeRegister with no signature
+/// ("signature required for ClockNodeRegister", tx.rs). Without this, a clock's
+/// registration never applies on any *other* node, so peers never see it as
+/// registered — the "registered_count stuck at 1" fork. See DRYRUN_2CLOCK.
+fn signed_entry_envelope(entry: &LedgerEntry, sig_hex: Option<&str>) -> Option<Vec<u8>> {
+    let mut envelope = serde_json::json!({"entry": entry});
+    if let Some(s) = sig_hex.filter(|s| !s.is_empty()) {
+        envelope["sig"] = serde_json::Value::String(s.to_owned());
+    }
+    serde_json::to_vec(&envelope).ok()
+}
+
+async fn broadcast_signed_entry(
+    entry: &LedgerEntry,
+    sig_hex: Option<&str>,
+    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
+) {
+    if let Some(data) = signed_entry_envelope(entry, sig_hex) {
         let _ = cmd_tx.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
     }
 }
