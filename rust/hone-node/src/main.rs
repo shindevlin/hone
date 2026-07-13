@@ -17,6 +17,10 @@ state machine, block production, contract execution, and HTTP API.
     HONE_GENESIS_TIMESTAMP   — Unix ms timestamp for genesis block (MUST match on all nodes)
     HONE_LOG_LEVEL           — tracing filter (default: hone_node=info)
     HONE_BOOTSTRAP_PEERS     — comma-separated multiaddrs for DHT bootstrap
+    HONE_ISOLATED            — "true" = no public discovery (no honemesh.net fetch/announce,
+                                no DNS-seed fallback, ignore mDNS); dial only HONE_BOOTSTRAP_PEERS.
+                                For self-contained N-clock consensus tests. NOT for production.
+    HONE_SIM                 — "false" to disable the testnet synthetic-traffic sim daemon
     HONE_CHAIN_ID            — "hone" (mainnet) or "hone-testnet" (testnet)
     HONE_POSTING_KEY         — wallet secret: 12-word BIP-39 mnemonic OR 64-char hex (treated
                                 as 32-byte BIP-39 entropy, NOT a raw ed25519 seed). The wallet
@@ -304,7 +308,9 @@ async fn main() -> Result<()> {
     });
 
     // ── Self-announce to Hive + honemesh.net (best-effort, fire-and-forget) ───────
-    {
+    // Skipped in isolated mode — an isolated node must make no outbound discovery
+    // calls, so it neither registers itself nor pulls in live-network peers.
+    if !cfg.isolated {
         let chain_id = cfg.chain_id.clone();
         let node_id = cfg.node_id.clone();
         tokio::spawn(async move {
@@ -314,6 +320,8 @@ async fn main() -> Result<()> {
                 discovery::announce_to_hone_net(&chain_id, &node_id),
             );
         });
+    } else {
+        info!("[isolated] HONE_ISOLATED=true — skipping public discovery announce");
     }
 
     // ── Clock consensus ───────────────────────────────────────────────────────
@@ -683,19 +691,19 @@ async fn main() -> Result<()> {
                 if epoch > last_sent {
                     last_sent = epoch;
 
-                    // Re-announce our own ClockNodeRegister so peers that connected
-                    // AFTER our one-shot boot broadcast still learn we are a clock.
-                    // The boot broadcast hits an empty gossip mesh (NoPeersSubscribed)
-                    // and gossipsub does not replay it to late joiners. Without this,
-                    // two founder clocks each stay registered_count:1 and never form a
-                    // real 2-of-2 quorum. Announce aggressively for the first ~20 epochs
-                    // (covers mesh formation) then as a periodic heartbeat every 20.
-                    if let Some(reg_data) = self_reg_c.as_ref().as_ref() {
+                    // Re-announce ourselves as a clock so peers that connected AFTER our
+                    // one-shot boot broadcast still learn we exist (gossipsub does not
+                    // replay to late joiners). This goes on the hone/clock-hello liveness
+                    // topic, NOT hone/entries: a hello is applied WRITE-ONCE and never
+                    // enters the pending pool, so repeating it every epoch cannot fork
+                    // state_root — unlike the old re-broadcast that re-applied the
+                    // registration with a grown stake. See DRYRUN_2CLOCK / BUG 6.
+                    if let Some(hello_data) = self_reg_c.as_ref().as_ref() {
                         if announced < 20 || epoch % 20 == 0 {
                             announced += 1;
                             let _ = cmd_tx.send(NetCmd::Broadcast {
-                                topic: "hone/entries",
-                                data: reg_data.clone(),
+                                topic: "hone/clock-hello",
+                                data: hello_data.clone(),
                             }).await;
                         }
                     }
@@ -1033,6 +1041,24 @@ async fn main() -> Result<()> {
                                     if let Err(err) = chain_ref.apply_entry(&e) {
                                         tracing::debug!("gossip Mine apply failed: {}", err);
                                     }
+                                } else if let hone_types::LedgerEntry::ClockNodeRegister { node_id, .. } = &e {
+                                    // Clock registration is WRITE-ONCE. A clock re-announces
+                                    // itself every epoch (via hone/clock-hello and, for older
+                                    // peers, re-broadcast on hone/entries), but the on-chain
+                                    // record must be applied exactly once — re-applying it
+                                    // later re-records the (by-then grown) stake on some nodes
+                                    // but not others, forking state_root. If already in the
+                                    // store, drop; otherwise apply write-once now (NOT via the
+                                    // pending pool, whose per-epoch ordering also diverged).
+                                    // See DRYRUN_2CLOCK / BUG 6.
+                                    let reg_key = format!("clock_reg:{}", node_id);
+                                    if chain_ref.store.state_get(&reg_key).is_some() {
+                                        tracing::trace!("clock-register already applied for '{}', ignoring re-announce", node_id);
+                                    } else if let Err(err) = tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
+                                        tracing::debug!("gossip ClockNodeRegister apply failed: {}", err);
+                                    } else {
+                                        info!("[clock] applied peer registration for '{}' (write-once)", node_id);
+                                    }
                                 } else {
                                     // User entries go into the pending pool and are applied
                                     // at epoch seal in deterministic hash order across all nodes.
@@ -1058,6 +1084,32 @@ async fn main() -> Result<()> {
                             tracing::debug!("dropping stale seal epoch {} (real epoch {})", seal_epoch, real_epoch);
                         } else {
                             clock_ref.receive_seal(seal);
+                        }
+                    }
+                    Ok(NetworkEvent::ClockHello { hello }) => {
+                        // A clock liveness beacon: {"entry": <ClockNodeRegister>, "sig": ...}.
+                        // Purely a propagation/liveness signal — it carries the sender's
+                        // ORIGINAL signed registration so a late-joining peer can write it
+                        // into its own store exactly once. It never re-applies (write-once
+                        // guard below) and never enters the pending pool, so repeating it
+                        // every epoch cannot fork state_root. See DRYRUN_2CLOCK / BUG 6.
+                        let (inner, sig) = if let Some(e) = hello.get("entry") {
+                            let s = hello.get("sig").and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty()).map(str::to_owned);
+                            (e.clone(), s)
+                        } else {
+                            (hello.clone(), None)
+                        };
+                        if let Ok(e @ hone_types::LedgerEntry::ClockNodeRegister { .. }) = tx::entry_from_json(&inner) {
+                            if let hone_types::LedgerEntry::ClockNodeRegister { node_id, .. } = &e {
+                                let reg_key = format!("clock_reg:{}", node_id);
+                                if chain_ref.store.state_get(&reg_key).is_none() {
+                                    match tx::validate_and_apply(&chain_ref, &e, sig.as_deref()) {
+                                        Ok(_)  => info!("[clock] registered peer clock '{}' from hello (write-once)", node_id),
+                                        Err(err) => tracing::debug!("clock-hello apply failed for '{}': {}", node_id, err),
+                                    }
+                                }
+                            }
                         }
                     }
                     Ok(NetworkEvent::ConsensusProposal { epoch, rewards_hash, node_id }) => {

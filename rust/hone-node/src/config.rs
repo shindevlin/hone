@@ -33,6 +33,14 @@ pub struct Config {
     /// and signs clock seals — so the seal signer matches the registered identity.
     /// Set via HONE_POSTING_KEY env var.
     pub posting_key: Option<String>,
+    /// Isolated mode (HONE_ISOLATED=true): the node makes NO outbound calls to
+    /// public discovery — no honemesh.net registry fetch/announce, no Hive/TON
+    /// registry, and no fallback to the Cloudflare DNS seed peers. It only dials
+    /// the peers explicitly listed in HONE_BOOTSTRAP_PEERS (plus its cached peer
+    /// store). Used to run a self-contained N-clock consensus test that cannot be
+    /// contaminated by live-network peers, so state_root convergence between the
+    /// test nodes can be asserted. NOT for production nodes.
+    pub isolated: bool,
 }
 
 impl Config {
@@ -44,6 +52,9 @@ impl Config {
                     .unwrap_or_else(|| PathBuf::from("/tmp"))
                     .join(".hone")
             });
+
+        let isolated = std::env::var("HONE_ISOLATED")
+            .map(|v| v == "true" || v == "1").unwrap_or(false);
 
         Self {
             node_id: std::env::var("HONE_NODE_ID")
@@ -58,8 +69,14 @@ impl Config {
             bootstrap_peers: {
                 let raw = std::env::var("HONE_BOOTSTRAP_PEERS").unwrap_or_default();
                 let peers: Vec<String> = if raw.trim().is_empty() {
-                    // Default Cloudflare DNS seeds — updated via DNS A record, no code change needed.
-                    DEFAULT_BOOTSTRAP_PEERS.iter().map(|s| s.to_string()).collect()
+                    // Isolated mode dials nothing by default — no public seed fallback, so
+                    // the node stays confined to explicitly-listed peers. Otherwise fall
+                    // back to the Cloudflare DNS seeds (updated via DNS A record).
+                    if isolated {
+                        Vec::new()
+                    } else {
+                        DEFAULT_BOOTSTRAP_PEERS.iter().map(|s| s.to_string()).collect()
+                    }
                 } else {
                     raw.split(',')
                         .filter(|s| !s.is_empty())
@@ -93,6 +110,7 @@ impl Config {
                     .unwrap_or(1783191600000u64)
             ),
             posting_key: std::env::var("HONE_POSTING_KEY").ok(),
+            isolated,
         }
     }
 }
