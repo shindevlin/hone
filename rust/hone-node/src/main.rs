@@ -481,6 +481,7 @@ async fn main() -> Result<()> {
 
                         // Refresh the registered clock node set so quorum uses the live list.
                         let reg_clocks = clock::registered_clock_nodes(&chain_ref.store, sealed_epoch);
+                        let reg_count = reg_clocks.len();
                         // Persist the validator snapshot for this epoch — used by fork choice
                         // and external auditors to verify quorum claims against the registered set.
                         let _ = chain_ref.store.state_set(
@@ -500,11 +501,24 @@ async fn main() -> Result<()> {
                             entropy.as_bytes(),
                         );
 
-                        // Comprehensive epoch reward distribution across all work types.
-                        // Pass the signing_clocks list directly — the seal:{epoch}: store
-                        // scan was dead (those keys were never written anywhere).
-                        let signing_clocks = sealed.signing_clocks.clone();
-                        emit_epoch_rewards(sealed_epoch, &signing_clocks, &chain_ref, &cmd_tx_for_seal).await;
+                        // REWARD FINALIZATION (BUG 6): rewards are NO LONGER emitted here at
+                        // seal time off this node's LOCAL view of who sealed. Paying per-node
+                        // at seal forks balances whenever two nodes cross the quorum threshold
+                        // in different epochs (each pays a different set) — the fork we chased
+                        // in DRYRUN_2CLOCK. Instead, emission is deferred to the finalized-epoch
+                        // handler below, which fires only once this epoch's rewards_hash reaches
+                        // quorum agreement across nodes, and pays from the DETERMINISTIC
+                        // epoch_validators:{epoch} snapshot (identical on every node) — so all
+                        // nodes emit byte-identical ClockReward and balances stay convergent.
+                        // (reg_count kept for the diagnostic below.)
+                        let quorum = clock::quorum();
+                        if reg_count < quorum {
+                            info!(
+                                "[clock] epoch {}: {} registered clock(s) < quorum {} — sealing only, \
+                                 rewards defer to finalization once quorum agrees",
+                                sealed_epoch, reg_count, quorum
+                            );
+                        }
 
                         // Persist the sealed block — written after rewards so all entries are indexed.
                         chain_ref.write_sealed_block(sealed_epoch, seal_hash.as_str(), ts);
@@ -548,6 +562,25 @@ async fn main() -> Result<()> {
             loop {
                 match finalized_rx.recv().await {
                     Ok(fin) => {
+                        // BUG 6 FIX: emit this epoch's rewards HERE — only after its
+                        // rewards_hash reached quorum agreement (that is what fired this
+                        // event). Pay from the DETERMINISTIC epoch_validators:{epoch}
+                        // snapshot (the store-derived registered clock set, persisted at
+                        // seal and identical on every node) rather than any node's local
+                        // signing_clocks view. Every node therefore emits byte-identical
+                        // ClockReward for the epoch, so balances (and the state_root over
+                        // them) stay convergent. Idempotency: emit_epoch_rewards writes
+                        // ClockReward entries keyed by epoch; a finalize is fired once per
+                        // epoch (state.finalized guard in receive_reward_proposal), so this
+                        // runs once per epoch per node.
+                        let sealers: Vec<String> = chain_ref.store
+                            .state_get(&format!("epoch_validators:{}", fin.epoch))
+                            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+                            .unwrap_or_default();
+                        if !sealers.is_empty() {
+                            emit_epoch_rewards(fin.epoch, &sealers, &chain_ref, &cmd_tx_fin).await;
+                        }
+
                         let state_root = chain_ref.store.balance_merkle_root();
                         let entry = LedgerEntry::EpochFinalize {
                             epoch: fin.epoch,

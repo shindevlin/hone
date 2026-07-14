@@ -127,6 +127,18 @@ fn latest_block_hash(chain: &Arc<Chain>, epoch: u64) -> String {
 ///
 /// Only applies to new-supply eras (block_reward_at > 0); era 5 epochs
 /// already draw from the recycle fund directly via produce_block.
+///
+/// ⚠️ CONSENSUS DETERMINISM BUG (BUG 6, launch-blocking — pending coordinated fix).
+/// `has_block(ep)` below is a LOCAL check: a block exists on a node iff that node
+/// sealed the epoch. Two founder clocks boot seconds apart, so they seal their first
+/// epochs at different points and therefore see DIFFERENT sets of "no-block" epochs.
+/// Each then credits __recycle_fund__ a different number of times → the recycle-fund
+/// balance diverges → the balance Merkle root (state_root) forks between honest nodes.
+/// Reproduced in an isolated 2-clock dry-run (peer_count:1, all balances 0): forked at
+/// epoch 10 because node A recycled {1,2,3} while node B recycled {1,2,3,4,5}. This
+/// forks even at genesis. FIX must derive "no block" from the AGREED sealed-epoch set
+/// (EpochFinalize/quorum), not local has_block. Design under review with grouchly
+/// (pc-agent-bridge d2e8b1a9). Do NOT ship a multi-clock launch until this is fixed.
 fn redirect_unearned_rewards(chain: &Arc<Chain>, prev_finalized: u64, boundary: u64) {
     // Walk only the new range since the previous finalization.
     let start = prev_finalized.saturating_add(1).max(1);
