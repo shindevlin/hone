@@ -330,9 +330,28 @@ async fn main() -> Result<()> {
     clock.set_registered_clocks(clock::registered_clock_nodes(&chain.store, chain.current_epoch()));
     {
         let clock_ref = clock.clone();
+        let chain_ref = chain.clone();
         tokio::spawn(async move {
+            // Track the last epoch we've seeded so empty epochs are only tracked once.
+            let mut last_tracked: u64 = 0;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
+                // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
+                // epoch_states entry, even ones no clock sealed. Otherwise empty epochs
+                // are never resolved/finalized and only the per-node local finalizer
+                // credits their recycle — which forks state between nodes. Seeding here
+                // makes every node resolve empty epochs as sealed:false and reach the
+                // same quorum-agreed FinalizedEpoch, so recycle/decay run deterministically.
+                let cur = chain_ref.current_epoch();
+                if cur > last_tracked {
+                    // Cap the catch-up so a huge genesis-to-now gap can't stall the loop;
+                    // only the recent window matters for finalization.
+                    let start = last_tracked.saturating_add(1).max(cur.saturating_sub(64));
+                    for e in start..=cur {
+                        clock_ref.ensure_epoch_tracked(e);
+                    }
+                    last_tracked = cur;
+                }
                 clock_ref.tick();
             }
         });
@@ -573,12 +592,45 @@ async fn main() -> Result<()> {
                         // ClockReward entries keyed by epoch; a finalize is fired once per
                         // epoch (state.finalized guard in receive_reward_proposal), so this
                         // runs once per epoch per node.
+                        // Idempotency guard (BUG 6): a FinalizedEpoch can, in principle,
+                        // fire more than once (retry, duplicate proposal quorum). Do all
+                        // balance-mutating finalization work AT MOST ONCE per epoch, keyed
+                        // by a store marker every node writes identically.
+                        let done_key = format!("epoch_finalized_done:{}", fin.epoch);
+                        if chain_ref.store.state_get(&done_key).is_some() {
+                            tracing::debug!("epoch {} finalization already applied — skipping", fin.epoch);
+                        } else {
                         let sealers: Vec<String> = chain_ref.store
                             .state_get(&format!("epoch_validators:{}", fin.epoch))
                             .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
                             .unwrap_or_default();
                         if !sealers.is_empty() {
+                            // Epoch was sealed by quorum → pay its rewards.
                             emit_epoch_rewards(fin.epoch, &sealers, &chain_ref, &cmd_tx_fin).await;
+                        } else {
+                            // Epoch earned nothing (no quorum-agreed sealer set) → its block
+                            // reward is redirected to the recycle fund. This is the
+                            // deterministic replacement for finalize::redirect_unearned_rewards'
+                            // per-node local has_block scan (BUG 6): the "earned nothing"
+                            // decision now comes from the quorum-agreed finalized set, so every
+                            // node credits recycle for exactly the same epochs.
+                            let reward = hone_types::block_reward_at(fin.epoch);
+                            if reward > 0 {
+                                if let Err(e) = chain_ref.store.credit(
+                                    hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, reward)
+                                {
+                                    warn!("[finalize] recycle credit failed for empty epoch {}: {}", fin.epoch, e);
+                                } else {
+                                    info!("[finalize] epoch {} earned nothing (quorum-agreed) — {} hunits → recycle fund",
+                                        fin.epoch, reward);
+                                }
+                            }
+                        }
+                        // Chain Entropy Protocol — bleed dormant balances to recycle. Runs
+                        // from the quorum-agreed finalization (not the local timer) so every
+                        // node applies the identical decay for this epoch (BUG 6).
+                        finalize::apply_entropy_decay(&chain_ref, fin.epoch);
+                        let _ = chain_ref.store.state_set(&done_key, b"1");
                         }
 
                         let state_root = chain_ref.store.balance_merkle_root();

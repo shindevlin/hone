@@ -82,14 +82,19 @@ pub async fn finalize_epoch(chain: &Arc<Chain>, epoch: u64) -> Result<()> {
     let bytes = serde_json::to_vec(&snapshot)?;
     chain.store.write_finality(epoch, &bytes)?;
 
-    // Redirect unearned rewards (epochs with no miner activity) to the recycle fund.
-    redirect_unearned_rewards(chain, prev_finalized, epoch);
-
-    // Chain Entropy Protocol — bleed dormant account balances to recycle.
-    apply_entropy_decay(chain, epoch);
+    // BUG 6: recycle-of-unearned-rewards and entropy decay used to run HERE, from this
+    // local 2s-timer finalizer, keyed off local `has_block(ep)` / local balance scans —
+    // which differ per node by boot timing and permanently fork the balance Merkle root
+    // (state_root). Both are now driven from the quorum-agreed FinalizedEpoch handler in
+    // main.rs instead (guarded by epoch_finalized_done:{epoch}), so every node applies
+    // the identical mutation for each epoch. This local finalizer now only records the
+    // finality SNAPSHOT (no balance mutation) — snapshots are per-node metadata, not
+    // consensus state. `redirect_unearned_rewards` is retained (now unused) with its
+    // warning banner as documentation of the defect until the audit sweep is merged.
+    let _ = prev_finalized; // no longer drives recycle; kept for snapshot range only
 
     info!(
-        "[finalize] epoch {} finalized: state_root={} block={}",
+        "[finalize] epoch {} snapshot recorded: state_root={} block={}",
         epoch,
         &state_root[..12],
         &latest_block_hash[..12.min(latest_block_hash.len())],
@@ -139,6 +144,8 @@ fn latest_block_hash(chain: &Arc<Chain>, epoch: u64) -> String {
 /// forks even at genesis. FIX must derive "no block" from the AGREED sealed-epoch set
 /// (EpochFinalize/quorum), not local has_block. Design under review with grouchly
 /// (pc-agent-bridge d2e8b1a9). Do NOT ship a multi-clock launch until this is fixed.
+#[allow(dead_code)] // BUG 6: superseded by the quorum-agreed recycle path in main.rs;
+// retained with its warning banner as documentation until the audit sweep lands.
 fn redirect_unearned_rewards(chain: &Arc<Chain>, prev_finalized: u64, boundary: u64) {
     // Walk only the new range since the previous finalization.
     let start = prev_finalized.saturating_add(1).max(1);
@@ -169,7 +176,10 @@ fn redirect_unearned_rewards(chain: &Arc<Chain>, prev_finalized: u64, boundary: 
 ///
 /// No keys required. No user action needed to trigger this — it runs automatically.
 /// The only way to stop it is to do anything on HONE with the account's own keys.
-fn apply_entropy_decay(chain: &Arc<Chain>, current_epoch: u64) {
+/// Bleed dormant balances to the recycle fund. Now called from the quorum-agreed
+/// FinalizedEpoch handler (main.rs), NOT the local finalizer timer, so every node
+/// applies the identical decay for a given epoch (BUG 6). Public for that caller.
+pub fn apply_entropy_decay(chain: &Arc<Chain>, current_epoch: u64) {
     const FINALIZE_INTERVAL: u64 = 100;
     let decay_threshold = LIVENESS_GRACE_EPOCHS + LIVENESS_DECAY_DELAY_EPOCHS;
 

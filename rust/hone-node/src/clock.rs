@@ -168,6 +168,8 @@ impl ClockConsensus {
             let mut inner = self.inner.lock().unwrap();
             // Read registered_clocks before the mutable entry borrow to satisfy the borrow checker.
             let reg = inner.registered_clocks.clone();
+            // Read current epoch too (for the bootstrap solo bypass below).
+            let cur_epoch = inner.current_epoch;
 
             let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
                 proposals: Vec::new(),
@@ -192,8 +194,18 @@ impl ClockConsensus {
 
             // Denominator is the registered set size when known; else observed proposals.
             let denominator = if reg.is_empty() { state.proposals.len() } else { reg.len() };
-            let quorum_needed = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
-                .max(quorum());
+            let quorum_needed = {
+                let normal = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
+                    .max(quorum());
+                // Bootstrap solo bypass (BUG 6): a genuinely solo registered clock
+                // (denominator <= 1) can never reach the default quorum of 2, so it would
+                // seal via the sealing bootstrap escape hatch yet NEVER finalize rewards —
+                // silently earning nothing on single-node / early-genesis deployments. During
+                // the bootstrap grace window, mirror the sealing bypass: a lone clock may
+                // finalize with just its own proposal. Outside grace the normal quorum holds.
+                let in_grace = cur_epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
+                if denominator <= 1 && in_grace { 1 } else { normal }
+            };
 
             // Tally votes from valid (registered) proposals only.
             let mut hash_counts: HashMap<String, usize> = HashMap::new();
@@ -293,6 +305,28 @@ impl ClockConsensus {
     /// Set the current epoch (called by net/sync modules when chain advances).
     pub fn set_current_epoch(&self, epoch: u64) {
         self.inner.lock().unwrap().current_epoch = epoch;
+    }
+
+    /// Ensure an `epoch_states` entry exists for `epoch` so it will be resolved by
+    /// `tick()` even if NO seal is ever received for it (a genuinely empty epoch).
+    ///
+    /// Negative attestation (BUG 6): empty epochs previously got no epoch_states entry
+    /// (entries were created only on receive_seal), so they were never resolved, never
+    /// finalized, and only the per-node local finalizer timer credited their recycle —
+    /// diverging state between nodes. By seeding an entry here for every elapsed epoch,
+    /// an empty epoch is resolved as `sealed:false` on EVERY node, broadcasts a reward
+    /// proposal, and reaches the SAME quorum-agreed FinalizedEpoch everywhere — so the
+    /// recycle/decay that hangs off finalization runs deterministically. Idempotent: a
+    /// later seal for the epoch simply appends to the existing entry.
+    pub fn ensure_epoch_tracked(&self, epoch: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.epoch_states.entry(epoch).or_insert_with(|| EpochState {
+            seals: Vec::new(),
+            resolved: false,
+            winner: None,
+            deadline: Instant::now() + Duration::from_millis(SEAL_COLLECT_MS),
+            peer_fallback_deadline: None,
+        });
     }
 
     /// Update the registered clock node set. Called at each epoch seal from main.rs.
