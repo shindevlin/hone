@@ -343,6 +343,14 @@ async fn main() -> Result<()> {
                 // makes every node resolve empty epochs as sealed:false and reach the
                 // same quorum-agreed FinalizedEpoch, so recycle/decay run deterministically.
                 let cur = chain_ref.current_epoch();
+                // Keep the clock's internal current_epoch in sync with the chain.
+                // Without this, ClockConsensus::current_epoch stays pinned at 0 (its
+                // init value) — set_current_epoch had ZERO callers — so every
+                // `in_grace` check inside the clock (e.g. the bootstrap solo-finalize
+                // bypass) was unconditionally true FOREVER, leaving a quorum bypass
+                // permanently open. Wiring it here makes grace windows actually expire.
+                // (Found by Grouchly's verify pass on fix/finalizer-determinism.)
+                clock_ref.set_current_epoch(cur);
                 if cur > last_tracked {
                     // Cap the catch-up so a huge genesis-to-now gap can't stall the loop;
                     // only the recent window matters for finalization.

@@ -313,10 +313,18 @@ impl ClockConsensus {
     /// Negative attestation (BUG 6): empty epochs previously got no epoch_states entry
     /// (entries were created only on receive_seal), so they were never resolved, never
     /// finalized, and only the per-node local finalizer timer credited their recycle —
-    /// diverging state between nodes. By seeding an entry here for every elapsed epoch,
-    /// an empty epoch is resolved as `sealed:false` on EVERY node, broadcasts a reward
-    /// proposal, and reaches the SAME quorum-agreed FinalizedEpoch everywhere — so the
-    /// recycle/decay that hangs off finalization runs deterministically. Idempotent: a
+    /// diverging state between nodes. Seeding an entry here makes `tick()` resolve the
+    /// epoch as `sealed:false` on every node instead of ignoring it.
+    ///
+    /// ⚠️ KNOWN-INCOMPLETE (Grouchly verify pass, 938bdc8c): resolving `sealed:false`
+    /// alone is NOT yet full negative attestation — nothing currently consumes the
+    /// `sealed:false` branch into a reward proposal for a *globally* empty epoch (the
+    /// SealedEpoch{sealed:false} path falls through to a no-op in main.rs), so a truly
+    /// empty epoch still does not reach a quorum-agreed FinalizedEpoch on its own. It
+    /// only becomes reachable via the peer-ingest proposal path — which is itself the
+    /// locally-empty-but-remotely-sealed double-credit race. The correct fix (replay-
+    /// derive the mutation off the fork-choice-winning EpochFinalize in apply_entry) is
+    /// tracked separately; this comment stays honest until that lands. Idempotent: a
     /// later seal for the epoch simply appends to the existing entry.
     pub fn ensure_epoch_tracked(&self, epoch: u64) {
         let mut inner = self.inner.lock().unwrap();
