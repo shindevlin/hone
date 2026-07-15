@@ -1,15 +1,15 @@
 /*
- * btcpc_scene_identity.c — Identity / public key display scene
+ * hone_scene_identity.c — Identity / public key display scene
  *
  * Shows the Flipper's ed25519 public key as a 64-character hex string.
  * The user reads this key and registers it on-chain via the phone app
  * (DeviceRegister entry), or by scanning the phone's QR code during pairing.
  *
- * Shin Devlin — btcpc.network
+ * Shin Devlin — honemesh.network
  */
 
-#include "../btcpc.h"
-#include "btcpc_scene_identity.h"
+#include "../hone.h"
+#include "hone_scene_identity.h"
 
 #include <gui/modules/text_box.h>
 #include <string.h>
@@ -23,8 +23,8 @@
  */
 #define IDENTITY_TEXT_LEN 80
 
-void btcpc_scene_identity_on_enter(void* context) {
-    BtcpcApp* app = context;
+void hone_scene_identity_on_enter(void* context) {
+    HoneApp* app = context;
 
     static char identity_text[IDENTITY_TEXT_LEN];
 
@@ -42,16 +42,16 @@ void btcpc_scene_identity_on_enter(void* context) {
     text_box_set_font(app->text_box, TextBoxFontText);
     text_box_set_text(app->text_box, identity_text);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, BtcpcViewTextBox);
+    view_dispatcher_switch_to_view(app->view_dispatcher, HoneViewTextBox);
 }
 
-bool btcpc_scene_identity_on_event(void* context, SceneManagerEvent event) {
+bool hone_scene_identity_on_event(void* context, SceneManagerEvent event) {
     UNUSED(context);
     UNUSED(event);
     return false;
 }
 
-void btcpc_scene_identity_on_exit(void* context) {
-    BtcpcApp* app = context;
+void hone_scene_identity_on_exit(void* context) {
+    HoneApp* app = context;
     text_box_reset(app->text_box);
 }

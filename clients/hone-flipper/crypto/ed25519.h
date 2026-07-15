@@ -9,7 +9,7 @@
  * TweetNaCl (tweetnacl.c/.h) provides the core ed25519 primitives.
  * This wrapper adds:
  *   - randombytes() backed by furi_hal_random_get()
- *   - convenience functions matching the BTCPC naming convention
+ *   - convenience functions matching the HONE naming convention
  *
  * Key sizes:
  *   Public key : 32 bytes
@@ -17,40 +17,40 @@
  *   Signature  : 64 bytes
  */
 
-#define BTCPC_ED25519_PK_LEN  32
-#define BTCPC_ED25519_SK_LEN  64
-#define BTCPC_ED25519_SIG_LEN 64
+#define HONE_ED25519_PK_LEN  32
+#define HONE_ED25519_SK_LEN  64
+#define HONE_ED25519_SIG_LEN 64
 
 /*
- * btcpc_ed25519_keypair()
+ * hone_ed25519_keypair()
  *
  * Generate a new ed25519 keypair.
- * pk_out: 32-byte public key  (BTCPC_ED25519_PK_LEN)
- * sk_out: 64-byte secret key  (BTCPC_ED25519_SK_LEN)
+ * pk_out: 32-byte public key  (HONE_ED25519_PK_LEN)
+ * sk_out: 64-byte secret key  (HONE_ED25519_SK_LEN)
  *
  * Internally calls randombytes() → furi_hal_random_get() for the seed.
  */
-void btcpc_ed25519_keypair(uint8_t pk_out[BTCPC_ED25519_PK_LEN],
-                           uint8_t sk_out[BTCPC_ED25519_SK_LEN]);
+void hone_ed25519_keypair(uint8_t pk_out[HONE_ED25519_PK_LEN],
+                           uint8_t sk_out[HONE_ED25519_SK_LEN]);
 
 /*
- * btcpc_ed25519_sign()
+ * hone_ed25519_sign()
  *
  * Sign `msg_len` bytes of `msg` using `sk` (64-byte secret key).
  * Writes signature to `sig_out` (64 bytes).
  */
-void btcpc_ed25519_sign(uint8_t       sig_out[BTCPC_ED25519_SIG_LEN],
+void hone_ed25519_sign(uint8_t       sig_out[HONE_ED25519_SIG_LEN],
                         const uint8_t* msg,
                         size_t         msg_len,
-                        const uint8_t  sk[BTCPC_ED25519_SK_LEN]);
+                        const uint8_t  sk[HONE_ED25519_SK_LEN]);
 
 /*
- * btcpc_ed25519_verify()
+ * hone_ed25519_verify()
  *
  * Verify a signature.
  * Returns 0 on success, non-zero on failure.
  */
-int btcpc_ed25519_verify(const uint8_t  sig[BTCPC_ED25519_SIG_LEN],
+int hone_ed25519_verify(const uint8_t  sig[HONE_ED25519_SIG_LEN],
                          const uint8_t* msg,
                          size_t         msg_len,
-                         const uint8_t  pk[BTCPC_ED25519_PK_LEN]);
+                         const uint8_t  pk[HONE_ED25519_PK_LEN]);

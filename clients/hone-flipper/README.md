@@ -1,6 +1,6 @@
-# BTCPC — Flipper Zero App
+# HONE — Flipper Zero App
 
-Chain identity node for the BTCPC network. The Flipper generates an ed25519
+Chain identity node for the HONE network. The Flipper generates an ed25519
 keypair on first run, signs all outgoing sensor data, and relays it to a paired
 phone over BLE. The phone registers the Flipper's public key on-chain via a
 `DeviceRegister` entry during the initial pairing flow.
@@ -18,11 +18,11 @@ ufbt downloads the correct Flipper firmware SDK automatically on first build.
 ## Build
 
 ```sh
-cd clients/btcpc-flipper
+cd clients/hone-flipper
 ufbt
 ```
 
-The compiled `.fap` file lands in `.ufbt/build/btcpc.fap`.
+The compiled `.fap` file lands in `.ufbt/build/hone.fap`.
 
 ## Install
 
@@ -42,7 +42,7 @@ ufbt install
 
 ## First run
 
-1. The app checks `/ext/apps_data/btcpc/identity.key` on the microSD card.
+1. The app checks `/ext/apps_data/hone/identity.key` on the microSD card.
 2. If the file is missing, a new ed25519 keypair is generated from the
    Flipper's hardware TRNG (STM32WB55 RNG peripheral).
 3. The secret key (64 bytes) is written to `identity.key`.
@@ -53,21 +53,21 @@ ufbt install
 Key files on the Flipper microSD:
 
 ```
-/ext/apps_data/btcpc/identity.key   — 64-byte ed25519 secret key (keep private)
-/ext/apps_data/btcpc/identity.pub   — 32-byte ed25519 public key
+/ext/apps_data/hone/identity.key   — 64-byte ed25519 secret key (keep private)
+/ext/apps_data/hone/identity.pub   — 32-byte ed25519 public key
 ```
 
 ## Pairing with the phone
 
-1. Open the BTCPC mobile app on your phone.
+1. Open the HONE mobile app on your phone.
 2. Navigate to **Devices → Pair Flipper**.
-3. The phone app scans for the Flipper's BLE advertisement (device name `BTCPC`).
+3. The phone app scans for the Flipper's BLE advertisement (device name `HONE`).
 4. On pairing, the phone submits a `DeviceRegister` chain entry containing the
    Flipper's public key (read from `identity.pub` or typed in manually).
 5. Once the entry is sealed, the Flipper's signatures are accepted by the network.
 
 Auto-reconnect: after the initial pairing, the Flipper stores the paired
-device's BLE address in `/ext/apps_data/btcpc/paired.addr` and reconnects
+device's BLE address in `/ext/apps_data/hone/paired.addr` and reconnects
 automatically on subsequent app launches.
 
 ## Key registration (manual fallback)
@@ -125,27 +125,27 @@ stack to provide headroom.
 ## Project layout
 
 ```
-clients/btcpc-flipper/
+clients/hone-flipper/
   application.fam           — ufbt app manifest
-  btcpc.c                   — app entry point, identity management
-  btcpc.h                   — types, constants, shared state
+  hone.c                   — app entry point, identity management
+  hone.h                   — types, constants, shared state
   crypto/
     ed25519.c/.h             — TweetNaCl wrapper + randombytes() glue
     tweetnacl.c/.h           — TweetNaCl (public domain, ed25519 subset)
   protocol/
-    btcpc_protocol.h         — BLE wire format definitions
-    btcpc_protocol.c         — serialise / sign / parse messages
+    hone_protocol.h         — BLE wire format definitions
+    hone_protocol.c         — serialise / sign / parse messages
   scenes/
-    btcpc_scene_main.c       — main menu
-    btcpc_scene_identity.c   — public key display
-    btcpc_scene_ble.c        — BLE pairing status
+    hone_scene_main.c       — main menu
+    hone_scene_identity.c   — public key display
+    hone_scene_ble.c        — BLE pairing status
   legacy/
-    btcpc_wallet.c           — archived hardware wallet prototype (v0.2)
+    hone_wallet.c           — archived hardware wallet prototype (v0.2)
 ```
 
 ## Phase 9 TODOs
 
-- Wire BLE NUS peripheral (see `scenes/btcpc_scene_ble.c` TODOs)
+- Wire BLE NUS peripheral (see `scenes/hone_scene_ble.c` TODOs)
 - Sub-GHz scan loop posting `SUBGHZ_OBS` frames
 - RFID/NFC scan callbacks
 - iButton scan callbacks

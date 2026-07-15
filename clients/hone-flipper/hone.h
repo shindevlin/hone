@@ -11,47 +11,47 @@
 #include <applications/services/bt/bt_service/bt.h>
 
 #include "crypto/ed25519.h"
-#include "protocol/btcpc_protocol.h"
+#include "protocol/hone_protocol.h"
 
-#define TAG               "BTCPC"
-#define BTCPC_VERSION     "0.1.0"
+#define TAG               "HONE"
+#define HONE_VERSION     "0.1.0"
 
-#define BTCPC_DATA_DIR    EXT_PATH("apps_data/btcpc")
-#define BTCPC_KEY_PATH    EXT_PATH("apps_data/btcpc/identity.key")
-#define BTCPC_PUB_PATH    EXT_PATH("apps_data/btcpc/identity.pub")
+#define HONE_DATA_DIR    EXT_PATH("apps_data/hone")
+#define HONE_KEY_PATH    EXT_PATH("apps_data/hone/identity.key")
+#define HONE_PUB_PATH    EXT_PATH("apps_data/hone/identity.pub")
 
 /* Secret key: 64 bytes (seed || public in TweetNaCl expanded form) */
-#define BTCPC_SK_LEN      64
+#define HONE_SK_LEN      64
 /* Public key: 32 bytes */
-#define BTCPC_PK_LEN      32
+#define HONE_PK_LEN      32
 
 /* Scene IDs */
 typedef enum {
-    BtcpcSceneMain,
-    BtcpcSceneIdentity,
-    BtcpcSceneBle,
-    BtcpcSceneSubGhz,
-    BtcpcSceneRotate,
-    BtcpcSceneCount,
-} BtcpcScene;
+    HoneSceneMain,
+    HoneSceneIdentity,
+    HoneSceneBle,
+    HoneSceneSubGhz,
+    HoneSceneRotate,
+    HoneSceneCount,
+} HoneScene;
 
 /* View IDs */
 typedef enum {
-    BtcpcViewSubmenu,
-    BtcpcViewPopup,
-    BtcpcViewTextBox,
-    BtcpcViewCount,
-} BtcpcViewId;
+    HoneViewSubmenu,
+    HoneViewPopup,
+    HoneViewTextBox,
+    HoneViewCount,
+} HoneViewId;
 
 /* Submenu item IDs */
 typedef enum {
-    BtcpcMenuIdentity = 0,
-    BtcpcMenuBle      = 1,
-    BtcpcMenuSubGhz   = 2,
-    BtcpcMenuRotate   = 3,
-} BtcpcMenuItem;
+    HoneMenuIdentity = 0,
+    HoneMenuBle      = 1,
+    HoneMenuSubGhz   = 2,
+    HoneMenuRotate   = 3,
+} HoneMenuItem;
 
-typedef struct BtcpcApp {
+typedef struct HoneApp {
     /* GUI */
     Gui*              gui;
     ViewDispatcher*   view_dispatcher;
@@ -62,8 +62,8 @@ typedef struct BtcpcApp {
 
     /* Crypto */
     bool     has_identity;
-    uint8_t  sk[BTCPC_SK_LEN];  /* ed25519 secret key (TweetNaCl expanded) */
-    uint8_t  pk[BTCPC_PK_LEN];  /* ed25519 public key */
+    uint8_t  sk[HONE_SK_LEN];  /* ed25519 secret key (TweetNaCl expanded) */
+    uint8_t  pk[HONE_PK_LEN];  /* ed25519 public key */
 
     /* BLE */
     Bt*                    bt;
@@ -71,11 +71,11 @@ typedef struct BtcpcApp {
     bool                   ble_connected;
 
     /* Scratch buffer for hex-encoding public key (64 hex chars + NUL) */
-    char     pub_hex[BTCPC_PK_LEN * 2 + 1];
-} BtcpcApp;
+    char     pub_hex[HONE_PK_LEN * 2 + 1];
+} HoneApp;
 
 /* Called from scene files */
-BtcpcApp* btcpc_app_alloc(void);
-void      btcpc_app_free(BtcpcApp* app);
-bool      btcpc_identity_load_or_create(BtcpcApp* app);
-void      btcpc_pub_to_hex(const uint8_t pk[BTCPC_PK_LEN], char out[BTCPC_PK_LEN * 2 + 1]);
+HoneApp* hone_app_alloc(void);
+void      hone_app_free(HoneApp* app);
+bool      hone_identity_load_or_create(HoneApp* app);
+void      hone_pub_to_hex(const uint8_t pk[HONE_PK_LEN], char out[HONE_PK_LEN * 2 + 1]);

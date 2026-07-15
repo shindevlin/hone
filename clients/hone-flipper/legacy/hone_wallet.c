@@ -1,8 +1,8 @@
 /**
- * BTCPC Wallet — Flipper Zero Hardware Wallet + Sensor Array
+ * HONE Wallet — Flipper Zero Hardware Wallet + Sensor Array
  * Natoshi Sakamoto
  *
- * Stores encrypted BTCPC keypairs on microSD. Signs transactions on-device.
+ * Stores encrypted HONE keypairs on microSD. Signs transactions on-device.
  * Receives seed phrases from PC companion app via USB serial.
  * Multiple wallets supported — each protected by its own PIN.
  *
@@ -46,18 +46,18 @@
 #include <notification/notification_messages.h>
 #include <furi_hal_nfc.h>
 
-#define TAG "BTCPCWallet"
-#define BTCPC_VERSION     "0.2.0"
-#define BTCPC_WALLET_DIR  EXT_PATH("apps_data/btcpc_wallet")
-#define BTCPC_READINGS_PATH EXT_PATH("apps_data/btcpc_wallet/readings.jsonl")
-#define BTCPC_MAX_WALLETS 10
-#define BTCPC_PIN_MIN     6
-#define BTCPC_PIN_MAX     12
+#define TAG "HONEWallet"
+#define HONE_VERSION     "0.2.0"
+#define HONE_WALLET_DIR  EXT_PATH("apps_data/hone_wallet")
+#define HONE_READINGS_PATH EXT_PATH("apps_data/hone_wallet/readings.jsonl")
+#define HONE_MAX_WALLETS 10
+#define HONE_PIN_MIN     6
+#define HONE_PIN_MAX     12
 // 1,000 rounds — safe with 10-attempt lockout + wipe. STM32 @ 64MHz ≈ 0.5s.
-#define BTCPC_KDF_ROUNDS  1000
-#define BTCPC_NAME_LEN    20
-#define BTCPC_USB_BUF_LEN 2048
-#define BTCPC_CDC_CH      0
+#define HONE_KDF_ROUNDS  1000
+#define HONE_NAME_LEN    20
+#define HONE_USB_BUF_LEN 2048
+#define HONE_CDC_CH      0
 
 // ─── Sensor constants ────────────────────────────────────────
 #define SENSOR_SUBGHZ_SCAN_MS   10000  // 10s Sub-GHz window
@@ -290,8 +290,8 @@ static void derive_aes_key(
     sha256_update(&ctx, salt, 16);
     sha256_final(&ctx, aes_key);
 
-    /* Iterate BTCPC_KDF_ROUNDS - 1 more times */
-    for(int i = 1; i < BTCPC_KDF_ROUNDS; i++) {
+    /* Iterate HONE_KDF_ROUNDS - 1 more times */
+    for(int i = 1; i < HONE_KDF_ROUNDS; i++) {
         sha256_hash(aes_key, SHA256_DIGEST_SIZE, aes_key);
     }
 }
@@ -393,7 +393,7 @@ typedef struct {
     Gui* gui;
     Storage* storage;
     uint8_t wallet_count;
-    char wallet_names[BTCPC_MAX_WALLETS][BTCPC_NAME_LEN + 1];
+    char wallet_names[HONE_MAX_WALLETS][HONE_NAME_LEN + 1];
 
     /* USB CDC */
     FuriThread* usb_thread;
@@ -403,46 +403,46 @@ typedef struct {
 
     /* Sensor thread */
     FuriThread* sensor_thread;
-} BTCPCWalletApp;
+} HONEWalletApp;
 
 // View IDs
 typedef enum {
-    BTCPCViewMenu,
-    BTCPCViewPopup,
-    BTCPCViewTextBox,
-} BTCPCViewId;
+    HONEViewMenu,
+    HONEViewPopup,
+    HONEViewTextBox,
+} HONEViewId;
 
 // Menu items
 typedef enum {
-    BTCPCMenuWallets,
-    BTCPCMenuImport,
-    BTCPCMenuSign,
-    BTCPCMenuSensors,
-    BTCPCMenuAbout,
-} BTCPCMenuItem;
+    HONEMenuWallets,
+    HONEMenuImport,
+    HONEMenuSign,
+    HONEMenuSensors,
+    HONEMenuAbout,
+} HONEMenuItem;
 
 // ─── Storage helpers ────────────────────────────────────────────
 
-static void btcpc_ensure_dir(Storage* storage) {
-    if(!storage_dir_exists(storage, BTCPC_WALLET_DIR)) {
-        storage_simply_mkdir(storage, BTCPC_WALLET_DIR);
+static void hone_ensure_dir(Storage* storage) {
+    if(!storage_dir_exists(storage, HONE_WALLET_DIR)) {
+        storage_simply_mkdir(storage, HONE_WALLET_DIR);
     }
 }
 
-static void btcpc_load_wallet_names(BTCPCWalletApp* app) {
-    btcpc_ensure_dir(app->storage);
+static void hone_load_wallet_names(HONEWalletApp* app) {
+    hone_ensure_dir(app->storage);
     File* dir = storage_file_alloc(app->storage);
     app->wallet_count = 0;
 
-    if(storage_dir_open(dir, BTCPC_WALLET_DIR)) {
+    if(storage_dir_open(dir, HONE_WALLET_DIR)) {
         FileInfo info;
         char name[256];
         while(storage_dir_read(dir, &info, name, sizeof(name)) &&
-              app->wallet_count < BTCPC_MAX_WALLETS) {
+              app->wallet_count < HONE_MAX_WALLETS) {
             size_t len = strlen(name);
             if(len > 4 && strcmp(name + len - 4, ".key") == 0) {
                 size_t name_len = len - 4;
-                if(name_len > BTCPC_NAME_LEN) name_len = BTCPC_NAME_LEN;
+                if(name_len > HONE_NAME_LEN) name_len = HONE_NAME_LEN;
                 memcpy(app->wallet_names[app->wallet_count], name, name_len);
                 app->wallet_names[app->wallet_count][name_len] = '\0';
                 app->wallet_count++;
@@ -461,7 +461,7 @@ static void usb_send_str(const char* str) {
     const uint8_t* p = (const uint8_t*)str;
     while(len > 0) {
         uint16_t chunk = (len > CDC_DATA_SZ) ? CDC_DATA_SZ : (uint16_t)len;
-        furi_hal_cdc_send(BTCPC_CDC_CH, (uint8_t*)p, chunk);
+        furi_hal_cdc_send(HONE_CDC_CH, (uint8_t*)p, chunk);
         p += chunk;
         len -= chunk;
     }
@@ -477,12 +477,12 @@ static void usb_send_line(const char* str) {
 static void cmd_ping(void) {
     char resp[128];
     snprintf(resp, sizeof(resp),
-        "{\"status\":\"ok\",\"version\":\"%s\"}", BTCPC_VERSION);
+        "{\"status\":\"ok\",\"version\":\"%s\"}", HONE_VERSION);
     usb_send_line(resp);
 }
 
-static void cmd_list(BTCPCWalletApp* app) {
-    btcpc_load_wallet_names(app);
+static void cmd_list(HONEWalletApp* app) {
+    hone_load_wallet_names(app);
     char resp[512];
     size_t off = 0;
     off += snprintf(resp + off, sizeof(resp) - off, "{\"status\":\"ok\",\"wallets\":[");
@@ -496,10 +496,10 @@ static void cmd_list(BTCPCWalletApp* app) {
 }
 
 __attribute__((unused))
-static void cmd_import(BTCPCWalletApp* app, const char* json) {
-    char name[BTCPC_NAME_LEN + 1] = {0};
+static void cmd_import(HONEWalletApp* app, const char* json) {
+    char name[HONE_NAME_LEN + 1] = {0};
     char mnemonic[256] = {0};
-    char pin[BTCPC_PIN_MAX + 1] = {0};
+    char pin[HONE_PIN_MAX + 1] = {0};
 
     if(!json_get_str(json, "name", name, sizeof(name)) ||
        !json_get_str(json, "mnemonic", mnemonic, sizeof(mnemonic)) ||
@@ -509,7 +509,7 @@ static void cmd_import(BTCPCWalletApp* app, const char* json) {
     }
 
     size_t pin_len = strlen(pin);
-    if(pin_len < BTCPC_PIN_MIN || pin_len > BTCPC_PIN_MAX) {
+    if(pin_len < HONE_PIN_MIN || pin_len > HONE_PIN_MAX) {
         usb_send_line("{\"status\":\"error\",\"error\":\"pin must be 6-12 chars\"}");
         goto cleanup;
     }
@@ -568,9 +568,9 @@ static void cmd_import(BTCPCWalletApp* app, const char* json) {
     memset(privkey, 0, sizeof(privkey));
 
     /* Write keyfile: salt || iv || tag || encrypted_privkey */
-    btcpc_ensure_dir(app->storage);
+    hone_ensure_dir(app->storage);
     char path[128];
-    snprintf(path, sizeof(path), "%s/%s.key", BTCPC_WALLET_DIR, name);
+    snprintf(path, sizeof(path), "%s/%s.key", HONE_WALLET_DIR, name);
 
     File* file = storage_file_alloc(app->storage);
     bool ok = storage_file_open(file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS);
@@ -604,10 +604,10 @@ cleanup:
     memset(name, 0, sizeof(name));
 }
 
-static void cmd_sign(BTCPCWalletApp* app, const char* json) {
-    char wallet[BTCPC_NAME_LEN + 1] = {0};
+static void cmd_sign(HONEWalletApp* app, const char* json) {
+    char wallet[HONE_NAME_LEN + 1] = {0};
     char tx_hash_hex[128] = {0};
-    char pin[BTCPC_PIN_MAX + 1] = {0};
+    char pin[HONE_PIN_MAX + 1] = {0};
 
     if(!json_get_str(json, "wallet", wallet, sizeof(wallet)) ||
        !json_get_str(json, "tx_hash", tx_hash_hex, sizeof(tx_hash_hex)) ||
@@ -630,7 +630,7 @@ static void cmd_sign(BTCPCWalletApp* app, const char* json) {
 
     /* Load keyfile */
     char path[128];
-    snprintf(path, sizeof(path), "%s/%s.key", BTCPC_WALLET_DIR, wallet);
+    snprintf(path, sizeof(path), "%s/%s.key", HONE_WALLET_DIR, wallet);
 
     if(!storage_file_exists(app->storage, path)) {
         usb_send_line("{\"status\":\"error\",\"error\":\"wallet not found\"}");
@@ -717,7 +717,7 @@ cleanup:
 static uint32_t sensor_count_lines(Storage* storage) {
     File* f = storage_file_alloc(storage);
     uint32_t count = 0;
-    if(storage_file_open(f, BTCPC_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+    if(storage_file_open(f, HONE_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         char buf[128];
         while(true) {
             size_t rd = storage_file_read(f, buf, sizeof(buf));
@@ -734,9 +734,9 @@ static uint32_t sensor_count_lines(Storage* storage) {
 
 /** Append a single line to readings.jsonl */
 static void sensor_append_line(Storage* storage, const char* line) {
-    btcpc_ensure_dir(storage);
+    hone_ensure_dir(storage);
     File* f = storage_file_alloc(storage);
-    if(storage_file_open(f, BTCPC_READINGS_PATH, FSAM_WRITE, FSOM_OPEN_APPEND)) {
+    if(storage_file_open(f, HONE_READINGS_PATH, FSAM_WRITE, FSOM_OPEN_APPEND)) {
         storage_file_write(f, line, strlen(line));
         storage_file_write(f, "\n", 1);
         storage_file_close(f);
@@ -751,13 +751,13 @@ static void sensor_rotate_readings(Storage* storage) {
     if(total <= SENSOR_MAX_READINGS) return;
 
     uint32_t skip = total - SENSOR_ROTATE_KEEP;
-    const char* tmp_path = EXT_PATH("apps_data/btcpc_wallet/readings.tmp");
+    const char* tmp_path = EXT_PATH("apps_data/hone_wallet/readings.tmp");
 
     File* src = storage_file_alloc(storage);
     File* dst = storage_file_alloc(storage);
     bool ok = false;
 
-    if(storage_file_open(src, BTCPC_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING) &&
+    if(storage_file_open(src, HONE_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING) &&
        storage_file_open(dst, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
 
         uint32_t lines_seen = 0;
@@ -799,8 +799,8 @@ static void sensor_rotate_readings(Storage* storage) {
     storage_file_free(dst);
 
     if(ok) {
-        storage_simply_remove(storage, BTCPC_READINGS_PATH);
-        storage_common_rename(storage, tmp_path, BTCPC_READINGS_PATH);
+        storage_simply_remove(storage, HONE_READINGS_PATH);
+        storage_common_rename(storage, tmp_path, HONE_READINGS_PATH);
     }
 }
 
@@ -1053,8 +1053,8 @@ static void sensor_write_ble_reading(Storage* storage) {
 
 // ─── Sensor thread ─────────────────────────────────────────────
 
-static int32_t btcpc_sensor_thread(void* context) {
-    BTCPCWalletApp* app = context;
+static int32_t hone_sensor_thread(void* context) {
+    HONEWalletApp* app = context;
     FURI_LOG_I(TAG, "Sensor thread started");
 
     /* Initialize buffer line count from existing file */
@@ -1180,18 +1180,18 @@ static int32_t btcpc_sensor_thread(void* context) {
     return 0;
 }
 
-static void btcpc_sensor_start(BTCPCWalletApp* app) {
+static void hone_sensor_start(HONEWalletApp* app) {
     g_sensors.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     g_sensors.running = true;
     g_sensors.total_readings = 0;
     g_sensors.buffer_lines = 0;
     g_sensors.last_scan_ts = 0;
 
-    app->sensor_thread = furi_thread_alloc_ex("BTCPCSensor", 4096, btcpc_sensor_thread, app);
+    app->sensor_thread = furi_thread_alloc_ex("HONESensor", 4096, hone_sensor_thread, app);
     furi_thread_start(app->sensor_thread);
 }
 
-static void btcpc_sensor_stop(BTCPCWalletApp* app) {
+static void hone_sensor_stop(HONEWalletApp* app) {
     g_sensors.running = false;
     furi_thread_join(app->sensor_thread);
     furi_thread_free(app->sensor_thread);
@@ -1257,13 +1257,13 @@ static void cmd_sensor_status(void) {
     usb_send_line(resp);
 }
 
-static void cmd_flush_readings(BTCPCWalletApp* app) {
+static void cmd_flush_readings(HONEWalletApp* app) {
     /* Read entire readings.jsonl, send as JSON array, then truncate */
     usb_send_str("{\"status\":\"ok\",\"readings\":[");
 
     File* f = storage_file_alloc(app->storage);
     bool first = true;
-    if(storage_file_open(f, BTCPC_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+    if(storage_file_open(f, HONE_READINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         /* Read and send line by line using a small buffer */
         char buf[256];
         size_t buf_pos = 0;
@@ -1304,7 +1304,7 @@ static void cmd_flush_readings(BTCPCWalletApp* app) {
 
     /* Truncate the file */
     File* tf = storage_file_alloc(app->storage);
-    if(storage_file_open(tf, BTCPC_READINGS_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+    if(storage_file_open(tf, HONE_READINGS_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         storage_file_close(tf);
     }
     storage_file_free(tf);
@@ -1316,7 +1316,7 @@ static void cmd_flush_readings(BTCPCWalletApp* app) {
 
 // ─── USB command dispatcher ─────────────────────────────────────
 
-static void btcpc_dispatch_command(BTCPCWalletApp* app, char* line) {
+static void hone_dispatch_command(HONEWalletApp* app, char* line) {
     FURI_LOG_D(TAG, "USB cmd: %s", line);
 
     /* Identify command */
@@ -1333,13 +1333,13 @@ static void btcpc_dispatch_command(BTCPCWalletApp* app, char* line) {
     } else if(strcmp(cmd, "import") == 0) {
         /* Phase 1 debug: minimal import — just save name to file */
         {
-            char name[BTCPC_NAME_LEN + 1] = {0};
+            char name[HONE_NAME_LEN + 1] = {0};
             if(!json_get_str(line, "name", name, sizeof(name))) {
                 usb_send_line("{\"status\":\"error\",\"error\":\"missing name\"}");
             } else {
-                btcpc_ensure_dir(app->storage);
+                hone_ensure_dir(app->storage);
                 char path[128];
-                snprintf(path, sizeof(path), "%s/%s.key", BTCPC_WALLET_DIR, name);
+                snprintf(path, sizeof(path), "%s/%s.key", HONE_WALLET_DIR, name);
                 File* file = storage_file_alloc(app->storage);
                 bool ok = storage_file_open(file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS);
                 if(ok) {
@@ -1360,7 +1360,7 @@ static void btcpc_dispatch_command(BTCPCWalletApp* app, char* line) {
         }
         /* cmd_import(app, line); — full crypto disabled until crash is resolved */
     } else if(strcmp(cmd, "delete") == 0) {
-        char name[BTCPC_NAME_LEN + 1] = {0};
+        char name[HONE_NAME_LEN + 1] = {0};
         char confirm[16] = {0};
         if(!json_get_str(line, "name", name, sizeof(name))) {
             usb_send_line("{\"status\":\"error\",\"error\":\"missing name\"}");
@@ -1373,7 +1373,7 @@ static void btcpc_dispatch_command(BTCPCWalletApp* app, char* line) {
             usb_send_line(resp);
         } else {
             char path[128];
-            snprintf(path, sizeof(path), "%s/%s.key", BTCPC_WALLET_DIR, name);
+            snprintf(path, sizeof(path), "%s/%s.key", HONE_WALLET_DIR, name);
             if(storage_file_exists(app->storage, path)) {
                 storage_simply_remove(app->storage, path);
                 char resp[128];
@@ -1402,11 +1402,11 @@ static void btcpc_dispatch_command(BTCPCWalletApp* app, char* line) {
 
 // ─── USB CDC RX callback ──────────────────────────────────────
 
-static void btcpc_cdc_rx_callback(void* context) {
-    BTCPCWalletApp* app = context;
+static void hone_cdc_rx_callback(void* context) {
+    HONEWalletApp* app = context;
     /* Read data from CDC into stream buffer */
     uint8_t buf[CDC_DATA_SZ];
-    int32_t len = furi_hal_cdc_receive(BTCPC_CDC_CH, buf, sizeof(buf));
+    int32_t len = furi_hal_cdc_receive(HONE_CDC_CH, buf, sizeof(buf));
     if(len > 0) {
         furi_stream_buffer_send(app->usb_rx_stream, buf, len, 0);
     }
@@ -1414,11 +1414,11 @@ static void btcpc_cdc_rx_callback(void* context) {
 
 // ─── USB listener thread ──────────────────────────────────────
 
-static int32_t btcpc_usb_thread(void* context) {
-    BTCPCWalletApp* app = context;
+static int32_t hone_usb_thread(void* context) {
+    HONEWalletApp* app = context;
     FURI_LOG_I(TAG, "USB listener thread started");
 
-    char line_buf[BTCPC_USB_BUF_LEN];
+    char line_buf[HONE_USB_BUF_LEN];
     size_t line_pos = 0;
 
     while(app->usb_running) {
@@ -1431,11 +1431,11 @@ static int32_t btcpc_usb_thread(void* context) {
         if(byte == '\n' || byte == '\r') {
             if(line_pos > 0) {
                 line_buf[line_pos] = '\0';
-                btcpc_dispatch_command(app, line_buf);
+                hone_dispatch_command(app, line_buf);
                 line_pos = 0;
             }
         } else {
-            if(line_pos < BTCPC_USB_BUF_LEN - 1) {
+            if(line_pos < HONE_USB_BUF_LEN - 1) {
                 line_buf[line_pos++] = (char)byte;
             } else {
                 /* Line too long — discard and send error */
@@ -1451,7 +1451,7 @@ static int32_t btcpc_usb_thread(void* context) {
 
 // ─── USB CDC setup / teardown ─────────────────────────────────
 
-static void btcpc_usb_start(BTCPCWalletApp* app) {
+static void hone_usb_start(HONEWalletApp* app) {
     /* Save current USB config so we can restore it on exit */
     app->prev_usb_cfg = furi_hal_usb_get_config();
 
@@ -1462,23 +1462,23 @@ static void btcpc_usb_start(BTCPCWalletApp* app) {
     /* Set up RX callback */
     CdcCallbacks cdc_cb = {
         .tx_ep_callback = NULL,
-        .rx_ep_callback = btcpc_cdc_rx_callback,
+        .rx_ep_callback = hone_cdc_rx_callback,
         .state_callback = NULL,
         .ctrl_line_callback = NULL,
         .config_callback = NULL,
     };
-    furi_hal_cdc_set_callbacks(BTCPC_CDC_CH, &cdc_cb, app);
+    furi_hal_cdc_set_callbacks(HONE_CDC_CH, &cdc_cb, app);
 
     /* Create stream buffer for RX data */
-    app->usb_rx_stream = furi_stream_buffer_alloc(BTCPC_USB_BUF_LEN, 1);
+    app->usb_rx_stream = furi_stream_buffer_alloc(HONE_USB_BUF_LEN, 1);
 
     /* Start listener thread */
     app->usb_running = true;
-    app->usb_thread = furi_thread_alloc_ex("BTCPCUsb", 4096, btcpc_usb_thread, app);
+    app->usb_thread = furi_thread_alloc_ex("HONEUsb", 4096, hone_usb_thread, app);
     furi_thread_start(app->usb_thread);
 }
 
-static void btcpc_usb_stop(BTCPCWalletApp* app) {
+static void hone_usb_stop(HONEWalletApp* app) {
     /* Signal thread to stop */
     app->usb_running = false;
     furi_thread_join(app->usb_thread);
@@ -1486,7 +1486,7 @@ static void btcpc_usb_stop(BTCPCWalletApp* app) {
     app->usb_thread = NULL;
 
     /* Remove callbacks */
-    furi_hal_cdc_set_callbacks(BTCPC_CDC_CH, NULL, NULL);
+    furi_hal_cdc_set_callbacks(HONE_CDC_CH, NULL, NULL);
 
     /* Free stream buffer */
     furi_stream_buffer_free(app->usb_rx_stream);
@@ -1501,17 +1501,17 @@ static void btcpc_usb_stop(BTCPCWalletApp* app) {
 
 // ─── Menu callbacks ─────────────────────────────────────────────
 
-static void btcpc_menu_callback(void* context, uint32_t index) {
-    BTCPCWalletApp* app = context;
+static void hone_menu_callback(void* context, uint32_t index) {
+    HONEWalletApp* app = context;
 
     switch(index) {
-    case BTCPCMenuWallets:
-        btcpc_load_wallet_names(app);
+    case HONEMenuWallets:
+        hone_load_wallet_names(app);
         if(app->wallet_count == 0) {
             popup_set_header(app->popup, "No Wallets", 64, 10, AlignCenter, AlignTop);
             popup_set_text(
                 app->popup,
-                "Connect to PC and run:\nbtcpc-flipper-bridge\nto import a wallet",
+                "Connect to PC and run:\nhone-flipper-bridge\nto import a wallet",
                 64, 30, AlignCenter, AlignTop);
         } else {
             char buf[256] = {0};
@@ -1523,30 +1523,30 @@ static void btcpc_menu_callback(void* context, uint32_t index) {
             popup_set_text(app->popup, buf, 0, 14, AlignLeft, AlignTop);
         }
         popup_disable_timeout(app->popup);
-        view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewPopup);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewPopup);
         break;
 
-    case BTCPCMenuImport:
+    case HONEMenuImport:
         popup_set_header(app->popup, "USB Listening", 64, 10, AlignCenter, AlignTop);
         popup_set_text(
             app->popup,
-            "USB CDC active.\nRun btcpc-flipper-bridge\non your PC to import.",
+            "USB CDC active.\nRun hone-flipper-bridge\non your PC to import.",
             64, 30, AlignCenter, AlignTop);
         popup_disable_timeout(app->popup);
-        view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewPopup);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewPopup);
         break;
 
-    case BTCPCMenuSign:
+    case HONEMenuSign:
         popup_set_header(app->popup, "Sign Transaction", 64, 10, AlignCenter, AlignTop);
         popup_set_text(
             app->popup,
-            "USB CDC active.\nSend sign command\nfrom btcpc-flipper-bridge.",
+            "USB CDC active.\nSend sign command\nfrom hone-flipper-bridge.",
             64, 30, AlignCenter, AlignTop);
         popup_disable_timeout(app->popup);
-        view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewPopup);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewPopup);
         break;
 
-    case BTCPCMenuSensors: {
+    case HONEMenuSensors: {
         /* Build sensor display string — TextBox supports scrolling */
         static char sensor_buf[512]; /* static — TextBox refs the pointer */
         furi_mutex_acquire(g_sensors.mutex, FuriWaitForever);
@@ -1555,7 +1555,7 @@ static void btcpc_menu_callback(void* context, uint32_t index) {
         int gpio_mv_int = (int)g_sensors.gpio_adc_mv;
         uint32_t scan_int = g_sensors.scan_interval_ms / 1000;
         snprintf(sensor_buf, sizeof(sensor_buf),
-            "=== BTCPC Sensors ===\n"
+            "=== HONE Sensors ===\n"
             "CPU Temp: %s%d.%d C\n"
             "GPIO ADC: %u (%dmV)\n"
             "NFC: %s\n"
@@ -1580,53 +1580,53 @@ static void btcpc_menu_callback(void* context, uint32_t index) {
         text_box_reset(app->text_box);
         text_box_set_text(app->text_box, sensor_buf);
         text_box_set_font(app->text_box, TextBoxFontText);
-        view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewTextBox);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewTextBox);
         break;
     }
 
-    case BTCPCMenuAbout:
-        popup_set_header(app->popup, "BTCPC v0.2.0", 64, 10, AlignCenter, AlignTop);
+    case HONEMenuAbout:
+        popup_set_header(app->popup, "HONE v0.2.0", 64, 10, AlignCenter, AlignTop);
         popup_set_text(
             app->popup,
-            "Bitcoin Proof of Compute\nHardware Wallet + Sensors\n\nbtcpc.net",
+            "Bitcoin Proof of Compute\nHardware Wallet + Sensors\n\nhonemesh.net",
             64, 30, AlignCenter, AlignTop);
         popup_disable_timeout(app->popup);
-        view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewPopup);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewPopup);
         break;
     }
 }
 
-static uint32_t btcpc_nav_callback(void* context) {
+static uint32_t hone_nav_callback(void* context) {
     UNUSED(context);
-    return BTCPCViewMenu;
+    return HONEViewMenu;
 }
 
-static uint32_t btcpc_exit_callback(void* context) {
+static uint32_t hone_exit_callback(void* context) {
     UNUSED(context);
     return VIEW_NONE;
 }
 
 // ─── Main ───────────────────────────────────────────────────────
 
-int32_t btcpc_app(void* p) {
+int32_t hone_app(void* p) {
     UNUSED(p);
-    FURI_LOG_I(TAG, "BTCPC Wallet starting");
+    FURI_LOG_I(TAG, "HONE Wallet starting");
 
-    BTCPCWalletApp* app = malloc(sizeof(BTCPCWalletApp));
-    memset(app, 0, sizeof(BTCPCWalletApp));
+    HONEWalletApp* app = malloc(sizeof(HONEWalletApp));
+    memset(app, 0, sizeof(HONEWalletApp));
 
     // Open services
     app->gui = furi_record_open(RECORD_GUI);
     app->storage = furi_record_open(RECORD_STORAGE);
 
     // Ensure storage dir exists
-    btcpc_ensure_dir(app->storage);
+    hone_ensure_dir(app->storage);
 
     // Start USB CDC listener
-    btcpc_usb_start(app);
+    hone_usb_start(app);
 
     // Start sensor scanning thread
-    btcpc_sensor_start(app);
+    hone_sensor_start(app);
 
     // Create views
     app->view_dispatcher = view_dispatcher_alloc();
@@ -1634,36 +1634,36 @@ int32_t btcpc_app(void* p) {
 
     // Main menu
     app->submenu = submenu_alloc();
-    submenu_add_item(app->submenu, "Wallets", BTCPCMenuWallets, btcpc_menu_callback, app);
-    submenu_add_item(app->submenu, "Import Wallet", BTCPCMenuImport, btcpc_menu_callback, app);
-    submenu_add_item(app->submenu, "Sign Transaction", BTCPCMenuSign, btcpc_menu_callback, app);
-    submenu_add_item(app->submenu, "Sensors", BTCPCMenuSensors, btcpc_menu_callback, app);
-    submenu_add_item(app->submenu, "About", BTCPCMenuAbout, btcpc_menu_callback, app);
+    submenu_add_item(app->submenu, "Wallets", HONEMenuWallets, hone_menu_callback, app);
+    submenu_add_item(app->submenu, "Import Wallet", HONEMenuImport, hone_menu_callback, app);
+    submenu_add_item(app->submenu, "Sign Transaction", HONEMenuSign, hone_menu_callback, app);
+    submenu_add_item(app->submenu, "Sensors", HONEMenuSensors, hone_menu_callback, app);
+    submenu_add_item(app->submenu, "About", HONEMenuAbout, hone_menu_callback, app);
 
-    view_set_previous_callback(submenu_get_view(app->submenu), btcpc_exit_callback);
-    view_dispatcher_add_view(app->view_dispatcher, BTCPCViewMenu, submenu_get_view(app->submenu));
+    view_set_previous_callback(submenu_get_view(app->submenu), hone_exit_callback);
+    view_dispatcher_add_view(app->view_dispatcher, HONEViewMenu, submenu_get_view(app->submenu));
 
     // Popup for info screens
     app->popup = popup_alloc();
-    view_set_previous_callback(popup_get_view(app->popup), btcpc_nav_callback);
-    view_dispatcher_add_view(app->view_dispatcher, BTCPCViewPopup, popup_get_view(app->popup));
+    view_set_previous_callback(popup_get_view(app->popup), hone_nav_callback);
+    view_dispatcher_add_view(app->view_dispatcher, HONEViewPopup, popup_get_view(app->popup));
 
     // TextBox for scrollable displays (sensors)
     app->text_box = text_box_alloc();
-    view_set_previous_callback(text_box_get_view(app->text_box), btcpc_nav_callback);
-    view_dispatcher_add_view(app->view_dispatcher, BTCPCViewTextBox, text_box_get_view(app->text_box));
+    view_set_previous_callback(text_box_get_view(app->text_box), hone_nav_callback);
+    view_dispatcher_add_view(app->view_dispatcher, HONEViewTextBox, text_box_get_view(app->text_box));
 
     // Start on main menu
-    view_dispatcher_switch_to_view(app->view_dispatcher, BTCPCViewMenu);
+    view_dispatcher_switch_to_view(app->view_dispatcher, HONEViewMenu);
     view_dispatcher_run(app->view_dispatcher);
 
     // Cleanup — stop sensor thread and USB
-    btcpc_sensor_stop(app);
-    btcpc_usb_stop(app);
+    hone_sensor_stop(app);
+    hone_usb_stop(app);
 
-    view_dispatcher_remove_view(app->view_dispatcher, BTCPCViewMenu);
-    view_dispatcher_remove_view(app->view_dispatcher, BTCPCViewPopup);
-    view_dispatcher_remove_view(app->view_dispatcher, BTCPCViewTextBox);
+    view_dispatcher_remove_view(app->view_dispatcher, HONEViewMenu);
+    view_dispatcher_remove_view(app->view_dispatcher, HONEViewPopup);
+    view_dispatcher_remove_view(app->view_dispatcher, HONEViewTextBox);
     submenu_free(app->submenu);
     popup_free(app->popup);
     text_box_free(app->text_box);
@@ -1673,6 +1673,6 @@ int32_t btcpc_app(void* p) {
     furi_record_close(RECORD_GUI);
     free(app);
 
-    FURI_LOG_I(TAG, "BTCPC Wallet exiting");
+    FURI_LOG_I(TAG, "HONE Wallet exiting");
     return 0;
 }

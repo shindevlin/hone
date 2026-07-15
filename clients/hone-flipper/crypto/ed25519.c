@@ -7,7 +7,7 @@
  * TweetNaCl uses SHA-512 internally (included within tweetnacl.c).
  * No external dependencies beyond furi_hal.
  *
- * Shin Devlin — btcpc.network
+ * Shin Devlin — honemesh.network
  */
 
 #include "ed25519.h"
@@ -44,8 +44,8 @@ void randombytes(uint8_t* x, uint64_t xlen) {
 
 /* ─── Public API ────────────────────────────────────────────────────────── */
 
-void btcpc_ed25519_keypair(uint8_t pk_out[BTCPC_ED25519_PK_LEN],
-                           uint8_t sk_out[BTCPC_ED25519_SK_LEN]) {
+void hone_ed25519_keypair(uint8_t pk_out[HONE_ED25519_PK_LEN],
+                           uint8_t sk_out[HONE_ED25519_SK_LEN]) {
     /*
      * TweetNaCl: crypto_sign_keypair(pk, sk)
      * Generates pk (32 bytes) and sk (64 bytes = seed || pk) using randombytes().
@@ -53,10 +53,10 @@ void btcpc_ed25519_keypair(uint8_t pk_out[BTCPC_ED25519_PK_LEN],
     crypto_sign_keypair(pk_out, sk_out);
 }
 
-void btcpc_ed25519_sign(uint8_t        sig_out[BTCPC_ED25519_SIG_LEN],
+void hone_ed25519_sign(uint8_t        sig_out[HONE_ED25519_SIG_LEN],
                         const uint8_t* msg,
                         size_t         msg_len,
-                        const uint8_t  sk[BTCPC_ED25519_SK_LEN]) {
+                        const uint8_t  sk[HONE_ED25519_SK_LEN]) {
     /*
      * TweetNaCl: crypto_sign(signed_msg, &signed_msg_len, msg, msg_len, sk)
      * signed_msg = sig (64 bytes) || msg
@@ -67,45 +67,45 @@ void btcpc_ed25519_sign(uint8_t        sig_out[BTCPC_ED25519_SIG_LEN],
      * call crypto_sign directly with a heap buffer.
      *
      * Here we allocate a small signed-message buffer on the stack.
-     * Maximum payload size for this wrapper: BTCPC_SIGN_MSG_MAX bytes.
+     * Maximum payload size for this wrapper: HONE_SIGN_MSG_MAX bytes.
      */
-#define BTCPC_SIGN_MSG_MAX 512
-    if(msg_len > BTCPC_SIGN_MSG_MAX) {
+#define HONE_SIGN_MSG_MAX 512
+    if(msg_len > HONE_SIGN_MSG_MAX) {
         /* Caller must use crypto_sign() directly for large messages */
         return;
     }
 
-    uint8_t  sm[BTCPC_SIGN_MSG_MAX + BTCPC_ED25519_SIG_LEN];
+    uint8_t  sm[HONE_SIGN_MSG_MAX + HONE_ED25519_SIG_LEN];
     uint64_t smlen = 0;
 
     crypto_sign(sm, &smlen, msg, (uint64_t)msg_len, sk);
 
     /* First 64 bytes of sm are the signature */
-    memcpy(sig_out, sm, BTCPC_ED25519_SIG_LEN);
-#undef BTCPC_SIGN_MSG_MAX
+    memcpy(sig_out, sm, HONE_ED25519_SIG_LEN);
+#undef HONE_SIGN_MSG_MAX
 }
 
-int btcpc_ed25519_verify(const uint8_t  sig[BTCPC_ED25519_SIG_LEN],
+int hone_ed25519_verify(const uint8_t  sig[HONE_ED25519_SIG_LEN],
                          const uint8_t* msg,
                          size_t         msg_len,
-                         const uint8_t  pk[BTCPC_ED25519_PK_LEN]) {
+                         const uint8_t  pk[HONE_ED25519_PK_LEN]) {
     /*
      * TweetNaCl: crypto_sign_open(msg_out, &msg_len_out, signed_msg, smlen, pk)
      * We reconstruct the signed message (sig || msg) on the stack.
      */
-#define BTCPC_VERIFY_MSG_MAX 512
-    if(msg_len > BTCPC_VERIFY_MSG_MAX) {
+#define HONE_VERIFY_MSG_MAX 512
+    if(msg_len > HONE_VERIFY_MSG_MAX) {
         return -1;
     }
 
-    uint8_t  sm[BTCPC_VERIFY_MSG_MAX + BTCPC_ED25519_SIG_LEN];
-    uint8_t  m[BTCPC_VERIFY_MSG_MAX];
+    uint8_t  sm[HONE_VERIFY_MSG_MAX + HONE_ED25519_SIG_LEN];
+    uint8_t  m[HONE_VERIFY_MSG_MAX];
     uint64_t mlen = 0;
 
-    memcpy(sm, sig, BTCPC_ED25519_SIG_LEN);
-    memcpy(sm + BTCPC_ED25519_SIG_LEN, msg, msg_len);
+    memcpy(sm, sig, HONE_ED25519_SIG_LEN);
+    memcpy(sm + HONE_ED25519_SIG_LEN, msg, msg_len);
 
-    int rc = crypto_sign_open(m, &mlen, sm, (uint64_t)(msg_len + BTCPC_ED25519_SIG_LEN), pk);
+    int rc = crypto_sign_open(m, &mlen, sm, (uint64_t)(msg_len + HONE_ED25519_SIG_LEN), pk);
     return rc;
-#undef BTCPC_VERIFY_MSG_MAX
+#undef HONE_VERIFY_MSG_MAX
 }
