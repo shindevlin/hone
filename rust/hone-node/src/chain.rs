@@ -1115,7 +1115,7 @@ impl Chain {
             // Heaviest-quorum rule: if two EpochFinalizes arrive for the same epoch,
             // the one with more registered signers wins. Equal quorum: smaller
             // rewards_hash wins (deterministic lexicographic tiebreaker).
-            LedgerEntry::EpochFinalize { epoch, rewards_hash, quorum, state_root, timestamp, .. } => {
+            LedgerEntry::EpochFinalize { epoch, rewards_hash, quorum, state_root, timestamp, sealed_by, .. } => {
                 let existing = self.store.get_epoch_meta(*epoch)?;
                 if let Some(prev) = existing {
                     let prev_hash   = prev["rewards_hash"].as_str().unwrap_or("");
@@ -1163,6 +1163,10 @@ impl Chain {
                     "state_root": state_root,
                     "finalized_at": timestamp,
                     "finalized": true,
+                    // BUG 6: persist the winning entry's sealer set so the reward driver
+                    // can replay-derive rewards for this epoch off the SAME data every
+                    // node received in the winning EpochFinalize — not a local side channel.
+                    "sealed_by": sealed_by,
                 });
                 self.store.set_epoch_meta(*epoch, &meta)?;
             }

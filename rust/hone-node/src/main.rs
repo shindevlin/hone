@@ -334,6 +334,8 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
+            // Highest epoch we've replay-derived rewards for (BUG 6 reward driver).
+            let mut last_rewarded: u64 = 0;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
                 // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
@@ -361,6 +363,56 @@ async fn main() -> Result<()> {
                     last_tracked = cur;
                 }
                 clock_ref.tick();
+
+                // ── BUG 6 reward driver: replay-derive rewards from FINAL entries ──
+                // Apply each finalized epoch's reward/recycle/decay exactly once, only
+                // after it is REWARD_FINALITY_DEPTH behind the tip — so the fork-choice
+                // rewrite window (a heavier-quorum EpochFinalize replacing an earlier one)
+                // has closed and we never mutate off a losing entry. The mutation is a
+                // pure function of the applied entry's `sealed_by` (persisted in
+                // epoch_meta) + replicated balance state, run in ascending epoch order on
+                // every node → byte-identical → convergent state_root. Guarded by
+                // epoch_finalized_done:{epoch} so it runs at most once per node.
+                // Depth defaults to REWARD_FINALITY_DEPTH; HONE_REWARD_DEPTH overrides it
+                // (isolated dry-runs use a small value so rewards actually fire within the
+                // short run — production keeps the full depth). Must be identical on every
+                // node or it becomes a nondeterminism vector; the harness sets it the same.
+                let depth = std::env::var("HONE_REWARD_DEPTH").ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(hone_types::REWARD_FINALITY_DEPTH);
+                let safe_tip = cur.saturating_sub(depth);
+                if safe_tip > last_rewarded {
+                    // Bound the catch-up so a large backlog can't stall the tick.
+                    let start = last_rewarded.saturating_add(1).max(safe_tip.saturating_sub(64));
+                    for e in start..=safe_tip {
+                        let done_key = format!("epoch_finalized_done:{}", e);
+                        if chain_ref.store.state_get(&done_key).is_some() { continue; }
+                        // Only reward epochs that actually reached a finalized meta.
+                        let meta = match chain_ref.store.get_epoch_meta(e) {
+                            Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
+                            _ => continue, // not finalized yet — leave for a later tick
+                        };
+                        let sealers: Vec<String> = meta["sealed_by"].as_array()
+                            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                            .unwrap_or_default();
+                        if !sealers.is_empty() {
+                            // Sealed by quorum → replay-derive and apply its rewards.
+                            emit_epoch_rewards(e, &sealers, &chain_ref);
+                        } else {
+                            // Earned nothing (empty sealer set) → its block reward recycles.
+                            let reward = hone_types::block_reward_at(e);
+                            if reward > 0 {
+                                let _ = chain_ref.store.credit(
+                                    hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, reward);
+                                info!("[finalize] epoch {} earned nothing (finalized) — {} hunits → recycle fund", e, reward);
+                            }
+                        }
+                        // Entropy decay bleeds dormant balances — same finalized, ordered path.
+                        finalize::apply_entropy_decay(&chain_ref, e);
+                        let _ = chain_ref.store.state_set(&done_key, b"1");
+                    }
+                    last_rewarded = safe_tip;
+                }
             }
         });
     }
@@ -566,7 +618,7 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_for_seal.send(NetCmd::Broadcast {
                                 topic: "hone/consensus",
                                 data,
-                            }).await;
+                            });
                         }
                     }
                     Ok(_) => {}
@@ -589,57 +641,20 @@ async fn main() -> Result<()> {
             loop {
                 match finalized_rx.recv().await {
                     Ok(fin) => {
-                        // BUG 6 FIX: emit this epoch's rewards HERE — only after its
-                        // rewards_hash reached quorum agreement (that is what fired this
-                        // event). Pay from the DETERMINISTIC epoch_validators:{epoch}
-                        // snapshot (the store-derived registered clock set, persisted at
-                        // seal and identical on every node) rather than any node's local
-                        // signing_clocks view. Every node therefore emits byte-identical
-                        // ClockReward for the epoch, so balances (and the state_root over
-                        // them) stay convergent. Idempotency: emit_epoch_rewards writes
-                        // ClockReward entries keyed by epoch; a finalize is fired once per
-                        // epoch (state.finalized guard in receive_reward_proposal), so this
-                        // runs once per epoch per node.
-                        // Idempotency guard (BUG 6): a FinalizedEpoch can, in principle,
-                        // fire more than once (retry, duplicate proposal quorum). Do all
-                        // balance-mutating finalization work AT MOST ONCE per epoch, keyed
-                        // by a store marker every node writes identically.
-                        let done_key = format!("epoch_finalized_done:{}", fin.epoch);
-                        if chain_ref.store.state_get(&done_key).is_some() {
-                            tracing::debug!("epoch {} finalization already applied — skipping", fin.epoch);
-                        } else {
+                        // BUG 6 (replay-derivation, Grouchly spec 2e36ca9a): this handler
+                        // NO LONGER mutates balances. It only constructs + broadcasts the
+                        // winning EpochFinalize entry with its `sealed_by` set POPULATED
+                        // (was hardcoded vec![]). The actual reward/recycle/decay mutation
+                        // is replay-derived later, off the applied entry's sealed_by, once
+                        // the epoch is REWARD_FINALITY_DEPTH behind the tip — see the reward
+                        // driver in the clock tick loop. That makes every node perform the
+                        // identical mutation as a consequence of applying the identical
+                        // winning entry, instead of each node recomputing off local state
+                        // at its own quorum-cross moment (the double-credit race).
                         let sealers: Vec<String> = chain_ref.store
                             .state_get(&format!("epoch_validators:{}", fin.epoch))
                             .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
                             .unwrap_or_default();
-                        if !sealers.is_empty() {
-                            // Epoch was sealed by quorum → pay its rewards.
-                            emit_epoch_rewards(fin.epoch, &sealers, &chain_ref, &cmd_tx_fin).await;
-                        } else {
-                            // Epoch earned nothing (no quorum-agreed sealer set) → its block
-                            // reward is redirected to the recycle fund. This is the
-                            // deterministic replacement for finalize::redirect_unearned_rewards'
-                            // per-node local has_block scan (BUG 6): the "earned nothing"
-                            // decision now comes from the quorum-agreed finalized set, so every
-                            // node credits recycle for exactly the same epochs.
-                            let reward = hone_types::block_reward_at(fin.epoch);
-                            if reward > 0 {
-                                if let Err(e) = chain_ref.store.credit(
-                                    hone_types::RECYCLE_FUND_ACCOUNT, hone_types::NATIVE_TOKEN, reward)
-                                {
-                                    warn!("[finalize] recycle credit failed for empty epoch {}: {}", fin.epoch, e);
-                                } else {
-                                    info!("[finalize] epoch {} earned nothing (quorum-agreed) — {} hunits → recycle fund",
-                                        fin.epoch, reward);
-                                }
-                            }
-                        }
-                        // Chain Entropy Protocol — bleed dormant balances to recycle. Runs
-                        // from the quorum-agreed finalization (not the local timer) so every
-                        // node applies the identical decay for this epoch (BUG 6).
-                        finalize::apply_entropy_decay(&chain_ref, fin.epoch);
-                        let _ = chain_ref.store.state_set(&done_key, b"1");
-                        }
 
                         let state_root = chain_ref.store.balance_merkle_root();
                         let entry = LedgerEntry::EpochFinalize {
@@ -647,7 +662,7 @@ async fn main() -> Result<()> {
                             node_id: node_id_c.clone(),
                             rewards_hash: fin.rewards_hash,
                             quorum: fin.quorum as u64,
-                            sealed_by: vec![],
+                            sealed_by: sealers,
                             state_root,
                             timestamp: now_ms(),
                         };
@@ -659,7 +674,7 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_fin.send(NetCmd::Broadcast {
                                 topic: "hone/entries",
                                 data,
-                            }).await;
+                            });
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -797,7 +812,7 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx.send(NetCmd::Broadcast {
                                 topic: "hone/clock-hello",
                                 data: hello_data.clone(),
-                            }).await;
+                            });
                         }
                     }
 
@@ -828,7 +843,7 @@ async fn main() -> Result<()> {
                         let _ = cmd_tx.send(NetCmd::Broadcast {
                             topic: "hone/seals",
                             data,
-                        }).await;
+                        });
                     }
                 }
             }
@@ -1038,7 +1053,7 @@ async fn main() -> Result<()> {
                                 let _ = cmd_tx.send(NetCmd::Broadcast {
                                     topic: "hone/entries",
                                     data,
-                                }).await;
+                                });
                             }
                         }
                     }
@@ -1575,7 +1590,7 @@ async fn run_inference_verifier(
             if let Ok(data) = serde_json::to_vec(&envelope) {
                 let _ = cmd_tx.send(NetCmd::Broadcast {
                     topic: "hone/entries", data,
-                }).await;
+                });
             }
             let _ = chain.store.state_set(&verdict_key, verdict.as_bytes());
             info!("verifier: job {} → {}", job_id, verdict);
@@ -1618,11 +1633,22 @@ fn backfill_txglobal(chain: &Chain) {
 ///
 /// Layer A scalar and Layer C fee boost are computed here but the full EMA
 /// state persistence comes in a follow-up; for now they fall back to 1.0.
-async fn emit_epoch_rewards(
+/// Compute and APPLY this epoch's rewards (clock, testnet, work-pool) + recycle + decay
+/// as a PURE SYNC function of `clock_sealers` (the winning EpochFinalize's `sealed_by`)
+/// plus already-replicated store state. No network, no async.
+///
+/// BUG 6: this is called from apply_entry's winning-EpochFinalize branch (via a callback
+/// registered identically on every node), so every node runs it in the same serialized
+/// order off the same inputs → byte-identical balance mutation → convergent state_root.
+/// The per-reward gossip broadcast that used to live here is REMOVED: once every node
+/// replay-derives rewards from the winning entry, gossiping the ClockReward entries is
+/// redundant AND dangerous — ClockReward's apply arm has no per-epoch idempotency guard,
+/// so a received-then-recomputed reward would double-credit. The EpochFinalize entry is
+/// the only thing that gossips; rewards are a pure function of it.
+fn emit_epoch_rewards(
     epoch: u64,
     clock_sealers: &[String],
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
     // Sweep expired pending token transfers → refund sender.
     sweep_expired_pending_transfers(epoch, chain);
@@ -1745,7 +1771,8 @@ async fn emit_epoch_rewards(
             warn!("clock: clock reward failed for {} epoch {}: {}", node_id, epoch, e);
             continue;
         }
-        broadcast_entry_desktop(&entry, cmd_tx).await;
+        // No broadcast: rewards are replay-derived from the winning EpochFinalize on
+        // every node; gossiping ClockReward would double-credit (no idempotency guard).
     }
 
     // ── Layer E: testnet operator rewards (from testnet fund) ────────────────
@@ -1773,7 +1800,7 @@ async fn emit_epoch_rewards(
                 warn!("clock: testnet reward failed for {} epoch {}: {}", mainnet_account, epoch, e);
                 continue;
             }
-            broadcast_entry_desktop(&entry, cmd_tx).await;
+            // No broadcast — replay-derived on every node (see clock-reward note above).
         }
         info!("clock: epoch {} testnet: {} ops × {} hunits", epoch, testnet_ops.len(), actual);
     }
@@ -2171,12 +2198,12 @@ async fn emit_epoch_rewards(
         let _ = chain.store.credit(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN, scarcity_recycle);
     }
 
-    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, cmd_tx, |miner, amount, ep| {
+    distribute_rewards_desktop(epoch, &mines, inference_pool, chain, |miner, amount, ep| {
         LedgerEntry::MineReward { miner, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, cmd_tx, |node_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &storage_nodes, storage_pool, chain, |node_id, amount, ep| {
         LedgerEntry::StorageReward { node_id, amount, epoch: ep }
-    }).await;
+    });
     // Sensor rewards: split 60/40 when gateway is registered, plain SensorReward otherwise.
     {
         let total_score: u64 = sensor_nodes.iter().map(|(_, s)| s).sum();
@@ -2200,23 +2227,21 @@ async fn emit_epoch_rewards(
                 LedgerEntry::SensorReward { node_id: node_id.clone(), amount, epoch }
             };
             let _ = chain.apply_entry(&entry);
-            if let Ok(data) = serde_json::to_vec(&serde_json::json!({"entry": entry})) {
-                let _ = cmd_tx.send(crate::net::NetCmd::Broadcast { topic: "hone/entries", data }).await;
-            }
+            // No broadcast — replay-derived on every node (BUG 6).
         }
     }
-    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, cmd_tx, |node_id, amount, ep| {
+    distribute_rewards_desktop(epoch, &verifiers, verify_pool, chain, |node_id, amount, ep| {
         LedgerEntry::VerifierReward { node_id, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &service_nodes, service_pool, chain, cmd_tx, |node_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &service_nodes, service_pool, chain, |node_id, amount, ep| {
         LedgerEntry::ServiceReward { node_id, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, cmd_tx, |operator, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &mempool_ops, mempool_pool, chain, |operator, amount, ep| {
         LedgerEntry::MempoolReward { operator, amount, epoch: ep }
-    }).await;
-    distribute_rewards_desktop(epoch, &tracker_nodes, tracker_pool, chain, cmd_tx, |observer_id, amount, ep| {
+    });
+    distribute_rewards_desktop(epoch, &tracker_nodes, tracker_pool, chain, |observer_id, amount, ep| {
         LedgerEntry::TrackerCoverageReward { observer_id, amount, epoch: ep }
-    }).await;
+    });
 
     // LinkGit serve rewards: split linkgit_pool proportionally across repos by serve count.
     if linkgit_pool > 0 && !linkgit_repos.is_empty() {
@@ -2230,21 +2255,21 @@ async fn emit_epoch_rewards(
                 serve_count: *serve_count,
                 epoch,
             };
-            match chain.apply_entry(&entry) {
-                Ok(()) => broadcast_entry_desktop(&entry, cmd_tx).await,
-                Err(e) => warn!("linkgit serve reward failed for {}: {}", repo_id, e),
+            if let Err(e) = chain.apply_entry(&entry) {
+                warn!("linkgit serve reward failed for {}: {}", repo_id, e);
             }
+            // No broadcast — replay-derived on every node (BUG 6).
         }
     }
 
     // LinkGit build rewards: split build_pool proportionally by push count across builders.
-    distribute_rewards_desktop(epoch, &linkgit_builders, build_pool, chain, cmd_tx, |builder, amount, ep| {
+    distribute_rewards_desktop(epoch, &linkgit_builders, build_pool, chain, |builder, amount, ep| {
         let push_count = linkgit_builders.iter()
             .find(|(b, _)| b == &builder)
             .map(|(_, c)| *c)
             .unwrap_or(0);
         LedgerEntry::LinkGitBuildReward { builder, amount, push_count, epoch: ep }
-    }).await;
+    });
 
     // ── T3-4: Update EMA critical-mass targets for next epoch ────────────────
     // alpha = EMA_ALPHA_NUM / EMA_ALPHA_DENOM ≈ 2/20161 ≈ 7-day smoothing window.
@@ -2284,7 +2309,7 @@ async fn emit_epoch_rewards(
         &serde_json::to_vec(&serde_json::json!({ "ema": layer_a_slow_new })).unwrap_or_default());
 
     // ── Subscription fee release ───────────────────────────────────────────────
-    sweep_tracker_subscription_fees(epoch, chain, cmd_tx).await;
+    sweep_tracker_subscription_fees(epoch, chain);
 
     let distributed  = inference_pool + storage_pool + sensor_pool
                      + verify_pool + service_pool + mempool_pool + tracker_pool
@@ -2354,7 +2379,12 @@ async fn emit_epoch_rewards(
                     &format!("infer_input:{}", job_id),
                     prompt.as_bytes(),
                 );
-                broadcast_entry_desktop(&entry, cmd_tx).await;
+                // No broadcast here — emit_epoch_rewards is now sync + replay-derived on
+                // every node (BUG 6). NOTE for verify: benchmark InferenceJobPosts were
+                // gossiped to workers; every node now apply_entry's them identically so
+                // state is consistent, but if remote workers relied on this gossip to pick
+                // up benchmark jobs, that worker-discovery path needs a separate non-
+                // consensus hook. Flagged to Grouchly in the handoff.
             }
         }
     }
@@ -2445,10 +2475,10 @@ fn sweep_expired_pending_transfers(epoch: u64, chain: &Arc<Chain>) {
 
 /// Release per-epoch subscription fees from escrow → observers (50%) + treasury (15%) + recycle (35%).
 /// Called once per epoch seal after all other reward distributions.
-async fn sweep_tracker_subscription_fees(
+// Sync (BUG 6): no broadcast — replay-derived on every node from the winning EpochFinalize.
+fn sweep_tracker_subscription_fees(
     epoch: u64,
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
     let escrows = chain.store.state_scan_prefix("tracker_sub_escrow:");
     for (escrow_key, raw) in escrows {
@@ -2497,7 +2527,7 @@ async fn sweep_tracker_subscription_fees(
                     warn!("tracker sub fee: observer credit failed for {} epoch {}: {}", obs, epoch, e);
                     continue;
                 }
-                broadcast_entry_desktop(&entry, cmd_tx).await;
+                // No broadcast — replay-derived on every node (BUG 6).
             }
         } else {
             // No observers pushed data — treat observer cut as recycle too.
@@ -2517,12 +2547,14 @@ async fn sweep_tracker_subscription_fees(
     }
 }
 
-async fn distribute_rewards_desktop<F>(
+// Sync (BUG 6): applies each pool reward entry to local state, no broadcast — rewards
+// are replay-derived from the winning EpochFinalize on every node, so gossiping the
+// reward entries is redundant and would double-credit (no per-epoch idempotency guard).
+fn distribute_rewards_desktop<F>(
     epoch: u64,
     nodes: &[(String, u64)],
     pool: u64,
     chain: &Arc<Chain>,
-    cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
     make_entry: F,
 ) where
     F: Fn(String, u64, u64) -> LedgerEntry,
@@ -2538,10 +2570,6 @@ async fn distribute_rewards_desktop<F>(
         if let Err(e) = chain.apply_entry(&entry) {
             warn!("clock: reward apply failed for {} epoch {}: {}", account, epoch, e);
             continue;
-        }
-        let envelope = serde_json::json!({"entry": entry});
-        if let Ok(data) = serde_json::to_vec(&envelope) {
-            let _ = cmd_tx.send(NetCmd::Broadcast { topic: "hone/entries", data }).await;
         }
     }
 }
@@ -2607,7 +2635,7 @@ async fn run_mempool_node(
             let _ = cmd_tx.send(NetCmd::Broadcast {
                 topic: "hone/entries",
                 data,
-            }).await;
+            });
         }
 
         info!("mempool: heartbeat epoch {} relayed={} latency={}ms",

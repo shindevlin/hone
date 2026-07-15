@@ -168,8 +168,6 @@ impl ClockConsensus {
             let mut inner = self.inner.lock().unwrap();
             // Read registered_clocks before the mutable entry borrow to satisfy the borrow checker.
             let reg = inner.registered_clocks.clone();
-            // Read current epoch too (for the bootstrap solo bypass below).
-            let cur_epoch = inner.current_epoch;
 
             let state = inner.reward_states.entry(epoch).or_insert_with(|| RewardState {
                 proposals: Vec::new(),
@@ -194,18 +192,15 @@ impl ClockConsensus {
 
             // Denominator is the registered set size when known; else observed proposals.
             let denominator = if reg.is_empty() { state.proposals.len() } else { reg.len() };
-            let quorum_needed = {
-                let normal = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
-                    .max(quorum());
-                // Bootstrap solo bypass (BUG 6): a genuinely solo registered clock
-                // (denominator <= 1) can never reach the default quorum of 2, so it would
-                // seal via the sealing bootstrap escape hatch yet NEVER finalize rewards —
-                // silently earning nothing on single-node / early-genesis deployments. During
-                // the bootstrap grace window, mirror the sealing bypass: a lone clock may
-                // finalize with just its own proposal. Outside grace the normal quorum holds.
-                let in_grace = cur_epoch <= hone_types::CLOCK_BOOTSTRAP_GRACE_END_EPOCH;
-                if denominator <= 1 && in_grace { 1 } else { normal }
-            };
+            // Rewards require REAL quorum (Shin ruling a2d7f6c9: ">=2 for reward is fine").
+            // The earlier bootstrap solo-reward bypass (let a lone clock finalize its own
+            // rewards during grace) is REMOVED, not grace-scoped — a grace counter is the
+            // exact pattern that produced the permanently-open bypass Grouchly found, and
+            // "no bypass" has nothing to misconfigure. A solo node still SEALS (chain
+            // advances) but earns nothing until quorum >=2 reforms — at genesis OR under a
+            // post-launch partition. Delayed-but-recoverable rewards beat divergent-paid.
+            let quorum_needed = ((denominator as f64 * MIN_QUORUM_FRACTION).ceil() as usize)
+                .max(quorum());
 
             // Tally votes from valid (registered) proposals only.
             let mut hash_counts: HashMap<String, usize> = HashMap::new();
