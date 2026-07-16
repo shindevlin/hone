@@ -335,7 +335,20 @@ async fn main() -> Result<()> {
             // Track the last epoch we've seeded so empty epochs are only tracked once.
             let mut last_tracked: u64 = 0;
             // Highest epoch we've replay-derived rewards for (BUG 6 reward driver).
-            let mut last_rewarded: u64 = 0;
+            //
+            // RESTORED from persisted state, never 0 on a restart with history (BUG 6
+            // residual, Grouchly 7c1f9e83): this counter is in-memory, but the epochs it
+            // tracks are durable — `epoch_finalized_done:{e}` is written to RocksDB as
+            // each epoch's rewards apply. Resetting to 0 on restart while
+            // `Chain::current_epoch` restores from RocksDB (chain.rs::new) desynced the
+            // two: `start` is clamped by `.max(safe_tip.saturating_sub(64))`, so a node
+            // restarting at any real height jumps straight to the window floor and
+            // silently skips every unresolved epoch below it — dropping its
+            // reward/recycle/decay permanently → state_root fork, no gossip lag needed.
+            // Deriving the highest CONTIGUOUS done epoch makes restart a no-op: we resume
+            // exactly where we left off, and an unresolved gap stays the resume point
+            // instead of ageing out of the window.
+            let mut last_rewarded: u64 = highest_contiguous_rewarded(&chain_ref);
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
                 // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
@@ -382,8 +395,18 @@ async fn main() -> Result<()> {
                     .unwrap_or(hone_types::REWARD_FINALITY_DEPTH);
                 let safe_tip = cur.saturating_sub(depth);
                 if safe_tip > last_rewarded {
-                    // Bound the catch-up so a large backlog can't stall the tick.
-                    let start = last_rewarded.saturating_add(1).max(safe_tip.saturating_sub(64));
+                    // Bound the catch-up so a large backlog can't stall the tick — but
+                    // bound it by the END, never the START (BUG 6 residual, Grouchly
+                    // 7c1f9e83). The old floor `.max(safe_tip.saturating_sub(64))` skipped
+                    // epochs outright: once an unresolved gap G aged more than 64 epochs
+                    // behind safe_tip, `start` silently jumped past G and G's
+                    // reward/recycle/decay was dropped forever → state_root fork, the same
+                    // bug one window further out. Capping the tail instead keeps the walk
+                    // strictly contiguous from last_rewarded+1: a large backlog is drained
+                    // over several ticks rather than skipped, and an unresolved gap stalls
+                    // the walk (safe, blocking) instead of ageing out of it (silent fork).
+                    let start = last_rewarded.saturating_add(1);
+                    let stop  = safe_tip.min(start.saturating_add(64));
                     // CONTIGUOUS advance only (BUG 6, Grouchly 80333c2b): if an epoch in
                     // this range isn't finalized locally yet (gossip lag can let `cur` —
                     // which advances on any peer's EpochSeal — race ahead of this node's
@@ -393,7 +416,7 @@ async fn main() -> Result<()> {
                     // finalized it sooner applies it → state_root fork, the exact bug this
                     // driver exists to prevent. So we break at the first not-ready epoch
                     // and only commit last_rewarded up to the last CONTIGUOUS processed one.
-                    for e in start..=safe_tip {
+                    for e in start..=stop {
                         let done_key = format!("epoch_finalized_done:{}", e);
                         if chain_ref.store.state_get(&done_key).is_some() {
                             // Already applied — contiguous, keep going.
@@ -1614,6 +1637,41 @@ async fn run_inference_verifier(
     }
 }
 
+// ── reward driver restart recovery ────────────────────────────────────────────
+
+/// Highest epoch E such that `epoch_finalized_done:{1..=E}` are ALL present — i.e. the
+/// last epoch this node has contiguously applied rewards for.
+///
+/// BUG 6 residual (Grouchly `7c1f9e83`): the reward driver's `last_rewarded` lives in
+/// memory and reset to 0 every restart, while `Chain::current_epoch` restores from
+/// RocksDB. The driver's `start` floor (`safe_tip.saturating_sub(64)`) then skipped
+/// everything below the window on the first tick after a restart — an ordinary deploy or
+/// crash, no adversarial network needed. `epoch_finalized_done` is already persisted per
+/// epoch, so the durable truth is right there; we just have to read it back.
+///
+/// CONTIGUOUS is the whole point, mirroring the driver's own advance rule: we stop at the
+/// first missing epoch and return the one before it, so an unresolved gap is where we
+/// resume, never something we start above. Returns 0 on a fresh node (no keys), which
+/// correctly means "nothing rewarded yet."
+fn highest_contiguous_rewarded(chain: &Chain) -> u64 {
+    let done: std::collections::HashSet<u64> = chain.store
+        .state_scan_prefix("epoch_finalized_done:")
+        .into_iter()
+        .filter_map(|(k, _)| k.rsplit(':').next().and_then(|s| s.parse::<u64>().ok()))
+        .collect();
+    if done.is_empty() {
+        return 0;
+    }
+    // Walk up from 1 while each epoch is present. Bounded by the highest key, so a
+    // sparse/corrupt set can't spin.
+    let max = done.iter().copied().max().unwrap_or(0);
+    let mut e = 0u64;
+    while e < max && done.contains(&(e + 1)) {
+        e += 1;
+    }
+    e
+}
+
 // ── txglobal backfill ─────────────────────────────────────────────────────────
 
 /// Scan txhist: and write any missing txglobal: entries.
@@ -2654,5 +2712,76 @@ async fn run_mempool_node(
 
         info!("mempool: heartbeat epoch {} relayed={} latency={}ms",
             epoch, entries_relayed, propagation_latency_ms);
+    }
+}
+
+// ── tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod reward_driver_tests {
+    use super::*;
+
+    fn make_chain(label: &str) -> (Chain, tempfile::TempDir) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("hone_test_{}_", label))
+            .tempdir()
+            .unwrap();
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, format!("node-{}", label), "hone-test".to_string());
+        (chain, dir)
+    }
+
+    fn mark_done(chain: &Chain, epochs: &[u64]) {
+        for e in epochs {
+            chain.store.state_set(&format!("epoch_finalized_done:{}", e), b"1").unwrap();
+        }
+    }
+
+    #[test]
+    fn fresh_node_resumes_at_zero() {
+        let (chain, _d) = make_chain("fresh");
+        assert_eq!(highest_contiguous_rewarded(&chain), 0);
+    }
+
+    #[test]
+    fn resumes_at_highest_contiguous_epoch() {
+        let (chain, _d) = make_chain("contig");
+        mark_done(&chain, &[1, 2, 3, 4, 5]);
+        assert_eq!(highest_contiguous_rewarded(&chain), 5);
+    }
+
+    /// The BUG 6 residual case (Grouchly 7c1f9e83): epoch 4 is an unresolved gap. We must
+    /// resume at 3 and retry 4 — NOT jump to 9 and drop 4's reward forever (state_root
+    /// fork). Restart must not be able to outrun a gap.
+    #[test]
+    fn stops_below_an_unresolved_gap() {
+        let (chain, _d) = make_chain("gap");
+        mark_done(&chain, &[1, 2, 3, 5, 6, 7, 8, 9]); // 4 missing
+        assert_eq!(highest_contiguous_rewarded(&chain), 3);
+    }
+
+    /// A gap at the very first epoch means nothing is contiguously done.
+    #[test]
+    fn gap_at_one_resumes_at_zero() {
+        let (chain, _d) = make_chain("gap1");
+        mark_done(&chain, &[2, 3, 4]); // 1 missing
+        assert_eq!(highest_contiguous_rewarded(&chain), 0);
+    }
+
+    /// Restart recovery must survive a real reopen of the DB, not just an in-memory read —
+    /// this is the whole point of deriving from persisted state.
+    #[test]
+    fn survives_store_reopen() {
+        let dir = tempfile::Builder::new().prefix("hone_test_reopen_").tempdir().unwrap();
+        {
+            let store = crate::store::Store::open(dir.path()).unwrap();
+            let chain = Chain::new(store, "n1".into(), "hone-test".into());
+            mark_done(&chain, &[1, 2, 3]);
+            assert_eq!(highest_contiguous_rewarded(&chain), 3);
+        }
+        // Reopen — simulates the process restart that caused the residual.
+        let store = crate::store::Store::open(dir.path()).unwrap();
+        let chain = Chain::new(store, "n1".into(), "hone-test".into());
+        assert_eq!(highest_contiguous_rewarded(&chain), 3, "restart must resume, not reset to 0");
     }
 }
