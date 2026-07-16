@@ -384,13 +384,27 @@ async fn main() -> Result<()> {
                 if safe_tip > last_rewarded {
                     // Bound the catch-up so a large backlog can't stall the tick.
                     let start = last_rewarded.saturating_add(1).max(safe_tip.saturating_sub(64));
+                    // CONTIGUOUS advance only (BUG 6, Grouchly 80333c2b): if an epoch in
+                    // this range isn't finalized locally yet (gossip lag can let `cur` —
+                    // which advances on any peer's EpochSeal — race ahead of this node's
+                    // own applied EpochFinalize backlog), we MUST stop and retry it next
+                    // tick, NOT skip past it. Advancing last_rewarded over a gap would
+                    // permanently drop that epoch's reward on this node while a node that
+                    // finalized it sooner applies it → state_root fork, the exact bug this
+                    // driver exists to prevent. So we break at the first not-ready epoch
+                    // and only commit last_rewarded up to the last CONTIGUOUS processed one.
                     for e in start..=safe_tip {
                         let done_key = format!("epoch_finalized_done:{}", e);
-                        if chain_ref.store.state_get(&done_key).is_some() { continue; }
-                        // Only reward epochs that actually reached a finalized meta.
+                        if chain_ref.store.state_get(&done_key).is_some() {
+                            // Already applied — contiguous, keep going.
+                            last_rewarded = e;
+                            continue;
+                        }
+                        // Must be finalized locally before we can apply it. If not yet,
+                        // STOP — do not advance past this gap; retry from here next tick.
                         let meta = match chain_ref.store.get_epoch_meta(e) {
                             Ok(Some(m)) if m["finalized"].as_bool().unwrap_or(false) => m,
-                            _ => continue, // not finalized yet — leave for a later tick
+                            _ => break, // not finalized yet — leave last_rewarded before e
                         };
                         let sealers: Vec<String> = meta["sealed_by"].as_array()
                             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
@@ -410,8 +424,8 @@ async fn main() -> Result<()> {
                         // Entropy decay bleeds dormant balances — same finalized, ordered path.
                         finalize::apply_entropy_decay(&chain_ref, e);
                         let _ = chain_ref.store.state_set(&done_key, b"1");
+                        last_rewarded = e; // contiguous through e
                     }
-                    last_rewarded = safe_tip;
                 }
             }
         });
