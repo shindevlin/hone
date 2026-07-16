@@ -616,26 +616,39 @@ impl Default for ClockConsensus {
 
 /// Compute a deterministic SHA-256 hash of all epoch input state (sorted by key).
 /// Used by clock nodes to propose and verify reward fairness.
+/// The reward-consensus VOTE key for an epoch.
+///
+/// BUG 6 (vote nondeterminism, Grouchly 1f963ba9 → spec dbaa3cdf / e076cd29): this used to
+/// hash seven WORK-ENTRY prefixes (mine/storage_beat/sensor_commit/tracker_sighting/
+/// infer_verify/service_beat/mempool_beat) via a live local store scan. Every one of those
+/// is applied-locally-then-gossiped, so two honest nodes computed DIFFERENT hashes for the
+/// same epoch depending on which peers' entries had propagated at scan time. The tally
+/// buckets by hash (`hash_counts`), so different hashes = vote-SPLITTING = neither reaches
+/// quorum = the epoch never finalizes. Reward consensus "fired once" only when the input
+/// happened to be empty on both sides (sha256 of nothing) by coincidence.
+///
+/// Crucially the vote hash is VESTIGIAL: `emit_epoch_rewards` derives the actual payout
+/// from `sealed_by`, NOT from this hash — so the nodes were failing to agree on a value
+/// that doesn't drive the payout. The replay-derivation fix (e86a03730) made APPLICATION
+/// deterministic via `sealed_by`; this makes the VOTE deterministic over the SAME data.
+///
+/// We now hash the `epoch_validators:{epoch}` snapshot — the registered clock set, written
+/// (main.rs) BEFORE this is called, identical on every node (it comes from
+/// `registered_clock_nodes`, sorted + deduped, not from gossip-timed entries), and it is
+/// the LITERAL key that becomes the winning EpochFinalize's `sealed_by` (main.rs read).
+/// So the vote input and the application input are the same bytes: nodes agree per-epoch,
+/// and agreement is over exactly the data that determines rewards.
 pub fn compute_rewards_hash(epoch: u64, store: &Store) -> String {
     let mut hasher = Sha256::new();
-    let prefixes = [
-        format!("mine:{}:", epoch),
-        format!("storage_beat:{}:", epoch),
-        format!("sensor_commit:{}:", epoch),
-        format!("tracker_sighting:{}:", epoch),
-        format!("infer_verify:{}:", epoch),
-        format!("service_beat:{}:", epoch),
-        format!("mempool_beat:{}:", epoch),
-    ];
-    for prefix in &prefixes {
-        let mut entries = store.state_scan_prefix(prefix);
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        for (k, v) in entries {
-            hasher.update(k.as_bytes());
-            hasher.update(b"=");
-            hasher.update(&v);
-            hasher.update(b"\n");
-        }
+    hasher.update(b"epoch:");
+    hasher.update(epoch.to_le_bytes());
+    hasher.update(b"|validators:");
+    // Hash the raw stored snapshot bytes directly — deterministic across nodes because
+    // the Vec<String> was sorted+deduped before serialization. Absent snapshot (shouldn't
+    // happen: written earlier in the same seal handler) hashes as empty, still identical
+    // on every node for the same epoch, so agreement holds even in that degenerate case.
+    if let Some(bytes) = store.state_get(&format!("epoch_validators:{}", epoch)) {
+        hasher.update(&bytes);
     }
     format!("{:x}", hasher.finalize())
 }

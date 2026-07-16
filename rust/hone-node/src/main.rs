@@ -411,11 +411,16 @@ async fn main() -> Result<()> {
                 // window this node ever attests. Once past cold start, the strict-contiguous
                 // rule below governs and never skips a real gap.
                 if !reward_floor_aligned && last_rewarded == 0 {
+                    // Only align (and mark done) once `cur` has actually advanced past the
+                    // window — on the FIRST tick `chain.current_epoch()` can still be a low/
+                    // stale value before it syncs to wall-clock, and marking aligned then
+                    // with last_rewarded still 0 latches the guard permanently → driver stuck
+                    // at epoch 1 forever. Retry every tick until cur > 65, THEN align once.
                     let window_floor = cur.saturating_sub(64);
                     if window_floor > 1 {
                         last_rewarded = window_floor.saturating_sub(1);
+                        reward_floor_aligned = true;
                     }
-                    reward_floor_aligned = true;
                 }
                 let safe_tip = cur.saturating_sub(depth);
                 if safe_tip > last_rewarded {
