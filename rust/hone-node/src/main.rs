@@ -354,6 +354,18 @@ async fn main() -> Result<()> {
             // so it doesn't block forever on ancient never-finalized epochs. A restart with
             // real history has last_rewarded!=0 and skips this entirely. See the driver loop.
             let mut reward_floor_aligned = false;
+            // One-time cold-start SKIP-FORWARD guard (BUG 6, Grouchly 1a86e25b). See the
+            // driver loop: a fresh node's aligned floor (cur-64) can land BELOW the first
+            // epoch consensus ever finalized for it (its participation start), leaving a
+            // range of permanently-unfinalizable epochs the contiguous walk blocks on
+            // forever. Once, at cold start, we skip the floor forward to the lowest epoch
+            // that actually has finalized meta. Only fires while last_rewarded is still at
+            // the cold-start floor (nothing real applied yet). NOT a late-join/restart-safe
+            // move on a live network — a longer-running peer may already have credited
+            // balances for the skipped range → divergence. Deferred go-live gap: needs
+            // state-sync/backfill before a late joiner can trust this skip. Safe for the
+            // symmetric cold-start dry-run only.
+            let mut cold_start_skip_done = false;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
                 // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
@@ -423,6 +435,48 @@ async fn main() -> Result<()> {
                     }
                 }
                 let safe_tip = cur.saturating_sub(depth);
+                // COLD-START SKIP-FORWARD (BUG 6, Grouchly 1a86e25b): after alignment, if
+                // the contiguous walk would immediately break because the aligned floor sits
+                // below the first epoch this node ever finalized, skip the floor forward —
+                // ONCE — to just below the lowest epoch that has real finalized meta in the
+                // [floor+1, safe_tip] window. Only while last_rewarded is still exactly the
+                // aligned floor (nothing real applied yet), so it can never skip a gap that
+                // opened after we started paying. See the guard decl for the late-join caveat.
+                if reward_floor_aligned && !cold_start_skip_done && safe_tip > last_rewarded {
+                    let scan_start = last_rewarded.saturating_add(1);
+                    // Only act if the FIRST epoch in the walk isn't finalized (else the
+                    // normal contiguous walk already works and no skip is needed).
+                    let first_ready = chain_ref.store
+                        .get_epoch_meta(scan_start).ok().flatten()
+                        .map(|m| m["finalized"].as_bool().unwrap_or(false))
+                        .unwrap_or(false);
+                    if !first_ready {
+                        // Find the lowest finalized epoch in the window.
+                        let mut lowest_final: Option<u64> = None;
+                        for e in scan_start..=safe_tip {
+                            if chain_ref.store.get_epoch_meta(e).ok().flatten()
+                                .map(|m| m["finalized"].as_bool().unwrap_or(false)).unwrap_or(false)
+                            {
+                                lowest_final = Some(e);
+                                break;
+                            }
+                        }
+                        if let Some(first_final) = lowest_final {
+                            if first_final > scan_start {
+                                info!("[reward] cold-start skip: no finalized epoch in {}..{}, \
+                                    advancing reward floor to {} (first finalized). \
+                                    Deferred go-live gap: not late-join-safe without state-sync.",
+                                    scan_start, first_final, first_final);
+                                last_rewarded = first_final.saturating_sub(1);
+                            }
+                            cold_start_skip_done = true; // resolved — real finalized work exists
+                        }
+                        // If NO finalized epoch exists in the window yet, leave the flag
+                        // false and retry next tick — consensus may not have produced one yet.
+                    } else {
+                        cold_start_skip_done = true; // walk already works, no skip needed
+                    }
+                }
                 if safe_tip > last_rewarded {
                     // Bound the catch-up so a large backlog can't stall the tick — but
                     // bound it by the END, never the START (BUG 6 residual, Grouchly
