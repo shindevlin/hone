@@ -655,7 +655,7 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_for_seal.send(NetCmd::Broadcast {
                                 topic: "hone/consensus",
                                 data,
-                            });
+                            }).await; // tokio mpsc send is a no-op if not awaited (BUG 6)
                         }
                     }
                     Ok(_) => {}
@@ -711,7 +711,9 @@ async fn main() -> Result<()> {
                             let _ = cmd_tx_fin.send(NetCmd::Broadcast {
                                 topic: "hone/entries",
                                 data,
-                            });
+                            }).await; // tokio mpsc send is a no-op if not awaited (BUG 6):
+                            // this broadcasts the winning EpochFinalize — dropping it meant
+                            // peers never saw finalization, so rewards never applied network-wide.
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -846,10 +848,15 @@ async fn main() -> Result<()> {
                     if let Some(hello_data) = self_reg_c.as_ref().as_ref() {
                         if announced < 20 || epoch % 20 == 0 {
                             announced += 1;
+                            // `.await` REQUIRED: cmd_tx is a tokio mpsc::Sender, whose
+                            // send() is a future that does NOTHING if dropped. `let _ =
+                            // cmd_tx.send(..)` without .await silently no-ops — the clock
+                            // never actually broadcast its hello, so peers never learned
+                            // it was a clock and quorum never formed. (BUG 6 quorum block.)
                             let _ = cmd_tx.send(NetCmd::Broadcast {
                                 topic: "hone/clock-hello",
                                 data: hello_data.clone(),
-                            });
+                            }).await;
                         }
                     }
 
@@ -877,10 +884,14 @@ async fn main() -> Result<()> {
                     // Self-ingest so we count toward quorum on single-node networks.
                     clock_ref.receive_seal(seal.clone());
                     if let Ok(data) = serde_json::to_vec(&seal) {
+                        // `.await` REQUIRED — see clock-hello note above. Without it this
+                        // seal broadcast was a silent no-op, so a peer clock never received
+                        // this node's seal, never counted it toward quorum, and both nodes
+                        // stayed "single clock, isolated" forever. (BUG 6 quorum block.)
                         let _ = cmd_tx.send(NetCmd::Broadcast {
                             topic: "hone/seals",
                             data,
-                        });
+                        }).await;
                     }
                 }
             }
@@ -1090,7 +1101,7 @@ async fn main() -> Result<()> {
                                 let _ = cmd_tx.send(NetCmd::Broadcast {
                                     topic: "hone/entries",
                                     data,
-                                });
+                                }).await; // tokio mpsc: no-op if not awaited (BUG 6)
                             }
                         }
                     }
@@ -1627,7 +1638,7 @@ async fn run_inference_verifier(
             if let Ok(data) = serde_json::to_vec(&envelope) {
                 let _ = cmd_tx.send(NetCmd::Broadcast {
                     topic: "hone/entries", data,
-                });
+                }).await; // tokio mpsc: no-op if not awaited (BUG 6)
             }
             let _ = chain.store.state_set(&verdict_key, verdict.as_bytes());
             info!("verifier: job {} → {}", job_id, verdict);
@@ -2707,7 +2718,7 @@ async fn run_mempool_node(
             let _ = cmd_tx.send(NetCmd::Broadcast {
                 topic: "hone/entries",
                 data,
-            });
+            }).await; // tokio mpsc: no-op if not awaited (BUG 6)
         }
 
         info!("mempool: heartbeat epoch {} relayed={} latency={}ms",
