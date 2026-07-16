@@ -349,6 +349,11 @@ async fn main() -> Result<()> {
             // exactly where we left off, and an unresolved gap stays the resume point
             // instead of ageing out of the window.
             let mut last_rewarded: u64 = highest_contiguous_rewarded(&chain_ref);
+            // One-time cold-start alignment guard: a fresh node (last_rewarded==0) with a
+            // past genesis aligns its reward start to the tracking window on the first tick,
+            // so it doesn't block forever on ancient never-finalized epochs. A restart with
+            // real history has last_rewarded!=0 and skips this entirely. See the driver loop.
+            let mut reward_floor_aligned = false;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(1_000)).await;
                 // Negative attestation (BUG 6): ensure EVERY elapsed epoch has an
@@ -393,6 +398,25 @@ async fn main() -> Result<()> {
                 let depth = std::env::var("HONE_REWARD_DEPTH").ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(hone_types::REWARD_FINALITY_DEPTH);
+                // COLD-START FLOOR (BUG 6): a fresh node has last_rewarded=0 but its genesis
+                // is far in the past, and negative attestation only tracks/finalizes the
+                // recent window (cur-64..cur, main.rs:372). Epochs 1..(cur-64) are NEVER
+                // finalized on this node, so a contiguous walk from last_rewarded+1=1 would
+                // break at epoch 1 forever and never reach the finalized recent epochs —
+                // rewards never apply at all (the bug this exposed: driver stuck at e=1).
+                // So on the FIRST catch-up only, align last_rewarded to the tracking-window
+                // floor. This is NOT the skip-past-a-gap the residual fix (Grouchly 7c1f9e83)
+                // forbids: there is no gap to preserve on a node that has rewarded nothing
+                // yet — we're choosing the START of the reward history, matching the only
+                // window this node ever attests. Once past cold start, the strict-contiguous
+                // rule below governs and never skips a real gap.
+                if !reward_floor_aligned && last_rewarded == 0 {
+                    let window_floor = cur.saturating_sub(64);
+                    if window_floor > 1 {
+                        last_rewarded = window_floor.saturating_sub(1);
+                    }
+                    reward_floor_aligned = true;
+                }
                 let safe_tip = cur.saturating_sub(depth);
                 if safe_tip > last_rewarded {
                     // Bound the catch-up so a large backlog can't stall the tick — but
