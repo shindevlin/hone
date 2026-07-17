@@ -29,7 +29,7 @@ pub struct Provenance {
 /// Mutable accumulator for one group. Not exposed directly — snapshotted
 /// into `GroupSnapshot` for queries so percentile computation only happens
 /// on read, not on every ingest.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct GroupAccumulator {
     /// All values seen so far, kept to compute percentiles on demand.
     /// For v1 this is fine (in-memory, no persistence yet); if group sizes
@@ -225,6 +225,121 @@ impl AggregationIndex {
             total_rejected: self.total_rejected,
         }
     }
+
+    /// Build the on-disk snapshot representation. Kept as a separate type
+    /// (`PersistedIndex`) rather than deriving Serialize directly on
+    /// `AggregationIndex` so the disk format is an explicit, versioned
+    /// contract independent of any future in-memory field changes — the
+    /// HTTP query API (`api.rs`/`GroupSnapshot`) is unaffected either way.
+    fn to_persisted(&self) -> PersistedIndex {
+        PersistedIndex {
+            format_version: PERSISTED_FORMAT_VERSION,
+            window_epochs: self.window_epochs,
+            groups: self.groups.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            seen: self.seen.iter().cloned().collect(),
+            total_ingested: self.total_ingested,
+            total_duplicates_skipped: self.total_duplicates_skipped,
+            total_rejected: self.total_rejected,
+        }
+    }
+
+    /// Reconstruct an index from a previously-persisted snapshot. Restores
+    /// both the aggregation groups AND the dedup `seen` set, so readings
+    /// already folded in before a restart are recognized as duplicates
+    /// (not double-counted) if the ingest source replays them.
+    fn from_persisted(p: PersistedIndex) -> Self {
+        AggregationIndex {
+            groups: p.groups.into_iter().collect(),
+            seen: p.seen.into_iter().collect(),
+            window_epochs: p.window_epochs.max(1),
+            total_ingested: p.total_ingested,
+            total_duplicates_skipped: p.total_duplicates_skipped,
+            total_rejected: p.total_rejected,
+        }
+    }
+
+    /// Persist the current index state to `path`, atomically.
+    ///
+    /// Writes to a sibling temp file, fsyncs its contents, then renames it
+    /// over `path` (rename is atomic on the same filesystem on both Unix and
+    /// Windows), so a crash mid-write never leaves `path` holding a
+    /// truncated/corrupt snapshot — readers either see the old complete file
+    /// or the new complete file, never a partial one.
+    pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let persisted = self.to_persisted();
+        let bytes = serde_json::to_vec(&persisted)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let dir = path.parent().filter(|p| !p.as_os_str().is_empty());
+        if let Some(dir) = dir {
+            std::fs::create_dir_all(dir)?;
+        }
+
+        // Unique temp filename so concurrent saves (shouldn't normally
+        // happen, but tests may run in parallel against distinct
+        // AggregationIndex instances sharing a tmp dir) don't clobber each
+        // other before the rename.
+        let tmp_path = {
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "index".to_string());
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let tmp_name = format!(".{file_name}.tmp.{}.{unique}", std::process::id());
+            match path.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => parent.join(tmp_name),
+                _ => std::path::PathBuf::from(tmp_name),
+            }
+        };
+
+        {
+            let mut f = std::fs::File::create(&tmp_path)?;
+            use std::io::Write;
+            f.write_all(&bytes)?;
+            f.sync_all()?;
+        }
+
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
+    }
+
+    /// Load a previously-persisted index from `path`. Returns `Ok(None)` if
+    /// the file does not exist yet (fresh start, e.g. first boot — this is
+    /// not an error). Returns `Err` if the file exists but cannot be read or
+    /// parsed, since a corrupt persisted file silently treated as "empty"
+    /// would itself be a silent data-loss bug.
+    pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(path)?;
+        let persisted: PersistedIndex = serde_json::from_slice(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(Some(Self::from_persisted(persisted)))
+    }
+}
+
+/// On-disk snapshot format for `AggregationIndex`. `format_version` lets a
+/// future v3 detect and migrate an older on-disk file instead of silently
+/// misreading it; loading is expected to stay API-compatible (same HTTP
+/// query contract) even as this internal format evolves.
+const PERSISTED_FORMAT_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedIndex {
+    format_version: u32,
+    window_epochs: u64,
+    groups: Vec<(GroupKey, GroupAccumulator)>,
+    /// Dedup set entries, flattened to a Vec for JSON (JSON object/map keys
+    /// must be strings; a tuple key doesn't serialize as a map key without
+    /// extra ceremony, so a plain list round-trips more simply).
+    seen: Vec<(String, u64, String)>,
+    total_ingested: u64,
+    total_duplicates_skipped: u64,
+    total_rejected: u64,
 }
 
 /// Observability counters for the whole index.
@@ -494,5 +609,362 @@ mod tests {
         // p50 of [1..10] nearest-rank should land in the middle.
         assert!(stats.p50 >= 5.0 && stats.p50 <= 6.0);
         assert!(stats.p95 >= 9.0);
+    }
+
+    /// 3+-sensor-class end-to-end ingest scenario (PRD Phase 1.2 "Tests"
+    /// item, gap 2): a single scenario ingests readings from three distinct
+    /// sensor classes and asserts each aggregates into its own independent
+    /// group with correct per-group stats, with zero cross-contamination
+    /// between classes.
+    #[test]
+    fn three_plus_sensor_classes_aggregate_independently_in_one_scenario() {
+        let mut idx = AggregationIndex::new(120);
+
+        // Same geography + same time window for all three classes, on
+        // purpose: geo/window alone must NOT merge readings across classes
+        // — `class` is part of `GroupKey` and must be the deciding factor.
+        let lat = Some(53.349);
+        let lon = Some(-6.260);
+        let epoch = 42;
+
+        // gnss: 3 readings.
+        idx.ingest(&reading("gnss-1", "alice", epoch, 10.0, SensorClass::Gnss, lat, lon, true, "g1"));
+        idx.ingest(&reading("gnss-2", "alice", epoch, 20.0, SensorClass::Gnss, lat, lon, true, "g2"));
+        idx.ingest(&reading("gnss-3", "bob", epoch, 30.0, SensorClass::Gnss, lat, lon, false, "g3"));
+
+        // subghz: 2 readings.
+        idx.ingest(&reading("sg-1", "carol", epoch, 100.0, SensorClass::Subghz, lat, lon, true, "s1"));
+        idx.ingest(&reading("sg-2", "carol", epoch, 200.0, SensorClass::Subghz, lat, lon, true, "s2"));
+
+        // nfc: 4 readings.
+        idx.ingest(&reading("nfc-1", "dave", epoch, 1.0, SensorClass::Nfc, lat, lon, true, "n1"));
+        idx.ingest(&reading("nfc-2", "dave", epoch, 2.0, SensorClass::Nfc, lat, lon, true, "n2"));
+        idx.ingest(&reading("nfc-3", "erin", epoch, 3.0, SensorClass::Nfc, lat, lon, false, "n3"));
+        idx.ingest(&reading("nfc-4", "erin", epoch, 4.0, SensorClass::Nfc, lat, lon, false, "n4"));
+
+        // A fourth class thrown in too, to go beyond the minimum 3.
+        idx.ingest(&reading("ble-1", "frank", epoch, 55.0, SensorClass::Ble, lat, lon, true, "b1"));
+
+        let all_groups = idx.query(&QueryFilter::default());
+        assert_eq!(all_groups.len(), 4, "each sensor class must form its own independent group");
+
+        let idx_stats = idx.stats();
+        assert_eq!(idx_stats.group_count, 4);
+        assert_eq!(idx_stats.total_ingested, 10);
+        assert_eq!(idx_stats.total_duplicates_skipped, 0);
+
+        // gnss group: count/verified/unverified/stats correct, and no
+        // contamination from other classes' values.
+        let gnss = idx.query(&QueryFilter { class: Some("gnss".to_string()), ..Default::default() });
+        assert_eq!(gnss.len(), 1);
+        assert_eq!(gnss[0].count, 3);
+        assert_eq!(gnss[0].verified_count, 2);
+        assert_eq!(gnss[0].unverified_count, 1);
+        let gnss_stats = gnss[0].stats.as_ref().unwrap();
+        assert_eq!(gnss_stats.min, 10.0);
+        assert_eq!(gnss_stats.max, 30.0);
+        assert!((gnss_stats.mean - 20.0).abs() < 1e-9);
+
+        // subghz group: independent count/stats, untouched by gnss/nfc/ble.
+        let subghz = idx.query(&QueryFilter { class: Some("subghz".to_string()), ..Default::default() });
+        assert_eq!(subghz.len(), 1);
+        assert_eq!(subghz[0].count, 2);
+        assert_eq!(subghz[0].verified_count, 2);
+        assert_eq!(subghz[0].unverified_count, 0);
+        let subghz_stats = subghz[0].stats.as_ref().unwrap();
+        assert_eq!(subghz_stats.min, 100.0);
+        assert_eq!(subghz_stats.max, 200.0);
+        assert!((subghz_stats.mean - 150.0).abs() < 1e-9);
+
+        // nfc group: independent count/stats.
+        let nfc = idx.query(&QueryFilter { class: Some("nfc".to_string()), ..Default::default() });
+        assert_eq!(nfc.len(), 1);
+        assert_eq!(nfc[0].count, 4);
+        assert_eq!(nfc[0].verified_count, 2);
+        assert_eq!(nfc[0].unverified_count, 2);
+        let nfc_stats = nfc[0].stats.as_ref().unwrap();
+        assert_eq!(nfc_stats.min, 1.0);
+        assert_eq!(nfc_stats.max, 4.0);
+        assert!((nfc_stats.mean - 2.5).abs() < 1e-9);
+
+        // ble group: the fourth class, also independent.
+        let ble = idx.query(&QueryFilter { class: Some("ble".to_string()), ..Default::default() });
+        assert_eq!(ble.len(), 1);
+        assert_eq!(ble[0].count, 1);
+        assert_eq!(ble[0].stats.as_ref().unwrap().mean, 55.0);
+
+        // Cross-contamination check: no group's provenance lists a
+        // sensor_id that belongs to a different class's readings.
+        let gnss_ids: std::collections::HashSet<_> = ["gnss-1", "gnss-2", "gnss-3"].into_iter().collect();
+        for p in &gnss[0].provenance {
+            assert!(gnss_ids.contains(p.sensor_id.as_str()), "gnss group contaminated by {}", p.sensor_id);
+        }
+        let nfc_ids: std::collections::HashSet<_> = ["nfc-1", "nfc-2", "nfc-3", "nfc-4"].into_iter().collect();
+        for p in &nfc[0].provenance {
+            assert!(nfc_ids.contains(p.sensor_id.as_str()), "nfc group contaminated by {}", p.sensor_id);
+        }
+    }
+}
+
+/// Self-heal / restart persistence tests (PRD Phase 1.2 "Tests" item, gap
+/// 1): a process restart (drop the in-memory `AggregationIndex`, reload it
+/// from the persisted file) must not lose or double-count in-flight
+/// readings, including when the post-restart ingest source replays some
+/// readings the pre-restart index had already seen.
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use crate::model::SensorClass;
+
+    #[allow(clippy::too_many_arguments)]
+    fn reading(
+        sensor_id: &str,
+        owner: &str,
+        epoch: u64,
+        value: f64,
+        class: SensorClass,
+        lat: Option<f64>,
+        lon: Option<f64>,
+        verified: bool,
+        data_hash: &str,
+    ) -> ParsedReading {
+        ParsedReading {
+            sensor_id: sensor_id.to_string(),
+            owner: owner.to_string(),
+            epoch,
+            value,
+            data_hash: data_hash.to_string(),
+            class,
+            schema: "1".to_string(),
+            lat,
+            lon,
+            ts_ms: None,
+            payload: serde_json::json!({}),
+            verified,
+        }
+    }
+
+    /// Unique temp file path per test run/thread, so parallel `cargo test`
+    /// runs never collide on the same on-disk snapshot file.
+    fn temp_state_path(tag: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "verasens-selfheal-test-{tag}-{}-{unique}.json",
+            std::process::id()
+        ))
+    }
+
+    /// RAII guard so the temp snapshot file is cleaned up even if an
+    /// assertion panics mid-test.
+    struct TempFileGuard(std::path::PathBuf);
+    impl Drop for TempFileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn batch_a() -> Vec<ParsedReading> {
+        vec![
+            reading("s1", "alice", 10, 1.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h1"),
+            reading("s2", "bob", 10, 2.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h2"),
+            reading("s3", "carol", 15, 100.0, SensorClass::Subghz, None, None, false, "h3"),
+        ]
+    }
+
+    /// Readings ingested *after* the simulated restart: two overlap exactly
+    /// with `batch_a` (same sensor_id+epoch+data_hash — as a crash-and-
+    /// replay ingest source would resend unacknowledged items), and two are
+    /// genuinely new.
+    fn batch_b_overlapping_and_new() -> Vec<ParsedReading> {
+        vec![
+            // Exact duplicates of batch_a entries (replayed after "crash").
+            reading("s1", "alice", 10, 1.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h1"),
+            reading("s3", "carol", 15, 100.0, SensorClass::Subghz, None, None, false, "h3"),
+            // Genuinely new readings.
+            reading("s4", "dave", 20, 3.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h4"),
+            reading("s5", "erin", 15, 150.0, SensorClass::Subghz, None, None, true, "h5"),
+        ]
+    }
+
+    #[test]
+    fn save_then_load_round_trips_groups_and_dedup_set() {
+        let path = temp_state_path("roundtrip");
+        let _guard = TempFileGuard(path.clone());
+
+        let mut idx = AggregationIndex::new(120);
+        idx.ingest_batch(&batch_a());
+        idx.save_to_file(&path).expect("save should succeed");
+
+        let reloaded = AggregationIndex::load_from_file(&path)
+            .expect("load should succeed")
+            .expect("file should exist and parse");
+
+        // Groups/stats match.
+        let before = idx.query(&QueryFilter::default());
+        let after = reloaded.query(&QueryFilter::default());
+        assert_eq!(before.len(), after.len());
+        for b in &before {
+            let a = after.iter().find(|g| g.key == b.key).expect("group missing after reload");
+            assert_eq!(a.count, b.count);
+            assert_eq!(a.verified_count, b.verified_count);
+            assert_eq!(a.unverified_count, b.unverified_count);
+            assert_eq!(a.stats, b.stats);
+        }
+
+        // Index-level counters match.
+        let before_stats = idx.stats();
+        let after_stats = reloaded.stats();
+        assert_eq!(before_stats.total_ingested, after_stats.total_ingested);
+        assert_eq!(before_stats.total_duplicates_skipped, after_stats.total_duplicates_skipped);
+
+        // Dedup set was reconstructed: re-ingesting an already-seen reading
+        // into the reloaded index must be rejected as a duplicate.
+        let mut reloaded = reloaded;
+        let dup = reading("s1", "alice", 10, 1.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h1");
+        assert!(!reloaded.ingest(&dup), "reloaded index must recognize pre-restart reading as a duplicate");
+    }
+
+    #[test]
+    fn load_from_file_returns_none_when_no_file_exists_yet() {
+        let path = temp_state_path("missing");
+        // Deliberately do not create the file.
+        let result = AggregationIndex::load_from_file(&path).expect("missing file is not an error");
+        assert!(result.is_none());
+    }
+
+    /// The core self-heal scenario: ingest a batch, persist, simulate a
+    /// restart (drop the in-memory index entirely, reconstruct fresh from
+    /// disk), then re-ingest a batch that overlaps with what was already
+    /// seen pre-restart. Assert:
+    ///   (a) no previously-ingested reading is lost, and
+    ///   (b) no reading is double-counted — final group stats/counts must be
+    ///       identical to a single no-restart run over the *union* of
+    ///       readings (batch_a plus the two genuinely-new readings from
+    ///       batch_b).
+    #[test]
+    fn restart_does_not_lose_or_double_count_inflight_readings() {
+        let path = temp_state_path("restart");
+        let _guard = TempFileGuard(path.clone());
+
+        // --- Pre-restart process ---
+        let mut idx = AggregationIndex::new(120);
+        let (newly_a, dupes_a) = idx.ingest_batch(&batch_a());
+        assert_eq!(newly_a, 3);
+        assert_eq!(dupes_a, 0);
+        idx.save_to_file(&path).expect("persist before restart");
+
+        // --- Simulated restart: drop the in-memory index entirely. ---
+        drop(idx);
+        let mut idx = AggregationIndex::load_from_file(&path)
+            .expect("load after restart should succeed")
+            .expect("snapshot file must exist")
+        ;
+
+        // --- Post-restart process re-ingests an overlapping+new batch, as
+        // a crash-and-replay ingest source would. ---
+        let (newly_b, dupes_b) = idx.ingest_batch(&batch_b_overlapping_and_new());
+        assert_eq!(newly_b, 2, "only the 2 genuinely-new readings should be newly counted");
+        assert_eq!(dupes_b, 2, "the 2 replayed pre-restart readings must be recognized as duplicates");
+
+        // (a) Nothing lost: every reading from batch_a is still represented.
+        let final_groups = idx.query(&QueryFilter::default());
+        let gnss = final_groups.iter().find(|g| g.key.class == "gnss").expect("gnss group missing");
+        let subghz = final_groups.iter().find(|g| g.key.class == "subghz").expect("subghz group missing");
+
+        // gnss: s1 (batch_a), s2 (batch_a), s4 (batch_b, new) = 3 readings.
+        assert_eq!(gnss.count, 3);
+        assert!(gnss.provenance.iter().any(|p| p.sensor_id == "s1"), "s1 (pre-restart) lost");
+        assert!(gnss.provenance.iter().any(|p| p.sensor_id == "s2"), "s2 (pre-restart) lost");
+        assert!(gnss.provenance.iter().any(|p| p.sensor_id == "s4"), "s4 (post-restart new) missing");
+
+        // subghz: s3 (batch_a), s5 (batch_b, new) = 2 readings. s3 must NOT
+        // appear twice even though it was replayed.
+        assert_eq!(subghz.count, 2);
+        let s3_occurrences = subghz.provenance.iter().filter(|p| p.sensor_id == "s3").count();
+        assert_eq!(s3_occurrences, 1, "s3 must not be double-counted after restart replay");
+        assert!(subghz.provenance.iter().any(|p| p.sensor_id == "s5"), "s5 (post-restart new) missing");
+
+        // (b) No double-counting: compare against a no-restart run ingesting
+        // the union of readings (batch_a + the 2 new-only readings from
+        // batch_b) in one go — group stats/counts must be identical.
+        let mut no_restart = AggregationIndex::new(120);
+        let mut union = batch_a();
+        union.push(reading("s4", "dave", 20, 3.0, SensorClass::Gnss, Some(1.0), Some(1.0), true, "h4"));
+        union.push(reading("s5", "erin", 15, 150.0, SensorClass::Subghz, None, None, true, "h5"));
+        no_restart.ingest_batch(&union);
+
+        let restarted_groups = idx.query(&QueryFilter::default());
+        let baseline_groups = no_restart.query(&QueryFilter::default());
+        assert_eq!(restarted_groups.len(), baseline_groups.len());
+        for rg in &restarted_groups {
+            let bg = baseline_groups.iter().find(|g| g.key == rg.key).expect("group key mismatch vs baseline");
+            assert_eq!(rg.count, bg.count, "count mismatch for group {:?}", rg.key);
+            assert_eq!(rg.verified_count, bg.verified_count);
+            assert_eq!(rg.unverified_count, bg.unverified_count);
+            assert_eq!(rg.stats, bg.stats, "stats mismatch for group {:?}", rg.key);
+        }
+
+        let restarted_stats = idx.stats();
+        let baseline_stats = no_restart.stats();
+        assert_eq!(restarted_stats.total_ingested, baseline_stats.total_ingested);
+    }
+
+    /// Same restart scenario but exercised through `AppState::with_persistence`
+    /// (the actual production wiring in `state.rs`/`main.rs`), rather than
+    /// calling `AggregationIndex::save_to_file`/`load_from_file` directly —
+    /// covers the code path a real process restart takes.
+    #[test]
+    fn app_state_with_persistence_survives_restart_via_ingest_items() {
+        use crate::ingest::IngestItem;
+        use crate::state::AppState;
+        use btcpc_types::LedgerEntry;
+
+        let path = temp_state_path("appstate-restart");
+        let _guard = TempFileGuard(path.clone());
+
+        fn entry(sensor_id: &str, owner: &str, epoch: u64, value: f64, class: &str, data_hash: &str) -> LedgerEntry {
+            LedgerEntry::SensorReading {
+                sensor_id: sensor_id.to_string(),
+                owner: owner.to_string(),
+                epoch,
+                value,
+                data_hash: data_hash.to_string(),
+                metadata: Some(serde_json::json!({
+                    "class": class,
+                    "schema": "1",
+                    "payload": {}
+                })),
+                signed_by: owner.to_string(),
+            }
+        }
+
+        // --- Pre-restart process ---
+        let state1 = AppState::with_persistence(120, path.clone()).expect("fresh state should init");
+        let items_pre = vec![
+            IngestItem::chain_confirmed(entry("s1", "alice", 10, 1.0, "gnss", "h1")),
+            IngestItem::chain_confirmed(entry("s2", "bob", 10, 2.0, "gnss", "h2")),
+        ];
+        let (newly, dupes, rejected) = state1.ingest_items(&items_pre);
+        assert_eq!((newly, dupes, rejected), (2, 0, 0));
+        drop(state1); // simulate process exit
+
+        // --- Restart: reconstruct AppState from the same path. ---
+        let state2 = AppState::with_persistence(120, path.clone()).expect("reload should succeed");
+        let items_post = vec![
+            // Replay of s1 (already seen pre-restart) plus one new reading.
+            IngestItem::chain_confirmed(entry("s1", "alice", 10, 1.0, "gnss", "h1")),
+            IngestItem::chain_confirmed(entry("s3", "carol", 10, 3.0, "gnss", "h3")),
+        ];
+        let (newly2, dupes2, rejected2) = state2.ingest_items(&items_post);
+        assert_eq!(newly2, 1, "only s3 should be newly counted post-restart");
+        assert_eq!(dupes2, 1, "replayed s1 must be recognized as a duplicate");
+        assert_eq!(rejected2, 0);
+
+        let groups = state2.index.read().query(&QueryFilter::default());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].count, 3, "s1, s2, s3 -> 3 total, no loss, no double-count");
     }
 }

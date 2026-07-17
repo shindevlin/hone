@@ -41,10 +41,24 @@ async fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(model::DEFAULT_WINDOW_EPOCHS);
 
-    let state = if window_epochs == model::DEFAULT_WINDOW_EPOCHS {
-        AppState::default_window()
-    } else {
-        AppState::new(window_epochs)
+    // Optional on-disk persistence: set VERASENS_STATE_PATH to survive
+    // restarts without losing or double-counting in-flight readings (Phase
+    // 1.2 self-heal requirement). Off by default (in-memory only, matching
+    // v1) since not every deployment needs a durable state file.
+    let state = match std::env::var("VERASENS_STATE_PATH") {
+        Ok(path) => {
+            let path = std::path::PathBuf::from(path);
+            info!("Verasens persistence enabled: {}", path.display());
+            AppState::with_persistence(window_epochs, path)?
+        }
+        Err(_) => {
+            info!("Verasens persistence disabled (set VERASENS_STATE_PATH to enable)");
+            if window_epochs == model::DEFAULT_WINDOW_EPOCHS {
+                AppState::default_window()
+            } else {
+                AppState::new(window_epochs)
+            }
+        }
     };
 
     info!(
