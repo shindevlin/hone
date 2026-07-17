@@ -1054,17 +1054,25 @@ async fn main() -> Result<()> {
         });
     }
 
-    // ── Periodic sweepers (ensemble, session market, agent sessions, VRF) ───────
+    // ── Periodic sweeper (session market only) ──────────────────────────────────
+    // session_market::sweep_expired flips a ListingStatus via state_set → CF_META
+    // only; it credits/debits no balance, so balance_merkle_root() (CF_BALANCES) can
+    // never fork on it. A wall-clock timer is the correct home for a non-consensus,
+    // UI-facing status flip.
+    //
+    // The three balance-MUTATING sweepers (ensemble, agent_session, vrf) that used to
+    // live here were moved onto the deterministic finalized-epoch path inside
+    // emit_epoch_rewards. On a 30s wall-clock timer they read current_epoch() (a local
+    // view), so which commits/jobs a node swept — and thus which RECYCLE_FUND credits
+    // it applied — depended on that node's clock, forking state_root. See BUG-6 audit
+    // (commit 588050782) and emit_epoch_rewards for the quorum-driven placement.
     {
         let chain_ref = chain.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 let epoch = chain_ref.current_epoch();
-                ensemble::sweep_expired(&chain_ref, epoch);
                 session_market::sweep_expired(&chain_ref, epoch);
-                agent_session::sweep_expired(&chain_ref, epoch);
-                vrf::sweep_epoch(&chain_ref, epoch);
             }
         });
     }
@@ -1381,10 +1389,28 @@ async fn emit_epoch_rewards(
     chain: &Arc<Chain>,
     cmd_tx: &tokio::sync::mpsc::Sender<NetCmd>,
 ) {
-    // Sweep expired pending token transfers → refund sender.
-    sweep_expired_pending_transfers(epoch, chain);
-    // Sweep expired agentic tasks → refund escrow.
-    agent_task::sweep_expired(chain, epoch);
+    // ── Deterministic expiry sweeps (run FIRST, before any early-return) ─────────
+    // All five sweeps below run once per finalized epoch, on the quorum-agreed `epoch`
+    // passed in here — never on a node-local wall-clock view. They are hoisted ahead of
+    // BOTH the empty-sealer no-op path and the `raw_pool == 0` early-return: a sweep
+    // that credits/debits balances MUST NOT be skipped on a zero-reward epoch, or nodes
+    // that took the early-return would diverge from nodes that did not. Refunds/slashes
+    // are delayed to finalization, never dropped.
+    //
+    // The last three (ensemble, agent_session, vrf) were moved here from a 30s wall-clock
+    // timer where their timing forked state_root (BUG-6 audit, commit 588050782).
+    //
+    // TRACKED MITIGATION (not closed): ensemble::sweep_expired → finalize_job() tallies
+    // majority_hash(&job.votes). If a vote for a job can still be sealed AFTER the
+    // finalized epoch in which the job is swept, the fix relocates the nondeterminism
+    // rather than removing it. Shipped as a tracked risk; see the ensemble vote-timing
+    // item in ROAD_TO_LIVE / the sweeper design report.
+    sweep_expired_pending_transfers(epoch, chain);   // existing, safe (quorum-driven)
+    agent_task::sweep_expired(chain, epoch);          // existing, safe (quorum-driven)
+    ensemble::sweep_expired(chain, epoch);            // MOVED off 30s timer
+    agent_session::sweep_expired(chain, epoch);       // MOVED off 30s timer
+    vrf::sweep_epoch(chain, epoch);                   // MOVED off 30s timer (window now
+                                                      // measured in finalized epochs)
 
     let raw_pool = if era(epoch) >= RECYCLE_ERA {
         let fund = chain.store.get_balance(RECYCLE_FUND_ACCOUNT, NATIVE_TOKEN);
