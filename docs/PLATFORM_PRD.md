@@ -1160,14 +1160,355 @@ every future sensor type without a code change per sensor.
 - [ ] **Build the dashboard** (new web app, e.g. `verasens/dashboard/` or
   a service alongside `website/`) — login, query builder against the
   aggregation service's API, USD invoicing/billing, usage history.
-- [ ] **USD → BTCPC settlement bridge** — when a company pays USD, the
+- [x] **USD → HONE settlement bridge** — when a company pays USD, the
   underlying `SensorDataPurchase` fee still needs to be posted on-chain in
-  BTCPC/dreams so sensor owners get paid in the native token regardless of
+  HONE/hunits so sensor owners get paid in the native token regardless of
   how the buyer paid. Design and implement this conversion step explicitly;
-  do not let USD payments bypass on-chain settlement.
+  do not let USD payments bypass on-chain settlement. **Done — branch
+  `platform/p1-usd-btcpc-settlement-bridge`.** New workspace crate
+  `rust/hone-settlement-bridge/` (library + `hone-settlement-bridge` bin):
+  a crash-safe, self-healing worker that drains a `settlement_intent` inbox
+  and posts `LedgerEntry::SensorDataPurchase` through the normal chain path.
+  Full design decision (provenance-gap resolution, idempotency key,
+  crash-recovery re-drive, fx-rate pinning, adversarial "how would someone
+  game this") is the DECISION RECORD immediately below. What is real vs.
+  mocked, and the follow-ups, are in that record's "Build status" section.
+
+  ---
+
+  #### DECISION RECORD (2026-07) — USD → HONE settlement bridge
+
+  **Status:** designed AND implemented on branch
+  `platform/p1-usd-btcpc-settlement-bridge`. This record is the binding
+  design; the code implements it. It resolves the one real gap the 1.4 seam
+  flagged (provenance has no `batch_hash`) and specifies the idempotency /
+  crash-recovery / anti-manipulation contract the seam demanded.
+
+  ##### Ground-truth read (verified in code, not assumed)
+
+  - **Units are canonical `HUNITS_PER_HONE = 10_000_000_000`**
+    (`crates/hone-types/src/lib.rs:12`). The 1.4 seam text and the intent
+    object both say "1 HONE = 10,000,000,000 hunits" — matches the code. The
+    older "100,000,000 dreams" figure elsewhere in loose docs is wrong; code
+    wins. The bridge converts USD→hunits using this constant.
+  - **The chain pays the `owner` field, NOT `batch_hash`.**
+    `chain.rs` `LedgerEntry::SensorDataPurchase` apply (~L2484) destructures
+    `{ buyer, owner, fee, epoch, .. }` and **discards `sensor_id` and
+    `batch_hash` via `..`**. The split credits `owner` directly; `batch_hash`
+    is never validated against any committed batch and never decides who gets
+    paid. **This is the single most important fact for the provenance-gap
+    resolution below:** `owner_account` is the load-bearing economic field;
+    `batch_hash` is an audit label. Paying the wrong party is an
+    `owner_account` error, not a `batch_hash` error.
+  - **On-chain idempotency is the buyer nonce.**
+    `tx.rs` `SensorDataPurchase` validation (~L1027) calls
+    `check_nonce(chain, buyer, nonce)` where `check_nonce` (~L2162) requires
+    `submitted == current + 1` — a strict, per-account monotonic sequence.
+    Because the bridge's `buyer` is the single platform settlement account,
+    **the chain itself rejects any replay of an already-consumed nonce.** A
+    resubmitted entry with a stale nonce fails validation; it cannot
+    double-post. This is the chain-side backstop under the bridge's own
+    application-level idempotency.
+  - **Canonical signing message.** `SensorDataPurchase` is NOT in the
+    explicit arm list of `canonical_signing_message` (`tx.rs`), so it falls
+    to the catch-all (~L2905): the signed message is
+    `{ "chain_id", "entry": to_string(entry) }` — i.e. the FULL entry JSON
+    including the server-relevant `epoch`. The bridge therefore must sign the
+    exact entry bytes it submits (epoch included) and cannot pre-sign before
+    the epoch is known. The bridge captures `epoch` at post time, signs, and
+    submits atomically.
+  - **No-peers hardline.** `apply_and_broadcast` (`api.rs`) rejects every
+    submission when `peer_count == 0`. The bridge treats that rejection as a
+    *retryable* failure (intent stays `pending`/`failed`, re-driven later),
+    never as a terminal success — a disconnected node must not let a USD
+    charge look settled.
+
+  ##### THE PROVENANCE GAP — confirmed, and resolved
+
+  The 1.4 seam requires provenance per query result as a set of
+  `(sensor_id, owner_account, batch_hash)` tuples. **Confirmed by reading the
+  Phase 1.2 aggregation service on branch `platform/p1-verasens-aggregation`
+  (`rust/verasens/src/agg.rs`, `ingest.rs`):** the exposed `Provenance` struct
+  is `{ sensor_id, owner, data_hash, verified }` — **there is no `batch_hash`,
+  and there is no code path that could produce one.** The aggregator ingests
+  `LedgerEntry::SensorReading` (which carries `data_hash`, never `batch_hash`);
+  `batch_hash` lives only on the *separate* `SensorDataCommit` entry, and
+  **nothing in the ingest path links a `SensorReading`'s `data_hash` to any
+  `SensorDataCommit.batch_hash`** (verified: no such join exists in
+  `rust/hone-node/src/*` or `rust/verasens/src/*`). A `SensorReading` does not
+  even know which batch it will end up in at reading time. So the aggregator
+  *cannot* supply `batch_hash` per result without new cross-entry
+  correlation machinery that does not exist.
+
+  The seam's own escape clause ("If Phase 1.2 cannot supply provenance per
+  result, this design's settlement seam must be revisited") is therefore
+  triggered. **Resolution chosen: settle per-`(sensor_id, owner_account)`
+  using the aggregator's `data_hash` as the batch discriminator, and carry
+  that `data_hash` in the `SensorDataPurchase.batch_hash` field as the audit
+  reference.** Reasoning, adversarially:
+
+  1. **The chain does not care.** As established above, the chain pays `owner`
+     and ignores `batch_hash`. So whether we put a real committed
+     `SensorDataCommit.batch_hash` or the reading's `data_hash` into the
+     entry's `batch_hash` field changes **nothing** about who gets paid or how
+     much. Using `data_hash` is not "wrong money to the right label"; it is
+     the correct money to the correct owner with a *truthful* label (the exact
+     reading provenance the aggregator actually observed and can defend).
+  2. **`data_hash` is the honest discriminator we can actually attest.** The
+     aggregator can prove "this `data_hash` from this `sensor_id`/`owner`
+     contributed to the answer" — that is exactly what it ingested and
+     verified. It cannot prove a `batch_hash` it never saw. Settling on the
+     provenance we can attest is strictly more auditable than settling on a
+     `batch_hash` we would have to fabricate or guess. Fabricating a
+     `batch_hash` to satisfy a field the chain ignores would be theater.
+  3. **Economic correctness.** Payment must go to the sensor **owner** whose
+     data was actually queried, in proportion to a billable query. Per-
+     `(sensor_id, owner)` settlement does exactly that. The `data_hash` (or,
+     where a query result aggregates many readings from one sensor, a
+     deterministic digest over that result's contributing `data_hash`es —
+     see the intent's `batch_hash` derivation below) makes each intent
+     uniquely identifiable for idempotency without over- or under-paying any
+     owner.
+
+  **Preferred future upgrade (documented, minimal, API-compatible, NOT
+  applied here because verasens is not in this branch's workspace):** add an
+  OPTIONAL `batch_hash: Option<String>` to `verasens::agg::Provenance`,
+  populated only when the aggregator can correlate a reading to a real
+  `SensorDataCommit` (e.g. once an ingest join on `sensor_id + data_hash ∈
+  committed batch` exists). Being `Option` and additive, it is wire-
+  compatible: the bridge already prefers a real `batch_hash` when the intent
+  carries one and falls back to the `data_hash`-derived discriminator when it
+  does not (`SettlementIntent.batch_hash` is populated by whichever the
+  aggregator supplied). No bridge change is needed when that field starts
+  arriving. This is filed against Phase 1.2 as a follow-up, not a blocker.
+
+  ##### The settlement intent object (bridge inbox)
+
+  `settlement_intent(id, usage_event_id, sensor_id, owner_account,
+  batch_hash, usd_amount_cents, dreams_amount, fx_rate_id, status,
+  chain_entry_hash, nonce, epoch, attempts, last_error, created_at,
+  posted_at)`. `status`: `pending → posting → posted | failed`. Two columns
+  beyond the seam's list are added for crash-safety and are explained below:
+  `nonce`/`epoch` (the chain coordinates chosen at first post attempt, pinned
+  so a retry re-posts the *same* entry, not a new one) and
+  `attempts`/`last_error` (bounded-retry bookkeeping). `dreams_amount` is in
+  hunits; `batch_hash` is the aggregator-supplied `data_hash` discriminator
+  (or a real `batch_hash` once 1.2 supplies one — see above).
+
+  ##### THE IDEMPOTENCY KEY (exact)
+
+  Application-level idempotency key:
+  **`(sensor_id, batch_hash, usage_event_id)`** — a UNIQUE constraint in the
+  intent store. One billable query produces exactly one intent per
+  contributing `(sensor_id, batch_hash)`; `usage_event_id` scopes it to that
+  query so the *same* sensor+batch queried by a *different* billable query
+  settles again (a second genuine sale), while a *retry* of the same query
+  cannot create a second intent. This is exactly the seam's stated key.
+
+  Chain-level idempotency key: **the settlement account's `nonce`**, pinned
+  onto the intent at first post attempt (`SettlementIntent.nonce`). The
+  bridge assigns each `pending` intent the *next* settlement-account nonce
+  exactly once and **persists it before submitting**. A retry re-submits the
+  identical `{buyer, owner, fee, epoch, nonce, ...}` entry. Two outcomes,
+  both safe: (a) the network never sealed the first attempt → the resubmit
+  with the same nonce is accepted once; (b) the network already sealed it →
+  the resubmit fails `check_nonce` ("nonce already used"), which the bridge
+  recognizes as **"already posted"** and reconciles the intent to `posted`
+  by resolving the entry hash, NOT as a failure. Either way the owner is
+  paid exactly once. The two keys compose: the app key stops duplicate
+  *intents*; the nonce stops duplicate *posts* of one intent.
+
+  ##### CRASH-RECOVERY RE-DRIVE ALGORITHM (self-healing, ground rule 4)
+
+  On every startup, and then on a fixed tick, the worker runs `redrive()`:
+
+  1. **Load** all intents with `status ∈ {pending, posting, failed}` from the
+     durable store (ordered by `created_at`, then `id`). `posted` intents are
+     never touched.
+  2. **For each intent**, run `post_settlement(intent)`:
+     a. If `status == posting` and `intent.nonce` is set, this is a
+        **crash-in-flight** case: we may have submitted before crashing.
+        FIRST query the chain for an entry matching this intent's pinned
+        `(buyer, nonce)` / entry hash. If found sealed → mark `posted`
+        (write `chain_entry_hash`, `posted_at`), done — no re-submit.
+        If not found → fall through to (c) and re-submit the SAME pinned
+        entry (same nonce/epoch).
+     b. If `status ∈ {pending, failed}` with no nonce yet: resolve
+        `dreams_amount` from `usd_amount_cents` via the pinned `fx_rate_id`
+        (reject if the rate is missing/stale — see fx rule), assign and
+        **persist** the next settlement-account nonce + current epoch, set
+        `status=posting`.
+     c. Construct `LedgerEntry::SensorDataPurchase { sensor_id, buyer =
+        settlement_account, owner = intent.owner_account, batch_hash,
+        fee = dreams_amount, epoch, nonce, signed_by = settlement_account }`,
+        sign the canonical message with the settlement account key (from env,
+        never persisted), and submit via the chain client (real
+        `apply_and_broadcast` in prod; mocked at that boundary in tests —
+        see build status).
+     d. On accepted+sealed → `status=posted`, write `chain_entry_hash`,
+        `posted_at`. On "nonce already used" → treat as already-posted,
+        reconcile to `posted`. On transient error (no peers, timeout,
+        chain unreachable) → `status=failed`, bump `attempts`, record
+        `last_error`; the NEXT `redrive()` tick retries it. There is no
+        terminal `failed` for a well-formed intent — `failed` is just
+        "retry me". A malformed intent (e.g. unknown owner, non-positive
+        fee) is quarantined (`status=failed`, `last_error` set, not retried
+        into an infinite loop) and surfaced on the reconciliation report for
+        a human, because silently dropping it would violate "never collected-
+        but-unsettled" while silently retrying forever would wedge the queue.
+  3. Because step 1 re-loads from durable state on every start, a crash at
+     ANY point leaves the intent in one of `{pending, posting, failed}` and
+     the next start re-drives it to `posted`. The only way an intent leaves
+     the work set is reaching `posted` (owner actually paid) — which is the
+     "a USD payment can never be collected-but-never-settled" guarantee, made
+     mechanical.
+
+  ##### FX-RATE PINNING / ANTI-MANIPULATION RULE
+
+  - **Pin at intent creation, never re-derive at post.** The USD→HONE rate is
+    captured as `fx_rate_id` (source + timestamp + the rate value it
+    resolves to) in the SAME DB transaction that writes the intent. The
+    bridge resolves `dreams_amount` from `usd_amount_cents` strictly through
+    the pinned `fx_rate_id`; it never fetches a live rate at post time. This
+    makes the conversion auditable and immune to a rate that moves (or is
+    moved) between metering and posting.
+  - **Staleness is rejected, not tolerated.** A pinned rate carries an
+    `as_of` timestamp and a `max_age`. If, at post time, `now - as_of >
+    max_age`, the intent is NOT posted at the stale rate; it is flagged for
+    re-pin (a fresh rate is captured under a new `fx_rate_id`, preserving the
+    same `usd_amount_cents`, and re-driven). The bridge treats a
+    missing/expired/zero/negative rate as a hard, non-posting error — it will
+    never invent a rate or post at an implausible one. A configurable sanity
+    band (`min_rate`/`max_rate`) rejects an oracle value outside plausible
+    bounds so a single compromised/again-fat-fingered rate cannot mint an
+    absurd `dreams_amount`.
+  - **The rate oracle itself is out of scope for the bridge** (a real oracle
+    /treasury price feed is a follow-up). The bridge defines the *interface*
+    (`FxRate { id, usd_per_hone or hunits_per_usd_cent, as_of, source }`) and
+    the pinning/staleness/sanity rules; tests inject a fixed rate and a stale
+    rate to prove the reject path.
+
+  ##### HOW WOULD SOMEONE GAME THIS? (PRD ground rule 3)
+
+  **Double-settle (pay an owner twice for one query).** Blocked twice: the
+  app-level UNIQUE `(sensor_id, batch_hash, usage_event_id)` stops a duplicate
+  *intent*; the per-intent pinned settlement-account `nonce` stops a duplicate
+  *post* (a resubmit with the used nonce fails `check_nonce` and is reconciled
+  to `posted`, not re-credited). A crash between "submit" and "record posted"
+  cannot double-pay because the retry reuses the SAME nonce — the chain
+  accepts that nonce at most once.
+
+  **Wrong-owner payout (pay attacker instead of the real sensor owner).** The
+  `owner_account` on the intent is copied from the aggregator's *verified*
+  provenance, and the bridge only settles provenance the aggregator marks
+  `verified` (signed, chain-confirmed) — unverified/unsigned readings are
+  excluded from paid settlement (matching the 1.2 "signed = verified,
+  unsigned = untrusted" rule). An attacker who submits an unsigned
+  `SensorReading` claiming a victim's `owner` never reaches a settled intent,
+  because such readings are not verified and thus not settled. The chain pays
+  the `owner` field, so the defense is: the `owner` on the intent must come
+  only from attested provenance, never from buyer-controlled or unverified
+  input. (Residual: if the *aggregator's* verification is subverted upstream,
+  the bridge inherits that — filed as a dependency on 1.2/Phase-6, same as
+  the seam already notes.)
+
+  **FX manipulation (move the rate to over/under-pay owners, or mint tokens).**
+  Pinning at intent-creation + never re-deriving at post removes the
+  post-time attack surface entirely. Staleness rejection + a sanity band mean
+  a compromised or lagging oracle cannot push an absurd `dreams_amount`
+  through: an out-of-band rate is rejected and re-pinned, not posted. The
+  worst a bad-but-in-band rate can do is a bounded mispricing on a single
+  intent, which the reconciliation invariant (Σ posted hunits vs Σ billable
+  USD at pinned rates) surfaces for review.
+
+  **Collected-but-never-settled (take USD, never pay the owner).** Made
+  mechanically impossible for any metered query: metering and intent-write
+  share one DB transaction (seam requirement), so a billable query ALWAYS
+  leaves a durable `pending` intent; and `redrive()` on every startup + tick
+  re-drives every non-`posted` intent until it is `posted`. The only exit
+  from the work set is the owner actually being paid on-chain. A node that is
+  disconnected (no peers) does not fake success — the intent stays
+  non-`posted` and is retried when peers return. A malformed intent is
+  quarantined and surfaced to a human rather than silently dropped, so it
+  cannot become an invisible collected-but-unsettled hole.
+
+  **Drain the settlement account / spend beyond treasury.** The bridge only
+  ever posts `fee = dreams_amount` derived from a real billable query at a
+  pinned rate; it cannot post arbitrary fees. If the settlement account is
+  underfunded, the chain's `insufficient balance` error is transient-retryable
+  (treasury top-up is the fix, out of scope for the bridge) — the intent
+  stays `pending`, not falsely `posted`. The reconciliation invariant makes
+  underfunding visible immediately.
+
+  ##### Build status — real vs. mocked (do NOT read as "posted on-chain")
+
+  - **Real:** the full bridge worker (`intent` store with the UNIQUE
+    idempotency constraint and durable status transitions; `redrive()`
+    crash-recovery loop; nonce pinning; fx pinning + staleness/sanity
+    rejection; entry construction; reconciliation totals). The settlement
+    account key is read from env (`HONE_SETTLEMENT_ACCOUNT`,
+    `HONE_SETTLEMENT_SIGNING_KEY`) only — never persisted, never committed.
+  - **Mocked at exactly one boundary:** the chain submission call
+    (`ChainSubmit` trait, standing in for `apply_and_broadcast` in `api.rs`).
+    A documented, pre-existing rustc ICE blocks building the full
+    `hone-node` binary on this machine, so the bridge cannot exercise the
+    real gossip/seal path end-to-end here. Tests use a `MockChain` that
+    models the chain's real nonce semantics (accepts nonce `n` once, rejects
+    a reused nonce with "nonce already used", can simulate no-peers and
+    crash-mid-submit). **No test in this crate claims a real on-chain post
+    succeeded.** Wiring `ChainSubmit` to the real `apply_and_broadcast` is a
+    thin adapter and is the first follow-up once the ICE is resolved / the
+    binary builds.
+
+  ##### Tests (run before done — see crate `hone-settlement-bridge`)
+
+  1. **Idempotent re-post:** a retried/duplicate intent posts exactly once
+     (duplicate intent rejected by the UNIQUE key; re-driving a `posting`
+     intent whose entry was already sealed reconciles to `posted` without a
+     second credit; a reused nonce is treated as already-posted).
+  2. **Crash-recovery re-drive:** simulate a crash after `posting` (nonce
+     pinned, entry submitted, status not yet flipped) → restart → `redrive()`
+     drives it to `posted` with no double-post; simulate a crash before
+     submit → restart posts it.
+  3. **Always-eventually-settles:** an intent under repeated transient
+     failures (no peers, then peers) is never lost and reaches `posted`; a
+     metered query always yields a durable `pending` intent.
+  4. **Stale/wrong fx rejected:** a stale pinned rate (age > max_age) and an
+     out-of-band rate are both rejected (no post), and a missing rate is a
+     hard error, never a guessed post.
+
+  ##### Left for follow-up (explicitly out of scope for the bridge)
+
+  - Real chain adapter wiring `ChainSubmit` → `apply_and_broadcast` (blocked
+    only by the hone-node build ICE; interface is ready).
+  - Real USD→HONE fx oracle / treasury price feed (bridge defines the
+    interface + pinning rules; a live source is separate).
+  - Real settlement-account treasury funding / periodic top-up (the seam
+    already scopes this OUT of the bridge; underfunding is surfaced, not
+    handled, by the bridge).
+  - The preferred verasens `Provenance.batch_hash: Option<String>` additive
+    field (filed against Phase 1.2; the bridge already consumes it when
+    present, falls back to `data_hash` when absent).
+  - Durable store is a self-contained, crash-tested JSON-file-backed store in
+    this crate (chosen so the crate builds and tests standalone without a
+    Postgres dependency); swapping it for the B2B service's Postgres
+    `settlement_intent` table is a trait-level change (`IntentStore`), not a
+    logic change.
+
+  ---
+- [ ] **Build the dashboard** (new web app, e.g. `verasens/dashboard/` or
+  a service alongside `website/`) — login, query builder against the
+  aggregation service's API, USD invoicing/billing, usage history.
 - [ ] **Tests**: end-to-end — company account created, query made, USD
   charged, on-chain `SensorDataPurchase` posted with correct amount, sensor
-  owner credited.
+  owner credited. **Partial (bridge half done, dashboard half pending).**
+  The settlement half of this end-to-end is covered by
+  `hone-settlement-bridge`'s tests (intent → `SensorDataPurchase` posted with
+  correct hunits, correct `owner`, exactly once) against a `MockChain` that
+  models real nonce/no-peers semantics; the real on-chain leg and the
+  dashboard/USD-charge leg remain, gated on the dashboard item above and the
+  hone-node build ICE. See the settlement-bridge DECISION RECORD's "Build
+  status" for what is real vs. mocked.
 
 ---
 

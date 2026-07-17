@@ -6,6 +6,7 @@ members = [
     "hone-market",
     "hone-contract-runtime",
     "linkgit",
+    "hone-settlement-bridge",
 ]
 resolver = "2"
 

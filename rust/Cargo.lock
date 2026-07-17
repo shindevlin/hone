@@ -2742,6 +2742,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "hone-settlement-bridge"
+version = "1.2.2"
+dependencies = [
+ "anyhow",
+ "ed25519-dalek",
+ "hex",
+ "hone-types",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "hone-types"
 version = "1.2.2"
 dependencies = [
