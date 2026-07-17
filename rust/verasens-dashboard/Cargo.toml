@@ -1,0 +1,47 @@
+[package]
+name = "verasens-dashboard"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Verasens Institutional Dashboard — B2B org auth, API keys, query builder, Stripe metered billing (PRD Phase 1.4)"
+
+[[bin]]
+name = "verasens-dashboard"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+parking_lot = "0.12"
+
+# Auth / crypto
+argon2 = "0.5"
+rand = "0.8"
+rand_core = { version = "0.6", features = ["std"] }
+totp-rs = { version = "5", features = ["gen_secret"] }
+base32 = "0.5"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2"
+
+# HTTP client (aggregation service + Stripe API)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Postgres (production persistence). Sandboxed test runs spin up an
+# ephemeral Postgres via testcontainers; unit tests exercise the in-memory
+# Store fake behind the same trait (see src/store.rs).
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
